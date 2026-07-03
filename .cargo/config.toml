@@ -1,0 +1,8 @@
+# Fedora/WebKitGTK-on-Wayland fix. Without this the window dies at startup with
+#   Gdk-Message: Error 71 (Protocol error) dispatching to Wayland display
+# and DMABUF/GBM buffer errors. Primary target is Fedora/WebKitGTK (CLAUDE.md), so default the
+# workaround here. Not `force`d — set GDK_BACKEND=wayland in your shell to override and experiment.
+# Ignored on macOS/Windows (no GDK). ponytail: drop this once WebKitGTK/Wayland stops needing it.
+[env]
+GDK_BACKEND = "x11"
+WEBKIT_DISABLE_DMABUF_RENDERER = "1"

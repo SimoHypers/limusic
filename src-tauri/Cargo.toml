@@ -1,0 +1,28 @@
+[package]
+name = "limusic-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Limusic — desktop YouTube Music client"
+rust-version = "1.77.2"
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tauri = { version = "2", features = [] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+innertube = { path = "../crates/innertube" }
+player = { path = "../crates/player" }

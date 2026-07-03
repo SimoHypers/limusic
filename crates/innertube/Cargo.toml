@@ -1,0 +1,23 @@
+[package]
+name = "innertube"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "json"] }
+tokio = { workspace = true, features = ["time"] }
+sha1 = "0.10"
+hex = "0.4"
+rustypipe = "0.11"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+
+[features]
+# Opt-in live-YouTube smoke tests — NOT in the default `cargo test` run.
+integration-tests = []

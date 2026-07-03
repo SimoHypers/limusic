@@ -1,0 +1,44 @@
+{
+  "WEB_REMIX": {
+    "clientName": "WEB_REMIX",
+    "clientVersion": "1.20260213.01.00",
+    "clientId": "67",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+    "loginSupported": true,
+    "useSignatureTimestamp": true,
+    "useWebPoTokens": true
+  },
+  "VISIONOS": {
+    "clientName": "VISIONOS",
+    "clientVersion": "0.1",
+    "clientId": "101",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+    "osName": "visionOS",
+    "osVersion": "1.3.21O771",
+    "deviceMake": "Apple",
+    "deviceModel": "RealityDevice14,1",
+    "friendlyName": "visionOS"
+  },
+  "ANDROID_VR_1_43_32": {
+    "clientName": "ANDROID_VR",
+    "clientVersion": "1.43.32",
+    "clientId": "28",
+    "userAgent": "com.google.android.apps.youtube.vr.oculus/1.43.32 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/107.0.5284.2)",
+    "osName": "Android",
+    "osVersion": "12",
+    "deviceMake": "Oculus",
+    "deviceModel": "Quest 3",
+    "androidSdkVersion": "32",
+    "buildId": "SQ3A.220605.009.A1",
+    "cronetVersion": "107.0.5284.2",
+    "packageName": "com.google.android.apps.youtube.vr.oculus",
+    "friendlyName": "Android VR 1.43"
+  },
+  "IOS": {
+    "clientName": "IOS",
+    "clientVersion": "21.03.1",
+    "clientId": "5",
+    "userAgent": "com.google.ios.youtube/21.03.1 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)",
+    "osVersion": "18.2.22C152"
+  }
+}
