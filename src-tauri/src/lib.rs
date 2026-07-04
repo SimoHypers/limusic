@@ -1,17 +1,24 @@
 //! Limusic Tauri app. Wires transport + player + db + orchestrator behind the command boundary.
 
+mod cipher;
 mod commands;
 mod db;
 mod orchestrator;
+mod potoken;
 mod state;
+mod webview;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use innertube::{Clients, InnerTube, Locale, Session};
 use player::{Player, PlayerEvent};
 use tauri::{Emitter, Manager};
 
+use cipher::{CipherDeobfuscator, PlayerConfigStore};
 use db::Db;
+use orchestrator::Orchestrator;
+use potoken::PoTokenGenerator;
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -51,6 +58,7 @@ pub fn run() {
                 }
             });
 
+            let visitor_for_prewarm = visitor_data.clone();
             let session = Session {
                 locale: Locale::default(),
                 visitor_data,
@@ -63,11 +71,50 @@ pub fn run() {
             let mut player = Player::new(cache_dir.to_str().unwrap()).expect("init libmpv");
             let events = player.take_events().expect("player events");
 
-            let app_state = Arc::new(AppState::new(it, clients, player, db, handle.clone()));
+            // Phase 2 extraction stack: cipher + PoToken hidden webviews behind the orchestrator.
+            let config = Arc::new(PlayerConfigStore::new(&data_dir));
+            let cipher = Arc::new(CipherDeobfuscator::new(handle.clone(), &data_dir, config));
+            let potoken = Arc::new(PoTokenGenerator::new(handle.clone()));
+            let orchestrator = Arc::new(Orchestrator::new(
+                it.clone(),
+                clients.clone(),
+                cipher.clone(),
+                potoken.clone(),
+            ));
+
+            let app_state =
+                Arc::new(AppState::new(it, clients, player, db, handle.clone(), orchestrator));
             app.manage(app_state.clone());
 
             // Pump mpv events → UI events + queue advance. context/11 events, context/14 §TrackEnded.
             spawn_event_pump(app_state, handle, events);
+
+            // Prewarm the webviews off the first-play path (context/04 §startup). The delays let
+            // the event loop come up first (run_on_main_thread needs it pumping).
+            {
+                let cipher = cipher.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(1500)).await;
+                    cipher.prewarm().await;
+                });
+            }
+            if let Some(vd) = visitor_for_prewarm {
+                let potoken = potoken.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(2500)).await;
+                    potoken.prewarm(&vd).await;
+                });
+            }
+            // Mint-and-destroy policy (Phase-0 decision): drop the PoToken webview when idle.
+            {
+                let potoken = potoken.clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        tokio::time::sleep(Duration::from_secs(30)).await;
+                        potoken.teardown_if_idle(Duration::from_secs(60)).await;
+                    }
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -83,8 +130,22 @@ pub fn run() {
             commands::get_settings,
             commands::set_setting,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|handle, event| {
+            // The hidden cipher/PoToken webviews are windows too, so closing the main window no
+            // longer auto-exits the app. Quit when the main window is destroyed.
+            if let tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } = &event
+            {
+                if label == "main" {
+                    handle.exit(0);
+                }
+            }
+        });
 }
 
 fn spawn_event_pump(
@@ -111,12 +172,12 @@ fn spawn_event_pump(
                     state.on_track_ended().await;
                 }
                 PlayerEvent::TrackFailed(msg) => {
-                    // The track died (dead/403 URL etc). Surface the error, then advance the
-                    // queue — on_track_ended reads mpv's actual state (auto-advanced vs idle)
-                    // so a broken track is skipped instead of desyncing or stalling playback.
+                    // The track died (dead/403 URL etc). Surface the error, then advance — via
+                    // on_track_failed, which records a WEB_REMIX 403 (context/06 §2) and evicts the
+                    // poisoned cache before on_track_ended reads mpv's actual state.
                     tracing::warn!(error = %msg, "track failed — skipping ahead");
                     let _ = app.emit("playback-error", serde_json::json!({ "message": msg }));
-                    state.on_track_ended().await;
+                    state.on_track_failed().await;
                 }
                 PlayerEvent::Error(msg) => {
                     tracing::error!(error = %msg, "player error");

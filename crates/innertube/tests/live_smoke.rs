@@ -30,7 +30,7 @@ async fn direct_clients_resolve_and_stream() {
     let mut any_ok = false;
     for key in STREAM_FALLBACK_ORDER {
         let client = clients.get(key).unwrap();
-        let resp = match it.player(client, VIDEO_ID, None).await {
+        let resp = match it.player(client, VIDEO_ID, None, None, None).await {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("{key}: /player failed: {e}");

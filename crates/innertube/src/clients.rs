@@ -76,12 +76,18 @@ impl Clients {
     }
 }
 
-/// Registry keys for the Phase 1 stream fallback order (context/06 §minimal-but-correct).
-/// Direct-URL clients only — no cipher, no PoToken this phase.
+/// The primary `/player` client (context/06). WEB_REMIX gives authenticated-quality streams but
+/// needs STS + PoToken + cipher/n-transform (all Phase 2). The orchestrator tries it first
+/// (`startIndex = -1`) and takes track metadata from its response even when a fallback client
+/// wins the actual stream.
+pub const MAIN_CLIENT: &str = "WEB_REMIX";
+
+/// Registry keys for the stream fallback order tried after MAIN_CLIENT (context/06
+/// §minimal-but-correct). Direct-URL clients — no cipher, no PoToken — so they always play even
+/// when the cipher/PoToken webviews are unavailable (graceful degradation).
 pub const STREAM_FALLBACK_ORDER: [&str; 3] = ["VISIONOS", "ANDROID_VR_1_43_32", "IOS"];
 
 /// The metadata client for search/next (renderer shape only comes back as WEB_REMIX).
-/// NOT used for `/player` this phase.
 pub const METADATA_CLIENT: &str = "WEB_REMIX";
 
 #[cfg(test)]

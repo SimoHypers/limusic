@@ -178,12 +178,17 @@ impl Format {
     pub fn is_original(&self) -> bool {
         self.audio_track.as_ref().and_then(|t| t.is_auto_dubbed).is_none()
     }
-    /// Direct, playable URL with no cipher required (Phase 1 only accepts these).
+    /// Direct, playable URL with no cipher required (present on the non-web fallback clients).
     pub fn direct_url(&self) -> Option<&str> {
         if self.signature_cipher.is_some() || self.cipher.is_some() {
             return None;
         }
         self.url.as_deref()
+    }
+    /// The raw `signatureCipher` (or legacy `cipher`) query string, when the format is ciphered.
+    /// The orchestrator hands this to the cipher webview to deobfuscate (context/05, Phase 2).
+    pub fn cipher_string(&self) -> Option<&str> {
+        self.signature_cipher.as_deref().or(self.cipher.as_deref())
     }
     fn quality_rank(&self) -> u8 {
         match self.audio_quality.as_deref() {

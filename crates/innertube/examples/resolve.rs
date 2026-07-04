@@ -16,7 +16,7 @@ async fn main() {
         let clients = Clients::bundled();
         for key in STREAM_FALLBACK_ORDER {
             let client = clients.get(key).unwrap();
-            let Ok(resp) = it.player(client, &video_id, None).await else { continue };
+            let Ok(resp) = it.player(client, &video_id, None, None, None).await else { continue };
             if !resp.playability_status.is_ok() {
                 continue;
             }

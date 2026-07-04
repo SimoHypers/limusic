@@ -5,20 +5,29 @@ use serde::Serialize;
 use crate::clients::YouTubeClient;
 use crate::models::context::Context;
 use crate::models::metadata::{self, NextResult, SearchResult};
-use crate::models::player::{PlayerBody, PlayerResponse};
+use crate::models::player::{
+    ContentPlaybackContext, PlaybackContext, PlayerBody, PlayerResponse, ServiceIntegrityDimensions,
+};
 use crate::transport::{Error, InnerTube};
 
 /// Search filter params (opaque base64). context/08.
 pub const FILTER_SONG: &str = "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D";
 
 impl InnerTube {
-    /// `/player` for one client. No STS / PoToken this phase (both are Phase 2 seams —
-    /// [`PlayerBody::playback_context`] / [`PlayerBody::service_integrity_dimensions`] stay `None`).
+    /// `/player` for one client. context/03, context/06.
+    ///
+    /// `sts` — signature timestamp from the deciphering player.js (context/05); sent as
+    /// `playbackContext.contentPlaybackContext.signatureTimestamp` so ciphered clients return
+    /// usable formats. `po_token` — the session/streaming PoToken (context/04); sent as
+    /// `serviceIntegrityDimensions.poToken` for web clients. Both `None` for the plain
+    /// direct-URL clients that need neither.
     pub async fn player(
         &self,
         client: &YouTubeClient,
         video_id: &str,
         playlist_id: Option<&str>,
+        sts: Option<i32>,
+        po_token: Option<&str>,
     ) -> Result<PlayerResponse, Error> {
         let mut context = self.context_for(client);
         if let Some(tp) = context.third_party.as_mut() {
@@ -28,8 +37,12 @@ impl InnerTube {
             context,
             video_id: video_id.to_owned(),
             playlist_id: playlist_id.map(str::to_owned),
-            playback_context: None,
-            service_integrity_dimensions: None,
+            playback_context: sts.map(|signature_timestamp| PlaybackContext {
+                content_playback_context: ContentPlaybackContext { signature_timestamp },
+            }),
+            service_integrity_dimensions: po_token.map(|t| ServiceIntegrityDimensions {
+                po_token: t.to_owned(),
+            }),
             content_check_ok: true,
             racy_check_ok: true,
         };

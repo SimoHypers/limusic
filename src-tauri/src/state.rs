@@ -3,13 +3,15 @@
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use innertube::{AudioQuality, Clients, InnerTube, SongItem};
+use std::sync::Arc;
+
+use innertube::{AudioQuality, Clients, InnerTube, SongItem, MAIN_CLIENT};
 use player::Player;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
 use crate::db::{Db, QueueRow};
-use crate::orchestrator::{self, PlaybackData};
+use crate::orchestrator::{Orchestrator, PlaybackData, ResolveError};
 
 pub struct AppState {
     pub it: InnerTube,
@@ -17,6 +19,7 @@ pub struct AppState {
     pub player: Player,
     pub db: Db,
     pub app: AppHandle,
+    pub orchestrator: Arc<Orchestrator>,
     queue: Mutex<QueueState>,
     /// Bumped on every explicit `play`/jump so superseded async resolves discard their result
     /// (cancellation without JoinHandle bookkeeping). context/06 §6.
@@ -29,16 +32,29 @@ struct QueueState {
     current: usize,
     /// The queue index we've already appended to mpv for gapless lookahead (if any).
     lookahead_loaded: Option<usize>,
+    /// Which client served the currently-loaded track (for the WEB_REMIX-403 feedback). context/06.
+    current_client: Option<String>,
+    /// The client that served the primed lookahead track — promoted to `current_client` on a
+    /// gapless advance so the failure feedback still knows the client.
+    lookahead_client: Option<String>,
 }
 
 impl AppState {
-    pub fn new(it: InnerTube, clients: Clients, player: Player, db: Db, app: AppHandle) -> Self {
+    pub fn new(
+        it: InnerTube,
+        clients: Clients,
+        player: Player,
+        db: Db,
+        app: AppHandle,
+        orchestrator: Arc<Orchestrator>,
+    ) -> Self {
         AppState {
             it,
             clients,
             player,
             db,
             app,
+            orchestrator,
             queue: Mutex::new(QueueState::default()),
             generation: AtomicU64::new(0),
         }
@@ -65,7 +81,7 @@ impl AppState {
             .collect()
     }
 
-    async fn resolve(&self, video_id: &str) -> Result<PlaybackData, orchestrator::ResolveError> {
+    async fn resolve(&self, video_id: &str) -> Result<PlaybackData, ResolveError> {
         // Latency cache first (context/11) — honor expiry, never a source of truth.
         // 60s safety margin: a URL that expires mid-load/mid-buffer fails as Raw(-13).
         let now = now_secs();
@@ -86,14 +102,10 @@ impl AppState {
                 stream_client: "cache".to_owned(),
             });
         }
-        let data = orchestrator::resolve(
-            &self.it,
-            &self.clients,
-            video_id,
-            self.quality(),
-            &self.disabled_clients(),
-        )
-        .await?;
+        let data = self
+            .orchestrator
+            .resolve(video_id, self.quality(), &self.disabled_clients())
+            .await?;
         // Never cache rustypipe URLs: googlevideo serves them only for bounded-Range requests,
         // which mpv doesn't send → LOADING_FAILED(-13). Caching one poisons the videoId for ~6h.
         if data.stream_client != "rustypipe" {
@@ -197,12 +209,34 @@ impl AppState {
         }
         // mpv already advanced into the primed lookahead. Sync pointer + UI, prime the next.
         let gen = self.generation.load(Ordering::SeqCst);
+        {
+            let mut q = self.queue.lock().await;
+            q.current_client = q.lookahead_client.take();
+        }
         if let Some(item) = self.current_item().await {
             self.emit_now_playing(&item, "gapless");
         }
         self.emit_queue().await;
         tracing::info!("advanced to next track (gapless)");
         self.prime_lookahead(gen).await;
+    }
+
+    /// A track died at the player layer (dead/403 URL). If WEB_REMIX served it, record the failure
+    /// so the next resolve for this id bypasses WEB_REMIX, and evict its poisoned cache entry
+    /// (context/06 §2). Then advance the queue like a normal end.
+    pub async fn on_track_failed(self: &std::sync::Arc<Self>) {
+        let (video_id, client) = {
+            let q = self.queue.lock().await;
+            (q.items.get(q.current).map(|i| i.video_id.clone()), q.current_client.clone())
+        };
+        if let (Some(vid), Some(c)) = (video_id, client) {
+            if c == MAIN_CLIENT {
+                tracing::warn!(video_id = %vid, "WEB_REMIX stream failed on GET — marking + evicting");
+                self.orchestrator.mark_web_remix_failed(&vid).await;
+                self.db.evict_stream(&vid);
+            }
+        }
+        self.on_track_ended().await;
     }
 
     /// Resolve + load the current track into mpv (replace). Returns false if resolve failed or the
@@ -224,6 +258,10 @@ impl AppState {
             return false;
         }
         let _ = self.player.play();
+        {
+            let mut q = self.queue.lock().await;
+            q.current_client = Some(data.stream_client.clone());
+        }
         self.emit_now_playing(&item, &data.stream_client);
         self.emit_queue().await;
         self.persist_queue().await;
@@ -264,6 +302,7 @@ impl AppState {
         }
         let mut q = self.queue.lock().await;
         q.lookahead_loaded = Some(next_index);
+        q.lookahead_client = Some(data.stream_client.clone());
         tracing::debug!(index = next_index, "gapless lookahead primed");
     }
 

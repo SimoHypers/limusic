@@ -83,6 +83,12 @@ impl Db {
         .ok()
     }
 
+    /// Drop a cached URL (e.g. it 403'd on the real GET). context/06 §2.
+    pub fn evict_stream(&self, video_id: &str) {
+        let conn = self.0.lock().unwrap();
+        let _ = conn.execute("DELETE FROM stream_url_cache WHERE video_id = ?1", [video_id]);
+    }
+
     pub fn put_stream(&self, video_id: &str, url: &str, itag: i64, expires_at: i64) {
         let conn = self.0.lock().unwrap();
         let _ = conn.execute(

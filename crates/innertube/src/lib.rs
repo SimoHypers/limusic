@@ -10,9 +10,11 @@ pub mod models;
 pub mod rustypipe_fallback;
 pub mod transport;
 
-pub use clients::{Clients, YouTubeClient, METADATA_CLIENT, STREAM_FALLBACK_ORDER};
+pub use clients::{Clients, YouTubeClient, MAIN_CLIENT, METADATA_CLIENT, STREAM_FALLBACK_ORDER};
 pub use models::context::Locale;
 pub use models::metadata::{NextResult, SearchResult, SongItem};
-pub use models::player::{find_format, AudioQuality, Format, PlayerResponse, StreamingData};
+pub use models::player::{
+    find_format, AudioQuality, Format, PlaybackTracking, PlayerResponse, StreamingData,
+};
 pub use rustypipe_fallback::{FallbackError, StreamCandidate};
 pub use transport::{Error, InnerTube, Session};
