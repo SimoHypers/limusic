@@ -67,8 +67,9 @@ impl AppState {
 
     async fn resolve(&self, video_id: &str) -> Result<PlaybackData, orchestrator::ResolveError> {
         // Latency cache first (context/11) — honor expiry, never a source of truth.
+        // 60s safety margin: a URL that expires mid-load/mid-buffer fails as Raw(-13).
         let now = now_secs();
-        if let Some(c) = self.db.get_stream(video_id, now) {
+        if let Some(c) = self.db.get_stream(video_id, now + 60) {
             tracing::debug!(video_id, "stream url cache hit");
             // Cached URL carries no fresh metadata; the UI already has it from the queue item.
             return Ok(PlaybackData {
@@ -123,8 +124,11 @@ impl AppState {
             return;
         }
 
-        // Hydrate up-next radio (context/08) — non-fatal if it fails.
-        match self.it.next(self.clients.get(innertube::METADATA_CLIENT).unwrap(), &video_id, None).await {
+        // Hydrate up-next radio (context/08) — non-fatal if it fails. Seed the radio playlist
+        // directly (`RDAMVM<videoId>`): a bare next(videoId) returns only the seed song + an
+        // automixPreviewVideoRenderer, so the queue would never grow past one track.
+        let radio_id = format!("RDAMVM{video_id}");
+        match self.it.next(self.clients.get(innertube::METADATA_CLIENT).unwrap(), &video_id, Some(&radio_id)).await {
             Ok(next) => {
                 let mut q = self.queue.lock().await;
                 if self.generation.load(Ordering::SeqCst) != gen {
@@ -160,30 +164,44 @@ impl AppState {
         }
     }
 
-    /// Advance to the next track (mpv already gaplessly transitioned; sync our pointer + UI, then
-    /// prime the following lookahead). Called on `TrackEnded`.
+    /// Advance the queue after a track ended (EOF) or died (load error). Don't assume mpv
+    /// gaplessly transitioned — ask it: if a lookahead was primed mpv is already playing the
+    /// next entry (just sync pointer + UI); if mpv went idle (lookahead absent/failed, or the
+    /// track errored on a single-entry playlist) load the next track explicitly, otherwise
+    /// playback silently stalls while the UI shows a phantom "now playing".
     pub async fn on_track_ended(self: &std::sync::Arc<Self>) {
-        let gen = self.generation.load(Ordering::SeqCst);
-        let (has_next, next_index) = {
+        let has_next = {
             let mut q = self.queue.lock().await;
             let next = q.current + 1;
             if next >= q.items.len() {
-                (false, 0)
+                false
             } else {
                 q.current = next;
-                (true, next)
+                true
             }
         };
         if !has_next {
             tracing::info!("queue exhausted");
+            let _ = self.app.emit("playback-state", "paused");
             return;
         }
-        // mpv is already playing this track (it was the appended lookahead). Just sync UI + prime.
+        if self.player.is_idle() {
+            // No gapless handoff happened. Bump the generation so any in-flight lookahead
+            // resolve for this index discards itself (it would double-enqueue), then load.
+            let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+            tracing::info!("no primed lookahead at track end — loading next explicitly");
+            if self.start_current(gen).await {
+                self.prime_lookahead(gen).await;
+            }
+            return;
+        }
+        // mpv already advanced into the primed lookahead. Sync pointer + UI, prime the next.
+        let gen = self.generation.load(Ordering::SeqCst);
         if let Some(item) = self.current_item().await {
             self.emit_now_playing(&item, "gapless");
         }
         self.emit_queue().await;
-        tracing::info!(index = next_index, "advanced to next track (gapless)");
+        tracing::info!("advanced to next track (gapless)");
         self.prime_lookahead(gen).await;
     }
 

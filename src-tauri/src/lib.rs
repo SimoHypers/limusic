@@ -110,6 +110,14 @@ fn spawn_event_pump(
                 PlayerEvent::TrackEnded => {
                     state.on_track_ended().await;
                 }
+                PlayerEvent::TrackFailed(msg) => {
+                    // The track died (dead/403 URL etc). Surface the error, then advance the
+                    // queue — on_track_ended reads mpv's actual state (auto-advanced vs idle)
+                    // so a broken track is skipped instead of desyncing or stalling playback.
+                    tracing::warn!(error = %msg, "track failed — skipping ahead");
+                    let _ = app.emit("playback-error", serde_json::json!({ "message": msg }));
+                    state.on_track_ended().await;
+                }
                 PlayerEvent::Error(msg) => {
                     tracing::error!(error = %msg, "player error");
                     let _ = app.emit("playback-error", serde_json::json!({ "message": msg }));

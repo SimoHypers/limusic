@@ -2,6 +2,9 @@
 	import { onMount } from 'svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Button } from '$lib/components/ui/button';
+	import { HugeiconsIcon } from '@hugeicons/svelte';
+	import { Sun01Icon, Moon02Icon } from '@hugeicons/core-free-icons';
+	import { toggleMode } from 'mode-watcher';
 	import * as api from '$lib/api';
 	import type { SongItem, NowPlaying, QueueState } from '$lib/api';
 
@@ -65,7 +68,13 @@
 <div class="flex h-screen flex-col bg-background text-foreground">
 	<!-- Search -->
 	<header class="border-b p-4">
-		<h1 class="mb-3 font-[Oxanium] text-xl font-semibold tracking-tight">Limusic</h1>
+		<div class="mb-3 flex items-center justify-between">
+			<h1 class="font-[Oxanium] text-xl font-semibold tracking-tight">Limusic</h1>
+			<Button variant="outline" size="icon" onclick={toggleMode} aria-label="Toggle theme">
+				<HugeiconsIcon icon={Sun01Icon} class="h-5 w-5 dark:hidden" />
+				<HugeiconsIcon icon={Moon02Icon} class="hidden h-5 w-5 dark:block" />
+			</Button>
+		</div>
 		<form class="flex gap-2" onsubmit={(e) => { e.preventDefault(); runSearch(); }}>
 			<Input bind:value={query} placeholder="Search YouTube Music…" class="max-w-md" />
 			<Button type="submit" disabled={searching}>{searching ? 'Searching…' : 'Search'}</Button>

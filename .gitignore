@@ -1,0 +1,4 @@
+/target
+# rustypipe scratch (older builds wrote these into CWD; now redirected to temp)
+rustypipe_cache.json
+rustypipe_reports/

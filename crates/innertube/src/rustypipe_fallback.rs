@@ -38,7 +38,14 @@ pub enum FallbackError {
 /// Resolve a videoId to its best audio stream via rustypipe. `prefer_high`: pick the
 /// highest-bitrate opus/mp4a stream (matches our HIGH preference); else lowest ≤128k.
 pub async fn resolve(video_id: &str, prefer_high: bool) -> Result<StreamCandidate, FallbackError> {
-    let player = RustyPipe::new()
+    // Keep rustypipe's cache out of the app CWD (it defaults to ./rustypipe_cache.json +
+    // ./rustypipe_reports/, and an installed app's CWD may not be writable).
+    let storage = std::env::temp_dir().join("limusic-rustypipe");
+    std::fs::create_dir_all(&storage).ok();
+    let player = RustyPipe::builder()
+        .storage_dir(storage)
+        .build()
+        .map_err(|e| FallbackError::RustyPipe(e.to_string()))?
         .query()
         .player(video_id)
         .await

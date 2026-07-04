@@ -34,6 +34,7 @@
 		"vite": "^8.0.16"
 	},
 	"dependencies": {
-		"@tauri-apps/api": "^2.11.1"
+		"@tauri-apps/api": "^2.11.1",
+		"mode-watcher": "^1.1.0"
 	}
 }

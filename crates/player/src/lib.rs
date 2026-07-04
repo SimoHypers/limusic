@@ -23,12 +23,14 @@ pub enum PlayerEvent {
     Paused,
     /// One track finished normally (EOF) — orchestrator advances the queue.
     TrackEnded,
+    /// One track died (end-file with error, e.g. its URL 403'd). mpv may have auto-advanced
+    /// into the next playlist entry or gone idle — the orchestrator asks [`Player::is_idle`].
+    TrackFailed(String),
     Error(String),
 }
 
 /// mpv end-file reasons (from `mpv_end_file_reason`).
 const EOF: i32 = 0;
-const ERROR: i32 = 4;
 
 /// The player. Wraps `Arc<Mpv>` (Send+Sync); the event loop runs on a dedicated OS thread and
 /// pumps [`PlayerEvent`]s into a channel taken once via [`Player::take_events`].
@@ -107,6 +109,13 @@ impl Player {
         Ok(())
     }
 
+    /// True when mpv has nothing loaded (playlist exhausted or the last load failed). The
+    /// orchestrator uses this after a track ends/fails to tell "gaplessly advanced into the
+    /// lookahead" apart from "stalled — load the next track explicitly".
+    pub fn is_idle(&self) -> bool {
+        self.mpv.get_property::<bool>("idle-active").unwrap_or(true)
+    }
+
     pub fn play(&self) -> Result<(), Error> {
         self.mpv.set_property("pause", false)?;
         Ok(())
@@ -180,7 +189,9 @@ fn event_loop(mut ev: EventContext, tx: tokio::sync::mpsc::UnboundedSender<Playe
                     }
                     Event::EndFile(reason) => match reason as i32 {
                         EOF => Some(PlayerEvent::TrackEnded),
-                        ERROR => Some(PlayerEvent::Error("mpv end-file: ERROR".into())),
+                        // STOP/QUIT/REDIRECT are deliberate (loadfile replace, shutdown) — ignore.
+                        // ERROR never reaches this arm: libmpv2 surfaces end-file-with-error as
+                        // Err from wait_event (see below).
                         _ => None,
                     },
                     _ => None,
@@ -193,7 +204,12 @@ fn event_loop(mut ev: EventContext, tx: tokio::sync::mpsc::UnboundedSender<Playe
                 }
             }
             Some(Err(e)) => {
-                let _ = tx.send(PlayerEvent::Error(e.to_string()));
+                // libmpv2 routes MPV_EVENT_END_FILE with an error (dead URL, 403, bad format)
+                // through here instead of Event::EndFile — in our usage (no async get/set/command
+                // replies) an Err from wait_event *is* a failed track.
+                if tx.send(PlayerEvent::TrackFailed(e.to_string())).is_err() {
+                    break;
+                }
             }
             None => {}
         }
