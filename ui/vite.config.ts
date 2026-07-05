@@ -15,7 +15,8 @@ export default defineConfig({
 				// Force runes mode for the project, except for libraries. Can be removed in svelte 6.
 				runes: ({ filename }) => filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
-			adapter: adapter()
+			// SPA fallback so the dynamic /playlist/[id] route resolves on direct load. context/18.
+			adapter: adapter({ fallback: 'index.html' })
 		})
 	]
 });

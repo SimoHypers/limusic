@@ -1,5 +1,6 @@
 //! HTTP transport. context/01. Pure — no Tauri/webview/mpv.
 
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
@@ -22,6 +23,8 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("visitorData not found in sw.js_data")]
     VisitorDataNotFound,
+    #[error("Your YouTube Music session expired — open the account menu and sign in again.")]
+    SessionExpired,
     #[error("{0}")]
     Other(String),
 }
@@ -39,21 +42,29 @@ pub struct Session {
 impl Session {
     /// Pull the `SAPISID` value out of the cookie string, if present.
     fn sapisid(&self) -> Option<String> {
-        let cookie = self.cookie.as_ref()?;
-        cookie.split(';').find_map(|kv| {
-            let (k, v) = kv.split_once('=')?;
-            // __Secure-3PAPISID is the modern alias YouTube also accepts.
-            (matches!(k.trim(), "SAPISID" | "__Secure-3PAPISID")).then(|| v.trim().to_owned())
-        })
+        self.cookie.as_deref().and_then(cookie_sapisid).map(str::to_owned)
     }
+}
+
+/// Extract the `SAPISID` (or its modern `__Secure-3PAPISID` alias) value from a Cookie header
+/// string. Public so the login flow (context/15) can validate a pasted cookie before setting it.
+pub fn cookie_sapisid(cookie: &str) -> Option<&str> {
+    cookie.split(';').find_map(|kv| {
+        let (k, v) = kv.split_once('=')?;
+        matches!(k.trim(), "SAPISID" | "__Secure-3PAPISID").then(|| v.trim())
+    })
 }
 
 /// The transport client. One shared `reqwest::Client`; proxy must be set before the
 /// first request or reqwest snapshots it as none (context/12, the App.kt gotcha).
+///
+/// `session` is behind a shared lock: the app clones `InnerTube` into the orchestrator, and a
+/// runtime login (context/15) must be visible through every clone. Reads/writes are quick and
+/// never held across an `.await`, so a std `RwLock` is right (no async lock needed).
 #[derive(Clone)]
 pub struct InnerTube {
     http: reqwest::Client,
-    pub session: Session,
+    session: Arc<RwLock<Session>>,
 }
 
 impl InnerTube {
@@ -66,7 +77,43 @@ impl InnerTube {
         if let Some(p) = proxy {
             builder = builder.proxy(reqwest::Proxy::all(p)?);
         }
-        Ok(InnerTube { http: builder.build()?, session })
+        Ok(InnerTube { http: builder.build()?, session: Arc::new(RwLock::new(session)) })
+    }
+
+    // --- session accessors (context/15) -----------------------------------------------------
+
+    /// True when a login cookie is set.
+    pub fn is_logged_in(&self) -> bool {
+        self.session.read().unwrap().cookie.is_some()
+    }
+
+    /// The current visitorData (read fresh per resolve — a login may have refreshed it).
+    pub fn visitor_data(&self) -> Option<String> {
+        self.session.read().unwrap().visitor_data.clone()
+    }
+
+    /// The current cookie header, if logged in (for the stream-validation HEAD request).
+    pub fn cookie(&self) -> Option<String> {
+        self.session.read().unwrap().cookie.clone()
+    }
+
+    pub fn set_cookie(&self, cookie: Option<String>) {
+        self.session.write().unwrap().cookie = cookie;
+    }
+
+    pub fn set_data_sync_id(&self, id: Option<String>) {
+        self.session.write().unwrap().data_sync_id = id;
+    }
+
+    pub fn set_visitor_data(&self, vd: Option<String>) {
+        self.session.write().unwrap().visitor_data = vd;
+    }
+
+    /// Build the request `context` for a client from the current session. Crate-internal — the
+    /// endpoints facade calls it. Reads and drops the lock synchronously (no `.await` inside).
+    pub(crate) fn context_for(&self, client: &YouTubeClient) -> crate::models::context::Context {
+        let s = self.session.read().unwrap();
+        client.to_context(&s.locale, s.visitor_data.as_deref(), s.data_sync_id.as_deref())
     }
 
     /// POST a JSON body to an InnerTube endpoint with this client's headers, retrying
@@ -78,7 +125,9 @@ impl InnerTube {
         body: &B,
         set_login: bool,
     ) -> Result<serde_json::Value, Error> {
-        let url = format!("{BASE_URL}{path}?prettyPrint=false");
+        // `path` may already carry query params (e.g. browse continuations); chain accordingly.
+        let sep = if path.contains('?') { '&' } else { '?' };
+        let url = format!("{BASE_URL}{path}{sep}prettyPrint=false");
         let headers = self.headers(client, set_login);
         let body = serde_json::to_vec(body)?;
 
@@ -125,15 +174,17 @@ impl InnerTube {
         set(&mut h, "x-origin", ORIGIN);
         set(&mut h, "referer", REFERER);
         set(&mut h, "user-agent", &client.user_agent);
-        if let Some(vd) = &self.session.visitor_data {
+
+        let s = self.session.read().unwrap();
+        if let Some(vd) = &s.visitor_data {
             set(&mut h, "x-goog-visitor-id", vd);
         }
 
         // SAPISIDHASH cookie auth — only when logged in AND the client supports it (Phase 3).
         if set_login && client.login_supported {
-            if let Some(cookie) = &self.session.cookie {
+            if let Some(cookie) = &s.cookie {
                 set(&mut h, "cookie", cookie);
-                if let Some(sapisid) = self.session.sapisid() {
+                if let Some(sapisid) = s.sapisid() {
                     if let Ok(val) = HeaderValue::from_str(&sapisid_hash(&sapisid, ORIGIN)) {
                         h.insert(HeaderName::from_static("authorization"), val);
                     }

@@ -101,8 +101,8 @@ impl Orchestrator {
         disabled: &HashSet<String>,
     ) -> Result<PlaybackData, ResolveError> {
         let prefer_high = matches!(quality, AudioQuality::High | AudioQuality::Auto);
-        let logged_in = self.it.session.cookie.is_some();
-        let visitor = self.it.session.visitor_data.clone();
+        let logged_in = self.it.is_logged_in();
+        let visitor = self.it.visitor_data();
 
         // 1. Signature timestamp from the deciphering player.js (context/05).
         let sts = self.cipher.signature_timestamp().await;
@@ -119,12 +119,28 @@ impl Orchestrator {
         let stream_pot = po.as_ref().map(|p| p.streaming_data_po_token.clone());
 
         // 3. Main request as WEB_REMIX (metadata source even when a fallback wins the stream).
-        let main_resp = match main_client {
+        let mut main_resp = match main_client {
             Some(c) if !disabled.contains(MAIN_CLIENT) => {
                 self.it.player(c, video_id, None, sts, session_pot).await.ok()
             }
             _ => None,
         };
+
+        // Age/login gate on WEB_REMIX → retry with WEB_CREATOR (login-only). context/06 §4, seam #7.
+        // ponytail: metadata + structure are correct now, but WEB_CREATOR streams are ciphered, so
+        // this only becomes *audible* once KI-1 (sig/n extraction) is solved. Until then it degrades
+        // exactly as before (falls through to the direct clients / rustypipe) — no regression.
+        if logged_in && main_resp.as_ref().is_some_and(|r| r.playability_status.is_age_gated()) {
+            if let Some(cc) = self.clients.get("WEB_CREATOR") {
+                let cc_pot = if cc.use_web_po_tokens { session_pot } else { None };
+                let cc_sts = if cc.use_signature_timestamp { sts } else { None };
+                tracing::info!(video_id, "WEB_REMIX age/login-gated → retrying WEB_CREATOR");
+                if let Ok(r) = self.it.player(cc, video_id, None, cc_sts, cc_pot).await {
+                    main_resp = Some(r);
+                }
+            }
+        }
+
         let main_ok = main_resp.as_ref().is_some_and(|r| r.playability_status.is_ok());
         let has_high = main_resp
             .as_ref()
@@ -272,7 +288,7 @@ impl Orchestrator {
         if let Some(ua) = ua {
             req = req.header("User-Agent", ua);
         }
-        if let Some(cookie) = &self.it.session.cookie {
+        if let Some(cookie) = self.it.cookie() {
             req = req.header("Cookie", cookie.as_str());
         }
         matches!(req.send().await, Ok(r) if r.status().is_success())

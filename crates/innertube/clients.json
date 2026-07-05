@@ -8,6 +8,16 @@
     "useSignatureTimestamp": true,
     "useWebPoTokens": true
   },
+  "WEB_CREATOR": {
+    "clientName": "WEB_CREATOR",
+    "clientVersion": "1.20220726.00.00",
+    "clientId": "62",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+    "loginSupported": true,
+    "loginRequired": true,
+    "useSignatureTimestamp": true,
+    "useWebPoTokens": true
+  },
   "VISIONOS": {
     "clientName": "VISIONOS",
     "clientVersion": "0.1",

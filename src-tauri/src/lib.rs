@@ -5,6 +5,7 @@ mod commands;
 mod db;
 mod orchestrator;
 mod potoken;
+mod session;
 mod state;
 mod webview;
 
@@ -42,28 +43,41 @@ pub fn run() {
 
             let db = Db::open(&data_dir.join("limusic.sqlite")).expect("open sqlite");
 
-            // Session bootstrap: fetch visitorData anonymously (context/04 §A) before playback.
+            // Session bootstrap (context/15 startup ordering): load the persisted login session
+            // (cookie/dataSyncId/visitorData) from settings; fetch visitorData anonymously
+            // (context/04 §A) only if we've never stored one.
             let proxy = db.get_setting("proxy");
-            let visitor_data = tauri::async_runtime::block_on(async {
-                let boot = InnerTube::new(Session::default(), proxy.as_deref()).ok()?;
-                match boot.fetch_visitor_data().await {
-                    Ok(vd) => {
-                        tracing::info!("visitorData bootstrapped");
-                        Some(vd)
+            let cookie = db.get_setting("session_cookie").filter(|s| !s.is_empty());
+            let data_sync_id = db.get_setting("data_sync_id").filter(|s| !s.is_empty());
+            let mut visitor_data = db.get_setting("visitor_data").filter(|s| !s.is_empty());
+            if visitor_data.is_none() {
+                visitor_data = tauri::async_runtime::block_on(async {
+                    let boot = InnerTube::new(Session::default(), proxy.as_deref()).ok()?;
+                    match boot.fetch_visitor_data().await {
+                        Ok(vd) => {
+                            tracing::info!("visitorData bootstrapped");
+                            Some(vd)
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "visitorData bootstrap failed (continuing)");
+                            None
+                        }
                     }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "visitorData bootstrap failed (continuing)");
-                        None
-                    }
+                });
+                if let Some(vd) = &visitor_data {
+                    db.set_setting("visitor_data", vd);
                 }
-            });
+            }
+            if cookie.is_some() {
+                tracing::info!("loaded persisted login session");
+            }
 
             let visitor_for_prewarm = visitor_data.clone();
             let session = Session {
                 locale: Locale::default(),
                 visitor_data,
-                data_sync_id: None,
-                cookie: None,
+                data_sync_id,
+                cookie,
             };
             let it = InnerTube::new(session, proxy.as_deref()).expect("build InnerTube");
             let clients = Clients::bundled();
@@ -129,6 +143,21 @@ pub fn run() {
             commands::get_queue,
             commands::get_settings,
             commands::set_setting,
+            commands::set_cookie,
+            commands::get_account,
+            commands::sign_out,
+            commands::login_webview,
+            commands::get_home,
+            commands::get_library,
+            commands::get_playlist,
+            commands::get_playlist_more,
+            commands::play_playlist,
+            commands::like,
+            commands::add_to_playlist,
+            commands::remove_from_playlist,
+            commands::create_playlist,
+            commands::delete_playlist,
+            commands::subscribe,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

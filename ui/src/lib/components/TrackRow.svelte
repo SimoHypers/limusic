@@ -1,0 +1,118 @@
+<script lang="ts">
+	import { HugeiconsIcon } from '@hugeicons/svelte';
+	import {
+		PlayIcon,
+		MoreHorizontalIcon,
+		PlayListAddIcon,
+		PlayListRemoveIcon
+	} from '@hugeicons/core-free-icons';
+	import type { SongItem } from '$lib/api';
+
+	let {
+		song,
+		index,
+		active = false,
+		onplay,
+		onAdd,
+		onRemove
+	}: {
+		song: SongItem;
+		/** Position badge when set (playlist/queue); omitted for flat search results. */
+		index?: number;
+		active?: boolean;
+		onplay: () => void;
+		/** Adds an "Add to playlist" menu item. */
+		onAdd?: () => void;
+		/** Adds a "Remove from this playlist" menu item. */
+		onRemove?: () => void;
+	} = $props();
+
+	const hasMenu = $derived(!!onAdd || !!onRemove);
+
+	// A ⋯ menu, positioned `fixed` at the button so it isn't clipped by the scroll container.
+	let menuOpen = $state(false);
+	let mx = $state(0);
+	let my = $state(0);
+
+	function openMenu(e: MouseEvent) {
+		e.stopPropagation();
+		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		mx = r.right;
+		my = r.bottom + 4;
+		menuOpen = true;
+	}
+	function run(action?: () => void) {
+		menuOpen = false;
+		action?.();
+	}
+</script>
+
+<div
+	class="group flex w-full items-center gap-3 rounded-lg p-2 transition-colors hover:bg-accent/10 {active
+		? 'bg-accent/10'
+		: ''}"
+>
+	<button class="flex min-w-0 flex-1 items-center gap-3 text-left" onclick={onplay}>
+		{#if index !== undefined}
+			<span
+				class="relative w-5 shrink-0 text-center text-xs {active
+					? 'text-primary'
+					: 'text-muted-foreground'}"
+			>
+				<span class="group-hover:opacity-0">{index + 1}</span>
+				<HugeiconsIcon
+					icon={PlayIcon}
+					class="absolute inset-0 m-auto h-3.5 w-3.5 opacity-0 group-hover:opacity-100"
+				/>
+			</span>
+		{/if}
+		{#if song.thumbnail}
+			<img src={song.thumbnail} alt="" class="h-10 w-10 shrink-0 rounded-md object-cover" loading="lazy" />
+		{/if}
+		<div class="min-w-0 flex-1">
+			<div class="truncate text-sm font-medium {active ? 'text-primary' : ''}">{song.title}</div>
+			<div class="truncate text-xs text-muted-foreground">{song.artists}</div>
+		</div>
+	</button>
+
+	<div class="flex shrink-0 items-center gap-2">
+		{#if song.duration}
+			<span class="text-xs text-muted-foreground">{song.duration}</span>
+		{/if}
+		{#if hasMenu}
+			<button
+				class="rounded-md p-1.5 text-muted-foreground transition hover:bg-accent/20 hover:text-foreground"
+				onclick={openMenu}
+				aria-label="Track options"
+			>
+				<HugeiconsIcon icon={MoreHorizontalIcon} class="h-4 w-4" />
+			</button>
+		{/if}
+	</div>
+</div>
+
+{#if menuOpen}
+	<button class="fixed inset-0 z-40 cursor-default" onclick={() => (menuOpen = false)} aria-label="Close menu"
+	></button>
+	<div
+		class="fixed z-50 min-w-44 -translate-x-full rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl"
+		style="left:{mx}px; top:{my}px;"
+	>
+		{#if onAdd}
+			<button
+				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+				onclick={() => run(onAdd)}
+			>
+				<HugeiconsIcon icon={PlayListAddIcon} class="h-4 w-4" /> Add to playlist
+			</button>
+		{/if}
+		{#if onRemove}
+			<button
+				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10"
+				onclick={() => run(onRemove)}
+			>
+				<HugeiconsIcon icon={PlayListRemoveIcon} class="h-4 w-4" /> Remove from playlist
+			</button>
+		{/if}
+	</div>
+{/if}

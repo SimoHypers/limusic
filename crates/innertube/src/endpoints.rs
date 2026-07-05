@@ -3,8 +3,9 @@
 use serde::Serialize;
 
 use crate::clients::YouTubeClient;
+use crate::models::browse::{self, BrowseItem, HomePage, PlaylistContinuation, PlaylistPage};
 use crate::models::context::Context;
-use crate::models::metadata::{self, NextResult, SearchResult};
+use crate::models::metadata::{self, AccountInfo, NextResult, SearchResult};
 use crate::models::player::{
     ContentPlaybackContext, PlaybackContext, PlayerBody, PlayerResponse, ServiceIntegrityDimensions,
 };
@@ -98,11 +99,260 @@ impl InnerTube {
         Ok(metadata::parse_next(&value))
     }
 
-    fn context_for(&self, client: &YouTubeClient) -> Context {
-        client.to_context(
-            &self.session.locale,
-            self.session.visitor_data.as_deref(),
-            self.session.data_sync_id.as_deref(),
+    /// Logged-in account summary (`account/account_menu`, context/01). Requires a cookie. Also the
+    /// source of `dataSyncId` (context/04A) and a login-bound visitorData (context/15).
+    pub async fn account_menu(&self, client: &YouTubeClient) -> Result<AccountInfo, Error> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct AccountMenuBody {
+            context: Context,
+        }
+        let body = AccountMenuBody { context: self.context_for(client) };
+        let value = self.post("account/account_menu", client, &body, true).await?;
+        Ok(metadata::parse_account_menu(&value))
+    }
+
+    /// Raw `browse` call (context/01, context/08). `browse_id`/`params` optional; response is the
+    /// deeply-nested renderer tree the browse parsers walk.
+    async fn browse(
+        &self,
+        client: &YouTubeClient,
+        browse_id: Option<&str>,
+        params: Option<&str>,
+    ) -> Result<serde_json::Value, Error> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct BrowseBody {
+            context: Context,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            browse_id: Option<String>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            params: Option<String>,
+        }
+        let body = BrowseBody {
+            context: self.context_for(client),
+            browse_id: browse_id.map(str::to_owned),
+            params: params.map(str::to_owned),
+        };
+        let value = self.post("browse", client, &body, true).await?;
+        // A stale cookie authenticates transport-wise but YouTube returns a logged-out "Sign in"
+        // state for account-scoped browse. Surface it as a clear error, not a blank page.
+        if self.is_logged_in() && browse::is_signed_out(&value) {
+            return Err(Error::SessionExpired);
+        }
+        Ok(value)
+    }
+
+    /// Home feed (`FEmusic_home`). context/08.
+    pub async fn home(&self, client: &YouTubeClient) -> Result<HomePage, Error> {
+        let value = self.browse(client, Some("FEmusic_home"), None).await?;
+        Ok(browse::parse_home(&value))
+    }
+
+    /// Library playlists grid (`FEmusic_liked_playlists`). context/08. Needs login.
+    pub async fn library_playlists(&self, client: &YouTubeClient) -> Result<Vec<BrowseItem>, Error> {
+        let value = self.browse(client, Some("FEmusic_liked_playlists"), None).await?;
+        Ok(browse::parse_library(&value))
+    }
+
+    /// A playlist or album page by browseId (`VL…` / `MPRE…`). context/08.
+    pub async fn playlist(
+        &self,
+        client: &YouTubeClient,
+        browse_id: &str,
+    ) -> Result<PlaylistPage, Error> {
+        let value = self.browse(client, Some(browse_id), None).await?;
+        Ok(browse::parse_playlist(&value))
+    }
+
+    /// Next page of playlist tracks via a continuation token. context/08.
+    pub async fn playlist_continuation(
+        &self,
+        client: &YouTubeClient,
+        token: &str,
+    ) -> Result<PlaylistContinuation, Error> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ContinuationBody {
+            context: Context,
+        }
+        let body = ContinuationBody { context: self.context_for(client) };
+        // Continuation is carried in the query, matching Metrolist's browse-continuation call.
+        let enc = urlencoding::encode(token);
+        let path = format!("browse?ctoken={enc}&continuation={enc}&type=next");
+        let value = self.post(&path, client, &body, true).await?;
+        Ok(browse::parse_playlist_continuation(&value))
+    }
+
+    // --- write actions (context/01 ✎, context/15 D7). All auth-gated (SAPISIDHASH). ---------
+
+    /// Like or un-like a video. context/01.
+    pub async fn like(
+        &self,
+        client: &YouTubeClient,
+        video_id: &str,
+        liked: bool,
+    ) -> Result<(), Error> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct LikeBody {
+            context: Context,
+            target: Target,
+        }
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Target {
+            video_id: String,
+        }
+        let path = if liked { "like/like" } else { "like/removelike" };
+        let body = LikeBody {
+            context: self.context_for(client),
+            target: Target { video_id: video_id.to_owned() },
+        };
+        self.post(path, client, &body, true).await?;
+        Ok(())
+    }
+
+    /// Add a video to a playlist. context/01 `browse/edit_playlist`.
+    pub async fn playlist_add(
+        &self,
+        client: &YouTubeClient,
+        playlist_id: &str,
+        video_id: &str,
+    ) -> Result<(), Error> {
+        self.edit_playlist(
+            client,
+            playlist_id,
+            serde_json::json!({ "action": "ACTION_ADD_VIDEO", "addedVideoId": video_id }),
         )
+        .await
+    }
+
+    /// Remove a video from a playlist. Needs `set_video_id` (the item's playlistSetVideoId).
+    pub async fn playlist_remove(
+        &self,
+        client: &YouTubeClient,
+        playlist_id: &str,
+        video_id: &str,
+        set_video_id: &str,
+    ) -> Result<(), Error> {
+        self.edit_playlist(
+            client,
+            playlist_id,
+            serde_json::json!({
+                "action": "ACTION_REMOVE_VIDEO",
+                "setVideoId": set_video_id,
+                "removedVideoId": video_id,
+            }),
+        )
+        .await
+    }
+
+    async fn edit_playlist(
+        &self,
+        client: &YouTubeClient,
+        playlist_id: &str,
+        action: serde_json::Value,
+    ) -> Result<(), Error> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct EditBody {
+            context: Context,
+            playlist_id: String,
+            actions: Vec<serde_json::Value>,
+        }
+        let body = EditBody {
+            context: self.context_for(client),
+            playlist_id: strip_vl(playlist_id).to_owned(),
+            actions: vec![action],
+        };
+        self.post("browse/edit_playlist", client, &body, true).await?;
+        Ok(())
+    }
+
+    /// Create a private playlist; returns the new playlistId. context/01 `playlist/create`.
+    pub async fn create_playlist(
+        &self,
+        client: &YouTubeClient,
+        title: &str,
+    ) -> Result<String, Error> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct CreateBody {
+            context: Context,
+            title: String,
+            privacy_status: String,
+        }
+        let body = CreateBody {
+            context: self.context_for(client),
+            title: title.to_owned(),
+            privacy_status: "PRIVATE".to_owned(),
+        };
+        let value = self.post("playlist/create", client, &body, true).await?;
+        metadata::find_first_str(&value, "playlistId")
+            .ok_or_else(|| Error::Other("create_playlist: no playlistId in response".into()))
+    }
+
+    /// Delete a playlist you own. context/01 `playlist/delete`.
+    pub async fn delete_playlist(
+        &self,
+        client: &YouTubeClient,
+        playlist_id: &str,
+    ) -> Result<(), Error> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct DeleteBody {
+            context: Context,
+            playlist_id: String,
+        }
+        let body = DeleteBody {
+            context: self.context_for(client),
+            playlist_id: strip_vl(playlist_id).to_owned(),
+        };
+        self.post("playlist/delete", client, &body, true).await?;
+        Ok(())
+    }
+
+    /// Subscribe / unsubscribe to a channel (artist). context/01 `subscription/*`.
+    pub async fn subscribe(
+        &self,
+        client: &YouTubeClient,
+        channel_id: &str,
+        subscribed: bool,
+    ) -> Result<(), Error> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct SubBody {
+            context: Context,
+            channel_ids: Vec<String>,
+        }
+        let path = if subscribed { "subscription/subscribe" } else { "subscription/unsubscribe" };
+        let body =
+            SubBody { context: self.context_for(client), channel_ids: vec![channel_id.to_owned()] };
+        self.post(path, client, &body, true).await?;
+        Ok(())
+    }
+}
+
+/// Playlist edit/delete want the raw playlistId; browse gives it `VL`-prefixed. context/01.
+fn strip_vl(id: &str) -> &str {
+    id.strip_prefix("VL").unwrap_or(id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn strips_vl_prefix() {
+        assert_eq!(strip_vl("VLPL123"), "PL123");
+        assert_eq!(strip_vl("PL123"), "PL123");
+    }
+
+    #[test]
+    fn create_playlist_id_parsed() {
+        let resp = json!({ "playlistId": "PLnew123", "status": "STATUS_SUCCEEDED" });
+        assert_eq!(metadata::find_first_str(&resp, "playlistId").as_deref(), Some("PLnew123"));
     }
 }

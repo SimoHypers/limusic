@@ -81,6 +81,82 @@ impl AppState {
             .collect()
     }
 
+    // --- auth (context/15) ------------------------------------------------------------------
+
+    /// Sign in with a pasted Cookie header (context/15 Path B). Validates SAPISID presence, sets
+    /// the cookie on the transport, fetches `account_menu` (→ dataSyncId + display info + a fresh
+    /// visitorData), and persists it all to `settings`. Returns the account JSON for the UI.
+    pub async fn sign_in(&self, cookie: String) -> Result<serde_json::Value, String> {
+        let cookie = cookie.trim().to_owned();
+        if innertube::cookie_sapisid(&cookie).is_none() {
+            return Err("That cookie has no SAPISID — copy the full Cookie header from a \
+                        logged-in music.youtube.com tab."
+                .into());
+        }
+        self.it.set_cookie(Some(cookie.clone()));
+        let client =
+            self.clients.get(innertube::METADATA_CLIENT).ok_or("metadata client missing")?;
+        let info = match self.it.account_menu(client).await {
+            // A valid, authenticating cookie returns the account header (name). No name means the
+            // cookie didn't actually authenticate (stale/incomplete paste) — reject it up front so
+            // we don't "succeed" into a silently-empty library.
+            Ok(i) if i.name.is_some() => i,
+            Ok(_) => {
+                self.it.set_cookie(None);
+                return Err("That cookie didn't authenticate — copy a fresh Cookie header from a \
+                            logged-in music.youtube.com tab (its session cookies rotate, so grab a \
+                            current one) and try again."
+                    .into());
+            }
+            // Auth didn't take (network) — roll back so we're not half-logged-in.
+            Err(e) => {
+                self.it.set_cookie(None);
+                return Err(format!("Sign-in failed: {e}"));
+            }
+        };
+        // Persist. Plaintext SQLite — acceptable for a single-user personal tool (context/15).
+        self.db.set_setting("session_cookie", &cookie);
+        if let Some(id) = &info.data_sync_id {
+            self.it.set_data_sync_id(Some(id.clone()));
+            self.db.set_setting("data_sync_id", id);
+        }
+        if let Some(vd) = &info.visitor_data {
+            self.it.set_visitor_data(Some(vd.clone()));
+            self.db.set_setting("visitor_data", vd);
+        }
+        let account = serde_json::json!({
+            "signedIn": true,
+            "name": info.name,
+            "handle": info.handle,
+            "thumbnail": info.thumbnail,
+        });
+        self.db.set_setting("account_json", &account.to_string());
+        let _ = self.app.emit("auth-changed", &account);
+        Ok(account)
+    }
+
+    pub async fn sign_out(&self) {
+        self.it.set_cookie(None);
+        self.it.set_data_sync_id(None);
+        self.db.delete_setting("session_cookie");
+        self.db.delete_setting("data_sync_id");
+        self.db.delete_setting("account_json");
+        let _ = self.app.emit("auth-changed", serde_json::json!({ "signedIn": false }));
+    }
+
+    /// Current account for the UI. `signedIn` reflects the live cookie; the rest is the last
+    /// persisted display info.
+    pub fn account_snapshot(&self) -> serde_json::Value {
+        let mut v = self
+            .db
+            .get_setting("account_json")
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .filter(serde_json::Value::is_object)
+            .unwrap_or_else(|| serde_json::json!({}));
+        v["signedIn"] = serde_json::json!(self.it.is_logged_in());
+        v
+    }
+
     async fn resolve(&self, video_id: &str) -> Result<PlaybackData, ResolveError> {
         // Latency cache first (context/11) — honor expiry, never a source of truth.
         // 60s safety margin: a URL that expires mid-load/mid-buffer fails as Raw(-13).
@@ -158,6 +234,26 @@ impl AppState {
         }
 
         self.prime_lookahead(gen).await;
+    }
+
+    /// Play a finite list of tracks (a playlist/album) starting at `start`. Unlike `play_song`
+    /// this seeds NO radio — the given items *are* the queue (context/08: playlist playback).
+    pub async fn play_tracks(self: &std::sync::Arc<Self>, items: Vec<SongItem>, start: usize) {
+        if items.is_empty() {
+            return;
+        }
+        let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let start = start.min(items.len() - 1);
+        {
+            let mut q = self.queue.lock().await;
+            q.items = items;
+            q.current = start;
+            q.lookahead_loaded = None;
+        }
+        // start_current emits now-playing + queue + persists; prime the gapless lookahead after.
+        if self.start_current(gen).await {
+            self.prime_lookahead(gen).await;
+        }
     }
 
     /// Jump to a specific queue index.
@@ -323,6 +419,7 @@ impl AppState {
                 "thumbnail": item.thumbnail,
                 "duration": item.duration,
                 "streamClient": stream_client,
+                "liked": item.liked,
             }),
         );
         let _ = self.app.emit("playback-state", "playing");

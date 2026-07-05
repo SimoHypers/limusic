@@ -22,6 +22,14 @@ pub struct SongItem {
     pub duration: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thumbnail: Option<String>,
+    /// `playlistSetVideoId` — the item's id *within a playlist*, needed to remove it (context/01
+    /// edit_playlist). Only present when the item came from a playlist page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set_video_id: Option<String>,
+    /// Whether the signed-in user has liked this track (`likeStatus == "LIKE"`). `None` when the
+    /// response didn't carry a like status.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub liked: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -34,6 +42,19 @@ pub struct NextResult {
     pub items: Vec<SongItem>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub continuation: Option<String>,
+}
+
+/// Logged-in account summary from `account/account_menu`. context/01, context/04A, context/15.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct AccountInfo {
+    pub name: Option<String>,
+    /// Channel handle or email (whichever the header carries).
+    pub handle: Option<String>,
+    pub thumbnail: Option<String>,
+    /// `onBehalfOfUser` id, `||`-split (context/04A). None when absent / single-account.
+    pub data_sync_id: Option<String>,
+    /// A login-bound visitorData, if the response carried one (context/15).
+    pub visitor_data: Option<String>,
 }
 
 /// Parse a `search` response into song items. context/08.
@@ -61,9 +82,43 @@ pub fn parse_next(root: &Value) -> NextResult {
     NextResult { items, continuation }
 }
 
+/// Parse an `account/account_menu` response into an account summary. context/01, context/15.
+pub fn parse_account_menu(root: &Value) -> AccountInfo {
+    let header = find_all(root, "activeAccountHeaderRenderer").into_iter().next();
+    let name = header.and_then(|h| runs_text(h.get("accountName")));
+    // YTM labels the second line `channelHandle` on newer accounts, `email` on older ones.
+    let handle =
+        header.and_then(|h| runs_text(h.get("channelHandle")).or_else(|| runs_text(h.get("email"))));
+    let thumbnail = header.and_then(last_thumbnail);
+
+    let rc = root.get("responseContext");
+    // dataSyncId lives in the response context, not the menu header. context/04A.
+    let data_sync_id = rc
+        .and_then(|r| r.get("mainAppWebResponseContext"))
+        .and_then(|m| m.get("datasyncId"))
+        .and_then(Value::as_str)
+        .map(split_datasync_id);
+    let visitor_data = rc
+        .and_then(|r| r.get("visitorData"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+
+    AccountInfo { name, handle, thumbnail, data_sync_id, visitor_data }
+}
+
+/// Split a `dataSyncId` (`"<id>||<other>"`): prefer the part before `||`, else after. context/04A.
+fn split_datasync_id(raw: &str) -> String {
+    match raw.split_once("||") {
+        Some((before, _)) if !before.is_empty() => before.to_owned(),
+        Some((_, after)) => after.to_owned(),
+        None => raw.to_owned(),
+    }
+}
+
 // --- node parsers -------------------------------------------------------------------------
 
-fn parse_list_item(node: &Value) -> Option<SongItem> {
+pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
     let video_id = list_item_video_id(node)?;
     let flex = node.get("flexColumns").and_then(Value::as_array);
     let title = flex
@@ -81,6 +136,11 @@ fn parse_list_item(node: &Value) -> Option<SongItem> {
         .and_then(|t| t.get("runs"))
         .and_then(Value::as_array);
     let (artists, album, duration) = split_subtitle(subtitle_runs);
+    let set_video_id = node
+        .get("playlistItemData")
+        .and_then(|d| d.get("playlistSetVideoId"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     Some(SongItem {
         video_id,
         title,
@@ -88,7 +148,15 @@ fn parse_list_item(node: &Value) -> Option<SongItem> {
         album,
         duration,
         thumbnail: last_thumbnail(node),
+        set_video_id,
+        liked: like_status(node),
     })
+}
+
+/// The track's like state from its menu's `likeStatus` (`LIKE` / `INDIFFERENT` / `DISLIKE`).
+/// Tolerant: grabs the first `likeStatus` anywhere in the node. context/08.
+fn like_status(node: &Value) -> Option<bool> {
+    find_first_str(node, "likeStatus").map(|s| s == "LIKE")
 }
 
 fn parse_panel_video(node: &Value) -> Option<SongItem> {
@@ -107,6 +175,8 @@ fn parse_panel_video(node: &Value) -> Option<SongItem> {
         album: None,
         duration,
         thumbnail: last_thumbnail(node),
+        set_video_id: None,
+        liked: like_status(node),
     })
 }
 
@@ -137,12 +207,12 @@ fn flex_text(col: &Value) -> Option<String> {
         .and_then(runs_text_opt)
 }
 
-fn runs_text(v: Option<&Value>) -> Option<String> {
+pub(crate) fn runs_text(v: Option<&Value>) -> Option<String> {
     v.and_then(runs_text_opt)
 }
 
 /// Join all `runs[].text` in a `{ runs: [...] }` object.
-fn runs_text_opt(v: &Value) -> Option<String> {
+pub(crate) fn runs_text_opt(v: &Value) -> Option<String> {
     let runs = v.get("runs").and_then(Value::as_array)?;
     let s: String = runs.iter().filter_map(|r| r.get("text").and_then(Value::as_str)).collect();
     (!s.is_empty()).then_some(s)
@@ -171,7 +241,7 @@ fn split_subtitle(runs: Option<&Vec<Value>>) -> (String, Option<String>, Option<
 }
 
 /// Deepest/last thumbnail URL under this node (highest resolution).
-fn last_thumbnail(node: &Value) -> Option<String> {
+pub(crate) fn last_thumbnail(node: &Value) -> Option<String> {
     // Find any `thumbnails: [ { url }, ... ]` array and take the last url.
     fn walk(v: &Value) -> Option<String> {
         match v {
@@ -192,7 +262,7 @@ fn last_thumbnail(node: &Value) -> Option<String> {
 }
 
 /// Recursively collect every object that is the value of a key named `key`.
-fn find_all<'a>(root: &'a Value, key: &str) -> Vec<&'a Value> {
+pub(crate) fn find_all<'a>(root: &'a Value, key: &str) -> Vec<&'a Value> {
     let mut out = Vec::new();
     fn walk<'a>(v: &'a Value, key: &str, out: &mut Vec<&'a Value>) {
         match v {
@@ -213,7 +283,7 @@ fn find_all<'a>(root: &'a Value, key: &str) -> Vec<&'a Value> {
 }
 
 /// First string value under any key named `key`.
-fn find_first_str(root: &Value, key: &str) -> Option<String> {
+pub(crate) fn find_first_str(root: &Value, key: &str) -> Option<String> {
     match root {
         Value::Object(map) => {
             for (k, v) in map {
@@ -285,5 +355,35 @@ mod tests {
         assert_eq!(r.items[0].artists, "Artist A & Artist B");
         assert_eq!(r.items[0].duration.as_deref(), Some("4:05"));
         assert_eq!(r.continuation.as_deref(), Some("CONT_TOKEN"));
+    }
+
+    #[test]
+    fn splits_datasync_id() {
+        assert_eq!(split_datasync_id("realid||other"), "realid");
+        assert_eq!(split_datasync_id("||fallback"), "fallback");
+        assert_eq!(split_datasync_id("plain"), "plain");
+    }
+
+    #[test]
+    fn parses_account_menu() {
+        let root = json!({
+            "responseContext": {
+                "visitorData": "CgtNEWVISITOR",
+                "mainAppWebResponseContext": { "datasyncId": "1234||5678" }
+            },
+            "actions": [{ "openPopupAction": { "popup": { "multiPageMenuRenderer": { "sections": [{
+                "activeAccountHeaderRenderer": {
+                    "accountName": { "runs": [{ "text": "Jane Doe" }] },
+                    "channelHandle": { "runs": [{ "text": "@janedoe" }] },
+                    "accountPhoto": { "thumbnails": [{ "url": "small.jpg" }, { "url": "big.jpg" }] }
+                }
+            }] } } } }]
+        });
+        let a = parse_account_menu(&root);
+        assert_eq!(a.name.as_deref(), Some("Jane Doe"));
+        assert_eq!(a.handle.as_deref(), Some("@janedoe"));
+        assert_eq!(a.thumbnail.as_deref(), Some("big.jpg"));
+        assert_eq!(a.data_sync_id.as_deref(), Some("1234"));
+        assert_eq!(a.visitor_data.as_deref(), Some("CgtNEWVISITOR"));
     }
 }

@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use innertube::SongItem;
+use innertube::{BrowseItem, HomePage, PlaylistContinuation, PlaylistPage, SongItem};
 use tauri::State;
 
 use crate::state::AppState;
@@ -92,6 +92,137 @@ pub async fn get_settings(state: St<'_>) -> Result<serde_json::Value, String> {
 pub async fn set_setting(state: St<'_>, key: String, value: String) -> Result<(), String> {
     state.db.set_setting(&key, &value);
     Ok(())
+}
+
+// --- auth (context/15) ---------------------------------------------------------------------
+
+/// Sign in by pasting a Cookie header (context/15 Path B). Returns the account for the UI.
+#[tauri::command]
+pub async fn set_cookie(state: St<'_>, cookie: String) -> Result<serde_json::Value, String> {
+    let state = state.inner().clone();
+    state.sign_in(cookie).await
+}
+
+#[tauri::command]
+pub async fn get_account(state: St<'_>) -> Result<serde_json::Value, String> {
+    Ok(state.account_snapshot())
+}
+
+#[tauri::command]
+pub async fn sign_out(state: St<'_>) -> Result<(), String> {
+    let state = state.inner().clone();
+    state.sign_out().await;
+    Ok(())
+}
+
+/// Open the in-app Google sign-in webview (context/15 Path A). Completes asynchronously; the UI
+/// hears back via `auth-changed` (success) or `login-error`.
+#[tauri::command]
+pub async fn login_webview(state: St<'_>) -> Result<(), String> {
+    let state = state.inner().clone();
+    let app = state.app.clone();
+    crate::session::open_login(app, state);
+    Ok(())
+}
+
+// --- browse / library (context/08) ---------------------------------------------------------
+
+fn metadata_client(state: &Arc<AppState>) -> Result<&innertube::YouTubeClient, String> {
+    state.clients.get(innertube::METADATA_CLIENT).ok_or_else(|| "metadata client missing".into())
+}
+
+#[tauri::command]
+pub async fn get_home(state: St<'_>) -> Result<HomePage, String> {
+    let client = metadata_client(&state)?;
+    state.it.home(client).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_library(state: St<'_>) -> Result<Vec<BrowseItem>, String> {
+    let client = metadata_client(&state)?;
+    state.it.library_playlists(client).await.map_err(|e| e.to_string())
+}
+
+/// A playlist or album page. `id` is the browseId (`VL…` / `MPRE…`); Liked Songs is `VLLM`.
+#[tauri::command]
+pub async fn get_playlist(state: St<'_>, id: String) -> Result<PlaylistPage, String> {
+    let client = metadata_client(&state)?;
+    state.it.playlist(client, &id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_playlist_more(
+    state: St<'_>,
+    token: String,
+) -> Result<PlaylistContinuation, String> {
+    let client = metadata_client(&state)?;
+    state.it.playlist_continuation(client, &token).await.map_err(|e| e.to_string())
+}
+
+/// Play a playlist/album: the given items become the queue (no radio), starting at `start`.
+#[tauri::command]
+pub async fn play_playlist(state: St<'_>, items: Vec<SongItem>, start: usize) -> Result<(), String> {
+    let state = state.inner().clone();
+    state.play_tracks(items, start).await;
+    Ok(())
+}
+
+// --- write actions (context/01 ✎, context/15) ----------------------------------------------
+
+fn require_login(state: &Arc<AppState>) -> Result<&innertube::YouTubeClient, String> {
+    if !state.it.is_logged_in() {
+        return Err("Sign in first to use this.".into());
+    }
+    metadata_client(state)
+}
+
+#[tauri::command]
+pub async fn like(state: St<'_>, video_id: String, liked: bool) -> Result<(), String> {
+    let client = require_login(&state)?;
+    state.it.like(client, &video_id, liked).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn add_to_playlist(
+    state: St<'_>,
+    playlist_id: String,
+    video_id: String,
+) -> Result<(), String> {
+    let client = require_login(&state)?;
+    state.it.playlist_add(client, &playlist_id, &video_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn remove_from_playlist(
+    state: St<'_>,
+    playlist_id: String,
+    video_id: String,
+    set_video_id: String,
+) -> Result<(), String> {
+    let client = require_login(&state)?;
+    state
+        .it
+        .playlist_remove(client, &playlist_id, &video_id, &set_video_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn create_playlist(state: St<'_>, title: String) -> Result<String, String> {
+    let client = require_login(&state)?;
+    state.it.create_playlist(client, &title).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_playlist(state: St<'_>, playlist_id: String) -> Result<(), String> {
+    let client = require_login(&state)?;
+    state.it.delete_playlist(client, &playlist_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn subscribe(state: St<'_>, channel_id: String, subscribed: bool) -> Result<(), String> {
+    let client = require_login(&state)?;
+    state.it.subscribe(client, &channel_id, subscribed).await.map_err(|e| e.to_string())
 }
 
 async fn current_index(state: &Arc<AppState>) -> usize {

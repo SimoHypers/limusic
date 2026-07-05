@@ -59,6 +59,11 @@ impl Db {
         );
     }
 
+    pub fn delete_setting(&self, key: &str) {
+        let conn = self.0.lock().unwrap();
+        let _ = conn.execute("DELETE FROM settings WHERE key = ?1", [key]);
+    }
+
     pub fn all_settings(&self) -> Vec<(String, String)> {
         let conn = self.0.lock().unwrap();
         let mut out = Vec::new();

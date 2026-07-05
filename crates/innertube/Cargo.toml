@@ -13,6 +13,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 tokio = { workspace = true, features = ["time"] }
 sha1 = "0.10"
 hex = "0.4"
+urlencoding = "2"
 rustypipe = "0.11"
 
 [dev-dependencies]
