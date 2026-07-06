@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		PlayIcon,
@@ -12,6 +13,7 @@
 		song,
 		index,
 		active = false,
+		hideThumb = false,
 		onplay,
 		onAdd,
 		onRemove
@@ -20,6 +22,8 @@
 		/** Position badge when set (playlist/queue); omitted for flat search results. */
 		index?: number;
 		active?: boolean;
+		/** Hide the leading thumbnail (album track lists show a number, not a cover). */
+		hideThumb?: boolean;
 		onplay: () => void;
 		/** Adds an "Add to playlist" menu item. */
 		onAdd?: () => void;
@@ -52,28 +56,45 @@
 		? 'bg-accent/10'
 		: ''}"
 >
-	<button class="flex min-w-0 flex-1 items-center gap-3 text-left" onclick={onplay}>
-		{#if index !== undefined}
-			<span
-				class="relative w-5 shrink-0 text-center text-xs {active
-					? 'text-primary'
-					: 'text-muted-foreground'}"
-			>
-				<span class="group-hover:opacity-0">{index + 1}</span>
-				<HugeiconsIcon
-					icon={PlayIcon}
-					class="absolute inset-0 m-auto h-3.5 w-3.5 opacity-0 group-hover:opacity-100"
-				/>
-			</span>
-		{/if}
-		{#if song.thumbnail}
-			<img src={song.thumbnail} alt="" class="h-10 w-10 shrink-0 rounded-md object-cover" loading="lazy" />
-		{/if}
+	<div class="flex min-w-0 flex-1 items-center gap-3">
+		<button
+			class="flex min-w-0 shrink-0 items-center gap-3 text-left"
+			onclick={onplay}
+			aria-label="Play {song.title}"
+		>
+			{#if index !== undefined}
+				<span
+					class="relative w-5 shrink-0 text-center text-xs {active
+						? 'text-primary'
+						: 'text-muted-foreground'}"
+				>
+					<span class="group-hover:opacity-0">{index + 1}</span>
+					<HugeiconsIcon
+						icon={PlayIcon}
+						class="absolute inset-0 m-auto h-3.5 w-3.5 opacity-0 group-hover:opacity-100"
+					/>
+				</span>
+			{/if}
+			{#if song.thumbnail && !hideThumb}
+				<img src={song.thumbnail} alt="" class="h-10 w-10 shrink-0 rounded-md object-cover" loading="lazy" />
+			{/if}
+		</button>
 		<div class="min-w-0 flex-1">
-			<div class="truncate text-sm font-medium {active ? 'text-primary' : ''}">{song.title}</div>
-			<div class="truncate text-xs text-muted-foreground">{song.artists}</div>
+			<button class="block max-w-full truncate text-left text-sm font-medium {active ? 'text-primary' : ''}" onclick={onplay}>
+				{song.title}
+			</button>
+			{#if song.artist_id}
+				<button
+					class="block max-w-full cursor-pointer truncate text-left text-xs text-muted-foreground hover:text-foreground hover:underline"
+					onclick={() => goto(`/artist/${encodeURIComponent(song.artist_id!)}`)}
+				>
+					{song.artists}
+				</button>
+			{:else}
+				<div class="truncate text-xs text-muted-foreground">{song.artists}</div>
+			{/if}
 		</div>
-	</button>
+	</div>
 
 	<div class="flex shrink-0 items-center gap-2">
 		{#if song.duration}

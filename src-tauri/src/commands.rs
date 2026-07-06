@@ -3,7 +3,10 @@
 
 use std::sync::Arc;
 
-use innertube::{BrowseItem, HomePage, PlaylistContinuation, PlaylistPage, SongItem};
+use innertube::{
+    AlbumPage, ArtistPage, BrowseItem, HomePage, PlaylistContinuation, PlaylistPage, SearchResults,
+    SongItem,
+};
 use tauri::State;
 
 use crate::state::AppState;
@@ -22,6 +25,24 @@ pub async fn search(state: St<'_>, query: String) -> Result<Vec<SongItem>, Strin
         .await
         .map_err(|e| e.to_string())?;
     Ok(result.items)
+}
+
+/// Unfiltered search → categorized sections for the search page.
+#[tauri::command]
+pub async fn search_all(state: St<'_>, query: String) -> Result<SearchResults, String> {
+    let client = metadata_client(&state)?;
+    state.it.search_all(client, &query).await.map_err(|e| e.to_string())
+}
+
+/// Filtered "Show more" search for one category (albums / artists / playlists).
+#[tauri::command]
+pub async fn search_cards(
+    state: St<'_>,
+    query: String,
+    category: String,
+) -> Result<Vec<BrowseItem>, String> {
+    let client = metadata_client(&state)?;
+    state.it.search_cards(client, &query, &category).await.map_err(|e| e.to_string())
 }
 
 /// Play a track (from a search result). The UI passes the full item so we can seed the queue
@@ -157,6 +178,31 @@ pub async fn get_playlist_more(
 ) -> Result<PlaylistContinuation, String> {
     let client = metadata_client(&state)?;
     state.it.playlist_continuation(client, &token).await.map_err(|e| e.to_string())
+}
+
+/// An album page. `id` is the album browseId (`MPRE…`).
+#[tauri::command]
+pub async fn get_album(state: St<'_>, id: String) -> Result<AlbumPage, String> {
+    let client = metadata_client(&state)?;
+    state.it.album(client, &id).await.map_err(|e| e.to_string())
+}
+
+/// An artist page. `id` is the channel browseId (`UC…`).
+#[tauri::command]
+pub async fn get_artist(state: St<'_>, id: String) -> Result<ArtistPage, String> {
+    let client = metadata_client(&state)?;
+    state.it.artist(client, &id).await.map_err(|e| e.to_string())
+}
+
+/// A card grid reached from a carousel's "More" button (e.g. an artist's full albums list).
+#[tauri::command]
+pub async fn get_browse_grid(
+    state: St<'_>,
+    id: String,
+    params: Option<String>,
+) -> Result<Vec<BrowseItem>, String> {
+    let client = metadata_client(&state)?;
+    state.it.browse_grid(client, &id, params.as_deref()).await.map_err(|e| e.to_string())
 }
 
 /// Play a playlist/album: the given items become the queue (no radio), starting at `start`.

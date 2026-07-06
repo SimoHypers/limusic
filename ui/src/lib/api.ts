@@ -7,6 +7,8 @@ export interface SongItem {
 	video_id: string;
 	title: string;
 	artists: string;
+	/** Primary artist's channel browseId (`UC…`), when linked — makes the artist name navigable. */
+	artist_id?: string;
 	album?: string;
 	duration?: string;
 	thumbnail?: string;
@@ -18,6 +20,7 @@ export interface NowPlaying {
 	videoId: string;
 	title: string;
 	artists: string;
+	artistId?: string;
 	thumbnail?: string;
 	duration?: string;
 	streamClient: string;
@@ -66,8 +69,51 @@ export interface PlaylistContinuation {
 	continuation?: string;
 }
 
+export interface ArtistCarousel {
+	title: string;
+	items: BrowseItem[];
+	moreBrowseId?: string;
+	moreParams?: string;
+}
+export interface SearchResults {
+	top: BrowseItem[];
+	songs: BrowseItem[];
+	albums: BrowseItem[];
+	artists: BrowseItem[];
+	playlists: BrowseItem[];
+}
+
+export interface AlbumPage {
+	title?: string;
+	artist?: string;
+	artistId?: string;
+	artistThumbnail?: string;
+	subtitle?: string;
+	secondSubtitle?: string;
+	description?: string;
+	thumbnail?: string;
+	items: SongItem[];
+	continuation?: string;
+}
+
+export interface ArtistPage {
+	name?: string;
+	thumbnail?: string;
+	description?: string;
+	subscribers?: string;
+	channelId: string;
+	subscribed: boolean;
+	topSongs: SongItem[];
+	sections: ArtistCarousel[];
+}
+
 // --- commands (context/11) -----------------------------------------------------------------
 export const search = (query: string) => invoke<SongItem[]>('search', { query });
+/** Unfiltered search → categorized sections. */
+export const searchAll = (query: string) => invoke<SearchResults>('search_all', { query });
+/** Filtered "Show more" card search for one category (albums / artists / playlists). */
+export const searchCards = (query: string, category: 'albums' | 'artists' | 'playlists') =>
+	invoke<BrowseItem[]>('search_cards', { query, category });
 export const play = (item: SongItem) => invoke<void>('play', { item });
 export const playIndex = (index: number) => invoke<void>('play_index', { index });
 export const nextTrack = () => invoke<void>('next_track');
@@ -92,6 +138,10 @@ export const getPlaylistMore = (token: string) =>
 	invoke<PlaylistContinuation>('get_playlist_more', { token });
 export const playPlaylist = (items: SongItem[], start: number) =>
 	invoke<void>('play_playlist', { items, start });
+export const getAlbum = (id: string) => invoke<AlbumPage>('get_album', { id });
+export const getArtist = (id: string) => invoke<ArtistPage>('get_artist', { id });
+export const getBrowseGrid = (id: string, params?: string) =>
+	invoke<BrowseItem[]>('get_browse_grid', { id, params });
 
 // --- write actions (context/01 ✎) ----------------------------------------------------------
 export const like = (videoId: string, liked: boolean) => invoke<void>('like', { videoId, liked });

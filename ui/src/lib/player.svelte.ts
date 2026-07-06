@@ -23,7 +23,7 @@ export const auth = $state({
 
 // Transient UI state for write actions.
 export const ui = $state({
-	addVideoId: null as string | null, // add-to-playlist picker target
+	addVideoIds: null as string[] | null, // add-to-playlist picker target(s)
 	toast: null as string | null
 });
 
@@ -35,7 +35,12 @@ export function toast(msg: string) {
 }
 
 export function openAddToPlaylist(videoId: string) {
-	ui.addVideoId = videoId;
+	ui.addVideoIds = [videoId];
+}
+
+/** Open the picker to add several tracks at once (e.g. a whole album). */
+export function openAddManyToPlaylist(videoIds: string[]) {
+	ui.addVideoIds = videoIds.length ? videoIds : null;
 }
 
 let started = false;

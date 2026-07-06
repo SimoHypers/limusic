@@ -416,6 +416,7 @@ impl AppState {
                 "videoId": item.video_id,
                 "title": item.title,
                 "artists": item.artists,
+                "artistId": item.artist_id,
                 "thumbnail": item.thumbnail,
                 "duration": item.duration,
                 "streamClient": stream_client,

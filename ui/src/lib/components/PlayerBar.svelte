@@ -9,6 +9,7 @@
 		VolumeHighIcon,
 		FavouriteIcon
 	} from '@hugeicons/core-free-icons';
+	import { goto } from '$app/navigation';
 	import { Button } from '$lib/components/ui/button';
 	import * as api from '$lib/api';
 	import { playback, toast } from '$lib/player.svelte';
@@ -57,7 +58,16 @@
 		{/if}
 		<div class="min-w-0">
 			<div class="truncate text-sm font-medium">{playback.now?.title ?? 'Nothing playing'}</div>
-			<div class="truncate text-xs text-muted-foreground">{playback.now?.artists ?? ''}</div>
+			{#if playback.now?.artistId}
+				<button
+					class="block max-w-full cursor-pointer truncate text-left text-xs text-muted-foreground hover:text-foreground hover:underline"
+					onclick={() => goto(`/artist/${encodeURIComponent(playback.now!.artistId!)}`)}
+				>
+					{playback.now.artists}
+				</button>
+			{:else}
+				<div class="truncate text-xs text-muted-foreground">{playback.now?.artists ?? ''}</div>
+			{/if}
 		</div>
 		{#if playback.now}
 			<Button variant="ghost" size="icon-sm" onclick={toggleLike} aria-label="Like">

@@ -24,6 +24,15 @@ use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // WebKitGTK's DMABUF renderer crashes on some Wayland/driver combos with
+    // "Gdk Error 71 (Protocol error)", closing the window instantly. Disable it
+    // before the webview initializes. ponytail: blanket-off on Linux; if it ever
+    // costs GPU perf on working setups, gate it behind a compositor/driver probe.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -133,6 +142,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::search,
+            commands::search_all,
+            commands::search_cards,
             commands::play,
             commands::play_index,
             commands::next_track,
@@ -151,6 +162,9 @@ pub fn run() {
             commands::get_library,
             commands::get_playlist,
             commands::get_playlist_more,
+            commands::get_album,
+            commands::get_artist,
+            commands::get_browse_grid,
             commands::play_playlist,
             commands::like,
             commands::add_to_playlist,

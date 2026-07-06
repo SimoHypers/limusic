@@ -3,7 +3,10 @@
 use serde::Serialize;
 
 use crate::clients::YouTubeClient;
-use crate::models::browse::{self, BrowseItem, HomePage, PlaylistContinuation, PlaylistPage};
+use crate::models::browse::{
+    self, AlbumPage, ArtistPage, BrowseItem, HomePage, PlaylistContinuation, PlaylistPage,
+    SearchResults,
+};
 use crate::models::context::Context;
 use crate::models::metadata::{self, AccountInfo, NextResult, SearchResult};
 use crate::models::player::{
@@ -13,6 +16,9 @@ use crate::transport::{Error, InnerTube};
 
 /// Search filter params (opaque base64). context/08.
 pub const FILTER_SONG: &str = "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D";
+pub const FILTER_ALBUM: &str = "EgWKAQIYAWoKEAkQChAFEAMQBA%3D%3D";
+pub const FILTER_ARTIST: &str = "EgWKAQIgAWoKEAkQChAFEAMQBA%3D%3D";
+pub const FILTER_COMMUNITY_PLAYLIST: &str = "EgeKAQQoAEABagoQAxAEEAoQCRAF";
 
 impl InnerTube {
     /// `/player` for one client. context/03, context/06.
@@ -51,26 +57,64 @@ impl InnerTube {
         Ok(serde_json::from_value(value)?)
     }
 
-    /// Search songs. Uses the metadata client (WEB_REMIX renderer shape). context/08.
-    pub async fn search_songs(
+    /// Raw `search` POST. `params` = a filter (None = the mixed, unfiltered search). context/08.
+    async fn search_raw(
         &self,
-        metadata_client: &YouTubeClient,
+        client: &YouTubeClient,
         query: &str,
-    ) -> Result<SearchResult, Error> {
+        params: Option<&str>,
+    ) -> Result<serde_json::Value, Error> {
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
         struct SearchBody {
             context: Context,
             query: String,
-            params: String,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            params: Option<String>,
         }
         let body = SearchBody {
-            context: self.context_for(metadata_client),
+            context: self.context_for(client),
             query: query.to_owned(),
-            params: FILTER_SONG.to_owned(),
+            params: params.map(str::to_owned),
         };
-        let value = self.post("search", metadata_client, &body, true).await?;
+        self.post("search", client, &body, true).await
+    }
+
+    /// Search songs only (`FILTER_SONG`). context/08.
+    pub async fn search_songs(
+        &self,
+        metadata_client: &YouTubeClient,
+        query: &str,
+    ) -> Result<SearchResult, Error> {
+        let value = self.search_raw(metadata_client, query, Some(FILTER_SONG)).await?;
         Ok(metadata::parse_search(&value))
+    }
+
+    /// Unfiltered search → categorized sections (top / songs / albums / artists / playlists).
+    pub async fn search_all(
+        &self,
+        client: &YouTubeClient,
+        query: &str,
+    ) -> Result<SearchResults, Error> {
+        let value = self.search_raw(client, query, None).await?;
+        Ok(browse::parse_search_all(&value))
+    }
+
+    /// Filtered card search for a "Show more" page. `category` ∈ albums / artists / playlists.
+    pub async fn search_cards(
+        &self,
+        client: &YouTubeClient,
+        query: &str,
+        category: &str,
+    ) -> Result<Vec<BrowseItem>, Error> {
+        let filter = match category {
+            "albums" => FILTER_ALBUM,
+            "artists" => FILTER_ARTIST,
+            "playlists" => FILTER_COMMUNITY_PLAYLIST,
+            other => return Err(Error::Other(format!("unknown search category: {other}"))),
+        };
+        let value = self.search_raw(client, query, Some(filter)).await?;
+        Ok(browse::parse_search_cards(&value))
     }
 
     /// Up-next queue / radio for a video. context/08. Uses the metadata client.
@@ -163,6 +207,34 @@ impl InnerTube {
     ) -> Result<PlaylistPage, Error> {
         let value = self.browse(client, Some(browse_id), None).await?;
         Ok(browse::parse_playlist(&value))
+    }
+
+    /// An album page by album browseId (`MPRE…`). context/08.
+    pub async fn album(&self, client: &YouTubeClient, browse_id: &str) -> Result<AlbumPage, Error> {
+        let value = self.browse(client, Some(browse_id), None).await?;
+        Ok(browse::parse_album(&value))
+    }
+
+    /// An artist page by channel browseId (`UC…`). context/08.
+    pub async fn artist(
+        &self,
+        client: &YouTubeClient,
+        browse_id: &str,
+    ) -> Result<ArtistPage, Error> {
+        let value = self.browse(client, Some(browse_id), None).await?;
+        Ok(browse::parse_artist(&value, browse_id))
+    }
+
+    /// A browse target that returns a grid of cards (e.g. an artist's "all albums" page reached
+    /// via a carousel's "More" button). context/08.
+    pub async fn browse_grid(
+        &self,
+        client: &YouTubeClient,
+        browse_id: &str,
+        params: Option<&str>,
+    ) -> Result<Vec<BrowseItem>, Error> {
+        let value = self.browse(client, Some(browse_id), params).await?;
+        Ok(browse::parse_library(&value))
     }
 
     /// Next page of playlist tracks via a continuation token. context/08.

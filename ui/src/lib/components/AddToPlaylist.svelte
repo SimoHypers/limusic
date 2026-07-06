@@ -8,7 +8,7 @@
 
 	// Fetch the library playlists fresh each time the picker opens (cheap; picks up new playlists).
 	$effect(() => {
-		if (ui.addVideoId) {
+		if (ui.addVideoIds) {
 			loading = true;
 			api
 				.getLibrary()
@@ -19,16 +19,17 @@
 	});
 
 	function close() {
-		ui.addVideoId = null;
+		ui.addVideoIds = null;
 	}
 
 	async function pick(pl: BrowseItem) {
-		const videoId = ui.addVideoId;
+		const ids = ui.addVideoIds;
 		close();
-		if (!videoId) return;
+		if (!ids?.length) return;
 		try {
-			await api.addToPlaylist(pl.id, videoId);
-			toast(`Added to ${pl.title}`);
+			// Sequential — a whole album is a handful of requests; don't hammer the API in parallel.
+			for (const videoId of ids) await api.addToPlaylist(pl.id, videoId);
+			toast(ids.length > 1 ? `Added ${ids.length} songs to ${pl.title}` : `Added to ${pl.title}`);
 		} catch (e) {
 			toast(String(e));
 		}
@@ -37,11 +38,11 @@
 
 <svelte:window
 	onkeydown={(e) => {
-		if (ui.addVideoId && e.key === 'Escape') close();
+		if (ui.addVideoIds && e.key === 'Escape') close();
 	}}
 />
 
-{#if ui.addVideoId}
+{#if ui.addVideoIds}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
 		<div class="w-full max-w-sm rounded-xl border bg-card p-4 shadow-xl">
 			<div class="mb-3 flex items-center justify-between">

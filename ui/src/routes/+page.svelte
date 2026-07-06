@@ -1,5 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { HugeiconsIcon } from '@hugeicons/svelte';
+	import { Search01Icon } from '@hugeicons/core-free-icons';
+	import { Input } from '$lib/components/ui/input';
 	import MediaCard from '$lib/components/MediaCard.svelte';
 	import * as api from '$lib/api';
 	import type { HomePage } from '$lib/api';
@@ -8,6 +12,12 @@
 	let home = $state<HomePage | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+	let searchQuery = $state('');
+
+	function goSearch() {
+		if (!searchQuery.trim()) return;
+		goto(`/search?${new URLSearchParams({ q: searchQuery }).toString()}`);
+	}
 
 	async function load() {
 		loading = true;
@@ -24,7 +34,16 @@
 </script>
 
 <div class="p-6">
-	<h1 class="mb-6 font-heading text-2xl font-bold">Home</h1>
+	<div class="mb-6 flex items-center justify-between gap-4">
+		<h1 class="font-heading text-2xl font-bold">Home</h1>
+		<form class="relative w-full max-w-xs" onsubmit={(e) => { e.preventDefault(); goSearch(); }}>
+			<HugeiconsIcon
+				icon={Search01Icon}
+				class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+			/>
+			<Input bind:value={searchQuery} placeholder="Search" class="rounded-full pl-9" />
+		</form>
+	</div>
 	{#if loading}
 		<p class="text-sm text-muted-foreground">Loading…</p>
 	{:else if error}

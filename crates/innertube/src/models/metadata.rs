@@ -16,6 +16,10 @@ pub struct SongItem {
     pub video_id: String,
     pub title: String,
     pub artists: String,
+    /// The primary artist's channel browseId (`UC…`), when the row links one — lets the UI make
+    /// the artist name navigate to its artist page. context/08.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artist_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub album: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -136,6 +140,7 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
         .and_then(|t| t.get("runs"))
         .and_then(Value::as_array);
     let (artists, album, duration) = split_subtitle(subtitle_runs);
+    let artist_id = subtitle_runs.and_then(|r| first_artist_id(r));
     let set_video_id = node
         .get("playlistItemData")
         .and_then(|d| d.get("playlistSetVideoId"))
@@ -145,11 +150,20 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
         video_id,
         title,
         artists,
+        artist_id,
         album,
         duration,
         thumbnail: last_thumbnail(node),
         set_video_id,
         liked: like_status(node),
+    })
+}
+
+/// First run that links an artist channel (`browseEndpoint.browseId` starting with `UC`). context/08.
+pub(crate) fn first_artist_id(runs: &[Value]) -> Option<String> {
+    runs.iter().find_map(|r| {
+        let id = r.get("navigationEndpoint")?.get("browseEndpoint")?.get("browseId")?.as_str()?;
+        id.starts_with("UC").then(|| id.to_owned())
     })
 }
 
@@ -162,16 +176,16 @@ fn like_status(node: &Value) -> Option<bool> {
 fn parse_panel_video(node: &Value) -> Option<SongItem> {
     let video_id = node.get("videoId").and_then(Value::as_str)?.to_owned();
     let title = runs_text(node.get("title"))?;
-    let artists = node
-        .get("longBylineText")
-        .or_else(|| node.get("shortBylineText"))
-        .and_then(runs_text_opt)
-        .unwrap_or_default();
+    let byline = node.get("longBylineText").or_else(|| node.get("shortBylineText"));
+    let artists = byline.and_then(runs_text_opt).unwrap_or_default();
+    let artist_id =
+        byline.and_then(|b| b.get("runs")).and_then(Value::as_array).and_then(|r| first_artist_id(r));
     let duration = node.get("lengthText").and_then(runs_text_opt);
     Some(SongItem {
         video_id,
         title,
         artists,
+        artist_id,
         album: None,
         duration,
         thumbnail: last_thumbnail(node),
@@ -180,8 +194,17 @@ fn parse_panel_video(node: &Value) -> Option<SongItem> {
     })
 }
 
+/// Joined text of a `musicResponsiveListItemRenderer` flex column (0 = title, 1 = subtitle). Used
+/// by the search-section parser to build cards from list rows. context/08.
+pub(crate) fn flex_column_text(node: &Value, i: usize) -> Option<String> {
+    node.get("flexColumns")
+        .and_then(Value::as_array)
+        .and_then(|c| c.get(i))
+        .and_then(flex_text)
+}
+
 /// videoId from any of the three known locations. context/08 / AlbumPage.kt.
-fn list_item_video_id(node: &Value) -> Option<String> {
+pub(crate) fn list_item_video_id(node: &Value) -> Option<String> {
     let direct = node
         .get("playlistItemData")
         .and_then(|d| d.get("videoId"))
@@ -316,7 +339,8 @@ mod tests {
                 "flexColumns": [
                     { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Song Title" }] } } },
                     { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [
-                        { "text": "The Artist" }, { "text": " • " }, { "text": "The Album" }, { "text": " • " }, { "text": "3:21" }
+                        { "text": "The Artist", "navigationEndpoint": { "browseEndpoint": { "browseId": "UCartist1" } } },
+                        { "text": " • " }, { "text": "The Album" }, { "text": " • " }, { "text": "3:21" }
                     ] } } }
                 ],
                 "thumbnail": { "musicThumbnailRenderer": { "thumbnail": { "thumbnails": [
@@ -330,6 +354,7 @@ mod tests {
         assert_eq!(s.video_id, "abc123");
         assert_eq!(s.title, "Song Title");
         assert_eq!(s.artists, "The Artist");
+        assert_eq!(s.artist_id.as_deref(), Some("UCartist1"));
         assert_eq!(s.album.as_deref(), Some("The Album"));
         assert_eq!(s.duration.as_deref(), Some("3:21"));
         assert_eq!(s.thumbnail.as_deref(), Some("big.jpg"));
