@@ -63,6 +63,8 @@ export interface PlaylistPage {
 	thumbnail?: string;
 	items: SongItem[];
 	continuation?: string;
+	/** True only when the signed-in user owns this playlist (rename/delete allowed). */
+	owned: boolean;
 }
 export interface PlaylistContinuation {
 	items: SongItem[];
@@ -150,6 +152,8 @@ export const addToPlaylist = (playlistId: string, videoId: string) =>
 export const removeFromPlaylist = (playlistId: string, videoId: string, setVideoId: string) =>
 	invoke<void>('remove_from_playlist', { playlistId, videoId, setVideoId });
 export const createPlaylist = (title: string) => invoke<string>('create_playlist', { title });
+export const renamePlaylist = (playlistId: string, name: string) =>
+	invoke<void>('rename_playlist', { playlistId, name });
 export const deletePlaylist = (playlistId: string) =>
 	invoke<void>('delete_playlist', { playlistId });
 export const subscribe = (channelId: string, subscribed: boolean) =>

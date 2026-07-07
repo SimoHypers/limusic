@@ -11,8 +11,8 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::metadata::{
-    find_all, first_artist_id, flex_column_text, last_thumbnail, list_item_video_id, parse_list_item,
-    runs_text, runs_text_opt, SongItem,
+    find_all, find_all_shallow, first_artist_id, flex_column_text, last_thumbnail,
+    list_item_video_id, parse_list_item, runs_text, runs_text_opt, SongItem,
 };
 
 /// One clickable card in a home carousel or library grid. Flat + `kind`-tagged so the UI can
@@ -53,6 +53,9 @@ pub struct PlaylistPage {
     pub thumbnail: Option<String>,
     pub items: Vec<SongItem>,
     pub continuation: Option<String>,
+    /// True only when the signed-in user owns this playlist (rename/delete allowed). YouTube wraps
+    /// the header in `musicEditablePlaylistDetailHeaderRenderer` exactly for owned playlists.
+    pub owned: bool,
 }
 
 /// A page of extra tracks fetched via a continuation token.
@@ -146,16 +149,20 @@ pub fn parse_playlist(root: &Value) -> PlaylistPage {
     let subtitle =
         header.and_then(|h| runs_text(h.get("secondSubtitle")).or_else(|| runs_text(h.get("subtitle"))));
     let thumbnail = header.and_then(last_thumbnail);
-    let items = find_all(root, "musicResponsiveListItemRenderer")
+    let items = find_all_shallow(root, "musicResponsiveListItemRenderer")
         .into_iter()
         .filter_map(parse_list_item)
         .collect();
-    PlaylistPage { title, subtitle, thumbnail, items, continuation: continuation_token(root) }
+    // Present only for playlists the signed-in user owns — the sole reliable ownership signal.
+    let owned = !find_all(root, "musicEditablePlaylistDetailHeaderRenderer").is_empty();
+    PlaylistPage { title, subtitle, thumbnail, items, continuation: continuation_token(root), owned }
 }
 
 /// Parse a browse continuation response (more playlist tracks). context/08.
 pub fn parse_playlist_continuation(root: &Value) -> PlaylistContinuation {
-    let items = find_all(root, "musicResponsiveListItemRenderer")
+    // Shallow find: on an owned/editable playlist each track row embeds a nested copy of its own
+    // renderer (an add-suggestion edit command), so a deep find_all would return every track twice.
+    let items = find_all_shallow(root, "musicResponsiveListItemRenderer")
         .into_iter()
         .filter_map(parse_list_item)
         .collect();
@@ -595,6 +602,59 @@ mod tests {
         assert_eq!(p.items[0].video_id, "vid1");
         assert_eq!(p.items[1].title, "Track Two");
         assert_eq!(p.continuation.as_deref(), Some("MORE_TOKEN"));
+        // A plain header (someone else's playlist) is not editable.
+        assert!(!p.owned);
+    }
+
+    #[test]
+    fn continuation_ignores_nested_edit_renderer() {
+        // An owned/editable playlist's continuation embeds, inside each track row, a NESTED copy of
+        // the same `musicResponsiveListItemRenderer` (an add-suggestion edit command). A deep sweep
+        // would count every track twice — the real "load more" duplication bug.
+        let editable_row = |vid: &str, title: &str| {
+            json!({ "musicResponsiveListItemRenderer": {
+                "playlistItemData": { "videoId": vid },
+                "flexColumns": [
+                    { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": title }] } } }
+                ],
+                // The edit affordance carries a nested duplicate renderer with the SAME videoId.
+                "fixedColumns": [{ "musicResponsiveListItemFixedColumnRenderer": { "button": {
+                    "buttonRenderer": { "command": { "playlistEditEndpoint": { "clientActions": [
+                        { "musicAddSuggestionToPlaylistCommand": { "addToPlaylistCommand": {
+                            "insertShelfItemCommand": { "item": {
+                                "musicResponsiveListItemRenderer": { "playlistItemData": { "videoId": vid } }
+                            } }
+                        } } }
+                    ] } } }
+                } } }]
+            } })
+        };
+        let root = json!({ "continuationContents": { "sectionListContinuation": {
+            "contents": [{ "musicShelfRenderer": {
+                "contents": [editable_row("a1", "Alpha"), editable_row("b2", "Beta")],
+                "continuations": [{ "nextContinuationData": { "continuation": "NEXT" } }]
+            } }]
+        } } });
+        let c = parse_playlist_continuation(&root);
+        assert_eq!(c.items.len(), 2, "each track must appear once, not twice");
+        assert_eq!(c.items[0].video_id, "a1");
+        assert_eq!(c.items[1].video_id, "b2");
+        assert_eq!(c.continuation.as_deref(), Some("NEXT"));
+    }
+
+    #[test]
+    fn detects_owned_playlist() {
+        // YouTube wraps an owned playlist's header in `musicEditablePlaylistDetailHeaderRenderer`.
+        let root = json!({
+            "header": { "musicEditablePlaylistDetailHeaderRenderer": {
+                "header": { "musicResponsiveHeaderRenderer": {
+                    "title": { "runs": [{ "text": "My Playlist" }] }
+                } }
+            } }
+        });
+        let p = parse_playlist(&root);
+        assert_eq!(p.title.as_deref(), Some("My Playlist"));
+        assert!(p.owned);
     }
 
     #[test]

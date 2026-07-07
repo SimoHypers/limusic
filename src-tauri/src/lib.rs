@@ -170,6 +170,7 @@ pub fn run() {
             commands::add_to_playlist,
             commands::remove_from_playlist,
             commands::create_playlist,
+            commands::rename_playlist,
             commands::delete_playlist,
             commands::subscribe,
         ])

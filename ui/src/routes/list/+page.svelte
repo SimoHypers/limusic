@@ -37,7 +37,7 @@
 	{:else if error}
 		<p class="text-sm text-destructive">{error}</p>
 	{:else if items.length}
-		<div class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2">
+		<div class="grid grid-cols-[repeat(auto-fill,10rem)] gap-4">
 			{#each items as item (item.id + item.title)}
 				<MediaCard {item} />
 			{/each}

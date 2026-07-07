@@ -320,6 +320,21 @@ impl InnerTube {
         .await
     }
 
+    /// Rename a playlist you own. context/01 `browse/edit_playlist`.
+    pub async fn playlist_rename(
+        &self,
+        client: &YouTubeClient,
+        playlist_id: &str,
+        name: &str,
+    ) -> Result<(), Error> {
+        self.edit_playlist(
+            client,
+            playlist_id,
+            serde_json::json!({ "action": "ACTION_SET_PLAYLIST_NAME", "playlistName": name }),
+        )
+        .await
+    }
+
     async fn edit_playlist(
         &self,
         client: &YouTubeClient,

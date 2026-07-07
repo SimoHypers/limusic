@@ -60,6 +60,46 @@ async fn direct_clients_resolve_and_stream() {
     assert!(any_ok, "no direct client produced a playable (HTTP 2xx) stream URL");
 }
 
+/// Live regression for the "load more duplicates tracks" bug: an owned playlist's continuation
+/// embeds a nested duplicate renderer per row. Self-skips unless a real session is supplied:
+///   LIMUSIC_COOKIE=… LIMUSIC_VISITOR=… cargo test -p innertube --features integration-tests owned_continuation_not_doubled -- --ignored --nocapture
+#[tokio::test]
+#[ignore]
+async fn owned_continuation_not_doubled() {
+    let Some(cookie) = std::env::var("LIMUSIC_COOKIE").ok().filter(|s| !s.is_empty()) else {
+        eprintln!("skipped: set LIMUSIC_COOKIE (+LIMUSIC_VISITOR) to run");
+        return;
+    };
+    let visitor = std::env::var("LIMUSIC_VISITOR").ok().filter(|s| !s.is_empty());
+    let it = InnerTube::new(Session { cookie: Some(cookie), visitor_data: visitor, ..Session::default() }, None).unwrap();
+    let clients = Clients::bundled();
+    let client = clients.get("WEB_REMIX").expect("WEB_REMIX client");
+
+    let libs = it.library_playlists(client).await.expect("library playlists");
+    let mut checked = 0;
+    for c in &libs {
+        let Ok(page) = it.playlist(client, &c.id).await else { continue };
+        let Some(tok) = page.continuation.clone() else { continue };
+        let cont = it.playlist_continuation(client, &tok).await.expect("continuation");
+        if cont.items.is_empty() {
+            continue; // a suggestions carousel, not more tracks
+        }
+        checked += 1;
+        let mut seen = std::collections::HashSet::new();
+        for i in &cont.items {
+            assert!(
+                seen.insert(i.video_id.clone()),
+                "playlist '{}' owned={} continuation doubled video {}",
+                page.title.clone().unwrap_or_default(),
+                page.owned,
+                i.video_id
+            );
+        }
+    }
+    assert!(checked > 0, "no playlist with a track continuation found to verify");
+    eprintln!("verified {checked} track continuations, no doubling");
+}
+
 #[tokio::test]
 async fn rustypipe_url_is_fetchable() {
     let c = innertube::rustypipe_fallback::resolve(VIDEO_ID, true)

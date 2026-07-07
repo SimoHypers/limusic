@@ -260,6 +260,12 @@ pub async fn create_playlist(state: St<'_>, title: String) -> Result<String, Str
 }
 
 #[tauri::command]
+pub async fn rename_playlist(state: St<'_>, playlist_id: String, name: String) -> Result<(), String> {
+    let client = require_login(&state)?;
+    state.it.playlist_rename(client, &playlist_id, &name).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn delete_playlist(state: St<'_>, playlist_id: String) -> Result<(), String> {
     let client = require_login(&state)?;
     state.it.delete_playlist(client, &playlist_id).await.map_err(|e| e.to_string())

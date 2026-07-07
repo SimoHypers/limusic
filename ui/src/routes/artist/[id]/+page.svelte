@@ -113,7 +113,7 @@
 					onclick={toggleSub}
 					disabled={subBusy}
 				>
-					<HugeiconsIcon icon={subscribed ? Tick02Icon : Add01Icon} class="h-4 w-4" />
+					<HugeiconsIcon icon={Add01Icon} altIcon={Tick02Icon} showAlt={subscribed} class="h-4 w-4" />
 					{subscribed ? 'Subscribed' : 'Subscribe'}
 				</button>
 			</div>

@@ -2,7 +2,15 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { PlayIcon, Delete02Icon } from '@hugeicons/core-free-icons';
+	import {
+		PlayIcon,
+		ShuffleIcon,
+		PencilEdit02Icon,
+		Delete02Icon,
+		MoreVerticalIcon,
+		Tick02Icon,
+		Cancel01Icon
+	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import TrackRow from '$lib/components/TrackRow.svelte';
 	import * as api from '$lib/api';
@@ -15,16 +23,29 @@
 	let loadingMore = $state(false);
 	let confirmingDelete = $state(false);
 
+	// ⋯ options menu, positioned `fixed` at the button so it isn't clipped (matches TrackRow).
+	let menuOpen = $state(false);
+	let mx = $state(0);
+	let my = $state(0);
+
+	// Inline rename state.
+	let editingName = $state(false);
+	let nameDraft = $state('');
+
 	const id = $derived(page.params.id ?? '');
 	const nowId = $derived(playback.now?.videoId);
-	// The liked-songs auto-playlist isn't a user playlist — don't offer to delete it.
-	const deletable = $derived(id !== 'VLLM');
+	// The liked-music auto-playlist isn't a user playlist — no rename/delete, but shuffle is fine.
+	const isLiked = $derived(id === 'VLLM');
+	// Only offer rename/delete on playlists the signed-in user actually owns (backend `owned` flag).
+	// Liked Music reports owned but can't be renamed/deleted, so exclude it explicitly.
+	const editable = $derived((pl?.owned ?? false) && !isLiked);
 
 	async function load(pid: string) {
 		loading = true;
 		error = null;
 		pl = null;
 		confirmingDelete = false;
+		editingName = false;
 		try {
 			pl = await api.getPlaylist(pid);
 		} catch (e) {
@@ -56,9 +77,51 @@
 		if (pl) api.playPlaylist(pl.items, start);
 	}
 
-	// The liked-music auto-playlist can't be edited like a normal one — removing = un-liking.
-	const isLiked = $derived(id === 'VLLM');
+	function shufflePlay() {
+		if (!pl?.items.length) return;
+		const a = [...pl.items];
+		for (let i = a.length - 1; i > 0; i--) {
+			const j = Math.floor(Math.random() * (i + 1));
+			[a[i], a[j]] = [a[j], a[i]];
+		}
+		api.playPlaylist(a, 0);
+	}
 
+	function openMenu(e: MouseEvent) {
+		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		mx = r.left;
+		my = r.bottom + 4;
+		menuOpen = true;
+	}
+	function run(action: () => void) {
+		menuOpen = false;
+		action();
+	}
+
+	function startRename() {
+		nameDraft = pl?.title ?? '';
+		editingName = true;
+	}
+
+	async function saveRename() {
+		const name = nameDraft.trim();
+		if (!pl || !name || name === pl.title) {
+			editingName = false;
+			return;
+		}
+		const prev = pl.title;
+		pl = { ...pl, title: name }; // optimistic
+		editingName = false;
+		try {
+			await api.renamePlaylist(id, name);
+			toast('Playlist renamed');
+		} catch (e) {
+			pl = { ...pl, title: prev }; // revert
+			toast(String(e));
+		}
+	}
+
+	// The liked-music auto-playlist can't be edited like a normal one — removing = un-liking.
 	async function removeTrack(track: SongItem) {
 		if (!pl) return;
 		if (!isLiked && !track.set_video_id) return;
@@ -93,6 +156,11 @@
 			confirmingDelete = false;
 		}
 	}
+
+	function autofocus(node: HTMLInputElement) {
+		node.focus();
+		node.select();
+	}
 </script>
 
 <div class="flex h-full flex-col">
@@ -109,31 +177,55 @@
 			{/if}
 			<div class="min-w-0 flex-1">
 				<div class="text-xs font-medium uppercase text-muted-foreground">Playlist</div>
-				<h1 class="mt-1 font-heading text-3xl font-bold">{pl.title ?? 'Playlist'}</h1>
+				{#if editingName}
+					<div class="mt-1 flex items-center gap-2">
+						<input
+							use:autofocus
+							bind:value={nameDraft}
+							onkeydown={(e) => {
+								if (e.key === 'Enter') saveRename();
+								else if (e.key === 'Escape') (editingName = false);
+							}}
+							class="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 font-heading text-3xl font-bold outline-none focus:border-accent"
+							aria-label="Playlist name"
+						/>
+						<Button size="icon" aria-label="Save name" onclick={saveRename}>
+							<HugeiconsIcon icon={Tick02Icon} class="h-5 w-5" />
+						</Button>
+						<Button
+							variant="ghost"
+							size="icon"
+							aria-label="Cancel rename"
+							onclick={() => (editingName = false)}
+						>
+							<HugeiconsIcon icon={Cancel01Icon} class="h-5 w-5 text-muted-foreground" />
+						</Button>
+					</div>
+				{:else}
+					<h1 class="mt-1 font-heading text-3xl font-bold">{pl.title ?? 'Playlist'}</h1>
+				{/if}
 				{#if pl.subtitle}<p class="mt-2 text-sm text-muted-foreground">{pl.subtitle}</p>{/if}
 				<div class="mt-4 flex items-center gap-2">
 					<Button class="gap-2" onclick={() => playAll(0)} disabled={!pl.items.length}>
 						<HugeiconsIcon icon={PlayIcon} class="h-4 w-4" /> Play
 					</Button>
-					{#if deletable}
-						{#if confirmingDelete}
-							<div class="flex items-center gap-2 rounded-lg border border-destructive/40 px-2 py-1">
-								<span class="text-xs text-muted-foreground">Delete this playlist?</span>
-								<Button variant="destructive" size="sm" onclick={deleteThisPlaylist}>Delete</Button>
-								<Button variant="ghost" size="sm" onclick={() => (confirmingDelete = false)}>
-									Cancel
-								</Button>
-							</div>
-						{:else}
-							<Button
-								variant="ghost"
-								size="icon"
-								aria-label="Delete playlist"
-								onclick={() => (confirmingDelete = true)}
-							>
-								<HugeiconsIcon icon={Delete02Icon} class="h-5 w-5 text-muted-foreground" />
+					{#if confirmingDelete}
+						<div class="flex items-center gap-2 rounded-lg border border-destructive/40 px-2 py-1">
+							<span class="text-xs text-muted-foreground">Delete this playlist?</span>
+							<Button variant="destructive" size="sm" onclick={deleteThisPlaylist}>Delete</Button>
+							<Button variant="ghost" size="sm" onclick={() => (confirmingDelete = false)}>
+								Cancel
 							</Button>
-						{/if}
+						</div>
+					{:else}
+						<Button
+							variant="ghost"
+							size="icon"
+							aria-label="Playlist options"
+							onclick={openMenu}
+						>
+							<HugeiconsIcon icon={MoreVerticalIcon} class="h-5 w-5 text-muted-foreground" />
+						</Button>
 					{/if}
 				</div>
 			</div>
@@ -146,7 +238,7 @@
 					active={item.video_id === nowId}
 					onplay={() => playAll(i)}
 					onAdd={() => openAddToPlaylist(item.video_id)}
-					onRemove={isLiked || item.set_video_id ? () => removeTrack(item) : undefined}
+					onRemove={isLiked || (editable && item.set_video_id) ? () => removeTrack(item) : undefined}
 				/>
 			{:else}
 				<p class="p-4 text-sm text-muted-foreground">This playlist is empty.</p>
@@ -161,3 +253,37 @@
 		</div>
 	{/if}
 </div>
+
+{#if menuOpen}
+	<button
+		class="fixed inset-0 z-40 cursor-default"
+		onclick={() => (menuOpen = false)}
+		aria-label="Close menu"
+	></button>
+	<div
+		class="fixed z-50 min-w-52 rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl"
+		style="left:{mx}px; top:{my}px;"
+	>
+		<button
+			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+			onclick={() => run(shufflePlay)}
+			disabled={!pl?.items.length}
+		>
+			<HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" /> Shuffle play
+		</button>
+		{#if editable}
+			<button
+				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+				onclick={() => run(startRename)}
+			>
+				<HugeiconsIcon icon={PencilEdit02Icon} class="h-4 w-4" /> Edit name
+			</button>
+			<button
+				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10"
+				onclick={() => run(() => (confirmingDelete = true))}
+			>
+				<HugeiconsIcon icon={Delete02Icon} class="h-4 w-4" /> Delete playlist
+			</button>
+		{/if}
+	</div>
+{/if}

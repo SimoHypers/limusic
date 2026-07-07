@@ -305,6 +305,31 @@ pub(crate) fn find_all<'a>(root: &'a Value, key: &str) -> Vec<&'a Value> {
     out
 }
 
+/// Like [`find_all`], but does not descend into a node once it matches `key`. Use when collecting
+/// "top-level" renderers (e.g. playlist track rows): an *editable* playlist item embeds a nested
+/// copy of its own `musicResponsiveListItemRenderer` inside an add-suggestion edit command, so a
+/// deep search counts every track twice. Stopping at the first match avoids that double-count.
+pub(crate) fn find_all_shallow<'a>(root: &'a Value, key: &str) -> Vec<&'a Value> {
+    let mut out = Vec::new();
+    fn walk<'a>(v: &'a Value, key: &str, out: &mut Vec<&'a Value>) {
+        match v {
+            Value::Object(map) => {
+                for (k, val) in map {
+                    if k == key {
+                        out.push(val); // matched — do NOT recurse into it
+                    } else {
+                        walk(val, key, out);
+                    }
+                }
+            }
+            Value::Array(arr) => arr.iter().for_each(|e| walk(e, key, out)),
+            _ => {}
+        }
+    }
+    walk(root, key, &mut out);
+    out
+}
+
 /// First string value under any key named `key`.
 pub(crate) fn find_first_str(root: &Value, key: &str) -> Option<String> {
     match root {

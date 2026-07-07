@@ -53,7 +53,7 @@
 			<p class="text-sm text-muted-foreground">Nothing found.</p>
 		{/each}
 	{:else if cards.length}
-		<div class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2">
+		<div class="grid grid-cols-[repeat(auto-fill,10rem)] gap-4">
 			{#each cards as item (item.id + item.title)}
 				<MediaCard {item} />
 			{/each}

@@ -20,14 +20,17 @@
 <ModeWatcher />
 
 <div class="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-	<div class="flex min-h-0 flex-1">
+	<!-- relative: lets QueuePanel overlay the content on narrow windows (see QueuePanel). -->
+	<div class="relative flex min-h-0 flex-1">
 		<Sidebar />
 		<main class="min-w-0 flex-1 overflow-y-auto">
 			{@render children()}
 		</main>
-		{#if showQueue}<QueuePanel />{/if}
+		{#if showQueue}<QueuePanel onClose={() => (showQueue = false)} />{/if}
 	</div>
-	<PlayerBar onToggleQueue={() => (showQueue = !showQueue)} queueOpen={showQueue} />
+	{#if playback.now}
+		<PlayerBar onToggleQueue={() => (showQueue = !showQueue)} queueOpen={showQueue} />
+	{/if}
 </div>
 
 <AddToPlaylist />
