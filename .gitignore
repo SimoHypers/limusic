@@ -2,3 +2,12 @@
 # rustypipe scratch (older builds wrote these into CWD; now redirected to temp)
 rustypipe_cache.json
 rustypipe_reports/
+
+# Local design notes & tooling — kept out of the public repo
+/context/
+/progress/
+/spikes/
+/.agents/
+/CLAUDE.md
+/PHASE1-PROMPT.md
+/skills-lock.json

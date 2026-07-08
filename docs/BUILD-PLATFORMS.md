@@ -113,4 +113,4 @@ Bare unsigned bundles (no code signing / notarization — deferred to Phase 5), 
    music.youtube.com history.
 
 If OS media integration is rough on Windows or macOS, shipping **MPRIS-only** (Linux) for v1 is the
-blessed fallback (context/16) — don't let one platform's rough edge block the milestone.
+blessed fallback — don't let one platform's rough edge block the milestone.
