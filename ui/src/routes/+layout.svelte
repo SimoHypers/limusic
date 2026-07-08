@@ -10,7 +10,9 @@
 	import QueuePanel from '$lib/components/QueuePanel.svelte';
 	import AddToPlaylist from '$lib/components/AddToPlaylist.svelte';
 	import SettingsDialog from '$lib/components/SettingsDialog.svelte';
+	import { Button } from '$lib/components/ui/button';
 	import { initApp, playback, ui } from '$lib/player.svelte';
+	import { updateState, installUpdate, checkForUpdatesQuiet } from '$lib/updater.svelte';
 
 	let { children } = $props();
 	let showQueue = $state(false);
@@ -18,8 +20,12 @@
 	// Apply the saved accent color before the first paint (ssr=false → nothing renders until now).
 	if (browser) initTheme();
 
-	// Wire the Tauri event bridge once for the whole app; teardown on destroy.
-	onMount(() => initApp());
+	// Wire the Tauri event bridge once for the whole app; teardown on destroy. Check for an update
+	// on every app open (silent unless one exists).
+	onMount(() => {
+		checkForUpdatesQuiet();
+		return initApp();
+	});
 </script>
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
@@ -42,7 +48,23 @@
 <AddToPlaylist />
 <SettingsDialog />
 
-{#if ui.toast}
+{#if updateState.available}
+	<div
+		class="fixed bottom-24 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
+	>
+		<span>Update available — v{updateState.available.version}</span>
+		<Button size="sm" onclick={installUpdate} disabled={updateState.installing}>
+			{updateState.installing ? 'Updating…' : 'Update now'}
+		</Button>
+		{#if !updateState.installing}
+			<button
+				class="text-muted-foreground hover:text-foreground"
+				aria-label="Dismiss"
+				onclick={() => (updateState.available = null)}>✕</button
+			>
+		{/if}
+	</div>
+{:else if ui.toast}
 	<div
 		class="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
 	>

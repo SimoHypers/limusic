@@ -6,6 +6,8 @@
 	import * as api from '$lib/api';
 	import { ui, toast } from '$lib/player.svelte';
 	import { THEMES, theme, applyTheme } from '$lib/theme.svelte';
+	import { updateState, checkForUpdatesInteractive } from '$lib/updater.svelte';
+	import { getVersion } from '@tauri-apps/api/app';
 
 	type TabId = 'general' | 'playback' | 'data' | 'about';
 	const TABS: { id: TabId; label: string }[] = [
@@ -21,6 +23,8 @@
 	let proxyInput = $state('');
 	let loaded = $state(false);
 	let clearing = $state(false);
+	let version = $state('');
+	getVersion().then((v) => (version = v));
 
 	// (Re)load whenever the modal opens, so it reflects the current persisted values.
 	$effect(() => {
@@ -234,12 +238,29 @@
 						</Button>
 					</div>
 				{:else if tab === 'about'}
-					<div class="py-3">
+					<div class="border-b py-3">
 						<div class="font-heading text-lg font-bold">Limusic</div>
 						<p class="mt-1 text-sm text-muted-foreground">
 							A cross-platform desktop YouTube Music client — ad-free playback straight from
 							YouTube's private API, with your real library and OS media keys.
 						</p>
+						{#if version}<p class="mt-2 text-sm text-muted-foreground">Version {version}</p>{/if}
+					</div>
+					<div class="flex items-center justify-between gap-4 py-3">
+						<div class="min-w-0">
+							<div class="font-medium">Updates</div>
+							<p class="mt-0.5 text-sm text-muted-foreground">
+								Check GitHub for a newer release.
+							</p>
+						</div>
+						<Button
+							variant="outline"
+							size="sm"
+							onclick={checkForUpdatesInteractive}
+							disabled={updateState.checking}
+						>
+							{updateState.checking ? 'Checking…' : 'Check for updates'}
+						</Button>
 					</div>
 				{/if}
 			</div>
