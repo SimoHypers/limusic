@@ -66,8 +66,10 @@ impl Bridge {
         let data_url = format!("data:text/html,{}", urlencoding::encode(harness_html));
         let url = tauri::Url::parse(&data_url).map_err(|e| Error::Build(e.to_string()))?;
 
-        // Readiness comes from the runtime (`on_page_load` → Finished) — no JS round-trip needed,
-        // so it's immune to wry queuing pre-load evals without a callback.
+        // Page-load signal from the runtime (`on_page_load` → Finished). It's the fast path on
+        // WebKitGTK; on WebView2 it is unreliable for the initial `data:` harness (loaded as
+        // NavigateToString, whose NavigationCompleted often never fires — WebView2Feedback #998),
+        // so it's an accelerator here, not the gate. The real readiness gate is an eval round-trip.
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
         let ready_slot = Arc::new(StdMutex::new(Some(ready_tx)));
 
@@ -102,26 +104,39 @@ impl Bridge {
 
         let bridge = Bridge { app: app.clone(), label: label.to_string() };
 
-        // Wait for page load; on timeout the window exists but is unusable — destroy it (Stage A).
-        if tokio::time::timeout(Duration::from_secs(10), ready_rx).await.is_err() {
-            tracing::error!(label, "webview never signalled page-load (on_page_load Finished)");
-            let _ = bridge.destroy();
-            return Err(Error::Timeout(Duration::from_secs(10)));
+        // Give the page-load event a brief chance (WebKitGTK fires it in ~tens of ms, so no evals
+        // are issued before load there); if it doesn't arrive, fall through to probing JS directly
+        // — a hidden WebView2 runs JS even when NavigationCompleted never fires. This is the fix
+        // that makes the cipher/PoToken webviews work on Windows.
+        tokio::select! {
+            _ = ready_rx => tracing::info!(label, "webview page loaded"),
+            _ = tokio::time::sleep(Duration::from_secs(1)) =>
+                tracing::debug!(label, "no page-load event within 1s — probing JS directly"),
         }
-        tracing::info!(label, "webview page loaded");
 
-        // Probe the JS↔Rust bridge once. This is the definitive test of whether
-        // `eval_with_callback` round-trips on WebKitGTK (the Phase-0 spike used IPC instead).
-        match bridge.eval_json("1+1".into(), Duration::from_secs(5)).await {
-            Ok(v) if v.as_i64() == Some(2) => {
-                tracing::info!(label, "webview bridge OK — eval_with_callback round-trips");
-                Ok(bridge)
+        // Real readiness gate: poll until JS confirms our harness document is actually loaded.
+        // `location.protocol==='data:'` is true only once the `data:` harness is live — it stays
+        // false on the `about:blank` a fresh WebView2 sits on, so (unlike a plain `1+1`, which would
+        // pass on `about:blank` too) this proves BOTH the JS↔Rust round-trip works AND the right
+        // document loaded. WebView2 misses the load *event*, not the load itself; on WebKitGTK the
+        // same data URL is loaded via `load_uri`, so the check holds there too (no Linux regression).
+        // Short per-attempt timeout so an eval whose callback is dropped pre-load (WebKitGTK quirk)
+        // retries instead of stalling. On timeout the window exists but is unusable — destroy it.
+        let deadline = Instant::now() + Duration::from_secs(12);
+        loop {
+            let probe = bridge
+                .eval_json("location.protocol==='data:'".into(), Duration::from_millis(800))
+                .await;
+            if matches!(probe, Ok(Value::Bool(true))) {
+                tracing::info!(label, "webview bridge OK — harness loaded, eval round-trips");
+                return Ok(bridge);
             }
-            other => {
-                tracing::error!(label, ?other, "webview eval probe FAILED — JS→Rust does not round-trip");
+            if Instant::now() >= deadline {
+                tracing::error!(label, "webview never became ready — harness never loaded / JS never round-tripped");
                 let _ = bridge.destroy();
-                Err(Error::Eval("eval_with_callback did not round-trip".into()))
+                return Err(Error::Timeout(Duration::from_secs(12)));
             }
+            tokio::time::sleep(Duration::from_millis(150)).await;
         }
     }
 
