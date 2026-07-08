@@ -3,6 +3,7 @@
 mod cipher;
 mod commands;
 mod db;
+mod media;
 mod orchestrator;
 mod potoken;
 mod session;
@@ -105,9 +106,29 @@ pub fn run() {
                 potoken.clone(),
             ));
 
-            let app_state =
-                Arc::new(AppState::new(it, clients, player, db, handle.clone(), orchestrator));
+            // OS media controls (MPRIS/SMTC/NowPlaying). Its callback resolves AppState lazily, so
+            // it's fine to spawn before AppState is managed. context/16, D11.
+            let media = media::spawn(handle.clone());
+
+            let app_state = Arc::new(AppState::new(
+                it,
+                clients,
+                player,
+                db,
+                handle.clone(),
+                orchestrator,
+                cache_dir.clone(),
+                media,
+            ));
             app.manage(app_state.clone());
+
+            // Restore the last session's queue (paused, not autoplaying). context/11 §state.
+            {
+                let st = app_state.clone();
+                tauri::async_runtime::spawn(async move {
+                    st.restore_queue().await;
+                });
+            }
 
             // Pump mpv events → UI events + queue advance. context/11 events, context/14 §TrackEnded.
             spawn_event_pump(app_state, handle, events);
@@ -154,6 +175,8 @@ pub fn run() {
             commands::get_queue,
             commands::get_settings,
             commands::set_setting,
+            commands::get_stream_clients,
+            commands::clear_caches,
             commands::set_cookie,
             commands::get_account,
             commands::sign_out,
@@ -202,15 +225,20 @@ fn spawn_event_pump(
             match ev {
                 PlayerEvent::Position(p) => {
                     let _ = app.emit("position", serde_json::json!({ "position": p }));
+                    state.on_position(p).await;
                 }
                 PlayerEvent::Duration(d) => {
                     let _ = app.emit("duration", serde_json::json!({ "duration": d }));
+                    state.on_duration(d).await;
                 }
                 PlayerEvent::Playing => {
                     let _ = app.emit("playback-state", "playing");
+                    state.media_set_playing(true);
                 }
                 PlayerEvent::Paused => {
                     let _ = app.emit("playback-state", "paused");
+                    state.flush_position(); // persist exact resume position on pause
+                    state.media_set_playing(false);
                 }
                 PlayerEvent::TrackEnded => {
                     state.on_track_ended().await;

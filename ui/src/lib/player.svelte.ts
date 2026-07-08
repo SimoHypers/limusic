@@ -57,7 +57,8 @@ export async function createLibraryPlaylist(title: string): Promise<void> {
 // Transient UI state for write actions.
 export const ui = $state({
 	addVideoIds: null as string[] | null, // add-to-playlist picker target(s)
-	toast: null as string | null
+	toast: null as string | null,
+	settingsOpen: false // the settings modal
 });
 
 export function toast(msg: string) {
@@ -103,7 +104,30 @@ export function initApp(): () => void {
 		api.onLoginError((msg) => toast(msg)),
 		api.onLoginDone(() => toast('Signed in'))
 	];
-	api.getQueue().then((q) => (playback.queue = q)).catch(() => {});
+	api.getQueue()
+		.then((q) => {
+			playback.queue = q;
+			// On a cold start the backend restores the queue (paused) before the UI subscribes, so
+			// the now-playing event is missed. Seed the player-bar card from the restored current
+			// item; hitting play resolves it for real and re-emits now-playing.
+			if (!playback.now) {
+				const cur = q.items[q.currentIndex];
+				if (cur) {
+					playback.now = {
+						videoId: cur.video_id,
+						title: cur.title,
+						artists: cur.artists,
+						artistId: cur.artist_id,
+						thumbnail: cur.thumbnail,
+						duration: cur.duration,
+						streamClient: 'restored',
+						liked: null
+					};
+					playback.paused = true;
+				}
+			}
+		})
+		.catch(() => {});
 	api.getAccount()
 		.then((a) => {
 			auth.account = a;

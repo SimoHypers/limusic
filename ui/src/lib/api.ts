@@ -125,6 +125,15 @@ export const seek = (position: number) => invoke<void>('seek', { position });
 export const setVolume = (volume: number) => invoke<void>('set_volume', { volume });
 export const getQueue = () => invoke<QueueState>('get_queue');
 
+// --- settings (context/11) -----------------------------------------------------------------
+export const getSettings = () => invoke<Record<string, string>>('get_settings');
+export const setSetting = (key: string, value: string) =>
+	invoke<void>('set_setting', { key, value });
+/** Streamable client keys for the "disabled clients" setting. */
+export const getStreamClients = () => invoke<string[]>('get_stream_clients');
+/** Wipe both cache tiers (URL cache + mpv on-disk audio cache). */
+export const clearCaches = () => invoke<void>('clear_caches');
+
 // --- auth (context/15) ---------------------------------------------------------------------
 export const setCookie = (cookie: string) => invoke<Account>('set_cookie', { cookie });
 export const getAccount = () => invoke<Account>('get_account');

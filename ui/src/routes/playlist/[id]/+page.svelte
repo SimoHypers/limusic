@@ -22,6 +22,8 @@
 	let error = $state<string | null>(null);
 	let loadingMore = $state(false);
 	let confirmingDelete = $state(false);
+	// A random song's cover, used as a blurred hero backdrop (like the artist/album pages).
+	let bgImage = $state<string | null>(null);
 
 	// ⋯ options menu, positioned `fixed` at the button so it isn't clipped (matches TrackRow).
 	let menuOpen = $state(false);
@@ -44,10 +46,12 @@
 		loading = true;
 		error = null;
 		pl = null;
+		bgImage = null;
 		confirmingDelete = false;
 		editingName = false;
 		try {
 			pl = await api.getPlaylist(pid);
+			bgImage = pickCover(pl.items);
 		} catch (e) {
 			error = String(e);
 		} finally {
@@ -75,6 +79,21 @@
 
 	function playAll(start: number) {
 		if (pl) api.playPlaylist(pl.items, start);
+	}
+
+	// Random cover from the songs, picked once per load so it stays stable while browsing
+	// (loadMore appends tracks without changing it).
+	function pickCover(items: SongItem[]): string | null {
+		const withThumb = items.filter((t) => t.thumbnail);
+		if (!withThumb.length) return null;
+		const url = withThumb[Math.floor(Math.random() * withThumb.length)].thumbnail!;
+		return hiRes(url);
+	}
+
+	// List thumbnails come at a small size; YouTube/Google encode the size in the URL, so bump it
+	// for a crisp full-width backdrop.
+	function hiRes(url: string): string {
+		return url.replace(/=w\d+-h\d+/, '=w1200-h1200').replace(/=s\d+/, '=s1200');
 	}
 
 	function shufflePlay() {
@@ -169,13 +188,30 @@
 	{:else if error}
 		<div class="p-6 text-sm text-destructive">{error}</div>
 	{:else if pl}
-		<div class="flex items-end gap-6 border-b bg-gradient-to-b from-accent/10 to-transparent p-6">
-			{#if pl.thumbnail}
-				<img src={pl.thumbnail} alt="" class="h-40 w-40 rounded-xl object-cover shadow-lg" />
-			{:else}
-				<div class="h-40 w-40 rounded-xl bg-muted"></div>
+		<div class="relative flex min-h-[38vh] items-end gap-6 overflow-hidden border-b p-6">
+			{#if bgImage}
+				<img
+					src={bgImage}
+					alt=""
+					class="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
+				/>
 			{/if}
-			<div class="min-w-0 flex-1">
+			<!-- Fade the cover into the page so the text stays readable: solid at the bottom and on the
+			     left (behind the title), the image itself visible toward the top-right. -->
+			<div
+				class="absolute inset-0 bg-gradient-to-t from-background via-background/60 to-background/20"
+			></div>
+			<div class="absolute inset-0 bg-gradient-to-r from-background via-background/50 to-transparent"></div>
+			{#if pl.thumbnail}
+				<img
+					src={pl.thumbnail}
+					alt=""
+					class="relative h-40 w-40 rounded-xl object-cover shadow-lg"
+				/>
+			{:else}
+				<div class="relative h-40 w-40 rounded-xl bg-muted"></div>
+			{/if}
+			<div class="relative min-w-0 flex-1">
 				<div class="text-xs font-medium uppercase text-muted-foreground">Playlist</div>
 				{#if editingName}
 					<div class="mt-1 flex items-center gap-2">
@@ -202,7 +238,9 @@
 						</Button>
 					</div>
 				{:else}
-					<h1 class="mt-1 font-heading text-3xl font-bold">{pl.title ?? 'Playlist'}</h1>
+					<h1 class="mt-1 font-heading text-4xl font-bold tracking-tight drop-shadow-lg">
+					{pl.title ?? 'Playlist'}
+				</h1>
 				{/if}
 				{#if pl.subtitle}<p class="mt-2 text-sm text-muted-foreground">{pl.subtitle}</p>{/if}
 				<div class="mt-4 flex items-center gap-2">

@@ -10,7 +10,8 @@ use player::Player;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
-use crate::db::{Db, QueueRow};
+use crate::db::Db;
+use crate::media::MediaHandle;
 use crate::orchestrator::{Orchestrator, PlaybackData, ResolveError};
 
 pub struct AppState {
@@ -20,10 +21,24 @@ pub struct AppState {
     pub db: Db,
     pub app: AppHandle,
     pub orchestrator: Arc<Orchestrator>,
+    /// mpv's on-disk audio cache dir (context/14) — wiped by the settings "Clear caches" action.
+    cache_dir: std::path::PathBuf,
+    /// OS media integration (MPRIS/SMTC/NowPlaying). `None` if it failed to init. context/16.
+    media: Option<MediaHandle>,
     queue: Mutex<QueueState>,
     /// Bumped on every explicit `play`/jump so superseded async resolves discard their result
     /// (cancellation without JoinHandle bookkeeping). context/06 §6.
     generation: AtomicU64,
+    /// A one-shot resume position `(videoId, secs)` set by `restore_queue` and consumed by the
+    /// next `start_current` — applied only when that track is the one being started, so jumping to
+    /// a different track first doesn't inherit the old position (context/11).
+    pending_seek: std::sync::Mutex<Option<(String, f64)>>,
+    /// Latest mpv position (f64 bits) + wall-clock secs of the last DB write, for throttled
+    /// resume-position persistence.
+    latest_position: AtomicU64,
+    last_pos_persist: AtomicU64,
+    /// Wall-clock secs of the last position push to the OS media controls (throttled ~1s).
+    last_media_push: AtomicU64,
 }
 
 #[derive(Default)]
@@ -37,9 +52,20 @@ struct QueueState {
     /// The client that served the primed lookahead track — promoted to `current_client` on a
     /// gapless advance so the failure feedback still knows the client.
     lookahead_client: Option<String>,
+    /// Watch-history tracking URL for the current track + the primed lookahead's (promoted on a
+    /// gapless advance, mirroring current/lookahead_client). context/01 §registerPlayback.
+    playback_url: Option<String>,
+    lookahead_playback_url: Option<String>,
+    /// Content Playback Nonce for the current play + whether we've already fired the history ping
+    /// for it (latched so the frequent position events fire it exactly once). context/01.
+    cpn: String,
+    history_pinged: bool,
+    /// Latest mpv-reported track duration (secs), for the history-ping threshold.
+    duration: f64,
 }
 
 impl AppState {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         it: InnerTube,
         clients: Clients,
@@ -47,6 +73,8 @@ impl AppState {
         db: Db,
         app: AppHandle,
         orchestrator: Arc<Orchestrator>,
+        cache_dir: std::path::PathBuf,
+        media: Option<MediaHandle>,
     ) -> Self {
         AppState {
             it,
@@ -55,8 +83,14 @@ impl AppState {
             db,
             app,
             orchestrator,
+            cache_dir,
+            media,
             queue: Mutex::new(QueueState::default()),
             generation: AtomicU64::new(0),
+            pending_seek: std::sync::Mutex::new(None),
+            latest_position: AtomicU64::new(0),
+            last_pos_persist: AtomicU64::new(0),
+            last_media_push: AtomicU64::new(0),
         }
     }
 
@@ -170,7 +204,9 @@ impl AppState {
                 itag: c.itag,
                 headers: Default::default(),
                 expires_in_seconds: c.expires_at - now,
-                loudness_db: None,
+                loudness_db: c.loudness_db,
+                // Not cached — a replay from cache doesn't re-register watch history (best-effort).
+                playback_url: None,
                 title: None,
                 artists: None,
                 duration: None,
@@ -190,6 +226,7 @@ impl AppState {
                 &data.stream_url,
                 data.itag,
                 now + data.expires_in_seconds.max(0),
+                data.loudness_db,
             );
         }
         Ok(data)
@@ -256,6 +293,23 @@ impl AppState {
         }
     }
 
+    /// Play/pause toggle that also starts a *restored* (or exhausted) queue: if mpv has nothing
+    /// loaded but the queue is non-empty, load the current track (applying any resume position);
+    /// otherwise just toggle mpv. Keeps the UI's single play/pause button working after a restart.
+    pub async fn resume_or_toggle(self: &std::sync::Arc<Self>) {
+        if self.player.is_idle() {
+            let (idx, has_items) = {
+                let q = self.queue.lock().await;
+                (q.current, !q.items.is_empty())
+            };
+            if has_items {
+                self.play_index(idx).await;
+                return;
+            }
+        }
+        let _ = self.player.toggle();
+    }
+
     /// Jump to a specific queue index.
     pub async fn play_index(self: &std::sync::Arc<Self>, index: usize) {
         let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
@@ -308,11 +362,17 @@ impl AppState {
         {
             let mut q = self.queue.lock().await;
             q.current_client = q.lookahead_client.take();
+            // New track is now playing → fresh history state (mirrors start_current).
+            q.playback_url = q.lookahead_playback_url.take();
+            q.cpn = innertube::generate_cpn();
+            q.history_pinged = false;
+            q.duration = 0.0;
         }
         if let Some(item) = self.current_item().await {
             self.emit_now_playing(&item, "gapless");
         }
         self.emit_queue().await;
+        self.persist_queue().await; // index advanced without an explicit load → persist it
         tracing::info!("advanced to next track (gapless)");
         self.prime_lookahead(gen).await;
     }
@@ -349,14 +409,34 @@ impl AppState {
         if self.generation.load(Ordering::SeqCst) != gen {
             return false; // user moved on
         }
-        if let Err(e) = self.player.load(&data.stream_url, &data.headers, data.loudness_db) {
+        if let Err(e) = self.player.load(&data.stream_url, &data.headers, loudness_gain(data.loudness_db)) {
             self.emit_error(&item.video_id, &e.to_string());
             return false;
         }
         let _ = self.player.play();
+        // Resume a restored position, but only for the exact track it was saved against (any first
+        // play consumes it, so jumping elsewhere doesn't inherit it). mpv queues an absolute seek
+        // issued right after loadfile and applies it when the file loads.
+        // ponytail: if resume-position proves flaky on some mpv build, switch to the loadfile
+        // `start=` option instead of a post-load seek.
+        let seek = self
+            .pending_seek
+            .lock()
+            .unwrap()
+            .take()
+            .filter(|(vid, _)| *vid == item.video_id)
+            .map(|(_, pos)| pos);
+        if let Some(pos) = seek {
+            let _ = self.player.seek(pos);
+        }
         {
             let mut q = self.queue.lock().await;
             q.current_client = Some(data.stream_client.clone());
+            // Fresh play → fresh history state (context/01 §registerPlayback).
+            q.playback_url = data.playback_url.clone();
+            q.cpn = innertube::generate_cpn();
+            q.history_pinged = false;
+            q.duration = 0.0;
         }
         self.emit_now_playing(&item, &data.stream_client);
         self.emit_queue().await;
@@ -399,6 +479,7 @@ impl AppState {
         let mut q = self.queue.lock().await;
         q.lookahead_loaded = Some(next_index);
         q.lookahead_client = Some(data.stream_client.clone());
+        q.lookahead_playback_url = data.playback_url.clone();
         tracing::debug!(index = next_index, "gapless lookahead primed");
     }
 
@@ -424,6 +505,33 @@ impl AppState {
             }),
         );
         let _ = self.app.emit("playback-state", "playing");
+        // Push the same metadata to the OS media widget (context/16).
+        if let Some(m) = &self.media {
+            m.set_metadata(&item.title, &item.artists, item.album.as_deref(), item.thumbnail.as_deref());
+        }
+    }
+
+    /// Push play/pause state + the current position to the OS media controls (context/16).
+    pub fn media_set_playing(&self, playing: bool) {
+        if let Some(m) = &self.media {
+            m.set_playback(playing, self.current_position());
+        }
+    }
+
+    /// Latest mpv position (secs) — for OS scrubber updates + relative media-key seeks.
+    pub fn current_position(&self) -> f64 {
+        f64::from_bits(self.latest_position.load(Ordering::SeqCst))
+    }
+
+    /// Advance/rewind the queue (OS "next"/"previous" keys + the UI's skip buttons).
+    pub async fn next_in_queue(self: &std::sync::Arc<Self>) {
+        let i = self.queue.lock().await.current + 1;
+        self.play_index(i).await;
+    }
+
+    pub async fn prev_in_queue(self: &std::sync::Arc<Self>) {
+        let i = self.queue.lock().await.current.saturating_sub(1);
+        self.play_index(i).await;
     }
 
     async fn emit_queue(&self) {
@@ -446,21 +554,131 @@ impl AppState {
         serde_json::json!({ "items": &q.items, "currentIndex": q.current })
     }
 
+    /// A position tick from mpv. Fires the watch-history ping once the current track passes the
+    /// play threshold (context/01 §registerPlayback) — latched to fire exactly once per play,
+    /// gated on the `enable_history` setting + being logged in. Best-effort (errors logged).
+    pub async fn on_position(&self, pos: f64) {
+        self.record_position(pos);
+        let ping = {
+            let mut q = self.queue.lock().await;
+            if q.history_pinged {
+                None
+            } else {
+                // Threshold: halfway, capped at 30s (default 30s until mpv reports duration).
+                let threshold = if q.duration > 1.0 { (q.duration / 2.0).min(30.0) } else { 30.0 };
+                if pos >= threshold {
+                    q.history_pinged = true; // latch even if the URL is missing — never retry
+                    q.playback_url.clone().map(|url| (url, q.cpn.clone()))
+                } else {
+                    None
+                }
+            }
+        };
+        let Some((url, cpn)) = ping else { return };
+        if !self.history_enabled() || !self.it.is_logged_in() {
+            return;
+        }
+        let Some(client) = self.clients.get(innertube::METADATA_CLIENT).cloned() else { return };
+        let it = self.it.clone();
+        tauri::async_runtime::spawn(async move {
+            match it.register_playback(&client, &url, &cpn, None).await {
+                Ok(()) => tracing::debug!("watch-history ping sent"),
+                Err(e) => tracing::warn!(error = %e, "watch-history ping failed"),
+            }
+        });
+    }
+
+    /// Latest mpv-reported track duration (secs), feeding the history-ping threshold + OS scrubber.
+    pub async fn on_duration(&self, secs: f64) {
+        if secs.is_finite() && secs > 0.0 {
+            self.queue.lock().await.duration = secs;
+            if let Some(m) = &self.media {
+                m.set_duration(secs);
+            }
+        }
+    }
+
+    /// Watch-history ping enabled? Default on; only an explicit `"false"` disables it.
+    fn history_enabled(&self) -> bool {
+        self.db.get_setting("enable_history").map(|v| v != "false").unwrap_or(true)
+    }
+
+    /// Persist the queue (items + current index) as a JSON blob so a restart can restore it
+    /// losslessly (context/11 §state). Called whenever the queue changes or advances.
     async fn persist_queue(&self) {
-        let q = self.queue.lock().await;
-        let rows: Vec<QueueRow> = q
-            .items
-            .iter()
-            .map(|i| QueueRow {
-                video_id: i.video_id.clone(),
-                title: i.title.clone().into(),
-                artists: i.artists.clone().into(),
-                duration: i.duration.clone(),
-                thumbnail: i.thumbnail.clone(),
-            })
-            .collect();
-        drop(q);
-        self.db.save_queue(&rows);
+        let json = {
+            let q = self.queue.lock().await;
+            serde_json::json!({ "items": &q.items, "current": q.current }).to_string()
+        };
+        self.db.set_setting("queue_json", &json);
+    }
+
+    /// Restore the last session's queue on startup — paused, not autoplaying (context/11). The
+    /// saved position is applied when the user first hits play (see `start_current`). Emits
+    /// `queue-changed` + `now-playing` so the UI shows the restored track.
+    pub async fn restore_queue(&self) {
+        let Some(json) = self.db.get_setting("queue_json") else { return };
+        let Ok(saved) = serde_json::from_str::<serde_json::Value>(&json) else { return };
+        let items: Vec<SongItem> = saved
+            .get("items")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        if items.is_empty() {
+            return;
+        }
+        let current = (saved.get("current").and_then(|v| v.as_u64()).unwrap_or(0) as usize)
+            .min(items.len() - 1);
+        let pos = self.db.get_setting("queue_position").and_then(|s| s.parse::<f64>().ok());
+        if let Some(p) = pos.filter(|p| *p > 0.0) {
+            *self.pending_seek.lock().unwrap() = Some((items[current].video_id.clone(), p));
+        }
+        {
+            let mut q = self.queue.lock().await;
+            q.current = current;
+            q.items = items;
+        }
+        if let Some(item) = self.current_item().await {
+            // Restored, not playing — announce the track but leave playback paused.
+            self.emit_now_playing(&item, "restored");
+            let _ = self.app.emit("playback-state", "paused");
+            self.media_set_playing(false);
+        }
+        self.emit_queue().await;
+    }
+
+    /// Throttled position persistence for resume-on-restart. Records the latest position always
+    /// (for a precise flush on pause) and writes it to the DB at most every 5s.
+    fn record_position(&self, pos: f64) {
+        self.latest_position.store(pos.to_bits(), Ordering::SeqCst);
+        let now = now_secs() as u64;
+        if now.saturating_sub(self.last_pos_persist.load(Ordering::Relaxed)) >= 5 {
+            self.last_pos_persist.store(now, Ordering::Relaxed);
+            self.db.set_setting("queue_position", &pos.to_string());
+        }
+        // Update the OS scrubber (~1s), throttled separately from the DB write.
+        if let Some(m) = &self.media {
+            if now.saturating_sub(self.last_media_push.load(Ordering::Relaxed)) >= 1 {
+                self.last_media_push.store(now, Ordering::Relaxed);
+                m.set_playback(true, pos);
+            }
+        }
+    }
+
+    /// Flush the latest known position to the DB immediately (e.g. on pause).
+    pub fn flush_position(&self) {
+        let pos = f64::from_bits(self.latest_position.load(Ordering::SeqCst));
+        self.db.set_setting("queue_position", &pos.to_string());
+    }
+
+    /// Clear both cache tiers (settings "Clear caches"): the SQLite URL cache + mpv's on-disk
+    /// audio bytes. Best-effort on the files — the current track may re-buffer. context/14.
+    pub fn clear_caches(&self) {
+        self.db.clear_stream_cache();
+        if let Ok(entries) = std::fs::read_dir(&self.cache_dir) {
+            for e in entries.flatten() {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
     }
 }
 
@@ -469,4 +687,30 @@ fn now_secs() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+/// Per-track loudness gain (dB) from YouTube's `loudnessDb` (context/03, context/14). Attenuate
+/// only toward reference loudness: loud masters (`loudnessDb > 0`) get `-loudnessDb`; quieter
+/// tracks aren't boosted, so there's no clipping and no limiter to add.
+// ponytail: attenuate-only, clamped to -24 dB. If quiet tracks feel too soft, allow positive gain
+// plus an `alimiter` af to catch the resulting peaks.
+fn loudness_gain(loudness_db: Option<f64>) -> Option<f64> {
+    loudness_db.map(|l| (-l).clamp(-24.0, 0.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::loudness_gain;
+
+    #[test]
+    fn loudness_gain_attenuates_loud_only() {
+        // Loud master (+7 dB over reference) → attenuate 7 dB.
+        assert_eq!(loudness_gain(Some(7.0)), Some(-7.0));
+        // Quiet track (−5 dB) → no boost (clamped to 0).
+        assert_eq!(loudness_gain(Some(-5.0)), Some(0.0));
+        // Extreme loudness clamps at −24 dB.
+        assert_eq!(loudness_gain(Some(40.0)), Some(-24.0));
+        // No metadata → no filter.
+        assert_eq!(loudness_gain(None), None);
+    }
 }

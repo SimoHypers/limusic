@@ -5,6 +5,7 @@
 		Home01Icon,
 		Search01Icon,
 		LibraryIcon,
+		Settings01Icon,
 		Sun01Icon,
 		Moon02Icon,
 		UserCircleIcon,
@@ -17,7 +18,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as api from '$lib/api';
 	import type { BrowseItem } from '$lib/api';
-	import { auth, library, createLibraryPlaylist, toast } from '$lib/player.svelte';
+	import { auth, library, ui, createLibraryPlaylist, toast } from '$lib/player.svelte';
 
 	const nav = [
 		{ href: '/', label: 'Home', icon: Home01Icon },
@@ -112,6 +113,14 @@
 				<span class="hidden lg:inline">{n.label}</span>
 			</a>
 		{/each}
+		<button
+			onclick={() => (ui.settingsOpen = true)}
+			title="Settings"
+			class="flex items-center justify-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground lg:justify-start"
+		>
+			<HugeiconsIcon icon={Settings01Icon} class="h-5 w-5 shrink-0" />
+			<span class="hidden lg:inline">Settings</span>
+		</button>
 	</nav>
 
 	<!-- Playlists (signed in). Hidden on the icon rail — needs labels; matches YTM's collapsed rail.

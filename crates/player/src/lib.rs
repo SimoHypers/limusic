@@ -159,9 +159,9 @@ impl Player {
         Ok(())
     }
 
-    /// Apply per-track loudness gain. context/14.
-    // ponytail: `<gain>dB` volume filter, not full target-LUFS math — Phase 1 loudness is
-    // non-blocking (PHASE1-PROMPT). Upgrade to the file-07 VolumeNormalization formula in Phase 4.
+    /// Apply a per-track loudness gain (dB) as an mpv `volume` audio filter. context/14. Kept
+    /// YouTube-agnostic: the caller computes the gain from `loudnessDb` (see `state::loudness_gain`);
+    /// this just applies whatever dB it's handed.
     fn apply_gain(&self, gain_db: Option<f64>) -> Result<(), Error> {
         match gain_db {
             Some(g) => self

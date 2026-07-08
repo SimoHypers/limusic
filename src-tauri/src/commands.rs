@@ -63,23 +63,20 @@ pub async fn play_index(state: St<'_>, index: usize) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn next_track(state: St<'_>) -> Result<(), String> {
-    let state = state.inner().clone();
-    let idx = current_index(&state).await + 1;
-    state.play_index(idx).await;
+    state.inner().clone().next_in_queue().await;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn prev_track(state: St<'_>) -> Result<(), String> {
-    let state = state.inner().clone();
-    let cur = current_index(&state).await;
-    state.play_index(cur.saturating_sub(1)).await;
+    state.inner().clone().prev_in_queue().await;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn toggle_pause(state: St<'_>) -> Result<(), String> {
-    state.player.toggle().map_err(|e| e.to_string())?;
+    let state = state.inner().clone();
+    state.resume_or_toggle().await;
     Ok(())
 }
 
@@ -112,6 +109,22 @@ pub async fn get_settings(state: St<'_>) -> Result<serde_json::Value, String> {
 #[tauri::command]
 pub async fn set_setting(state: St<'_>, key: String, value: String) -> Result<(), String> {
     state.db.set_setting(&key, &value);
+    Ok(())
+}
+
+/// The streamable client keys the orchestrator tries, for the "disabled clients" setting. Names
+/// come from the innertube crate so the UI stays free of YouTube-shaped identity strings.
+#[tauri::command]
+pub async fn get_stream_clients() -> Result<Vec<String>, String> {
+    let mut v = vec![innertube::MAIN_CLIENT.to_string()];
+    v.extend(innertube::STREAM_FALLBACK_ORDER.iter().map(|s| s.to_string()));
+    Ok(v)
+}
+
+/// Wipe both cache tiers (URL cache + mpv on-disk audio cache). context/14.
+#[tauri::command]
+pub async fn clear_caches(state: St<'_>) -> Result<(), String> {
+    state.clear_caches();
     Ok(())
 }
 
@@ -275,13 +288,4 @@ pub async fn delete_playlist(state: St<'_>, playlist_id: String) -> Result<(), S
 pub async fn subscribe(state: St<'_>, channel_id: String, subscribed: bool) -> Result<(), String> {
     let client = require_login(&state)?;
     state.it.subscribe(client, &channel_id, subscribed).await.map_err(|e| e.to_string())
-}
-
-async fn current_index(state: &Arc<AppState>) -> usize {
-    state
-        .queue_snapshot()
-        .await
-        .get("currentIndex")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as usize
 }

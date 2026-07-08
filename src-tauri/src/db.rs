@@ -12,6 +12,8 @@ pub struct CachedStream {
     pub url: String,
     pub itag: i64,
     pub expires_at: i64,
+    /// Raw `loudnessDb` (main-client metadata) so a cache-hit replay still normalizes loudness.
+    pub loudness_db: Option<f64>,
 }
 
 impl Db {
@@ -24,21 +26,17 @@ impl Db {
                 value TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS stream_url_cache (
-                video_id   TEXT PRIMARY KEY,
-                url        TEXT NOT NULL,
-                itag       INTEGER NOT NULL,
-                expires_at INTEGER NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS queue (
-                position  INTEGER PRIMARY KEY,
-                video_id  TEXT NOT NULL,
-                title     TEXT,
-                artists   TEXT,
-                duration  TEXT,
-                thumbnail TEXT
+                video_id    TEXT PRIMARY KEY,
+                url         TEXT NOT NULL,
+                itag        INTEGER NOT NULL,
+                expires_at  INTEGER NOT NULL,
+                loudness_db REAL
             );
             "#,
         )?;
+        // Migrate pre-Phase-4 DBs that predate the loudness_db column. Errors ("duplicate column")
+        // on fresh DBs are expected and ignored — the cache is disposable anyway.
+        let _ = conn.execute("ALTER TABLE stream_url_cache ADD COLUMN loudness_db REAL", []);
         Ok(Db(Mutex::new(conn)))
     }
 
@@ -81,9 +79,16 @@ impl Db {
     pub fn get_stream(&self, video_id: &str, now: i64) -> Option<CachedStream> {
         let conn = self.0.lock().unwrap();
         conn.query_row(
-            "SELECT url, itag, expires_at FROM stream_url_cache WHERE video_id = ?1 AND expires_at > ?2",
+            "SELECT url, itag, expires_at, loudness_db FROM stream_url_cache WHERE video_id = ?1 AND expires_at > ?2",
             rusqlite::params![video_id, now],
-            |r| Ok(CachedStream { url: r.get(0)?, itag: r.get(1)?, expires_at: r.get(2)? }),
+            |r| {
+                Ok(CachedStream {
+                    url: r.get(0)?,
+                    itag: r.get(1)?,
+                    expires_at: r.get(2)?,
+                    loudness_db: r.get(3)?,
+                })
+            },
         )
         .ok()
     }
@@ -94,71 +99,28 @@ impl Db {
         let _ = conn.execute("DELETE FROM stream_url_cache WHERE video_id = ?1", [video_id]);
     }
 
-    pub fn put_stream(&self, video_id: &str, url: &str, itag: i64, expires_at: i64) {
+    pub fn put_stream(
+        &self,
+        video_id: &str,
+        url: &str,
+        itag: i64,
+        expires_at: i64,
+        loudness_db: Option<f64>,
+    ) {
         let conn = self.0.lock().unwrap();
         let _ = conn.execute(
-            "INSERT INTO stream_url_cache(video_id, url, itag, expires_at) VALUES(?1, ?2, ?3, ?4)
-             ON CONFLICT(video_id) DO UPDATE SET url = excluded.url, itag = excluded.itag, expires_at = excluded.expires_at",
-            rusqlite::params![video_id, url, itag, expires_at],
+            "INSERT INTO stream_url_cache(video_id, url, itag, expires_at, loudness_db) VALUES(?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(video_id) DO UPDATE SET url = excluded.url, itag = excluded.itag, expires_at = excluded.expires_at, loudness_db = excluded.loudness_db",
+            rusqlite::params![video_id, url, itag, expires_at, loudness_db],
         );
     }
 
-    // --- queue persistence ------------------------------------------------------------------
-
-    pub fn save_queue(&self, items: &[QueueRow]) {
-        let mut conn = self.0.lock().unwrap();
-        let tx = match conn.transaction() {
-            Ok(tx) => tx,
-            Err(_) => return,
-        };
-        let _ = tx.execute("DELETE FROM queue", []);
-        for (i, item) in items.iter().enumerate() {
-            let _ = tx.execute(
-                "INSERT INTO queue(position, video_id, title, artists, duration, thumbnail)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-                rusqlite::params![
-                    i as i64,
-                    item.video_id,
-                    item.title,
-                    item.artists,
-                    item.duration,
-                    item.thumbnail
-                ],
-            );
-        }
-        let _ = tx.commit();
-    }
-
-    // ponytail: queue-restore-on-startup seam. Written by save_queue every play; not read back
-    // until Phase 2 wires "resume last session" in lib.rs setup. Keep — the write half is live.
-    #[allow(dead_code)]
-    pub fn load_queue(&self) -> Vec<QueueRow> {
+    /// Wipe the whole URL cache (settings "Clear caches"). context/11.
+    pub fn clear_stream_cache(&self) {
         let conn = self.0.lock().unwrap();
-        let mut out = Vec::new();
-        if let Ok(mut stmt) = conn.prepare(
-            "SELECT video_id, title, artists, duration, thumbnail FROM queue ORDER BY position",
-        ) {
-            if let Ok(rows) = stmt.query_map([], |r| {
-                Ok(QueueRow {
-                    video_id: r.get(0)?,
-                    title: r.get(1)?,
-                    artists: r.get(2)?,
-                    duration: r.get(3)?,
-                    thumbnail: r.get(4)?,
-                })
-            }) {
-                out.extend(rows.flatten());
-            }
-        }
-        out
+        let _ = conn.execute("DELETE FROM stream_url_cache", []);
     }
 }
 
-#[derive(Clone, serde::Serialize)]
-pub struct QueueRow {
-    pub video_id: String,
-    pub title: Option<String>,
-    pub artists: Option<String>,
-    pub duration: Option<String>,
-    pub thumbnail: Option<String>,
-}
+// Queue persistence lives in the `settings` KV as a JSON blob (`queue_json`) + `queue_position`,
+// so restore round-trips the full SongItem losslessly via serde (context/11 §state).

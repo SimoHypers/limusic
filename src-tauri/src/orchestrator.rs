@@ -30,6 +30,9 @@ pub struct PlaybackData {
     pub headers: std::collections::HashMap<String, String>,
     pub expires_in_seconds: i64,
     pub loudness_db: Option<f64>,
+    /// `playbackTracking.videostatsPlaybackUrl.baseUrl` from the MAIN response — the URL to GET to
+    /// register the play in watch history (context/01). `None` when main didn't return it.
+    pub playback_url: Option<String>,
     pub title: Option<String>,
     pub artists: Option<String>,
     pub duration: Option<String>,
@@ -260,6 +263,7 @@ impl Orchestrator {
                 headers: std::collections::HashMap::new(),
                 expires_in_seconds: c.expires_in_seconds as i64,
                 loudness_db: c.loudness_db.map(|f| f as f64),
+                playback_url: None,
                 title: c.title,
                 artists: None,
                 duration: c.duration_secs.map(|s| s.to_string()),
@@ -319,6 +323,7 @@ impl Orchestrator {
             headers,
             expires_in_seconds: expires,
             loudness_db: format.loudness_db.or(loudness),
+            playback_url: main_resp.as_ref().and_then(main_playback_url),
             title: vd.and_then(|v| v.title.clone()),
             artists: vd.and_then(|v| v.author.clone()),
             duration: vd.and_then(|v| v.length_seconds.clone()),
@@ -364,6 +369,13 @@ fn main_loudness(resp: &PlayerResponse) -> Option<f64> {
         .as_ref()
         .and_then(|c| c.audio_config.as_ref())
         .and_then(|a| a.loudness_db)
+}
+
+fn main_playback_url(resp: &PlayerResponse) -> Option<String> {
+    resp.playback_tracking
+        .as_ref()
+        .and_then(|t| t.videostats_playback_url.as_ref())
+        .and_then(|b| b.base_url.clone())
 }
 
 fn best_thumbnail(resp: &PlayerResponse) -> Option<String> {

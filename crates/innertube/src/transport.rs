@@ -200,10 +200,71 @@ impl InnerTube {
         parse_visitor_data(&text)
     }
 
+    /// Register a play in watch history: GET the response's
+    /// `playbackTracking.videostatsPlaybackUrl.baseUrl` with `c`/`cpn`/`ver` (+ `list`/`referrer`
+    /// in a playlist) and the authed client headers. context/01 §registerPlayback. Best-effort —
+    /// the caller logs-and-ignores errors.
+    pub async fn register_playback(
+        &self,
+        client: &YouTubeClient,
+        base_url: &str,
+        cpn: &str,
+        playlist_id: Option<&str>,
+    ) -> Result<(), Error> {
+        let url = build_playback_url(base_url, &client.client_name, cpn, playlist_id);
+        let headers = self.headers(client, true);
+        self.http.get(&url).headers(headers).send().await?.error_for_status()?;
+        Ok(())
+    }
+
     #[cfg(any(test, feature = "integration-tests"))]
     pub fn http(&self) -> &reqwest::Client {
         &self.http
     }
+}
+
+/// Build the playback-tracking GET URL. context/01 §registerPlayback. Pure — unit-tested. The
+/// `base_url` already carries YouTube's own query params, so we chain onto it.
+fn build_playback_url(base_url: &str, client_name: &str, cpn: &str, playlist_id: Option<&str>) -> String {
+    let sep = if base_url.contains('?') { '&' } else { '?' };
+    let mut url = format!(
+        "{base_url}{sep}c={}&cpn={}&ver=2",
+        urlencoding::encode(client_name),
+        urlencoding::encode(cpn),
+    );
+    if let Some(list) = playlist_id {
+        let enc = urlencoding::encode(list);
+        url.push_str(&format!("&list={enc}&referrer={enc}"));
+    }
+    url
+}
+
+/// CPN alphabet — 64 URL-safe chars, exactly 6 bits each. context/01.
+const CPN_CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/// A fresh 16-char Content Playback Nonce for one playback. context/01 §registerPlayback.
+// ponytail: time+counter-seeded xorshift, not crypto-rand — a CPN only needs to be unique per
+// playback, not unpredictable; keeps the `rand` crate out of the tree.
+pub fn generate_cpn() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let bump = COUNTER.fetch_add(1, Ordering::Relaxed).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    let mut state = (nanos ^ bump).wrapping_add(0x1234_567);
+    if state == 0 {
+        state = 0xDEAD_BEEF;
+    }
+    let mut out = String::with_capacity(16);
+    for _ in 0..16 {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        out.push(CPN_CHARS[(state & 63) as usize] as char);
+    }
+    out
 }
 
 /// `Authorization: SAPISIDHASH <epoch>_<sha1(epoch SAPISID origin)>`. context/01.
@@ -265,6 +326,31 @@ mod tests {
         let blob = r#")]}'
 [["wrs","x",["junk","CgtABCDEFG1234567%3D%3D","more"]],null]"#;
         assert_eq!(parse_visitor_data(blob).unwrap(), "CgtABCDEFG1234567%3D%3D");
+    }
+
+    #[test]
+    fn playback_url_appends_params() {
+        // Base URL already has query params → chained with `&`; playlist adds list+referrer.
+        let u = build_playback_url(
+            "https://s.youtube.com/api/stats/playback?cl=1&docid=abc",
+            "WEB_REMIX",
+            "CPN1234567890AB",
+            Some("RDAMVMxyz"),
+        );
+        assert!(u.contains("?cl=1&docid=abc&c=WEB_REMIX&cpn=CPN1234567890AB&ver=2"));
+        assert!(u.contains("&list=RDAMVMxyz&referrer=RDAMVMxyz"));
+        // No existing query → first param uses `?`, no playlist params.
+        let u2 = build_playback_url("https://s.youtube.com/x", "IOS", "abc", None);
+        assert_eq!(u2, "https://s.youtube.com/x?c=IOS&cpn=abc&ver=2");
+    }
+
+    #[test]
+    fn cpn_is_16_url_safe_chars() {
+        let cpn = generate_cpn();
+        assert_eq!(cpn.len(), 16);
+        assert!(cpn.bytes().all(|b| CPN_CHARS.contains(&b)));
+        // Two calls in quick succession must differ (counter salt).
+        assert_ne!(generate_cpn(), generate_cpn());
     }
 
     #[test]

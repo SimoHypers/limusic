@@ -2,15 +2,21 @@
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import { ModeWatcher } from 'mode-watcher';
+	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
+	import { initTheme } from '$lib/theme.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import PlayerBar from '$lib/components/PlayerBar.svelte';
 	import QueuePanel from '$lib/components/QueuePanel.svelte';
 	import AddToPlaylist from '$lib/components/AddToPlaylist.svelte';
+	import SettingsDialog from '$lib/components/SettingsDialog.svelte';
 	import { initApp, playback, ui } from '$lib/player.svelte';
 
 	let { children } = $props();
 	let showQueue = $state(false);
+
+	// Apply the saved accent color before the first paint (ssr=false → nothing renders until now).
+	if (browser) initTheme();
 
 	// Wire the Tauri event bridge once for the whole app; teardown on destroy.
 	onMount(() => initApp());
@@ -34,6 +40,7 @@
 </div>
 
 <AddToPlaylist />
+<SettingsDialog />
 
 {#if ui.toast}
 	<div
