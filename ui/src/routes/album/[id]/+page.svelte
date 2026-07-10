@@ -9,9 +9,13 @@
         PlayListAddIcon,
     } from "@hugeicons/core-free-icons";
     import TrackRow from "$lib/components/TrackRow.svelte";
+    import TrackRowSkeleton from "$lib/components/TrackRowSkeleton.svelte";
+    import ErrorState from "$lib/components/ErrorState.svelte";
+    import { Skeleton } from "$lib/components/ui/skeleton";
     import * as api from "$lib/api";
     import type { AlbumPage } from "$lib/api";
     import { playback, openAddManyToPlaylist } from "$lib/player.svelte";
+    import { getCached, putCached } from "$lib/pagecache";
 
     let album = $state<AlbumPage | null>(null);
     let artistHero = $state<string | null>(null);
@@ -24,27 +28,44 @@
     const nowId = $derived(playback.now?.videoId);
 
     async function load(aid: string) {
-        loading = true;
-        error = null;
-        album = null;
+        const key = `album:${aid}`;
+        const hit = getCached<AlbumPage>(key);
         artistHero = null;
+        if (hit) {
+            album = hit;
+            loadHero(aid, hit);
+            loading = false;
+        } else {
+            loading = true;
+            album = null;
+        }
+        error = null;
         expanded = false;
         try {
-            album = await api.getAlbum(aid);
-            // The album's artist image becomes the hero backdrop (like the artist page). Non-blocking
-            // — the page already shows; the backdrop fades in when it arrives.
-            // ponytail: reuses the full artist browse just for its hero image; add a lighter endpoint
-            // only if this extra fetch ever matters.
-            if (album.artistId) {
-                api.getArtist(album.artistId)
-                    .then((a) => (artistHero = a.thumbnail ?? null))
-                    .catch(() => {});
-            }
+            const fresh = await api.getAlbum(aid);
+            if (aid !== id) return; // superseded by navigation — drop the stale response
+            album = fresh;
+            putCached(key, fresh);
+            loadHero(aid, fresh);
         } catch (e) {
-            error = String(e);
+            if (aid !== id) return;
+            if (!hit) error = String(e);
         } finally {
-            loading = false;
+            if (aid === id) loading = false;
         }
+    }
+
+    // The album's artist image becomes the hero backdrop (like the artist page). Non-blocking —
+    // the page already shows; the backdrop fades in when it arrives. Guarded against navigation.
+    // ponytail: reuses the full artist browse just for its hero image; `album.artistThumbnail`
+    // already carries a straplineThumbnail — swap to it to drop this second fetch if it ever matters.
+    function loadHero(aid: string, a: AlbumPage) {
+        if (!a.artistId) return;
+        api.getArtist(a.artistId)
+            .then((art) => {
+                if (aid === id) artistHero = art.thumbnail ?? null;
+            })
+            .catch(() => {});
     }
 
     $effect(() => {
@@ -69,9 +90,27 @@
 </script>
 
 {#if loading}
-    <div class="p-6 text-sm text-muted-foreground">Loading…</div>
+    <div class="flex flex-col gap-5 p-6 pt-10">
+        <div class="flex items-end gap-5">
+            <Skeleton class="h-28 w-28 shrink-0 rounded-xl" />
+            <div class="flex-1 space-y-3">
+                <Skeleton class="h-3 w-16 rounded" />
+                <Skeleton class="h-10 w-1/2 rounded-lg" />
+                <Skeleton class="h-4 w-40 rounded" />
+            </div>
+        </div>
+        <div class="flex gap-3">
+            <Skeleton class="h-11 w-28 rounded-full" />
+            <Skeleton class="h-11 w-28 rounded-full" />
+        </div>
+    </div>
+    <div class="p-6 pt-2">
+        {#each Array(8) as _, i (i)}
+            <TrackRowSkeleton hideThumb />
+        {/each}
+    </div>
 {:else if error}
-    <div class="p-6 text-sm text-destructive">{error}</div>
+    <div class="p-6"><ErrorState message={error} onRetry={() => load(id)} /></div>
 {:else if album}
     <!-- Header with the artist image as a hero backdrop -->
     <div class="relative overflow-hidden">
@@ -201,7 +240,7 @@
                         aria-label="Close menu"
                     ></button>
                     <div
-                        class="absolute bottom-12 left-40 z-50 min-w-48 rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl"
+                        class="absolute bottom-12 left-40 z-50 min-w-48 origin-bottom-left animate-in rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl duration-150 fade-in-0 zoom-in-95"
                     >
                         <button
                             class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"

@@ -12,9 +12,13 @@
 		Cancel01Icon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
+	import { Skeleton } from '$lib/components/ui/skeleton';
 	import TrackRow from '$lib/components/TrackRow.svelte';
+	import TrackRowSkeleton from '$lib/components/TrackRowSkeleton.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import * as api from '$lib/api';
 	import type { PlaylistPage, SongItem } from '$lib/api';
+	import { getCached, putCached, invalidateCached } from '$lib/pagecache';
 	import { playback, openAddToPlaylist, toast } from '$lib/player.svelte';
 
 	let pl = $state<PlaylistPage | null>(null);
@@ -43,19 +47,31 @@
 	const editable = $derived((pl?.owned ?? false) && !isLiked);
 
 	async function load(pid: string) {
-		loading = true;
-		error = null;
-		pl = null;
-		bgImage = null;
+		const key = `playlist:${pid}`;
+		const hit = getCached<PlaylistPage>(key);
 		confirmingDelete = false;
 		editingName = false;
-		try {
-			pl = await api.getPlaylist(pid);
-			bgImage = pickCover(pl.items);
-		} catch (e) {
-			error = String(e);
-		} finally {
+		if (hit) {
+			pl = hit;
+			bgImage = pickCover(hit.items);
 			loading = false;
+		} else {
+			loading = true;
+			pl = null;
+			bgImage = null;
+		}
+		error = null;
+		try {
+			const fresh = await api.getPlaylist(pid);
+			if (pid !== id) return; // superseded by navigation — drop the stale response
+			pl = fresh;
+			bgImage = pickCover(fresh.items);
+			putCached(key, fresh);
+		} catch (e) {
+			if (pid !== id) return;
+			if (!hit) error = String(e);
+		} finally {
+			if (pid === id) loading = false;
 		}
 	}
 
@@ -64,12 +80,19 @@
 		if (id) load(id);
 	});
 
+	// Keep the page cache in step with optimistic mutations so a revisit within the TTL never
+	// resurrects pre-mutation data (the optimistic-UI contract). context: plans/007.
+	function cacheCurrent() {
+		if (pl) putCached(`playlist:${id}`, pl);
+	}
+
 	async function loadMore() {
 		if (!pl?.continuation || loadingMore) return;
 		loadingMore = true;
 		try {
 			const more = await api.getPlaylistMore(pl.continuation);
 			pl = { ...pl, items: [...pl.items, ...more.items], continuation: more.continuation };
+			cacheCurrent();
 		} catch {
 			/* keep what we have */
 		} finally {
@@ -133,9 +156,11 @@
 		editingName = false;
 		try {
 			await api.renamePlaylist(id, name);
+			cacheCurrent();
 			toast('Playlist renamed');
 		} catch (e) {
 			pl = { ...pl, title: prev }; // revert
+			cacheCurrent();
 			toast(String(e));
 		}
 	}
@@ -159,8 +184,10 @@
 				await api.removeFromPlaylist(id, track.video_id, track.set_video_id!);
 				toast('Removed from playlist');
 			}
+			cacheCurrent();
 		} catch (e) {
 			pl = { ...pl, items: prev }; // revert
+			cacheCurrent();
 			toast(String(e));
 		}
 	}
@@ -168,6 +195,7 @@
 	async function deleteThisPlaylist() {
 		try {
 			await api.deletePlaylist(id);
+			invalidateCached(`playlist:${id}`);
 			toast('Playlist deleted');
 			goto('/library');
 		} catch (e) {
@@ -184,9 +212,22 @@
 
 <div class="flex h-full flex-col">
 	{#if loading}
-		<div class="p-6 text-sm text-muted-foreground">Loading…</div>
+		<div class="flex items-end gap-6 border-b p-6">
+			<Skeleton class="h-40 w-40 shrink-0 rounded-xl" />
+			<div class="flex-1 space-y-3">
+				<Skeleton class="h-3 w-16 rounded" />
+				<Skeleton class="h-10 w-2/3 rounded-lg" />
+				<Skeleton class="h-4 w-40 rounded" />
+				<Skeleton class="h-9 w-24 rounded-4xl" />
+			</div>
+		</div>
+		<div class="p-4">
+			{#each Array(8) as _, i (i)}
+				<TrackRowSkeleton />
+			{/each}
+		</div>
 	{:else if error}
-		<div class="p-6 text-sm text-destructive">{error}</div>
+		<div class="p-6"><ErrorState message={error} onRetry={() => load(id)} /></div>
 	{:else if pl}
 		<div class="relative flex min-h-[38vh] items-end gap-6 overflow-hidden border-b p-6">
 			{#if bgImage}
@@ -299,7 +340,7 @@
 		aria-label="Close menu"
 	></button>
 	<div
-		class="fixed z-50 min-w-52 rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl"
+		class="fixed z-50 min-w-52 origin-top-left animate-in rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl duration-150 fade-in-0 zoom-in-95"
 		style="left:{mx}px; top:{my}px;"
 	>
 		<button

@@ -61,25 +61,11 @@ pub fn run() {
             let proxy = db.get_setting("proxy");
             let cookie = db.get_setting("session_cookie").filter(|s| !s.is_empty());
             let data_sync_id = db.get_setting("data_sync_id").filter(|s| !s.is_empty());
-            let mut visitor_data = db.get_setting("visitor_data").filter(|s| !s.is_empty());
-            if visitor_data.is_none() {
-                visitor_data = tauri::async_runtime::block_on(async {
-                    let boot = InnerTube::new(Session::default(), proxy.as_deref()).ok()?;
-                    match boot.fetch_visitor_data().await {
-                        Ok(vd) => {
-                            tracing::info!("visitorData bootstrapped");
-                            Some(vd)
-                        }
-                        Err(e) => {
-                            tracing::warn!(error = %e, "visitorData bootstrap failed (continuing)");
-                            None
-                        }
-                    }
-                });
-                if let Some(vd) = &visitor_data {
-                    db.set_setting("visitor_data", vd);
-                }
-            }
+            let visitor_data = db.get_setting("visitor_data").filter(|s| !s.is_empty());
+            // First run (no stored visitorData): bootstrap it in the background after the window is
+            // up, rather than blocking setup on a network GET (up to 60s on a bad connection). See
+            // the spawned task after AppState is created.
+            let needs_visitor_bootstrap = visitor_data.is_none();
             if cookie.is_some() {
                 tracing::info!("loaded persisted login session");
             }
@@ -129,6 +115,25 @@ pub fn run() {
                 let st = app_state.clone();
                 tauri::async_runtime::spawn(async move {
                     st.restore_queue().await;
+                });
+            }
+
+            // First-run visitorData bootstrap, off the startup path. `set_visitor_data` writes
+            // through the shared session (Arc<RwLock>), so the orchestrator's InnerTube clone sees
+            // it; resolves degrade gracefully (no PoToken) until it lands. context/04 §A.
+            if needs_visitor_bootstrap {
+                let st = app_state.clone();
+                let potoken = potoken.clone();
+                tauri::async_runtime::spawn(async move {
+                    match st.it.fetch_visitor_data().await {
+                        Ok(vd) => {
+                            st.it.set_visitor_data(Some(vd.clone()));
+                            st.db.set_setting("visitor_data", &vd);
+                            tracing::info!("visitorData bootstrapped (background)");
+                            potoken.prewarm(&vd).await;
+                        }
+                        Err(e) => tracing::warn!(error = %e, "visitorData bootstrap failed (continuing)"),
+                    }
                 });
             }
 

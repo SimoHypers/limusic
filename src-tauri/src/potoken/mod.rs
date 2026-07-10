@@ -149,7 +149,18 @@ impl PoTokenGenerator {
     /// Full BotGuard bootstrap: Create → runBotGuard → GenerateIT → createMinter → session token.
     async fn create_minter(&self, session_id: &str) -> Result<Minter, MintError> {
         let bridge = Bridge::create(&self.app, POTOKEN_LABEL, HARNESS, GLUE).await?;
+        match self.bootstrap_minter(&bridge, session_id).await {
+            Ok(m) => Ok(m),
+            Err(e) => {
+                let _ = bridge.destroy(); // don't orphan the hidden window on a failed bootstrap
+                Err(e)
+            }
+        }
+    }
 
+    /// The fallible BotGuard steps, run against an already-built `bridge`. Split out so
+    /// `create_minter` can destroy the webview on any error path.
+    async fn bootstrap_minter(&self, bridge: &Bridge, session_id: &str) -> Result<Minter, MintError> {
         // 1. /Create → descrambled challengeData for runBotGuard.
         let scrambled = self.create_challenge().await?;
         let challenge = jsutil::parse_challenge_data(&scrambled).map_err(MintError::Parse)?;
@@ -174,7 +185,7 @@ impl PoTokenGenerator {
             .await?;
 
         // 5. [webview] session/streaming token (identifier = visitorData). Minted exactly once.
-        let streaming_pot = mint_token(&bridge, session_id.as_bytes()).await?;
+        let streaming_pot = mint_token(bridge, session_id.as_bytes()).await?;
 
         let expires_at = Instant::now() + Duration::from_secs(ttl).saturating_sub(EXPIRY_MARGIN);
         tracing::info!(ttl, "PoToken minter ready");
@@ -182,7 +193,7 @@ impl PoTokenGenerator {
             session_id: session_id.to_owned(),
             streaming_pot,
             expires_at,
-            bridge,
+            bridge: bridge.clone(),
             last_used: Instant::now(),
         })
     }
@@ -258,6 +269,9 @@ impl PoTokenGenerator {
         if let Some(m) = self.minter.lock().await.take() {
             let _ = m.bridge.destroy();
         }
+        // A failed/cancelled create_minter (or a mint timeout that cancelled us mid-bootstrap)
+        // leaves an untracked window on our label — reclaim it so no hidden webview is orphaned.
+        crate::webview::destroy_and_wait(&self.app, POTOKEN_LABEL).await;
     }
 }
 

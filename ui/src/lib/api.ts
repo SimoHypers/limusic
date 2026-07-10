@@ -181,6 +181,8 @@ export const onPlaybackState = (cb: (s: 'playing' | 'paused') => void): Promise<
 	listen<'playing' | 'paused'>('playback-state', (e) => cb(e.payload));
 export const onPlaybackError = (cb: (msg: string) => void): Promise<UnlistenFn> =>
 	listen<{ message: string }>('playback-error', (e) => cb(e.payload.message));
+export const onPlaybackNotice = (cb: (msg: string) => void): Promise<UnlistenFn> =>
+	listen<{ message: string }>('playback-notice', (e) => cb(e.payload.message));
 export const onAuthChanged = (cb: (a: Account) => void): Promise<UnlistenFn> =>
 	listen<Account>('auth-changed', (e) => cb(e.payload));
 export const onLoginError = (cb: (msg: string) => void): Promise<UnlistenFn> =>

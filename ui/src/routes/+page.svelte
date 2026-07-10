@@ -4,10 +4,14 @@
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { Search01Icon } from '@hugeicons/core-free-icons';
 	import { Input } from '$lib/components/ui/input';
+	import { Skeleton } from '$lib/components/ui/skeleton';
 	import MediaCard from '$lib/components/MediaCard.svelte';
+	import MediaCardSkeleton from '$lib/components/MediaCardSkeleton.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import * as api from '$lib/api';
 	import type { HomePage } from '$lib/api';
 	import { auth } from '$lib/player.svelte';
+	import { getCached, putCached } from '$lib/pagecache';
 
 	let home = $state<HomePage | null>(null);
 	let loading = $state(true);
@@ -20,12 +24,20 @@
 	}
 
 	async function load() {
-		loading = true;
+		const hit = getCached<HomePage>('home');
+		if (hit) {
+			home = hit;
+			loading = false;
+		} else {
+			loading = true;
+		}
 		error = null;
 		try {
-			home = await api.getHome();
+			const fresh = await api.getHome();
+			home = fresh;
+			putCached('home', fresh);
 		} catch (e) {
-			error = String(e);
+			if (!hit) error = String(e);
 		} finally {
 			loading = false;
 		}
@@ -45,9 +57,20 @@
 		</form>
 	</div>
 	{#if loading}
-		<p class="text-sm text-muted-foreground">Loading…</p>
+		<div class="flex flex-col gap-8">
+			{#each Array(3) as _, s (s)}
+				<section>
+					<Skeleton class="mb-3 h-5 w-40 rounded" />
+					<div class="flex gap-2 overflow-hidden pb-2">
+						{#each Array(6) as _, i (i)}
+							<div class="w-40 shrink-0"><MediaCardSkeleton /></div>
+						{/each}
+					</div>
+				</section>
+			{/each}
+		</div>
 	{:else if error}
-		<p class="text-sm text-destructive">{error}</p>
+		<ErrorState message={error} onRetry={load} />
 	{:else if home && home.sections.length}
 		<div class="flex flex-col gap-8">
 			{#each home.sections as section (section.title)}

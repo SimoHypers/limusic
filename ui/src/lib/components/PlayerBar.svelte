@@ -11,16 +11,22 @@
 		Add01Icon
 	} from '@hugeicons/core-free-icons';
 	import { goto } from '$app/navigation';
+	import { fade } from 'svelte/transition';
 	import { Button } from '$lib/components/ui/button';
 	import * as api from '$lib/api';
 	import { playback, toast, openAddToPlaylist } from '$lib/player.svelte';
 
 	let { onToggleQueue, queueOpen }: { onToggleQueue: () => void; queueOpen: boolean } = $props();
 
+	// Pop the heart once when the user favourites (not when un-favouriting). Reset on animation end
+	// so the next like can replay it.
+	let justLiked = $state(false);
+
 	async function toggleLike() {
 		if (!playback.now) return;
 		const next = !playback.liked;
 		playback.liked = next; // optimistic
+		if (next) justLiked = true;
 		try {
 			await api.like(playback.now.videoId, next);
 			toast(next ? 'Added to liked songs' : 'Removed from liked songs');
@@ -37,31 +43,58 @@
 		return `${m}:${s.toString().padStart(2, '0')}`;
 	};
 
-	function onSeek(e: Event) {
+	// Seek: while dragging, hold a local value so incoming mpv position ticks can't yank the thumb
+	// back under the pointer; only invoke the (expensive) seek on release.
+	let seekDrag = $state<number | null>(null);
+	const shownPosition = $derived(seekDrag ?? playback.position);
+
+	function onSeekInput(e: Event) {
+		seekDrag = Number((e.target as HTMLInputElement).value);
+	}
+	function onSeekCommit(e: Event) {
 		const v = Number((e.target as HTMLInputElement).value);
 		playback.position = v;
+		seekDrag = null;
 		api.seek(v);
 	}
+
+	// Volume: keep it live while dragging (the user hears it), but trailing-throttle the invoke so a
+	// drag doesn't flood IPC; always send the final value on release.
+	let volTimer: ReturnType<typeof setTimeout> | null = null;
 	function onVolume(e: Event) {
 		const v = Number((e.target as HTMLInputElement).value);
 		playback.volume = v;
-		api.setVolume(v);
+		if (volTimer) return;
+		volTimer = setTimeout(() => {
+			volTimer = null;
+			api.setVolume(playback.volume);
+		}, 100);
+	}
+	function onVolumeCommit(e: Event) {
+		if (volTimer) {
+			clearTimeout(volTimer);
+			volTimer = null;
+		}
+		api.setVolume(Number((e.target as HTMLInputElement).value));
 	}
 </script>
 
 <footer class="flex items-center gap-2 border-t bg-card px-2 py-2.5 sm:gap-4 sm:px-4 sm:py-3">
 	<!-- Now playing -->
 	<div class="flex min-w-0 flex-1 items-center gap-3">
-		{#if playback.now?.thumbnail}
-			<img
-				src={playback.now.thumbnail}
-				alt=""
-				style="max-width:none"
-				class="h-12 w-12 shrink-0 rounded-lg object-cover"
-			/>
-		{:else}
-			<div class="h-12 w-12 shrink-0 rounded-lg bg-muted"></div>
-		{/if}
+		{#key playback.now?.videoId}
+			{#if playback.now?.thumbnail}
+				<img
+					src={playback.now.thumbnail}
+					alt=""
+					style="max-width:none"
+					class="h-12 w-12 shrink-0 rounded-lg object-cover"
+					in:fade={{ duration: 250 }}
+				/>
+			{:else}
+				<div class="h-12 w-12 shrink-0 rounded-lg bg-muted"></div>
+			{/if}
+		{/key}
 		<div class="min-w-0">
 			<div class="truncate text-sm font-medium">{playback.now?.title ?? 'Nothing playing'}</div>
 			{#if playback.now?.artistId}
@@ -78,10 +111,16 @@
 		{#if playback.now}
 			<div class="flex items-center">
 				<Button variant="ghost" size="icon-sm" onclick={toggleLike} aria-label="Like">
-					<HugeiconsIcon
-						icon={FavouriteIcon}
-						class="h-4 w-4 {playback.liked ? 'text-primary' : 'text-muted-foreground'}"
-					/>
+					<span
+						class="inline-flex"
+						class:animate-heart-pop={justLiked}
+						onanimationend={() => (justLiked = false)}
+					>
+						<HugeiconsIcon
+							icon={FavouriteIcon}
+							class="h-4 w-4 {playback.liked ? 'text-primary' : 'text-muted-foreground'}"
+						/>
+					</span>
 				</Button>
 				<Button
 					variant="ghost"
@@ -122,14 +161,16 @@
 			</Button>
 		</div>
 		<div class="flex w-full max-w-md items-center gap-2 text-xs text-muted-foreground">
-			<span class="tabular-nums">{fmt(playback.position)}</span>
+			<span class="tabular-nums">{fmt(shownPosition)}</span>
 			<input
 				type="range"
-				class="flex-1 accent-primary"
+				class="range flex-1"
+				style="--pct:{playback.duration ? (shownPosition / playback.duration) * 100 : 0}%"
 				min="0"
 				max={playback.duration || 0}
-				value={playback.position}
-				oninput={onSeek}
+				value={shownPosition}
+				oninput={onSeekInput}
+				onchange={onSeekCommit}
 				aria-label="Seek"
 			/>
 			<span class="tabular-nums">{fmt(playback.duration)}</span>
@@ -143,11 +184,13 @@
 			<HugeiconsIcon icon={VolumeHighIcon} class="h-4 w-4 text-muted-foreground" />
 			<input
 				type="range"
-				class="w-24 accent-primary"
+				class="range w-24"
+				style="--pct:{playback.volume}%"
 				min="0"
 				max="100"
 				value={playback.volume}
 				oninput={onVolume}
+				onchange={onVolumeCommit}
 				aria-label="Volume"
 			/>
 		</div>

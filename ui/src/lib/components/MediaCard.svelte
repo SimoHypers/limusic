@@ -33,16 +33,21 @@
 		onclick={activate}
 	>
 		<div
-			class="relative aspect-square w-full overflow-hidden bg-muted {round
+			class="relative aspect-square w-full overflow-hidden bg-muted shadow-sm transition-shadow duration-300 group-hover:shadow-xl {round
 				? 'rounded-full'
 				: 'rounded-lg'}"
 		>
 			{#if item.thumbnail}
-				<img src={item.thumbnail} alt="" class="h-full w-full object-cover" loading="lazy" />
+				<img
+					src={item.thumbnail}
+					alt=""
+					class="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105"
+					loading="lazy"
+				/>
 			{/if}
 			{#if item.kind !== 'artist'}
 				<div
-					class="absolute bottom-2 right-2 flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-lg transition-opacity group-hover:opacity-100"
+					class="absolute bottom-2 right-2 flex h-9 w-9 translate-y-1 items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-lg transition-all duration-200 ease-out group-hover:translate-y-0 group-hover:opacity-100"
 				>
 					<HugeiconsIcon icon={PlayIcon} class="h-4 w-4" />
 				</div>

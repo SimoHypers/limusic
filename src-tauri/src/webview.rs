@@ -251,7 +251,7 @@ fn next_call_id() -> u64 {
 /// Destroy any existing webview with `label` and wait until its label is actually free. `destroy`
 /// dispatches to the event loop, so we poll `get_webview_window` until it's `None` (or give up).
 /// Prevents the "a webview with label X already exists" collision on a re-create.
-async fn destroy_and_wait(app: &AppHandle, label: &str) {
+pub(crate) async fn destroy_and_wait(app: &AppHandle, label: &str) {
     let Some(wv) = app.get_webview_window(label) else { return };
     let (tx, rx) = tokio::sync::oneshot::channel();
     let _ = app.run_on_main_thread(move || {

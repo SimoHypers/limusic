@@ -2,6 +2,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Switch } from '$lib/components/ui/switch';
+	import { Alert, AlertDescription } from '$lib/components/ui/alert';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as api from '$lib/api';
 	import { ui, toast } from '$lib/player.svelte';
@@ -25,11 +26,21 @@
 	let clearing = $state(false);
 	let version = $state('');
 	getVersion().then((v) => (version = v));
+	// Result of the last "Check for updates" click — shown inline (a toast renders behind the modal).
+	let updateResult = $state<{ message: string; error: boolean } | null>(null);
 
-	// (Re)load whenever the modal opens, so it reflects the current persisted values.
+	// (Re)load whenever the modal opens, so it reflects the current persisted values. Also clear the
+	// stale update-check result so re-opening the modal doesn't show it until pressed again.
 	$effect(() => {
-		if (ui.settingsOpen) load();
+		if (ui.settingsOpen) {
+			load();
+			updateResult = null;
+		}
 	});
+
+	async function checkUpdates() {
+		updateResult = await checkForUpdatesInteractive();
+	}
 
 	async function load() {
 		try {
@@ -256,12 +267,17 @@
 						<Button
 							variant="outline"
 							size="sm"
-							onclick={checkForUpdatesInteractive}
+							onclick={checkUpdates}
 							disabled={updateState.checking}
 						>
 							{updateState.checking ? 'Checking…' : 'Check for updates'}
 						</Button>
 					</div>
+					{#if updateResult}
+						<Alert variant={updateResult.error ? 'destructive' : 'default'}>
+							<AlertDescription>{updateResult.message}</AlertDescription>
+						</Alert>
+					{/if}
 				{/if}
 			</div>
 		</div>

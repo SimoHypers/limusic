@@ -216,13 +216,10 @@ impl CipherDeobfuscator {
         let bridge = Bridge::create(&self.app, CIPHER_LABEL, HARNESS, "")
             .await
             .map_err(|e| e.to_string())?;
-        bridge.eval(&injected).map_err(|e| e.to_string())?;
-        bridge.eval(DISCOVERY_JS).map_err(|e| e.to_string())?;
-        // Wait for discovery to finish, then read whether n is usable.
-        bridge
-            .call_async("window.__cipher_loaded?true:new Promise(r=>{var i=setInterval(()=>{if(window.__cipher_loaded){clearInterval(i);r(true);}},50);})", LOAD_TIMEOUT)
-            .await
-            .map_err(|e| e.to_string())?;
+        if let Err(e) = Self::load_player(&bridge, &injected).await {
+            let _ = bridge.destroy(); // don't orphan the hidden window on a failed load
+            return Err(e);
+        }
         let n_available = matches!(
             bridge.eval_json("window.__n_ok?true:false".into(), CALL_TIMEOUT).await,
             Ok(Value::Bool(true))
@@ -239,6 +236,19 @@ impl CipherDeobfuscator {
         inner.n_available = n_available;
         inner.sig_available = sig_available;
         tracing::info!(sig_available, n_available, "cipher webview ready");
+        Ok(())
+    }
+
+    /// Inject player.js + discovery into a freshly-built cipher `bridge` and wait for discovery to
+    /// finish. Split out so `ensure_ready` can destroy the webview on any of these failures.
+    async fn load_player(bridge: &Bridge, injected: &str) -> Result<(), String> {
+        bridge.eval(injected).map_err(|e| e.to_string())?;
+        bridge.eval(DISCOVERY_JS).map_err(|e| e.to_string())?;
+        // Wait for discovery to finish, then the caller reads whether n/sig are usable.
+        bridge
+            .call_async("window.__cipher_loaded?true:new Promise(r=>{var i=setInterval(()=>{if(window.__cipher_loaded){clearInterval(i);r(true);}},50);})", LOAD_TIMEOUT)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 }

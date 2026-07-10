@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/innertube", "crates/player", "src-tauri"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "GPL-3.0-or-later"
 

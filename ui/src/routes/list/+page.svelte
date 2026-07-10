@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import MediaCard from '$lib/components/MediaCard.svelte';
+	import MediaCardSkeleton from '$lib/components/MediaCardSkeleton.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import * as api from '$lib/api';
 	import type { BrowseItem } from '$lib/api';
+	import { getCached, putCached } from '$lib/pagecache';
 
 	let items = $state<BrowseItem[]>([]);
 	let loading = $state(true);
@@ -13,15 +16,26 @@
 	const title = $derived(page.url.searchParams.get('title') ?? 'More');
 
 	async function load(browseId: string, p?: string) {
-		loading = true;
-		error = null;
-		items = [];
-		try {
-			items = await api.getBrowseGrid(browseId, p);
-		} catch (e) {
-			error = String(e);
-		} finally {
+		const key = `list:${browseId}:${p ?? ''}`;
+		const hit = getCached<BrowseItem[]>(key);
+		if (hit) {
+			items = hit;
 			loading = false;
+		} else {
+			loading = true;
+			items = [];
+		}
+		error = null;
+		try {
+			const fresh = await api.getBrowseGrid(browseId, p);
+			if (browseId !== id || p !== params) return; // superseded by navigation
+			items = fresh;
+			putCached(key, fresh);
+		} catch (e) {
+			if (browseId !== id || p !== params) return;
+			if (!hit) error = String(e);
+		} finally {
+			if (browseId === id && p === params) loading = false;
 		}
 	}
 
@@ -33,9 +47,13 @@
 <div class="p-6">
 	<h1 class="mb-6 font-heading text-2xl font-bold">{title}</h1>
 	{#if loading}
-		<p class="text-sm text-muted-foreground">Loading…</p>
+		<div class="grid grid-cols-[repeat(auto-fill,10rem)] gap-4">
+			{#each Array(12) as _, i (i)}
+				<MediaCardSkeleton />
+			{/each}
+		</div>
 	{:else if error}
-		<p class="text-sm text-destructive">{error}</p>
+		<ErrorState message={error} onRetry={() => load(id, params)} />
 	{:else if items.length}
 		<div class="grid grid-cols-[repeat(auto-fill,10rem)] gap-4">
 			{#each items as item (item.id + item.title)}

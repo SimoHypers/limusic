@@ -4,10 +4,15 @@
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { ShuffleIcon, Add01Icon, Tick02Icon } from '@hugeicons/core-free-icons';
 	import MediaCard from '$lib/components/MediaCard.svelte';
+	import MediaCardSkeleton from '$lib/components/MediaCardSkeleton.svelte';
 	import TrackRow from '$lib/components/TrackRow.svelte';
+	import TrackRowSkeleton from '$lib/components/TrackRowSkeleton.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
+	import { Skeleton } from '$lib/components/ui/skeleton';
 	import * as api from '$lib/api';
 	import type { ArtistPage } from '$lib/api';
 	import { playback, openAddToPlaylist, toast } from '$lib/player.svelte';
+	import { getCached, putCached } from '$lib/pagecache';
 
 	let artist = $state<ArtistPage | null>(null);
 	let loading = $state(true);
@@ -20,17 +25,29 @@
 	const nowId = $derived(playback.now?.videoId);
 
 	async function load(cid: string) {
-		loading = true;
+		const key = `artist:${cid}`;
+		const hit = getCached<ArtistPage>(key);
+		if (hit) {
+			artist = hit;
+			subscribed = hit.subscribed;
+			loading = false;
+		} else {
+			loading = true;
+			artist = null;
+		}
 		error = null;
-		artist = null;
 		expanded = false;
 		try {
-			artist = await api.getArtist(cid);
-			subscribed = artist.subscribed;
+			const fresh = await api.getArtist(cid);
+			if (cid !== id) return; // superseded by navigation — drop the stale response
+			artist = fresh;
+			subscribed = fresh.subscribed;
+			putCached(key, fresh);
 		} catch (e) {
-			error = String(e);
+			if (cid !== id) return;
+			if (!hit) error = String(e);
 		} finally {
-			loading = false;
+			if (cid === id) loading = false;
 		}
 	}
 
@@ -53,6 +70,7 @@
 		subscribed = next; // optimistic
 		try {
 			await api.subscribe(artist.channelId, next);
+			putCached(`artist:${id}`, { ...artist, subscribed: next }); // keep the cache truthful
 			toast(next ? `Subscribed to ${artist.name ?? ''}` : `Unsubscribed`);
 		} catch (e) {
 			subscribed = !next; // revert
@@ -70,9 +88,35 @@
 </script>
 
 {#if loading}
-	<div class="p-6 text-sm text-muted-foreground">Loading…</div>
+	<div class="relative flex min-h-[45vh] flex-col justify-end overflow-hidden border-b">
+		<Skeleton class="absolute inset-0 h-full w-full rounded-none" />
+		<div class="relative space-y-4 p-8">
+			<Skeleton class="h-12 w-1/2 rounded-lg" />
+			<Skeleton class="h-4 w-40 rounded" />
+			<div class="flex gap-3">
+				<Skeleton class="h-11 w-28 rounded-full" />
+				<Skeleton class="h-11 w-32 rounded-full" />
+			</div>
+		</div>
+	</div>
+	<div class="flex flex-col gap-8 p-6">
+		<section>
+			<Skeleton class="mb-3 h-6 w-32 rounded" />
+			{#each Array(5) as _, i (i)}
+				<TrackRowSkeleton />
+			{/each}
+		</section>
+		<section>
+			<Skeleton class="mb-3 h-6 w-40 rounded" />
+			<div class="flex gap-2 overflow-hidden pb-2">
+				{#each Array(6) as _, i (i)}
+					<div class="w-40 shrink-0"><MediaCardSkeleton /></div>
+				{/each}
+			</div>
+		</section>
+	</div>
 {:else if error}
-	<div class="p-6 text-sm text-destructive">{error}</div>
+	<div class="p-6"><ErrorState message={error} onRetry={() => load(id)} /></div>
 {:else if artist}
 	<!-- Hero -->
 	<div class="relative flex min-h-[45vh] flex-col justify-end overflow-hidden">

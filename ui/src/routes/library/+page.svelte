@@ -6,6 +6,8 @@
 	import { Input } from '$lib/components/ui/input';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import MediaCard from '$lib/components/MediaCard.svelte';
+	import MediaCardSkeleton from '$lib/components/MediaCardSkeleton.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import { auth, toast, library, loadLibrary, createLibraryPlaylist } from '$lib/player.svelte';
 
 	let dialogOpen = $state(false);
@@ -73,9 +75,13 @@
 	{#if !auth.account?.signedIn}
 		<p class="text-sm text-muted-foreground">Sign in to see your playlists and liked songs.</p>
 	{:else if library.loading && !library.items.length}
-		<p class="text-sm text-muted-foreground">Loading…</p>
+		<div class="grid grid-cols-[repeat(auto-fill,10rem)] gap-4">
+			{#each Array(12) as _, i (i)}
+				<MediaCardSkeleton />
+			{/each}
+		</div>
 	{:else if library.error}
-		<p class="text-sm text-destructive">{library.error}</p>
+		<ErrorState message={library.error} onRetry={() => loadLibrary(true)} />
 	{:else}
 		<div class="grid grid-cols-[repeat(auto-fill,10rem)] gap-4">
 			{#each library.items as item (item.id)}

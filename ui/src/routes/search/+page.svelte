@@ -5,10 +5,15 @@
 	import { Search01Icon } from '@hugeicons/core-free-icons';
 	import { Input } from '$lib/components/ui/input';
 	import { Button } from '$lib/components/ui/button';
+	import { Skeleton } from '$lib/components/ui/skeleton';
 	import MediaCard from '$lib/components/MediaCard.svelte';
+	import MediaCardSkeleton from '$lib/components/MediaCardSkeleton.svelte';
 	import TrackRow from '$lib/components/TrackRow.svelte';
+	import TrackRowSkeleton from '$lib/components/TrackRowSkeleton.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import * as api from '$lib/api';
 	import type { SearchResults } from '$lib/api';
+	import { getCached, putCached } from '$lib/pagecache';
 	import { openAddToPlaylist } from '$lib/player.svelte';
 
 	let query = $state('');
@@ -19,15 +24,28 @@
 
 	async function runSearch() {
 		if (!query.trim()) return;
-		searching = true;
+		const q = query;
+		const key = `search:${q}`;
+		const hit = getCached<SearchResults>(key);
+		if (hit) {
+			res = hit;
+			searched = q;
+			searching = false;
+		} else {
+			searching = true;
+		}
 		error = null;
 		try {
-			res = await api.searchAll(query);
-			searched = query;
+			const fresh = await api.searchAll(q);
+			if (urlQuery && urlQuery !== q) return; // a newer URL-driven search superseded this one
+			res = fresh;
+			searched = q;
+			putCached(key, fresh);
 		} catch (e) {
-			error = String(e);
+			if (urlQuery && urlQuery !== q) return;
+			if (!hit) error = String(e);
 		} finally {
-			searching = false;
+			if (!urlQuery || urlQuery === q) searching = false;
 		}
 	}
 
@@ -83,11 +101,28 @@
 				{searching ? 'Searching…' : 'Search'}
 			</Button>
 		</form>
-		{#if error}<p class="mt-2 text-sm text-destructive">{error}</p>{/if}
+		{#if error}<div class="mt-2"><ErrorState message={error} onRetry={runSearch} /></div>{/if}
 	</div>
 
 	<div class="min-h-0 flex-1 overflow-y-auto p-6">
-		{#if !res}
+		{#if searching}
+			<div class="flex flex-col gap-10">
+				<section>
+					<Skeleton class="mb-3 h-6 w-40 rounded" />
+					{#each Array(5) as _, i (i)}
+						<TrackRowSkeleton />
+					{/each}
+				</section>
+				<section>
+					<Skeleton class="mb-3 h-6 w-32 rounded" />
+					<div class="flex gap-2 overflow-hidden pb-2">
+						{#each Array(5) as _, i (i)}
+							<div class="w-40 shrink-0"><MediaCardSkeleton /></div>
+						{/each}
+					</div>
+				</section>
+			</div>
+		{:else if !res}
 			<p class="text-sm text-muted-foreground">Search for a song, album, artist, or playlist.</p>
 		{:else if !sections.length}
 			<p class="text-sm text-muted-foreground">No results for “{searched}”.</p>

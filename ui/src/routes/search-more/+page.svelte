@@ -1,10 +1,16 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import TrackRow from '$lib/components/TrackRow.svelte';
+	import TrackRowSkeleton from '$lib/components/TrackRowSkeleton.svelte';
 	import MediaCard from '$lib/components/MediaCard.svelte';
+	import MediaCardSkeleton from '$lib/components/MediaCardSkeleton.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import * as api from '$lib/api';
 	import type { BrowseItem, SongItem } from '$lib/api';
 	import { openAddToPlaylist } from '$lib/player.svelte';
+	import { getCached, putCached } from '$lib/pagecache';
+
+	type MoreResult = { songs: SongItem[]; cards: BrowseItem[] };
 
 	let songs = $state<SongItem[]>([]);
 	let cards = $state<BrowseItem[]>([]);
@@ -16,20 +22,37 @@
 	const label = $derived({ songs: 'Songs', albums: 'Albums', artists: 'Artists', playlists: 'Playlists' }[cat] ?? 'Results');
 
 	async function load(query: string, category: string) {
-		loading = true;
-		error = null;
-		songs = [];
-		cards = [];
-		try {
-			if (category === 'songs') {
-				songs = await api.search(query);
-			} else {
-				cards = await api.searchCards(query, category as 'albums' | 'artists' | 'playlists');
-			}
-		} catch (e) {
-			error = String(e);
-		} finally {
+		const key = `searchmore:${category}:${query}`;
+		const hit = getCached<MoreResult>(key);
+		if (hit) {
+			songs = hit.songs;
+			cards = hit.cards;
 			loading = false;
+		} else {
+			loading = true;
+			songs = [];
+			cards = [];
+		}
+		error = null;
+		try {
+			let fresh: MoreResult;
+			if (category === 'songs') {
+				fresh = { songs: await api.search(query), cards: [] };
+			} else {
+				fresh = {
+					songs: [],
+					cards: await api.searchCards(query, category as 'albums' | 'artists' | 'playlists')
+				};
+			}
+			if (query !== q || category !== cat) return; // superseded by navigation
+			songs = fresh.songs;
+			cards = fresh.cards;
+			putCached(key, fresh);
+		} catch (e) {
+			if (query !== q || category !== cat) return;
+			if (!hit) error = String(e);
+		} finally {
+			if (query === q && category === cat) loading = false;
 		}
 	}
 
@@ -43,9 +66,19 @@
 	<p class="mb-6 text-sm text-muted-foreground">Results for “{q}”</p>
 
 	{#if loading}
-		<p class="text-sm text-muted-foreground">Loading…</p>
+		{#if cat === 'songs'}
+			{#each Array(10) as _, i (i)}
+				<TrackRowSkeleton />
+			{/each}
+		{:else}
+			<div class="grid grid-cols-[repeat(auto-fill,10rem)] gap-4">
+				{#each Array(12) as _, i (i)}
+					<MediaCardSkeleton />
+				{/each}
+			</div>
+		{/if}
 	{:else if error}
-		<p class="text-sm text-destructive">{error}</p>
+		<ErrorState message={error} onRetry={() => load(q, cat)} />
 	{:else if cat === 'songs'}
 		{#each songs as song (song.video_id)}
 			<TrackRow {song} onplay={() => api.play(song)} onAdd={() => openAddToPlaylist(song.video_id)} />

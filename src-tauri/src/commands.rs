@@ -95,12 +95,18 @@ pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
     Ok(state.queue_snapshot().await)
 }
 
+/// Settings the UI is allowed to read. Session/auth material (`session_cookie`, `data_sync_id`,
+/// `account_json`, `visitor_data`) and internal blobs (`queue_json`, `queue_position`) never cross
+/// into the webview — they'd otherwise ship the login credential to the renderer on every open.
+const UI_SETTINGS: [&str; 4] = ["proxy", "quality", "enable_history", "disabled_stream_clients"];
+
 #[tauri::command]
 pub async fn get_settings(state: St<'_>) -> Result<serde_json::Value, String> {
     let map: serde_json::Map<String, serde_json::Value> = state
         .db
         .all_settings()
         .into_iter()
+        .filter(|(k, _)| UI_SETTINGS.contains(&k.as_str()))
         .map(|(k, v)| (k, serde_json::Value::String(v)))
         .collect();
     Ok(serde_json::Value::Object(map))

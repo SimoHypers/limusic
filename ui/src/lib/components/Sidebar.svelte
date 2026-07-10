@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { fly, scale } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		Home01Icon,
@@ -103,22 +105,34 @@
 			<a
 				href={n.href}
 				title={n.label}
-				class="flex items-center justify-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors lg:justify-start {isActive(
+				class="group relative flex items-center justify-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors lg:justify-start {isActive(
 					n.href
 				)
-					? 'bg-sidebar-accent text-sidebar-accent-foreground'
+					? 'bg-primary/10 text-primary'
 					: 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'}"
 			>
-				<HugeiconsIcon icon={n.icon} class="h-5 w-5 shrink-0" />
+				{#if isActive(n.href)}
+					<span
+						transition:scale={{ duration: 200, start: 0.4 }}
+						class="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-primary"
+					></span>
+				{/if}
+				<HugeiconsIcon
+					icon={n.icon}
+					class="h-5 w-5 shrink-0 transition-transform duration-200 group-hover:scale-110"
+				/>
 				<span class="hidden lg:inline">{n.label}</span>
 			</a>
 		{/each}
 		<button
 			onclick={() => (ui.settingsOpen = true)}
 			title="Settings"
-			class="flex items-center justify-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground lg:justify-start"
+			class="group flex items-center justify-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground lg:justify-start"
 		>
-			<HugeiconsIcon icon={Settings01Icon} class="h-5 w-5 shrink-0" />
+			<HugeiconsIcon
+				icon={Settings01Icon}
+				class="h-5 w-5 shrink-0 transition-transform duration-200 group-hover:scale-110"
+			/>
 			<span class="hidden lg:inline">Settings</span>
 		</button>
 	</nav>
@@ -186,6 +200,7 @@
 			<!-- z-50: the popup is w-64 and overflows into <main> on the icon rail; without a
 			     stacking layer <main> (a later sibling) paints its track list over the popup. -->
 			<div
+				transition:fly={{ y: 8, duration: 180, easing: cubicOut }}
 				class="absolute bottom-full left-0 z-50 mb-2 w-64 rounded-xl border bg-popover p-4 text-popover-foreground shadow-lg"
 			>
 				{#if auth.account?.signedIn}

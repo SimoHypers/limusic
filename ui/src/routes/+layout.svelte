@@ -4,6 +4,8 @@
 	import { ModeWatcher } from 'mode-watcher';
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
+	import { fly } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
 	import { initTheme } from '$lib/theme.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import PlayerBar from '$lib/components/PlayerBar.svelte';
@@ -50,6 +52,7 @@
 
 {#if updateState.available}
 	<div
+		transition:fly={{ y: 16, duration: 220, easing: cubicOut }}
 		class="fixed bottom-24 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
 	>
 		<span>Update available — v{updateState.available.version}</span>
@@ -64,9 +67,12 @@
 			>
 		{/if}
 	</div>
-{:else if ui.toast}
+{/if}
+
+{#if ui.toast}
 	<div
-		class="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
+		transition:fly={{ y: 16, duration: 220, easing: cubicOut }}
+		class="fixed bottom-40 left-1/2 z-50 -translate-x-1/2 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
 	>
 		{ui.toast}
 	</div>
@@ -74,6 +80,7 @@
 
 {#if playback.error}
 	<div
+		transition:fly={{ y: 16, duration: 220, easing: cubicOut }}
 		class="fixed bottom-24 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-destructive/40 bg-card px-4 py-2 text-sm text-destructive shadow-lg"
 	>
 		<span>{playback.error}</span>

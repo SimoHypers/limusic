@@ -33,13 +33,16 @@ export async function checkForUpdatesQuiet() {
 	}
 }
 
-/** From Settings: always tell the user the outcome. */
-export async function checkForUpdatesInteractive() {
+/** From Settings: return the outcome so the modal can show it inline (a toast renders behind the
+ *  dialog). `error` picks the Alert variant. */
+export async function checkForUpdatesInteractive(): Promise<{ message: string; error: boolean }> {
 	updateState.checking = true;
 	try {
-		if (!(await look())) toast('You are running the latest version');
+		if (await look())
+			return { message: `Update available: v${updateState.available!.version}`, error: false };
+		return { message: 'You are running the latest version', error: false };
 	} catch (e) {
-		toast(`Update check failed: ${e}`);
+		return { message: `Update check failed: ${e}`, error: true };
 	} finally {
 		updateState.checking = false;
 	}

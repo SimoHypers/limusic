@@ -398,12 +398,29 @@ impl AppState {
     /// Resolve + load the current track into mpv (replace). Returns false if resolve failed or the
     /// request was superseded.
     async fn start_current(self: &std::sync::Arc<Self>, gen: u64) -> bool {
-        let Some(item) = self.current_item().await else { return false };
-        let data = match self.resolve(&item.video_id).await {
-            Ok(d) => d,
-            Err(e) => {
-                self.emit_error(&item.video_id, &e.to_string());
-                return false;
+        // Resolve the current track, auto-skipping any that no client can play (dead / region-locked
+        // videos — context/06 "no client could resolve") instead of stalling the queue on them.
+        // Bounded: each failure advances current by one, so the loop terminates at the queue tail.
+        let (item, data) = loop {
+            if self.generation.load(Ordering::SeqCst) != gen {
+                return false; // user moved on
+            }
+            let Some(item) = self.current_item().await else { return false };
+            match self.resolve(&item.video_id).await {
+                Ok(d) => break (item, d),
+                Err(e) => {
+                    let mut q = self.queue.lock().await;
+                    if q.current + 1 >= q.items.len() {
+                        drop(q);
+                        self.emit_error(&item.video_id, &e.to_string()); // nothing left to skip to
+                        return false;
+                    }
+                    q.current += 1;
+                    q.lookahead_loaded = None;
+                    drop(q);
+                    self.emit_skip(&item.title);
+                    self.emit_queue().await;
+                }
             }
         };
         if self.generation.load(Ordering::SeqCst) != gen {
@@ -547,6 +564,15 @@ impl AppState {
         let _ = self
             .app
             .emit("playback-error", serde_json::json!({ "videoId": video_id, "message": message }));
+    }
+
+    /// A track was auto-skipped because no client could resolve it — a transient toast, not the
+    /// persistent error banner: the queue keeps playing, so this shouldn't read as a failure.
+    fn emit_skip(&self, title: &str) {
+        tracing::warn!(title, "skipping unplayable track");
+        let _ = self
+            .app
+            .emit("playback-notice", serde_json::json!({ "message": format!("Skipped (unavailable): {title}") }));
     }
 
     pub async fn queue_snapshot(&self) -> serde_json::Value {

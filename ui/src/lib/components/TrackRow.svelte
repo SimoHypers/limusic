@@ -34,6 +34,7 @@
 	const hasMenu = $derived(!!onAdd || !!onRemove);
 
 	// A ⋯ menu, positioned `fixed` at the button so it isn't clipped by the scroll container.
+	// Anchored by its right edge (distance from the viewport's right) so the zoom-in origin stays put.
 	let menuOpen = $state(false);
 	let mx = $state(0);
 	let my = $state(0);
@@ -41,7 +42,7 @@
 	function openMenu(e: MouseEvent) {
 		e.stopPropagation();
 		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-		mx = r.right;
+		mx = window.innerWidth - r.right;
 		my = r.bottom + 4;
 		menuOpen = true;
 	}
@@ -102,7 +103,9 @@
 		{/if}
 		{#if hasMenu}
 			<button
-				class="rounded-md p-1.5 text-muted-foreground transition hover:bg-accent/20 hover:text-foreground"
+				class="rounded-md p-1.5 text-muted-foreground opacity-0 transition hover:bg-accent/20 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 {menuOpen
+					? 'opacity-100'
+					: ''}"
 				onclick={openMenu}
 				aria-label="Track options"
 			>
@@ -116,8 +119,8 @@
 	<button class="fixed inset-0 z-40 cursor-default" onclick={() => (menuOpen = false)} aria-label="Close menu"
 	></button>
 	<div
-		class="fixed z-50 min-w-44 -translate-x-full rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl"
-		style="left:{mx}px; top:{my}px;"
+		class="fixed z-50 min-w-44 origin-top-right animate-in rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl duration-150 fade-in-0 zoom-in-95"
+		style="right:{mx}px; top:{my}px;"
 	>
 		{#if onAdd}
 			<button

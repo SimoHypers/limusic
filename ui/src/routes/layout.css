@@ -6,6 +6,12 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Desktop app on WebKitGTK: the webview can report no hover-capable pointer, so Tailwind v4's
+   default hover variant — gated behind @media (hover: hover) — never matches, silently killing
+   every hover: and group-hover: utility in the app. Redefine hover to fire on a real :hover
+   regardless of the pointer heuristic. (This is a desktop app; hover always applies.) */
+@custom-variant hover (&:hover);
+
 :root {
 	--background: oklch(1 0 0);
 	--foreground: oklch(0.145 0.008 326);
@@ -127,5 +133,59 @@
 	}
 	html {
 		@apply font-sans;
+	}
+}
+
+/* --- Motion & interaction polish --- */
+
+/* A small "pop" for the like button when a track is favourited. */
+@keyframes heart-pop {
+	0% { transform: scale(1); }
+	40% { transform: scale(1.4); }
+	100% { transform: scale(1); }
+}
+.animate-heart-pop { animation: heart-pop 0.3s ease-out; }
+
+/* Range inputs (seek + volume): filled progress driven by --pct, with a thumb that
+   only appears on hover/focus. Every Tauri target is WebKit/Chromium, so the
+   -webkit- pseudo-elements cover Fedora (WebKitGTK), macOS (WebKit) and Windows (WebView2). */
+input[type='range'].range {
+	-webkit-appearance: none;
+	appearance: none;
+	height: 16px;
+	background: transparent;
+	cursor: pointer;
+}
+input[type='range'].range::-webkit-slider-runnable-track {
+	height: 4px;
+	border-radius: 999px;
+	background: linear-gradient(to right, var(--primary) var(--pct, 0%), var(--muted) var(--pct, 0%));
+}
+input[type='range'].range::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	appearance: none;
+	margin-top: -4px;
+	height: 12px;
+	width: 12px;
+	border-radius: 50%;
+	background: var(--primary);
+	opacity: 0;
+	transition: opacity 0.15s ease, transform 0.15s ease;
+}
+input[type='range'].range:hover::-webkit-slider-thumb,
+input[type='range'].range:focus-visible::-webkit-slider-thumb {
+	opacity: 1;
+}
+input[type='range'].range:active::-webkit-slider-thumb {
+	transform: scale(1.25);
+}
+
+/* Respect users who ask the OS to minimise motion. */
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
 	}
 }

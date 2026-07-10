@@ -25,6 +25,9 @@ export TAURI_SIGNING_PRIVATE_KEY="$(cat "$KEY")"
 export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
 
 echo "==> Building signed bundle (rpm + appimage)…"
+# linuxdeploy bundles an old `strip` that can't parse Fedora's modern ELF libs
+# (DT_RELR `.relr.dyn` sections) and aborts the AppImage. Skip its strip step.
+export NO_STRIP=true
 cargo tauri build
 
 APPIMAGE="$(ls target/release/bundle/appimage/*.AppImage | head -1)"

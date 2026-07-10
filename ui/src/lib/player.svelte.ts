@@ -87,12 +87,14 @@ export function initApp(): () => void {
 		api.onNowPlaying((n) => {
 			playback.now = n;
 			playback.liked = n.liked ?? false; // reflect the track's real like status when known
+			playback.error = null; // a track started → clear any stale dead-end banner
 		}),
 		api.onQueueChanged((q) => (playback.queue = q)),
 		api.onPosition((p) => (playback.position = p)),
 		api.onDuration((d) => (playback.duration = d)),
 		api.onPlaybackState((s) => (playback.paused = s === 'paused')),
 		api.onPlaybackError((msg) => (playback.error = msg)),
+		api.onPlaybackNotice((msg) => toast(msg)), // auto-skipped an unplayable track
 		api.onAuthChanged((a) => {
 			auth.account = a;
 			if (a.signedIn) loadLibrary(true);
