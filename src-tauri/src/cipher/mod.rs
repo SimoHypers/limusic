@@ -53,6 +53,11 @@ struct Inner {
     /// Whether an `_cipherSigFunc` export exists (i.e. a sig function name was found). When false,
     /// deciphering is impossible on this player regardless of freshness — so we skip refetch/retry.
     sig_available: bool,
+    /// Analysis (player.js fetch + name resolution + discovery) has run for `built_epoch`.
+    /// Separate from `bridge`: when discovery proves the player undecipherable we drop the
+    /// webview (~142 MiB) but keep the analysis so STS stays available. Invalidation
+    /// (self-heal) clears this to force a re-fetch + re-analysis.
+    analyzed: bool,
 }
 
 pub struct CipherDeobfuscator {
@@ -74,7 +79,7 @@ impl CipherDeobfuscator {
 
     /// STS of the player.js we decipher with (preferred over any other source). context/05.
     pub async fn signature_timestamp(&self) -> Option<i32> {
-        if self.ensure_ready().await.is_err() {
+        if self.ensure_analyzed().await.is_err() {
             return None;
         }
         self.inner.lock().await.sts
@@ -82,7 +87,7 @@ impl CipherDeobfuscator {
 
     /// `signatureCipher` string → a full, signed stream URL. `None` on any failure. context/05.
     pub async fn deobfuscate_stream_url(&self, cipher: &str, video_id: &str) -> Option<String> {
-        if self.ensure_ready().await.is_err() {
+        if self.ensure_analyzed().await.is_err() {
             return None;
         }
         // No sig function on this player (obfuscation defeated extraction) → deciphering is
@@ -98,13 +103,17 @@ impl CipherDeobfuscator {
         tracing::warn!(video_id, "decipher failed — refetching player.js and retrying once");
         self.fetcher.invalidate();
         {
-            self.inner.lock().await.bridge = None; // force rebuild
+            let mut inner = self.inner.lock().await;
+            inner.analyzed = false; // force re-fetch + re-analysis
+            if let Some(b) = inner.bridge.take() {
+                let _ = b.destroy();
+            }
         }
         self.try_deobfuscate(cipher).await
     }
 
     async fn try_deobfuscate(&self, cipher: &str) -> Option<String> {
-        self.ensure_ready().await.ok()?;
+        self.ensure_analyzed().await.ok()?;
         let (s, sp, base) = parse_cipher(cipher)?;
         let bridge = self.inner.lock().await.bridge.clone()?;
         let js = format!(
@@ -129,7 +138,7 @@ impl CipherDeobfuscator {
     }
 
     async fn try_transform_n(&self, url: &str) -> Option<String> {
-        self.ensure_ready().await.ok()?;
+        self.ensure_analyzed().await.ok()?;
         let inner = self.inner.lock().await;
         if !inner.n_available {
             return None;
@@ -157,25 +166,35 @@ impl CipherDeobfuscator {
     pub async fn on_stream_rejected(&self) -> bool {
         let table_changed = self.config.refresh_after_stream_rejection().await;
         self.fetcher.invalidate();
-        self.inner.lock().await.bridge = None; // next ensure_ready rebuilds
+        {
+            let mut inner = self.inner.lock().await;
+            inner.analyzed = false; // next ensure_analyzed rebuilds
+            if let Some(b) = inner.bridge.take() {
+                let _ = b.destroy();
+            }
+        }
         table_changed
     }
 
-    /// Warm the cipher webview off the first-play path (context/04 §startup). Non-fatal.
+    /// Warm the player.js disk cache + analysis off the first-play path (context/04 §startup); the
+    /// cipher webview is only built when the player turns out to be decipherable. Non-fatal.
     pub async fn prewarm(&self) {
-        if let Err(e) = self.ensure_ready().await {
+        if let Err(e) = self.ensure_analyzed().await {
             tracing::warn!(error = %e, "cipher prewarm failed (will retry on demand)");
         }
     }
 
-    /// Build (or rebuild, on config-epoch change) the cipher webview with player.js loaded and the
-    /// sig/n functions exported + discovered.
-    async fn ensure_ready(&self) -> Result<(), String> {
+    /// Ensure player.js analysis (STS + sig/n names + discovery) is fresh for the current config
+    /// epoch, building (or rebuilding) the cipher webview only when the player is decipherable —
+    /// otherwise the webview is destroyed/never built and analysis alone satisfies `signature_timestamp`.
+    async fn ensure_analyzed(&self) -> Result<(), String> {
         let epoch = self.config.config_epoch();
         {
             let inner = self.inner.lock().await;
-            if let Some(b) = &inner.bridge {
-                if inner.built_epoch == epoch && b.exists() {
+            if inner.analyzed && inner.built_epoch == epoch {
+                let bridge_ok = inner.bridge.as_ref().is_some_and(|b| b.exists());
+                let usable = keep_bridge(inner.sig_available, inner.n_available);
+                if bridge_ok || !usable {
                     return Ok(());
                 }
             }
@@ -230,17 +249,27 @@ impl CipherDeobfuscator {
         );
 
         let mut inner = self.inner.lock().await;
-        inner.bridge = Some(bridge);
+        if keep_bridge(sig_available, n_available) {
+            inner.bridge = Some(bridge);
+        } else {
+            tracing::info!(
+                "cipher: discovery found no usable sig/n on this player — dropping the webview \
+                 (KI-1; rebuilt on config-epoch change or self-heal)"
+            );
+            let _ = bridge.destroy();
+            inner.bridge = None;
+        }
         inner.sts = sts;
         inner.built_epoch = epoch;
         inner.n_available = n_available;
         inner.sig_available = sig_available;
-        tracing::info!(sig_available, n_available, "cipher webview ready");
+        inner.analyzed = true;
+        tracing::info!(sig_available, n_available, "cipher analysis complete");
         Ok(())
     }
 
     /// Inject player.js + discovery into a freshly-built cipher `bridge` and wait for discovery to
-    /// finish. Split out so `ensure_ready` can destroy the webview on any of these failures.
+    /// finish. Split out so `ensure_analyzed` can destroy the webview on any of these failures.
     async fn load_player(bridge: &Bridge, injected: &str) -> Result<(), String> {
         bridge.eval(injected).map_err(|e| e.to_string())?;
         bridge.eval(DISCOVERY_JS).map_err(|e| e.to_string())?;
@@ -277,6 +306,11 @@ fn js_string(s: &str) -> String {
     serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
 }
 
+/// Whether a built webview is worth keeping resident (context/05 + Phase-0 hybrid decision).
+fn keep_bridge(sig_available: bool, n_available: bool) -> bool {
+    sig_available || n_available
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,5 +338,13 @@ mod tests {
     #[test]
     fn js_string_escapes() {
         assert_eq!(js_string(r#"a"b\c"#), r#""a\"b\\c""#);
+    }
+
+    #[test]
+    fn keep_bridge_only_when_sig_or_n_available() {
+        assert!(keep_bridge(true, true));
+        assert!(keep_bridge(true, false));
+        assert!(keep_bridge(false, true));
+        assert!(!keep_bridge(false, false));
     }
 }
