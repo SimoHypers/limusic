@@ -15,6 +15,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as api from '$lib/api';
 	import { playback, toast, openAddToPlaylist } from '$lib/player.svelte';
+	import { thumb } from '$lib/thumb';
 
 	let { onToggleQueue, queueOpen }: { onToggleQueue: () => void; queueOpen: boolean } = $props();
 
@@ -85,7 +86,7 @@
 		{#key playback.now?.videoId}
 			{#if playback.now?.thumbnail}
 				<img
-					src={playback.now.thumbnail}
+					src={thumb(playback.now.thumbnail, 120)}
 					alt=""
 					style="max-width:none"
 					class="h-12 w-12 shrink-0 rounded-lg object-cover"

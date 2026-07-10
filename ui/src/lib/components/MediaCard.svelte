@@ -4,6 +4,7 @@
 	import { PlayIcon } from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import type { BrowseItem } from '$lib/api';
+	import { thumb } from '$lib/thumb';
 
 	let { item }: { item: BrowseItem } = $props();
 
@@ -39,7 +40,7 @@
 		>
 			{#if item.thumbnail}
 				<img
-					src={item.thumbnail}
+					src={thumb(item.thumbnail, 400)}
 					alt=""
 					class="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105"
 					loading="lazy"

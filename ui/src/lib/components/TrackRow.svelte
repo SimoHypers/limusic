@@ -8,6 +8,7 @@
 		PlayListRemoveIcon
 	} from '@hugeicons/core-free-icons';
 	import type { SongItem } from '$lib/api';
+	import { thumb } from '$lib/thumb';
 
 	let {
 		song,
@@ -77,7 +78,7 @@
 				</span>
 			{/if}
 			{#if song.thumbnail && !hideThumb}
-				<img src={song.thumbnail} alt="" class="h-10 w-10 shrink-0 rounded-md object-cover" loading="lazy" />
+				<img src={thumb(song.thumbnail, 96)} alt="" class="h-10 w-10 shrink-0 rounded-md object-cover" loading="lazy" />
 			{/if}
 		</button>
 		<div class="min-w-0 flex-1">

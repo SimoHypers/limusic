@@ -21,6 +21,7 @@
 	import * as api from '$lib/api';
 	import type { BrowseItem } from '$lib/api';
 	import { auth, library, ui, createLibraryPlaylist, toast } from '$lib/player.svelte';
+	import { thumb } from '$lib/thumb';
 
 	const nav = [
 		{ href: '/', label: 'Home', icon: Home01Icon },
@@ -206,7 +207,7 @@
 				{#if auth.account?.signedIn}
 					<div class="flex items-center gap-3">
 						{#if auth.account.thumbnail}
-							<img src={auth.account.thumbnail} alt="" class="h-10 w-10 rounded-full object-cover" />
+							<img src={thumb(auth.account.thumbnail, 96)} alt="" class="h-10 w-10 rounded-full object-cover" />
 						{/if}
 						<div class="min-w-0">
 							<div class="truncate text-sm font-medium">{auth.account.name ?? 'Signed in'}</div>
@@ -256,7 +257,7 @@
 				     narrow icon rail clamps width to the tiny button content-box while height stays
 				     fixed → a vertical oval. Inline so it's immune to Preflight and stale dev CSS. -->
 				<img
-					src={auth.account.thumbnail}
+					src={thumb(auth.account.thumbnail, 96)}
 					alt=""
 					style="width:2.25rem;height:2.25rem;max-width:none"
 					class="shrink-0 rounded-full object-cover ring-1 ring-border"
