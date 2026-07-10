@@ -14,3 +14,12 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"
 tracing = "0.1"
 anyhow = "1"
 thiserror = "2"
+
+# Release profile: thin LTO + one codegen unit for cross-crate optimization, symbols stripped
+# for size (this binary ships via AppImage self-update — size = every user's download).
+# panic stays "unwind": an abort in the mpv event thread or a tokio task would kill playback
+# for the whole app instead of degrading.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
