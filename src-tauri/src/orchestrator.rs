@@ -110,16 +110,17 @@ impl Orchestrator {
         // 1. Signature timestamp from the deciphering player.js (context/05).
         let sts = self.cipher.signature_timestamp().await;
 
-        // 2. PoToken for the main web client (context/04). May be None (timeout / broken webview).
+        // 2. Session PoToken for the main web client's /player body (context/04). Cached in Rust
+        // with its TTL, so this is usually free; may be None (timeout / broken webview) —
+        // degrade gracefully.
         let main_client = self.clients.get(MAIN_CLIENT);
-        let po = match (main_client, &visitor) {
+        let session_pot_owned = match (main_client, &visitor) {
             (Some(c), Some(vd)) if c.use_web_po_tokens && !disabled.contains(MAIN_CLIENT) => {
-                self.potoken.get_web_client_po_token(video_id, vd).await
+                self.potoken.get_session_po_token(vd).await
             }
             _ => None,
         };
-        let session_pot = po.as_ref().map(|p| p.player_request_po_token.as_str());
-        let stream_pot = po.as_ref().map(|p| p.streaming_data_po_token.clone());
+        let session_pot = session_pot_owned.as_deref();
 
         // 3. Main request as WEB_REMIX (metadata source even when a fallback wins the stream).
         let mut main_resp = match main_client {
@@ -204,9 +205,11 @@ impl Orchestrator {
             if needs_n {
                 url = self.cipher.transform_n_param_in_url(&url).await;
                 if client.is_some_and(|c| c.use_web_po_tokens) {
-                    if let Some(pot) = &stream_pot {
-                        let sep = if url.contains('?') { '&' } else { '?' };
-                        url = format!("{url}{sep}pot={}", urlencoding::encode(pot));
+                    if let Some(vd) = &visitor {
+                        if let Some(pot) = self.potoken.get_streaming_po_token(video_id, vd).await {
+                            let sep = if url.contains('?') { '&' } else { '?' };
+                            url = format!("{url}{sep}pot={}", urlencoding::encode(&pot));
+                        }
                     }
                 }
             }

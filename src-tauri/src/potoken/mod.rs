@@ -2,11 +2,12 @@
 //! `PoTokenGenerator`, reusing the exact flow the Phase-0 `botguard-spike` proved on WebKitGTK.
 //!
 //! Native Rust does all HTTP (`/Create`, `/GenerateIT`); the hidden webview only runs Google's
-//! BotGuard JS (which cannot be reimplemented). Two tokens per session/video (context/04):
-//! `player_request_po_token` (from visitorData) → `/player` body; `streaming_data_po_token` (from
-//! videoId) → `&pot=` on the stream URL. Everything is wrapped so a timeout / broken webview
-//! returns `None` and the orchestrator falls through to the non-PoToken clients (graceful
-//! degradation — context/06 §5).
+//! BotGuard JS (which cannot be reimplemented). Two tokens per session/video (context/04): a
+//! session token (minted from visitorData, cached in Rust with its TTL — `get_session_po_token`)
+//! → the `/player` request body; a per-video streaming token (minted from videoId, lazy —
+//! `get_streaming_po_token`) → `&pot=` on the stream URL. Everything is wrapped so a timeout /
+//! broken webview returns `None` and the orchestrator falls through to the non-PoToken clients
+//! (graceful degradation — context/06 §5).
 
 mod jsutil;
 
@@ -46,18 +47,8 @@ const GLUE: &str = r#"window.__lm={
   async mint(ident){var t=await obtainPoToken(new Uint8Array(ident));return Array.from(t);}
 };"#;
 
-/// Two tokens for one video, following context/04 *usage* (not the confusing source names).
-#[derive(Debug, Clone)]
-pub struct PoTokenResult {
-    /// Session/streaming token (minted from visitorData) → the `/player` request body.
-    pub player_request_po_token: String,
-    /// Per-video token (minted from the videoId) → appended to the stream URL as `&pot=`.
-    pub streaming_data_po_token: String,
-}
-
 struct Minter {
     session_id: String,
-    streaming_pot: String,
     expires_at: Instant,
     bridge: Bridge,
     last_used: Instant,
@@ -69,10 +60,29 @@ impl Minter {
     }
 }
 
+/// Cached session token (context/04: minted from visitorData, ~12h TTL). Lives OUTSIDE the
+/// webview `Minter` so the mint-and-destroy idle teardown doesn't force a full BotGuard
+/// bootstrap on the next track start just to re-learn a string we already had.
+struct SessionToken {
+    session_id: String,
+    token: String,
+    expires_at: Instant,
+}
+
+impl SessionToken {
+    fn valid_for(&self, session_id: &str) -> bool {
+        self.session_id == session_id && Instant::now() < self.expires_at
+    }
+}
+
 pub struct PoTokenGenerator {
     app: AppHandle,
     http: reqwest::Client,
     minter: Mutex<Option<Minter>>,
+    /// Session token cache (context/04: minted from visitorData, ~12h TTL). Lives OUTSIDE the
+    /// webview minter so the mint-and-destroy idle teardown doesn't force a full BotGuard
+    /// bootstrap on the next track start just to re-learn a string we already had.
+    session_token: Mutex<Option<SessionToken>>,
     /// Latched once the system webview proves unusable (uncaught JS error) — thereafter always
     /// degrade to non-PoToken clients (context/04 §BadWebViewException).
     webview_bad: AtomicBool,
@@ -81,22 +91,28 @@ pub struct PoTokenGenerator {
 impl PoTokenGenerator {
     pub fn new(app: AppHandle) -> Self {
         let http = reqwest::Client::builder().user_agent(UA).build().unwrap_or_default();
-        PoTokenGenerator { app, http, minter: Mutex::new(None), webview_bad: AtomicBool::new(false) }
+        PoTokenGenerator {
+            app,
+            http,
+            minter: Mutex::new(None),
+            session_token: Mutex::new(None),
+            webview_bad: AtomicBool::new(false),
+        }
     }
 
-    /// Mint both tokens for `(video_id, visitor_data)`, or `None` on any failure/timeout.
-    pub async fn get_web_client_po_token(
-        &self,
-        video_id: &str,
-        visitor_data: &str,
-    ) -> Option<PoTokenResult> {
+    /// Session token for the `/player` request body (context/04). Cheap when cached; otherwise
+    /// performs the full bootstrap (and leaves the minter warm for streaming-token mints).
+    pub async fn get_session_po_token(&self, visitor_data: &str) -> Option<String> {
         if self.webview_bad.load(Ordering::SeqCst) {
             return None;
         }
-        match timeout(MINT_BUDGET, self.mint(video_id, visitor_data)).await {
-            Ok(Ok(r)) => Some(r),
+        if let Some(token) = self.cached_session_token(visitor_data).await {
+            return Some(token);
+        }
+        match timeout(MINT_BUDGET, self.ensure_minter(visitor_data)).await {
+            Ok(Ok(_guard)) => self.cached_session_token(visitor_data).await,
             Ok(Err(e)) => {
-                tracing::warn!(video_id, error = %e, "PoToken mint failed — degrading");
+                tracing::warn!(error = %e, "PoToken session mint failed — degrading");
                 if matches!(e, MintError::Webview(WebviewError::BadWebview(_))) {
                     self.webview_bad.store(true, Ordering::SeqCst);
                 }
@@ -104,44 +120,79 @@ impl PoTokenGenerator {
                 None
             }
             Err(_) => {
-                tracing::warn!(video_id, "PoToken mint timed out — degrading");
+                tracing::warn!("PoToken session mint timed out — degrading");
                 self.teardown().await;
                 None
             }
         }
     }
 
-    async fn mint(&self, video_id: &str, visitor_data: &str) -> Result<PoTokenResult, MintError> {
+    /// Per-video streaming token for the `&pot=` URL param (context/04). Builds/reuses the
+    /// minter; call ONLY when a web-client stream URL actually resolved (post-decipher).
+    pub async fn get_streaming_po_token(&self, video_id: &str, visitor_data: &str) -> Option<String> {
+        if self.webview_bad.load(Ordering::SeqCst) {
+            return None;
+        }
+        match timeout(MINT_BUDGET, self.mint_streaming(video_id, visitor_data)).await {
+            Ok(Ok(pot)) => Some(pot),
+            Ok(Err(e)) => {
+                tracing::warn!(video_id, error = %e, "PoToken streaming mint failed — degrading");
+                if matches!(e, MintError::Webview(WebviewError::BadWebview(_))) {
+                    self.webview_bad.store(true, Ordering::SeqCst);
+                }
+                self.teardown().await;
+                None
+            }
+            Err(_) => {
+                tracing::warn!(video_id, "PoToken streaming mint timed out — degrading");
+                self.teardown().await;
+                None
+            }
+        }
+    }
+
+    async fn cached_session_token(&self, visitor_data: &str) -> Option<String> {
+        self.session_token
+            .lock()
+            .await
+            .as_ref()
+            .filter(|t| t.valid_for(visitor_data))
+            .map(|t| t.token.clone())
+    }
+
+    /// Ensure `self.minter` holds a valid minter for `visitor_data`, (re)building it via
+    /// `create_minter` (which also refreshes the cached session token through `bootstrap_minter`)
+    /// if needed. Returns the locked guard so callers needing the minter's bridge (streaming
+    /// mint) can keep using it without a re-lock race.
+    async fn ensure_minter<'a>(
+        &'a self,
+        visitor_data: &str,
+    ) -> Result<tokio::sync::MutexGuard<'a, Option<Minter>>, MintError> {
         let mut guard = self.minter.lock().await;
-        // (Re)create the minter + session token if we don't have a valid one for this session.
         if !guard.as_ref().is_some_and(|m| m.valid_for(visitor_data)) {
             if let Some(old) = guard.take() {
                 let _ = old.bridge.destroy();
             }
             *guard = Some(self.create_minter(visitor_data).await?);
         }
+        Ok(guard)
+    }
+
+    /// Per-video token (identifier = videoId). One retry with a fresh minter on failure.
+    async fn mint_streaming(&self, video_id: &str, visitor_data: &str) -> Result<String, MintError> {
+        let mut guard = self.ensure_minter(visitor_data).await?;
         let minter = guard.as_mut().expect("minter present");
         minter.last_used = Instant::now();
-
-        // Per-video token (identifier = videoId). One retry with a fresh minter on failure.
-        let streaming_pot = minter.streaming_pot.clone();
         let bridge = minter.bridge.clone();
         match mint_token(&bridge, video_id.as_bytes()).await {
-            Ok(player_pot) => Ok(PoTokenResult {
-                player_request_po_token: streaming_pot,
-                streaming_data_po_token: player_pot,
-            }),
+            Ok(pot) => Ok(pot),
             Err(e) => {
                 tracing::debug!(error = %e, "per-video mint failed, rebuilding minter once");
                 let _ = bridge.destroy();
                 let fresh = self.create_minter(visitor_data).await?;
-                let player_pot = mint_token(&fresh.bridge, video_id.as_bytes()).await?;
-                let streaming_pot = fresh.streaming_pot.clone();
+                let pot = mint_token(&fresh.bridge, video_id.as_bytes()).await?;
                 *guard = Some(fresh);
-                Ok(PoTokenResult {
-                    player_request_po_token: streaming_pot,
-                    streaming_data_po_token: player_pot,
-                })
+                Ok(pot)
             }
         }
     }
@@ -184,14 +235,21 @@ impl PoTokenGenerator {
             )
             .await?;
 
-        // 5. [webview] session/streaming token (identifier = visitorData). Minted exactly once.
-        let streaming_pot = mint_token(bridge, session_id.as_bytes()).await?;
-
+        // 5. [webview] session token (identifier = visitorData). Minted exactly once.
+        let session_pot = mint_token(bridge, session_id.as_bytes()).await?;
         let expires_at = Instant::now() + Duration::from_secs(ttl).saturating_sub(EXPIRY_MARGIN);
+
+        // Cache the session token outside the minter (see `SessionToken` doc) so it survives the
+        // webview's mint-and-destroy idle teardown.
+        *self.session_token.lock().await = Some(SessionToken {
+            session_id: session_id.to_owned(),
+            token: session_pot,
+            expires_at,
+        });
+
         tracing::info!(ttl, "PoToken minter ready");
         Ok(Minter {
             session_id: session_id.to_owned(),
-            streaming_pot,
             expires_at,
             bridge: bridge.clone(),
             last_used: Instant::now(),
@@ -300,4 +358,39 @@ enum MintError {
     Http(#[from] reqwest::Error),
     #[error("parse: {0}")]
     Parse(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_token_valid_for_matching_id_and_future_expiry() {
+        let t = SessionToken {
+            session_id: "vd123".to_owned(),
+            token: "tok".to_owned(),
+            expires_at: Instant::now() + Duration::from_secs(60),
+        };
+        assert!(t.valid_for("vd123"));
+    }
+
+    #[test]
+    fn session_token_invalid_for_wrong_id() {
+        let t = SessionToken {
+            session_id: "vd123".to_owned(),
+            token: "tok".to_owned(),
+            expires_at: Instant::now() + Duration::from_secs(60),
+        };
+        assert!(!t.valid_for("other"));
+    }
+
+    #[test]
+    fn session_token_invalid_when_expired() {
+        let t = SessionToken {
+            session_id: "vd123".to_owned(),
+            token: "tok".to_owned(),
+            expires_at: Instant::now() - Duration::from_secs(1),
+        };
+        assert!(!t.valid_for("vd123"));
+    }
 }
