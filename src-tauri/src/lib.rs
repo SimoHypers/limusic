@@ -222,16 +222,48 @@ pub fn run() {
         });
 }
 
+/// Decide whether a position tick is worth forwarding to the UI. Passes ~4 Hz of steady
+/// playback through, plus any discontinuity (seek/track change) immediately so the slider
+/// never lags a jump. Pure so it's testable; the pump owns the state.
+// ponytail: fixed 250ms cadence; make it adaptive only if someone ever wants sub-second UI time.
+struct PositionThrottle {
+    last_emit: std::time::Instant,
+    last_pos: f64,
+}
+
+impl PositionThrottle {
+    fn new() -> Self {
+        Self {
+            last_emit: std::time::Instant::now() - std::time::Duration::from_secs(1),
+            last_pos: f64::NAN,
+        }
+    }
+    fn should_emit(&mut self, pos: f64, now: std::time::Instant) -> bool {
+        let dt = now.duration_since(self.last_emit);
+        // A jump is any move that couldn't be normal playback since the last emit (+0.75s slack).
+        let jumped = self.last_pos.is_nan() || (pos - self.last_pos).abs() > dt.as_secs_f64() + 0.75;
+        if jumped || dt >= std::time::Duration::from_millis(250) {
+            self.last_emit = now;
+            self.last_pos = pos;
+            return true;
+        }
+        false
+    }
+}
+
 fn spawn_event_pump(
     state: Arc<AppState>,
     app: tauri::AppHandle,
     mut events: tokio::sync::mpsc::UnboundedReceiver<PlayerEvent>,
 ) {
     tauri::async_runtime::spawn(async move {
+        let mut throttle = PositionThrottle::new();
         while let Some(ev) = events.recv().await {
             match ev {
                 PlayerEvent::Position(p) => {
-                    let _ = app.emit("position", serde_json::json!({ "position": p }));
+                    if throttle.should_emit(p, std::time::Instant::now()) {
+                        let _ = app.emit("position", serde_json::json!({ "position": p }));
+                    }
                     state.on_position(p).await;
                 }
                 PlayerEvent::Duration(d) => {
@@ -245,6 +277,7 @@ fn spawn_event_pump(
                 PlayerEvent::Paused => {
                     let _ = app.emit("playback-state", "paused");
                     state.flush_position(); // persist exact resume position on pause
+                    let _ = app.emit("position", serde_json::json!({ "position": state.current_position() }));
                     state.media_set_playing(false);
                 }
                 PlayerEvent::TrackEnded => {
@@ -265,4 +298,48 @@ fn spawn_event_pump(
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PositionThrottle;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn steady_playback_throttles_to_250ms() {
+        let mut t = PositionThrottle::new();
+        let base = Instant::now();
+        // First tick ever → emitted regardless of cadence.
+        assert!(t.should_emit(0.0, base));
+        // 100ms later, small forward move → still within the 250ms window, suppressed.
+        assert!(!t.should_emit(0.1, base + Duration::from_millis(100)));
+        assert!(!t.should_emit(0.2, base + Duration::from_millis(200)));
+        // 250ms accumulated since last emit → emitted again.
+        assert!(t.should_emit(0.25, base + Duration::from_millis(250)));
+    }
+
+    #[test]
+    fn forward_jump_emits_immediately() {
+        let mut t = PositionThrottle::new();
+        let base = Instant::now();
+        assert!(t.should_emit(10.0, base));
+        // 50ms later but position jumped +30s (e.g. media-key seek) → emit despite short dt.
+        assert!(t.should_emit(40.0, base + Duration::from_millis(50)));
+    }
+
+    #[test]
+    fn backward_jump_emits_immediately() {
+        let mut t = PositionThrottle::new();
+        let base = Instant::now();
+        assert!(t.should_emit(60.0, base));
+        // 50ms later but position jumped -30s → emit despite short dt.
+        assert!(t.should_emit(30.0, base + Duration::from_millis(50)));
+    }
+
+    #[test]
+    fn first_tick_ever_emits() {
+        let mut t = PositionThrottle::new();
+        // NaN last_pos (fresh throttle) → always emits on the very first tick, even at t=now.
+        assert!(t.should_emit(5.0, Instant::now()));
+    }
 }
