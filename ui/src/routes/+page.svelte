@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { Search01Icon } from '@hugeicons/core-free-icons';
+	import { Search01Icon, UserMultiple02Icon } from '@hugeicons/core-free-icons';
 	import { Input } from '$lib/components/ui/input';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import MediaCard from '$lib/components/MediaCard.svelte';
@@ -10,7 +10,8 @@
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import * as api from '$lib/api';
 	import type { HomePage } from '$lib/api';
-	import { auth } from '$lib/player.svelte';
+	import { auth, ui } from '$lib/player.svelte';
+	import { lt } from '$lib/lt.svelte';
 	import { getCached, putCached } from '$lib/pagecache';
 
 	let home = $state<HomePage | null>(null);
@@ -48,13 +49,31 @@
 <div class="p-6">
 	<div class="mb-6 flex items-center justify-between gap-4">
 		<h1 class="font-heading text-2xl font-bold">Home</h1>
-		<form class="relative w-full max-w-xs" onsubmit={(e) => { e.preventDefault(); goSearch(); }}>
-			<HugeiconsIcon
-				icon={Search01Icon}
-				class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-			/>
-			<Input bind:value={searchQuery} placeholder="Search" class="rounded-full pl-9" />
-		</form>
+		<div class="flex items-center gap-2">
+			<button
+				onclick={() => (ui.ltOpen = true)}
+				title="Listen Together"
+				aria-label="Listen Together"
+				class="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors hover:bg-accent {lt.role !==
+				'none'
+					? 'border-primary text-primary'
+					: 'text-muted-foreground'}"
+			>
+				<HugeiconsIcon icon={UserMultiple02Icon} class="h-5 w-5" />
+				{#if lt.role !== 'none'}
+					<span
+						class="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-background"
+					></span>
+				{/if}
+			</button>
+			<form class="relative w-full max-w-xs" onsubmit={(e) => { e.preventDefault(); goSearch(); }}>
+				<HugeiconsIcon
+					icon={Search01Icon}
+					class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+				/>
+				<Input bind:value={searchQuery} placeholder="Search" class="rounded-full pl-9" />
+			</form>
+		</div>
 	</div>
 	{#if loading}
 		<div class="flex flex-col gap-8">

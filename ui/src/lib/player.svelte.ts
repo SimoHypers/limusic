@@ -3,6 +3,7 @@
 // context/11 UI contract — this module only calls commands / subscribes to events.
 import * as api from './api';
 import type { Account, BrowseItem, NowPlaying, QueueState } from './api';
+import { applyLtState } from './lt.svelte';
 
 export const playback = $state({
 	now: null as NowPlaying | null,
@@ -58,7 +59,8 @@ export async function createLibraryPlaylist(title: string): Promise<void> {
 export const ui = $state({
 	addVideoIds: null as string[] | null, // add-to-playlist picker target(s)
 	toast: null as string | null,
-	settingsOpen: false // the settings modal
+	settingsOpen: false, // the settings modal
+	ltOpen: false // the Listen Together modal
 });
 
 export function toast(msg: string) {
@@ -104,7 +106,10 @@ export function initApp(): () => void {
 			}
 		}),
 		api.onLoginError((msg) => toast(msg)),
-		api.onLoginDone(() => toast('Signed in'))
+		api.onLoginDone(() => toast('Signed in')),
+		// Listen Together (context/19): mirror the Rust session state; surface notices as toasts.
+		api.onLtState((s) => applyLtState(s)),
+		api.onLtNotice((msg) => toast(msg))
 	];
 	api.getQueue()
 		.then((q) => {
@@ -136,5 +141,7 @@ export function initApp(): () => void {
 			if (a.signedIn) loadLibrary();
 		})
 		.catch(() => {});
+	// Seed the Listen Together state (server URL, any active room after a UI reload).
+	api.ltGetState().then(applyLtState).catch(() => {});
 	return () => subs.forEach((u) => u.then((f) => f()));
 }

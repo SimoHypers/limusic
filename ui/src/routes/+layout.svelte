@@ -12,6 +12,7 @@
 	import QueuePanel from '$lib/components/QueuePanel.svelte';
 	import AddToPlaylist from '$lib/components/AddToPlaylist.svelte';
 	import SettingsDialog from '$lib/components/SettingsDialog.svelte';
+	import ListenTogether from '$lib/components/ListenTogether.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { initApp, playback, ui } from '$lib/player.svelte';
 	import { updateState, installUpdate, checkForUpdatesQuiet } from '$lib/updater.svelte';
@@ -49,6 +50,7 @@
 
 <AddToPlaylist />
 <SettingsDialog />
+<ListenTogether />
 
 {#if updateState.available}
 	<div

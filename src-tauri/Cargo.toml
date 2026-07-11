@@ -16,7 +16,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["net", "io-util"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = { workspace = true }
@@ -34,3 +34,9 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 innertube = { path = "../crates/innertube" }
 player = { path = "../crates/player" }
 souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
+# Listen Together: shared wire types + WebSocket client (wss via rustls). context/19.
+listen-protocol = { workspace = true }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+futures-util = { workspace = true }
+rand = { workspace = true }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }

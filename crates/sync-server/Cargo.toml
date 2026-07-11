@@ -1,0 +1,20 @@
+[package]
+name = "sync-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Limusic Listen Together sync server (self-hosted WebSocket hub)"
+
+[[bin]]
+name = "limusic-sync"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true, features = ["net", "io-util", "signal"] }
+tokio-tungstenite = "0.24"
+futures-util = { workspace = true }
+serde_json = { workspace = true }
+listen-protocol = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rand = { workspace = true }

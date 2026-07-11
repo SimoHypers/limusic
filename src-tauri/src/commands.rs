@@ -82,7 +82,8 @@ pub async fn toggle_pause(state: St<'_>) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn seek(state: St<'_>, position: f64) -> Result<(), String> {
-    state.player.seek(position).map_err(|e| e.to_string())
+    // Routed through AppState so a Listen Together host broadcasts the seek and a guest is blocked.
+    state.user_seek(position).await
 }
 
 #[tauri::command]
@@ -294,4 +295,99 @@ pub async fn delete_playlist(state: St<'_>, playlist_id: String) -> Result<(), S
 pub async fn subscribe(state: St<'_>, channel_id: String, subscribed: bool) -> Result<(), String> {
     let client = require_login(&state)?;
     state.it.subscribe(client, &channel_id, subscribed).await.map_err(|e| e.to_string())
+}
+
+// --- Listen Together (context/19) ----------------------------------------------------------
+
+/// Current client-side LT state (status, role, room, participants, pending joins, suggestions).
+#[tauri::command]
+pub async fn lt_get_state(state: St<'_>) -> Result<serde_json::Value, String> {
+    Ok(state.lt.snapshot().await)
+}
+
+/// Set + persist the sync server URL (e.g. the Tailscale Funnel `wss://…` address).
+#[tauri::command]
+pub async fn lt_set_server_url(state: St<'_>, url: String) -> Result<(), String> {
+    let url = url.trim().to_string();
+    state.db.set_setting("lt_server_url", &url);
+    state.lt.set_server_url(url).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn lt_create_room(state: St<'_>, username: String) -> Result<(), String> {
+    state.lt.create_room(username).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn lt_join_room(state: St<'_>, code: String, username: String) -> Result<(), String> {
+    state.lt.join_room(code, username).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn lt_leave(state: St<'_>) -> Result<(), String> {
+    state.lt.leave().await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn lt_approve_join(state: St<'_>, user_id: String) -> Result<(), String> {
+    state.lt.approve_join(user_id).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn lt_reject_join(state: St<'_>, user_id: String) -> Result<(), String> {
+    state.lt.reject_join(user_id).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn lt_kick(state: St<'_>, user_id: String) -> Result<(), String> {
+    state.lt.kick(user_id).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn lt_transfer_host(state: St<'_>, user_id: String) -> Result<(), String> {
+    state.lt.transfer_host(user_id).await;
+    Ok(())
+}
+
+/// Guest: suggest a track to the host.
+#[tauri::command]
+pub async fn lt_suggest(state: St<'_>, item: SongItem) -> Result<(), String> {
+    let track = listen_protocol::Track {
+        id: item.video_id,
+        title: item.title,
+        artist: item.artists,
+        thumbnail: item.thumbnail,
+        duration_ms: 0,
+    };
+    state.lt.suggest(track).await;
+    Ok(())
+}
+
+/// Host: approve a suggestion — add it to the real queue and notify the suggester.
+#[tauri::command]
+pub async fn lt_approve_suggestion(state: St<'_>, id: String) -> Result<(), String> {
+    if let Some(track) = state.lt.approve_suggestion(id).await {
+        state.lt_enqueue_track(track).await;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn lt_reject_suggestion(state: St<'_>, id: String) -> Result<(), String> {
+    state.lt.reject_suggestion(id).await;
+    Ok(())
+}
+
+/// Guest: force a re-sync with the room (drift correction).
+#[tauri::command]
+pub async fn lt_request_sync(state: St<'_>) -> Result<(), String> {
+    state.lt.request_sync().await;
+    Ok(())
 }

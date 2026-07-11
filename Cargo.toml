@@ -1,9 +1,15 @@
 [workspace]
 resolver = "2"
-members = ["crates/innertube", "crates/player", "src-tauri"]
+members = [
+    "crates/innertube",
+    "crates/player",
+    "crates/listen-protocol",
+    "crates/sync-server",
+    "src-tauri",
+]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 license = "GPL-3.0-or-later"
 
@@ -14,6 +20,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"
 tracing = "0.1"
 anyhow = "1"
 thiserror = "2"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+rand = "0.8"
+listen-protocol = { path = "crates/listen-protocol" }
 
 # Release profile: thin LTO + one codegen unit for cross-crate optimization, symbols stripped
 # for size (this binary ships via AppImage self-update — size = every user's download).

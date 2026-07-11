@@ -138,11 +138,11 @@
 					<p class="text-sm text-muted-foreground">Loading…</p>
 				{:else if tab === 'general'}
 					<div class="border-b py-3">
-						<div class="font-medium">Accent color</div>
+						<div class="font-medium">Theme</div>
 						<p class="mt-0.5 mb-3 text-sm text-muted-foreground">
-							Set the app's primary color.
+							Accent colors tint the default look; presets swap the whole palette.
 						</p>
-						<div role="radiogroup" aria-label="Accent color" class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+						<div role="radiogroup" aria-label="Theme" class="grid grid-cols-2 gap-2 sm:grid-cols-3">
 							{#each THEMES as t (t.id)}
 								<label
 									class="flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-accent/10 focus-within:ring-2 focus-within:ring-ring {theme.id ===

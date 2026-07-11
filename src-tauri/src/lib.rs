@@ -3,6 +3,7 @@
 mod cipher;
 mod commands;
 mod db;
+mod listentogether;
 mod media;
 mod orchestrator;
 mod potoken;
@@ -98,6 +99,11 @@ pub fn run() {
             // it's fine to spawn before AppState is managed. context/16, D11.
             let media = media::spawn(handle.clone());
 
+            // Listen Together session (context/19). Server URL is a DB setting so "home PC → VPS" is
+            // config, not a rebuild. The sync channel feeds the guest-playback bridge below.
+            let lt_url = db.get_setting("lt_server_url").unwrap_or_default();
+            let (lt, lt_sync_rx) = listentogether::LtSession::new(handle.clone(), lt_url);
+
             let app_state = Arc::new(AppState::new(
                 it,
                 clients,
@@ -105,10 +111,22 @@ pub fn run() {
                 db,
                 handle.clone(),
                 orchestrator,
+                lt,
                 cache_dir.clone(),
                 media,
             ));
             app.manage(app_state.clone());
+
+            // Bridge: apply Listen Together sync commands (guest playback / host seed) to AppState.
+            {
+                let st = app_state.clone();
+                let mut rx = lt_sync_rx;
+                tauri::async_runtime::spawn(async move {
+                    while let Some(cmd) = rx.recv().await {
+                        st.apply_sync(cmd).await;
+                    }
+                });
+            }
 
             // Restore the last session's queue (paused, not autoplaying). context/11 §state.
             {
@@ -203,6 +221,19 @@ pub fn run() {
             commands::rename_playlist,
             commands::delete_playlist,
             commands::subscribe,
+            commands::lt_get_state,
+            commands::lt_set_server_url,
+            commands::lt_create_room,
+            commands::lt_join_room,
+            commands::lt_leave,
+            commands::lt_approve_join,
+            commands::lt_reject_join,
+            commands::lt_kick,
+            commands::lt_transfer_host,
+            commands::lt_suggest,
+            commands::lt_approve_suggestion,
+            commands::lt_reject_suggestion,
+            commands::lt_request_sync,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -273,12 +304,14 @@ fn spawn_event_pump(
                 PlayerEvent::Playing => {
                     let _ = app.emit("playback-state", "playing");
                     state.media_set_playing(true);
+                    state.lt_on_play_state(true).await; // Listen Together host → broadcast
                 }
                 PlayerEvent::Paused => {
                     let _ = app.emit("playback-state", "paused");
                     state.flush_position(); // persist exact resume position on pause
                     let _ = app.emit("position", serde_json::json!({ "position": state.current_position() }));
                     state.media_set_playing(false);
+                    state.lt_on_play_state(false).await; // Listen Together host → broadcast
                 }
                 PlayerEvent::TrackEnded => {
                     state.on_track_ended().await;

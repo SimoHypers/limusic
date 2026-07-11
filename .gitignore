@@ -8,6 +8,7 @@ rustypipe_reports/
 /progress/
 /spikes/
 /.agents/
+/.claude/worktrees/
 /CLAUDE.md
 /PHASE1-PROMPT.md
 /skills-lock.json

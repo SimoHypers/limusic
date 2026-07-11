@@ -294,9 +294,18 @@ pub fn parse_album(root: &Value) -> AlbumPage {
     let thumbnail = header.and_then(|h| h.get("thumbnail")).and_then(last_thumbnail);
     let description = album_description(root, header);
 
+    // Album track rows carry no per-track thumbnail (every track shares the cover shown once in
+    // the header), so parse_list_item leaves them None. Fill missing ones with the album cover so
+    // the player bar + queue show it when a track plays.
     let items = find_all(root, "musicResponsiveListItemRenderer")
         .into_iter()
         .filter_map(parse_list_item)
+        .map(|mut it| {
+            if it.thumbnail.is_none() {
+                it.thumbnail = thumbnail.clone();
+            }
+            it
+        })
         .collect();
 
     AlbumPage {
@@ -767,6 +776,8 @@ mod tests {
         assert_eq!(a.description.as_deref(), Some("Iceman is one of three studio albums."));
         assert_eq!(a.items.len(), 1);
         assert_eq!(a.items[0].video_id, "trk1");
+        // Track row has no thumbnail of its own → falls back to the album cover (for the player bar).
+        assert_eq!(a.items[0].thumbnail.as_deref(), Some("cover_big.jpg"));
     }
 
     #[test]

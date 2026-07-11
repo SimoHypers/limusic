@@ -189,3 +189,61 @@ export const onLoginError = (cb: (msg: string) => void): Promise<UnlistenFn> =>
 	listen<string>('login-error', (e) => cb(e.payload));
 export const onLoginDone = (cb: () => void): Promise<UnlistenFn> =>
 	listen('login-done', () => cb());
+
+// --- Listen Together (context/19) -----------------------------------------------------------
+export interface LtUser {
+	user_id: string;
+	username: string;
+	is_host: boolean;
+	is_connected: boolean;
+}
+export interface LtTrack {
+	id: string;
+	title: string;
+	artist: string;
+	thumbnail?: string | null;
+	duration_ms: number;
+}
+export interface LtPendingJoin {
+	userId: string;
+	username: string;
+}
+export interface LtSuggestion {
+	id: string;
+	from_user_id: string;
+	from_username: string;
+	track: LtTrack;
+}
+export interface LtState {
+	status: 'disconnected' | 'connecting' | 'connected';
+	role: 'none' | 'host' | 'guest';
+	/** Asked to create/join and awaiting the room (host approval) — show a waiting state. */
+	requesting: boolean;
+	roomCode: string | null;
+	myId: string | null;
+	serverUrl: string;
+	users: LtUser[];
+	currentTrack: LtTrack | null;
+	queue: LtTrack[];
+	pendingJoins: LtPendingJoin[];
+	suggestions: LtSuggestion[];
+}
+
+export const ltGetState = () => invoke<LtState>('lt_get_state');
+export const ltSetServerUrl = (url: string) => invoke<void>('lt_set_server_url', { url });
+export const ltCreateRoom = (username: string) => invoke<void>('lt_create_room', { username });
+export const ltJoinRoom = (code: string, username: string) =>
+	invoke<void>('lt_join_room', { code, username });
+export const ltLeave = () => invoke<void>('lt_leave');
+export const ltApproveJoin = (userId: string) => invoke<void>('lt_approve_join', { userId });
+export const ltRejectJoin = (userId: string) => invoke<void>('lt_reject_join', { userId });
+export const ltKick = (userId: string) => invoke<void>('lt_kick', { userId });
+export const ltTransferHost = (userId: string) => invoke<void>('lt_transfer_host', { userId });
+export const ltApproveSuggestion = (id: string) => invoke<void>('lt_approve_suggestion', { id });
+export const ltRejectSuggestion = (id: string) => invoke<void>('lt_reject_suggestion', { id });
+export const ltRequestSync = () => invoke<void>('lt_request_sync');
+
+export const onLtState = (cb: (s: LtState) => void): Promise<UnlistenFn> =>
+	listen<LtState>('lt-state', (e) => cb(e.payload));
+export const onLtNotice = (cb: (msg: string) => void): Promise<UnlistenFn> =>
+	listen<string>('lt-notice', (e) => cb(e.payload));
