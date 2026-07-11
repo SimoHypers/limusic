@@ -30,9 +30,11 @@ echo "==> Building signed bundle (rpm + appimage)…"
 export NO_STRIP=true
 cargo tauri build
 
-APPIMAGE="$(ls target/release/bundle/appimage/*.AppImage | head -1)"
+# Pin to $VERSION — a stale bundle from a previous build otherwise sorts first and gets shipped
+# (e.g. an old 0.1.1 rpm uploaded to the 0.1.2 release).
+APPIMAGE="$(ls target/release/bundle/appimage/limusic_${VERSION}_*.AppImage 2>/dev/null | head -1)"
 SIG="$APPIMAGE.sig"
-RPM="$(ls target/release/bundle/rpm/*.rpm | head -1)"
+RPM="$(ls target/release/bundle/rpm/limusic-${VERSION}-*.rpm 2>/dev/null | head -1)"
 [ -f "$SIG" ] || { echo "no .sig next to $APPIMAGE — is createUpdaterArtifacts on?"; exit 1; }
 
 # latest.json: the manifest the updater reads. The download URL must match the uploaded asset name.
