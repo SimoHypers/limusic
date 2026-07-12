@@ -12,7 +12,8 @@
 		Moon02Icon,
 		UserCircleIcon,
 		Logout01Icon,
-		Add01Icon
+		Add01Icon,
+		ArrowUp01Icon
 	} from '@hugeicons/core-free-icons';
 	import { toggleMode } from 'mode-watcher';
 	import { Button } from '$lib/components/ui/button';
@@ -195,8 +196,9 @@
 		</Dialog.Root>
 	{/if}
 
-	<!-- Account (context/15) -->
-	<div class="relative mt-auto">
+	<!-- Account (context/15). border-t divides it from the playlist list above; mt-auto pins it to
+	     the bottom when that list is short or absent (signed out / icon rail). -->
+	<div class="relative mt-auto border-t pt-3">
 		{#if showAccount}
 			<!-- z-50: the popup is w-64 and overflows into <main> on the icon rail; without a
 			     stacking layer <main> (a later sibling) paints its track list over the popup. -->
@@ -205,18 +207,8 @@
 				class="absolute bottom-full left-0 z-50 mb-2 w-64 rounded-xl border bg-popover p-4 text-popover-foreground shadow-lg"
 			>
 				{#if auth.account?.signedIn}
-					<div class="flex items-center gap-3">
-						{#if auth.account.thumbnail}
-							<img src={thumb(auth.account.thumbnail, 96)} alt="" class="h-10 w-10 rounded-full object-cover" />
-						{/if}
-						<div class="min-w-0">
-							<div class="truncate text-sm font-medium">{auth.account.name ?? 'Signed in'}</div>
-							{#if auth.account.handle}
-								<div class="truncate text-xs text-muted-foreground">{auth.account.handle}</div>
-							{/if}
-						</div>
-					</div>
-					<Button variant="outline" size="sm" class="mt-3 w-full gap-2" onclick={doSignOut}>
+					<!-- The trigger below already shows the avatar, name and handle — don't repeat them. -->
+					<Button variant="outline" size="sm" class="w-full gap-2" onclick={doSignOut}>
 						<HugeiconsIcon icon={Logout01Icon} class="h-4 w-4" />
 						Sign out
 					</Button>
@@ -250,7 +242,8 @@
 		<button
 			onclick={() => (showAccount = !showAccount)}
 			title={auth.account?.signedIn ? (auth.account.name ?? 'Account') : 'Sign in'}
-			class="flex w-full items-center justify-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-sidebar-accent/50 lg:justify-start"
+			aria-expanded={showAccount}
+			class="flex w-full items-center justify-center gap-3 rounded-lg px-2 py-2 text-sm transition-colors hover:bg-sidebar-accent/50 aria-expanded:bg-sidebar-accent/50 lg:justify-start"
 		>
 			{#if auth.account?.signedIn && auth.account.thumbnail}
 				<!-- max-width:none defeats Tailwind Preflight's `img{max-width:100%}`, which on the
@@ -265,9 +258,20 @@
 			{:else}
 				<HugeiconsIcon icon={UserCircleIcon} class="h-9 w-9 shrink-0 text-muted-foreground" />
 			{/if}
-			<span class="hidden min-w-0 flex-1 truncate text-left font-medium lg:block">
-				{auth.account?.signedIn ? (auth.account.name ?? 'Account') : 'Sign in'}
+			<span class="hidden min-w-0 flex-1 text-left lg:block">
+				<span class="block truncate font-medium">
+					{auth.account?.signedIn ? (auth.account.name ?? 'Account') : 'Sign in'}
+				</span>
+				{#if auth.account?.signedIn && auth.account.handle}
+					<span class="block truncate text-xs text-muted-foreground">{auth.account.handle}</span>
+				{/if}
 			</span>
+			<HugeiconsIcon
+				icon={ArrowUp01Icon}
+				class="hidden h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 lg:block {showAccount
+					? 'rotate-180'
+					: ''}"
+			/>
 		</button>
 	</div>
 </aside>

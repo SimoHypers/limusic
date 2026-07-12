@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { HugeiconsIcon } from '@hugeicons/svelte';
+	import { Cancel01Icon } from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import type { BrowseItem } from '$lib/api';
 	import { ui, toast } from '$lib/player.svelte';
@@ -47,8 +49,12 @@
 		<div class="w-full max-w-sm rounded-xl border bg-card p-4 shadow-xl">
 			<div class="mb-3 flex items-center justify-between">
 				<h2 class="font-heading text-base font-semibold">Add to playlist</h2>
-				<button class="text-muted-foreground hover:text-foreground" onclick={close} aria-label="Close">
-					✕
+				<button
+					class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+					onclick={close}
+					aria-label="Close"
+				>
+					<HugeiconsIcon icon={Cancel01Icon} class="h-4 w-4" />
 				</button>
 			</div>
 			{#if loading}

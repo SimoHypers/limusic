@@ -54,10 +54,10 @@
 				onclick={() => (ui.ltOpen = true)}
 				title="Listen Together"
 				aria-label="Listen Together"
-				class="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors hover:bg-accent {lt.role !==
+				class="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors {lt.role !==
 				'none'
-					? 'border-primary text-primary'
-					: 'text-muted-foreground'}"
+					? 'border-primary text-primary hover:bg-primary/10'
+					: 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'}"
 			>
 				<HugeiconsIcon icon={UserMultiple02Icon} class="h-5 w-5" />
 				{#if lt.role !== 'none'}
