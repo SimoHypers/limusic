@@ -3,6 +3,7 @@
 mod cipher;
 mod commands;
 mod db;
+mod discord;
 mod listentogether;
 mod media;
 mod orchestrator;
@@ -99,6 +100,9 @@ pub fn run() {
             // it's fine to spawn before AppState is managed. context/16, D11.
             let media = media::spawn(handle.clone());
 
+            // Discord rich presence — off unless the user opted in; parks on its channel until then.
+            let discord = discord::spawn(db.get_setting("discord_rpc").as_deref() == Some("true"));
+
             // Listen Together session (context/19). Server URL is a DB setting so "home PC → VPS" is
             // config, not a rebuild. The sync channel feeds the guest-playback bridge below.
             let lt_url = db.get_setting("lt_server_url").unwrap_or_default();
@@ -114,6 +118,7 @@ pub fn run() {
                 lt,
                 cache_dir.clone(),
                 media,
+                discord,
             ));
             app.manage(app_state.clone());
 
@@ -301,17 +306,15 @@ fn spawn_event_pump(
                     let _ = app.emit("duration", serde_json::json!({ "duration": d }));
                     state.on_duration(d).await;
                 }
-                PlayerEvent::Playing => {
-                    let _ = app.emit("playback-state", "playing");
-                    state.media_set_playing(true);
-                    state.lt_on_play_state(true).await; // Listen Together host → broadcast
-                }
-                PlayerEvent::Paused => {
-                    let _ = app.emit("playback-state", "paused");
-                    state.flush_position(); // persist exact resume position on pause
-                    let _ = app.emit("position", serde_json::json!({ "position": state.current_position() }));
-                    state.media_set_playing(false);
-                    state.lt_on_play_state(false).await; // Listen Together host → broadcast
+                PlayerEvent::Playing(playing) => {
+                    let _ = app.emit("playback-state", if playing { "playing" } else { "paused" });
+                    if !playing {
+                        state.flush_position(); // persist exact resume position on pause
+                        let _ = app
+                            .emit("position", serde_json::json!({ "position": state.current_position() }));
+                    }
+                    state.media_set_playing(playing);
+                    state.lt_on_play_state(playing).await; // Listen Together host → broadcast
                 }
                 PlayerEvent::TrackEnded => {
                     state.on_track_ended().await;

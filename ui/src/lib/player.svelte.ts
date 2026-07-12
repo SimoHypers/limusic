@@ -4,6 +4,7 @@
 import * as api from './api';
 import type { Account, BrowseItem, NowPlaying, QueueState } from './api';
 import { applyLtState } from './lt.svelte';
+import { clearCached } from './pagecache';
 
 export const playback = $state({
 	now: null as NowPlaying | null,
@@ -19,7 +20,11 @@ export const playback = $state({
 });
 
 export const auth = $state({
-	account: null as Account | null
+	account: null as Account | null,
+	// Bumped on every sign-in/out. The root layout keys the page on it, so the current route
+	// remounts and refetches — home/browse data is per-account and otherwise stays stale until
+	// the user navigates away and back.
+	epoch: 0
 });
 
 // The signed-in user's library (playlists + liked), shared by the sidebar list and the Library page
@@ -104,6 +109,8 @@ export function initApp(): () => void {
 				library.items = [];
 				library.loaded = false;
 			}
+			clearCached();
+			auth.epoch++;
 		}),
 		api.onLoginError((msg) => toast(msg)),
 		api.onLoginDone(() => toast('Signed in')),

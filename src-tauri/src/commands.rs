@@ -99,7 +99,8 @@ pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
 /// Settings the UI is allowed to read. Session/auth material (`session_cookie`, `data_sync_id`,
 /// `account_json`, `visitor_data`) and internal blobs (`queue_json`, `queue_position`) never cross
 /// into the webview — they'd otherwise ship the login credential to the renderer on every open.
-const UI_SETTINGS: [&str; 4] = ["proxy", "quality", "enable_history", "disabled_stream_clients"];
+const UI_SETTINGS: [&str; 5] =
+    ["proxy", "quality", "enable_history", "disabled_stream_clients", "discord_rpc"];
 
 #[tauri::command]
 pub async fn get_settings(state: St<'_>) -> Result<serde_json::Value, String> {
@@ -116,6 +117,11 @@ pub async fn get_settings(state: St<'_>) -> Result<serde_json::Value, String> {
 #[tauri::command]
 pub async fn set_setting(state: St<'_>, key: String, value: String) -> Result<(), String> {
     state.db.set_setting(&key, &value);
+    // Presence connects/clears the moment it's toggled — the user shouldn't have to skip a track
+    // to see it take effect.
+    if key == "discord_rpc" {
+        state.set_discord_enabled(value == "true");
+    }
     Ok(())
 }
 

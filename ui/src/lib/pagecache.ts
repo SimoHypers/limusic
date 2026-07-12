@@ -28,3 +28,8 @@ export function putCached(key: string, data: unknown): void {
 export function invalidateCached(key: string): void {
 	store.delete(key);
 }
+
+/** Drop everything — browse data is per-account, so sign-in/out makes all of it stale. */
+export function clearCached(): void {
+	store.clear();
+}

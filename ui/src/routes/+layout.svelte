@@ -14,7 +14,7 @@
 	import SettingsDialog from '$lib/components/SettingsDialog.svelte';
 	import ListenTogether from '$lib/components/ListenTogether.svelte';
 	import { Button } from '$lib/components/ui/button';
-	import { initApp, playback, ui } from '$lib/player.svelte';
+	import { auth, initApp, playback, ui } from '$lib/player.svelte';
 	import { updateState, installUpdate, checkForUpdatesQuiet } from '$lib/updater.svelte';
 
 	let { children } = $props();
@@ -39,7 +39,10 @@
 	<div class="relative flex min-h-0 flex-1">
 		<Sidebar />
 		<main class="min-w-0 flex-1 overflow-y-auto">
-			{@render children()}
+			<!-- Remount the current page on sign-in/out so it refetches with the new account. -->
+			{#key auth.epoch}
+				{@render children()}
+			{/key}
 		</main>
 		{#if showQueue}<QueuePanel onClose={() => (showQueue = false)} />{/if}
 	</div>

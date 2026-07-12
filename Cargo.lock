@@ -511,7 +511,7 @@ checksum = "d38f2da7a0a2c4ccf0065be06397cc26a81f4e528be095826eee9d4adbb8c60f"
 dependencies = [
  "byteorder",
  "fnv",
- "uuid",
+ "uuid 1.23.4",
 ]
 
 [[package]]
@@ -919,6 +919,21 @@ dependencies = [
  "option-ext",
  "redox_users",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "discord-rich-presence"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90c55d69cab17c19677ce3a5f8face993a9e6eaf847fecac3547f3a3ff4a2494"
+dependencies = [
+ "log",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_repr",
+ "thiserror 2.0.18",
+ "uuid 0.8.2",
 ]
 
 [[package]]
@@ -2329,6 +2344,7 @@ version = "0.1.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "discord-rich-presence",
  "futures-util",
  "innertube",
  "listen-protocol",
@@ -3829,7 +3845,7 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
- "uuid",
+ "uuid 1.23.4",
 ]
 
 [[package]]
@@ -4571,7 +4587,7 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "url",
- "uuid",
+ "uuid 1.23.4",
  "walkdir",
 ]
 
@@ -4733,7 +4749,7 @@ dependencies = [
  "toml 1.1.2+spec-1.1.0",
  "url",
  "urlpattern",
- "uuid",
+ "uuid 1.23.4",
  "walkdir",
 ]
 
@@ -5363,6 +5379,15 @@ name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
+
+[[package]]
+name = "uuid"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
+dependencies = [
+ "getrandom 0.2.17",
+]
 
 [[package]]
 name = "uuid"

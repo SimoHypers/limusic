@@ -1,7 +1,7 @@
 //! App state: transport, player, db, and the queue/playback manager. context/11.
 
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use std::sync::Arc;
 
@@ -12,6 +12,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
 use crate::db::Db;
+use crate::discord::DiscordHandle;
 use crate::listentogether::{LtSession, SyncCommand};
 use crate::media::MediaHandle;
 use crate::orchestrator::{Orchestrator, PlaybackData, ResolveError};
@@ -29,6 +30,9 @@ pub struct AppState {
     cache_dir: std::path::PathBuf,
     /// OS media integration (MPRIS/SMTC/NowPlaying). `None` if it failed to init. context/16.
     media: Option<MediaHandle>,
+    /// Discord rich presence. Fed the same track/playback changes as `media`; gated on the
+    /// `discord_rpc` setting inside its own thread.
+    discord: Option<DiscordHandle>,
     queue: Mutex<QueueState>,
     /// Bumped on every explicit `play`/jump so superseded async resolves discard their result
     /// (cancellation without JoinHandle bookkeeping). context/06 §6.
@@ -37,6 +41,9 @@ pub struct AppState {
     /// next `start_current` — applied only when that track is the one being started, so jumping to
     /// a different track first doesn't inherit the old position (context/11).
     pending_seek: std::sync::Mutex<Option<(String, f64)>>,
+    /// Mirror of mpv's pause flag (set in `media_set_playing`). Position ticks must consult this
+    /// instead of assuming "playing" — mpv fires `time-pos` on seeks while paused too.
+    is_playing: AtomicBool,
     /// Latest mpv position (f64 bits) + wall-clock secs of the last DB write, for throttled
     /// resume-position persistence.
     latest_position: AtomicU64,
@@ -80,6 +87,7 @@ impl AppState {
         lt: Arc<LtSession>,
         cache_dir: std::path::PathBuf,
         media: Option<MediaHandle>,
+        discord: Option<DiscordHandle>,
     ) -> Self {
         AppState {
             it,
@@ -91,7 +99,9 @@ impl AppState {
             lt,
             cache_dir,
             media,
+            discord,
             queue: Mutex::new(QueueState::default()),
+            is_playing: AtomicBool::new(false),
             generation: AtomicU64::new(0),
             pending_seek: std::sync::Mutex::new(None),
             latest_position: AtomicU64::new(0),
@@ -363,6 +373,9 @@ impl AppState {
         if !has_next {
             tracing::info!("queue exhausted");
             let _ = self.app.emit("playback-state", "paused");
+            // mpv goes idle without flipping its pause flag, so no Paused event will fire — tell
+            // the OS widget + Discord ourselves or they show "playing" forever past the last song.
+            self.media_set_playing(false);
             return;
         }
         if self.player.is_idle() {
@@ -394,7 +407,13 @@ impl AppState {
         // Listen Together host: announce the gapless advance to the room.
         self.lt_broadcast_current_track(0, true).await;
         tracing::info!("advanced to next track (gapless)");
-        self.prime_lookahead(gen).await;
+        // Prime off the pump, not on it. `prime_lookahead` resolves the next stream over the
+        // network, and this fn is awaited by the mpv event pump — blocking here stops mpv's events
+        // being drained for the length of a round-trip, which delays the new track's `duration`
+        // (its progress bar) and, worse, the *next* track-end. The generation guard inside already
+        // makes a superseded resolve discard itself, so it's safe to detach.
+        let me = self.clone();
+        tauri::async_runtime::spawn(async move { me.prime_lookahead(gen).await });
     }
 
     /// A track died at the player layer (dead/403 URL). If WEB_REMIX served it, record the failure
@@ -476,6 +495,11 @@ impl AppState {
             q.duration = 0.0;
         }
         self.emit_now_playing(&item, &data.stream_client);
+        // We just told mpv to play, but its `pause` flag was already `false`, so no property event
+        // will announce it (see `Player::is_playing`). Say so ourselves — otherwise MPRIS and
+        // Discord never learn the track started. After `emit_now_playing`, so the new track is the
+        // current one before anything renders it as playing.
+        self.media_set_playing(true);
         self.emit_queue().await;
         self.persist_queue().await;
         // Listen Together host: announce the new track (fresh play → position 0, playing).
@@ -544,16 +568,38 @@ impl AppState {
             }),
         );
         let _ = self.app.emit("playback-state", "playing");
-        // Push the same metadata to the OS media widget (context/16).
+        // Push the same metadata to the OS media widget (context/16) and Discord.
         if let Some(m) = &self.media {
             m.set_metadata(&item.title, &item.artists, item.album.as_deref(), item.thumbnail.as_deref());
         }
+        if let Some(d) = &self.discord {
+            d.set_track(item);
+        }
+        // New track ⇒ let the next position tick through immediately instead of waiting out the
+        // ~1s throttle, so a restored seek position (and the play-state self-heal) lands at once.
+        self.last_media_push.store(0, Ordering::Relaxed);
     }
 
-    /// Push play/pause state + the current position to the OS media controls (context/16).
+    /// Push play/pause state + the current position to the OS media controls (context/16) and
+    /// Discord. The single choke point for play/pause, so both stay in step with mpv. Discord gets
+    /// the flag only — its position flows exclusively through the ticks, so a stale
+    /// `current_position()` here (the last tick can predate a track change) can't poison its
+    /// timeline.
     pub fn media_set_playing(&self, playing: bool) {
+        self.is_playing.store(playing, Ordering::Relaxed);
         if let Some(m) = &self.media {
             m.set_playback(playing, self.current_position());
+        }
+        if let Some(d) = &self.discord {
+            d.set_playing(playing);
+        }
+    }
+
+    /// Toggle Discord presence at runtime (the `discord_rpc` setting). Turning it off clears the
+    /// presence and closes the socket; turning it on re-pushes the current track.
+    pub fn set_discord_enabled(&self, on: bool) {
+        if let Some(d) = &self.discord {
+            d.set_enabled(on);
         }
     }
 
@@ -644,6 +690,9 @@ impl AppState {
             if let Some(m) = &self.media {
                 m.set_duration(secs);
             }
+            if let Some(d) = &self.discord {
+                d.set_duration(secs);
+            }
         }
     }
 
@@ -687,10 +736,13 @@ impl AppState {
             q.items = items;
         }
         if let Some(item) = self.current_item().await {
-            // Restored, not playing — announce the track but leave playback paused.
+            // Restored, not playing — announce the track but leave playback paused. Declare the
+            // paused state *first*: mpv reports `pause: false` while idle at boot, so a track
+            // announced before this would briefly look like it was playing (and put a presence card
+            // up for a song nobody started).
+            self.media_set_playing(false);
             self.emit_now_playing(&item, "restored");
             let _ = self.app.emit("playback-state", "paused");
-            self.media_set_playing(false);
         }
         self.emit_queue().await;
     }
@@ -704,11 +756,21 @@ impl AppState {
             self.last_pos_persist.store(now, Ordering::Relaxed);
             self.db.set_setting("queue_position", &pos.to_string());
         }
-        // Update the OS scrubber (~1s), throttled separately from the DB write.
-        if let Some(m) = &self.media {
-            if now.saturating_sub(self.last_media_push.load(Ordering::Relaxed)) >= 1 {
-                self.last_media_push.store(now, Ordering::Relaxed);
-                m.set_playback(true, pos);
+        // Update the OS scrubber (~1s), throttled separately from the DB write. Discord rides the
+        // same tick — not to redraw its bar (it runs its own clock off the timestamps we pushed)
+        // but so it can notice a seek and re-push. A tick is NOT proof of playback (mpv also fires
+        // `time-pos` on seeks while paused), so ask mpv for the play state rather than assuming it.
+        if now.saturating_sub(self.last_media_push.load(Ordering::Relaxed)) >= 1 {
+            self.last_media_push.store(now, Ordering::Relaxed);
+            // Never ask mpv anything here — this runs on the event pump, and `mpv_get_property` is
+            // synchronous on mpv's core lock. `is_playing` is kept current by `PlayerEvent::Playing`,
+            // which mpv now pushes (it derives from `idle-active`, not just `pause`).
+            let playing = self.is_playing.load(Ordering::Relaxed);
+            if let Some(m) = &self.media {
+                m.set_playback(playing, pos);
+            }
+            if let Some(d) = &self.discord {
+                d.set_position(pos);
             }
         }
     }

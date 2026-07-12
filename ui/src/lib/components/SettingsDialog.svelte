@@ -56,6 +56,7 @@
 
 	const quality = $derived(settings.quality ?? 'HIGH');
 	const historyOn = $derived(settings.enable_history !== 'false');
+	const discordOn = $derived(settings.discord_rpc === 'true');
 	const disabled = $derived(
 		new Set(
 			(settings.disabled_stream_clients ?? '')
@@ -82,6 +83,11 @@
 	async function setHistory(on: boolean) {
 		settings.enable_history = on ? 'true' : 'false';
 		await api.setSetting('enable_history', settings.enable_history);
+	}
+
+	async function setDiscord(on: boolean) {
+		settings.discord_rpc = on ? 'true' : 'false';
+		await api.setSetting('discord_rpc', settings.discord_rpc);
 	}
 
 	async function toggleClient(name: string) {
@@ -177,7 +183,7 @@
 							{/each}
 						</div>
 					</div>
-					<div class="flex items-start justify-between gap-4 py-3">
+					<div class="flex items-start justify-between gap-4 border-b py-3">
 						<div class="min-w-0">
 							<div class="font-medium">Watch history</div>
 							<p class="mt-0.5 text-sm text-muted-foreground">
@@ -185,6 +191,16 @@
 							</p>
 						</div>
 						<Switch checked={historyOn} onCheckedChange={setHistory} />
+					</div>
+					<div class="flex items-start justify-between gap-4 py-3">
+						<div class="min-w-0">
+							<div class="font-medium">Discord rich presence</div>
+							<p class="mt-0.5 text-sm text-muted-foreground">
+								Show what you're listening to on your Discord profile. Needs the Discord desktop app
+								running — no login here.
+							</p>
+						</div>
+						<Switch checked={discordOn} onCheckedChange={setDiscord} />
 					</div>
 				{:else if tab === 'playback'}
 					<div class="border-b py-3">

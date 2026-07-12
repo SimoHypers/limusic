@@ -19,8 +19,14 @@ pub enum Error {
 pub enum PlayerEvent {
     Position(f64),
     Duration(f64),
-    Playing,
-    Paused,
+    /// Playback started or stopped, emitted only on a real change.
+    ///
+    /// Derived from mpv's `pause` **and** `idle-active`, because `pause` alone is a trap: it starts
+    /// out `false` and a `loadfile` doesn't touch it, so starting a track sets `false` → `false`
+    /// and fires **no** property event at all. `idle-active` is the one that actually flips when a
+    /// file starts (and when the playlist runs dry). Anything reading playback state off `pause`
+    /// alone never hears that a track began, and only recovers on a manual pause/unpause.
+    Playing(bool),
     /// One track finished normally (EOF) — orchestrator advances the queue.
     TrackEnded,
     /// One track died (end-file with error, e.g. its URL 403'd). mpv may have auto-advanced
@@ -66,6 +72,7 @@ impl Player {
         ev.observe_property("time-pos", Format::Double, 0)?;
         ev.observe_property("duration", Format::Double, 1)?;
         ev.observe_property("pause", Format::Flag, 2)?;
+        ev.observe_property("idle-active", Format::Flag, 3)?;
 
         std::thread::Builder::new()
             .name("mpv-events".into())
@@ -174,6 +181,17 @@ impl Player {
 }
 
 fn event_loop(mut ev: EventContext, tx: tokio::sync::mpsc::UnboundedSender<PlayerEvent>) {
+    // Playback state is derived from two properties, never polled: mpv answers `mpv_get_property`
+    // synchronously on its core lock, so asking it from the app's async event pump can stall that
+    // pump exactly when mpv is busiest (a gapless transition opening the next stream) — and a
+    // stalled pump stops draining mpv's events, so track-end is never handled and playback wedges.
+    // These arrive as events; nothing has to ask.
+    //
+    // mpv reports the initial value of an observed property immediately, so both are seeded here
+    // before anything is loaded: `pause: false`, `idle-active: true` ⇒ not playing.
+    let mut paused = false;
+    let mut idle = true;
+    let mut playing = false;
     loop {
         match ev.wait_event(1.0) {
             Some(Ok(event)) => {
@@ -184,8 +202,13 @@ fn event_loop(mut ev: EventContext, tx: tokio::sync::mpsc::UnboundedSender<Playe
                     Event::PropertyChange { name: "duration", change: PropertyData::Double(d), .. } => {
                         Some(PlayerEvent::Duration(d))
                     }
-                    Event::PropertyChange { name: "pause", change: PropertyData::Flag(paused), .. } => {
-                        Some(if paused { PlayerEvent::Paused } else { PlayerEvent::Playing })
+                    Event::PropertyChange { name: "pause", change: PropertyData::Flag(p), .. } => {
+                        paused = p;
+                        None
+                    }
+                    Event::PropertyChange { name: "idle-active", change: PropertyData::Flag(i), .. } => {
+                        idle = i;
+                        None
                     }
                     Event::EndFile(reason) => match reason as i32 {
                         EOF => Some(PlayerEvent::TrackEnded),
@@ -199,6 +222,15 @@ fn event_loop(mut ev: EventContext, tx: tokio::sync::mpsc::UnboundedSender<Playe
                 if let Some(e) = out {
                     // Receiver dropped ⇒ player gone ⇒ stop the thread.
                     if tx.send(e).is_err() {
+                        break;
+                    }
+                }
+                // A gapless advance never touches either property, so no spurious stop/start is
+                // emitted between tracks.
+                let now = !paused && !idle;
+                if now != playing {
+                    playing = now;
+                    if tx.send(PlayerEvent::Playing(now)).is_err() {
                         break;
                     }
                 }

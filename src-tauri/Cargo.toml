@@ -40,3 +40,4 @@ tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 futures-util = { workspace = true }
 rand = { workspace = true }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+discord-rich-presence = "1.1.0"
