@@ -12,6 +12,13 @@
 //!   isn't pumping yet during setup and the closure would never run.
 //! - **Harness HTML:** loaded as a `data:text/html` URL (CustomProtocol). The app CSP is `null`
 //!   so nothing is injected; BotGuard's dynamic eval runs unhindered (proven in botguard-spike).
+//!   **Keep it `null`.** Tauri injects the configured CSP as a `<meta>` tag into any `data:` URL
+//!   webview (`tauri::manager::webview`, `prepare_webview`). A `data:` document has an opaque
+//!   origin, so a policy as ordinary as `default-src 'self'` blocks every inline script here and
+//!   the harness loads with none of its functions defined — the page still reports "loaded" and
+//!   the eval probe still round-trips, so it fails as `Can't find variable: runBotGuard` at mint
+//!   time, not at build time. Hardening the main window costs the extraction stack; if it's ever
+//!   worth it, serve the harness from a custom URI scheme (which Tauri does not rewrite) first.
 
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
