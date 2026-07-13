@@ -77,12 +77,12 @@ Windows and macOS instructions live in [docs/BUILD-PLATFORMS.md](docs/BUILD-PLAT
 
 ## Disclaimer
 
-Limusic is not affiliated with YouTube or Google. It uses YouTube's private
-APIs, which is against YouTube's Terms of Service, and it can stop working
-whenever YouTube changes something on their side. Nothing is re-hosted,
-scraped, or downloaded to disk; the app streams the same data the official web
-player would. Use it at your own risk, and consider signing in with a
-throwaway account rather than your main one.
+This project is not affiliated with, funded, authorized, endorsed by, or in
+any way associated with YouTube, Google LLC, or any of their affiliates and
+subsidiaries.
+
+All trademarks, service marks, and intellectual property rights referenced in
+this project belong to their respective owners.
 
 ## License
 
