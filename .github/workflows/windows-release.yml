@@ -1,0 +1,181 @@
+name: Windows release binaries
+
+# Builds and signs the Windows installers for a release that ALREADY EXISTS, attaches them to it,
+# and adds the `windows-x86_64` entry to latest.json so Windows installs get auto-updates.
+#
+# The Linux release is still cut from Fedora with `scripts/release.sh` (it creates the GitHub
+# release). Publishing that release fires this workflow automatically — a few minutes later the
+# Windows assets appear on the same release. Nobody boots Windows.
+#
+# It can also be run by hand against an older tag to backfill:
+#   Actions ▸ Windows release binaries ▸ Run workflow ▸ tag = v0.1.4
+#
+# Requires two repo secrets (Settings ▸ Secrets and variables ▸ Actions):
+#   TAURI_SIGNING_PRIVATE_KEY           contents of ~/.tauri/limusic.key
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  empty string (the key has no password)
+# Without them the bundler emits no .sig and this job fails loudly rather than shipping an
+# unsignable update.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build Windows binaries for (e.g. v0.1.4)
+        required: true
+        type: string
+
+permissions:
+  contents: write # upload assets onto the release
+
+concurrency:
+  group: windows-release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  # Pinned libmpv dev build (shinchiro). Baseline x86_64 — NOT the `-v3-` variant, which requires
+  # AVX2 and would crash on older CPUs. libmpv2 needs mpv >= 0.35 (client API 2.x). Bump
+  # deliberately: a new mpv is a new 117 MB DLL in the installer.
+  MPV_DEV_URL: https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20260610/mpv-dev-x86_64-20260610-git-304426c.7z
+  MPV_DIR: ${{ github.workspace }}\.libmpv
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Resolve the tag
+        id: rel
+        shell: bash
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          [ -n "$TAG" ] || { echo "::error::no tag to build for"; exit 1; }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.rel.outputs.tag }}
+
+      # The tag is the contract: the binaries must be built from the source that tag points at, and
+      # the updater compares tauri.conf.json's version. If they disagree, the version bump never got
+      # committed — stop before shipping a mislabelled installer.
+      - name: Check the tag matches the app version
+        shell: bash
+        run: |
+          VERSION="$(jq -r .version src-tauri/tauri.conf.json)"
+          if [ "v$VERSION" != "${{ steps.rel.outputs.tag }}" ]; then
+            echo "::error::tauri.conf.json says $VERSION but the tag is ${{ steps.rel.outputs.tag }} — was the version bump committed before the tag was cut?"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Frontend deps
+        shell: bash
+        run: |
+          npm install -g pnpm@10
+          cd ui && pnpm install --frozen-lockfile
+
+      - name: Rust (MSVC)
+        shell: bash
+        run: rustup default stable-msvc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Tauri CLI
+        shell: bash
+        # The npm CLI ships a prebuilt binary — `cargo install tauri-cli` would compile it from
+        # source on every cache miss (~5 min for nothing).
+        run: npm install -g "@tauri-apps/cli@^2"
+
+      # libmpv is the whole reason Windows builds are a chore. The dev package ships the DLL and a
+      # MinGW import lib (libmpv.dll.a) that the MSVC linker cannot consume, and no .def file — so
+      # synthesise the .def from the DLL's own export table and build a real mpv.lib. The Rust side
+      # just emits `cargo:rustc-link-lib=mpv` (pregenerated bindings, no headers needed).
+      - name: Build the libmpv import library
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path "$env:MPV_DIR" | Out-Null
+          curl.exe -fsSL -o "$env:MPV_DIR\mpv-dev.7z" "$env:MPV_DEV_URL"
+          7z x "$env:MPV_DIR\mpv-dev.7z" -o"$env:MPV_DIR" -y | Out-Null
+          if (-not (Test-Path "$env:MPV_DIR\libmpv-2.dll")) { throw "libmpv-2.dll not found in the dev package — did MPV_DEV_URL change shape?" }
+
+          # dumpbin/lib live in the MSVC toolchain. (cargo itself finds MSVC on its own; this is
+          # only so we can run the two tools.)
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+
+          Set-Location "$env:MPV_DIR"
+          $names = & dumpbin /exports libmpv-2.dll |
+            Select-String -Pattern '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\w+)' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value }
+          if ($names.Count -lt 50) { throw "parsed only $($names.Count) exports from libmpv-2.dll — dumpbin output format changed?" }
+          @("EXPORTS") + ($names | ForEach-Object { "    $_" }) | Set-Content -Path mpv.def -Encoding ascii
+          & lib /def:mpv.def /name:libmpv-2.dll /out:mpv.lib /machine:x64
+          if (-not (Test-Path "$env:MPV_DIR\mpv.lib")) { throw "lib.exe did not produce mpv.lib" }
+          Write-Host "mpv.lib built from $($names.Count) exports"
+
+          # tauri.windows.conf.json lists libmpv-2.dll under bundle.resources, so the installer
+          # places it next to the exe. Without this the app builds but won't start.
+          Copy-Item "$env:MPV_DIR\libmpv-2.dll" "$env:GITHUB_WORKSPACE\src-tauri\libmpv-2.dll" -Force
+
+      - name: Build + sign the installers
+        shell: bash
+        env:
+          # Scoped to this step only — no other step (or third-party action) sees the signing key.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Point the linker at the mpv.lib we just built.
+          RUSTFLAGS: -L native=${{ github.workspace }}\.libmpv
+        run: |
+          set -euo pipefail
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY secret is not set — the build would produce unsignable installers"
+            exit 1
+          fi
+          (cd ui && pnpm build)   # tauri's beforeBuildCommand runs this too; doing it here makes a frontend failure obvious
+          tauri build             # → target/release/bundle/{nsis,msi}/
+
+      - name: Attach installers + teach latest.json about Windows
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.rel.outputs.tag }}"
+          EXE="target/release/bundle/nsis/limusic_${VERSION}_x64-setup.exe"
+          SIG="$EXE.sig"
+          MSI="$(ls target/release/bundle/msi/limusic_${VERSION}_*.msi 2>/dev/null | head -1 || true)"
+
+          if [ ! -f "$EXE" ]; then
+            echo "::error::expected installer not found: $EXE"; find target/release/bundle -maxdepth 2; exit 1
+          fi
+          if [ ! -f "$SIG" ]; then
+            echo "::error::no .sig next to the installer — signing key missing, or createUpdaterArtifacts got turned off"; exit 1
+          fi
+
+          # scripts/release.sh already published a latest.json carrying only linux-x86_64. Merge the
+          # Windows platform into it rather than rewriting it, so the Linux entry (and its signature)
+          # survives untouched.
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir manifest
+          MANIFEST_VERSION="$(jq -r .version manifest/latest.json)"
+          if [ "$MANIFEST_VERSION" != "$VERSION" ]; then
+            echo "::error::the release's latest.json is for $MANIFEST_VERSION but we built $VERSION"; exit 1
+          fi
+          URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$(basename "$EXE")"
+          jq --arg sig "$(cat "$SIG")" --arg url "$URL" \
+            '.platforms["windows-x86_64"] = { signature: $sig, url: $url }' \
+            manifest/latest.json > latest.json
+
+          gh release upload "$TAG" "$EXE" "$SIG" ${MSI:+"$MSI"} latest.json \
+            --clobber --repo "$GITHUB_REPOSITORY"
+
+          echo "Published. latest.json now covers: $(jq -c '.platforms | keys' latest.json)"

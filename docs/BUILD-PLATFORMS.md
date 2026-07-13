@@ -36,25 +36,35 @@ cargo tauri build            # → target/release/bundle/rpm/limusic-*.rpm
 
 ## Windows
 
+> **You normally don't need to do any of this.** Windows installers are built in CI —
+> `.github/workflows/windows-release.yml` runs these exact steps on a `windows-latest` runner when a
+> release is published (and can be re-run by hand against any tag). This section is for debugging a
+> Windows-specific problem locally.
+
 1. **Toolchain:** Rust with the **MSVC** toolchain (`rustup default stable-msvc`), the VS Build
    Tools (C++), Node/pnpm. WebView2 ships with Windows 10/11 (else install the Evergreen runtime).
-2. **libmpv dev files:** download a prebuilt **libmpv dev** package (e.g. the shinchiro
-   `mpv-dev-x86_64-*.7z` builds). From it you need:
-   - `libmpv-2.dll` — the runtime shared library.
-   - an **import library** for linking. If the package ships `libmpv.dll.a`, rename/copy it so the
-     MSVC linker finds a `mpv.lib`; otherwise generate one from the DLL's `.def`:
-     ```powershell
-     lib /def:mpv.def /name:libmpv-2.dll /out:mpv.lib /machine:x64
-     ```
-3. **Point the linker at the import lib** — add its folder to `LIB`, or create
-   `src-tauri/.cargo/config.toml`:
-   ```toml
-   [build]
-   rustflags = ["-L", "C:\\path\\to\\libmpv"]
+2. **libmpv dev files:** download a prebuilt **libmpv dev** package — the shinchiro
+   `mpv-dev-x86_64-*.7z` builds ([releases](https://github.com/shinchiro/mpv-winbuild-cmake/releases);
+   take the plain `x86_64`, **not** `-v3-`, which requires AVX2). It contains `libmpv-2.dll`, a
+   MinGW import lib (`libmpv.dll.a`), and headers — **no `.def` and no `mpv.lib`**.
+3. **Build an MSVC import library.** The MSVC linker cannot consume MinGW's `libmpv.dll.a`, so
+   synthesise a `.def` from the DLL's export table and turn it into `mpv.lib` (from a *Developer*
+   PowerShell, so `dumpbin`/`lib` are on PATH):
+   ```powershell
+   $names = dumpbin /exports libmpv-2.dll |
+     Select-String -Pattern '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\w+)' |
+     ForEach-Object { $_.Matches[0].Groups[1].Value }
+   @("EXPORTS") + ($names | ForEach-Object { "    $_" }) | Set-Content mpv.def -Encoding ascii
+   lib /def:mpv.def /name:libmpv-2.dll /out:mpv.lib /machine:x64
    ```
-4. **Bundle the DLL:** drop `libmpv-2.dll` into `src-tauri/` (it is listed under
+   (The Rust side only emits `cargo:rustc-link-lib=mpv` — pregenerated bindings, so the headers
+   aren't needed at build time.)
+4. **Point the linker at it:** `$env:RUSTFLAGS = "-L native=C:\path\to\libmpv"` (or
+   `src-tauri/.cargo/config.toml` → `[build] rustflags = ["-L", "C:\\path\\to\\libmpv"]`).
+5. **Bundle the DLL:** copy `libmpv-2.dll` into `src-tauri/` (it is listed under
    `tauri.windows.conf.json` → `bundle.resources`, so the installer places it next to the exe).
-5. **Build:**
+   It's ~117 MB — gitignored, never commit it.
+6. **Build:**
    ```powershell
    cd ui; pnpm build; cd ..
    cargo tauri build          # → target/release/bundle/{msi,nsis}/limusic_*.{msi,exe}

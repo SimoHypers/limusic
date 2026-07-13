@@ -3,6 +3,10 @@
 rustypipe_cache.json
 rustypipe_reports/
 
+# Windows build artifacts — libmpv is fetched at build time (117 MB DLL), never committed.
+/src-tauri/libmpv-2.dll
+/.libmpv/
+
 # Local design notes & tooling — kept out of the public repo
 /context/
 /progress/
@@ -11,5 +15,6 @@ rustypipe_reports/
 /.claude/worktrees/
 /CLAUDE.md
 /PHASE1-PROMPT.md
+/RELEASING.md
 /skills-lock.json
 /plans
