@@ -1,5 +1,9 @@
 # Limusic
 
+<div align="center">
+  <img src="/src-tauri/icons/128x128@2x.png" alt="Limusic Logo">
+</div>
+
 A native desktop client for YouTube Music, built with Tauri (Rust + SvelteKit).
 
 Limusic talks directly to YouTube's internal API and plays audio through libmpv.
