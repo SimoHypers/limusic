@@ -197,6 +197,8 @@ pub fn run() {
             commands::search_cards,
             commands::play,
             commands::play_index,
+            commands::remove_from_queue,
+            commands::add_to_queue,
             commands::next_track,
             commands::prev_track,
             commands::toggle_pause,

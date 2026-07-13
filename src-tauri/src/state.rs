@@ -252,7 +252,10 @@ impl AppState {
     /// `next` and prime the gapless lookahead.
     pub async fn play_song(self: &std::sync::Arc<Self>, seed: SongItem) {
         if self.lt.is_guest().await {
-            return; // guests follow the host; local playback is locked (context/19 Part B §7)
+            // Guests follow the host; clicking a song adds it to the shared queue instead
+            // (Spotify-Jam-style). The host client auto-approves and stamps who added it.
+            self.lt.suggest(song_to_track(&seed)).await;
+            return;
         }
         let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let video_id = seed.video_id.clone();
@@ -295,7 +298,11 @@ impl AppState {
     /// Play a finite list of tracks (a playlist/album) starting at `start`. Unlike `play_song`
     /// this seeds NO radio — the given items *are* the queue (context/08: playlist playback).
     pub async fn play_tracks(self: &std::sync::Arc<Self>, items: Vec<SongItem>, start: usize) {
-        if items.is_empty() || self.lt.is_guest().await {
+        if items.is_empty() {
+            return;
+        }
+        if self.lt.is_guest().await {
+            self.emit_guest_hint();
             return;
         }
         let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
@@ -335,7 +342,8 @@ impl AppState {
     /// Jump to a specific queue index.
     pub async fn play_index(self: &std::sync::Arc<Self>, index: usize) {
         if self.lt.is_guest().await {
-            return; // guest playback is host-driven
+            self.emit_guest_hint(); // guest playback is host-driven
+            return;
         }
         let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         {
@@ -533,13 +541,19 @@ impl AppState {
         if self.generation.load(Ordering::SeqCst) != gen {
             return;
         }
+        let mut q = self.queue.lock().await;
+        // The queue can change under a resolve (a guest add inserts at current+1) — enqueueing
+        // then would gaplessly play the wrong song. Verify the slot still holds the same track.
+        if q.items.get(next_index).map(|i| i.video_id != next_video).unwrap_or(true) {
+            tracing::debug!(index = next_index, "queue changed during lookahead resolve — dropped");
+            return;
+        }
         // Headers are global in mpv; the direct-URL clients need none beyond UA, which the
         // current track already set. Just append the URL.
         if let Err(e) = self.player.enqueue(&data.stream_url) {
             tracing::warn!(error = %e, "enqueue lookahead failed");
             return;
         }
-        let mut q = self.queue.lock().await;
         q.lookahead_loaded = Some(next_index);
         q.lookahead_client = Some(data.stream_client.clone());
         q.lookahead_playback_url = data.playback_url.clone();
@@ -633,6 +647,14 @@ impl AppState {
         let _ = self
             .app
             .emit("playback-error", serde_json::json!({ "videoId": video_id, "message": message }));
+    }
+
+    /// Guest tried a host-only playback action — explain instead of silently ignoring.
+    fn emit_guest_hint(&self) {
+        let _ = self.app.emit(
+            "playback-notice",
+            serde_json::json!({ "message": "The host controls playback — click a song to add it to the session queue" }),
+        );
     }
 
     /// A track was auto-skipped because no client could resolve it — a transient toast, not the
@@ -811,6 +833,8 @@ impl AppState {
             SyncCommand::Seek { position_ms } => {
                 let _ = self.player.seek(position_ms as f64 / 1000.0);
             }
+            SyncCommand::SyncQueue { queue } => self.lt_mirror_queue(queue).await,
+            SyncCommand::GuestAdd { track } => self.lt_enqueue_track(track).await,
         }
     }
 
@@ -837,6 +861,9 @@ impl AppState {
                 }
                 let _ = self.player.pause();
             }
+            // A re-sync/reconnect snapshot also carries the queue — mirror it so guest adds that
+            // happened while we were away aren't missing until the next track change.
+            self.lt_mirror_queue(state.queue).await;
         } else {
             self.lt_apply_change_track(track, state.position_ms, state.is_playing, state.queue).await;
         }
@@ -986,23 +1013,114 @@ impl AppState {
         Ok(())
     }
 
-    /// Host: add an approved suggestion to the real queue and broadcast the updated queue.
-    pub async fn lt_enqueue_track(&self, track: Track) {
+    /// "Add to queue" from the UI's track menu. Solo: appended to the end. In a session everyone's
+    /// adds land at the session boundary ("up next", FIFO): guests route through the host
+    /// (suggest → auto-approve), the host inserts directly, tagged with their own name so the
+    /// room sees who added it.
+    pub async fn add_to_queue(self: &std::sync::Arc<Self>, item: SongItem) {
+        if self.lt.is_guest().await {
+            self.lt.suggest(song_to_track(&item)).await;
+            return;
+        }
+        if self.lt.is_host().await {
+            let mut track = song_to_track(&item);
+            track.queued_by = Some(self.lt.my_username().await.unwrap_or_else(|| "Host".into()));
+            self.lt_enqueue_track(track).await;
+            return;
+        }
+        // Solo: end of the queue.
         {
             let mut q = self.queue.lock().await;
-            q.items.push(track_to_song(&track));
+            q.items.push(item);
         }
         self.emit_queue().await;
         self.persist_queue().await;
-        if self.lt.is_host().await {
-            let queue: Vec<Track> = {
-                let q = self.queue.lock().await;
-                q.items.iter().skip(q.current + 1).take(50).map(song_to_track).collect()
-            };
-            let mut p = Playback::new(PlaybackKind::SyncQueue);
-            p.queue = Some(queue);
-            self.lt.broadcast_playback(p).await;
+        // If the playing track was the last one, there's a next now — prime it for gapless.
+        self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
+    }
+
+    /// Host: add a session track to the real queue at the *session boundary* — right after the
+    /// current song, behind any earlier session adds (FIFO), ahead of the host's own playlist —
+    /// then broadcast the updated queue. "Up next", never buried at the end.
+    pub async fn lt_enqueue_track(self: &std::sync::Arc<Self>, track: Track) {
+        {
+            let mut q = self.queue.lock().await;
+            let at = guest_insert_index(&q.items, q.current);
+            let song = track_to_song(&track);
+            q.items.insert(at, song);
+            // If mpv already holds a primed lookahead for the old `current + 1`, it now points at
+            // the wrong song — drop it so the gapless advance plays the added track.
+            if at == q.current + 1 && q.lookahead_loaded.take().is_some() {
+                let _ = self.player.clear_playlist();
+            }
+        };
+        self.emit_queue().await;
+        self.persist_queue().await;
+        // Re-prime: replaces a dropped stale lookahead, and covers the insert-after-last case
+        // (no lookahead existed because nothing was next). No-op when still primed correctly.
+        self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
+        self.lt_broadcast_queue().await;
+    }
+
+    /// Remove an upcoming track from the queue (host's ✕ on guest adds; also plain local queue
+    /// editing outside a session). The currently playing index can't be removed; guests can't
+    /// remove anything (add-only).
+    pub async fn remove_from_queue(self: &std::sync::Arc<Self>, index: usize) {
+        if self.lt.is_guest().await {
+            return;
         }
+        let stale_lookahead = {
+            let mut q = self.queue.lock().await;
+            if index >= q.items.len() || index == q.current {
+                return;
+            }
+            q.items.remove(index);
+            if index < q.current {
+                q.current -= 1;
+                // The primed entry is the same song at a shifted index.
+                q.lookahead_loaded = q.lookahead_loaded.map(|i| i - 1);
+                false
+            } else if index == q.current + 1 && q.lookahead_loaded.take().is_some() {
+                // mpv holds the removed song as the gapless next — drop it.
+                let _ = self.player.clear_playlist();
+                true
+            } else {
+                false
+            }
+        };
+        self.emit_queue().await;
+        self.persist_queue().await;
+        if stale_lookahead {
+            self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
+        }
+        self.lt_broadcast_queue().await;
+    }
+
+    /// Host: broadcast the upcoming queue (everything after current) to the room. No-op for
+    /// non-hosts (`broadcast_playback` gates on role).
+    async fn lt_broadcast_queue(&self) {
+        if !self.lt.is_host().await {
+            return;
+        }
+        let queue: Vec<Track> = {
+            let q = self.queue.lock().await;
+            q.items.iter().skip(q.current + 1).take(50).map(song_to_track).collect()
+        };
+        let mut p = Playback::new(PlaybackKind::SyncQueue);
+        p.queue = Some(queue);
+        self.lt.broadcast_playback(p).await;
+    }
+
+    /// Guest: mirror the host's upcoming queue into the local one (everything after current), so
+    /// the up-next panel reflects adds/removes the moment they happen.
+    async fn lt_mirror_queue(&self, upcoming: Vec<Track>) {
+        {
+            let mut q = self.queue.lock().await;
+            let keep = q.current + 1;
+            q.items.truncate(keep);
+            q.items.extend(upcoming.iter().map(track_to_song));
+        }
+        self.emit_queue().await;
     }
 }
 
@@ -1014,13 +1132,14 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-fn song_to_track(s: &SongItem) -> Track {
+pub(crate) fn song_to_track(s: &SongItem) -> Track {
     Track {
         id: s.video_id.clone(),
         title: s.title.clone(),
         artist: s.artists.clone(),
         thumbnail: s.thumbnail.clone(),
         duration_ms: parse_duration_ms(s.duration.as_deref()),
+        queued_by: s.queued_by.clone(),
     }
 }
 
@@ -1035,7 +1154,18 @@ fn track_to_song(t: &Track) -> SongItem {
         thumbnail: t.thumbnail.clone(),
         set_video_id: None,
         liked: None,
+        queued_by: t.queued_by.clone(),
     }
+}
+
+/// Where a guest-added track goes: right after the current song, behind any earlier guest adds
+/// (FIFO), ahead of the host's own upcoming playlist.
+fn guest_insert_index(items: &[SongItem], current: usize) -> usize {
+    let mut at = (current + 1).min(items.len());
+    while items.get(at).map(|i| i.queued_by.is_some()).unwrap_or(false) {
+        at += 1;
+    }
+    at
 }
 
 /// Parse a `"m:ss"` / `"h:mm:ss"` duration string to ms (0 if absent/unparseable).
@@ -1074,7 +1204,34 @@ fn loudness_gain(loudness_db: Option<f64>) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
-    use super::loudness_gain;
+    use super::{guest_insert_index, loudness_gain};
+
+    #[test]
+    fn guest_adds_stack_fifo_after_current() {
+        let song = |id: &str, by: Option<&str>| innertube::SongItem {
+            video_id: id.into(),
+            title: id.into(),
+            artists: String::new(),
+            artist_id: None,
+            album: None,
+            duration: None,
+            thumbnail: None,
+            set_video_id: None,
+            liked: None,
+            queued_by: by.map(Into::into),
+        };
+        // Host playlist [A*, B, C] (playing A): guest add goes right after current, not the end.
+        let items = vec![song("a", None), song("b", None), song("c", None)];
+        assert_eq!(guest_insert_index(&items, 0), 1);
+        // A guest track already up next → the new one queues behind it (FIFO), before B.
+        let items = vec![song("a", None), song("g1", Some("kim")), song("b", None)];
+        assert_eq!(guest_insert_index(&items, 0), 2);
+        // Current is the last item → append.
+        let items = vec![song("a", None)];
+        assert_eq!(guest_insert_index(&items, 0), 1);
+        // Empty queue (nothing playing yet) → index 0… clamped, no panic.
+        assert_eq!(guest_insert_index(&[], 0), 0);
+    }
 
     #[test]
     fn loudness_gain_attenuates_loud_only() {

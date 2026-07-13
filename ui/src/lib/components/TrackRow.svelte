@@ -5,10 +5,14 @@
 		PlayIcon,
 		MoreHorizontalIcon,
 		PlayListAddIcon,
-		PlayListRemoveIcon
+		PlayListRemoveIcon,
+		AddToListIcon
 	} from '@hugeicons/core-free-icons';
+	import * as api from '$lib/api';
 	import type { SongItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
+	import { lt } from '$lib/lt.svelte';
+	import { toast } from '$lib/player.svelte';
 
 	let {
 		song,
@@ -17,7 +21,8 @@
 		hideThumb = false,
 		onplay,
 		onAdd,
-		onRemove
+		onRemove,
+		removeLabel = 'Remove from playlist'
 	}: {
 		song: SongItem;
 		/** Position badge when set (playlist/queue); omitted for flat search results. */
@@ -28,11 +33,15 @@
 		onplay: () => void;
 		/** Adds an "Add to playlist" menu item. */
 		onAdd?: () => void;
-		/** Adds a "Remove from this playlist" menu item. */
+		/** Adds a remove menu item (label via `removeLabel`). */
 		onRemove?: () => void;
+		removeLabel?: string;
 	} = $props();
 
 	const hasMenu = $derived(!!onAdd || !!onRemove);
+	// In a session as guest, clicking a song adds it to the shared queue instead of playing it —
+	// reflect that in the hover icon + label so the row doesn't lie.
+	const guestAdd = $derived(lt.role === 'guest');
 
 	// A ⋯ menu, positioned `fixed` at the button so it isn't clipped by the scroll container.
 	// Anchored by its right edge (distance from the viewport's right) so the zoom-in origin stays put.
@@ -52,6 +61,13 @@
 		action?.();
 	}
 
+	// "Add to queue" is universal — every row with a menu gets it. Guests get their toast from the
+	// session flow ("Added to the session queue."), so only toast locally for host/solo.
+	function addToQueue() {
+		api.addToQueue(song);
+		if (lt.role !== 'guest') toast('Added to queue');
+	}
+
 	// The whole row is a play target (role="button"), so mirror native button keyboard activation.
 	function onKey(e: KeyboardEvent) {
 		if (e.key === 'Enter' || e.key === ' ') {
@@ -66,7 +82,7 @@
 	tabindex="0"
 	onclick={onplay}
 	onkeydown={onKey}
-	aria-label="Play {song.title}"
+	aria-label={guestAdd ? `Add ${song.title} to the session queue` : `Play ${song.title}`}
 	class="group flex w-full cursor-pointer items-center gap-3 rounded-lg p-2 transition-colors hover:bg-accent/10 {active
 		? 'bg-accent/10'
 		: ''}"
@@ -81,7 +97,7 @@
 				>
 					<span class="group-hover:opacity-0">{index + 1}</span>
 					<HugeiconsIcon
-						icon={PlayIcon}
+						icon={guestAdd ? PlayListAddIcon : PlayIcon}
 						class="absolute inset-0 m-auto h-3.5 w-3.5 opacity-0 group-hover:opacity-100"
 					/>
 				</span>
@@ -91,8 +107,17 @@
 			{/if}
 		</div>
 		<div class="min-w-0 flex-1">
-			<div class="max-w-full truncate text-sm font-medium {active ? 'text-primary' : ''}">
-				{song.title}
+			<div class="flex min-w-0 items-center gap-2">
+				<span class="min-w-0 truncate text-sm font-medium {active ? 'text-primary' : ''}">
+					{song.title}
+				</span>
+				{#if song.queued_by}
+					<span
+						class="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+					>
+						{song.queued_by}
+					</span>
+				{/if}
 			</div>
 			{#if song.artist_id}
 				<button
@@ -135,6 +160,12 @@
 		class="fixed z-50 min-w-44 origin-top-right animate-in rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl duration-150 fade-in-0 zoom-in-95"
 		style="right:{mx}px; top:{my}px;"
 	>
+		<button
+			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+			onclick={() => run(addToQueue)}
+		>
+			<HugeiconsIcon icon={AddToListIcon} class="h-4 w-4" /> Add to queue
+		</button>
 		{#if onAdd}
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
@@ -148,7 +179,7 @@
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10"
 				onclick={() => run(onRemove)}
 			>
-				<HugeiconsIcon icon={PlayListRemoveIcon} class="h-4 w-4" /> Remove from playlist
+				<HugeiconsIcon icon={PlayListRemoveIcon} class="h-4 w-4" /> {removeLabel}
 			</button>
 		{/if}
 	</div>

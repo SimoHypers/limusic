@@ -4,8 +4,13 @@
 	import TrackRow from '$lib/components/TrackRow.svelte';
 	import * as api from '$lib/api';
 	import { playback, openAddToPlaylist } from '$lib/player.svelte';
+	import { lt } from '$lib/lt.svelte';
 
 	let { onClose }: { onClose: () => void } = $props();
+
+	// Guests are add-only in a session — no removing (theirs or anyone's). The playing row can't
+	// be removed either (backend guards it too).
+	const canRemove = $derived(lt.role !== 'guest');
 </script>
 
 <!-- Below lg the panel floats over the content (see the `relative` wrapper in +layout); a scrim
@@ -29,6 +34,10 @@
 				active={i === playback.queue.currentIndex}
 				onplay={() => api.playIndex(i)}
 				onAdd={() => openAddToPlaylist(item.video_id)}
+				onRemove={canRemove && i !== playback.queue.currentIndex
+					? () => api.removeFromQueue(i)
+					: undefined}
+				removeLabel="Remove from queue"
 			/>
 		{:else}
 			<p class="p-4 text-sm text-muted-foreground">The queue is empty.</p>

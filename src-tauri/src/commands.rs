@@ -61,6 +61,22 @@ pub async fn play_index(state: St<'_>, index: usize) -> Result<(), String> {
     Ok(())
 }
 
+/// Remove an upcoming track from the queue (not the one playing). Guests are add-only — blocked
+/// inside AppState.
+#[tauri::command]
+pub async fn remove_from_queue(state: St<'_>, index: usize) -> Result<(), String> {
+    state.inner().clone().remove_from_queue(index).await;
+    Ok(())
+}
+
+/// "Add to queue" from a track's ⋯ menu. Solo: end of the queue; in a session (host or guest):
+/// the session boundary, right after the current song.
+#[tauri::command]
+pub async fn add_to_queue(state: St<'_>, item: SongItem) -> Result<(), String> {
+    state.inner().clone().add_to_queue(item).await;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn next_track(state: St<'_>) -> Result<(), String> {
     state.inner().clone().next_in_queue().await;
@@ -366,25 +382,20 @@ pub async fn lt_transfer_host(state: St<'_>, user_id: String) -> Result<(), Stri
     Ok(())
 }
 
-/// Guest: suggest a track to the host.
+/// Guest: send a track to the session queue (auto-approved by the host client, which stamps
+/// who added it).
 #[tauri::command]
 pub async fn lt_suggest(state: St<'_>, item: SongItem) -> Result<(), String> {
-    let track = listen_protocol::Track {
-        id: item.video_id,
-        title: item.title,
-        artist: item.artists,
-        thumbnail: item.thumbnail,
-        duration_ms: 0,
-    };
-    state.lt.suggest(track).await;
+    state.lt.suggest(crate::state::song_to_track(&item)).await;
     Ok(())
 }
 
-/// Host: approve a suggestion — add it to the real queue and notify the suggester.
+/// Host: approve a suggestion — add it to the real queue and notify the suggester. (Unused since
+/// guest adds auto-approve, kept for a future "require approval" setting.)
 #[tauri::command]
 pub async fn lt_approve_suggestion(state: St<'_>, id: String) -> Result<(), String> {
     if let Some(track) = state.lt.approve_suggestion(id).await {
-        state.lt_enqueue_track(track).await;
+        state.inner().clone().lt_enqueue_track(track).await;
     }
     Ok(())
 }

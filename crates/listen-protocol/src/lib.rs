@@ -20,6 +20,11 @@ pub struct Track {
     /// Track length in ms (0 if unknown). Only used for clamping/UI.
     #[serde(default)]
     pub duration_ms: i64,
+    /// Username of the guest who added this track to the shared queue (Spotify-Jam-style adds).
+    /// `None` for tracks from the host's own playlist. Stamped by the host client on enqueue
+    /// (mirrors Metrolist's `TrackInfo.SuggestedBy`, context/19 §3.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued_by: Option<String>,
 }
 
 /// A room participant.
@@ -209,6 +214,7 @@ mod tests {
                 artist: "y".into(),
                 thumbnail: None,
                 duration_ms: 180_000,
+                queued_by: None,
             }),
             queue: Some(vec![]),
             playing: true,

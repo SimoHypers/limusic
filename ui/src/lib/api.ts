@@ -14,6 +14,8 @@ export interface SongItem {
 	thumbnail?: string;
 	/** Item id within a playlist — present only on playlist tracks; needed to remove them. */
 	set_video_id?: string;
+	/** Listen Together: name of the guest who added this queue item (session adds only). */
+	queued_by?: string;
 }
 
 export interface NowPlaying {
@@ -118,6 +120,10 @@ export const searchCards = (query: string, category: 'albums' | 'artists' | 'pla
 	invoke<BrowseItem[]>('search_cards', { query, category });
 export const play = (item: SongItem) => invoke<void>('play', { item });
 export const playIndex = (index: number) => invoke<void>('play_index', { index });
+/** Remove an upcoming track from the queue (host/local only — guests are add-only). */
+export const removeFromQueue = (index: number) => invoke<void>('remove_from_queue', { index });
+/** Add a track to the queue: end of it when solo, right after the current song in a session. */
+export const addToQueue = (item: SongItem) => invoke<void>('add_to_queue', { item });
 export const nextTrack = () => invoke<void>('next_track');
 export const prevTrack = () => invoke<void>('prev_track');
 export const togglePause = () => invoke<void>('toggle_pause');
@@ -203,6 +209,8 @@ export interface LtTrack {
 	artist: string;
 	thumbnail?: string | null;
 	duration_ms: number;
+	/** Name of the guest who added this track to the session queue. */
+	queued_by?: string | null;
 }
 export interface LtPendingJoin {
 	userId: string;

@@ -29,6 +29,11 @@ pub enum SyncCommand {
     Play { position_ms: i64, server_time_ms: i64 },
     Pause { position_ms: i64 },
     Seek { position_ms: i64 },
+    /// Guest: mirror the host's upcoming queue (a guest added/the host removed a track).
+    SyncQueue { queue: Vec<Track> },
+    /// Host: a guest's track to insert at the guest boundary (auto-approved suggestion,
+    /// `queued_by` already stamped with the guest's name).
+    GuestAdd { track: Track },
     /// We just became host of a freshly-created room — seed the room with our current now-playing.
     HostSeed,
     /// We left / were kicked / became host — stop applying remote playback.
@@ -159,6 +164,13 @@ impl LtSession {
 
     pub async fn is_host(&self) -> bool {
         self.inner.lock().await.role == Role::Host
+    }
+
+    /// Our own display name in the room (None outside one) — stamps the host's queue adds.
+    pub async fn my_username(&self) -> Option<String> {
+        let inner = self.inner.lock().await;
+        let me = inner.my_id.as_deref()?;
+        inner.users.iter().find(|u| u.user_id == me).map(|u| u.username.clone())
     }
 
     /// Host: broadcast a playback action to the room. No-op unless we're the host and connected.
@@ -510,13 +522,18 @@ impl LtSession {
             }
 
             ServerMessage::SuggestionReceived { suggestion } => {
-                let mut inner = self.inner.lock().await;
-                if !inner.suggestions.iter().any(|s| s.id == suggestion.id) {
-                    inner.suggestions.push(suggestion);
-                }
+                // Spotify-Jam-style: guest adds go straight into the queue — no host approval
+                // step. Stamp who added it, tell the server it's handled (notifies the guest),
+                // and hand the track to the bridge to insert at the guest boundary.
+                let mut track = suggestion.track;
+                track.queued_by = Some(suggestion.from_username.clone());
+                let title = track.title.clone();
+                self.send(ClientMessage::ApproveSuggestion { id: suggestion.id }).await;
+                let _ = self.sync_tx.send(SyncCommand::GuestAdd { track });
+                self.emit_notice(&format!("{} added {title}", suggestion.from_username)).await;
             }
             ServerMessage::SuggestionApproved { .. } => {
-                self.emit_notice("Your suggestion was added to the queue.").await;
+                self.emit_notice("Added to the session queue.").await;
             }
             ServerMessage::SuggestionRejected { reason, .. } => {
                 self.emit_notice(&reason).await;
@@ -572,7 +589,10 @@ impl LtSession {
                 playing: p.playing,
                 queue: p.queue.unwrap_or_default(),
             }),
-            PlaybackKind::SyncQueue | PlaybackKind::SetVolume => None,
+            PlaybackKind::SyncQueue => {
+                p.queue.map(|queue| SyncCommand::SyncQueue { queue })
+            }
+            PlaybackKind::SetVolume => None,
         };
         if let Some(cmd) = cmd {
             let _ = self.sync_tx.send(cmd);

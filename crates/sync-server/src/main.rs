@@ -759,6 +759,7 @@ mod tests {
             artist: "a".into(),
             thumbnail: None,
             duration_ms: 0,
+            queued_by: None,
         });
         p.playing = true;
         send(&mut host, ClientMessage::Playback(p)).await;

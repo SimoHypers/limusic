@@ -34,6 +34,10 @@ pub struct SongItem {
     /// response didn't carry a like status.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub liked: Option<bool>,
+    /// Listen Together: username of the guest who added this queue item (`None` for the user's own
+    /// tracks). Never parsed from YouTube — pure queue metadata, carried for attribution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -156,6 +160,7 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
         thumbnail: last_thumbnail(node),
         set_video_id,
         liked: like_status(node),
+        queued_by: None,
     })
 }
 
@@ -191,6 +196,7 @@ fn parse_panel_video(node: &Value) -> Option<SongItem> {
         thumbnail: last_thumbnail(node),
         set_video_id: None,
         liked: like_status(node),
+        queued_by: None,
     })
 }
 
