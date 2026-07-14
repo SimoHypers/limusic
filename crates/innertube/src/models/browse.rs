@@ -39,8 +39,19 @@ pub struct Section {
     pub items: Vec<BrowseItem>,
 }
 
+/// A mood/genre filter chip above the home feed (`chipCloudChipRenderer`): its label plus the
+/// `params` token to re-browse `FEmusic_home` with, which returns a home feed filtered to it.
+#[derive(Debug, Clone, Serialize)]
+pub struct HomeChip {
+    pub title: String,
+    pub params: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct HomePage {
+    /// Empty when YouTube sends no chip cloud (it does for the unfiltered and filtered feeds alike).
+    #[serde(default)]
+    pub chips: Vec<HomeChip>,
     pub sections: Vec<Section>,
 }
 
@@ -115,8 +126,23 @@ pub struct AlbumPage {
     pub continuation: Option<String>,
 }
 
-/// Parse a `FEmusic_home` response into titled carousel sections. context/08.
+/// Parse a `FEmusic_home` response into filter chips + titled carousel sections. context/08.
+/// A chip's `params` fed back into `browse(FEmusic_home)` yields that mood's feed (same shape,
+/// hence the same parser — "Mixed for you" and friends are just more carousel shelves).
 pub fn parse_home(root: &Value) -> HomePage {
+    let chips: Vec<HomeChip> = find_all(root, "chipCloudChipRenderer")
+        .into_iter()
+        .filter_map(|c| {
+            let title = runs_text(c.get("text"))?;
+            let params = c
+                .get("navigationEndpoint")?
+                .get("browseEndpoint")?
+                .get("params")?
+                .as_str()?
+                .to_owned();
+            Some(HomeChip { title, params })
+        })
+        .collect();
     let mut sections = Vec::new();
     for shelf in find_all(root, "musicCarouselShelfRenderer") {
         let title = find_all(shelf, "musicCarouselShelfBasicHeaderRenderer")
@@ -133,7 +159,7 @@ pub fn parse_home(root: &Value) -> HomePage {
             sections.push(Section { title, items });
         }
     }
-    HomePage { sections }
+    HomePage { chips, sections }
 }
 
 /// Parse a `FEmusic_liked_playlists` response into a flat grid of playlist cards. context/08.
@@ -516,6 +542,14 @@ mod tests {
     #[test]
     fn parses_home_carousel() {
         let root = json!({
+            "header": { "chipCloudRenderer": { "chips": [
+                { "chipCloudChipRenderer": {
+                    "text": { "runs": [{ "text": "Workout" }] },
+                    "navigationEndpoint": { "browseEndpoint": { "browseId": "FEmusic_home", "params": "ggNC0" } }
+                } },
+                // No browseEndpoint (e.g. the "clear filter" chip) → skipped.
+                { "chipCloudChipRenderer": { "text": { "runs": [{ "text": "Nowhere" }] } } }
+            ] } },
             "contents": { "sectionListRenderer": { "contents": [
                 { "musicCarouselShelfRenderer": {
                     "header": { "musicCarouselShelfBasicHeaderRenderer": {
@@ -540,6 +574,9 @@ mod tests {
             ] } }
         });
         let home = parse_home(&root);
+        assert_eq!(home.chips.len(), 1);
+        assert_eq!(home.chips[0].title, "Workout");
+        assert_eq!(home.chips[0].params, "ggNC0");
         assert_eq!(home.sections.len(), 1);
         let s = &home.sections[0];
         assert_eq!(s.title, "Mixed for you");

@@ -9,7 +9,7 @@
 	import MediaCardSkeleton from '$lib/components/MediaCardSkeleton.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import * as api from '$lib/api';
-	import type { HomePage } from '$lib/api';
+	import type { HomeChip, HomePage } from '$lib/api';
 	import { auth, ui } from '$lib/player.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import { getCached, putCached } from '$lib/pagecache';
@@ -18,14 +18,20 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let searchQuery = $state('');
+	// The mood chips + which one is active. Kept out of `home` so the row survives a filter switch's
+	// loading state (every home response carries the same chips anyway). Limusic is music-only.
+	let chips = $state<HomeChip[]>([]);
+	let selected = $state<string | null>(null);
 
 	function goSearch() {
 		if (!searchQuery.trim()) return;
 		goto(`/search?${new URLSearchParams({ q: searchQuery }).toString()}`);
 	}
 
-	async function load() {
-		const hit = getCached<HomePage>('home');
+	async function load(params: string | null = selected) {
+		selected = params;
+		const key = params ? `home:${params}` : 'home';
+		const hit = getCached<HomePage>(key);
 		if (hit) {
 			home = hit;
 			loading = false;
@@ -34,16 +40,24 @@
 		}
 		error = null;
 		try {
-			const fresh = await api.getHome();
+			const fresh = await api.getHome(params ?? undefined);
+			// A stale response from a chip the user already clicked away from must not win.
+			if (selected !== params) return;
 			home = fresh;
-			putCached('home', fresh);
+			putCached(key, fresh);
 		} catch (e) {
 			if (!hit) error = String(e);
 		} finally {
 			loading = false;
 		}
 	}
-	onMount(load);
+
+	// Chips only refresh when a response actually carries them (never blank the row mid-switch).
+	$effect(() => {
+		if (home?.chips?.length) chips = home.chips.filter((c) => c.title !== 'Podcasts');
+	});
+
+	onMount(() => load(null));
 </script>
 
 <div class="p-6">
@@ -75,6 +89,21 @@
 			</form>
 		</div>
 	</div>
+	{#if chips.length}
+		<div class="mb-6 flex gap-2 overflow-x-auto pb-2">
+			{#each chips as chip (chip.params)}
+				<button
+					onclick={() => load(selected === chip.params ? null : chip.params)}
+					class="shrink-0 cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-colors {selected ===
+					chip.params
+						? 'bg-foreground text-background'
+						: 'bg-muted text-foreground hover:bg-muted/70'}"
+				>
+					{chip.title}
+				</button>
+			{/each}
+		</div>
+	{/if}
 	{#if loading}
 		<div class="flex flex-col gap-8">
 			{#each Array(3) as _, s (s)}

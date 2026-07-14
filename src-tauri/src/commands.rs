@@ -199,9 +199,9 @@ fn metadata_client(state: &Arc<AppState>) -> Result<&innertube::YouTubeClient, S
 }
 
 #[tauri::command]
-pub async fn get_home(state: St<'_>) -> Result<HomePage, String> {
+pub async fn get_home(state: St<'_>, params: Option<String>) -> Result<HomePage, String> {
     let client = metadata_client(&state)?;
-    state.it.home(client).await.map_err(|e| e.to_string())
+    state.it.home(client, params.as_deref()).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

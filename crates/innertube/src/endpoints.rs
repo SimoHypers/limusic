@@ -187,9 +187,14 @@ impl InnerTube {
         Ok(value)
     }
 
-    /// Home feed (`FEmusic_home`). context/08.
-    pub async fn home(&self, client: &YouTubeClient) -> Result<HomePage, Error> {
-        let value = self.browse(client, Some("FEmusic_home"), None).await?;
+    /// Home feed (`FEmusic_home`). `params` is a mood/genre chip token from a previous home
+    /// response — pass it to get that chip's filtered feed. context/08.
+    pub async fn home(
+        &self,
+        client: &YouTubeClient,
+        params: Option<&str>,
+    ) -> Result<HomePage, Error> {
+        let value = self.browse(client, Some("FEmusic_home"), params).await?;
         Ok(browse::parse_home(&value))
     }
 

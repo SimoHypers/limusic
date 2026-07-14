@@ -10,10 +10,14 @@ export interface SongItem {
 	/** Primary artist's channel browseId (`UC…`), when linked — makes the artist name navigable. */
 	artist_id?: string;
 	album?: string;
+	/** The album's browseId (`MPRE…`), when linked — makes the album navigable. */
+	album_id?: string;
 	duration?: string;
 	thumbnail?: string;
 	/** Item id within a playlist — present only on playlist tracks; needed to remove them. */
 	set_video_id?: string;
+	/** Whether the signed-in user has liked this track (absent when the response didn't say). */
+	liked?: boolean;
 	/** Listen Together: name of the guest who added this queue item (session adds only). */
 	queued_by?: string;
 }
@@ -55,7 +59,13 @@ export interface HomeSection {
 	title: string;
 	items: BrowseItem[];
 }
+/** A mood/genre filter chip above the home feed; `params` re-fetches home filtered to it. */
+export interface HomeChip {
+	title: string;
+	params: string;
+}
 export interface HomePage {
+	chips: HomeChip[];
 	sections: HomeSection[];
 }
 
@@ -148,7 +158,8 @@ export const signOut = () => invoke<void>('sign_out');
 export const loginWebview = () => invoke<void>('login_webview');
 
 // --- browse / library (context/08) ---------------------------------------------------------
-export const getHome = () => invoke<HomePage>('get_home');
+/** `params` is a `HomeChip.params` token — omit for the unfiltered feed. */
+export const getHome = (params?: string) => invoke<HomePage>('get_home', { params });
 export const getLibrary = () => invoke<BrowseItem[]>('get_library');
 export const getPlaylist = (id: string) => invoke<PlaylistPage>('get_playlist', { id });
 export const getPlaylistMore = (token: string) =>

@@ -6,13 +6,16 @@
 		MoreHorizontalIcon,
 		PlayListAddIcon,
 		PlayListRemoveIcon,
-		AddToListIcon
+		AddToListIcon,
+		FavouriteIcon,
+		UserListIcon,
+		Vynil02Icon
 	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import type { SongItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import { lt } from '$lib/lt.svelte';
-	import { toast } from '$lib/player.svelte';
+	import { playback, toast } from '$lib/player.svelte';
 
 	let {
 		song,
@@ -66,6 +69,26 @@
 	function addToQueue() {
 		api.addToQueue(song);
 		if (lt.role !== 'guest') toast('Added to queue');
+	}
+
+	// Like state: the player bar owns it for the current track, so mirror that; otherwise track it
+	// locally, seeded from the row's own likeStatus.
+	let rowLiked = $state<boolean | undefined>(undefined); // set once the user toggles this row
+	const isNow = $derived(playback.now?.videoId === song.video_id);
+	const liked = $derived(isNow ? playback.liked : (rowLiked ?? song.liked ?? false));
+
+	async function toggleLike() {
+		const next = !liked;
+		rowLiked = next; // optimistic
+		if (isNow) playback.liked = next;
+		try {
+			await api.like(song.video_id, next);
+			toast(next ? 'Added to liked songs' : 'Removed from liked songs');
+		} catch (e) {
+			rowLiked = !next; // revert on failure
+			if (isNow) playback.liked = !next;
+			toast(String(e));
+		}
 	}
 
 	// The whole row is a play target (role="button"), so mirror native button keyboard activation.
@@ -166,6 +189,29 @@
 		>
 			<HugeiconsIcon icon={AddToListIcon} class="h-4 w-4" /> Add to queue
 		</button>
+		<button
+			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+			onclick={() => run(toggleLike)}
+		>
+			<HugeiconsIcon icon={FavouriteIcon} class="h-4 w-4 {liked ? 'fill-current text-primary' : ''}" />
+			{liked ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
+		</button>
+		{#if song.artist_id}
+			<button
+				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+				onclick={() => run(() => goto(`/artist/${encodeURIComponent(song.artist_id!)}`))}
+			>
+				<HugeiconsIcon icon={UserListIcon} class="h-4 w-4" /> Go to artist
+			</button>
+		{/if}
+		{#if song.album_id}
+			<button
+				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+				onclick={() => run(() => goto(`/album/${encodeURIComponent(song.album_id!)}`))}
+			>
+				<HugeiconsIcon icon={Vynil02Icon} class="h-4 w-4" /> Go to album
+			</button>
+		{/if}
 		{#if onAdd}
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"

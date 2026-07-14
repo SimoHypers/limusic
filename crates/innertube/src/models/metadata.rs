@@ -22,6 +22,9 @@ pub struct SongItem {
     pub artist_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub album: Option<String>,
+    /// The album's browseId (`MPRE…`), when the row links one — lets the UI navigate to the album.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub album_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -156,12 +159,23 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
         artists,
         artist_id,
         album,
+        album_id: album_id(node),
         duration,
         thumbnail: last_thumbnail(node),
         set_video_id,
         liked: like_status(node),
         queued_by: None,
     })
+}
+
+/// The album's browseId (`MPRE…`): either the linked album run or the row menu's "Go to album"
+/// entry — whichever the renderer carries. Tolerant: first `MPRE…` browseId in the node. context/08.
+fn album_id(node: &Value) -> Option<String> {
+    find_all(node, "browseId")
+        .into_iter()
+        .filter_map(Value::as_str)
+        .find(|id| id.starts_with("MPRE"))
+        .map(str::to_owned)
 }
 
 /// First run that links an artist channel (`browseEndpoint.browseId` starting with `UC`). context/08.
@@ -192,6 +206,7 @@ fn parse_panel_video(node: &Value) -> Option<SongItem> {
         artists,
         artist_id,
         album: None,
+        album_id: album_id(node),
         duration,
         thumbnail: last_thumbnail(node),
         set_video_id: None,
@@ -371,7 +386,9 @@ mod tests {
                     { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Song Title" }] } } },
                     { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [
                         { "text": "The Artist", "navigationEndpoint": { "browseEndpoint": { "browseId": "UCartist1" } } },
-                        { "text": " • " }, { "text": "The Album" }, { "text": " • " }, { "text": "3:21" }
+                        { "text": " • " },
+                        { "text": "The Album", "navigationEndpoint": { "browseEndpoint": { "browseId": "MPREalbum1" } } },
+                        { "text": " • " }, { "text": "3:21" }
                     ] } } }
                 ],
                 "thumbnail": { "musicThumbnailRenderer": { "thumbnail": { "thumbnails": [
@@ -387,6 +404,7 @@ mod tests {
         assert_eq!(s.artists, "The Artist");
         assert_eq!(s.artist_id.as_deref(), Some("UCartist1"));
         assert_eq!(s.album.as_deref(), Some("The Album"));
+        assert_eq!(s.album_id.as_deref(), Some("MPREalbum1"));
         assert_eq!(s.duration.as_deref(), Some("3:21"));
         assert_eq!(s.thumbnail.as_deref(), Some("big.jpg"));
     }

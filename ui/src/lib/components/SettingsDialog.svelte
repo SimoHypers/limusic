@@ -7,7 +7,7 @@
 	import * as api from '$lib/api';
 	import { ui, toast } from '$lib/player.svelte';
 	import { THEMES, theme, applyTheme } from '$lib/theme.svelte';
-	import { updateState, checkForUpdatesInteractive } from '$lib/updater.svelte';
+	import { updateState, checkForUpdatesInteractive, installUpdate } from '$lib/updater.svelte';
 	import { getVersion } from '@tauri-apps/api/app';
 
 	type TabId = 'general' | 'playback' | 'data' | 'about';
@@ -277,19 +277,29 @@
 						<div class="min-w-0">
 							<div class="font-medium">Updates</div>
 							<p class="mt-0.5 text-sm text-muted-foreground">
-								Check GitHub for a newer release.
+								{#if updateState.available}
+									Version {updateState.available.version} is available.
+								{:else}
+									Check GitHub for a newer release.
+								{/if}
 							</p>
 						</div>
-						<Button
-							variant="outline"
-							size="sm"
-							onclick={checkUpdates}
-							disabled={updateState.checking}
-						>
-							{updateState.checking ? 'Checking…' : 'Check for updates'}
-						</Button>
+						{#if updateState.available}
+							<Button size="sm" onclick={installUpdate} disabled={updateState.installing}>
+								{updateState.installing ? 'Updating…' : 'Update now'}
+							</Button>
+						{:else}
+							<Button
+								variant="outline"
+								size="sm"
+								onclick={checkUpdates}
+								disabled={updateState.checking}
+							>
+								{updateState.checking ? 'Checking…' : 'Check for updates'}
+							</Button>
+						{/if}
 					</div>
-					{#if updateResult}
+					{#if updateResult && !updateState.available}
 						<Alert variant={updateResult.error ? 'destructive' : 'default'}>
 							<AlertDescription>{updateResult.message}</AlertDescription>
 						</Alert>

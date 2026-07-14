@@ -119,7 +119,7 @@
 					>
 						<HugeiconsIcon
 							icon={FavouriteIcon}
-							class="h-4 w-4 {playback.liked ? 'text-primary' : 'text-muted-foreground'}"
+							class="h-4 w-4 {playback.liked ? 'fill-current text-primary' : 'text-muted-foreground'}"
 						/>
 					</span>
 				</Button>
