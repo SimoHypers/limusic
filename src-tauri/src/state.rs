@@ -52,10 +52,23 @@ pub struct AppState {
     last_media_push: AtomicU64,
 }
 
+/// Repeat mode for the queue. Serialized lowercase for the UI + `queue_json`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RepeatMode {
+    #[default]
+    Off,
+    All,
+    One,
+}
+
 #[derive(Default)]
 struct QueueState {
     items: Vec<SongItem>,
     current: usize,
+    /// Pre-shuffle order snapshot. `Some(..)` ⇔ shuffle is ON; restored on shuffle-off.
+    shuffle_orig: Option<Vec<SongItem>>,
+    repeat: RepeatMode,
     /// The queue index we've already appended to mpv for gapless lookahead (if any).
     lookahead_loaded: Option<usize>,
     /// Which client served the currently-loaded track (for the WEB_REMIX-403 feedback). context/06.
@@ -268,6 +281,8 @@ impl AppState {
             q.items = vec![seed];
             q.current = 0;
             q.lookahead_loaded = None;
+            // Shuffle is sticky across queues: keep it ON (re-snapshotted after radio hydration).
+            q.shuffle_orig = q.shuffle_orig.is_some().then(|| q.items.clone());
         }
 
         if !self.start_current(gen).await {
@@ -289,6 +304,14 @@ impl AppState {
                         q.items.push(item);
                     }
                 }
+                // Shuffle on → the radio hydration is part of the queue: snapshot it as the
+                // "original" order, then shuffle the upcoming tracks. (Runs before the lookahead
+                // is primed, so nothing stale is in mpv.)
+                if q.shuffle_orig.is_some() {
+                    q.shuffle_orig = Some(q.items.clone());
+                    let cur = q.current;
+                    shuffle_upcoming(&mut q.items, cur);
+                }
                 drop(q);
                 self.emit_queue().await;
             }
@@ -298,9 +321,11 @@ impl AppState {
         self.prime_lookahead(gen).await;
     }
 
-    /// Play a finite list of tracks (a playlist/album) starting at `start`. Unlike `play_song`
-    /// this seeds NO radio — the given items *are* the queue (context/08: playlist playback).
-    pub async fn play_tracks(self: &std::sync::Arc<Self>, items: Vec<SongItem>, start: usize) {
+    /// Play a finite list of tracks (a playlist/album). `start` is the clicked track; `None`
+    /// means "just play the playlist" (the header Play button) — first track, or any track when
+    /// shuffle is on. Unlike `play_song` this seeds NO radio — the given items *are* the queue
+    /// (context/08: playlist playback).
+    pub async fn play_tracks(self: &std::sync::Arc<Self>, items: Vec<SongItem>, start: Option<usize>) {
         if items.is_empty() {
             return;
         }
@@ -309,12 +334,24 @@ impl AppState {
             return;
         }
         let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        let start = start.min(items.len() - 1);
         {
             let mut q = self.queue.lock().await;
+            let keep_shuffled = q.shuffle_orig.is_some(); // shuffle is sticky across queues
+            let start = match start {
+                Some(i) => i.min(items.len() - 1),
+                None if keep_shuffled => rand::Rng::gen_range(&mut rand::thread_rng(), 0..items.len()),
+                None => 0,
+            };
             q.items = items;
             q.current = start;
             q.lookahead_loaded = None;
+            if keep_shuffled {
+                // Snapshot the real playlist order (for un-shuffle), then play the clicked track
+                // first with everything else shuffled behind it.
+                q.shuffle_orig = Some(q.items.clone());
+                let start = q.current;
+                q.current = shuffle_new_queue(&mut q.items, start);
+            }
         }
         // start_current emits now-playing + queue + persists; prime the gapless lookahead after.
         if self.start_current(gen).await {
@@ -373,12 +410,12 @@ impl AppState {
         }
         let has_next = {
             let mut q = self.queue.lock().await;
-            let next = q.current + 1;
-            if next >= q.items.len() {
-                false
-            } else {
-                q.current = next;
-                true
+            match next_index(q.items.len(), q.current, q.repeat) {
+                Some(next) => {
+                    q.current = next;
+                    true
+                }
+                None => false,
             }
         };
         if !has_next {
@@ -403,6 +440,9 @@ impl AppState {
         let gen = self.generation.load(Ordering::SeqCst);
         {
             let mut q = self.queue.lock().await;
+            // The primed entry is what's playing now — nothing is primed beyond it. (Also what
+            // lets a single-item repeat-all queue re-prime itself instead of "already primed".)
+            q.lookahead_loaded = None;
             q.current_client = q.lookahead_client.take();
             // New track is now playing → fresh history state (mirrors start_current).
             q.playback_url = q.lookahead_playback_url.take();
@@ -481,6 +521,8 @@ impl AppState {
                 Ok(d) => break (item, d),
                 Err(e) => {
                     let mut q = self.queue.lock().await;
+                    // Deliberately ignores repeat-all: wrapping the unplayable-skip would spin
+                    // forever on a queue where nothing resolves. Skips stop at the tail.
                     if q.current + 1 >= q.items.len() {
                         drop(q);
                         self.emit_error(&item.video_id, &e.to_string()); // nothing left to skip to
@@ -541,16 +583,18 @@ impl AppState {
 
     /// Resolve the next queue item and append it to mpv for a gapless transition. context/14.
     async fn prime_lookahead(self: &std::sync::Arc<Self>, gen: u64) {
-        let next_index = {
+        let next_idx = {
             let q = self.queue.lock().await;
-            if q.lookahead_loaded == Some(q.current + 1) {
+            // Repeat-one primes nothing: mpv loops the file itself (next_index → None).
+            let Some(next) = next_index(q.items.len(), q.current, q.repeat) else { return };
+            if q.lookahead_loaded == Some(next) {
                 return; // already primed
             }
-            q.current + 1
+            next
         };
         let next_video = {
             let q = self.queue.lock().await;
-            match q.items.get(next_index) {
+            match q.items.get(next_idx) {
                 Some(item) => item.video_id.clone(),
                 None => return,
             }
@@ -568,8 +612,8 @@ impl AppState {
         let mut q = self.queue.lock().await;
         // The queue can change under a resolve (a guest add inserts at current+1) — enqueueing
         // then would gaplessly play the wrong song. Verify the slot still holds the same track.
-        if q.items.get(next_index).map(|i| i.video_id != next_video).unwrap_or(true) {
-            tracing::debug!(index = next_index, "queue changed during lookahead resolve — dropped");
+        if q.items.get(next_idx).map(|i| i.video_id != next_video).unwrap_or(true) {
+            tracing::debug!(index = next_idx, "queue changed during lookahead resolve — dropped");
             return;
         }
         // Headers are global in mpv; the direct-URL clients need none beyond UA, which the
@@ -578,10 +622,10 @@ impl AppState {
             tracing::warn!(error = %e, "enqueue lookahead failed");
             return;
         }
-        q.lookahead_loaded = Some(next_index);
+        q.lookahead_loaded = Some(next_idx);
         q.lookahead_client = Some(data.stream_client.clone());
         q.lookahead_playback_url = data.playback_url.clone();
-        tracing::debug!(index = next_index, "gapless lookahead primed");
+        tracing::debug!(index = next_idx, "gapless lookahead primed");
     }
 
     async fn current_item(&self) -> Option<SongItem> {
@@ -649,8 +693,17 @@ impl AppState {
     /// Advance/rewind the queue (OS "next"/"previous" keys + the UI's skip buttons). `play_index`
     /// itself no-ops for guests.
     pub async fn next_in_queue(self: &std::sync::Arc<Self>) {
-        let i = self.queue.lock().await.current + 1;
-        self.play_index(i).await;
+        let i = {
+            let q = self.queue.lock().await;
+            // Manual next escapes a repeat-one loop (the next track then loops too), so treat One
+            // as All here: with any repeat engaged the queue wraps instead of dead-ending.
+            let repeat = if q.repeat == RepeatMode::One { RepeatMode::All } else { q.repeat };
+            next_index(q.items.len(), q.current, repeat)
+        };
+        // Repeat off at the tail → None → no-op (play_index also bounds-checks).
+        if let Some(i) = i {
+            self.play_index(i).await;
+        }
     }
 
     pub async fn prev_in_queue(self: &std::sync::Arc<Self>) {
@@ -662,7 +715,12 @@ impl AppState {
         let q = self.queue.lock().await;
         let _ = self.app.emit(
             "queue-changed",
-            serde_json::json!({ "items": &q.items, "currentIndex": q.current }),
+            serde_json::json!({
+                "items": &q.items,
+                "currentIndex": q.current,
+                "shuffle": q.shuffle_orig.is_some(),
+                "repeat": q.repeat,
+            }),
         );
     }
 
@@ -692,7 +750,12 @@ impl AppState {
 
     pub async fn queue_snapshot(&self) -> serde_json::Value {
         let q = self.queue.lock().await;
-        serde_json::json!({ "items": &q.items, "currentIndex": q.current })
+        serde_json::json!({
+            "items": &q.items,
+            "currentIndex": q.current,
+            "shuffle": q.shuffle_orig.is_some(),
+            "repeat": q.repeat,
+        })
     }
 
     /// A position tick from mpv. Fires the watch-history ping once the current track passes the
@@ -752,7 +815,13 @@ impl AppState {
     async fn persist_queue(&self) {
         let json = {
             let q = self.queue.lock().await;
-            serde_json::json!({ "items": &q.items, "current": q.current }).to_string()
+            serde_json::json!({
+                "items": &q.items,
+                "current": q.current,
+                "repeat": q.repeat,
+                "shuffleOrig": &q.shuffle_orig,
+            })
+            .to_string()
         };
         self.db.set_setting("queue_json", &json);
     }
@@ -772,6 +841,15 @@ impl AppState {
         }
         let current = (saved.get("current").and_then(|v| v.as_u64()).unwrap_or(0) as usize)
             .min(items.len() - 1);
+        // Shuffle/repeat ride the same blob; read tolerantly — old blobs lack them.
+        let repeat: RepeatMode = saved
+            .get("repeat")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        let shuffle_orig: Option<Vec<SongItem>> = saved
+            .get("shuffleOrig")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .flatten();
         let pos = self.db.get_setting("queue_position").and_then(|s| s.parse::<f64>().ok());
         if let Some(p) = pos.filter(|p| *p > 0.0) {
             *self.pending_seek.lock().unwrap() = Some((items[current].video_id.clone(), p));
@@ -780,6 +858,11 @@ impl AppState {
             let mut q = self.queue.lock().await;
             q.current = current;
             q.items = items;
+            q.repeat = repeat;
+            q.shuffle_orig = shuffle_orig;
+        }
+        if repeat == RepeatMode::One {
+            let _ = self.player.set_loop_file(true);
         }
         if let Some(item) = self.current_item().await {
             // Restored, not playing — announce the track but leave playback paused. Declare the
@@ -914,6 +997,7 @@ impl AppState {
             q.items = items;
             q.current = 0;
             q.lookahead_loaded = None;
+            q.shuffle_orig = None; // host rebuilt the queue — local shuffle snapshot is stale
         }
         let data = match self.resolve(&track.id).await {
             Ok(d) => d,
@@ -1037,6 +1121,61 @@ impl AppState {
         Ok(())
     }
 
+    /// Toggle shuffle on the current queue. ON: snapshot the order, then Fisher–Yates only the
+    /// *upcoming* items. OFF: restore the snapshot, keeping the playing track. Guests: host-only
+    /// hint. ponytail: OFF restores the snapshot verbatim — tracks added while shuffled are
+    /// dropped from the restored order (still playing/played fine; snapshot semantics).
+    pub async fn toggle_shuffle(self: &std::sync::Arc<Self>) {
+        if self.lt.is_guest().await {
+            self.emit_guest_hint();
+            return;
+        }
+        {
+            let mut q = self.queue.lock().await;
+            if q.items.is_empty() {
+                return;
+            }
+            if let Some(orig) = q.shuffle_orig.take() {
+                let playing = q.items[q.current].video_id.clone();
+                let fallback = q.current;
+                let (items, idx) = unshuffled(orig, &playing, fallback);
+                q.items = items;
+                q.current = idx;
+            } else {
+                q.shuffle_orig = Some(q.items.clone());
+                let current = q.current;
+                shuffle_upcoming(&mut q.items, current);
+            }
+            // The primed lookahead almost certainly points at the wrong song now — drop it
+            // unconditionally (cheap; re-primed below).
+            if q.lookahead_loaded.take().is_some() {
+                let _ = self.player.clear_playlist();
+            }
+        }
+        self.emit_queue().await;
+        self.persist_queue().await;
+        self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
+        self.lt_broadcast_queue().await;
+    }
+
+    /// Set the repeat mode. Repeat-one is enforced by mpv's `loop-file` (seamless, no end-file
+    /// event); all/off live in the queue-advance logic (`next_index`). Guests: host-only hint.
+    pub async fn set_repeat(self: &std::sync::Arc<Self>, mode: RepeatMode) {
+        if self.lt.is_guest().await {
+            self.emit_guest_hint();
+            return;
+        }
+        {
+            let mut q = self.queue.lock().await;
+            q.repeat = mode;
+        }
+        let _ = self.player.set_loop_file(mode == RepeatMode::One);
+        self.emit_queue().await; // carries the new repeat state to the UI
+        self.persist_queue().await;
+        // Repeat-all newly on while playing the last track: the wrap target needs priming.
+        self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
+    }
+
     /// "Add to queue" from the UI's track menu. Always lands at the "up next" boundary — right
     /// after the current song, behind any earlier manual adds (FIFO) — never buried at the end.
     /// In a session, guests route through the host (suggest → auto-approve) and the host tags the
@@ -1069,9 +1208,14 @@ impl AppState {
             let mut q = self.queue.lock().await;
             let at = guest_insert_index(&q.items, q.current);
             q.items.insert(at, song);
-            // If mpv already holds a primed lookahead for the old `current + 1`, it now points at
-            // the wrong song — drop it so the gapless advance plays the added track.
-            if at == q.current + 1 && q.lookahead_loaded.take().is_some() {
+            // Drop the primed lookahead if the insert lands on its slot, or if what-plays-next
+            // changed (an append past the tail retargets a primed repeat-all wrap from index 0
+            // to the new item) — otherwise the gapless advance plays the wrong song.
+            let expected = next_index(q.items.len(), q.current, q.repeat);
+            if q.lookahead_loaded.is_some()
+                && (q.lookahead_loaded == Some(at) || q.lookahead_loaded != expected)
+            {
+                q.lookahead_loaded = None;
                 let _ = self.player.clear_playlist();
             }
         };
@@ -1098,15 +1242,21 @@ impl AppState {
             q.items.remove(index);
             if index < q.current {
                 q.current -= 1;
+            }
+            match q.lookahead_loaded {
+                // mpv holds the removed song as the gapless next — drop it. (Compared against the
+                // recorded index, not `current + 1`, so a primed repeat-all wrap target is caught.)
+                Some(i) if i == index => {
+                    q.lookahead_loaded = None;
+                    let _ = self.player.clear_playlist();
+                    true
+                }
                 // The primed entry is the same song at a shifted index.
-                q.lookahead_loaded = q.lookahead_loaded.map(|i| i - 1);
-                false
-            } else if index == q.current + 1 && q.lookahead_loaded.take().is_some() {
-                // mpv holds the removed song as the gapless next — drop it.
-                let _ = self.player.clear_playlist();
-                true
-            } else {
-                false
+                Some(i) if i > index => {
+                    q.lookahead_loaded = Some(i - 1);
+                    false
+                }
+                _ => false,
             }
         };
         self.emit_queue().await;
@@ -1192,6 +1342,54 @@ fn guest_insert_index(items: &[SongItem], current: usize) -> usize {
     at
 }
 
+/// The queue index that plays after `current`, honoring repeat-all wrap. `None` at the tail
+/// when repeat is off (exhausted) or one (mpv loops the file itself — the queue never advances).
+fn next_index(len: usize, current: usize, repeat: RepeatMode) -> Option<usize> {
+    if len == 0 {
+        return None;
+    }
+    let next = current + 1;
+    if next < len {
+        Some(next)
+    } else if repeat == RepeatMode::All {
+        Some(0)
+    } else {
+        None
+    }
+}
+
+/// Un-shuffle: restore the snapshot and re-locate the playing track in it.
+/// ponytail: dupes match by first videoId occurrence — same song queued twice may land on the
+/// other copy; harmless (identical items).
+fn unshuffled(orig: Vec<SongItem>, playing_id: &str, fallback: usize) -> (Vec<SongItem>, usize) {
+    let idx = orig
+        .iter()
+        .position(|i| i.video_id == playing_id)
+        .unwrap_or_else(|| fallback.min(orig.len().saturating_sub(1)));
+    (orig, idx)
+}
+
+/// Fisher–Yates over the *upcoming* items only (`current+1..`) — the playing track and the
+/// already-played prefix stay put (Spotify semantics).
+fn shuffle_upcoming(items: &mut [SongItem], current: usize) {
+    use rand::seq::SliceRandom;
+    let start = current + 1;
+    if start < items.len() {
+        items[start..].shuffle(&mut rand::thread_rng());
+    }
+}
+
+/// Shuffle a *fresh* queue around the clicked track (shuffle was already on when it started,
+/// Spotify semantics): the clicked track plays first, everything else follows in random order.
+/// Returns the new current index (always 0). The swap is fine — everything past 0 is shuffled.
+fn shuffle_new_queue(items: &mut [SongItem], start: usize) -> usize {
+    if !items.is_empty() {
+        items.swap(0, start.min(items.len() - 1));
+        shuffle_upcoming(items, 0);
+    }
+    0
+}
+
 /// Parse a `"m:ss"` / `"h:mm:ss"` duration string to ms (0 if absent/unparseable).
 fn parse_duration_ms(s: Option<&str>) -> i64 {
     let Some(s) = s else { return 0 };
@@ -1228,13 +1426,15 @@ fn loudness_gain(loudness_db: Option<f64>) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{guest_insert_index, loudness_gain};
+    use super::{
+        guest_insert_index, loudness_gain, next_index, shuffle_new_queue, shuffle_upcoming,
+        unshuffled, RepeatMode,
+    };
 
-    #[test]
-    fn guest_adds_stack_fifo_after_current() {
-        // `by.is_some()` (a named guest/host add) and a nameless solo add are both manual adds:
-        // the `queued` marker is what forms the FIFO block, not the name.
-        let song = |id: &str, by: Option<&str>| innertube::SongItem {
+    // `by.is_some()` (a named guest/host add) and a nameless solo add are both manual adds:
+    // the `queued` marker is what forms the FIFO block, not the name.
+    fn song(id: &str, by: Option<&str>) -> innertube::SongItem {
+        innertube::SongItem {
             video_id: id.into(),
             title: id.into(),
             artists: String::new(),
@@ -1247,7 +1447,11 @@ mod tests {
             liked: None,
             queued: by.is_some(),
             queued_by: by.map(Into::into),
-        };
+        }
+    }
+
+    #[test]
+    fn guest_adds_stack_fifo_after_current() {
         let solo = |id: &str| innertube::SongItem { queued: true, ..song(id, None) };
         // Host playlist [A*, B, C] (playing A): manual add goes right after current, not the end.
         let items = vec![song("a", None), song("b", None), song("c", None)];
@@ -1263,6 +1467,64 @@ mod tests {
         assert_eq!(guest_insert_index(&items, 0), 1);
         // Empty queue (nothing playing yet) → index 0… clamped, no panic.
         assert_eq!(guest_insert_index(&[], 0), 0);
+    }
+
+    #[test]
+    fn next_index_wraps_only_on_repeat_all() {
+        assert_eq!(next_index(3, 2, RepeatMode::Off), None);
+        assert_eq!(next_index(3, 2, RepeatMode::All), Some(0));
+        assert_eq!(next_index(3, 2, RepeatMode::One), None); // mpv loops the file itself
+        assert_eq!(next_index(3, 0, RepeatMode::Off), Some(1));
+        assert_eq!(next_index(0, 0, RepeatMode::All), None);
+        assert_eq!(next_index(1, 0, RepeatMode::All), Some(0)); // single-item wrap
+    }
+
+    #[test]
+    fn unshuffle_restores_order_and_current() {
+        let orig = vec![song("a", None), song("b", None), song("c", None), song("d", None)];
+        let (items, idx) = unshuffled(orig.clone(), "c", 9);
+        assert_eq!(items.iter().map(|i| i.video_id.as_str()).collect::<Vec<_>>(), ["a", "b", "c", "d"]);
+        assert_eq!(idx, 2);
+        // Playing id absent from the snapshot → fallback index, clamped to len-1.
+        let (_, idx) = unshuffled(orig, "zz", 9);
+        assert_eq!(idx, 3);
+    }
+
+    #[test]
+    fn shuffle_preserves_prefix_and_multiset() {
+        let ids: Vec<String> = (0..10).map(|i| format!("t{i}")).collect();
+        let mut items: Vec<_> = ids.iter().map(|id| song(id, None)).collect();
+        shuffle_upcoming(&mut items, 2);
+        // The playing track and the already-played prefix stay put…
+        for (i, id) in ids.iter().take(3).enumerate() {
+            assert_eq!(&items[i].video_id, id);
+        }
+        // …and the whole queue is a permutation (nothing lost, nothing duplicated).
+        let mut got: Vec<_> = items.iter().map(|i| i.video_id.clone()).collect();
+        got.sort();
+        let mut want = ids.clone();
+        want.sort();
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn new_queue_shuffle_plays_clicked_track_first() {
+        let ids: Vec<String> = (0..10).map(|i| format!("t{i}")).collect();
+        let mut items: Vec<_> = ids.iter().map(|id| song(id, None)).collect();
+        let cur = shuffle_new_queue(&mut items, 7);
+        assert_eq!(cur, 0);
+        assert_eq!(items[0].video_id, "t7"); // the clicked track plays first…
+        let mut got: Vec<_> = items.iter().map(|i| i.video_id.clone()).collect();
+        got.sort();
+        let mut want = ids.clone();
+        want.sort();
+        assert_eq!(got, want); // …and the rest is a permutation of everything else
+        // Degenerate cases: empty and single-item queues don't panic.
+        let mut empty: Vec<innertube::SongItem> = vec![];
+        assert_eq!(shuffle_new_queue(&mut empty, 3), 0);
+        let mut one = vec![song("only", None)];
+        assert_eq!(shuffle_new_queue(&mut one, 5), 0);
+        assert_eq!(one[0].video_id, "only");
     }
 
     #[test]

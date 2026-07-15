@@ -222,6 +222,8 @@ pub fn run() {
             commands::add_to_queue,
             commands::next_track,
             commands::prev_track,
+            commands::toggle_shuffle,
+            commands::set_repeat,
             commands::toggle_pause,
             commands::seek,
             commands::set_volume,

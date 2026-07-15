@@ -5,6 +5,9 @@
 		NextIcon,
 		PlayIcon,
 		PauseIcon,
+		ShuffleIcon,
+		RepeatIcon,
+		RepeatOne01Icon,
 		Queue01Icon,
 		VolumeHighIcon,
 		FavouriteIcon,
@@ -43,6 +46,13 @@
 		const s = Math.floor(secs % 60);
 		return `${m}:${s.toString().padStart(2, '0')}`;
 	};
+
+	const shuffleOn = $derived(playback.queue.shuffle ?? false);
+	const repeat = $derived(playback.queue.repeat ?? 'off');
+
+	function cycleRepeat() {
+		api.setRepeat(repeat === 'off' ? 'all' : repeat === 'all' ? 'one' : 'off');
+	}
 
 	// Seek: while dragging, hold a local value so incoming mpv position ticks can't yank the thumb
 	// back under the pointer; only invoke the (expensive) seek on release.
@@ -138,6 +148,18 @@
 	<!-- Transport -->
 	<div class="flex flex-[1.5] flex-col items-center gap-1">
 		<div class="flex items-center gap-1">
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				onclick={() => api.toggleShuffle()}
+				aria-label="Shuffle"
+				aria-pressed={shuffleOn}
+			>
+				<HugeiconsIcon
+					icon={ShuffleIcon}
+					class="h-4 w-4 {shuffleOn ? 'text-primary' : 'text-muted-foreground'}"
+				/>
+			</Button>
 			<Button variant="ghost" size="icon-sm" onclick={() => api.prevTrack()} aria-label="Previous">
 				<HugeiconsIcon icon={PreviousIcon} class="h-5 w-5" />
 			</Button>
@@ -159,6 +181,21 @@
 			</Button>
 			<Button variant="ghost" size="icon-sm" onclick={() => api.nextTrack()} aria-label="Next">
 				<HugeiconsIcon icon={NextIcon} class="h-5 w-5" />
+			</Button>
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				onclick={cycleRepeat}
+				aria-label="Repeat: {repeat}"
+				aria-pressed={repeat !== 'off'}
+			>
+				<!-- icon swap via altIcon/showAlt — `icon` is frozen at mount (see play/pause above) -->
+				<HugeiconsIcon
+					icon={RepeatIcon}
+					altIcon={RepeatOne01Icon}
+					showAlt={repeat === 'one'}
+					class="h-4 w-4 {repeat !== 'off' ? 'text-primary' : 'text-muted-foreground'}"
+				/>
 			</Button>
 		</div>
 		<div class="flex w-full max-w-md items-center gap-2 text-xs text-muted-foreground">

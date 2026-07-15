@@ -100,7 +100,7 @@
 		}
 	}
 
-	function playAll(start: number) {
+	function playAll(start: number | null) {
 		if (pl) api.playPlaylist(pl.items, start);
 	}
 
@@ -285,7 +285,7 @@
 				{/if}
 				{#if pl.subtitle}<p class="mt-2 text-sm text-muted-foreground">{pl.subtitle}</p>{/if}
 				<div class="mt-4 flex items-center gap-2">
-					<Button class="gap-2" onclick={() => playAll(0)} disabled={!pl.items.length}>
+					<Button class="gap-2" onclick={() => playAll(null)} disabled={!pl.items.length}>
 						<HugeiconsIcon icon={PlayIcon} class="h-4 w-4" /> Play
 					</Button>
 					{#if confirmingDelete}

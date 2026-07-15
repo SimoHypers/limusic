@@ -90,6 +90,25 @@ pub async fn prev_track(state: St<'_>) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn toggle_shuffle(state: St<'_>) -> Result<(), String> {
+    state.inner().clone().toggle_shuffle().await;
+    Ok(())
+}
+
+/// `mode` ∈ "off" | "all" | "one".
+#[tauri::command]
+pub async fn set_repeat(state: St<'_>, mode: String) -> Result<(), String> {
+    let mode = match mode.as_str() {
+        "off" => crate::state::RepeatMode::Off,
+        "all" => crate::state::RepeatMode::All,
+        "one" => crate::state::RepeatMode::One,
+        other => return Err(format!("unknown repeat mode: {other}")),
+    };
+    state.inner().clone().set_repeat(mode).await;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn toggle_pause(state: St<'_>) -> Result<(), String> {
     let state = state.inner().clone();
     state.resume_or_toggle().await;
@@ -251,9 +270,14 @@ pub async fn get_browse_grid(
     state.it.browse_grid(client, &id, params.as_deref()).await.map_err(|e| e.to_string())
 }
 
-/// Play a playlist/album: the given items become the queue (no radio), starting at `start`.
+/// Play a playlist/album: the given items become the queue (no radio). `start` is the clicked
+/// track index; `None`/omitted means "just play it" (random opener when shuffle is on).
 #[tauri::command]
-pub async fn play_playlist(state: St<'_>, items: Vec<SongItem>, start: usize) -> Result<(), String> {
+pub async fn play_playlist(
+    state: St<'_>,
+    items: Vec<SongItem>,
+    start: Option<usize>,
+) -> Result<(), String> {
     let state = state.inner().clone();
     state.play_tracks(items, start).await;
     Ok(())

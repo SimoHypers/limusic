@@ -34,9 +34,13 @@ export interface NowPlaying {
 	liked?: boolean | null;
 }
 
+export type RepeatMode = 'off' | 'all' | 'one';
+
 export interface QueueState {
 	items: SongItem[];
 	currentIndex: number;
+	shuffle?: boolean;
+	repeat?: RepeatMode;
 }
 
 export interface Account {
@@ -136,6 +140,8 @@ export const removeFromQueue = (index: number) => invoke<void>('remove_from_queu
 export const addToQueue = (item: SongItem) => invoke<void>('add_to_queue', { item });
 export const nextTrack = () => invoke<void>('next_track');
 export const prevTrack = () => invoke<void>('prev_track');
+export const toggleShuffle = () => invoke<void>('toggle_shuffle');
+export const setRepeat = (mode: RepeatMode) => invoke<void>('set_repeat', { mode });
 export const togglePause = () => invoke<void>('toggle_pause');
 export const seek = (position: number) => invoke<void>('seek', { position });
 export const setVolume = (volume: number) => invoke<void>('set_volume', { volume });
@@ -164,7 +170,8 @@ export const getLibrary = () => invoke<BrowseItem[]>('get_library');
 export const getPlaylist = (id: string) => invoke<PlaylistPage>('get_playlist', { id });
 export const getPlaylistMore = (token: string) =>
 	invoke<PlaylistContinuation>('get_playlist_more', { token });
-export const playPlaylist = (items: SongItem[], start: number) =>
+/** `start`: the clicked track index, or `null` for "just play it" (random opener under shuffle). */
+export const playPlaylist = (items: SongItem[], start: number | null) =>
 	invoke<void>('play_playlist', { items, start });
 export const getAlbum = (id: string) => invoke<AlbumPage>('get_album', { id });
 export const getArtist = (id: string) => invoke<ArtistPage>('get_artist', { id });

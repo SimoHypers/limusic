@@ -156,6 +156,13 @@ impl Player {
         Ok(())
     }
 
+    /// Loop the current file seamlessly (repeat-one). mpv restarts the file at EOF *without*
+    /// emitting end-file, so the queue logic upstream never advances while this is on — by design.
+    pub fn set_loop_file(&self, on: bool) -> Result<(), Error> {
+        self.mpv.set_property("loop-file", if on { "inf" } else { "no" })?;
+        Ok(())
+    }
+
     /// Absolute seek in seconds.
     pub fn seek(&self, position_secs: f64) -> Result<(), Error> {
         self.mpv

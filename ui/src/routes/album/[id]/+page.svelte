@@ -72,7 +72,7 @@
         if (id) load(id);
     });
 
-    function playAll(start: number) {
+    function playAll(start: number | null) {
         if (album) api.playPlaylist(album.items, start);
     }
     function shuffle() {
@@ -213,7 +213,7 @@
             <div class="relative flex items-center gap-3">
                 <button
                     class="flex cursor-pointer items-center gap-2 rounded-full text-foreground bg-primary px-6 py-2.5 text-sm font-semibold transition hover:opacity-90 disabled:opacity-50"
-                    onclick={() => playAll(0)}
+                    onclick={() => playAll(null)}
                     disabled={!album.items.length}
                 >
                     <HugeiconsIcon icon={PlayIcon} class="h-4 w-4" /> Play
