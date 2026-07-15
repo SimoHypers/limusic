@@ -1037,40 +1037,37 @@ impl AppState {
         Ok(())
     }
 
-    /// "Add to queue" from the UI's track menu. Solo: appended to the end. In a session everyone's
-    /// adds land at the session boundary ("up next", FIFO): guests route through the host
-    /// (suggest → auto-approve), the host inserts directly, tagged with their own name so the
-    /// room sees who added it.
+    /// "Add to queue" from the UI's track menu. Always lands at the "up next" boundary — right
+    /// after the current song, behind any earlier manual adds (FIFO) — never buried at the end.
+    /// In a session, guests route through the host (suggest → auto-approve) and the host tags the
+    /// add with their own name so the room sees who added it.
     pub async fn add_to_queue(self: &std::sync::Arc<Self>, item: SongItem) {
         if self.lt.is_guest().await {
             self.lt.suggest(song_to_track(&item)).await;
             return;
         }
+        let mut item = item;
         if self.lt.is_host().await {
-            let mut track = song_to_track(&item);
-            track.queued_by = Some(self.lt.my_username().await.unwrap_or_else(|| "Host".into()));
-            self.lt_enqueue_track(track).await;
-            return;
+            item.queued_by = Some(self.lt.my_username().await.unwrap_or_else(|| "Host".into()));
         }
-        // Solo: end of the queue.
-        {
-            let mut q = self.queue.lock().await;
-            q.items.push(item);
-        }
-        self.emit_queue().await;
-        self.persist_queue().await;
-        // If the playing track was the last one, there's a next now — prime it for gapless.
-        self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
+        self.insert_queued_song(item).await;
     }
 
-    /// Host: add a session track to the real queue at the *session boundary* — right after the
-    /// current song, behind any earlier session adds (FIFO), ahead of the host's own playlist —
-    /// then broadcast the updated queue. "Up next", never buried at the end.
+    /// Host: add a session track to the real queue at the session boundary. Thin wrapper over
+    /// `insert_queued_song` (the `Track` wire shape drops the nav ids solo adds keep).
     pub async fn lt_enqueue_track(self: &std::sync::Arc<Self>, track: Track) {
+        self.insert_queued_song(track_to_song(&track)).await;
+    }
+
+    /// Insert a manually-queued song at the "up next" boundary — right after the current song,
+    /// behind any earlier manual adds (FIFO, `guest_insert_index`), ahead of the upcoming playlist.
+    /// Marks it `queued` so the next add stacks behind it, then emits/persists/re-primes and (as
+    /// host) broadcasts. Shared by solo "add to queue", host adds, and approved guest suggestions.
+    async fn insert_queued_song(self: &std::sync::Arc<Self>, mut song: SongItem) {
+        song.queued = true;
         {
             let mut q = self.queue.lock().await;
             let at = guest_insert_index(&q.items, q.current);
-            let song = track_to_song(&track);
             q.items.insert(at, song);
             // If mpv already holds a primed lookahead for the old `current + 1`, it now points at
             // the wrong song — drop it so the gapless advance plays the added track.
@@ -1180,14 +1177,16 @@ fn track_to_song(t: &Track) -> SongItem {
         set_video_id: None,
         liked: None,
         queued_by: t.queued_by.clone(),
+        queued: false,
     }
 }
 
-/// Where a guest-added track goes: right after the current song, behind any earlier guest adds
-/// (FIFO), ahead of the host's own upcoming playlist.
+/// Where a manually-queued track goes: right after the current song, behind any earlier manual
+/// adds (`queued`, FIFO — includes solo adds, guest suggestions, and host adds), ahead of the
+/// upcoming playlist.
 fn guest_insert_index(items: &[SongItem], current: usize) -> usize {
     let mut at = (current + 1).min(items.len());
-    while items.get(at).map(|i| i.queued_by.is_some()).unwrap_or(false) {
+    while items.get(at).map(|i| i.queued).unwrap_or(false) {
         at += 1;
     }
     at
@@ -1233,6 +1232,8 @@ mod tests {
 
     #[test]
     fn guest_adds_stack_fifo_after_current() {
+        // `by.is_some()` (a named guest/host add) and a nameless solo add are both manual adds:
+        // the `queued` marker is what forms the FIFO block, not the name.
         let song = |id: &str, by: Option<&str>| innertube::SongItem {
             video_id: id.into(),
             title: id.into(),
@@ -1244,13 +1245,18 @@ mod tests {
             thumbnail: None,
             set_video_id: None,
             liked: None,
+            queued: by.is_some(),
             queued_by: by.map(Into::into),
         };
-        // Host playlist [A*, B, C] (playing A): guest add goes right after current, not the end.
+        let solo = |id: &str| innertube::SongItem { queued: true, ..song(id, None) };
+        // Host playlist [A*, B, C] (playing A): manual add goes right after current, not the end.
         let items = vec![song("a", None), song("b", None), song("c", None)];
         assert_eq!(guest_insert_index(&items, 0), 1);
         // A guest track already up next → the new one queues behind it (FIFO), before B.
         let items = vec![song("a", None), song("g1", Some("kim")), song("b", None)];
+        assert_eq!(guest_insert_index(&items, 0), 2);
+        // Solo adds (no name, `queued`) form the same FIFO block: the next add lands behind them.
+        let items = vec![song("a", None), solo("s1"), song("b", None)];
         assert_eq!(guest_insert_index(&items, 0), 2);
         // Current is the last item → append.
         let items = vec![song("a", None)];

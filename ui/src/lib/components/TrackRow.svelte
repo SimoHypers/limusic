@@ -1,21 +1,11 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import {
-		PlayIcon,
-		MoreHorizontalIcon,
-		PlayListAddIcon,
-		PlayListRemoveIcon,
-		AddToListIcon,
-		FavouriteIcon,
-		UserListIcon,
-		Vynil02Icon
-	} from '@hugeicons/core-free-icons';
-	import * as api from '$lib/api';
+	import { PlayIcon, PlayListAddIcon } from '@hugeicons/core-free-icons';
 	import type { SongItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import { lt } from '$lib/lt.svelte';
-	import { playback, toast } from '$lib/player.svelte';
+	import TrackMenu from './TrackMenu.svelte';
 
 	let {
 		song,
@@ -41,58 +31,15 @@
 		removeLabel?: string;
 	} = $props();
 
-	const hasMenu = $derived(!!onAdd || !!onRemove);
 	// In a session as guest, clicking a song adds it to the shared queue instead of playing it —
 	// reflect that in the hover icon + label so the row doesn't lie.
 	const guestAdd = $derived(lt.role === 'guest');
 
-	// A ⋯ menu, positioned `fixed` at the button so it isn't clipped by the scroll container.
-	// Anchored by its right edge (distance from the viewport's right) so the zoom-in origin stays put.
-	let menuOpen = $state(false);
-	let mx = $state(0);
-	let my = $state(0);
-
-	function openMenu(e: MouseEvent) {
-		e.stopPropagation();
-		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-		mx = window.innerWidth - r.right;
-		my = r.bottom + 4;
-		menuOpen = true;
-	}
-	function run(action?: () => void) {
-		menuOpen = false;
-		action?.();
-	}
-
-	// "Add to queue" is universal — every row with a menu gets it. Guests get their toast from the
-	// session flow ("Added to the session queue."), so only toast locally for host/solo.
-	function addToQueue() {
-		api.addToQueue(song);
-		if (lt.role !== 'guest') toast('Added to queue');
-	}
-
-	// Like state: the player bar owns it for the current track, so mirror that; otherwise track it
-	// locally, seeded from the row's own likeStatus.
-	let rowLiked = $state<boolean | undefined>(undefined); // set once the user toggles this row
-	const isNow = $derived(playback.now?.videoId === song.video_id);
-	const liked = $derived(isNow ? playback.liked : (rowLiked ?? song.liked ?? false));
-
-	async function toggleLike() {
-		const next = !liked;
-		rowLiked = next; // optimistic
-		if (isNow) playback.liked = next;
-		try {
-			await api.like(song.video_id, next);
-			toast(next ? 'Added to liked songs' : 'Removed from liked songs');
-		} catch (e) {
-			rowLiked = !next; // revert on failure
-			if (isNow) playback.liked = !next;
-			toast(String(e));
-		}
-	}
-
 	// The whole row is a play target (role="button"), so mirror native button keyboard activation.
+	// Only when the key lands on the row itself — keydowns bubble up from nested interactive
+	// elements (⋯ menu, artist link), and hijacking those would play the row instead.
 	function onKey(e: KeyboardEvent) {
+		if (e.target !== e.currentTarget) return;
 		if (e.key === 'Enter' || e.key === ' ') {
 			e.preventDefault();
 			onplay();
@@ -162,71 +109,12 @@
 		{#if song.duration}
 			<span class="text-xs text-muted-foreground">{song.duration}</span>
 		{/if}
-		{#if hasMenu}
-			<button
-				class="rounded-md p-1.5 text-muted-foreground opacity-0 transition hover:bg-accent/20 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 {menuOpen
-					? 'opacity-100'
-					: ''}"
-				onclick={openMenu}
-				aria-label="Track options"
-			>
-				<HugeiconsIcon icon={MoreHorizontalIcon} class="h-4 w-4" />
-			</button>
-		{/if}
+		<TrackMenu
+			{song}
+			{onAdd}
+			{onRemove}
+			{removeLabel}
+			triggerClass="rounded-md p-1.5 text-muted-foreground opacity-0 transition hover:bg-accent/20 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+		/>
 	</div>
 </div>
-
-{#if menuOpen}
-	<button class="fixed inset-0 z-40 cursor-default" onclick={() => (menuOpen = false)} aria-label="Close menu"
-	></button>
-	<div
-		class="fixed z-50 min-w-44 origin-top-right animate-in rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl duration-150 fade-in-0 zoom-in-95"
-		style="right:{mx}px; top:{my}px;"
-	>
-		<button
-			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
-			onclick={() => run(addToQueue)}
-		>
-			<HugeiconsIcon icon={AddToListIcon} class="h-4 w-4" /> Add to queue
-		</button>
-		<button
-			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
-			onclick={() => run(toggleLike)}
-		>
-			<HugeiconsIcon icon={FavouriteIcon} class="h-4 w-4 {liked ? 'fill-current text-primary' : ''}" />
-			{liked ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
-		</button>
-		{#if song.artist_id}
-			<button
-				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
-				onclick={() => run(() => goto(`/artist/${encodeURIComponent(song.artist_id!)}`))}
-			>
-				<HugeiconsIcon icon={UserListIcon} class="h-4 w-4" /> Go to artist
-			</button>
-		{/if}
-		{#if song.album_id}
-			<button
-				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
-				onclick={() => run(() => goto(`/album/${encodeURIComponent(song.album_id!)}`))}
-			>
-				<HugeiconsIcon icon={Vynil02Icon} class="h-4 w-4" /> Go to album
-			</button>
-		{/if}
-		{#if onAdd}
-			<button
-				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
-				onclick={() => run(onAdd)}
-			>
-				<HugeiconsIcon icon={PlayListAddIcon} class="h-4 w-4" /> Add to playlist
-			</button>
-		{/if}
-		{#if onRemove}
-			<button
-				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10"
-				onclick={() => run(onRemove)}
-			>
-				<HugeiconsIcon icon={PlayListRemoveIcon} class="h-4 w-4" /> {removeLabel}
-			</button>
-		{/if}
-	</div>
-{/if}

@@ -3,12 +3,21 @@
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { PlayIcon } from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
-	import type { BrowseItem } from '$lib/api';
+	import type { BrowseItem, SongItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
+	import { openAddToPlaylist } from '$lib/player.svelte';
+	import TrackMenu from './TrackMenu.svelte';
 
 	let { item }: { item: BrowseItem } = $props();
 
 	const round = $derived(item.kind === 'artist');
+	// Song cards get the same ⋯ menu as list rows (Add to queue / like) — the card shape it maps to.
+	const asSong = (i: BrowseItem): SongItem => ({
+		video_id: i.id,
+		title: i.title,
+		artists: i.subtitle ?? '',
+		thumbnail: i.thumbnail
+	});
 
 	function activate() {
 		if (item.kind === 'song') {
@@ -28,7 +37,7 @@
 	}
 </script>
 
-<div class="group flex w-full flex-col gap-2">
+<div class="group relative flex w-full flex-col gap-2">
 	<button
 		class="flex flex-col gap-2 rounded-xl p-2 text-left transition-colors hover:bg-accent/10"
 		onclick={activate}
@@ -61,4 +70,11 @@
 			{/if}
 		</div>
 	</button>
+	{#if item.kind === 'song'}
+		<TrackMenu
+			song={asSong(item)}
+			onAdd={() => openAddToPlaylist(item.id)}
+			triggerClass="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-md backdrop-blur-sm transition hover:bg-background focus-visible:opacity-100 group-hover:opacity-100"
+		/>
+	{/if}
 </div>

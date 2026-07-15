@@ -41,6 +41,10 @@ pub struct SongItem {
     /// tracks). Never parsed from YouTube — pure queue metadata, carried for attribution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queued_by: Option<String>,
+    /// Manually "added to queue" (vs. a playlist/radio track). Marks the "up next" block so
+    /// successive adds stack FIFO right after the current song. Pure queue metadata, never parsed.
+    #[serde(default)]
+    pub queued: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -165,6 +169,7 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
         set_video_id,
         liked: like_status(node),
         queued_by: None,
+        queued: false,
     })
 }
 
@@ -212,6 +217,7 @@ fn parse_panel_video(node: &Value) -> Option<SongItem> {
         set_video_id: None,
         liked: like_status(node),
         queued_by: None,
+        queued: false,
     })
 }
 
