@@ -35,8 +35,23 @@ pub fn run() {
     // non-NVIDIA drivers. ponytail: blanket-set on Linux; probe driver/session if
     // an X11/NVIDIA blank-window report ever comes in.
     #[cfg(target_os = "linux")]
-    if std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {
-        std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
+    {
+        if std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {
+            std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
+        }
+        // AppImage + NVIDIA: the AppImage ships its own WebKitGTK/GTK stack, and inside
+        // that environment the DMABUF renderer fails GBM buffer allocation ("Failed to
+        // create GBM buffer … Invalid argument") → solid white window. The explicit-sync
+        // fix above does NOT cover this case — verified 2026-07-15: the raw binary renders
+        // on the system webkit (same 2.52.4) while the AppImage white-screens, and only
+        // disabling DMABUF makes the AppImage paint. Cost: CPU software rendering, so gate
+        // it tightly — rpm/dev builds and non-NVIDIA AppImages keep full GPU compositing.
+        if std::env::var_os("APPIMAGE").is_some()
+            && std::path::Path::new("/dev/nvidiactl").exists()
+            && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+        {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
     }
 
     tracing_subscriber::fmt()
