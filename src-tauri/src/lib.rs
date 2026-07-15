@@ -27,13 +27,16 @@ use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // WebKitGTK's DMABUF renderer crashes on some Wayland/driver combos with
-    // "Gdk Error 71 (Protocol error)", closing the window instantly. Disable it
-    // before the webview initializes. ponytail: blanket-off on Linux; if it ever
-    // costs GPU perf on working setups, gate it behind a compositor/driver probe.
+    // NVIDIA + Wayland: WebKitGTK's DMABUF renderer trips over NVIDIA's explicit
+    // sync (GBM buffer failures / blank window / Gdk Error 71). Disabling explicit
+    // sync keeps hardware-accelerated rendering, unlike the old
+    // WEBKIT_DISABLE_DMABUF_RENDERER=1 workaround which forced CPU software
+    // rendering on WebKitGTK 2.46+ and made the whole UI laggy. Harmless no-op on
+    // non-NVIDIA drivers. ponytail: blanket-set on Linux; probe driver/session if
+    // an X11/NVIDIA blank-window report ever comes in.
     #[cfg(target_os = "linux")]
-    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
-        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    if std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {
+        std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
     }
 
     tracing_subscriber::fmt()
@@ -105,7 +108,10 @@ pub fn run() {
 
             // Listen Together session (context/19). Server URL is a DB setting so "home PC → VPS" is
             // config, not a rebuild. The sync channel feeds the guest-playback bridge below.
-            let lt_url = db.get_setting("lt_server_url").unwrap_or_default();
+            let lt_url = db
+                .get_setting("lt_server_url")
+                .filter(|u| !u.is_empty())
+                .unwrap_or_else(|| "wss://fedora-1.tail9c4985.ts.net/ws".into());
             let (lt, lt_sync_rx) = listentogether::LtSession::new(handle.clone(), lt_url);
 
             let app_state = Arc::new(AppState::new(
