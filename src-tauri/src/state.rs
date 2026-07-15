@@ -73,6 +73,9 @@ struct QueueState {
     history_pinged: bool,
     /// Latest mpv-reported track duration (secs), for the history-ping threshold.
     duration: f64,
+    /// Last videoId we re-resolved after a playback failure — guards the one-shot retry in
+    /// `on_track_failed` against a retry loop when the retried stream dies too.
+    retried: Option<String>,
 }
 
 impl AppState {
@@ -425,21 +428,42 @@ impl AppState {
     }
 
     /// A track died at the player layer (dead/403 URL). If WEB_REMIX served it, record the failure
-    /// so the next resolve for this id bypasses WEB_REMIX, and evict its poisoned cache entry
-    /// (context/06 §2). Then advance the queue like a normal end.
-    pub async fn on_track_failed(self: &std::sync::Arc<Self>) {
-        let (video_id, client) = {
+    /// so the next resolve for this id bypasses WEB_REMIX (context/06 §2). Then retry the SAME
+    /// track once — the re-resolve now runs the direct-URL fallback clients, which is what makes
+    /// PoToken-enforced/niche videos playable — before giving up and advancing the queue.
+    /// Returns true when the track was retried (so the caller can skip the error toast).
+    pub async fn on_track_failed(self: &std::sync::Arc<Self>) -> bool {
+        let (video_id, client, already_retried) = {
             let q = self.queue.lock().await;
-            (q.items.get(q.current).map(|i| i.video_id.clone()), q.current_client.clone())
+            let vid = q.items.get(q.current).map(|i| i.video_id.clone());
+            let retried = vid.is_some() && vid == q.retried;
+            (vid, q.current_client.clone(), retried)
         };
         if let (Some(vid), Some(c)) = (video_id, client) {
+            // Whatever served it, the URL is dead — evict so the retry can't replay it from cache.
+            self.db.evict_stream(&vid);
             if c == MAIN_CLIENT {
                 tracing::warn!(video_id = %vid, "WEB_REMIX stream failed on GET — marking + evicting");
                 self.orchestrator.mark_web_remix_failed(&vid).await;
-                self.db.evict_stream(&vid);
+            }
+            // Retry once for WEB_REMIX-served and cache-served URLs. A failure from a fallback
+            // client, or a second failure of the same id, advances as before.
+            if (c == MAIN_CLIENT || c == "cache") && !already_retried {
+                {
+                    let mut q = self.queue.lock().await;
+                    q.retried = Some(vid.clone());
+                    q.lookahead_loaded = None; // start_current's loadfile replaces mpv's playlist
+                }
+                tracing::info!(video_id = %vid, "retrying failed track via fallback clients");
+                let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+                if self.start_current(gen).await {
+                    self.prime_lookahead(gen).await;
+                }
+                return true;
             }
         }
         self.on_track_ended().await;
+        false
     }
 
     /// Resolve + load the current track into mpv (replace). Returns false if resolve failed or the

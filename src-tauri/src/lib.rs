@@ -322,12 +322,13 @@ fn spawn_event_pump(
                     state.on_track_ended().await;
                 }
                 PlayerEvent::TrackFailed(msg) => {
-                    // The track died (dead/403 URL etc). Surface the error, then advance — via
-                    // on_track_failed, which records a WEB_REMIX 403 (context/06 §2) and evicts the
-                    // poisoned cache before on_track_ended reads mpv's actual state.
-                    tracing::warn!(error = %msg, "track failed — skipping ahead");
-                    let _ = app.emit("playback-error", serde_json::json!({ "message": msg }));
-                    state.on_track_failed().await;
+                    // The track died (dead/403 URL etc). on_track_failed records a WEB_REMIX 403
+                    // (context/06 §2), evicts the poisoned cache, and retries the track once via
+                    // the fallback clients — only toast the error if it gave up and advanced.
+                    tracing::warn!(error = %msg, "track failed");
+                    if !state.on_track_failed().await {
+                        let _ = app.emit("playback-error", serde_json::json!({ "message": msg }));
+                    }
                 }
                 PlayerEvent::Error(msg) => {
                     tracing::error!(error = %msg, "player error");

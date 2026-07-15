@@ -38,6 +38,24 @@ pub enum PlayerEvent {
 /// mpv end-file reasons (from `mpv_end_file_reason`).
 const EOF: i32 = 0;
 
+/// User-facing message for a failed track — raw mpv codes ("Raw(-13)") mean nothing to users.
+fn friendly_error(e: &libmpv2::Error) -> String {
+    use libmpv2::mpv_error;
+    match e {
+        libmpv2::Error::Loadfile { error } => friendly_error(error),
+        libmpv2::Error::Raw(code) => match *code {
+            mpv_error::LoadingFailed => {
+                "Couldn't load this track — YouTube rejected the stream link".to_owned()
+            }
+            mpv_error::NothingToPlay => "This stream contains no playable audio".to_owned(),
+            mpv_error::UnknownFormat => "Unrecognized audio format".to_owned(),
+            mpv_error::AoInitFailed => "Couldn't start audio output".to_owned(),
+            other => format!("Playback failed (mpv error {other})"),
+        },
+        other => format!("Playback failed ({other})"),
+    }
+}
+
 /// The player. Wraps `Arc<Mpv>` (Send+Sync); the event loop runs on a dedicated OS thread and
 /// pumps [`PlayerEvent`]s into a channel taken once via [`Player::take_events`].
 pub struct Player {
@@ -239,7 +257,7 @@ fn event_loop(mut ev: EventContext, tx: tokio::sync::mpsc::UnboundedSender<Playe
                 // libmpv2 routes MPV_EVENT_END_FILE with an error (dead URL, 403, bad format)
                 // through here instead of Event::EndFile — in our usage (no async get/set/command
                 // replies) an Err from wait_event *is* a failed track.
-                if tx.send(PlayerEvent::TrackFailed(e.to_string())).is_err() {
+                if tx.send(PlayerEvent::TrackFailed(friendly_error(&e))).is_err() {
                     break;
                 }
             }
