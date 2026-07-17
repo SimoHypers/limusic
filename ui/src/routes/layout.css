@@ -340,7 +340,9 @@
 		@apply border-border outline-ring/50;
 	}
 	body {
-		@apply bg-background text-foreground;
+		/* Transparent, not bg-background: the window itself is transparent so the root container
+		   can paint rounded corners (see +layout.svelte). */
+		@apply bg-transparent text-foreground;
 	}
 	html {
 		@apply font-sans;

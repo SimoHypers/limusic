@@ -436,3 +436,24 @@ pub async fn lt_request_sync(state: St<'_>) -> Result<(), String> {
     state.lt.request_sync().await;
     Ok(())
 }
+
+// --- Last.fm scrobbling ---------------------------------------------------------------------
+
+/// Start the browser auth flow. Returns once the authorize page is open; the outcome (session
+/// stored, or an error) arrives via the `lastfm-state` event.
+#[tauri::command]
+pub async fn lastfm_connect(state: St<'_>) -> Result<(), String> {
+    crate::lastfm::connect(state.inner().clone()).await
+}
+
+#[tauri::command]
+pub async fn lastfm_disconnect(state: St<'_>) -> Result<(), String> {
+    crate::lastfm::disconnect(&state);
+    Ok(())
+}
+
+/// `{ connected, username }` from the persisted session — seeds the titlebar button on mount.
+#[tauri::command]
+pub async fn lastfm_status(state: St<'_>) -> Result<serde_json::Value, String> {
+    Ok(crate::lastfm::status(&state))
+}

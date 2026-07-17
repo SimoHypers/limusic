@@ -8,6 +8,8 @@
 	import { cubicOut } from 'svelte/easing';
 	import { initTheme } from '$lib/theme.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
+	import Titlebar from '$lib/components/Titlebar.svelte';
+	import ResizeBorders from '$lib/components/ResizeBorders.svelte';
 	import PlayerBar from '$lib/components/PlayerBar.svelte';
 	import QueuePanel from '$lib/components/QueuePanel.svelte';
 	import AddToPlaylist from '$lib/components/AddToPlaylist.svelte';
@@ -15,6 +17,7 @@
 	import ListenTogether from '$lib/components/ListenTogether.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { auth, initApp, playback, ui } from '$lib/player.svelte';
+	import { win, initWin } from '$lib/win.svelte';
 	import { updateState, installUpdate, checkForUpdatesQuiet } from '$lib/updater.svelte';
 
 	let { children } = $props();
@@ -27,14 +30,27 @@
 	// on every app open (silent unless one exists).
 	onMount(() => {
 		checkForUpdatesQuiet();
-		return initApp();
+		const teardownApp = initApp();
+		const teardownWin = initWin();
+		return () => {
+			teardownApp();
+			teardownWin();
+		};
 	});
 </script>
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
 <ModeWatcher />
 
-<div class="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+<!-- The window itself is transparent; this root paints the background and, when not maximized,
+     rounds the corners (the compositor can't round an undecorated window for us). -->
+<div
+	class="flex h-screen flex-col overflow-hidden bg-background text-foreground {win.maximized
+		? ''
+		: 'rounded-lg'}"
+>
+	<ResizeBorders />
+	<Titlebar />
 	<!-- relative: lets QueuePanel overlay the content on narrow windows (see QueuePanel). -->
 	<div class="relative flex min-h-0 flex-1">
 		<Sidebar />

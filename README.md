@@ -21,8 +21,11 @@ client, and grew from there.
   create/rename/delete playlists, subscribe)
 - Gapless playback with loudness normalization, powered by libmpv
 - Queue with radio/automix continuation, restored across restarts
+- **Last.fm scrobbling**: connect once from the title bar, and every track you
+  play is scrobbled to your profile (with now-playing while it runs)
+- **Discord Rich Presence**: show what you're listening to, with artwork and a
+  live progress bar — one click in the title bar to toggle
 - OS media keys and now-playing integration (MPRIS on Linux, SMTC on Windows)
-- Discord Rich Presence (off by default, toggle in Settings)
 - Listen Together: synced listening rooms over a small self-hosted relay
 - Self-updating builds (AppImage on Linux, setup.exe on Windows)
 
@@ -37,6 +40,30 @@ Download from [Releases](https://github.com/SimoHypers/limusic/releases):
 | Windows | `-setup.exe` | Self-updating |
 | Windows | `.msi` | Plain installer, no auto-update |
 | macOS | none yet | Build from source, see [docs/BUILD-PLATFORMS.md](docs/BUILD-PLATFORMS.md) |
+
+## Scrobbling and Discord
+
+Both live in the title bar, next to the window controls.
+
+- **Last.fm** — click the Last.fm mark, approve Limusic in the browser tab that
+  opens, and you're connected for good. Tracks scrobble at the halfway point (or
+  four minutes, whichever comes first), which is Last.fm's own rule. Click again
+  to see the account or disconnect.
+- **Discord** — click the Discord mark to toggle Rich Presence. Green dot means
+  it's live. The card shows the track, artist, album art, and a progress bar, and
+  it disappears when you pause.
+
+Building from source? Last.fm needs your own API credentials — they're not in the
+repo. Get a key at [last.fm/api/account/create](https://www.last.fm/api/account/create)
+and put it in `src-tauri/lastfm.keys`:
+
+```
+LIMUSIC_LASTFM_API_KEY=your_key
+LIMUSIC_LASTFM_API_SECRET=your_secret
+```
+
+Without that file everything else still builds and runs; the Last.fm button just
+reports that it isn't configured.
 
 ## Listen Together
 

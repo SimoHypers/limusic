@@ -7,6 +7,9 @@ rustypipe_reports/
 /src-tauri/libmpv-2.dll
 /.libmpv/
 
+# Last.fm API credentials — read by src-tauri/build.rs, never committed (public repo).
+/src-tauri/lastfm.keys
+
 # Local design notes & tooling — kept out of the public repo
 /context/
 /progress/

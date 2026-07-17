@@ -214,6 +214,21 @@ export const onLoginError = (cb: (msg: string) => void): Promise<UnlistenFn> =>
 export const onLoginDone = (cb: () => void): Promise<UnlistenFn> =>
 	listen('login-done', () => cb());
 
+// --- Last.fm scrobbling ---------------------------------------------------------------------
+export interface LastfmState {
+	connected: boolean;
+	username?: string | null;
+	/** Set when a connect attempt failed (timeout, network, rejected) — show it as a toast. */
+	error?: string | null;
+}
+export const lastfmStatus = () => invoke<LastfmState>('lastfm_status');
+/** Opens the browser auth flow; the outcome arrives via onLastfmState, not this promise. */
+export const lastfmConnect = () => invoke<void>('lastfm_connect');
+/** Also cancels an in-flight connect (the auth poll checks and bails). */
+export const lastfmDisconnect = () => invoke<void>('lastfm_disconnect');
+export const onLastfmState = (cb: (s: LastfmState) => void): Promise<UnlistenFn> =>
+	listen<LastfmState>('lastfm-state', (e) => cb(e.payload));
+
 // --- Listen Together (context/19) -----------------------------------------------------------
 export interface LtUser {
 	user_id: string;

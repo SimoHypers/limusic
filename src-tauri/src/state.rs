@@ -33,6 +33,8 @@ pub struct AppState {
     /// Discord rich presence. Fed the same track/playback changes as `media`; gated on the
     /// `discord_rpc` setting inside its own thread.
     discord: Option<DiscordHandle>,
+    /// Last.fm scrobbler. Same feed again; parks until a session key is set (titlebar button).
+    pub lastfm: crate::lastfm::LastfmHandle,
     queue: Mutex<QueueState>,
     /// Bumped on every explicit `play`/jump so superseded async resolves discard their result
     /// (cancellation without JoinHandle bookkeeping). context/06 §6.
@@ -104,6 +106,7 @@ impl AppState {
         cache_dir: std::path::PathBuf,
         media: Option<MediaHandle>,
         discord: Option<DiscordHandle>,
+        lastfm: crate::lastfm::LastfmHandle,
     ) -> Self {
         AppState {
             it,
@@ -116,6 +119,7 @@ impl AppState {
             cache_dir,
             media,
             discord,
+            lastfm,
             queue: Mutex::new(QueueState::default()),
             is_playing: AtomicBool::new(false),
             generation: AtomicU64::new(0),
@@ -657,6 +661,7 @@ impl AppState {
         if let Some(d) = &self.discord {
             d.set_track(item);
         }
+        self.lastfm.set_track(item);
         // New track ⇒ let the next position tick through immediately instead of waiting out the
         // ~1s throttle, so a restored seek position (and the play-state self-heal) lands at once.
         self.last_media_push.store(0, Ordering::Relaxed);
@@ -802,6 +807,7 @@ impl AppState {
             if let Some(d) = &self.discord {
                 d.set_duration(secs);
             }
+            self.lastfm.set_duration(secs);
         }
     }
 
@@ -901,6 +907,7 @@ impl AppState {
             if let Some(d) = &self.discord {
                 d.set_position(pos);
             }
+            self.lastfm.set_position(pos);
         }
     }
 

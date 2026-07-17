@@ -2061,7 +2061,7 @@ dependencies = [
 
 [[package]]
 name = "innertube"
-version = "0.1.9"
+version = "0.2.1"
 dependencies = [
  "hex",
  "reqwest 0.12.28",
@@ -2340,7 +2340,7 @@ dependencies = [
 
 [[package]]
 name = "limusic-app"
-version = "0.1.9"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2348,6 +2348,7 @@ dependencies = [
  "futures-util",
  "innertube",
  "listen-protocol",
+ "md-5",
  "player",
  "rand 0.8.6",
  "regex",
@@ -2389,7 +2390,7 @@ checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
 name = "listen-protocol"
-version = "0.1.9"
+version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2459,6 +2460,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
 dependencies = [
  "regex-automata",
+]
+
+[[package]]
+name = "md-5"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
+dependencies = [
+ "cfg-if",
+ "digest",
 ]
 
 [[package]]
@@ -3105,7 +3116,7 @@ checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 
 [[package]]
 name = "player"
-version = "0.1.9"
+version = "0.2.1"
 dependencies = [
  "libc",
  "libmpv2",
@@ -4378,7 +4389,7 @@ dependencies = [
 
 [[package]]
 name = "sync-server"
-version = "0.1.9"
+version = "0.2.1"
 dependencies = [
  "futures-util",
  "listen-protocol",

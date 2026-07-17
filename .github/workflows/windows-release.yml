@@ -10,11 +10,12 @@ name: Windows release binaries
 # It can also be run by hand against an older tag to backfill:
 #   Actions ▸ Windows release binaries ▸ Run workflow ▸ tag = v0.1.4
 #
-# Requires two repo secrets (Settings ▸ Secrets and variables ▸ Actions):
+# Requires repo secrets (Settings ▸ Secrets and variables ▸ Actions):
 #   TAURI_SIGNING_PRIVATE_KEY           contents of ~/.tauri/limusic.key
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  empty string (the key has no password)
-# Without them the bundler emits no .sig and this job fails loudly rather than shipping an
-# unsignable update.
+#   LASTFM_API_KEY / LASTFM_API_SECRET  Last.fm credentials (optional — warn-only if absent)
+# Without the signing pair the bundler emits no .sig and this job fails loudly rather than
+# shipping an unsignable update.
 
 on:
   release:
@@ -126,6 +127,23 @@ jobs:
           # tauri.windows.conf.json lists libmpv-2.dll under bundle.resources, so the installer
           # places it next to the exe. Without this the app builds but won't start.
           Copy-Item "$env:MPV_DIR\libmpv-2.dll" "$env:GITHUB_WORKSPACE\src-tauri\libmpv-2.dll" -Force
+
+      # The gitignored src-tauri/lastfm.keys (read by build.rs) obviously isn't in the checkout —
+      # recreate it from repo secrets so Windows builds scrobble too. Missing secrets are a warning,
+      # not a failure: the app is fully functional without Last.fm.
+      - name: Last.fm API keys
+        shell: bash
+        env:
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
+        run: |
+          if [ -n "$LASTFM_API_KEY" ] && [ -n "$LASTFM_API_SECRET" ]; then
+            printf 'LIMUSIC_LASTFM_API_KEY=%s\nLIMUSIC_LASTFM_API_SECRET=%s\n' \
+              "$LASTFM_API_KEY" "$LASTFM_API_SECRET" > src-tauri/lastfm.keys
+            echo "lastfm.keys written"
+          else
+            echo "::warning::LASTFM_API_KEY / LASTFM_API_SECRET secrets not set — this Windows build ships without Last.fm scrobbling"
+          fi
 
       - name: Build + sign the installers
         shell: bash
