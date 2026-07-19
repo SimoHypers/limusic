@@ -57,6 +57,9 @@ pub struct NextResult {
     pub items: Vec<SongItem>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub continuation: Option<String>,
+    /// The lyrics tab's browseId (`MPLYt…`) — feed it to a lyrics `browse` (models::lyrics).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lyrics_browse_id: Option<String>,
 }
 
 /// Logged-in account summary from `account/account_menu`. context/01, context/04A, context/15.
@@ -94,7 +97,17 @@ pub fn parse_next(root: &Value) -> NextResult {
     // The automix/radio continuation (context/08): the panel ends with a continuation token
     // used to fetch the endless mix. Take the first continuation token we find.
     let continuation = find_first_str(root, "continuation");
-    NextResult { items, continuation }
+    NextResult { items, continuation, lyrics_browse_id: lyrics_browse_id(root) }
+}
+
+/// The lyrics tab's browseId from a `next` response: the browseEndpoint whose pageType is
+/// `MUSIC_PAGE_TYPE_TRACK_LYRICS`. context/08 §lyrics.
+fn lyrics_browse_id(root: &Value) -> Option<String> {
+    find_all(root, "browseEndpoint").into_iter().find_map(|be| {
+        (find_first_str(be, "pageType").as_deref() == Some("MUSIC_PAGE_TYPE_TRACK_LYRICS"))
+            .then(|| be.get("browseId").and_then(Value::as_str).map(str::to_owned))
+            .flatten()
+    })
 }
 
 /// Parse an `account/account_menu` response into an account summary. context/01, context/15.
@@ -426,7 +439,12 @@ mod tests {
                     "lengthText": { "runs": [{ "text": "4:05" }] },
                     "thumbnail": { "thumbnails": [{ "url": "t.jpg" }] }
                 }}
-            ], "continuations": [{ "nextContinuationData": { "continuation": "CONT_TOKEN" } }] } }
+            ], "continuations": [{ "nextContinuationData": { "continuation": "CONT_TOKEN" } }] } },
+            "tabs": [{ "tabRenderer": { "title": "Lyrics", "endpoint": { "browseEndpoint": {
+                "browseId": "MPLYt_abc123",
+                "browseEndpointContextSupportedConfigs": { "browseEndpointContextMusicConfig": {
+                    "pageType": "MUSIC_PAGE_TYPE_TRACK_LYRICS" } }
+            } } } }]
         });
         let r = parse_next(&root);
         assert_eq!(r.items.len(), 1);
@@ -435,6 +453,7 @@ mod tests {
         assert_eq!(r.items[0].artists, "Artist A & Artist B");
         assert_eq!(r.items[0].duration.as_deref(), Some("4:05"));
         assert_eq!(r.continuation.as_deref(), Some("CONT_TOKEN"));
+        assert_eq!(r.lyrics_browse_id.as_deref(), Some("MPLYt_abc123"));
     }
 
     #[test]

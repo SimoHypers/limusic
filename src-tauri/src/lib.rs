@@ -6,11 +6,13 @@ mod db;
 mod discord;
 mod lastfm;
 mod listentogether;
+mod lyrics;
 mod media;
 mod orchestrator;
 mod potoken;
 mod session;
 mod state;
+mod tray;
 mod webview;
 
 use std::sync::Arc;
@@ -63,8 +65,22 @@ pub fn run() {
         .init();
 
     tauri::Builder::default()
+        // Must be the first plugin registered (its documented requirement). A second launch —
+        // e.g. clicking the app icon while we're hidden in the tray — re-shows this instance
+        // instead of spawning a second one (which would fight over SQLite and mpv).
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -147,6 +163,11 @@ pub fn run() {
                 lastfm,
             ));
             app.manage(app_state.clone());
+
+            // System tray: playback controls + show/quit while running in the background.
+            if let Err(e) = tray::init(&handle) {
+                tracing::warn!(error = %e, "tray init failed (continuing without tray)");
+            }
 
             // Bridge: apply Listen Together sync commands (guest playback / host seed) to AppState.
             {
@@ -269,10 +290,29 @@ pub fn run() {
             commands::lt_approve_suggestion,
             commands::lt_reject_suggestion,
             commands::lt_request_sync,
+            commands::get_lyrics,
             commands::lastfm_connect,
             commands::lastfm_disconnect,
             commands::lastfm_status,
         ])
+        .on_window_event(|window, event| {
+            // Close-to-tray: ✕ hides the main window and playback keeps running; real quit is
+            // the tray's Quit item (or the "close_to_tray=false" setting). Label-gated: the
+            // hidden cipher/PoToken webviews are windows too and must close normally.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    let hide = window
+                        .app_handle()
+                        .try_state::<Arc<AppState>>()
+                        .map(|s| close_hides(s.db.get_setting("close_to_tray").as_deref()))
+                        .unwrap_or(true);
+                    if hide {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                }
+            }
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|handle, event| {
@@ -289,6 +329,11 @@ pub fn run() {
                 }
             }
         });
+}
+
+/// ✕ hides to tray unless the user explicitly set close_to_tray=false (unset → default on).
+fn close_hides(setting: Option<&str>) -> bool {
+    setting != Some("false")
 }
 
 /// Decide whether a position tick is worth forwarding to the UI. Passes ~4 Hz of steady
@@ -347,6 +392,11 @@ fn spawn_event_pump(
                             .emit("position", serde_json::json!({ "position": state.current_position() }));
                     }
                     state.media_set_playing(playing);
+                    // Keep the tray's toggle label honest — this arm is the same chokepoint
+                    // MPRIS uses, so tray state can't drift from media-key state.
+                    if let Some(t) = app.try_state::<tray::TrayState>() {
+                        let _ = t.play_pause.set_text(if playing { "Pause" } else { "Play" });
+                    }
                     state.lt_on_play_state(playing).await; // Listen Together host → broadcast
                 }
                 PlayerEvent::TrackEnded => {
@@ -372,8 +422,16 @@ fn spawn_event_pump(
 
 #[cfg(test)]
 mod tests {
-    use super::PositionThrottle;
+    use super::{close_hides, PositionThrottle};
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn close_hides_unless_explicitly_disabled() {
+        assert!(close_hides(None)); // fresh install → tray on
+        assert!(close_hides(Some("true")));
+        assert!(close_hides(Some("garbage")));
+        assert!(!close_hides(Some("false")));
+    }
 
     #[test]
     fn steady_playback_throttles_to_250ms() {

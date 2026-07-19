@@ -21,11 +21,15 @@ client, and grew from there.
   create/rename/delete playlists, subscribe)
 - Gapless playback with loudness normalization, powered by libmpv
 - Queue with radio/automix continuation, restored across restarts
+- **Synced lyrics**: a side panel that follows the song line by line, with the
+  current line highlighted, auto-scrolling, and click-any-line to jump there
 - **Last.fm scrobbling**: connect once from the title bar, and every track you
   play is scrobbled to your profile (with now-playing while it runs)
 - **Discord Rich Presence**: show what you're listening to, with artwork and a
   live progress bar — one click in the title bar to toggle
 - OS media keys and now-playing integration (MPRIS on Linux, SMTC on Windows)
+- **System tray**: closing the window keeps the music going, with play/pause and
+  skip controls in the tray menu — plus an optional start-on-login toggle
 - Listen Together: synced listening rooms over a small self-hosted relay
 - Self-updating builds (AppImage on Linux, setup.exe on Windows)
 
@@ -64,6 +68,21 @@ LIMUSIC_LASTFM_API_SECRET=your_secret
 
 Without that file everything else still builds and runs; the Last.fm button just
 reports that it isn't configured.
+
+## Lyrics
+
+Open the panel with the microphone button in the player bar, next to the queue
+button. It takes the same side of the window as the queue, so opening one closes
+the other.
+
+Lyrics come from [LRCLIB](https://lrclib.net) first, then YouTube Music's own
+timed lyrics, falling back to plain un-timed text when nobody has a synced
+version. Matching is keyed on the track's exact length, because popular songs
+exist as several cuts and the wrong one drifts a few seconds out. Results are
+cached locally, so replaying a track is instant.
+
+Note that YouTube Music's lyrics are licensed per region and are missing
+entirely in some countries — where that's the case, LRCLIB does all the work.
 
 ## Listen Together
 

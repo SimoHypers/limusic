@@ -90,6 +90,10 @@ pub const STREAM_FALLBACK_ORDER: [&str; 3] = ["VISIONOS", "ANDROID_VR_1_43_32", 
 /// The metadata client for search/next (renderer shape only comes back as WEB_REMIX).
 pub const METADATA_CLIENT: &str = "WEB_REMIX";
 
+/// The client for *timed* lyrics browse: only mobile clients get the `timedLyricsData` model
+/// (WEB_REMIX degrades to plain text). See models::lyrics.
+pub const LYRICS_TIMED_CLIENT: &str = "IOS_MUSIC";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,6 +105,7 @@ mod tests {
             assert!(clients.get(key).is_some(), "missing stream client {key}");
         }
         assert!(clients.get(METADATA_CLIENT).is_some());
+        assert!(clients.get(LYRICS_TIMED_CLIENT).is_some());
     }
 
     #[test]

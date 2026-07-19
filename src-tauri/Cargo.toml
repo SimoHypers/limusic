@@ -21,9 +21,11 @@ tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
-tauri = { version = "2", features = ["webview-data-url"] }
+tauri = { version = "2", features = ["webview-data-url", "tray-icon"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 # Phase 2 extraction stack (cipher + PoToken). context/04, 05, 13.
 base64 = "0.22"

@@ -32,6 +32,11 @@ impl Db {
                 expires_at  INTEGER NOT NULL,
                 loudness_db REAL
             );
+            CREATE TABLE IF NOT EXISTS lyrics_cache (
+                video_id   TEXT PRIMARY KEY,
+                lyrics     TEXT,
+                fetched_at INTEGER NOT NULL
+            );
             "#,
         )?;
         // Migrate pre-Phase-4 DBs that predate the loudness_db column. Errors ("duplicate column")
@@ -119,6 +124,36 @@ impl Db {
     pub fn clear_stream_cache(&self) {
         let conn = self.0.lock().unwrap();
         let _ = conn.execute("DELETE FROM stream_url_cache", []);
+        let _ = conn.execute("DELETE FROM lyrics_cache", []);
+    }
+
+    // --- lyrics cache -----------------------------------------------------------------------
+
+    /// Cached lyrics JSON for a track. `Some(None)` = a cached "no lyrics" verdict (NULL row),
+    /// still valid; misses expire after `miss_ttl` secs while hits live forever.
+    pub fn get_lyrics(&self, video_id: &str, now: i64, miss_ttl: i64) -> Option<Option<String>> {
+        let conn = self.0.lock().unwrap();
+        let (lyrics, fetched_at): (Option<String>, i64) = conn
+            .query_row(
+                "SELECT lyrics, fetched_at FROM lyrics_cache WHERE video_id = ?1",
+                [video_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok()?;
+        if lyrics.is_none() && now - fetched_at > miss_ttl {
+            return None; // stale negative result → refetch
+        }
+        Some(lyrics)
+    }
+
+    /// `lyrics = None` records a "no lyrics found" verdict.
+    pub fn put_lyrics(&self, video_id: &str, lyrics: Option<&str>, now: i64) {
+        let conn = self.0.lock().unwrap();
+        let _ = conn.execute(
+            "INSERT INTO lyrics_cache(video_id, lyrics, fetched_at) VALUES(?1, ?2, ?3)
+             ON CONFLICT(video_id) DO UPDATE SET lyrics = excluded.lyrics, fetched_at = excluded.fetched_at",
+            rusqlite::params![video_id, lyrics, now],
+        );
     }
 }
 

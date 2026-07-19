@@ -516,7 +516,7 @@ impl AppState {
         // Resolve the current track, auto-skipping any that no client can play (dead / region-locked
         // videos — context/06 "no client could resolve") instead of stalling the queue on them.
         // Bounded: each failure advances current by one, so the loop terminates at the queue tail.
-        let (item, data) = loop {
+        let (mut item, data) = loop {
             if self.generation.load(Ordering::SeqCst) != gen {
                 return false; // user moved on
             }
@@ -563,6 +563,10 @@ impl AppState {
         if let Some(pos) = seek {
             let _ = self.player.seek(pos);
         }
+        // Items played from cards/radio can arrive without a duration; the player response knows
+        // the exact length of the cut we stream. Backfill before emitting — lyrics matching keys
+        // on it (a wrong-cut LRCLIB match plays lyrics seconds off the audio).
+        backfill_duration(&mut item, data.duration.as_deref());
         {
             let mut q = self.queue.lock().await;
             q.current_client = Some(data.stream_client.clone());
@@ -571,6 +575,12 @@ impl AppState {
             q.cpn = innertube::generate_cpn();
             q.history_pinged = false;
             q.duration = 0.0;
+            let cur = q.current;
+            if let Some(qi) = q.items.get_mut(cur) {
+                if qi.video_id == item.video_id && qi.duration.is_none() {
+                    qi.duration = item.duration.clone();
+                }
+            }
         }
         self.emit_now_playing(&item, &data.stream_client);
         // We just told mpv to play, but its `pause` flag was already `false`, so no property event
@@ -629,6 +639,10 @@ impl AppState {
         q.lookahead_loaded = Some(next_idx);
         q.lookahead_client = Some(data.stream_client.clone());
         q.lookahead_playback_url = data.playback_url.clone();
+        // Same duration backfill as start_current — a gapless advance emits this item directly.
+        if let Some(qi) = q.items.get_mut(next_idx) {
+            backfill_duration(qi, data.duration.as_deref());
+        }
         tracing::debug!(index = next_idx, "gapless lookahead primed");
     }
 
@@ -1413,6 +1427,16 @@ fn parse_duration_ms(s: Option<&str>) -> i64 {
 fn format_duration(ms: i64) -> String {
     let total = ms / 1000;
     format!("{}:{:02}", total / 60, total % 60)
+}
+
+/// Fill a missing item duration from the player response's `lengthSeconds` (e.g. "167") — the
+/// exact length of the cut we stream. Never overwrites an existing duration.
+fn backfill_duration(item: &mut SongItem, length_seconds: Option<&str>) {
+    if item.duration.is_none() {
+        if let Some(secs) = length_seconds.and_then(|s| s.trim().parse::<i64>().ok()) {
+            item.duration = Some(format_duration(secs * 1000));
+        }
+    }
 }
 
 fn now_secs() -> i64 {

@@ -8,6 +8,7 @@ use crate::models::browse::{
     SearchResults,
 };
 use crate::models::context::Context;
+use crate::models::lyrics::{self, PlainLyrics, TimedLyricLine};
 use crate::models::metadata::{self, AccountInfo, NextResult, SearchResult};
 use crate::models::player::{
     ContentPlaybackContext, PlaybackContext, PlayerBody, PlayerResponse, ServiceIntegrityDimensions,
@@ -259,6 +260,29 @@ impl InnerTube {
         let path = format!("browse?ctoken={enc}&continuation={enc}&type=next");
         let value = self.post(&path, client, &body, true).await?;
         Ok(browse::parse_playlist_continuation(&value))
+    }
+
+    // --- lyrics (context/08 §lyrics; browseId comes from `next`) -----------------------------
+
+    /// Line-synced lyrics. `client` must be a mobile identity (`LYRICS_TIMED_CLIENT`) — web
+    /// clients never return `timedLyricsData`. Empty vec = track has no timed lyrics.
+    pub async fn lyrics_timed(
+        &self,
+        client: &YouTubeClient,
+        browse_id: &str,
+    ) -> Result<Vec<TimedLyricLine>, Error> {
+        let value = self.browse(client, Some(browse_id), None).await?;
+        Ok(lyrics::parse_lyrics_timed(&value))
+    }
+
+    /// Plain-text lyrics via WEB_REMIX (`musicDescriptionShelfRenderer`). `None` = none exist.
+    pub async fn lyrics_plain(
+        &self,
+        client: &YouTubeClient,
+        browse_id: &str,
+    ) -> Result<Option<PlainLyrics>, Error> {
+        let value = self.browse(client, Some(browse_id), None).await?;
+        Ok(lyrics::parse_lyrics_plain(&value))
     }
 
     // --- write actions (context/01 ✎, context/15 D7). All auth-gated (SAPISIDHASH). ---------

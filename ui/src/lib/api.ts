@@ -214,6 +214,28 @@ export const onLoginError = (cb: (msg: string) => void): Promise<UnlistenFn> =>
 export const onLoginDone = (cb: () => void): Promise<UnlistenFn> =>
 	listen('login-done', () => cb());
 
+// --- lyrics ---------------------------------------------------------------------------------
+export interface LyricLine {
+	/** Start cue in milliseconds; present ⇔ the line is synced. */
+	time_ms?: number;
+	text: string;
+}
+export interface Lyrics {
+	/** Attribution for the panel footer ("LRCLIB", "Source: Musixmatch", …). */
+	source: string;
+	synced: boolean;
+	instrumental: boolean;
+	lines: LyricLine[];
+}
+/** Cached on the Rust side (provider chain: LRCLIB → YT Music). `null` = none found. */
+export const getLyrics = (args: {
+	videoId: string;
+	title: string;
+	artists: string;
+	album?: string;
+	duration?: number;
+}) => invoke<Lyrics | null>('get_lyrics', args);
+
 // --- Last.fm scrobbling ---------------------------------------------------------------------
 export interface LastfmState {
 	connected: boolean;

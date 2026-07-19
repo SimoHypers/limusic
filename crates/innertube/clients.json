@@ -44,6 +44,17 @@
     "packageName": "com.google.android.apps.youtube.vr.oculus",
     "friendlyName": "Android VR 1.43"
   },
+  "IOS_MUSIC": {
+    "clientName": "IOS_MUSIC",
+    "clientVersion": "7.01.05",
+    "clientId": "26",
+    "userAgent": "com.google.ios.youtubemusic/7.01.05 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)",
+    "osName": "iOS",
+    "osVersion": "18.2.22C152",
+    "deviceMake": "Apple",
+    "deviceModel": "iPhone16,2",
+    "friendlyName": "iOS Music"
+  },
   "IOS": {
     "clientName": "IOS",
     "clientVersion": "21.03.1",

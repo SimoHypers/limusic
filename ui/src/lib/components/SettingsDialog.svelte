@@ -57,6 +57,8 @@
 	const quality = $derived(settings.quality ?? 'HIGH');
 	const historyOn = $derived(settings.enable_history !== 'false');
 	const discordOn = $derived(settings.discord_rpc === 'true');
+	const trayOn = $derived(settings.close_to_tray !== 'false');
+	const autostartOn = $derived(settings.autostart === 'true');
 	const disabled = $derived(
 		new Set(
 			(settings.disabled_stream_clients ?? '')
@@ -88,6 +90,21 @@
 	async function setDiscord(on: boolean) {
 		settings.discord_rpc = on ? 'true' : 'false';
 		await api.setSetting('discord_rpc', settings.discord_rpc);
+	}
+
+	async function setTray(on: boolean) {
+		settings.close_to_tray = on ? 'true' : 'false';
+		await api.setSetting('close_to_tray', settings.close_to_tray);
+	}
+
+	async function setAutostart(on: boolean) {
+		settings.autostart = on ? 'true' : 'false';
+		try {
+			await api.setSetting('autostart', settings.autostart);
+		} catch (e) {
+			settings.autostart = on ? 'false' : 'true'; // registration failed — revert the switch
+			toast(String(e));
+		}
 	}
 
 	async function toggleClient(name: string) {
@@ -192,7 +209,7 @@
 						</div>
 						<Switch checked={historyOn} onCheckedChange={setHistory} />
 					</div>
-					<div class="flex items-start justify-between gap-4 py-3">
+					<div class="flex items-start justify-between gap-4 border-b py-3">
 						<div class="min-w-0">
 							<div class="font-medium">Discord rich presence</div>
 							<p class="mt-0.5 text-sm text-muted-foreground">
@@ -201,6 +218,25 @@
 							</p>
 						</div>
 						<Switch checked={discordOn} onCheckedChange={setDiscord} />
+					</div>
+					<div class="flex items-start justify-between gap-4 border-b py-3">
+						<div class="min-w-0">
+							<div class="font-medium">Close to tray</div>
+							<p class="mt-0.5 text-sm text-muted-foreground">
+								Closing the window keeps music playing in the background. Restore or quit from the
+								tray icon.
+							</p>
+						</div>
+						<Switch checked={trayOn} onCheckedChange={setTray} />
+					</div>
+					<div class="flex items-start justify-between gap-4 py-3">
+						<div class="min-w-0">
+							<div class="font-medium">Start on login</div>
+							<p class="mt-0.5 text-sm text-muted-foreground">
+								Launch Limusic automatically when you log in.
+							</p>
+						</div>
+						<Switch checked={autostartOn} onCheckedChange={setAutostart} />
 					</div>
 				{:else if tab === 'playback'}
 					<div class="border-b py-3">

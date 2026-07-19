@@ -9,6 +9,7 @@
 		RepeatIcon,
 		RepeatOne01Icon,
 		Queue01Icon,
+		Mic01Icon,
 		VolumeHighIcon,
 		FavouriteIcon,
 		Add01Icon
@@ -20,7 +21,17 @@
 	import { playback, toast, openAddToPlaylist } from '$lib/player.svelte';
 	import { thumb } from '$lib/thumb';
 
-	let { onToggleQueue, queueOpen }: { onToggleQueue: () => void; queueOpen: boolean } = $props();
+	let {
+		onToggleQueue,
+		queueOpen,
+		onToggleLyrics,
+		lyricsOpen
+	}: {
+		onToggleQueue: () => void;
+		queueOpen: boolean;
+		onToggleLyrics: () => void;
+		lyricsOpen: boolean;
+	} = $props();
 
 	// Pop the heart once when the user favourites (not when un-favouriting). Reset on animation end
 	// so the next like can replay it.
@@ -232,6 +243,14 @@
 				aria-label="Volume"
 			/>
 		</div>
+		<Button
+			variant={lyricsOpen ? 'secondary' : 'ghost'}
+			size="icon-sm"
+			onclick={onToggleLyrics}
+			aria-label="Toggle lyrics"
+		>
+			<HugeiconsIcon icon={Mic01Icon} class="h-5 w-5" />
+		</Button>
 		<Button
 			variant={queueOpen ? 'secondary' : 'ghost'}
 			size="icon-sm"

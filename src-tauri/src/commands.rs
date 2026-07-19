@@ -135,8 +135,15 @@ pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
 /// `data_sync_id`, `account_json`, `visitor_data`) and internal blobs (`queue_json`,
 /// `queue_position`) never cross into the webview — they'd otherwise ship the login credential to
 /// the renderer on every open — and the webview can't overwrite them either.
-const UI_SETTINGS: [&str; 5] =
-    ["proxy", "quality", "enable_history", "disabled_stream_clients", "discord_rpc"];
+const UI_SETTINGS: [&str; 7] = [
+    "proxy",
+    "quality",
+    "enable_history",
+    "disabled_stream_clients",
+    "discord_rpc",
+    "close_to_tray",
+    "autostart",
+];
 
 #[tauri::command]
 pub async fn get_settings(state: St<'_>) -> Result<serde_json::Value, String> {
@@ -151,7 +158,12 @@ pub async fn get_settings(state: St<'_>) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub async fn set_setting(state: St<'_>, key: String, value: String) -> Result<(), String> {
+pub async fn set_setting(
+    app: tauri::AppHandle,
+    state: St<'_>,
+    key: String,
+    value: String,
+) -> Result<(), String> {
     if !UI_SETTINGS.contains(&key.as_str()) {
         return Err(format!("unknown setting: {key}"));
     }
@@ -160,6 +172,21 @@ pub async fn set_setting(state: St<'_>, key: String, value: String) -> Result<()
     // to see it take effect.
     if key == "discord_rpc" {
         state.set_discord_enabled(value == "true");
+    }
+    // Registers/removes the login autostart entry on toggle; the OS persists it from there.
+    // ponytail: no startup re-sync against the OS state — add reconciliation only if drift is
+    // ever reported.
+    if key == "autostart" {
+        use tauri_plugin_autostart::ManagerExt;
+        let al = app.autolaunch();
+        let res = if value == "true" {
+            al.enable()
+        } else if al.is_enabled().unwrap_or(false) {
+            al.disable()
+        } else {
+            Ok(())
+        };
+        res.map_err(|e| format!("autostart: {e}"))?;
     }
     Ok(())
 }
@@ -435,6 +462,26 @@ pub async fn lt_reject_suggestion(state: St<'_>, id: String) -> Result<(), Strin
 pub async fn lt_request_sync(state: St<'_>) -> Result<(), String> {
     state.lt.request_sync().await;
     Ok(())
+}
+
+// --- lyrics ---------------------------------------------------------------------------------
+
+/// Lyrics for a track (cached). The UI passes the metadata it already has from `now-playing`;
+/// `duration` is mpv's length in seconds. `None` = no lyrics found anywhere.
+#[tauri::command]
+pub async fn get_lyrics(
+    state: St<'_>,
+    video_id: String,
+    title: String,
+    artists: String,
+    album: Option<String>,
+    duration: Option<f64>,
+) -> Result<Option<crate::lyrics::Lyrics>, String> {
+    Ok(crate::lyrics::get_lyrics(
+        state.inner(),
+        crate::lyrics::LyricsRequest { video_id, title, artists, album, duration },
+    )
+    .await)
 }
 
 // --- Last.fm scrobbling ---------------------------------------------------------------------

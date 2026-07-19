@@ -10,12 +10,16 @@ pub mod models;
 pub mod rustypipe_fallback;
 pub mod transport;
 
-pub use clients::{Clients, YouTubeClient, MAIN_CLIENT, METADATA_CLIENT, STREAM_FALLBACK_ORDER};
+pub use clients::{
+    Clients, YouTubeClient, LYRICS_TIMED_CLIENT, MAIN_CLIENT, METADATA_CLIENT,
+    STREAM_FALLBACK_ORDER,
+};
 pub use models::browse::{
     AlbumPage, ArtistCarousel, ArtistPage, BrowseItem, HomePage, PlaylistContinuation, PlaylistPage,
     SearchResults, Section,
 };
 pub use models::context::Locale;
+pub use models::lyrics::{PlainLyrics, TimedLyricLine};
 pub use models::metadata::{AccountInfo, NextResult, SearchResult, SongItem};
 pub use models::player::{
     find_format, AudioQuality, Format, PlaybackTracking, PlayerResponse, StreamingData,

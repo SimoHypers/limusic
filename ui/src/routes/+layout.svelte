@@ -12,6 +12,7 @@
 	import ResizeBorders from '$lib/components/ResizeBorders.svelte';
 	import PlayerBar from '$lib/components/PlayerBar.svelte';
 	import QueuePanel from '$lib/components/QueuePanel.svelte';
+	import LyricsPanel from '$lib/components/LyricsPanel.svelte';
 	import AddToPlaylist from '$lib/components/AddToPlaylist.svelte';
 	import SettingsDialog from '$lib/components/SettingsDialog.svelte';
 	import ListenTogether from '$lib/components/ListenTogether.svelte';
@@ -21,7 +22,10 @@
 	import { updateState, installUpdate, checkForUpdatesQuiet } from '$lib/updater.svelte';
 
 	let { children } = $props();
-	let showQueue = $state(false);
+	// One right-panel region: queue and lyrics are mutually exclusive (toggling one swaps the other
+	// out, Spotify-style), so they never stack side by side.
+	let rightPanel = $state<'queue' | 'lyrics' | null>(null);
+	const togglePanel = (p: 'queue' | 'lyrics') => (rightPanel = rightPanel === p ? null : p);
 
 	// Apply the saved accent color before the first paint (ssr=false → nothing renders until now).
 	if (browser) initTheme();
@@ -60,10 +64,16 @@
 				{@render children()}
 			{/key}
 		</main>
-		{#if showQueue}<QueuePanel onClose={() => (showQueue = false)} />{/if}
+		{#if rightPanel === 'queue'}<QueuePanel onClose={() => (rightPanel = null)} />{/if}
+		{#if rightPanel === 'lyrics'}<LyricsPanel onClose={() => (rightPanel = null)} />{/if}
 	</div>
 	{#if playback.now}
-		<PlayerBar onToggleQueue={() => (showQueue = !showQueue)} queueOpen={showQueue} />
+		<PlayerBar
+			onToggleQueue={() => togglePanel('queue')}
+			queueOpen={rightPanel === 'queue'}
+			onToggleLyrics={() => togglePanel('lyrics')}
+			lyricsOpen={rightPanel === 'lyrics'}
+		/>
 	{/if}
 </div>
 
