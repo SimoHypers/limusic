@@ -9,7 +9,8 @@
 		Delete02Icon,
 		MoreVerticalIcon,
 		Tick02Icon,
-		Cancel01Icon
+		Cancel01Icon,
+		DashboardSquare02Icon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import { Skeleton } from '$lib/components/ui/skeleton';
@@ -17,9 +18,9 @@
 	import TrackRowSkeleton from '$lib/components/TrackRowSkeleton.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import * as api from '$lib/api';
-	import type { PlaylistPage, SongItem } from '$lib/api';
+	import type { BrowseItem, PlaylistPage, SongItem } from '$lib/api';
 	import { getCached, putCached, invalidateCached } from '$lib/pagecache';
-	import { playback, openAddToPlaylist, toast } from '$lib/player.svelte';
+	import { addPick, playback, openAddToPlaylist, playFrom, toast } from '$lib/player.svelte';
 
 	let pl = $state<PlaylistPage | null>(null);
 	let loading = $state(true);
@@ -100,8 +101,17 @@
 		}
 	}
 
+	// This playlist as a card, for the sidebar's last-played sort and the Quick Picks grid.
+	const asItem = (): BrowseItem => ({
+		kind: 'playlist',
+		id,
+		title: pl?.title ?? 'Playlist',
+		subtitle: pl?.subtitle,
+		thumbnail: pl?.thumbnail ?? bgImage ?? undefined
+	});
+
 	function playAll(start: number | null) {
-		if (pl) api.playPlaylist(pl.items, start);
+		if (pl) playFrom(asItem(), pl.items, start);
 	}
 
 	// Random cover from the songs, picked once per load so it stays stable while browsing
@@ -126,7 +136,7 @@
 			const j = Math.floor(Math.random() * (i + 1));
 			[a[i], a[j]] = [a[j], a[i]];
 		}
-		api.playPlaylist(a, 0);
+		playFrom(asItem(), a, 0);
 	}
 
 	function openMenu(e: MouseEvent) {
@@ -349,6 +359,12 @@
 			disabled={!pl?.items.length}
 		>
 			<HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" /> Shuffle play
+		</button>
+		<button
+			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+			onclick={() => run(() => addPick(asItem()))}
+		>
+			<HugeiconsIcon icon={DashboardSquare02Icon} class="h-4 w-4" /> Add to Quick Picks
 		</button>
 		{#if editable}
 			<button

@@ -1,10 +1,22 @@
 <script lang="ts">
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
+	import { beforeNavigate } from '$app/navigation';
+	import { HugeiconsIcon } from '@hugeicons/svelte';
+	import { Maximize01Icon, Minimize01Icon } from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import { playback } from '$lib/player.svelte';
 
 	let { onClose }: { onClose: () => void } = $props();
+
+	let expanded = $state(false);
+
+	// Expanded, the panel covers the page — so navigating anywhere means the user wants to see that
+	// page, not the lyrics. The docked panel sits beside the content, so it stays put.
+	// beforeNavigate (not a pathname effect) so clicking the tab you're already on also closes it.
+	beforeNavigate(() => {
+		if (expanded) onClose();
+	});
 
 	/** "3:21" / "1:02:03" → seconds. */
 	function durationSecs(d?: string): number | undefined {
@@ -80,6 +92,7 @@
 
 	$effect(() => {
 		const i = activeIndex;
+		expanded; // re-center after the layout width/font changes
 		if (i < 0 || !scroller || Date.now() < userScrollUntil) return;
 		scroller.querySelector(`[data-line="${i}"]`)?.scrollIntoView({
 			// Opening mid-song jumps straight to the line; after that, glide.
@@ -108,16 +121,32 @@
 ></button>
 <aside
 	transition:fly={{ x: 32, duration: 220, easing: cubicOut }}
-	class="absolute inset-y-0 right-0 z-30 flex h-full w-80 max-w-[80vw] shrink-0 flex-col border-l bg-card shadow-2xl lg:static lg:z-auto lg:max-w-none lg:bg-card/40 lg:shadow-none"
+	class={expanded
+		? // ponytail: left offsets mirror Sidebar's w-16/lg:w-60 — keep in sync if that changes.
+			'absolute inset-y-0 left-16 right-0 z-30 flex h-full flex-col border-l bg-card shadow-2xl lg:left-60'
+		: 'absolute inset-y-0 right-0 z-30 flex h-full w-80 max-w-[80vw] shrink-0 flex-col border-l bg-card shadow-2xl lg:static lg:z-auto lg:max-w-none lg:bg-card/40 lg:shadow-none'}
 >
-	<h2 class="border-b px-4 py-3 font-heading text-sm font-semibold">Lyrics</h2>
+	<div class="flex items-center justify-between border-b px-4 py-3">
+		<h2 class="font-heading text-sm font-semibold">Lyrics</h2>
+		<button
+			onclick={() => {
+				expanded = !expanded;
+				hasScrolled = false; // jump, don't glide, across the layout change
+				userScrollUntil = 0;
+			}}
+			class="cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
+			aria-label={expanded ? 'Shrink lyrics' : 'Expand lyrics'}
+		>
+			<HugeiconsIcon icon={expanded ? Minimize01Icon : Maximize01Icon} class="h-4 w-4" />
+		</button>
+	</div>
 	<!-- svelte-ignore a11y_no_static_element_interactions -- handlers only detect scroll intent -->
 	<div
 		bind:this={scroller}
 		onwheel={onUserScroll}
 		ontouchmove={onUserScroll}
 		onpointerdown={onUserScroll}
-		class="min-h-0 flex-1 overflow-y-auto px-5 py-6"
+		class="min-h-0 flex-1 overflow-y-auto py-6 {expanded ? 'px-10' : 'px-5'}"
 	>
 		{#if loading}
 			<div class="space-y-3">
@@ -129,12 +158,13 @@
 			<p class="py-8 text-center text-lg text-muted-foreground">Instrumental ♪</p>
 		{:else if lyrics && lyrics.synced}
 			<!-- Padding lets the first/last lines center-scroll. -->
-			<div class="py-[35vh]">
+			<div class="py-[35vh] {expanded ? 'mx-auto max-w-3xl' : ''}">
 				{#each lyrics.lines as line, i (i)}
 					<button
 						data-line={i}
 						onclick={() => seekTo(line)}
-						class="block w-full cursor-pointer py-1.5 text-left font-heading text-lg font-semibold leading-snug transition-colors duration-200 hover:text-foreground
+						class="block w-full cursor-pointer text-left font-heading font-semibold leading-snug transition-colors duration-200 hover:text-foreground
+							{expanded ? 'py-3 text-3xl' : 'py-1.5 text-lg'}
 							{i === activeIndex
 							? 'text-foreground'
 							: i < activeIndex
@@ -146,7 +176,11 @@
 				{/each}
 			</div>
 		{:else if lyrics}
-			<div class="space-y-1 text-[15px] leading-relaxed text-foreground/90">
+			<div
+				class="space-y-1 leading-relaxed text-foreground/90 {expanded
+					? 'mx-auto max-w-3xl text-xl'
+					: 'text-[15px]'}"
+			>
 				{#each lyrics.lines as line, i (i)}
 					{#if line.text}<p>{line.text}</p>{:else}<div class="h-4"></div>{/if}
 				{/each}

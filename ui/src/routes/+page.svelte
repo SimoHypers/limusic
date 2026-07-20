@@ -8,9 +8,11 @@
 	import MediaCard from '$lib/components/MediaCard.svelte';
 	import MediaCardSkeleton from '$lib/components/MediaCardSkeleton.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
+	import QuickPicks from '$lib/components/QuickPicks.svelte';
 	import * as api from '$lib/api';
-	import type { HomeChip, HomePage } from '$lib/api';
-	import { auth, ui } from '$lib/player.svelte';
+	import type { BrowseItem, HomeChip, HomePage } from '$lib/api';
+	import { auth, personal, ui } from '$lib/player.svelte';
+	import { interleave, topArtists } from '$lib/personal';
 	import { lt } from '$lib/lt.svelte';
 	import { getCached, putCached } from '$lib/pagecache';
 
@@ -35,6 +37,7 @@
 		if (hit) {
 			home = hit;
 			loading = false;
+			cater(hit, params);
 		} else {
 			loading = true;
 		}
@@ -45,11 +48,40 @@
 			if (selected !== params) return;
 			home = fresh;
 			putCached(key, fresh);
+			cater(fresh, params);
 		} catch (e) {
 			if (!hit) error = String(e);
 		} finally {
 			loading = false;
 		}
+	}
+
+	/**
+	 * YouTube's "From the community" shelf is already account-personalized, but it isn't tied to what
+	 * the user actually plays *in Limusic*. Swap its items for community playlists searched from
+	 * their top artists, keeping the shelf's title and position. With no listening signal yet — or if
+	 * the searches fail — YouTube's own items are left exactly as they came. Best-effort: this can
+	 * never fail the page.
+	 */
+	async function cater(page: HomePage, params: string | null) {
+		if (params) return; // a mood-filtered feed is the chip's, not the user's
+		const idx = page.sections.findIndex((s) => /community/i.test(s.title));
+		if (idx < 0) return;
+		const artists = topArtists(personal, 3);
+		if (!artists.length) return;
+		const key = `community:${artists.join('|')}`;
+		let items = getCached<BrowseItem[]>(key);
+		if (!items) {
+			const lists = await Promise.all(
+				artists.map((a) => api.searchCards(a, 'playlists').catch(() => [] as BrowseItem[]))
+			);
+			items = interleave(lists, 20);
+			if (!items.length) return;
+			putCached(key, items);
+		}
+		// Same race guard as load(): a chip switch or a fresh response may have landed meanwhile.
+		if (selected !== params || home !== page) return;
+		home = { ...page, sections: page.sections.map((s, i) => (i === idx ? { ...s, items } : s)) };
 	}
 
 	// Chips only refresh when a response actually carries them (never blank the row mid-switch).
@@ -89,6 +121,8 @@
 			</form>
 		</div>
 	</div>
+	<!-- Mood chips stay pinned directly under the header — they filter the whole feed, so they read as
+	     page-level controls and must not sit below content they act on. -->
 	{#if chips.length}
 		<div class="mb-6 flex gap-2 overflow-x-auto pb-2">
 			{#each chips as chip (chip.params)}
@@ -103,6 +137,11 @@
 				</button>
 			{/each}
 		</div>
+	{/if}
+	<!-- Quick Picks is the user's own grid, not part of the filterable feed, so it steps aside while a
+	     mood filter is active. -->
+	{#if !selected}
+		<QuickPicks />
 	{/if}
 	{#if loading}
 		<div class="flex flex-col gap-8">

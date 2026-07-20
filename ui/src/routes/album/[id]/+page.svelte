@@ -7,14 +7,20 @@
         MoreVerticalIcon,
         ShuffleIcon,
         PlayListAddIcon,
+        DashboardSquare02Icon,
     } from "@hugeicons/core-free-icons";
     import TrackRow from "$lib/components/TrackRow.svelte";
     import TrackRowSkeleton from "$lib/components/TrackRowSkeleton.svelte";
     import ErrorState from "$lib/components/ErrorState.svelte";
     import { Skeleton } from "$lib/components/ui/skeleton";
     import * as api from "$lib/api";
-    import type { AlbumPage } from "$lib/api";
-    import { playback, openAddManyToPlaylist } from "$lib/player.svelte";
+    import type { AlbumPage, BrowseItem } from "$lib/api";
+    import {
+        addPick,
+        playback,
+        openAddManyToPlaylist,
+        playFrom,
+    } from "$lib/player.svelte";
     import { getCached, putCached } from "$lib/pagecache";
 
     let album = $state<AlbumPage | null>(null);
@@ -72,15 +78,24 @@
         if (id) load(id);
     });
 
+    // This album as a card, for the sidebar's last-played sort and the Quick Picks grid.
+    const asItem = (): BrowseItem => ({
+        kind: "album",
+        id,
+        title: album?.title ?? "Album",
+        subtitle: album?.artist,
+        thumbnail: album?.thumbnail,
+    });
+
     function playAll(start: number | null) {
-        if (album) api.playPlaylist(album.items, start);
+        if (album) playFrom(asItem(), album.items, start);
     }
     function shuffle() {
         if (!album?.items.length) return;
         menuOpen = false;
         // ponytail: shuffles the album's own tracks (a finite album is small); no radio seed.
         const order = [...album.items].sort(() => Math.random() - 0.5);
-        api.playPlaylist(order, 0);
+        playFrom(asItem(), order, 0);
     }
     function saveToPlaylist() {
         if (!album?.items.length) return;
@@ -250,6 +265,18 @@
                                 icon={PlayListAddIcon}
                                 class="h-4 w-4"
                             /> Save to playlist
+                        </button>
+                        <button
+                            class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+                            onclick={() => {
+                                menuOpen = false;
+                                addPick(asItem());
+                            }}
+                        >
+                            <HugeiconsIcon
+                                icon={DashboardSquare02Icon}
+                                class="h-4 w-4"
+                            /> Add to Quick Picks
                         </button>
                     </div>
                 {/if}

@@ -2,7 +2,13 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { ShuffleIcon, Add01Icon, Tick02Icon } from '@hugeicons/core-free-icons';
+	import {
+		ShuffleIcon,
+		Add01Icon,
+		Tick02Icon,
+		MoreVerticalIcon,
+		DashboardSquare02Icon
+	} from '@hugeicons/core-free-icons';
 	import MediaCard from '$lib/components/MediaCard.svelte';
 	import MediaCardSkeleton from '$lib/components/MediaCardSkeleton.svelte';
 	import TrackRow from '$lib/components/TrackRow.svelte';
@@ -10,8 +16,8 @@
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import * as api from '$lib/api';
-	import type { ArtistPage } from '$lib/api';
-	import { playback, openAddToPlaylist, toast } from '$lib/player.svelte';
+	import type { ArtistPage, BrowseItem } from '$lib/api';
+	import { addPick, playback, openAddToPlaylist, playFrom, toast } from '$lib/player.svelte';
 	import { getCached, putCached } from '$lib/pagecache';
 
 	let artist = $state<ArtistPage | null>(null);
@@ -55,12 +61,33 @@
 		if (id) load(id);
 	});
 
+	// ⋯ options menu, positioned `fixed` at the button so it isn't clipped (matches the album page).
+	let menuOpen = $state(false);
+	let mx = $state(0);
+	let my = $state(0);
+
+	function openMenu(e: MouseEvent) {
+		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		mx = r.left;
+		my = r.bottom + 4;
+		menuOpen = true;
+	}
+
+	// This artist as a card, for the sidebar's last-played sort and the Quick Picks grid.
+	const asItem = (): BrowseItem => ({
+		kind: 'artist',
+		id,
+		title: artist?.name ?? 'Artist',
+		subtitle: artist?.subscribers,
+		thumbnail: artist?.thumbnail
+	});
+
 	function shuffle() {
 		if (!artist?.topSongs.length) return;
 		// ponytail: shuffles the ~5 top songs, not the artist's full catalog radio. Deepen with the
 		// header's shuffle playlistId if the shallow mix feels thin.
 		const order = [...artist.topSongs].sort(() => Math.random() - 0.5);
-		api.playPlaylist(order, 0);
+		playFrom(asItem(), order, 0);
 	}
 
 	async function toggleSub() {
@@ -160,6 +187,13 @@
 					<HugeiconsIcon icon={Add01Icon} altIcon={Tick02Icon} showAlt={subscribed} class="h-4 w-4" />
 					{subscribed ? 'Subscribed' : 'Subscribe'}
 				</button>
+				<button
+					class="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border text-muted-foreground transition hover:bg-accent/10 hover:text-foreground"
+					onclick={openMenu}
+					aria-label="More options"
+				>
+					<HugeiconsIcon icon={MoreVerticalIcon} class="h-5 w-5" />
+				</button>
 			</div>
 		</div>
 	</div>
@@ -172,7 +206,7 @@
 					<TrackRow
 						{song}
 						active={song.video_id === nowId}
-						onplay={() => api.playPlaylist(artist!.topSongs, i)}
+						onplay={() => playFrom(asItem(), artist!.topSongs, i)}
 						onAdd={() => openAddToPlaylist(song.video_id)}
 					/>
 				{/each}
@@ -201,5 +235,27 @@
 				</div>
 			</section>
 		{/each}
+	</div>
+{/if}
+
+{#if menuOpen}
+	<button
+		class="fixed inset-0 z-40 cursor-default"
+		onclick={() => (menuOpen = false)}
+		aria-label="Close menu"
+	></button>
+	<div
+		class="fixed z-50 min-w-52 origin-top-left animate-in rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl duration-150 fade-in-0 zoom-in-95"
+		style="left:{mx}px; top:{my}px;"
+	>
+		<button
+			class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+			onclick={() => {
+				menuOpen = false;
+				addPick(asItem());
+			}}
+		>
+			<HugeiconsIcon icon={DashboardSquare02Icon} class="h-4 w-4" /> Add to Quick Picks
+		</button>
 	</div>
 {/if}

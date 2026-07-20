@@ -11,12 +11,13 @@
 		AddToListIcon,
 		FavouriteIcon,
 		UserListIcon,
-		Vynil02Icon
+		Vynil02Icon,
+		DashboardSquare02Icon
 	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import type { SongItem } from '$lib/api';
 	import { lt } from '$lib/lt.svelte';
-	import { playback, toast } from '$lib/player.svelte';
+	import { addPick, playback, toast } from '$lib/player.svelte';
 
 	let {
 		song,
@@ -127,6 +128,21 @@
 				<HugeiconsIcon icon={Vynil02Icon} class="h-4 w-4" /> Go to album
 			</button>
 		{/if}
+		<button
+			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+			onclick={(e) =>
+				run(e, () =>
+					addPick({
+						kind: 'song',
+						id: song.video_id,
+						title: song.title,
+						subtitle: song.artists,
+						thumbnail: song.thumbnail
+					})
+				)}
+		>
+			<HugeiconsIcon icon={DashboardSquare02Icon} class="h-4 w-4" /> Add to Quick Picks
+		</button>
 		{#if onAdd}
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { fly, scale } from 'svelte/transition';
-	import { cubicOut } from 'svelte/easing';
+	import { scale } from 'svelte/transition';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		Home01Icon,
@@ -10,19 +9,17 @@
 		Settings01Icon,
 		Sun01Icon,
 		Moon02Icon,
-		UserCircleIcon,
-		Logout01Icon,
 		Add01Icon,
-		ArrowUp01Icon
+		PinIcon
 	} from '@hugeicons/core-free-icons';
 	import { toggleMode } from 'mode-watcher';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import * as Dialog from '$lib/components/ui/dialog';
-	import * as api from '$lib/api';
 	import type { BrowseItem } from '$lib/api';
-	import { auth, library, ui, createLibraryPlaylist, toast } from '$lib/player.svelte';
-	import { thumb } from '$lib/thumb';
+	import PlaylistMenu from './PlaylistMenu.svelte';
+	import { auth, library, personal, ui, createLibraryPlaylist, toast } from '$lib/player.svelte';
+	import { orderLibrary } from '$lib/personal';
 
 	const nav = [
 		{ href: '/', label: 'Home', icon: Home01Icon },
@@ -31,6 +28,12 @@
 	];
 	const isActive = (href: string) =>
 		href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(href);
+
+	// Pinned first (in pin order), then everything else by last played. Derived here rather than in
+	// the shared `library` store so the Library page keeps YouTube's own ordering.
+	const playlists = $derived(orderLibrary(library.items, personal));
+	// How many of the leading rows are pinned — a rule under the last one explains the split.
+	const pinnedCount = $derived(playlists.filter((p) => personal.pins.includes(p.id)).length);
 
 	const playlistHref = (item: BrowseItem) =>
 		item.kind === 'album'
@@ -59,36 +62,7 @@
 		}
 	}
 
-	let showAccount = $state(false);
-	let cookieInput = $state('');
-	let authError = $state<string | null>(null);
-	let signingIn = $state(false);
-
-	async function submitCookie() {
-		if (!cookieInput.trim()) return;
-		signingIn = true;
-		authError = null;
-		try {
-			auth.account = await api.setCookie(cookieInput);
-			cookieInput = '';
-			showAccount = false;
-		} catch (e) {
-			authError = String(e);
-		} finally {
-			signingIn = false;
-		}
-	}
-
-	async function doSignOut() {
-		await api.signOut();
-		auth.account = await api.getAccount();
-		showAccount = false;
-	}
-
-	function signInGoogle() {
-		api.loginWebview(); // native sign-in window takes over; result arrives via auth-changed
-		showAccount = false;
-	}
+	// Account lives in the titlebar now — see AccountMenu.svelte.
 </script>
 
 <aside
@@ -140,7 +114,7 @@
 	</nav>
 
 	<!-- Playlists (signed in). Hidden on the icon rail — needs labels; matches YTM's collapsed rail.
-	     flex-1 lets the list fill the space and scroll, pinning the account to the bottom. -->
+	     flex-1 lets the list fill the space and scroll. -->
 	{#if auth.account?.signedIn}
 		<div class="mt-3 hidden min-h-0 flex-1 flex-col border-t pt-3 lg:flex">
 			<Button
@@ -152,17 +126,30 @@
 				<HugeiconsIcon icon={Add01Icon} class="h-4 w-4" /> New playlist
 			</Button>
 			<div class="min-h-0 flex-1 overflow-y-auto">
-				{#each library.items as pl (pl.id)}
-					<a
-						href={playlistHref(pl)}
-						title={pl.title}
-						class="block rounded-lg px-3 py-1.5 transition-colors hover:bg-sidebar-accent/50"
-					>
-						<div class="truncate text-sm font-medium">{pl.title}</div>
-						{#if pl.subtitle}
-							<div class="truncate text-xs text-muted-foreground">{pl.subtitle}</div>
-						{/if}
-					</a>
+				{#each playlists as pl, i (pl.id)}
+					<!-- The ⋯ is a sibling of the link, not a child: a <button> inside an <a> is invalid
+					     HTML. pr-9 keeps the title clear of the button that overlays the row on hover. -->
+					<div class="group/row relative">
+						<a
+							href={playlistHref(pl)}
+							title={pl.title}
+							class="block rounded-lg py-1.5 pl-3 pr-9 transition-colors hover:bg-sidebar-accent/50"
+						>
+							<div class="flex items-center gap-1.5">
+								{#if personal.pins.includes(pl.id)}
+									<HugeiconsIcon icon={PinIcon} class="h-3 w-3 shrink-0 text-primary" />
+								{/if}
+								<span class="truncate text-sm font-medium">{pl.title}</span>
+							</div>
+							{#if pl.subtitle}
+								<div class="truncate text-xs text-muted-foreground">{pl.subtitle}</div>
+							{/if}
+						</a>
+						<PlaylistMenu item={pl} />
+					</div>
+					{#if pinnedCount && i === pinnedCount - 1}
+						<div class="mx-3 my-1.5 h-px bg-border"></div>
+					{/if}
 				{:else}
 					{#if library.loading}
 						<p class="px-3 py-1.5 text-xs text-muted-foreground">Loading…</p>
@@ -196,82 +183,4 @@
 		</Dialog.Root>
 	{/if}
 
-	<!-- Account (context/15). border-t divides it from the playlist list above; mt-auto pins it to
-	     the bottom when that list is short or absent (signed out / icon rail). -->
-	<div class="relative mt-auto border-t pt-3">
-		{#if showAccount}
-			<!-- z-50: the popup is w-64 and overflows into <main> on the icon rail; without a
-			     stacking layer <main> (a later sibling) paints its track list over the popup. -->
-			<div
-				transition:fly={{ y: 8, duration: 180, easing: cubicOut }}
-				class="absolute bottom-full left-0 z-50 mb-2 w-64 rounded-xl border bg-popover p-4 text-popover-foreground shadow-lg"
-			>
-				{#if auth.account?.signedIn}
-					<!-- The trigger below already shows the avatar, name and handle — don't repeat them. -->
-					<Button variant="outline" size="sm" class="w-full gap-2" onclick={doSignOut}>
-						<HugeiconsIcon icon={Logout01Icon} class="h-4 w-4" />
-						Sign out
-					</Button>
-				{:else}
-					<p class="text-sm font-medium">Sign in</p>
-					<Button class="mt-3 w-full" onclick={signInGoogle}>Sign in with Google</Button>
-					<div class="my-3 flex items-center gap-2 text-xs text-muted-foreground">
-						<span class="h-px flex-1 bg-border"></span> or paste a cookie
-						<span class="h-px flex-1 bg-border"></span>
-					</div>
-					<p class="text-xs text-muted-foreground">
-						music.youtube.com → DevTools → Network → any request → copy the
-						<span class="font-mono">Cookie</span> header.
-					</p>
-					<form
-						class="mt-2 flex flex-col gap-2"
-						onsubmit={(e) => {
-							e.preventDefault();
-							submitCookie();
-						}}
-					>
-						<Input bind:value={cookieInput} placeholder="VISITOR_INFO1_LIVE=…; SAPISID=…; …" />
-						<Button type="submit" variant="outline" disabled={signingIn}>
-							{signingIn ? 'Signing in…' : 'Use cookie'}
-						</Button>
-					</form>
-					{#if authError}<p class="mt-2 text-xs text-destructive">{authError}</p>{/if}
-				{/if}
-			</div>
-		{/if}
-		<button
-			onclick={() => (showAccount = !showAccount)}
-			title={auth.account?.signedIn ? (auth.account.name ?? 'Account') : 'Sign in'}
-			aria-expanded={showAccount}
-			class="flex w-full items-center justify-center gap-3 rounded-lg px-2 py-2 text-sm transition-colors hover:bg-sidebar-accent/50 aria-expanded:bg-sidebar-accent/50 lg:justify-start"
-		>
-			{#if auth.account?.signedIn && auth.account.thumbnail}
-				<!-- max-width:none defeats Tailwind Preflight's `img{max-width:100%}`, which on the
-				     narrow icon rail clamps width to the tiny button content-box while height stays
-				     fixed → a vertical oval. Inline so it's immune to Preflight and stale dev CSS. -->
-				<img
-					src={thumb(auth.account.thumbnail, 96)}
-					alt=""
-					style="width:2.25rem;height:2.25rem;max-width:none"
-					class="shrink-0 rounded-full object-cover ring-1 ring-border"
-				/>
-			{:else}
-				<HugeiconsIcon icon={UserCircleIcon} class="h-9 w-9 shrink-0 text-muted-foreground" />
-			{/if}
-			<span class="hidden min-w-0 flex-1 text-left lg:block">
-				<span class="block truncate font-medium">
-					{auth.account?.signedIn ? (auth.account.name ?? 'Account') : 'Sign in'}
-				</span>
-				{#if auth.account?.signedIn && auth.account.handle}
-					<span class="block truncate text-xs text-muted-foreground">{auth.account.handle}</span>
-				{/if}
-			</span>
-			<HugeiconsIcon
-				icon={ArrowUp01Icon}
-				class="hidden h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 lg:block {showAccount
-					? 'rotate-180'
-					: ''}"
-			/>
-		</button>
-	</div>
 </aside>

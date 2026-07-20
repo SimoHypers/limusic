@@ -1,10 +1,13 @@
 // Shared reactive app state (playback + auth), set up ONCE by the root layout. Components import
 // `playback`/`auth` and read them reactively; the Rust side drives them via Tauri events.
 // context/11 UI contract — this module only calls commands / subscribes to events.
+import { browser } from '$app/environment';
 import * as api from './api';
-import type { Account, BrowseItem, NowPlaying, QueueState } from './api';
+import type { Account, BrowseItem, NowPlaying, QueueState, SongItem } from './api';
 import { applyLtState } from './lt.svelte';
 import { clearCached } from './pagecache';
+import * as pl from './personal';
+import type { Personal } from './personal';
 
 export const playback = $state({
 	now: null as NowPlaying | null,
@@ -60,6 +63,68 @@ export async function createLibraryPlaylist(title: string): Promise<void> {
 	library.items = [{ kind: 'playlist', id: browseId, title }, ...library.items];
 }
 
+// --- Personalization: Quick Picks, sidebar pins, play recency (see personal.ts) -----------------
+// The Quick Picks grid holds only what the user puts in it — nothing is ever auto-added.
+// localStorage rather than SQLite: only the webview ever reads this, so a table + commands + a
+// `UI_SETTINGS` allowlist entry would buy nothing. Loaded at module scope (guarded like the layout's
+// `initTheme`) so the sidebar and home grid render sorted on the very first paint.
+// ponytail: move to db.rs if it ever needs to be account-scoped or readable outside the webview.
+const PERSONAL_KEY = 'limusic:personal';
+
+export const personal = $state<Personal>(pl.empty());
+
+if (browser) {
+	try {
+		Object.assign(personal, pl.hydrate(JSON.parse(localStorage.getItem(PERSONAL_KEY) ?? 'null')));
+	} catch {
+		// Unreadable blob — start clean rather than break startup.
+	}
+}
+
+function savePersonal() {
+	if (!browser) return;
+	try {
+		localStorage.setItem(PERSONAL_KEY, JSON.stringify(personal));
+	} catch {
+		// Quota or a locked store: personalization is best-effort, never fatal.
+	}
+}
+
+/** Add to Quick Picks (evicting the tile gone longest unplayed when the grid is full). */
+export function addPick(item: BrowseItem) {
+	const added = pl.addPick(personal, item);
+	savePersonal();
+	toast(added ? 'Added to Quick Picks' : 'Already in Quick Picks');
+}
+
+export function removePick(id: string) {
+	pl.removePick(personal, id);
+	savePersonal();
+}
+
+/** Called from every card click app-wide, so only persist when the id was actually on the grid. */
+export function touchPick(id: string) {
+	if (pl.touchPick(personal, id)) savePersonal();
+}
+
+export function togglePin(id: string) {
+	const result = pl.togglePin(personal, id);
+	if (result === 'full') toast(`Unpin one first — ${pl.MAX_PINS} pins max`);
+	else savePersonal();
+	return result;
+}
+
+/**
+ * Play a playlist/album/artist and record that it was played, which is what sorts the sidebar and
+ * seeds Quick Picks. Every "play these tracks from somewhere" call site goes through this.
+ */
+export function playFrom(source: BrowseItem, items: SongItem[], start: number | null) {
+	pl.noteRecent(personal, source);
+	pl.touchPick(personal, source.id);
+	savePersonal();
+	return api.playPlaylist(items, start);
+}
+
 // Transient UI state for write actions.
 export const ui = $state({
 	addVideoIds: null as string[] | null, // add-to-playlist picker target(s)
@@ -95,6 +160,11 @@ export function initApp(): () => void {
 			playback.now = n;
 			playback.liked = n.liked ?? false; // reflect the track's real like status when known
 			playback.error = null; // a track started → clear any stale dead-end banner
+			// Feeds Quick Picks recency and the community shelf's artist seed. Every play lands here,
+			// gapless advances included, so it's the one hook that sees them all.
+			pl.touchPick(personal, n.videoId);
+			if (n.artists) pl.noteArtist(personal, n.artistId ?? n.artists, pl.firstArtist(n.artists));
+			savePersonal();
 		}),
 		api.onQueueChanged((q) => (playback.queue = q)),
 		api.onPosition((p) => (playback.position = p)),

@@ -3,6 +3,7 @@
 	// on the bar is a drag region except the buttons; double-click maximizes (handled by Tauri's
 	// drag region itself). Right cluster: Last.fm scrobbler | separator | minimize / maximize /
 	// close — per the design, the scrobbler lives with the window controls but visually apart.
+	// Account (sign in/out) sits first in that cluster, in its own component.
 	import { onMount } from 'svelte';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
@@ -16,6 +17,7 @@
 	} from '@hugeicons/core-free-icons';
 	import LastFmIcon from './LastFmIcon.svelte';
 	import DiscordIcon from './DiscordIcon.svelte';
+	import AccountMenu from './AccountMenu.svelte';
 	import logo from '$lib/assets/favicon.svg';
 	import * as api from '$lib/api';
 	import { toast } from '$lib/player.svelte';
@@ -111,9 +113,11 @@
 	);
 </script>
 
+<!-- `relative` makes this a stacking context, so the account/window dropdowns inside it are capped
+     at this z — it must outrank the panels below (LyricsPanel/QueuePanel, z-30). -->
 <header
 	data-tauri-drag-region
-	class="relative z-30 flex h-9 shrink-0 select-none items-center justify-between border-b border-border/60 bg-background"
+	class="relative z-50 flex h-9 shrink-0 select-none items-center justify-between border-b border-border/60 bg-background"
 >
 	<span
 		class="pointer-events-none absolute inset-x-0 text-center text-xs font-medium tracking-wide text-muted-foreground"
@@ -125,6 +129,11 @@
 	<img src={logo} alt="" class="pointer-events-none ml-3 h-4 w-4" />
 
 	<div class="flex h-full items-center">
+		<!-- Account first, then the integrations, then the window controls. The drag region lives on
+		     <header> only, so these children are ordinary buttons — don't add the attribute here. -->
+		<AccountMenu />
+		<div class="mx-1.5 h-4 w-px bg-border"></div>
+
 		<button
 			class="flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground {discordOn
 				? 'text-foreground'
