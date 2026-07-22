@@ -16,6 +16,7 @@ import {
 	noteRecent,
 	orderLibrary,
 	orderedPicks,
+	recentItems,
 	removePick,
 	togglePin,
 	touchPick
@@ -111,6 +112,18 @@ const range = (n: number, prefix: string) => Array.from({ length: n }, (_, i) =>
 	noteRecent(p, item('c'), 999);
 	const dupCheck = orderLibrary(items, p);
 	ok(ids(dupCheck).filter((id) => id === 'c').length === 1, 'pinned + recent is not duplicated');
+}
+
+// --- recentItems: newest first, capped, empty when nothing played --------------------------------
+{
+	const p = empty();
+	ok(recentItems(p).length === 0, 'no recent activity yields an empty list');
+
+	noteRecent(p, item('a'), 100);
+	noteRecent(p, item('b'), 300);
+	noteRecent(p, item('c'), 200);
+	ok(ids(recentItems(p)).join() === 'b,c,a', 'newest played-from comes first');
+	ok(ids(recentItems(p, 2)).join() === 'b,c', 'n caps the result');
 }
 
 // --- interleave dedupes across lists ------------------------------------------------------------

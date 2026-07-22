@@ -139,6 +139,13 @@ export function noteRecent(p: Personal, item: BrowseItem, now = Date.now()): voi
 	}
 }
 
+/** The most recently played-from playlists/albums/artists, newest first. */
+export function recentItems(p: Personal, n = 12): RecentEntry[] {
+	return Object.values(p.recent)
+		.sort((a, b) => b.at - a.at)
+		.slice(0, n);
+}
+
 /** The lead artist out of a joined credit string — a usable search seed, unlike the whole list. */
 export function firstArtist(artists: string): string {
 	return artists.split(/[,&•]|\sfeat\.?\s|\sft\.?\s/i)[0].trim();

@@ -12,7 +12,7 @@
 	import * as api from '$lib/api';
 	import type { BrowseItem, HomeChip, HomePage } from '$lib/api';
 	import { auth, personal, ui } from '$lib/player.svelte';
-	import { interleave, topArtists } from '$lib/personal';
+	import { interleave, recentItems, topArtists } from '$lib/personal';
 	import { lt } from '$lib/lt.svelte';
 	import { getCached, putCached } from '$lib/pagecache';
 
@@ -24,6 +24,7 @@
 	// loading state (every home response carries the same chips anyway). Limusic is music-only.
 	let chips = $state<HomeChip[]>([]);
 	let selected = $state<string | null>(null);
+	const recent = $derived(recentItems(personal));
 
 	function goSearch() {
 		if (!searchQuery.trim()) return;
@@ -148,6 +149,16 @@
 	     mood filter is active. -->
 	{#if !selected}
 		<QuickPicks />
+		{#if recent.length}
+			<section class="mb-8">
+				<h2 class="mb-3 font-heading text-lg font-semibold">Jump back in</h2>
+				<div class="flex gap-2 overflow-x-auto pb-2">
+					{#each recent as item (item.id)}
+						<div class="w-40 shrink-0"><MediaCard {item} /></div>
+					{/each}
+				</div>
+			</section>
+		{/if}
 	{/if}
 	{#if loading}
 		<div class="flex flex-col gap-8">
