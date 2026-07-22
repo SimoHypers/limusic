@@ -185,12 +185,9 @@
 
 	function shufflePlay() {
 		if (!pl?.items.length) return;
-		const a = [...pl.items];
-		for (let i = a.length - 1; i > 0; i--) {
-			const j = Math.floor(Math.random() * (i + 1));
-			[a[i], a[j]] = [a[j], a[i]];
-		}
-		playFrom(asItem(), a, 0, id);
+		// Real order + shuffle flag — the backend owns shuffling, so the shuffle toggle can
+		// restore the true playlist order and every re-shuffle is fresh.
+		playFrom(asItem(), pl.items, null, id, true);
 	}
 
 	function openMenu(e: MouseEvent) {

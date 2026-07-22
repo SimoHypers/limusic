@@ -86,8 +86,7 @@
 		if (!artist?.topSongs.length) return;
 		// ponytail: shuffles the ~5 top songs, not the artist's full catalog radio. Deepen with the
 		// header's shuffle playlistId if the shallow mix feels thin.
-		const order = [...artist.topSongs].sort(() => Math.random() - 0.5);
-		playFrom(asItem(), order, 0);
+		playFrom(asItem(), artist.topSongs, null, undefined, true);
 	}
 
 	async function toggleSub() {

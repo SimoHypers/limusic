@@ -75,6 +75,9 @@ struct QueueState {
     /// playlist/album, `None` otherwise (autoplay then seeds `RDAMVM<last video>`, so long
     /// sessions drift with what's actually playing, like YTM's).
     radio_seed: Option<String>,
+    /// Human name of what seeded the queue (playlist/album title, "<song> Radio") — the queue
+    /// panel's "Next from: …" header. Pure display metadata.
+    source_name: Option<String>,
     /// The queue index we've already appended to mpv for gapless lookahead (if any).
     lookahead_loaded: Option<usize>,
     /// Which client served the currently-loaded track (for the WEB_REMIX-403 feedback). context/06.
@@ -286,7 +289,12 @@ impl AppState {
 
         {
             let mut q = self.queue.lock().await;
+            // Unplayed manual adds survive a context switch (Spotify semantics): they follow the
+            // new track, ahead of its radio (hydration appends behind them).
+            let mut carried = upcoming_queued(&q.items, q.current);
+            q.source_name = Some(format!("{} Radio", seed.title));
             q.items = vec![seed];
+            q.items.append(&mut carried);
             q.current = 0;
             q.lookahead_loaded = None;
             q.radio_seed = None; // single-song queue → autoplay re-seeds from the last track
@@ -334,12 +342,17 @@ impl AppState {
     /// means "just play the playlist" (the header Play button) — first track, or any track when
     /// shuffle is on. Unlike `play_song` this seeds NO radio — the given items *are* the queue
     /// (context/08: playlist playback). `source_id` (the page's playlist/album playlist id) makes
-    /// autoplay continue with that context's radio when the queue runs out.
+    /// autoplay continue with that context's radio when the queue runs out. `source_name` is the
+    /// page title for the queue panel's "Next from" header; `shuffle` (the page Shuffle buttons)
+    /// turns shuffle ON for this queue — the backend owns the randomization, so un-shuffle can
+    /// restore the true order and every re-shuffle is fresh.
     pub async fn play_tracks(
         self: &std::sync::Arc<Self>,
         items: Vec<SongItem>,
         start: Option<usize>,
         source_id: Option<String>,
+        source_name: Option<String>,
+        shuffle: bool,
     ) {
         if items.is_empty() {
             return;
@@ -351,22 +364,33 @@ impl AppState {
         let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         {
             let mut q = self.queue.lock().await;
-            let keep_shuffled = q.shuffle_orig.is_some(); // shuffle is sticky across queues
+            // Sticky across queues, or explicitly requested by a page Shuffle button.
+            let keep_shuffled = q.shuffle_orig.is_some() || shuffle;
             let start = match start {
                 Some(i) => i.min(items.len() - 1),
                 None if keep_shuffled => rand::Rng::gen_range(&mut rand::thread_rng(), 0..items.len()),
                 None => 0,
             };
+            // Unplayed manual adds survive a context switch (Spotify semantics) — spliced back in
+            // right after the new current track, ahead of the new context.
+            let carried = upcoming_queued(&q.items, q.current);
             q.items = items;
             q.current = start;
             q.lookahead_loaded = None;
             q.radio_seed = radio_seed_for(source_id);
+            q.source_name = source_name;
             if keep_shuffled {
                 // Snapshot the real playlist order (for un-shuffle), then play the clicked track
-                // first with everything else shuffled behind it.
+                // first with everything else shuffled behind it. Carried adds are spliced in
+                // after — un-shuffle drops them, same as adds made while shuffled (snapshot
+                // semantics, see toggle_shuffle).
                 q.shuffle_orig = Some(q.items.clone());
                 let start = q.current;
                 q.current = shuffle_new_queue(&mut q.items, start);
+            }
+            let at = q.current + 1;
+            for (k, item) in carried.into_iter().enumerate() {
+                q.items.insert(at + k, item);
             }
         }
         // start_current emits now-playing + queue + persists; prime the gapless lookahead after.
@@ -424,14 +448,15 @@ impl AppState {
         if self.lt.is_guest().await {
             return; // the host drives track changes for guests; don't auto-advance locally
         }
-        let has_next = {
+        let (has_next, primed) = {
             let mut q = self.queue.lock().await;
             match next_index(q.items.len(), q.current, q.repeat) {
                 Some(next) => {
+                    let primed = q.lookahead_loaded == Some(next);
                     q.current = next;
-                    true
+                    (true, primed)
                 }
-                None => false,
+                None => (false, false),
             }
         };
         if !has_next {
@@ -463,9 +488,12 @@ impl AppState {
             });
             return;
         }
-        if self.player.is_idle() {
-            // No gapless handoff happened. Bump the generation so any in-flight lookahead
-            // resolve for this index discards itself (it would double-enqueue), then load.
+        if !primed || self.player.is_idle() {
+            // No gapless handoff happened. `is_idle` alone is not enough: right at EOF mpv can
+            // still report not-idle before it settles, and with nothing primed that would send us
+            // into the gapless branch below — a phantom "now playing" over a silent player. If we
+            // never primed this index, mpv cannot have advanced into it; load explicitly. Bump the
+            // generation so any in-flight lookahead resolve discards itself (double-enqueue).
             let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
             tracing::info!("no primed lookahead at track end — loading next explicitly");
             if self.start_current(gen).await {
@@ -637,30 +665,59 @@ impl AppState {
     }
 
     /// Resolve the next queue item and append it to mpv for a gapless transition. context/14.
+    ///
+    /// An upcoming track no client can resolve is skipped *here*, while the current track is
+    /// still playing — deferring it to the track boundary pauses playback while the whole client
+    /// waterfall fails again on the event pump (and used to wedge until a manual skip).
+    /// ponytail: at most 3 removals per prime so a network outage can't eat the whole queue.
     async fn prime_lookahead(self: &std::sync::Arc<Self>, gen: u64) {
-        let next_idx = {
-            let q = self.queue.lock().await;
-            // Repeat-one primes nothing: mpv loops the file itself (next_index → None).
-            let Some(next) = next_index(q.items.len(), q.current, q.repeat) else { return };
-            if q.lookahead_loaded == Some(next) {
-                return; // already primed
+        for _ in 0..3 {
+            let next_idx = {
+                let q = self.queue.lock().await;
+                // Repeat-one primes nothing: mpv loops the file itself (next_index → None).
+                let Some(next) = next_index(q.items.len(), q.current, q.repeat) else { return };
+                if q.lookahead_loaded == Some(next) {
+                    return; // already primed
+                }
+                next
+            };
+            let (next_video, next_title) = {
+                let q = self.queue.lock().await;
+                match q.items.get(next_idx) {
+                    Some(item) => (item.video_id.clone(), item.title.clone()),
+                    None => return,
+                }
+            };
+            match self.resolve(&next_video).await {
+                Ok(d) => {
+                    self.enqueue_lookahead(gen, next_idx, &next_video, d).await;
+                    return;
+                }
+                Err(e) => {
+                    tracing::warn!(video_id = %next_video, error = %e, "lookahead resolve failed — dropping from queue");
+                    if self.generation.load(Ordering::SeqCst) != gen {
+                        return;
+                    }
+                    // The queue can shift under a resolve — only remove the slot if it still
+                    // holds the track that failed. (Also refuses next_idx == current, i.e. the
+                    // single-item repeat-all case, via remove_from_queue's own guard.)
+                    let same = {
+                        let q = self.queue.lock().await;
+                        q.items.get(next_idx).map(|i| i.video_id == next_video).unwrap_or(false)
+                    };
+                    if !same {
+                        return;
+                    }
+                    // Box::pin: remove_from_queue can itself re-prime (async recursion).
+                    Box::pin(self.remove_from_queue(next_idx)).await;
+                    self.emit_skip(&next_title);
+                }
             }
-            next
-        };
-        let next_video = {
-            let q = self.queue.lock().await;
-            match q.items.get(next_idx) {
-                Some(item) => item.video_id.clone(),
-                None => return,
-            }
-        };
-        let data = match self.resolve(&next_video).await {
-            Ok(d) => d,
-            Err(e) => {
-                tracing::warn!(video_id = %next_video, error = %e, "lookahead resolve failed");
-                return;
-            }
-        };
+        }
+    }
+
+    /// Second half of [`Self::prime_lookahead`]: hand the resolved stream to mpv and record it.
+    async fn enqueue_lookahead(self: &std::sync::Arc<Self>, gen: u64, next_idx: usize, next_video: &str, data: PlaybackData) {
         if self.generation.load(Ordering::SeqCst) != gen {
             return;
         }
@@ -780,6 +837,7 @@ impl AppState {
                 "currentIndex": q.current,
                 "shuffle": q.shuffle_orig.is_some(),
                 "repeat": q.repeat,
+                "sourceName": &q.source_name,
             }),
         );
     }
@@ -815,6 +873,7 @@ impl AppState {
             "currentIndex": q.current,
             "shuffle": q.shuffle_orig.is_some(),
             "repeat": q.repeat,
+            "sourceName": &q.source_name,
         })
     }
 
@@ -942,6 +1001,7 @@ impl AppState {
                 "repeat": q.repeat,
                 "shuffleOrig": &q.shuffle_orig,
                 "radioSeed": &q.radio_seed,
+                "sourceName": &q.source_name,
             })
             .to_string()
         };
@@ -974,6 +1034,8 @@ impl AppState {
             .flatten();
         let radio_seed: Option<String> =
             saved.get("radioSeed").and_then(|v| v.as_str()).map(str::to_owned);
+        let source_name: Option<String> =
+            saved.get("sourceName").and_then(|v| v.as_str()).map(str::to_owned);
         let pos = self.db.get_setting("queue_position").and_then(|s| s.parse::<f64>().ok());
         if let Some(p) = pos.filter(|p| *p > 0.0) {
             *self.pending_seek.lock().unwrap() = Some((items[current].video_id.clone(), p));
@@ -985,6 +1047,7 @@ impl AppState {
             q.repeat = repeat;
             q.shuffle_orig = shuffle_orig;
             q.radio_seed = radio_seed;
+            q.source_name = source_name;
         }
         if repeat == RepeatMode::One {
             let _ = self.player.set_loop_file(true);
@@ -1125,6 +1188,7 @@ impl AppState {
             q.lookahead_loaded = None;
             q.shuffle_orig = None; // host rebuilt the queue — local shuffle snapshot is stale
             q.radio_seed = None; // guests never autoplay — the host drives
+            q.source_name = None; // the host's context isn't known — header falls back
         }
         let data = match self.resolve(&track.id).await {
             Ok(d) => d,
@@ -1394,6 +1458,37 @@ impl AppState {
         self.lt_broadcast_queue().await;
     }
 
+    /// Remove every upcoming manually-queued track (the panel's "Next in queue" ▸ Clear queue).
+    /// Played/playing items and the playlist context stay. Guests: add-only, no clearing.
+    pub async fn clear_queued(self: &std::sync::Arc<Self>) {
+        if self.lt.is_guest().await {
+            return;
+        }
+        {
+            let mut q = self.queue.lock().await;
+            let cur = q.current;
+            let before = q.items.len();
+            let mut i = 0;
+            q.items.retain(|item| {
+                let keep = i <= cur || !item.queued;
+                i += 1;
+                keep
+            });
+            if q.items.len() == before {
+                return; // nothing was queued — don't touch the lookahead
+            }
+            // Indices shifted — a primed lookahead may point at the wrong slot. Drop it
+            // unconditionally (cheap; re-primed below), same as toggle_shuffle.
+            if q.lookahead_loaded.take().is_some() {
+                let _ = self.player.clear_playlist();
+            }
+        }
+        self.emit_queue().await;
+        self.persist_queue().await;
+        self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
+        self.lt_broadcast_queue().await;
+    }
+
     /// Host: broadcast the upcoming queue (everything after current) to the room. No-op for
     /// non-hosts (`broadcast_playback` gates on role).
     async fn lt_broadcast_queue(&self) {
@@ -1532,11 +1627,21 @@ fn unshuffled(orig: Vec<SongItem>, playing_id: &str, fallback: usize) -> (Vec<So
     (orig, idx)
 }
 
-/// Fisher–Yates over the *upcoming* items only (`current+1..`) — the playing track and the
-/// already-played prefix stay put (Spotify semantics).
+/// The unplayed manually-queued tracks (`queued`, after `current`) — carried into a new queue on
+/// a context switch so "Add to queue" survives the user playing something else.
+fn upcoming_queued(items: &[SongItem], current: usize) -> Vec<SongItem> {
+    items.iter().skip(current + 1).filter(|i| i.queued).cloned().collect()
+}
+
+/// Fisher–Yates over the *upcoming* items only — the playing track and the already-played prefix
+/// stay put, and the leading run of manually-queued tracks keeps its spot: "Next in queue" plays
+/// next regardless of shuffle (Spotify semantics).
 fn shuffle_upcoming(items: &mut [SongItem], current: usize) {
     use rand::seq::SliceRandom;
-    let start = current + 1;
+    let mut start = current + 1;
+    while items.get(start).map(|i| i.queued).unwrap_or(false) {
+        start += 1;
+    }
     if start < items.len() {
         items[start..].shuffle(&mut rand::thread_rng());
     }
@@ -1601,7 +1706,7 @@ fn loudness_gain(loudness_db: Option<f64>) -> Option<f64> {
 mod tests {
     use super::{
         guest_insert_index, loudness_gain, merge_radio, next_index, radio_seed_for,
-        shuffle_new_queue, shuffle_upcoming, unshuffled, RepeatMode,
+        shuffle_new_queue, shuffle_upcoming, unshuffled, upcoming_queued, RepeatMode,
     };
 
     // `by.is_some()` (a named guest/host add) and a nameless solo add are both manual adds:
@@ -1699,6 +1804,33 @@ mod tests {
         let mut one = vec![song("only", None)];
         assert_eq!(shuffle_new_queue(&mut one, 5), 0);
         assert_eq!(one[0].video_id, "only");
+    }
+
+    #[test]
+    fn manual_adds_survive_context_switch() {
+        let solo = |id: &str| innertube::SongItem { queued: true, ..song(id, None) };
+        // Playing B (index 1); Q1/Q2 are unplayed manual adds, Q0 already played — only the
+        // unplayed ones carry into a new queue.
+        let items =
+            vec![solo("q0"), song("b", None), solo("q1"), song("c", None), solo("q2")];
+        let carried = upcoming_queued(&items, 1);
+        let ids: Vec<_> = carried.iter().map(|i| i.video_id.as_str()).collect();
+        assert_eq!(ids, ["q1", "q2"]);
+        // Nothing queued upcoming → nothing carried.
+        assert!(upcoming_queued(&[song("a", None)], 0).is_empty());
+    }
+
+    #[test]
+    fn shuffle_leaves_manual_queue_block_in_place() {
+        let solo = |id: &str| innertube::SongItem { queued: true, ..song(id, None) };
+        let mut items = vec![song("now", None), solo("q1"), solo("q2")];
+        items.extend((0..8).map(|i| song(&format!("t{i}"), None)));
+        shuffle_upcoming(&mut items, 0);
+        // The manual "Next in queue" block still plays next, in order.
+        assert_eq!(items[1].video_id, "q1");
+        assert_eq!(items[2].video_id, "q2");
+        // Everything is still a permutation (nothing lost).
+        assert_eq!(items.len(), 11);
     }
 
     #[test]

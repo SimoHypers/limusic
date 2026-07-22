@@ -135,12 +135,13 @@ export function playFrom(
 	source: BrowseItem,
 	items: SongItem[],
 	start: number | null,
-	sourceId?: string
+	sourceId?: string,
+	shuffle?: boolean
 ) {
 	pl.noteRecent(personal, source);
 	pl.touchPick(personal, source.id);
 	savePersonal();
-	return api.playPlaylist(items, start, sourceId);
+	return api.playPlaylist(items, start, sourceId, source.title, shuffle);
 }
 
 // Transient UI state for write actions.

@@ -170,9 +170,12 @@ impl Player {
         Ok(())
     }
 
-    /// Set output volume (0–100, mpv accepts >100 for amplification).
+    /// Set output volume (0–100). The slider percent is perceptual, not mpv's raw scale:
+    /// mpv cubes its `volume` property (gain = (v/100)³), which makes a 10-step drag near
+    /// the bottom jump ~18 dB while the same drag near the top moves ~3 dB. Map the percent
+    /// linearly onto a 40 dB loudness range instead, so every slider step sounds the same size.
     pub fn set_volume(&self, volume: i64) -> Result<(), Error> {
-        self.mpv.set_property("volume", volume)?;
+        self.mpv.set_property("volume", perceptual_to_mpv(volume))?;
         Ok(())
     }
 
@@ -270,5 +273,32 @@ fn event_loop(mut ev: EventContext, tx: tokio::sync::mpsc::UnboundedSender<Playe
             }
             None => {}
         }
+    }
+}
+
+/// Slider percent (perceptual, linear-in-dB over 40 dB) → mpv `volume` value. mpv applies
+/// gain = (v/100)³, i.e. 60·log10(v/100) dB, so v = 100·10^((s−100)/150) yields a perceived
+/// level of 0.4·(s−100) dB. 0 stays a hard mute.
+fn perceptual_to_mpv(percent: i64) -> f64 {
+    if percent <= 0 {
+        return 0.0;
+    }
+    100.0 * 10f64.powf((percent.min(100) as f64 - 100.0) / 150.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::perceptual_to_mpv;
+
+    #[test]
+    fn volume_curve() {
+        assert_eq!(perceptual_to_mpv(0), 0.0);
+        assert_eq!(perceptual_to_mpv(100), 100.0);
+        // 50% ≈ −20 dB perceived ⇒ mpv value 100·10^(−1/3)
+        assert!((perceptual_to_mpv(50) - 46.415).abs() < 0.01);
+        // Equal slider steps = equal dB steps: ratio between consecutive values is constant.
+        let r1 = perceptual_to_mpv(40) / perceptual_to_mpv(30);
+        let r2 = perceptual_to_mpv(90) / perceptual_to_mpv(80);
+        assert!((r1 - r2).abs() < 1e-9);
     }
 }

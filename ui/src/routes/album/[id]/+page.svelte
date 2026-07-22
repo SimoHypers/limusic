@@ -93,9 +93,8 @@
     function shuffle() {
         if (!album?.items.length) return;
         menuOpen = false;
-        // ponytail: shuffles the album's own tracks (a finite album is small); no radio seed.
-        const order = [...album.items].sort(() => Math.random() - 0.5);
-        playFrom(asItem(), order, 0, album!.playlistId);
+        // Real order + shuffle flag — the backend shuffles (fresh each time, restorable).
+        playFrom(asItem(), album.items, null, album.playlistId, true);
     }
     function saveToPlaylist() {
         if (!album?.items.length) return;

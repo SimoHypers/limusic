@@ -77,6 +77,13 @@ pub async fn add_to_queue(state: St<'_>, item: SongItem) -> Result<(), String> {
     Ok(())
 }
 
+/// Clear every upcoming manually-queued track (the queue panel's "Next in queue" section).
+#[tauri::command]
+pub async fn clear_queued(state: St<'_>) -> Result<(), String> {
+    state.inner().clone().clear_queued().await;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn next_track(state: St<'_>) -> Result<(), String> {
     state.inner().clone().next_in_queue().await;
@@ -307,16 +314,20 @@ pub async fn get_browse_grid(
 /// Play a playlist/album: the given items become the queue (no radio). `start` is the clicked
 /// track index; `None`/omitted means "just play it" (random opener when shuffle is on).
 /// `source_id` (the page's playlist/album playlist id) makes autoplay continue with that
-/// context's radio when the queue runs out.
+/// context's radio when the queue runs out. `source_name` (the page title) feeds the queue
+/// panel's "Next from" header; `shuffle: true` (page Shuffle buttons) turns shuffle on for
+/// this queue — pass the items in their real order, the backend shuffles.
 #[tauri::command]
 pub async fn play_playlist(
     state: St<'_>,
     items: Vec<SongItem>,
     start: Option<usize>,
     source_id: Option<String>,
+    source_name: Option<String>,
+    shuffle: Option<bool>,
 ) -> Result<(), String> {
     let state = state.inner().clone();
-    state.play_tracks(items, start, source_id).await;
+    state.play_tracks(items, start, source_id, source_name, shuffle.unwrap_or(false)).await;
     Ok(())
 }
 

@@ -20,6 +20,8 @@ export interface SongItem {
 	liked?: boolean;
 	/** Listen Together: name of the guest who added this queue item (session adds only). */
 	queued_by?: string;
+	/** Manually added to the queue ("Add to queue") — drives the "Next in queue" section. */
+	queued?: boolean;
 	/** Appended by autoplay radio continuation — drives the queue's "Autoplay" divider + badge. */
 	autoplay?: boolean;
 }
@@ -43,6 +45,8 @@ export interface QueueState {
 	currentIndex: number;
 	shuffle?: boolean;
 	repeat?: RepeatMode;
+	/** What seeded the queue (playlist/album title, "<song> Radio") — the "Next from" header. */
+	sourceName?: string | null;
 }
 
 export interface Account {
@@ -145,6 +149,8 @@ export const playIndex = (index: number) => invoke<void>('play_index', { index }
 export const removeFromQueue = (index: number) => invoke<void>('remove_from_queue', { index });
 /** Add a track to the queue: end of it when solo, right after the current song in a session. */
 export const addToQueue = (item: SongItem) => invoke<void>('add_to_queue', { item });
+/** Clear every upcoming manually-queued track (the "Next in queue" section). */
+export const clearQueued = () => invoke<void>('clear_queued');
 export const nextTrack = () => invoke<void>('next_track');
 export const prevTrack = () => invoke<void>('prev_track');
 export const toggleShuffle = () => invoke<void>('toggle_shuffle');
@@ -182,9 +188,16 @@ export const getPlaylistMore = (token: string) =>
  * `start`: the clicked track index, or `null` for "just play it" (random opener under shuffle).
  * `sourceId`: the page's playlist/album playlist id — makes autoplay continue with that
  * context's radio (omit to fall back to song radio seeded from the queue's last track).
+ * `sourceName`: the page title, for the queue panel's "Next from" header.
+ * `shuffle`: turn shuffle on for this queue — pass items in their real order, Rust shuffles.
  */
-export const playPlaylist = (items: SongItem[], start: number | null, sourceId?: string) =>
-	invoke<void>('play_playlist', { items, start, sourceId });
+export const playPlaylist = (
+	items: SongItem[],
+	start: number | null,
+	sourceId?: string,
+	sourceName?: string,
+	shuffle?: boolean
+) => invoke<void>('play_playlist', { items, start, sourceId, sourceName, shuffle });
 export const getAlbum = (id: string) => invoke<AlbumPage>('get_album', { id });
 export const getArtist = (id: string) => invoke<ArtistPage>('get_artist', { id });
 export const getBrowseGrid = (id: string, params?: string) =>
