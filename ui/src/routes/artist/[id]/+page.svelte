@@ -9,11 +9,11 @@
 		MoreVerticalIcon,
 		DashboardSquare02Icon
 	} from '@hugeicons/core-free-icons';
-	import MediaCard from '$lib/components/MediaCard.svelte';
 	import MediaCardSkeleton from '$lib/components/MediaCardSkeleton.svelte';
 	import TrackRow from '$lib/components/TrackRow.svelte';
 	import TrackRowSkeleton from '$lib/components/TrackRowSkeleton.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
+	import Shelf from '$lib/components/Shelf.svelte';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import * as api from '$lib/api';
 	import type { ArtistPage, BrowseItem } from '$lib/api';
@@ -214,26 +214,12 @@
 		{/if}
 
 		{#each artist.sections as section, i (i + ':' + section.title)}
-			<section>
-				<div class="mb-3 flex items-center justify-between">
-					<h2 class="font-heading text-xl font-bold">{section.title}</h2>
-					{#if section.moreBrowseId}
-						<button
-							class="text-xs font-semibold uppercase text-muted-foreground hover:text-foreground"
-							onclick={() => showMore(section)}
-						>
-							More
-						</button>
-					{/if}
-				</div>
-				<div class="flex gap-2 overflow-x-auto pb-2">
-					{#each section.items as item, i (item.id + ':' + i)}
-						<div class="w-40 shrink-0">
-							<MediaCard {item} />
-						</div>
-					{/each}
-				</div>
-			</section>
+			<Shelf
+				title={section.title}
+				items={section.items}
+				headingClass="font-heading text-xl font-bold"
+				onMore={section.moreBrowseId ? () => showMore(section) : undefined}
+			/>
 		{/each}
 	</div>
 {/if}

@@ -5,10 +5,10 @@
 	import { Search01Icon, UserMultiple02Icon } from '@hugeicons/core-free-icons';
 	import { Input } from '$lib/components/ui/input';
 	import { Skeleton } from '$lib/components/ui/skeleton';
-	import MediaCard from '$lib/components/MediaCard.svelte';
 	import MediaCardSkeleton from '$lib/components/MediaCardSkeleton.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import QuickPicks from '$lib/components/QuickPicks.svelte';
+	import Shelf from '$lib/components/Shelf.svelte';
 	import * as api from '$lib/api';
 	import type { BrowseItem, HomeChip, HomePage } from '$lib/api';
 	import { auth, personal, ui } from '$lib/player.svelte';
@@ -157,14 +157,9 @@
 	{#if !selected}
 		<QuickPicks />
 		{#if recent.length}
-			<section class="mb-8">
-				<h2 class="mb-3 font-heading text-lg font-semibold">Jump back in</h2>
-				<div class="flex gap-2 overflow-x-auto pb-2">
-					{#each recent as item (item.id)}
-						<div class="w-40 shrink-0"><MediaCard {item} /></div>
-					{/each}
-				</div>
-			</section>
+			<div class="mb-8">
+				<Shelf title="Jump back in" items={recent} />
+			</div>
 		{/if}
 	{/if}
 	{#if loading}
@@ -185,26 +180,11 @@
 	{:else if home && home.sections.length}
 		<div class="content-in flex flex-col gap-8">
 			{#each home.sections as section, i (i + ':' + section.title)}
-				<section>
-					<div class="mb-3 flex items-center justify-between">
-						<h2 class="font-heading text-lg font-semibold">{section.title}</h2>
-						{#if section.moreBrowseId}
-							<button
-								class="text-xs font-semibold uppercase text-muted-foreground hover:text-foreground"
-								onclick={() => showMore(section)}
-							>
-								More
-							</button>
-						{/if}
-					</div>
-					<div class="flex gap-2 overflow-x-auto pb-2">
-						{#each section.items as item, i (item.id + ':' + i)}
-							<div class="w-40 shrink-0">
-								<MediaCard {item} />
-							</div>
-						{/each}
-					</div>
-				</section>
+				<Shelf
+					title={section.title}
+					items={section.items}
+					onMore={section.moreBrowseId ? () => showMore(section) : undefined}
+				/>
 			{/each}
 		</div>
 	{:else}

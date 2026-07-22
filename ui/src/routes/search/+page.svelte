@@ -6,11 +6,11 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Button } from '$lib/components/ui/button';
 	import { Skeleton } from '$lib/components/ui/skeleton';
-	import MediaCard from '$lib/components/MediaCard.svelte';
 	import MediaCardSkeleton from '$lib/components/MediaCardSkeleton.svelte';
 	import TrackRow from '$lib/components/TrackRow.svelte';
 	import TrackRowSkeleton from '$lib/components/TrackRowSkeleton.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
+	import Shelf from '$lib/components/Shelf.svelte';
 	import * as api from '$lib/api';
 	import type { SearchResults } from '$lib/api';
 	import { getCached, putCached } from '$lib/pagecache';
@@ -147,11 +147,7 @@
 								<TrackRow {song} onplay={() => api.play(song)} onAdd={() => openAddToPlaylist(song)} />
 							{/each}
 						{:else}
-							<div class="flex gap-2 overflow-x-auto pb-2">
-								{#each sec.items.slice(0, sec.max) as item (item.id + item.title)}
-									<div class="w-40 shrink-0"><MediaCard {item} /></div>
-								{/each}
-							</div>
+							<Shelf items={sec.items.slice(0, sec.max)} />
 						{/if}
 					</section>
 				{/each}
