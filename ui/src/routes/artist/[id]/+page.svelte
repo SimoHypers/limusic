@@ -213,7 +213,7 @@
 			</section>
 		{/if}
 
-		{#each artist.sections as section (section.title)}
+		{#each artist.sections as section, i (i + ':' + section.title)}
 			<section>
 				<div class="mb-3 flex items-center justify-between">
 					<h2 class="font-heading text-xl font-bold">{section.title}</h2>
@@ -227,7 +227,7 @@
 					{/if}
 				</div>
 				<div class="flex gap-2 overflow-x-auto pb-2">
-					{#each section.items as item (item.id + item.title)}
+					{#each section.items as item, i (item.id + ':' + i)}
 						<div class="w-40 shrink-0">
 							<MediaCard {item} />
 						</div>

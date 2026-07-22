@@ -16,6 +16,11 @@
 	import { lt } from '$lib/lt.svelte';
 	import { getCached, putCached } from '$lib/pagecache';
 
+	// Fixed at mount — a greeting that flips mid-session is uncanny.
+	const hour = new Date().getHours();
+	const daypart =
+		hour < 5 ? 'Good night' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+
 	let home = $state<HomePage | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
@@ -101,7 +106,9 @@
 
 <div class="p-6">
 	<div class="mb-6 flex items-center justify-between gap-4">
-		<h1 class="font-heading text-2xl font-bold">Home</h1>
+		<h1 class="font-heading text-2xl font-bold">
+			{daypart}{auth.account?.name ? `, ${auth.account.name.split(' ')[0]}` : ''}
+		</h1>
 		<div class="flex items-center gap-2">
 			<button
 				onclick={() => (ui.ltOpen = true)}
@@ -177,7 +184,7 @@
 		<ErrorState message={error} onRetry={load} />
 	{:else if home && home.sections.length}
 		<div class="content-in flex flex-col gap-8">
-			{#each home.sections as section (section.title)}
+			{#each home.sections as section, i (i + ':' + section.title)}
 				<section>
 					<div class="mb-3 flex items-center justify-between">
 						<h2 class="font-heading text-lg font-semibold">{section.title}</h2>
@@ -191,7 +198,7 @@
 						{/if}
 					</div>
 					<div class="flex gap-2 overflow-x-auto pb-2">
-						{#each section.items as item (item.id + item.title)}
+						{#each section.items as item, i (item.id + ':' + i)}
 							<div class="w-40 shrink-0">
 								<MediaCard {item} />
 							</div>
