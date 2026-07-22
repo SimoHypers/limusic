@@ -128,8 +128,7 @@ export default function Aurora(props: AuroraProps) {
 
     const renderer = new Renderer({
       alpha: true,
-      premultipliedAlpha: true,
-      antialias: true
+      premultipliedAlpha: true
     });
     const gl = renderer.gl;
     gl.clearColor(0, 0, 0, 0);
@@ -175,6 +174,7 @@ export default function Aurora(props: AuroraProps) {
     const mesh = new Mesh(gl, { geometry, program });
     ctn.appendChild(gl.canvas);
 
+    let lastStopsKey = colorStops.join();
     let animateId = 0;
     const update = (t: number) => {
       animateId = requestAnimationFrame(update);
@@ -184,18 +184,35 @@ export default function Aurora(props: AuroraProps) {
         program.uniforms.uAmplitude.value = propsRef.current.amplitude ?? 1.0;
         program.uniforms.uBlend.value = propsRef.current.blend ?? blend;
         const stops = propsRef.current.colorStops ?? colorStops;
-        program.uniforms.uColorStops.value = stops.map((hex: string) => {
-          const c = new Color(hex);
-          return [c.r, c.g, c.b];
-        });
+        if (stops.join() !== lastStopsKey) {
+          lastStopsKey = stops.join();
+          program.uniforms.uColorStops.value = stops.map((hex: string) => {
+            const c = new Color(hex);
+            return [c.r, c.g, c.b];
+          });
+        }
         renderer.render({ scene: mesh });
       }
     };
-    animateId = requestAnimationFrame(update);
+
+    // Only render while the hero is actually on screen — the shader is
+    // expensive enough to starve scrolling on integrated GPUs.
+    let running = false;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting && !running) {
+        running = true;
+        animateId = requestAnimationFrame(update);
+      } else if (!entry.isIntersecting && running) {
+        running = false;
+        cancelAnimationFrame(animateId);
+      }
+    });
+    observer.observe(ctn);
 
     resize();
 
     return () => {
+      observer.disconnect();
       cancelAnimationFrame(animateId);
       window.removeEventListener('resize', resize);
       if (ctn && gl.canvas.parentNode === ctn) {
