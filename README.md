@@ -2,7 +2,7 @@
 
 <img src="./assets/docs/limusic-github-image.png" alt="Limusic Banner" width="100%">
 
-# 🍋 Limusic
+# Limusic
 
 **A native desktop YouTube Music client — Rust + Tauri, ad-free, no Electron.**
 
@@ -20,31 +20,31 @@
 **Limusic** talks directly to YouTube's internal API and plays audio through libmpv — no bundled
 browser runtime, no backend server, no ads in the audio. It started as a desktop rebuild of the
 playback engine behind [Metrolist](https://github.com/mostafaalagamy/Metrolist), an Android
-YouTube Music client, and grew from there. 🎵
+YouTube Music client, and grew from there.
 
 </div>
 
 ---
 
-## ✨ Features
+## Features
 
-- 🚫 **Ad-free playback** — streams come straight from YouTube's API, ads never do
-- 🔎 **Search & browse** — songs, albums, artists, playlists, and the YTM home feed
-- 🔑 **Sign in** with your YouTube Music account: in-app Google login or cookie-paste
-- 📚 **Your library** — playlists, liked songs, and write actions (like, add to playlist, create/rename/delete playlists, subscribe)
-- 🎧 **Gapless playback** with loudness normalization, powered by libmpv
-- 📜 **Queue** with radio/automix continuation, restored across restarts
-- 🎤 **Synced lyrics** — line-by-line side panel with auto-scroll and click-to-jump
-- 📊 **Last.fm scrobbling** — connect once from the title bar, every play is scrobbled
-- 🎮 **Discord Rich Presence** — artwork, live progress bar, one click to toggle
-- ⌨️ **OS media keys** and now-playing integration (MPRIS on Linux, SMTC on Windows)
-- 🔔 **System tray** — close the window, keep the music; play/pause and skip from the tray, optional start-on-login
-- 👥 **Listen Together** — synced listening rooms over a small self-hosted relay
-- 🔄 **Self-updating builds** (AppImage on Linux, setup.exe on Windows)
+- **Ad-free playback** — streams come straight from YouTube's API, ads never do
+- **Search & browse** — songs, albums, artists, playlists, and the YTM home feed
+- **Sign in** with your YouTube Music account: in-app Google login or cookie-paste
+- **Your library** — playlists, liked songs, and write actions (like, add to playlist, create/rename/delete playlists, subscribe)
+- **Gapless playback** with loudness normalization, powered by libmpv
+- **Queue** with radio/automix continuation, restored across restarts
+- **Synced lyrics** — line-by-line side panel with auto-scroll and click-to-jump
+- **Last.fm scrobbling** — connect once from the title bar, every play is scrobbled
+- **Discord Rich Presence** — artwork, live progress bar, one click to toggle
+- **OS media keys** and now-playing integration (MPRIS on Linux, SMTC on Windows)
+- **System tray** — close the window, keep the music; play/pause and skip from the tray, optional start-on-login
+- **Listen Together** — synced listening rooms over a small self-hosted relay
+- **Self-updating builds** (AppImage on Linux, setup.exe on Windows)
 
 ---
 
-<h2 align="center">📥 Download & Install</h2>
+<h2 align="center">Download & Install</h2>
 
 <p align="center">
   <a href="https://github.com/SimoHypers/limusic/releases/latest">
@@ -62,7 +62,7 @@ YouTube Music client, and grew from there. 🎵
 
 ---
 
-## 📊 Scrobbling & Discord
+## Scrobbling & Discord
 
 Both live in the title bar, next to the window controls.
 
@@ -88,7 +88,7 @@ reports that it isn't configured.
 
 ---
 
-## 🎤 Lyrics
+## Lyrics
 
 Open the panel with the microphone button in the player bar, next to the queue
 button. It takes the same side of the window as the queue, so opening one closes
@@ -105,7 +105,7 @@ entirely in some countries — where that's the case, LRCLIB does all the work.
 
 ---
 
-## 👥 Listen Together
+## Listen Together
 
 Synced listening with friends. Everyone streams their own audio from YouTube;
 the room only relays play/pause, seeks, track changes and the queue. One person
@@ -122,7 +122,7 @@ suggestion.
 
 ---
 
-## 🔧 Building from Source
+## Building from Source
 
 Fedora:
 
@@ -137,7 +137,7 @@ Windows and macOS instructions live in [docs/BUILD-PLATFORMS.md](docs/BUILD-PLAT
 
 ---
 
-## ⚙️ How It Works, Briefly
+## How It Works, Briefly
 
 - A pure Rust crate speaks YouTube's InnerTube API, impersonating several
   official client identities and falling back between them when one fails.
@@ -152,7 +152,7 @@ Windows and macOS instructions live in [docs/BUILD-PLATFORMS.md](docs/BUILD-PLAT
 
 ---
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 This project is not affiliated with, funded, authorized, endorsed by, or in
 any way associated with YouTube, Google LLC, or any of their affiliates and
@@ -163,6 +163,6 @@ this project belong to their respective owners.
 
 ---
 
-## 📄 License
+## License
 
 [GPL-3.0](LICENSE)
