@@ -252,6 +252,12 @@ pub async fn get_home(state: St<'_>, params: Option<String>) -> Result<HomePage,
 }
 
 #[tauri::command]
+pub async fn get_home_more(state: St<'_>, token: String) -> Result<HomePage, String> {
+    let client = metadata_client(&state)?;
+    state.it.home_continuation(client, &token).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_library(state: St<'_>) -> Result<Vec<BrowseItem>, String> {
     let client = metadata_client(&state)?;
     state.it.library_playlists(client).await.map_err(|e| e.to_string())

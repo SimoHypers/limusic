@@ -58,6 +58,8 @@ pub struct HomePage {
     #[serde(default)]
     pub chips: Vec<HomeChip>,
     pub sections: Vec<Section>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub continuation: Option<String>,
 }
 
 /// A playlist or album detail page: header + tracks + a paging token.
@@ -168,7 +170,7 @@ pub fn parse_home(root: &Value) -> HomePage {
             sections.push(Section { title, items, more_browse_id, more_params });
         }
     }
-    HomePage { chips, sections }
+    HomePage { chips, sections, continuation: continuation_token(root) }
 }
 
 /// Parse a `FEmusic_liked_playlists` response into a flat grid of playlist cards. context/08.
@@ -575,7 +577,9 @@ mod tests {
                 // No browseEndpoint (e.g. the "clear filter" chip) → skipped.
                 { "chipCloudChipRenderer": { "text": { "runs": [{ "text": "Nowhere" }] } } }
             ] } },
-            "contents": { "sectionListRenderer": { "contents": [
+            "contents": { "sectionListRenderer": {
+                "continuations": [{ "nextContinuationData": { "continuation": "HOME_MORE" } }],
+                "contents": [
                 { "musicCarouselShelfRenderer": {
                     "header": { "musicCarouselShelfBasicHeaderRenderer": {
                         "title": { "runs": [{ "text": "Mixed for you" }] },
@@ -632,6 +636,28 @@ mod tests {
         assert_eq!(s2.title, "Recommended albums");
         assert_eq!(s2.more_browse_id, None);
         assert_eq!(s2.more_params, None);
+        assert_eq!(home.continuation.as_deref(), Some("HOME_MORE"));
+    }
+
+    #[test]
+    fn home_continuation_absent_when_no_token() {
+        let root = json!({
+            "contents": { "sectionListRenderer": { "contents": [
+                { "musicCarouselShelfRenderer": {
+                    "header": { "musicCarouselShelfBasicHeaderRenderer": {
+                        "title": { "runs": [{ "text": "Mixed for you" }] }
+                    } },
+                    "contents": [
+                        { "musicTwoRowItemRenderer": {
+                            "title": { "runs": [{ "text": "My Mix" }] },
+                            "navigationEndpoint": { "browseEndpoint": { "browseId": "VLPL123" } }
+                        } }
+                    ]
+                } }
+            ] } }
+        });
+        let home = parse_home(&root);
+        assert_eq!(home.continuation, None);
     }
 
     #[test]

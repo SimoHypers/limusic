@@ -75,6 +75,7 @@ export interface HomeChip {
 export interface HomePage {
 	chips: HomeChip[];
 	sections: HomeSection[];
+	continuation?: string;
 }
 
 export interface PlaylistPage {
@@ -172,6 +173,7 @@ export const loginWebview = () => invoke<void>('login_webview');
 // --- browse / library (context/08) ---------------------------------------------------------
 /** `params` is a `HomeChip.params` token — omit for the unfiltered feed. */
 export const getHome = (params?: string) => invoke<HomePage>('get_home', { params });
+export const getHomeMore = (token: string) => invoke<HomePage>('get_home_more', { token });
 export const getLibrary = () => invoke<BrowseItem[]>('get_library');
 export const getPlaylist = (id: string) => invoke<PlaylistPage>('get_playlist', { id });
 export const getPlaylistMore = (token: string) =>

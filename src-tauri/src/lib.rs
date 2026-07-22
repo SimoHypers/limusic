@@ -259,6 +259,7 @@ pub fn run() {
             commands::sign_out,
             commands::login_webview,
             commands::get_home,
+            commands::get_home_more,
             commands::get_library,
             commands::get_playlist,
             commands::get_playlist_more,

@@ -199,6 +199,26 @@ impl InnerTube {
         Ok(browse::parse_home(&value))
     }
 
+    /// Next batch of home shelves via a continuation token. Same ctoken carrier as
+    /// `playlist_continuation`; the response's shelves parse with `parse_home` (its find_all walk
+    /// doesn't care whether shelves sit under `contents` or `continuationContents`).
+    pub async fn home_continuation(
+        &self,
+        client: &YouTubeClient,
+        token: &str,
+    ) -> Result<HomePage, Error> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ContinuationBody {
+            context: Context,
+        }
+        let body = ContinuationBody { context: self.context_for(client) };
+        let enc = urlencoding::encode(token);
+        let path = format!("browse?ctoken={enc}&continuation={enc}&type=next");
+        let value = self.post(&path, client, &body, true).await?;
+        Ok(browse::parse_home(&value))
+    }
+
     /// Library playlists grid (`FEmusic_liked_playlists`). context/08. Needs login.
     pub async fn library_playlists(&self, client: &YouTubeClient) -> Result<Vec<BrowseItem>, Error> {
         let value = self.browse(client, Some("FEmusic_liked_playlists"), None).await?;

@@ -5,13 +5,14 @@
 	import { Search01Icon, UserMultiple02Icon } from '@hugeicons/core-free-icons';
 	import { Input } from '$lib/components/ui/input';
 	import { Skeleton } from '$lib/components/ui/skeleton';
+	import { Button } from '$lib/components/ui/button';
 	import MediaCardSkeleton from '$lib/components/MediaCardSkeleton.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import QuickPicks from '$lib/components/QuickPicks.svelte';
 	import Shelf from '$lib/components/Shelf.svelte';
 	import * as api from '$lib/api';
 	import type { BrowseItem, HomeChip, HomePage } from '$lib/api';
-	import { auth, personal, ui } from '$lib/player.svelte';
+	import { auth, personal, ui, toast } from '$lib/player.svelte';
 	import { interleave, recentItems, topArtists } from '$lib/personal';
 	import { lt } from '$lib/lt.svelte';
 	import { getCached, putCached } from '$lib/pagecache';
@@ -29,6 +30,7 @@
 	// loading state (every home response carries the same chips anyway). Limusic is music-only.
 	let chips = $state<HomeChip[]>([]);
 	let selected = $state<string | null>(null);
+	let loadingMore = $state(false);
 	const recent = $derived(recentItems(personal));
 
 	function goSearch() {
@@ -65,6 +67,26 @@
 			if (!hit) error = String(e);
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function loadMore() {
+		const token = home?.continuation;
+		if (!token || loadingMore) return;
+		loadingMore = true;
+		const params = selected; // guard against chip switches mid-flight
+		try {
+			const more = await api.getHomeMore(token);
+			if (selected !== params || home?.continuation !== token) return; // stale
+			home = {
+				...home!,
+				sections: [...home!.sections, ...more.sections],
+				continuation: more.continuation
+			};
+		} catch (e) {
+			toast('Could not load more');
+		} finally {
+			loadingMore = false;
 		}
 	}
 
@@ -186,6 +208,13 @@
 					onMore={section.moreBrowseId ? () => showMore(section) : undefined}
 				/>
 			{/each}
+			{#if home.continuation}
+				<div class="p-3 text-center">
+					<Button variant="outline" size="sm" onclick={loadMore} disabled={loadingMore}>
+						{loadingMore ? 'Loading…' : 'Show more'}
+					</Button>
+				</div>
+			{/if}
 		</div>
 	{:else}
 		<p class="text-sm text-muted-foreground">
