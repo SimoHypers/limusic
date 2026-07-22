@@ -30,6 +30,12 @@
 		goto(`/search?${new URLSearchParams({ q: searchQuery }).toString()}`);
 	}
 
+	function showMore(section: { title: string; moreBrowseId?: string; moreParams?: string }) {
+		const q = new URLSearchParams({ id: section.moreBrowseId!, title: section.title });
+		if (section.moreParams) q.set('params', section.moreParams);
+		goto(`/list?${q.toString()}`);
+	}
+
 	async function load(params: string | null = selected) {
 		selected = params;
 		const key = params ? `home:${params}` : 'home';
@@ -162,7 +168,17 @@
 		<div class="content-in flex flex-col gap-8">
 			{#each home.sections as section (section.title)}
 				<section>
-					<h2 class="mb-3 font-heading text-lg font-semibold">{section.title}</h2>
+					<div class="mb-3 flex items-center justify-between">
+						<h2 class="font-heading text-lg font-semibold">{section.title}</h2>
+						{#if section.moreBrowseId}
+							<button
+								class="text-xs font-semibold uppercase text-muted-foreground hover:text-foreground"
+								onclick={() => showMore(section)}
+							>
+								More
+							</button>
+						{/if}
+					</div>
 					<div class="flex gap-2 overflow-x-auto pb-2">
 						{#each section.items as item (item.id + item.title)}
 							<div class="w-40 shrink-0">

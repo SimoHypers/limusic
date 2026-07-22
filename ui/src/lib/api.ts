@@ -64,6 +64,8 @@ export interface BrowseItem {
 export interface HomeSection {
 	title: string;
 	items: BrowseItem[];
+	moreBrowseId?: string;
+	moreParams?: string;
 }
 /** A mood/genre filter chip above the home feed; `params` re-fetches home filtered to it. */
 export interface HomeChip {

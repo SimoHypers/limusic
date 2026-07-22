@@ -34,9 +34,14 @@ pub struct BrowseItem {
 
 /// A titled row of cards on the home feed.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Section {
     pub title: String,
     pub items: Vec<BrowseItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub more_browse_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub more_params: Option<String>,
 }
 
 /// A mood/genre filter chip above the home feed (`chipCloudChipRenderer`): its label plus the
@@ -147,18 +152,20 @@ pub fn parse_home(root: &Value) -> HomePage {
         .collect();
     let mut sections = Vec::new();
     for shelf in find_all(root, "musicCarouselShelfRenderer") {
-        let title = find_all(shelf, "musicCarouselShelfBasicHeaderRenderer")
-            .into_iter()
-            .next()
-            .and_then(|h| runs_text(h.get("title")))
-            .unwrap_or_default();
+        let header = find_all(shelf, "musicCarouselShelfBasicHeaderRenderer").into_iter().next();
+        let title = header.and_then(|h| runs_text(h.get("title"))).unwrap_or_default();
         let items: Vec<BrowseItem> = shelf
             .get("contents")
             .and_then(Value::as_array)
             .map(|c| c.iter().filter_map(parse_carousel_item).collect())
             .unwrap_or_default();
         if !items.is_empty() {
-            sections.push(Section { title, items });
+            let more = header
+                .and_then(|h| h.get("moreContentButton"))
+                .and_then(|b| find_all(b, "browseEndpoint").into_iter().next());
+            let more_browse_id = more.and_then(|e| e.get("browseId")).and_then(Value::as_str).map(str::to_owned);
+            let more_params = more.and_then(|e| e.get("params")).and_then(Value::as_str).map(str::to_owned);
+            sections.push(Section { title, items, more_browse_id, more_params });
         }
     }
     HomePage { chips, sections }
@@ -571,7 +578,10 @@ mod tests {
             "contents": { "sectionListRenderer": { "contents": [
                 { "musicCarouselShelfRenderer": {
                     "header": { "musicCarouselShelfBasicHeaderRenderer": {
-                        "title": { "runs": [{ "text": "Mixed for you" }] }
+                        "title": { "runs": [{ "text": "Mixed for you" }] },
+                        "moreContentButton": { "buttonRenderer": { "navigationEndpoint": {
+                            "browseEndpoint": { "browseId": "FEmusic_moods_and_genres_category", "params": "MOREPARAMS" }
+                        } } }
                     } },
                     "contents": [
                         { "musicTwoRowItemRenderer": {
@@ -588,6 +598,17 @@ mod tests {
                             "navigationEndpoint": { "browseEndpoint": { "browseId": "MPREb_abc" } }
                         } }
                     ]
+                } },
+                { "musicCarouselShelfRenderer": {
+                    "header": { "musicCarouselShelfBasicHeaderRenderer": {
+                        "title": { "runs": [{ "text": "Recommended albums" }] }
+                    } },
+                    "contents": [
+                        { "musicTwoRowItemRenderer": {
+                            "title": { "runs": [{ "text": "Another Album" }] },
+                            "navigationEndpoint": { "browseEndpoint": { "browseId": "MPREc_xyz" } }
+                        } }
+                    ]
                 } }
             ] } }
         });
@@ -595,7 +616,7 @@ mod tests {
         assert_eq!(home.chips.len(), 1);
         assert_eq!(home.chips[0].title, "Workout");
         assert_eq!(home.chips[0].params, "ggNC0");
-        assert_eq!(home.sections.len(), 1);
+        assert_eq!(home.sections.len(), 2);
         let s = &home.sections[0];
         assert_eq!(s.title, "Mixed for you");
         assert_eq!(s.items.len(), 2);
@@ -605,6 +626,12 @@ mod tests {
         assert_eq!(s.items[0].thumbnail.as_deref(), Some("b.jpg"));
         assert_eq!(s.items[1].kind, "album");
         assert_eq!(s.items[1].id, "MPREb_abc");
+        assert_eq!(s.more_browse_id.as_deref(), Some("FEmusic_moods_and_genres_category"));
+        assert_eq!(s.more_params.as_deref(), Some("MOREPARAMS"));
+        let s2 = &home.sections[1];
+        assert_eq!(s2.title, "Recommended albums");
+        assert_eq!(s2.more_browse_id, None);
+        assert_eq!(s2.more_params, None);
     }
 
     #[test]
