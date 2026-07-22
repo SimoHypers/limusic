@@ -64,8 +64,9 @@
 				{@render children()}
 			{/key}
 		</main>
-		{#if queueOpen}<QueuePanel onClose={() => (queueOpen = false)} />{/if}
+		<!-- Lyrics before queue: docked side by side, lyrics takes the left column, queue the right. -->
 		{#if lyricsOpen}<LyricsPanel onClose={() => (lyricsOpen = false)} {queueOpen} />{/if}
+		{#if queueOpen}<QueuePanel onClose={() => (queueOpen = false)} />{/if}
 	</div>
 	{#if playback.now}
 		<!-- Slides up from its own height on first play; leaves instantly (bar removal is rare). -->

@@ -9,6 +9,7 @@
 		DashboardSquare02Icon
 	} from '@hugeicons/core-free-icons';
 	import type { BrowseItem } from '$lib/api';
+	import { anchorMenu } from '$lib/menu';
 	import { addPick, personal, togglePin } from '$lib/player.svelte';
 
 	let {
@@ -22,12 +23,11 @@
 	let menuOpen = $state(false);
 	let mx = $state(0);
 	let my = $state(0);
+	let openUp = $state(false);
 
 	function openMenu(e: MouseEvent) {
 		e.stopPropagation();
-		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-		mx = window.innerWidth - r.right;
-		my = r.bottom + 4;
+		({ right: mx, y: my, openUp } = anchorMenu(e.currentTarget as HTMLElement, 100));
 		menuOpen = true;
 	}
 	// stopPropagation everywhere: the trigger can sit over a clickable host (a card's whole surface
@@ -56,8 +56,10 @@
 	<button class="fixed inset-0 z-40 cursor-default" onclick={close} aria-label="Close menu"
 	></button>
 	<div
-		class="fixed z-50 min-w-48 origin-top-right animate-in rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl duration-150 fade-in-0 zoom-in-95"
-		style="right:{mx}px; top:{my}px;"
+		class="fixed z-50 min-w-48 animate-in rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl duration-150 fade-in-0 zoom-in-95 {openUp
+			? 'origin-bottom-right'
+			: 'origin-top-right'}"
+		style="right:{mx}px; {openUp ? 'bottom' : 'top'}:{my}px;"
 	>
 		{#if showPin}
 			<button
