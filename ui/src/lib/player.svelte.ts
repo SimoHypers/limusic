@@ -63,6 +63,18 @@ export async function createLibraryPlaylist(title: string): Promise<void> {
 	library.items = [{ kind: 'playlist', id: browseId, title }, ...library.items];
 }
 
+/** Optimistically bump the "N tracks" count in a library playlist's subtitle (sidebar + Library). */
+export function bumpLibraryTrackCount(playlistId: string, delta: number) {
+	library.items = library.items.map((it) => {
+		if (it.id !== playlistId || !it.subtitle) return it;
+		const subtitle = it.subtitle.replace(/\d+\s+tracks?/, (m) => {
+			const n = Math.max(0, parseInt(m) + delta);
+			return `${n} track${n === 1 ? '' : 's'}`;
+		});
+		return { ...it, subtitle };
+	});
+}
+
 // --- Personalization: Quick Picks, sidebar pins, play recency (see personal.ts) -----------------
 // The Quick Picks grid holds only what the user puts in it — nothing is ever auto-added.
 // localStorage rather than SQLite: only the webview ever reads this, so a table + commands + a
@@ -133,7 +145,7 @@ export function playFrom(
 
 // Transient UI state for write actions.
 export const ui = $state({
-	addVideoIds: null as string[] | null, // add-to-playlist picker target(s)
+	addSongs: null as SongItem[] | null, // add-to-playlist picker target(s), full items for optimistic appends
 	toast: null as string | null,
 	settingsOpen: false, // the settings modal
 	ltOpen: false // the Listen Together modal
@@ -146,13 +158,29 @@ export function toast(msg: string) {
 	}, 2500);
 }
 
-export function openAddToPlaylist(videoId: string) {
-	ui.addVideoIds = [videoId];
+export function openAddToPlaylist(song: SongItem) {
+	ui.addSongs = [song];
 }
 
 /** Open the picker to add several tracks at once (e.g. a whole album). */
-export function openAddManyToPlaylist(videoIds: string[]) {
-	ui.addVideoIds = videoIds.length ? videoIds : null;
+export function openAddManyToPlaylist(songs: SongItem[]) {
+	ui.addSongs = songs.length ? songs : null;
+}
+
+// Last successful add-to-playlist — the open playlist page appends these optimistically.
+export const lastPlaylistAdd = $state({ playlistId: '', songs: [] as SongItem[], epoch: 0 });
+
+export function notePlaylistAdd(playlistId: string, songs: SongItem[]) {
+	lastPlaylistAdd.playlistId = playlistId;
+	// Strip per-context fields: set_video_id belongs to the source playlist, autoplay/queued_by to
+	// the queue — none apply to the row's new home.
+	lastPlaylistAdd.songs = songs.map((s) => ({
+		...s,
+		set_video_id: undefined,
+		autoplay: undefined,
+		queued_by: undefined
+	}));
+	lastPlaylistAdd.epoch++;
 }
 
 let started = false;

@@ -60,7 +60,7 @@
 					index={i}
 					active={i === playback.queue.currentIndex}
 					onplay={() => api.playIndex(i)}
-					onAdd={() => openAddToPlaylist(item.video_id)}
+					onAdd={() => openAddToPlaylist(item)}
 					onRemove={canRemove && i !== playback.queue.currentIndex
 						? () => api.removeFromQueue(i)
 						: undefined}

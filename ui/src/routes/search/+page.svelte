@@ -144,7 +144,7 @@
 						{#if sec.list}
 							{#each sec.items.slice(0, sec.max) as item (item.id)}
 								{@const song = asSong(item)}
-								<TrackRow {song} onplay={() => api.play(song)} onAdd={() => openAddToPlaylist(item.id)} />
+								<TrackRow {song} onplay={() => api.play(song)} onAdd={() => openAddToPlaylist(song)} />
 							{/each}
 						{:else}
 							<div class="flex gap-2 overflow-x-auto pb-2">

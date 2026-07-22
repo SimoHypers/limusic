@@ -5,14 +5,14 @@
 	import { Cancel01Icon } from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import type { BrowseItem } from '$lib/api';
-	import { ui, toast } from '$lib/player.svelte';
+	import { ui, toast, bumpLibraryTrackCount, notePlaylistAdd } from '$lib/player.svelte';
 
 	let playlists = $state<BrowseItem[]>([]);
 	let loading = $state(false);
 
 	// Fetch the library playlists fresh each time the picker opens (cheap; picks up new playlists).
 	$effect(() => {
-		if (ui.addVideoIds) {
+		if (ui.addSongs) {
 			loading = true;
 			api
 				.getLibrary()
@@ -23,17 +23,19 @@
 	});
 
 	function close() {
-		ui.addVideoIds = null;
+		ui.addSongs = null;
 	}
 
 	async function pick(pl: BrowseItem) {
-		const ids = ui.addVideoIds;
+		const songs = ui.addSongs;
 		close();
-		if (!ids?.length) return;
+		if (!songs?.length) return;
 		try {
 			// Sequential — a whole album is a handful of requests; don't hammer the API in parallel.
-			for (const videoId of ids) await api.addToPlaylist(pl.id, videoId);
-			toast(ids.length > 1 ? `Added ${ids.length} songs to ${pl.title}` : `Added to ${pl.title}`);
+			for (const song of songs) await api.addToPlaylist(pl.id, song.video_id);
+			bumpLibraryTrackCount(pl.id, songs.length);
+			notePlaylistAdd(pl.id, songs);
+			toast(songs.length > 1 ? `Added ${songs.length} songs to ${pl.title}` : `Added to ${pl.title}`);
 		} catch (e) {
 			toast(String(e));
 		}
@@ -42,11 +44,11 @@
 
 <svelte:window
 	onkeydown={(e) => {
-		if (ui.addVideoIds && e.key === 'Escape') close();
+		if (ui.addSongs && e.key === 'Escape') close();
 	}}
 />
 
-{#if ui.addVideoIds}
+{#if ui.addSongs}
 	<div
 		transition:fade={{ duration: 150 }}
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"

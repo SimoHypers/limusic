@@ -207,7 +207,7 @@
 						{song}
 						active={song.video_id === nowId}
 						onplay={() => playFrom(asItem(), artist!.topSongs, i)}
-						onAdd={() => openAddToPlaylist(song.video_id)}
+						onAdd={() => openAddToPlaylist(song)}
 					/>
 				{/each}
 			</section>

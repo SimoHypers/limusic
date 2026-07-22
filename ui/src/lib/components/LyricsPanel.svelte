@@ -7,7 +7,7 @@
 	import * as api from '$lib/api';
 	import { playback } from '$lib/player.svelte';
 
-	let { onClose }: { onClose: () => void } = $props();
+	let { onClose, queueOpen = false }: { onClose: () => void; queueOpen?: boolean } = $props();
 
 	let expanded = $state(false);
 
@@ -122,8 +122,9 @@
 <aside
 	transition:fly={{ x: 32, duration: 220, easing: cubicOut }}
 	class={expanded
-		? // ponytail: left offsets mirror Sidebar's w-16/lg:w-60 — keep in sync if that changes.
-			'absolute inset-y-0 left-16 right-0 z-30 flex h-full flex-col border-l bg-card shadow-2xl lg:left-60'
+		? // ponytail: left offsets mirror Sidebar's w-16/lg:w-60, right offset mirrors QueuePanel's
+			// w-80 — keep in sync if those change.
+			`absolute inset-y-0 left-16 right-0 z-30 flex h-full flex-col border-l bg-card shadow-2xl lg:left-60 ${queueOpen ? 'lg:right-80' : ''}`
 		: 'absolute inset-y-0 right-0 z-30 flex h-full w-80 max-w-[80vw] shrink-0 flex-col border-l bg-card shadow-2xl lg:static lg:z-auto lg:max-w-none lg:bg-card/40 lg:shadow-none'}
 >
 	<div class="flex items-center justify-between border-b px-4 py-3">

@@ -22,10 +22,10 @@
 	import { updateState, installUpdate, checkForUpdatesQuiet } from '$lib/updater.svelte';
 
 	let { children } = $props();
-	// One right-panel region: queue and lyrics are mutually exclusive (toggling one swaps the other
-	// out, Spotify-style), so they never stack side by side.
-	let rightPanel = $state<'queue' | 'lyrics' | null>(null);
-	const togglePanel = (p: 'queue' | 'lyrics') => (rightPanel = rightPanel === p ? null : p);
+	// Queue and lyrics toggle independently — at lg+ they dock as two side-by-side columns, and
+	// expanded lyrics leaves room for the queue column (see LyricsPanel).
+	let queueOpen = $state(false);
+	let lyricsOpen = $state(false);
 
 	// Apply the saved accent color before the first paint (ssr=false → nothing renders until now).
 	if (browser) initTheme();
@@ -64,17 +64,17 @@
 				{@render children()}
 			{/key}
 		</main>
-		{#if rightPanel === 'queue'}<QueuePanel onClose={() => (rightPanel = null)} />{/if}
-		{#if rightPanel === 'lyrics'}<LyricsPanel onClose={() => (rightPanel = null)} />{/if}
+		{#if queueOpen}<QueuePanel onClose={() => (queueOpen = false)} />{/if}
+		{#if lyricsOpen}<LyricsPanel onClose={() => (lyricsOpen = false)} {queueOpen} />{/if}
 	</div>
 	{#if playback.now}
 		<!-- Slides up from its own height on first play; leaves instantly (bar removal is rare). -->
 		<div in:fly={{ y: 64, duration: 250, easing: cubicOut }}>
 			<PlayerBar
-				onToggleQueue={() => togglePanel('queue')}
-				queueOpen={rightPanel === 'queue'}
-				onToggleLyrics={() => togglePanel('lyrics')}
-				lyricsOpen={rightPanel === 'lyrics'}
+				onToggleQueue={() => (queueOpen = !queueOpen)}
+				{queueOpen}
+				onToggleLyrics={() => (lyricsOpen = !lyricsOpen)}
+				{lyricsOpen}
 			/>
 		</div>
 	{/if}

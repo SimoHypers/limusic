@@ -179,7 +179,17 @@
 				<Button
 					variant="ghost"
 					size="icon-sm"
-					onclick={() => openAddToPlaylist(playback.now!.videoId)}
+					onclick={() => {
+						const now = playback.now!;
+						openAddToPlaylist({
+							video_id: now.videoId,
+							title: now.title,
+							artists: now.artists,
+							artist_id: now.artistId,
+							thumbnail: now.thumbnail,
+							duration: now.duration
+						});
+					}}
 					aria-label="Add to playlist"
 				>
 					<HugeiconsIcon icon={Add01Icon} class="h-4 w-4 text-muted-foreground" />

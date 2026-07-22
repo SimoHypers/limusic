@@ -20,7 +20,15 @@
 	import * as api from '$lib/api';
 	import type { BrowseItem, PlaylistPage, SongItem } from '$lib/api';
 	import { getCached, putCached, invalidateCached } from '$lib/pagecache';
-	import { addPick, playback, openAddToPlaylist, playFrom, toast } from '$lib/player.svelte';
+	import {
+		addPick,
+		playback,
+		openAddToPlaylist,
+		playFrom,
+		toast,
+		bumpLibraryTrackCount,
+		lastPlaylistAdd
+	} from '$lib/player.svelte';
 
 	let pl = $state<PlaylistPage | null>(null);
 	let loading = $state(true);
@@ -80,6 +88,52 @@
 	$effect(() => {
 		if (id) load(id);
 	});
+
+	// Songs added to THIS playlist via the picker (e.g. from the queue) appear immediately.
+	// Epoch-guarded so an add is applied once; adds to other playlists are just marked seen.
+	let seenAddEpoch = lastPlaylistAdd.epoch;
+	$effect(() => {
+		if (lastPlaylistAdd.epoch === seenAddEpoch) return;
+		seenAddEpoch = lastPlaylistAdd.epoch;
+		if (!pl || lastPlaylistAdd.playlistId !== id) return;
+		pl = { ...pl, items: [...pl.items, ...lastPlaylistAdd.songs] };
+		cacheCurrent();
+		fillSetVideoIds();
+	});
+
+	// Optimistic rows lack set_video_id, so "Remove from playlist" is hidden on them. Refetch and
+	// patch the real ids into place (merge, not replace — keeps loadMore pages and any row YouTube
+	// hasn't reflected yet). Retries because the add is eventually-consistent on YouTube's side.
+	async function fillSetVideoIds() {
+		if (isLiked) return;
+		const pid = id;
+		for (const delay of [0, 2000, 4000]) {
+			if (delay) await new Promise((r) => setTimeout(r, delay));
+			if (pid !== id || !pl) return;
+			try {
+				const fresh = await api.getPlaylist(pid);
+				if (pid !== id || !pl) return;
+				const used = new Set(pl.items.map((t) => t.set_video_id).filter(Boolean));
+				pl = {
+					...pl,
+					subtitle: fresh.subtitle, // header track count catches up too
+					items: pl.items.map((t) => {
+						if (t.set_video_id) return t;
+						const match = fresh.items.find(
+							(f) => f.video_id === t.video_id && f.set_video_id && !used.has(f.set_video_id)
+						);
+						if (!match) return t;
+						used.add(match.set_video_id);
+						return { ...t, set_video_id: match.set_video_id };
+					})
+				};
+				cacheCurrent();
+				if (pl.items.every((t) => t.set_video_id)) return;
+			} catch {
+				/* retry on the next pass */
+			}
+		}
+	}
 
 	// Keep the page cache in step with optimistic mutations so a revisit within the TTL never
 	// resurrects pre-mutation data (the optimistic-UI contract). context: plans/007.
@@ -192,6 +246,7 @@
 				toast('Removed from Liked Music');
 			} else {
 				await api.removeFromPlaylist(id, track.video_id, track.set_video_id!);
+				bumpLibraryTrackCount(id, -1);
 				toast('Removed from playlist');
 			}
 			cacheCurrent();
@@ -326,7 +381,7 @@
 					index={i}
 					active={item.video_id === nowId}
 					onplay={() => playAll(i)}
-					onAdd={() => openAddToPlaylist(item.video_id)}
+					onAdd={() => openAddToPlaylist(item)}
 					onRemove={isLiked || (editable && item.set_video_id) ? () => removeTrack(item) : undefined}
 				/>
 			{:else}

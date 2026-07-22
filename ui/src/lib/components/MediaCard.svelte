@@ -105,7 +105,7 @@
 	{#if item.kind === 'song'}
 		<TrackMenu
 			song={asSong(item)}
-			onAdd={() => openAddToPlaylist(item.id)}
+			onAdd={() => openAddToPlaylist(asSong(item))}
 			triggerClass="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-md backdrop-blur-sm transition hover:bg-background focus-visible:opacity-100 group-hover:opacity-100"
 		/>
 	{/if}

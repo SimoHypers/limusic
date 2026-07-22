@@ -100,7 +100,7 @@
     function saveToPlaylist() {
         if (!album?.items.length) return;
         menuOpen = false;
-        openAddManyToPlaylist(album.items.map((t) => t.video_id));
+        openAddManyToPlaylist(album.items);
     }
 </script>
 
@@ -293,7 +293,7 @@
                 hideThumb
                 active={item.video_id === nowId}
                 onplay={() => playAll(i)}
-                onAdd={() => openAddManyToPlaylist([item.video_id])}
+                onAdd={() => openAddManyToPlaylist([item])}
             />
         {:else}
             <p class="p-4 text-sm text-muted-foreground">
