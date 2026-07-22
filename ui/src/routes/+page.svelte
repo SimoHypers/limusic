@@ -159,7 +159,7 @@
 	{:else if error}
 		<ErrorState message={error} onRetry={load} />
 	{:else if home && home.sections.length}
-		<div class="flex flex-col gap-8">
+		<div class="content-in flex flex-col gap-8">
 			{#each home.sections as section (section.title)}
 				<section>
 					<h2 class="mb-3 font-heading text-lg font-semibold">{section.title}</h2>

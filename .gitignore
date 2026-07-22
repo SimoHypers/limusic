@@ -15,7 +15,7 @@ rustypipe_reports/
 /progress/
 /spikes/
 /.agents/
-/.claude/worktrees/
+/.claude/
 /CLAUDE.md
 /PHASE1-PROMPT.md
 /RELEASING.md

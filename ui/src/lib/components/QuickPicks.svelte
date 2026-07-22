@@ -1,6 +1,7 @@
 <script lang="ts">
 	// The home grid the user curates. Nothing is ever auto-added — it holds exactly what was put in
 	// it, up to MAX_PICKS. Logic in $lib/personal.ts.
+	import { flip } from 'svelte/animate';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { Cancel01Icon } from '@hugeicons/core-free-icons';
 	import MediaCard from './MediaCard.svelte';
@@ -25,7 +26,7 @@
 			{#each picks as item (item.id)}
 				<!-- group/pick, not `group`: MediaCard already owns a plain `group` for its hover play
 				     button, and an unnamed nested group would fire both from either hover. -->
-				<div class="group/pick relative">
+				<div class="group/pick relative" animate:flip={{ duration: 200 }}>
 					<MediaCard {item} compact />
 					<!-- Top-left: MediaCard puts the song ⋯ top-right and the play button bottom-right. -->
 					<button

@@ -45,6 +45,10 @@ pub struct SongItem {
     /// successive adds stack FIFO right after the current song. Pure queue metadata, never parsed.
     #[serde(default)]
     pub queued: bool,
+    /// Appended by autoplay radio continuation (vs. chosen by the user). Drives the queue's
+    /// "Autoplay" divider + player-bar badge. Pure queue metadata, never parsed.
+    #[serde(default)]
+    pub autoplay: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -183,6 +187,7 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
         liked: like_status(node),
         queued_by: None,
         queued: false,
+        autoplay: false,
     })
 }
 
@@ -231,6 +236,7 @@ fn parse_panel_video(node: &Value) -> Option<SongItem> {
         liked: like_status(node),
         queued_by: None,
         queued: false,
+        autoplay: false,
     })
 }
 

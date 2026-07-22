@@ -71,6 +71,10 @@ struct QueueState {
     /// Pre-shuffle order snapshot. `Some(..)` ⇔ shuffle is ON; restored on shuffle-off.
     shuffle_orig: Option<Vec<SongItem>>,
     repeat: RepeatMode,
+    /// Radio playlist id for autoplay continuation: `RDAMPL<plId>` when the queue came from a
+    /// playlist/album, `None` otherwise (autoplay then seeds `RDAMVM<last video>`, so long
+    /// sessions drift with what's actually playing, like YTM's).
+    radio_seed: Option<String>,
     /// The queue index we've already appended to mpv for gapless lookahead (if any).
     lookahead_loaded: Option<usize>,
     /// Which client served the currently-loaded track (for the WEB_REMIX-403 feedback). context/06.
@@ -285,6 +289,7 @@ impl AppState {
             q.items = vec![seed];
             q.current = 0;
             q.lookahead_loaded = None;
+            q.radio_seed = None; // single-song queue → autoplay re-seeds from the last track
             // Shuffle is sticky across queues: keep it ON (re-snapshotted after radio hydration).
             q.shuffle_orig = q.shuffle_orig.is_some().then(|| q.items.clone());
         }
@@ -328,8 +333,14 @@ impl AppState {
     /// Play a finite list of tracks (a playlist/album). `start` is the clicked track; `None`
     /// means "just play the playlist" (the header Play button) — first track, or any track when
     /// shuffle is on. Unlike `play_song` this seeds NO radio — the given items *are* the queue
-    /// (context/08: playlist playback).
-    pub async fn play_tracks(self: &std::sync::Arc<Self>, items: Vec<SongItem>, start: Option<usize>) {
+    /// (context/08: playlist playback). `source_id` (the page's playlist/album playlist id) makes
+    /// autoplay continue with that context's radio when the queue runs out.
+    pub async fn play_tracks(
+        self: &std::sync::Arc<Self>,
+        items: Vec<SongItem>,
+        start: Option<usize>,
+        source_id: Option<String>,
+    ) {
         if items.is_empty() {
             return;
         }
@@ -349,6 +360,7 @@ impl AppState {
             q.items = items;
             q.current = start;
             q.lookahead_loaded = None;
+            q.radio_seed = radio_seed_for(source_id);
             if keep_shuffled {
                 // Snapshot the real playlist order (for un-shuffle), then play the clicked track
                 // first with everything else shuffled behind it.
@@ -423,11 +435,32 @@ impl AppState {
             }
         };
         if !has_next {
-            tracing::info!("queue exhausted");
-            let _ = self.app.emit("playback-state", "paused");
-            // mpv goes idle without flipping its pause flag, so no Paused event will fire — tell
-            // the OS widget + Discord ourselves or they show "playing" forever past the last song.
-            self.media_set_playing(false);
+            // Try autoplay before declaring the queue dead (the early trigger usually already
+            // extended it; this is the fallback when that didn't land in time). Off the pump:
+            // spawn, and let the task either continue playback or do the pause bookkeeping —
+            // pausing here and un-pausing a second later would flicker every consumer (UI,
+            // MPRIS, Discord).
+            let me = self.clone();
+            tauri::async_runtime::spawn(async move {
+                let gen = me.generation.fetch_add(1, Ordering::SeqCst) + 1;
+                if me.extend_queue_radio(gen).await > 0 {
+                    {
+                        let mut q = me.queue.lock().await;
+                        q.current += 1; // the first appended track
+                        q.lookahead_loaded = None; // start_current's loadfile replaces mpv's playlist
+                    }
+                    if me.start_current(gen).await {
+                        me.prime_lookahead(gen).await;
+                    }
+                } else {
+                    tracing::info!("queue exhausted");
+                    let _ = me.app.emit("playback-state", "paused");
+                    // mpv goes idle without flipping its pause flag, so no Paused event will fire
+                    // — tell the OS widget + Discord ourselves or they show "playing" forever
+                    // past the last song.
+                    me.media_set_playing(false);
+                }
+            });
             return;
         }
         if self.player.is_idle() {
@@ -468,7 +501,10 @@ impl AppState {
         // (its progress bar) and, worse, the *next* track-end. The generation guard inside already
         // makes a superseded resolve discard itself, so it's safe to detach.
         let me = self.clone();
-        tauri::async_runtime::spawn(async move { me.prime_lookahead(gen).await });
+        tauri::async_runtime::spawn(async move {
+            me.prime_lookahead(gen).await;
+            me.extend_queue_radio(gen).await; // autoplay early trigger (no-op unless tail is near)
+        });
     }
 
     /// A track died at the player layer (dead/403 URL). If WEB_REMIX served it, record the failure
@@ -592,6 +628,11 @@ impl AppState {
         self.persist_queue().await;
         // Listen Together host: announce the new track (fresh play → position 0, playing).
         self.lt_broadcast_current_track(0, true).await;
+        // Autoplay early trigger: extend the queue while the tail still plays, so the gapless
+        // lookahead can prime into the continuation. The near-tail guard inside makes this a
+        // no-op for almost every track start. Detached — never on the caller's path.
+        let me = self.clone();
+        tauri::async_runtime::spawn(async move { me.extend_queue_radio(gen).await });
         true
     }
 
@@ -830,6 +871,66 @@ impl AppState {
         self.db.get_setting("enable_history").map(|v| v != "false").unwrap_or(true)
     }
 
+    /// Autoplay enabled? Default on; only an explicit `"false"` disables it (mirrors
+    /// `history_enabled`).
+    fn autoplay_enabled(&self) -> bool {
+        self.db.get_setting("autoplay").map(|v| v != "false").unwrap_or(true)
+    }
+
+    /// Extend the queue with radio continuation when it's nearly out (autoplay). Returns how many
+    /// tracks were appended. Guards: setting on, repeat Off, not a guest, tail near (last two
+    /// tracks), generation unchanged across the network call. Continuation matches where the queue
+    /// came from: playlist/album radio (`radio_seed`) or song radio seeded from the last track.
+    /// Dedupes against the entire current queue; caps at `AUTOPLAY_BATCH` per hop. When the radio
+    /// returns nothing new, playback later stops exactly as pre-autoplay (no retry loop).
+    async fn extend_queue_radio(self: &std::sync::Arc<Self>, gen: u64) -> usize {
+        const AUTOPLAY_BATCH: usize = 20;
+        if !self.autoplay_enabled() || self.lt.is_guest().await {
+            return 0;
+        }
+        let (last_video, seed, existing) = {
+            let q = self.queue.lock().await;
+            if q.repeat != RepeatMode::Off {
+                return 0; // the queue never exhausts under repeat
+            }
+            if q.items.len().saturating_sub(q.current) > 2 {
+                return 0; // tail not near yet
+            }
+            let Some(last) = q.items.last() else { return 0 };
+            let seed = q.radio_seed.clone().unwrap_or_else(|| format!("RDAMVM{}", last.video_id));
+            let existing: HashSet<String> = q.items.iter().map(|i| i.video_id.clone()).collect();
+            (last.video_id.clone(), seed, existing)
+        };
+        let Some(client) = self.clients.get(innertube::METADATA_CLIENT) else { return 0 };
+        // Snapshot → network → re-lock, same discipline as `prime_lookahead`; the generation
+        // check between them is what makes it safe. A track added *during* the fetch could
+        // theoretically duplicate — accepted (YTM's own radio repeats occasionally too).
+        let fresh = match self.it.next(client, &last_video, Some(&seed)).await {
+            Ok(next) => next.items,
+            Err(e) => {
+                tracing::warn!(error = %e, "autoplay radio fetch failed");
+                return 0;
+            }
+        };
+        if self.generation.load(Ordering::SeqCst) != gen {
+            return 0; // user moved on while we fetched
+        }
+        let added = {
+            let mut q = self.queue.lock().await;
+            merge_radio(&mut q.items, fresh, existing, AUTOPLAY_BATCH)
+        };
+        if added > 0 {
+            tracing::info!(added, seed = %seed, "autoplay extended the queue");
+            self.emit_queue().await;
+            self.persist_queue().await;
+            self.lt_broadcast_queue().await;
+            // Appending at the tail never touches a primed lookahead slot; this covers the
+            // "current was last, nothing was primed" case.
+            self.prime_lookahead(gen).await;
+        }
+        added
+    }
+
     /// Persist the queue (items + current index) as a JSON blob so a restart can restore it
     /// losslessly (context/11 §state). Called whenever the queue changes or advances.
     async fn persist_queue(&self) {
@@ -840,6 +941,7 @@ impl AppState {
                 "current": q.current,
                 "repeat": q.repeat,
                 "shuffleOrig": &q.shuffle_orig,
+                "radioSeed": &q.radio_seed,
             })
             .to_string()
         };
@@ -870,6 +972,8 @@ impl AppState {
             .get("shuffleOrig")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .flatten();
+        let radio_seed: Option<String> =
+            saved.get("radioSeed").and_then(|v| v.as_str()).map(str::to_owned);
         let pos = self.db.get_setting("queue_position").and_then(|s| s.parse::<f64>().ok());
         if let Some(p) = pos.filter(|p| *p > 0.0) {
             *self.pending_seek.lock().unwrap() = Some((items[current].video_id.clone(), p));
@@ -880,6 +984,7 @@ impl AppState {
             q.items = items;
             q.repeat = repeat;
             q.shuffle_orig = shuffle_orig;
+            q.radio_seed = radio_seed;
         }
         if repeat == RepeatMode::One {
             let _ = self.player.set_loop_file(true);
@@ -1019,6 +1124,7 @@ impl AppState {
             q.current = 0;
             q.lookahead_loaded = None;
             q.shuffle_orig = None; // host rebuilt the queue — local shuffle snapshot is stale
+            q.radio_seed = None; // guests never autoplay — the host drives
         }
         let data = match self.resolve(&track.id).await {
             Ok(d) => d,
@@ -1349,6 +1455,7 @@ fn track_to_song(t: &Track) -> SongItem {
         liked: None,
         queued_by: t.queued_by.clone(),
         queued: false,
+        autoplay: false,
     }
 }
 
@@ -1361,6 +1468,41 @@ fn guest_insert_index(items: &[SongItem], current: usize) -> usize {
         at += 1;
     }
     at
+}
+
+/// The autoplay radio seed for a queue source: playlist/album pages pass their playlist id
+/// (`VL…` browseId or bare `OLAK5uy_…`/`PL…`) → `RDAMPL<id>` playlist radio. `None` (single
+/// song / artist top-songs) → no pinned seed; autoplay seeds `RDAMVM<last video>` at extension
+/// time instead.
+fn radio_seed_for(source_id: Option<String>) -> Option<String> {
+    source_id.map(|id| {
+        let id = id.strip_prefix("VL").unwrap_or(&id);
+        format!("RDAMPL{id}")
+    })
+}
+
+/// Append radio-continuation tracks to the queue: dedupe against `existing` (the whole current
+/// queue + everything appended this hop), cap at `cap`, and mark each as `autoplay` so the UI can
+/// show where the chosen queue ends and autoplay begins. Returns how many were appended.
+fn merge_radio(
+    items: &mut Vec<SongItem>,
+    fresh: Vec<SongItem>,
+    mut existing: HashSet<String>,
+    cap: usize,
+) -> usize {
+    let mut added = 0;
+    for mut item in fresh {
+        if added >= cap {
+            break;
+        }
+        if !existing.insert(item.video_id.clone()) {
+            continue; // already in the queue (or appended this hop)
+        }
+        item.autoplay = true;
+        items.push(item);
+        added += 1;
+    }
+    added
 }
 
 /// The queue index that plays after `current`, honoring repeat-all wrap. `None` at the tail
@@ -1458,8 +1600,8 @@ fn loudness_gain(loudness_db: Option<f64>) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::{
-        guest_insert_index, loudness_gain, next_index, shuffle_new_queue, shuffle_upcoming,
-        unshuffled, RepeatMode,
+        guest_insert_index, loudness_gain, merge_radio, next_index, radio_seed_for,
+        shuffle_new_queue, shuffle_upcoming, unshuffled, RepeatMode,
     };
 
     // `by.is_some()` (a named guest/host add) and a nameless solo add are both manual adds:
@@ -1478,6 +1620,7 @@ mod tests {
             liked: None,
             queued: by.is_some(),
             queued_by: by.map(Into::into),
+            autoplay: false,
         }
     }
 
@@ -1556,6 +1699,34 @@ mod tests {
         let mut one = vec![song("only", None)];
         assert_eq!(shuffle_new_queue(&mut one, 5), 0);
         assert_eq!(one[0].video_id, "only");
+    }
+
+    #[test]
+    fn radio_seed_from_source() {
+        // Playlist browseIds are VL-prefixed — stripped before building the radio id.
+        assert_eq!(radio_seed_for(Some("VLPL123".into())).as_deref(), Some("RDAMPLPL123"));
+        // Album audio playlist ids come bare.
+        assert_eq!(radio_seed_for(Some("OLAK5uy_x".into())).as_deref(), Some("RDAMPLOLAK5uy_x"));
+        // No source (single song / artist top-songs) → no pinned seed.
+        assert_eq!(radio_seed_for(None), None);
+    }
+
+    #[test]
+    fn autoplay_merge_dedupes_and_caps() {
+        let mut items = vec![song("a", None), song("b", None)];
+        let existing: std::collections::HashSet<String> =
+            items.iter().map(|i| i.video_id.clone()).collect();
+        // "a" is already queued, "c" appears twice in the radio result — one copy survives.
+        let fresh = vec![song("a", None), song("c", None), song("c", None), song("d", None), song("e", None)];
+        let added = merge_radio(&mut items, fresh, existing.clone(), 2);
+        assert_eq!(added, 2); // cap honored: c + d, e cut off
+        let ids: Vec<_> = items.iter().map(|i| i.video_id.as_str()).collect();
+        assert_eq!(ids, ["a", "b", "c", "d"]);
+        // Appended tracks are marked autoplay (the UI's divider/badge key); originals aren't.
+        assert!(items[2].autoplay && items[3].autoplay);
+        assert!(!items[0].autoplay && !items[1].autoplay);
+        // Nothing new in the radio result → 0, queue untouched (playback then stops as before).
+        assert_eq!(merge_radio(&mut items.clone(), vec![song("a", None)], existing, 20), 0);
     }
 
     #[test]

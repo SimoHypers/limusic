@@ -68,12 +68,15 @@
 		{#if rightPanel === 'lyrics'}<LyricsPanel onClose={() => (rightPanel = null)} />{/if}
 	</div>
 	{#if playback.now}
-		<PlayerBar
-			onToggleQueue={() => togglePanel('queue')}
-			queueOpen={rightPanel === 'queue'}
-			onToggleLyrics={() => togglePanel('lyrics')}
-			lyricsOpen={rightPanel === 'lyrics'}
-		/>
+		<!-- Slides up from its own height on first play; leaves instantly (bar removal is rare). -->
+		<div in:fly={{ y: 64, duration: 250, easing: cubicOut }}>
+			<PlayerBar
+				onToggleQueue={() => togglePanel('queue')}
+				queueOpen={rightPanel === 'queue'}
+				onToggleLyrics={() => togglePanel('lyrics')}
+				lyricsOpen={rightPanel === 'lyrics'}
+			/>
+		</div>
 	{/if}
 </div>
 

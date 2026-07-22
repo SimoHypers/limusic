@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Limusic — desktop YouTube Music client"
-rust-version = "1.77.2"
+rust-version = "1.80"
 
 [lib]
 name = "app_lib"
@@ -45,3 +45,6 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 discord-rich-presence = "1.1.0"
 # Last.fm API signature (api_sig is md5 of the sorted params + secret).
 md-5 = "0.10"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = "0.3.6"

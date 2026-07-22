@@ -69,11 +69,7 @@ pub fn run() {
         // e.g. clicking the app icon while we're hidden in the tray — re-shows this instance
         // instead of spawning a second one (which would fight over SQLite and mpv).
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
-                let _ = w.unminimize();
-                let _ = w.set_focus();
-            }
+            tray::show_main(app);
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -394,9 +390,7 @@ fn spawn_event_pump(
                     state.media_set_playing(playing);
                     // Keep the tray's toggle label honest — this arm is the same chokepoint
                     // MPRIS uses, so tray state can't drift from media-key state.
-                    if let Some(t) = app.try_state::<tray::TrayState>() {
-                        let _ = t.play_pause.set_text(if playing { "Pause" } else { "Play" });
-                    }
+                    tray::set_playing(&app, playing);
                     state.lt_on_play_state(playing).await; // Listen Together host → broadcast
                 }
                 PlayerEvent::TrackEnded => {

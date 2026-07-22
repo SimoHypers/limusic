@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { fade, scale } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { Cancel01Icon } from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
@@ -45,8 +47,14 @@
 />
 
 {#if ui.addVideoIds}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-		<div class="w-full max-w-sm rounded-xl border bg-card p-4 shadow-xl">
+	<div
+		transition:fade={{ duration: 150 }}
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+	>
+		<div
+			transition:scale={{ duration: 180, start: 0.96, easing: cubicOut }}
+			class="w-full max-w-sm rounded-xl border bg-card p-4 shadow-xl"
+		>
 			<div class="mb-3 flex items-center justify-between">
 				<h2 class="font-heading text-base font-semibold">Add to playlist</h2>
 				<button

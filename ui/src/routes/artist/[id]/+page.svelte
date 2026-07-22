@@ -146,7 +146,7 @@
 	<div class="p-6"><ErrorState message={error} onRetry={() => load(id)} /></div>
 {:else if artist}
 	<!-- Hero -->
-	<div class="relative flex min-h-[45vh] flex-col justify-end overflow-hidden">
+	<div class="content-in relative flex min-h-[45vh] flex-col justify-end overflow-hidden">
 		{#if artist.thumbnail}
 			<img src={artist.thumbnail} alt="" class="absolute inset-0 h-full w-full object-cover" />
 		{/if}
@@ -198,7 +198,7 @@
 		</div>
 	</div>
 
-	<div class="flex flex-col gap-8 p-6">
+	<div class="content-in flex flex-col gap-8 p-6">
 		{#if artist.topSongs.length}
 			<section>
 				<h2 class="mb-3 font-heading text-xl font-bold">Top songs</h2>

@@ -127,7 +127,7 @@
 		{:else if !sections.length}
 			<p class="text-sm text-muted-foreground">No results for “{searched}”.</p>
 		{:else}
-			<div class="flex flex-col gap-10">
+			<div class="content-in flex flex-col gap-10">
 				{#each sections as sec (sec.key)}
 					<section>
 						<div class="mb-3 flex items-center justify-between">

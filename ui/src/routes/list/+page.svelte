@@ -55,7 +55,7 @@
 	{:else if error}
 		<ErrorState message={error} onRetry={() => load(id, params)} />
 	{:else if items.length}
-		<div class="grid grid-cols-[repeat(auto-fill,10rem)] gap-4">
+		<div class="content-in grid grid-cols-[repeat(auto-fill,10rem)] gap-4">
 			{#each items as item (item.id + item.title)}
 				<MediaCard {item} />
 			{/each}

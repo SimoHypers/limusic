@@ -351,6 +351,13 @@
 
 /* --- Motion & interaction polish --- */
 
+/* Loaded page content fades in over the skeleton/route swap it replaces. Opacity-only —
+   cheap to composite on WebKitGTK. */
+@keyframes content-in {
+	from { opacity: 0; }
+}
+.content-in { animation: content-in 150ms ease-out; }
+
 /* A small "pop" for the like button when a track is favourited. */
 @keyframes heart-pop {
 	0% { transform: scale(1); }

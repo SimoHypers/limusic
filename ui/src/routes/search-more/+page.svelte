@@ -80,13 +80,15 @@
 	{:else if error}
 		<ErrorState message={error} onRetry={() => load(q, cat)} />
 	{:else if cat === 'songs'}
-		{#each songs as song (song.video_id)}
-			<TrackRow {song} onplay={() => api.play(song)} onAdd={() => openAddToPlaylist(song.video_id)} />
-		{:else}
-			<p class="text-sm text-muted-foreground">Nothing found.</p>
-		{/each}
+		<div class="content-in">
+			{#each songs as song (song.video_id)}
+				<TrackRow {song} onplay={() => api.play(song)} onAdd={() => openAddToPlaylist(song.video_id)} />
+			{:else}
+				<p class="text-sm text-muted-foreground">Nothing found.</p>
+			{/each}
+		</div>
 	{:else if cards.length}
-		<div class="grid grid-cols-[repeat(auto-fill,10rem)] gap-4">
+		<div class="content-in grid grid-cols-[repeat(auto-fill,10rem)] gap-4">
 			{#each cards as item (item.id + item.title)}
 				<MediaCard {item} />
 			{/each}

@@ -56,6 +56,7 @@
 
 	const quality = $derived(settings.quality ?? 'HIGH');
 	const historyOn = $derived(settings.enable_history !== 'false');
+	const autoplayOn = $derived(settings.autoplay !== 'false');
 	const discordOn = $derived(settings.discord_rpc === 'true');
 	const trayOn = $derived(settings.close_to_tray !== 'false');
 	const autostartOn = $derived(settings.autostart === 'true');
@@ -85,6 +86,11 @@
 	async function setHistory(on: boolean) {
 		settings.enable_history = on ? 'true' : 'false';
 		await api.setSetting('enable_history', settings.enable_history);
+	}
+
+	async function setAutoplay(on: boolean) {
+		settings.autoplay = on ? 'true' : 'false';
+		await api.setSetting('autoplay', settings.autoplay);
 	}
 
 	async function setDiscord(on: boolean) {
@@ -255,6 +261,15 @@
 								</Button>
 							{/each}
 						</div>
+					</div>
+					<div class="flex items-start justify-between gap-4 border-b py-3">
+						<div class="min-w-0">
+							<div class="font-medium">Autoplay</div>
+							<p class="mt-0.5 text-sm text-muted-foreground">
+								Keep the music going with similar songs when your queue ends.
+							</p>
+						</div>
+						<Switch checked={autoplayOn} onCheckedChange={setAutoplay} />
 					</div>
 					<div class="py-3">
 						<div class="font-medium">Stream clients</div>

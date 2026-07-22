@@ -83,7 +83,7 @@
 	{:else if library.error}
 		<ErrorState message={library.error} onRetry={() => loadLibrary(true)} />
 	{:else}
-		<div class="grid grid-cols-[repeat(auto-fill,10rem)] gap-4">
+		<div class="content-in grid grid-cols-[repeat(auto-fill,10rem)] gap-4">
 			{#each library.items as item (item.id)}
 				<MediaCard {item} />
 			{/each}

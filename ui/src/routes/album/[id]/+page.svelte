@@ -88,14 +88,14 @@
     });
 
     function playAll(start: number | null) {
-        if (album) playFrom(asItem(), album.items, start);
+        if (album) playFrom(asItem(), album.items, start, album.playlistId);
     }
     function shuffle() {
         if (!album?.items.length) return;
         menuOpen = false;
         // ponytail: shuffles the album's own tracks (a finite album is small); no radio seed.
         const order = [...album.items].sort(() => Math.random() - 0.5);
-        playFrom(asItem(), order, 0);
+        playFrom(asItem(), order, 0, album!.playlistId);
     }
     function saveToPlaylist() {
         if (!album?.items.length) return;
@@ -128,7 +128,7 @@
     <div class="p-6"><ErrorState message={error} onRetry={() => load(id)} /></div>
 {:else if album}
     <!-- Header with the artist image as a hero backdrop -->
-    <div class="relative overflow-hidden">
+    <div class="content-in relative overflow-hidden">
         {#if artistHero}
             <img
                 src={artistHero}
@@ -285,7 +285,7 @@
     </div>
 
     <!-- Numbered track list -->
-    <div class="p-6 pt-2">
+    <div class="content-in p-6 pt-2">
         {#each album.items as item, i (item.video_id + i)}
             <TrackRow
                 song={item}

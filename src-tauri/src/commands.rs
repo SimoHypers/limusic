@@ -135,7 +135,7 @@ pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
 /// `data_sync_id`, `account_json`, `visitor_data`) and internal blobs (`queue_json`,
 /// `queue_position`) never cross into the webview — they'd otherwise ship the login credential to
 /// the renderer on every open — and the webview can't overwrite them either.
-const UI_SETTINGS: [&str; 7] = [
+const UI_SETTINGS: [&str; 8] = [
     "proxy",
     "quality",
     "enable_history",
@@ -143,6 +143,7 @@ const UI_SETTINGS: [&str; 7] = [
     "discord_rpc",
     "close_to_tray",
     "autostart",
+    "autoplay",
 ];
 
 #[tauri::command]
@@ -299,14 +300,17 @@ pub async fn get_browse_grid(
 
 /// Play a playlist/album: the given items become the queue (no radio). `start` is the clicked
 /// track index; `None`/omitted means "just play it" (random opener when shuffle is on).
+/// `source_id` (the page's playlist/album playlist id) makes autoplay continue with that
+/// context's radio when the queue runs out.
 #[tauri::command]
 pub async fn play_playlist(
     state: St<'_>,
     items: Vec<SongItem>,
     start: Option<usize>,
+    source_id: Option<String>,
 ) -> Result<(), String> {
     let state = state.inner().clone();
-    state.play_tracks(items, start).await;
+    state.play_tracks(items, start, source_id).await;
     Ok(())
 }
 

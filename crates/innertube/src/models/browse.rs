@@ -124,6 +124,8 @@ pub struct AlbumPage {
     pub thumbnail: Option<String>,
     pub items: Vec<SongItem>,
     pub continuation: Option<String>,
+    /// The album's audio playlist id (`OLAK5uy_…`) — the radio seed for autoplay continuation.
+    pub playlist_id: Option<String>,
 }
 
 /// Parse a `FEmusic_home` response into filter chips + titled carousel sections. context/08.
@@ -345,7 +347,23 @@ pub fn parse_album(root: &Value) -> AlbumPage {
         thumbnail,
         items,
         continuation: continuation_token(root),
+        playlist_id: album_playlist_id(root),
     }
+}
+
+/// The album's own audio playlist id (`OLAK5uy_…`), read from the track rows' watch endpoints.
+/// Scoped to `musicResponsiveListItemRenderer` on purpose: the response also carries OTHER albums'
+/// `OLAK5uy_` ids (the "more from artist" carousel play buttons, in `musicTwoRowItemRenderer`s),
+/// so a whole-tree "first OLAK id" would be wrong. Live-verified 2026-07: no
+/// `musicPlaylistShelfRenderer` exists anymore; every track row carries the id.
+fn album_playlist_id(root: &Value) -> Option<String> {
+    find_all(root, "musicResponsiveListItemRenderer").into_iter().find_map(|row| {
+        find_all(row, "playlistId")
+            .into_iter()
+            .filter_map(Value::as_str)
+            .find(|id| id.starts_with("OLAK5uy_"))
+            .map(str::to_owned)
+    })
 }
 
 fn album_description(root: &Value, header: Option<&Value>) -> Option<String> {
@@ -791,15 +809,31 @@ mod tests {
                 "description": { "runs": [{ "text": "Iceman is one of three studio albums." }] }
             } },
             "contents": { "singleColumnBrowseResultsRenderer": { "tabs": [{ "tabRenderer": { "content": {
-                "sectionListRenderer": { "contents": [{ "musicShelfRenderer": { "contents": [
-                    { "musicResponsiveListItemRenderer": {
-                        "playlistItemData": { "videoId": "trk1" },
-                        "flexColumns": [
-                            { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Make Them Cry" }] } } },
-                            { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Drake" }] } } }
-                        ]
-                    } }
-                ] } }] }
+                "sectionListRenderer": { "contents": [
+                    { "musicShelfRenderer": { "contents": [
+                        { "musicResponsiveListItemRenderer": {
+                            "playlistItemData": { "videoId": "trk1" },
+                            "flexColumns": [
+                                { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{
+                                    "text": "Make Them Cry",
+                                    "navigationEndpoint": { "watchEndpoint": { "videoId": "trk1", "playlistId": "OLAK5uy_iceman" } }
+                                }] } } },
+                                { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Drake" }] } } }
+                            ]
+                        } }
+                    ] } },
+                    // "More from artist" carousel: a DIFFERENT album's OLAK id that must not win.
+                    { "musicCarouselShelfRenderer": { "contents": [
+                        { "musicTwoRowItemRenderer": {
+                            "title": { "runs": [{ "text": "Other Album" }] },
+                            "thumbnailOverlay": { "musicItemThumbnailOverlayRenderer": { "content": {
+                                "musicPlayButtonRenderer": { "playNavigationEndpoint": {
+                                    "watchPlaylistEndpoint": { "playlistId": "OLAK5uy_other" }
+                                } }
+                            } } }
+                        } }
+                    ] } }
+                ] }
             } } }] } }
         });
         let a = parse_album(&root);
@@ -815,6 +849,8 @@ mod tests {
         assert_eq!(a.items[0].video_id, "trk1");
         // Track row has no thumbnail of its own → falls back to the album cover (for the player bar).
         assert_eq!(a.items[0].thumbnail.as_deref(), Some("cover_big.jpg"));
+        // The album's own OLAK id from the track rows — never the carousel's other-album id.
+        assert_eq!(a.playlist_id.as_deref(), Some("OLAK5uy_iceman"));
     }
 
     #[test]

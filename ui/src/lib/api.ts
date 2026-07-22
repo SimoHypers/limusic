@@ -20,6 +20,8 @@ export interface SongItem {
 	liked?: boolean;
 	/** Listen Together: name of the guest who added this queue item (session adds only). */
 	queued_by?: string;
+	/** Appended by autoplay radio continuation — drives the queue's "Autoplay" divider + badge. */
+	autoplay?: boolean;
 }
 
 export interface NowPlaying {
@@ -112,6 +114,8 @@ export interface AlbumPage {
 	thumbnail?: string;
 	items: SongItem[];
 	continuation?: string;
+	/** The album's audio playlist id (`OLAK5uy_…`) — autoplay's radio seed for this album. */
+	playlistId?: string;
 }
 
 export interface ArtistPage {
@@ -170,9 +174,13 @@ export const getLibrary = () => invoke<BrowseItem[]>('get_library');
 export const getPlaylist = (id: string) => invoke<PlaylistPage>('get_playlist', { id });
 export const getPlaylistMore = (token: string) =>
 	invoke<PlaylistContinuation>('get_playlist_more', { token });
-/** `start`: the clicked track index, or `null` for "just play it" (random opener under shuffle). */
-export const playPlaylist = (items: SongItem[], start: number | null) =>
-	invoke<void>('play_playlist', { items, start });
+/**
+ * `start`: the clicked track index, or `null` for "just play it" (random opener under shuffle).
+ * `sourceId`: the page's playlist/album playlist id — makes autoplay continue with that
+ * context's radio (omit to fall back to song radio seeded from the queue's last track).
+ */
+export const playPlaylist = (items: SongItem[], start: number | null, sourceId?: string) =>
+	invoke<void>('play_playlist', { items, start, sourceId });
 export const getAlbum = (id: string) => invoke<AlbumPage>('get_album', { id });
 export const getArtist = (id: string) => invoke<ArtistPage>('get_artist', { id });
 export const getBrowseGrid = (id: string, params?: string) =>

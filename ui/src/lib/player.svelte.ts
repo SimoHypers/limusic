@@ -117,12 +117,18 @@ export function togglePin(id: string) {
 /**
  * Play a playlist/album/artist and record that it was played, which is what sorts the sidebar and
  * seeds Quick Picks. Every "play these tracks from somewhere" call site goes through this.
+ * `sourceId` (playlist/album pages only) points autoplay at that context's radio.
  */
-export function playFrom(source: BrowseItem, items: SongItem[], start: number | null) {
+export function playFrom(
+	source: BrowseItem,
+	items: SongItem[],
+	start: number | null,
+	sourceId?: string
+) {
 	pl.noteRecent(personal, source);
 	pl.touchPick(personal, source.id);
 	savePersonal();
-	return api.playPlaylist(items, start);
+	return api.playPlaylist(items, start, sourceId);
 }
 
 // Transient UI state for write actions.

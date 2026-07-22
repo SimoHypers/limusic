@@ -111,7 +111,7 @@
 	});
 
 	function playAll(start: number | null) {
-		if (pl) playFrom(asItem(), pl.items, start);
+		if (pl) playFrom(asItem(), pl.items, start, id);
 	}
 
 	// Random cover from the songs, picked once per load so it stays stable while browsing
@@ -136,7 +136,7 @@
 			const j = Math.floor(Math.random() * (i + 1));
 			[a[i], a[j]] = [a[j], a[i]];
 		}
-		playFrom(asItem(), a, 0);
+		playFrom(asItem(), a, 0, id);
 	}
 
 	function openMenu(e: MouseEvent) {
@@ -239,7 +239,7 @@
 	{:else if error}
 		<div class="p-6"><ErrorState message={error} onRetry={() => load(id)} /></div>
 	{:else if pl}
-		<div class="relative flex min-h-[38vh] items-end gap-6 overflow-hidden border-b p-6">
+		<div class="content-in relative flex min-h-[38vh] items-end gap-6 overflow-hidden border-b p-6">
 			{#if bgImage}
 				<img
 					src={bgImage}
@@ -319,7 +319,7 @@
 				</div>
 			</div>
 		</div>
-		<div class="min-h-0 flex-1 overflow-y-auto p-4">
+		<div class="content-in min-h-0 flex-1 overflow-y-auto p-4">
 			{#each pl.items as item, i (item.video_id + i)}
 				<TrackRow
 					song={item}

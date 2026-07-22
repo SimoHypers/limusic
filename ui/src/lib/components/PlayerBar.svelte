@@ -11,8 +11,10 @@
 		Queue01Icon,
 		Mic01Icon,
 		VolumeHighIcon,
+		VolumeMute02Icon,
 		FavouriteIcon,
-		Add01Icon
+		Add01Icon,
+		InfinityIcon
 	} from '@hugeicons/core-free-icons';
 	import { goto } from '$app/navigation';
 	import { fade } from 'svelte/transition';
@@ -61,6 +63,14 @@
 	const shuffleOn = $derived(playback.queue.shuffle ?? false);
 	const repeat = $derived(playback.queue.repeat ?? 'off');
 
+	// The current track was appended by autoplay → show the subtle ∞ badge next to the title.
+	// Matched against the now-playing videoId so a transient queue/now-playing mismatch (mid
+	// gapless advance) can't flash the badge on the wrong song.
+	const autoplayTrack = $derived.by(() => {
+		const cur = playback.queue.items[playback.queue.currentIndex];
+		return !!cur?.autoplay && cur.video_id === playback.now?.videoId;
+	});
+
 	function cycleRepeat() {
 		api.setRepeat(repeat === 'off' ? 'all' : repeat === 'all' ? 'one' : 'off');
 	}
@@ -99,6 +109,17 @@
 		}
 		api.setVolume(Number((e.target as HTMLInputElement).value));
 	}
+
+	// Mute *is* volume 0 — no separate flag, so dragging the slider off zero un-mutes for free and
+	// the icon can't disagree with what you hear. Remembers the level to come back to; falls back
+	// to 100 when the user dragged to zero themselves (nothing was remembered).
+	let preMute = 100;
+	function toggleMute() {
+		const muted = playback.volume === 0;
+		if (!muted) preMute = playback.volume;
+		playback.volume = muted ? preMute || 100 : 0;
+		api.setVolume(playback.volume);
+	}
 </script>
 
 <footer class="flex items-center gap-2 border-t bg-card px-2 py-2.5 sm:gap-4 sm:px-4 sm:py-3">
@@ -118,7 +139,18 @@
 			{/if}
 		{/key}
 		<div class="min-w-0">
-			<div class="truncate text-sm font-medium">{playback.now?.title ?? 'Nothing playing'}</div>
+			<div class="flex items-center gap-1.5">
+				<div class="truncate text-sm font-medium">{playback.now?.title ?? 'Nothing playing'}</div>
+				{#if autoplayTrack}
+					<span
+						class="shrink-0 text-muted-foreground"
+						title="Playing similar music (Autoplay)"
+						in:fade={{ duration: 200 }}
+					>
+						<HugeiconsIcon icon={InfinityIcon} class="h-3.5 w-3.5" />
+					</span>
+				{/if}
+			</div>
 			{#if playback.now?.artistId}
 				<button
 					class="block max-w-full cursor-pointer truncate text-left text-xs text-muted-foreground hover:text-foreground hover:underline"
@@ -229,8 +261,22 @@
 	<!-- Volume + queue -->
 	<div class="flex flex-1 items-center justify-end gap-2">
 		<!-- Volume is the first control to drop on a narrow window (OS volume still works). -->
-		<div class="hidden items-center gap-2 md:flex">
-			<HugeiconsIcon icon={VolumeHighIcon} class="h-4 w-4 text-muted-foreground" />
+		<div class="hidden items-center gap-1 md:flex">
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				class="text-muted-foreground"
+				onclick={toggleMute}
+				aria-label={playback.volume === 0 ? 'Unmute' : 'Mute'}
+			>
+				<!-- icon swap via altIcon/showAlt — `icon` is frozen at mount (see play/pause above) -->
+				<HugeiconsIcon
+					icon={VolumeHighIcon}
+					altIcon={VolumeMute02Icon}
+					showAlt={playback.volume === 0}
+					class="h-4 w-4"
+				/>
+			</Button>
 			<input
 				type="range"
 				class="range w-24"

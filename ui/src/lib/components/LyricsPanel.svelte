@@ -163,10 +163,10 @@
 					<button
 						data-line={i}
 						onclick={() => seekTo(line)}
-						class="block w-full cursor-pointer text-left font-heading font-semibold leading-snug transition-colors duration-200 hover:text-foreground
+						class="block w-full origin-left cursor-pointer text-left font-heading font-semibold leading-snug transition-[color,transform] duration-200 hover:text-foreground
 							{expanded ? 'py-3 text-3xl' : 'py-1.5 text-lg'}
 							{i === activeIndex
-							? 'text-foreground'
+							? 'scale-[1.03] text-foreground'
 							: i < activeIndex
 								? 'text-muted-foreground/40'
 								: 'text-muted-foreground'}"
