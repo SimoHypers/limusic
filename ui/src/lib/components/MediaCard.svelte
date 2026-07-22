@@ -5,8 +5,9 @@
 	import * as api from '$lib/api';
 	import type { BrowseItem, SongItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
-	import { openAddToPlaylist, touchPick } from '$lib/player.svelte';
+	import { openAddToPlaylist, playFrom, toast, touchPick } from '$lib/player.svelte';
 	import TrackMenu from './TrackMenu.svelte';
+	import PlaylistMenu from './PlaylistMenu.svelte';
 
 	let { item, compact = false }: { item: BrowseItem; compact?: boolean } = $props();
 
@@ -52,14 +53,48 @@
 			goto(`/playlist/${encodeURIComponent(item.id)}`);
 		}
 	}
+
+	let playing = $state(false); // in-flight guard for the fetch-then-play path
+
+	async function playNow() {
+		touchPick(item.id);
+		if (item.kind === 'song') {
+			api.play(asSong(item));
+			return;
+		}
+		if (playing) return;
+		playing = true;
+		try {
+			if (item.kind === 'album') {
+				const album = await api.getAlbum(item.id);
+				await playFrom(item, album.items, null, album.playlistId ?? undefined);
+			} else {
+				const pl = await api.getPlaylist(item.id);
+				await playFrom(item, pl.items, null, item.id);
+			}
+		} catch (e) {
+			toast('Could not play — try opening it instead');
+		} finally {
+			playing = false;
+		}
+	}
 </script>
 
 <div class="group relative flex w-full flex-col gap-2">
-	<button
+	<div
 		class="flex flex-col text-left transition-colors hover:bg-accent/10 {compact
 			? 'gap-1.5 rounded-lg p-1.5'
 			: 'gap-2 rounded-xl p-2'}"
+		role="button"
+		tabindex="0"
 		onclick={activate}
+		onkeydown={(e) => {
+			if (e.target !== e.currentTarget) return;
+			if (e.key === 'Enter' || e.key === ' ') {
+				e.preventDefault();
+				activate();
+			}
+		}}
 		title={item.subtitle ? `${item.title} — ${item.subtitle}` : item.title}
 	>
 		<div
@@ -84,13 +119,20 @@
 				</div>
 			{/if}
 			{#if item.kind !== 'artist'}
-				<div
-					class="absolute flex translate-y-1 items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-lg transition-all duration-200 ease-out group-hover:translate-y-0 group-hover:opacity-100 {compact
+				<button
+					class="absolute flex translate-y-1 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-lg transition-all duration-200 ease-out group-hover:translate-y-0 group-hover:opacity-100 focus-visible:opacity-100 {compact
 						? 'bottom-1.5 right-1.5 h-7 w-7'
 						: 'bottom-2 right-2 h-9 w-9'}"
+					class:animate-pulse={playing}
+					disabled={playing}
+					aria-label="Play"
+					onclick={(e) => {
+						e.stopPropagation();
+						playNow();
+					}}
 				>
 					<HugeiconsIcon icon={PlayIcon} class={compact ? 'h-3 w-3' : 'h-4 w-4'} />
-				</div>
+				</button>
 			{/if}
 		</div>
 		<div class="min-w-0 {round ? 'text-center' : ''}">
@@ -101,12 +143,18 @@
 				</div>
 			{/if}
 		</div>
-	</button>
+	</div>
 	{#if item.kind === 'song'}
 		<TrackMenu
 			song={asSong(item)}
 			onAdd={() => openAddToPlaylist(asSong(item))}
-			triggerClass="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-md backdrop-blur-sm transition hover:bg-background focus-visible:opacity-100 group-hover:opacity-100"
+			triggerClass="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-md backdrop-blur-sm transition hover:bg-background focus-visible:opacity-100 group-hover:opacity-100 cursor-pointer"
+		/>
+	{:else}
+		<PlaylistMenu
+			{item}
+			showPin={item.kind === 'playlist'}
+			triggerClass="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-md backdrop-blur-sm transition hover:bg-background focus-visible:opacity-100 group-hover:opacity-100 cursor-pointer"
 		/>
 	{/if}
 </div>
