@@ -1635,7 +1635,9 @@ fn upcoming_queued(items: &[SongItem], current: usize) -> Vec<SongItem> {
 
 /// Fisher–Yates over the *upcoming* items only — the playing track and the already-played prefix
 /// stay put, and the leading run of manually-queued tracks keeps its spot: "Next in queue" plays
-/// next regardless of shuffle (Spotify semantics).
+/// next regardless of shuffle (Spotify semantics). Autoplay tracks stay *behind* the remaining
+/// queue tracks (each section shuffled within itself) — shuffle never promotes radio filler ahead
+/// of the playlist.
 fn shuffle_upcoming(items: &mut [SongItem], current: usize) {
     use rand::seq::SliceRandom;
     let mut start = current + 1;
@@ -1644,6 +1646,7 @@ fn shuffle_upcoming(items: &mut [SongItem], current: usize) {
     }
     if start < items.len() {
         items[start..].shuffle(&mut rand::thread_rng());
+        items[start..].sort_by_key(|i| i.autoplay); // stable: both sections stay shuffled
     }
 }
 
@@ -1831,6 +1834,20 @@ mod tests {
         assert_eq!(items[2].video_id, "q2");
         // Everything is still a permutation (nothing lost).
         assert_eq!(items.len(), 11);
+    }
+
+    #[test]
+    fn shuffle_keeps_autoplay_after_queue_tracks() {
+        let auto = |id: &str| innertube::SongItem { autoplay: true, ..song(id, None) };
+        // Playing index 0; upcoming = 4 playlist tracks + 4 autoplay tracks.
+        let mut items = vec![song("now", None)];
+        items.extend((0..4).map(|i| song(&format!("p{i}"), None)));
+        items.extend((0..4).map(|i| auto(&format!("a{i}"))));
+        shuffle_upcoming(&mut items, 0);
+        // Every playlist track still comes before every autoplay track.
+        let flags: Vec<bool> = items[1..].iter().map(|i| i.autoplay).collect();
+        assert_eq!(flags, [false, false, false, false, true, true, true, true]);
+        assert_eq!(items.len(), 9);
     }
 
     #[test]

@@ -236,9 +236,38 @@ impl InnerTube {
     }
 
     /// An album page by album browseId (`MPRE…`). context/08.
+    ///
+    /// Some album rows link the official music video (`musicVideoType` ≠ ATV), so playing them
+    /// streams the MV's audio (intros, skits, crowd) instead of the album track. The album's
+    /// `OLAK5uy_` *audio* playlist carries the album-audio uploads in track order, so for those
+    /// rows we swap in its videoId (one extra fetch, only for affected albums).
     pub async fn album(&self, client: &YouTubeClient, browse_id: &str) -> Result<AlbumPage, Error> {
         let value = self.browse(client, Some(browse_id), None).await?;
-        Ok(browse::parse_album(&value))
+        let mut page = browse::parse_album(&value);
+        let video = browse::album_video_flags(&value);
+        if video.contains(&true) {
+            if let Some(pl) = &page.playlist_id {
+                match self.playlist(client, &format!("VL{pl}")).await {
+                    // ponytail: positional match, guarded on equal track counts — the OLAK
+                    // playlist is the same album in the same order. Mismatch → keep the MV ids.
+                    Ok(audio) if audio.items.len() == page.items.len() => {
+                        for ((item, is_video), audio_item) in
+                            page.items.iter_mut().zip(&video).zip(audio.items)
+                        {
+                            if *is_video {
+                                item.video_id = audio_item.video_id;
+                                item.duration = audio_item.duration.or(item.duration.take());
+                            }
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::warn!(error = %e, "audio-playlist fetch failed; keeping MV ids")
+                    }
+                }
+            }
+        }
+        Ok(page)
     }
 
     /// An artist page by channel browseId (`UC…`). context/08.

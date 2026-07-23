@@ -11,7 +11,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::metadata::{
-    find_all, find_all_shallow, first_artist_id, flex_column_text, last_thumbnail,
+    find_all, find_all_shallow, find_first_str, first_artist_id, flex_column_text, last_thumbnail,
     list_item_video_id, parse_list_item, runs_text, runs_text_opt, SongItem,
 };
 
@@ -358,6 +358,20 @@ pub fn parse_album(root: &Value) -> AlbumPage {
         continuation: continuation_token(root),
         playlist_id: album_playlist_id(root),
     }
+}
+
+/// Per-track "this row links the music video, not the album audio" flags, aligned with
+/// `parse_album().items` (same rows, same parse filter). A row is a video when its watch
+/// endpoint's `musicVideoType` is present and not `MUSIC_VIDEO_TYPE_ATV` (the audio track type) —
+/// absent means we can't tell, so we assume audio and leave it alone.
+pub fn album_video_flags(root: &Value) -> Vec<bool> {
+    find_all(root, "musicResponsiveListItemRenderer")
+        .into_iter()
+        .filter(|row| parse_list_item(row).is_some())
+        .map(|row| {
+            find_first_str(row, "musicVideoType").is_some_and(|t| t != "MUSIC_VIDEO_TYPE_ATV")
+        })
+        .collect()
 }
 
 /// The album's own audio playlist id (`OLAK5uy_…`), read from the track rows' watch endpoints.
@@ -904,6 +918,36 @@ mod tests {
         assert_eq!(a.items[0].thumbnail.as_deref(), Some("cover_big.jpg"));
         // The album's own OLAK id from the track rows — never the carousel's other-album id.
         assert_eq!(a.playlist_id.as_deref(), Some("OLAK5uy_iceman"));
+    }
+
+    #[test]
+    fn album_video_flags_align_with_parsed_items() {
+        let row = |id: &str, title: &str, vtype: Option<&str>| {
+            let mut nav = json!({ "watchEndpoint": { "videoId": id } });
+            if let Some(t) = vtype {
+                nav["watchEndpoint"]["watchEndpointMusicSupportedConfigs"] =
+                    json!({ "watchEndpointMusicConfig": { "musicVideoType": t } });
+            }
+            json!({ "musicResponsiveListItemRenderer": {
+                "playlistItemData": { "videoId": id },
+                "flexColumns": [
+                    { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{
+                        "text": title, "navigationEndpoint": nav
+                    }] } } },
+                    { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Drake" }] } } }
+                ]
+            } })
+        };
+        let root = json!({ "contents": [
+            row("t1", "Audio Track", Some("MUSIC_VIDEO_TYPE_ATV")),
+            row("t2", "MV Track", Some("MUSIC_VIDEO_TYPE_OMV")),
+            // Unparseable row (no title) — dropped by parse_album, so flags must skip it too.
+            row("t3", "", Some("MUSIC_VIDEO_TYPE_OMV")),
+            row("t4", "Untyped Track", None),
+        ] });
+        assert_eq!(album_video_flags(&root), [false, true, false]);
+        // Alignment invariant: one flag per parsed item.
+        assert_eq!(parse_album(&root).items.len(), album_video_flags(&root).len());
     }
 
     #[test]
