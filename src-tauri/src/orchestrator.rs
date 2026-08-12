@@ -93,7 +93,10 @@ impl Orchestrator {
     /// Record that a WEB_REMIX stream for `video_id` failed on the real GET (called by the player
     /// layer on a playback 403). The next resolve for this id bypasses WEB_REMIX. context/06 §2.
     pub async fn mark_web_remix_failed(&self, video_id: &str) {
-        self.web_remix_failed.lock().await.insert(video_id.to_owned());
+        self.web_remix_failed
+            .lock()
+            .await
+            .insert(video_id.to_owned());
     }
 
     /// Resolve a videoId to a playable stream. context/06 full algorithm.
@@ -124,9 +127,11 @@ impl Orchestrator {
 
         // 3. Main request as WEB_REMIX (metadata source even when a fallback wins the stream).
         let mut main_resp = match main_client {
-            Some(c) if !disabled.contains(MAIN_CLIENT) => {
-                self.it.player(c, video_id, None, sts, session_pot).await.ok()
-            }
+            Some(c) if !disabled.contains(MAIN_CLIENT) => self
+                .it
+                .player(c, video_id, None, sts, session_pot)
+                .await
+                .ok(),
             _ => None,
         };
 
@@ -134,10 +139,22 @@ impl Orchestrator {
         // ponytail: metadata + structure are correct now, but WEB_CREATOR streams are ciphered, so
         // this only becomes *audible* once KI-1 (sig/n extraction) is solved. Until then it degrades
         // exactly as before (falls through to the direct clients / rustypipe) — no regression.
-        if logged_in && main_resp.as_ref().is_some_and(|r| r.playability_status.is_age_gated()) {
+        if logged_in
+            && main_resp
+                .as_ref()
+                .is_some_and(|r| r.playability_status.is_age_gated())
+        {
             if let Some(cc) = self.clients.get("WEB_CREATOR") {
-                let cc_pot = if cc.use_web_po_tokens { session_pot } else { None };
-                let cc_sts = if cc.use_signature_timestamp { sts } else { None };
+                let cc_pot = if cc.use_web_po_tokens {
+                    session_pot
+                } else {
+                    None
+                };
+                let cc_sts = if cc.use_signature_timestamp {
+                    sts
+                } else {
+                    None
+                };
                 tracing::info!(video_id, "WEB_REMIX age/login-gated → retrying WEB_CREATOR");
                 if let Ok(r) = self.it.player(cc, video_id, None, cc_sts, cc_pot).await {
                     main_resp = Some(r);
@@ -145,7 +162,9 @@ impl Orchestrator {
             }
         }
 
-        let main_ok = main_resp.as_ref().is_some_and(|r| r.playability_status.is_ok());
+        let main_ok = main_resp
+            .as_ref()
+            .is_some_and(|r| r.playability_status.is_ok());
         let has_high = main_resp
             .as_ref()
             .and_then(|r| r.streaming_data.as_ref())
@@ -172,13 +191,27 @@ impl Orchestrator {
                 if disabled.contains(key) {
                     continue;
                 }
-                let Some(client) = self.clients.get(key) else { continue };
+                let Some(client) = self.clients.get(key) else {
+                    continue;
+                };
                 if client.login_required && !logged_in {
                     continue;
                 }
-                let client_pot = if client.use_web_po_tokens { session_pot } else { None };
-                let client_sts = if client.use_signature_timestamp { sts } else { None };
-                match self.it.player(client, video_id, None, client_sts, client_pot).await {
+                let client_pot = if client.use_web_po_tokens {
+                    session_pot
+                } else {
+                    None
+                };
+                let client_sts = if client.use_signature_timestamp {
+                    sts
+                } else {
+                    None
+                };
+                match self
+                    .it
+                    .player(client, video_id, None, client_sts, client_pot)
+                    .await
+                {
                     Ok(r) if r.playability_status.is_ok() => (key.to_owned(), r),
                     Ok(r) => {
                         tracing::debug!(client = key, status = %r.playability_status.status, "not OK");
@@ -191,9 +224,15 @@ impl Orchestrator {
                 }
             };
 
-            let Some(streaming) = resp.streaming_data.as_ref() else { continue };
-            let Some(expires) = streaming.expires_in_seconds else { continue };
-            let Some(format) = find_format(streaming, quality) else { continue };
+            let Some(streaming) = resp.streaming_data.as_ref() else {
+                continue;
+            };
+            let Some(expires) = streaming.expires_in_seconds else {
+                continue;
+            };
+            let Some(format) = find_format(streaming, quality) else {
+                continue;
+            };
             if audio_config_loudness.is_none() {
                 audio_config_loudness = main_loudness(&resp);
             }
@@ -222,7 +261,12 @@ impl Orchestrator {
             // HIGH two-pass: remember the best non-HIGH and keep looking if a HIGH exists elsewhere.
             if prefer_high && !is_high(format) && has_high {
                 if better(format, best.as_ref().map(|c| &c.format)) {
-                    best = Some(Candidate { format: format.clone(), url, expires, client: key });
+                    best = Some(Candidate {
+                        format: format.clone(),
+                        url,
+                        expires,
+                        client: key,
+                    });
                 }
                 continue;
             }
@@ -245,8 +289,19 @@ impl Orchestrator {
             //
             // It also stays correct if a valid PoToken lifts the cap on those videos: then HEAD
             // passes and WEB_REMIX is used. Nothing here has to know which way that goes.
-            if self.validate_head(&url, client.map(|c| c.user_agent.as_str())).await {
-                return Ok(self.build(video_id, format, url, expires, &key, audio_config_loudness, &main_resp));
+            if self
+                .validate_head(&url, client.map(|c| c.user_agent.as_str()))
+                .await
+            {
+                return Ok(self.build(
+                    video_id,
+                    format,
+                    url,
+                    expires,
+                    &key,
+                    audio_config_loudness,
+                    &main_resp,
+                ));
             } else if needs_n {
                 // A cipher client that fails validation may have a stale config → self-heal off
                 // the hot path so it never blocks falling through (context/06 §7). If the heal
@@ -268,11 +323,22 @@ impl Orchestrator {
 
         // 6. HIGH wanted but only a non-HIGH found → use the remembered best.
         if let Some(c) = best {
-            return Ok(self.build(video_id, &c.format, c.url, c.expires, &c.client, audio_config_loudness, &main_resp));
+            return Ok(self.build(
+                video_id,
+                &c.format,
+                c.url,
+                c.expires,
+                &c.client,
+                audio_config_loudness,
+                &main_resp,
+            ));
         }
 
         // 7. Net: rustypipe whole-videoId resolution (last-ditch). context/06, seam #11.
-        tracing::info!(video_id, "all InnerTube clients exhausted → rustypipe fallback");
+        tracing::info!(
+            video_id,
+            "all InnerTube clients exhausted → rustypipe fallback"
+        );
         match rustypipe_fallback::resolve(video_id, prefer_high).await {
             Ok(c) => Ok(PlaybackData {
                 video_id: video_id.to_owned(),
@@ -308,7 +374,9 @@ impl Orchestrator {
     async fn validate_head(&self, url: &str, ua: Option<&str>) -> bool {
         // The 10s budget used to live on a client of its own; it is a property of this one
         // probe, not of the app's HTTP.
-        let mut req = crate::http::client().head(url).timeout(Duration::from_secs(10));
+        let mut req = crate::http::client()
+            .head(url)
+            .timeout(Duration::from_secs(10));
         if let Some(ua) = ua {
             req = req.header("User-Agent", ua);
         }
@@ -376,12 +444,8 @@ fn better(a: &Format, b: Option<&Format>) -> bool {
             0u8
         }
     };
-    (
-        rank(a),
-        a.audio_channels.unwrap_or(2),
-        codec(a),
-        a.bitrate,
-    ) > (rank(b), b.audio_channels.unwrap_or(2), codec(b), b.bitrate)
+    (rank(a), a.audio_channels.unwrap_or(2), codec(a), a.bitrate)
+        > (rank(b), b.audio_channels.unwrap_or(2), codec(b), b.bitrate)
 }
 
 fn main_loudness(resp: &PlayerResponse) -> Option<f64> {

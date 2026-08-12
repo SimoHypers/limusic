@@ -110,7 +110,10 @@ impl PoTokenGenerator {
             .get_setting(SESSION_TOKEN_KEY)
             .and_then(|raw| serde_json::from_str(&raw).ok());
         if let Some(t) = &stored {
-            tracing::debug!(expires_in = t.expires_at - now_secs(), "loaded stored PoToken session");
+            tracing::debug!(
+                expires_in = t.expires_at - now_secs(),
+                "loaded stored PoToken session"
+            );
         }
         PoTokenGenerator {
             app,
@@ -160,7 +163,11 @@ impl PoTokenGenerator {
 
     /// Per-video streaming token for the `&pot=` URL param (context/04). Builds/reuses the
     /// minter; call ONLY when a web-client stream URL actually resolved (post-decipher).
-    pub async fn get_streaming_po_token(&self, video_id: &str, visitor_data: &str) -> Option<String> {
+    pub async fn get_streaming_po_token(
+        &self,
+        video_id: &str,
+        visitor_data: &str,
+    ) -> Option<String> {
         if self.webview_bad.load(Ordering::SeqCst) {
             return None;
         }
@@ -211,7 +218,11 @@ impl PoTokenGenerator {
     }
 
     /// Per-video token (identifier = videoId). One retry with a fresh minter on failure.
-    async fn mint_streaming(&self, video_id: &str, visitor_data: &str) -> Result<String, MintError> {
+    async fn mint_streaming(
+        &self,
+        video_id: &str,
+        visitor_data: &str,
+    ) -> Result<String, MintError> {
         let mut guard = self.ensure_minter(visitor_data).await?;
         let minter = guard.as_mut().expect("minter present");
         minter.last_used = Instant::now();
@@ -243,7 +254,11 @@ impl PoTokenGenerator {
 
     /// The fallible BotGuard steps, run against an already-built `bridge`. Split out so
     /// `create_minter` can destroy the webview on any error path.
-    async fn bootstrap_minter(&self, bridge: &Bridge, session_id: &str) -> Result<Minter, MintError> {
+    async fn bootstrap_minter(
+        &self,
+        bridge: &Bridge,
+        session_id: &str,
+    ) -> Result<Minter, MintError> {
         // 1. /Create → descrambled challengeData for runBotGuard.
         let scrambled = self.create_challenge().await?;
         let challenge = jsutil::parse_challenge_data(&scrambled).map_err(MintError::Parse)?;
@@ -307,7 +322,8 @@ impl PoTokenGenerator {
             .await?
             .text()
             .await?;
-        let raw: Value = serde_json::from_str(&resp).map_err(|e| MintError::Parse(e.to_string()))?;
+        let raw: Value =
+            serde_json::from_str(&resp).map_err(|e| MintError::Parse(e.to_string()))?;
         raw.get(1)
             .and_then(Value::as_str)
             .map(str::to_owned)
@@ -383,7 +399,10 @@ impl PoTokenGenerator {
 /// [webview] obtain one PoToken for `identifier` (raw UTF-8 bytes) → URL-safe base64.
 async fn mint_token(bridge: &Bridge, identifier: &[u8]) -> Result<String, MintError> {
     let arr = bridge
-        .call_async(&format!("__lm.mint({})", jsutil::js_byte_array(identifier)), CALL_TIMEOUT)
+        .call_async(
+            &format!("__lm.mint({})", jsutil::js_byte_array(identifier)),
+            CALL_TIMEOUT,
+        )
         .await?;
     let bytes: Vec<u8> = arr
         .as_array()
@@ -433,7 +452,10 @@ mod tests {
 
     #[test]
     fn session_token_invalid_when_expired() {
-        assert!(!token("vd123", 1_000).valid_for("vd123", 1_000), "expiry is exclusive");
+        assert!(
+            !token("vd123", 1_000).valid_for("vd123", 1_000),
+            "expiry is exclusive"
+        );
         assert!(!token("vd123", 1_000).valid_for("vd123", 1_001));
     }
 

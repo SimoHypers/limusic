@@ -360,10 +360,18 @@ export const onLoginDone = (cb: () => void): Promise<UnlistenFn> =>
 	listen('login-done', () => cb());
 
 // --- lyrics ---------------------------------------------------------------------------------
+export interface LyricWord {
+	text: string;
+	start_ms: number;
+	end_ms: number;
+}
 export interface LyricLine {
 	/** Start cue in milliseconds; present ⇔ the line is synced. */
 	time_ms?: number;
+	end_time_ms?: number;
 	text: string;
+	words?: LyricWord[];
+	translation?: string;
 }
 export interface Lyrics {
 	/** Attribution for the panel footer ("LRCLIB", "Source: Musixmatch", …). */

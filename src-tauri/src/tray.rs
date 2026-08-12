@@ -46,7 +46,9 @@ fn handle_menu(app: &AppHandle, id: &str) {
             app.exit(0);
         }
         other => {
-            let Some(state) = app.try_state::<Arc<AppState>>() else { return };
+            let Some(state) = app.try_state::<Arc<AppState>>() else {
+                return;
+            };
             let state = state.inner().clone();
             let id = other.to_string();
             tauri::async_runtime::spawn(async move {
@@ -121,17 +123,26 @@ mod imp {
 
     /// Tauri hands us RGBA; StatusNotifierItem wants ARGB32 in network byte order.
     fn icon_pixmap(app: &AppHandle) -> Vec<Icon> {
-        let Some(img) = app.default_window_icon() else { return Vec::new() };
+        let Some(img) = app.default_window_icon() else {
+            return Vec::new();
+        };
         let mut data = img.rgba().to_vec();
         for px in data.chunks_exact_mut(4) {
             px.rotate_right(1); // [R,G,B,A] -> [A,R,G,B]
         }
-        vec![Icon { width: img.width() as i32, height: img.height() as i32, data }]
+        vec![Icon {
+            width: img.width() as i32,
+            height: img.height() as i32,
+            data,
+        }]
     }
 
     pub fn init(app: &AppHandle) -> tauri::Result<()> {
-        let tray =
-            LimusicTray { app: app.clone(), playing: false, icon: icon_pixmap(app) };
+        let tray = LimusicTray {
+            app: app.clone(),
+            playing: false,
+            icon: icon_pixmap(app),
+        };
         // Registering with the StatusNotifierWatcher is async and can outlive setup(); a failure
         // here costs the tray, not the app, so it's logged rather than propagated.
         tauri::async_runtime::spawn(async move {
@@ -193,7 +204,11 @@ mod imp {
             .tooltip("Limusic")
             .on_menu_event(|app, event| handle_menu(app, event.id.as_ref()))
             .on_tray_icon_event(|tray, event| {
-                if let TrayIconEvent::DoubleClick { button: MouseButton::Left, .. } = event {
+                if let TrayIconEvent::DoubleClick {
+                    button: MouseButton::Left,
+                    ..
+                } = event
+                {
                     show_main(tray.app_handle());
                 }
             });
@@ -208,7 +223,9 @@ mod imp {
 
     pub fn set_playing(app: &AppHandle, playing: bool) {
         if let Some(t) = app.try_state::<TrayState>() {
-            let _ = t.play_pause.set_text(if playing { "Pause" } else { "Play" });
+            let _ = t
+                .play_pause
+                .set_text(if playing { "Pause" } else { "Play" });
         }
     }
 }

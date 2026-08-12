@@ -71,15 +71,21 @@ struct RawEntry {
 /// vector, not just a broken decipher — validate before it ever reaches [`super::extractor`].
 /// Mirrors Metrolist's `PlayerConfigParser.SIG_RE` / `NCLASS_RE`.
 fn valid_sig(s: &str) -> bool {
-    let Some((name, rest)) = s.split_once('(') else { return false };
-    let Some(args) = rest.strip_suffix(')') else { return false };
+    let Some((name, rest)) = s.split_once('(') else {
+        return false;
+    };
+    let Some(args) = rest.strip_suffix(')') else {
+        return false;
+    };
     if name.is_empty() || name.len() > 8 || !name.chars().all(is_ident_char) {
         return false;
     }
     let parts: Vec<&str> = args.split(',').collect();
     parts.len() == 3
         && parts[2] == "INPUT"
-        && parts[..2].iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+        && parts[..2]
+            .iter()
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
 }
 
 fn valid_n_class(s: &str) -> bool {
@@ -92,13 +98,19 @@ fn is_ident_char(c: char) -> bool {
 
 fn parse_table(json: &str) -> HashMap<String, PlayerConfig> {
     let mut out = HashMap::new();
-    let Ok(reg) = serde_json::from_str::<Registry>(json) else { return out };
+    let Ok(reg) = serde_json::from_str::<Registry>(json) else {
+        return out;
+    };
     for (hash, e) in reg.players {
         if !valid_sig(&e.sig) || !valid_n_class(&e.n_class) {
             tracing::warn!(hash, sig = e.sig, "rejecting malformed player config entry");
             continue;
         }
-        let cfg = PlayerConfig { sts: e.sts, sig_expr: e.sig, n_class: e.n_class };
+        let cfg = PlayerConfig {
+            sts: e.sts,
+            sig_expr: e.sig,
+            n_class: e.n_class,
+        };
         // A player is served under several hashes; the registry lists the extras as aliases.
         for k in std::iter::once(hash).chain(e.aliases) {
             out.insert(k, cfg.clone());
@@ -122,7 +134,9 @@ impl PlayerConfigStore {
     /// synchronous part). The TTL-gated remote refresh is `force_refresh` /
     /// `refresh_after_stream_rejection`, scheduled by the caller off the hot path.
     pub fn new(app_data_dir: &Path) -> Self {
-        let cache_file = app_data_dir.join("cipher_cache").join("player_configs.json");
+        let cache_file = app_data_dir
+            .join("cipher_cache")
+            .join("player_configs.json");
         let mut entries = parse_table(BUNDLED);
         if let Ok(cached) = std::fs::read_to_string(&cache_file) {
             entries.extend(parse_table(&cached));
@@ -251,10 +265,10 @@ mod tests {
         assert!(valid_n_class("as"));
         assert!(!valid_n_class("as;alert(1)"));
         assert!(!valid_n_class(""));
-        assert!(parse_table(
-            r#"{"players":{"h":{"sig":"x(1,2,INPUT);evil()","nClass":"as"}}}"#
-        )
-        .is_empty());
+        assert!(
+            parse_table(r#"{"players":{"h":{"sig":"x(1,2,INPUT);evil()","nClass":"as"}}}"#)
+                .is_empty()
+        );
     }
 
     #[test]

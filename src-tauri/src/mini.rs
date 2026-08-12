@@ -77,7 +77,9 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
 /// Remember where the widget currently sits. No-op when it isn't up. Its own function because
 /// quitting from the tray is a way down that never reaches [`close`].
 pub fn save_position(app: &AppHandle) {
-    let Some(w) = app.get_webview_window(LABEL) else { return };
+    let Some(w) = app.get_webview_window(LABEL) else {
+        return;
+    };
     if let (Ok(p), Some(state)) = (w.outer_position(), app.try_state::<Arc<AppState>>()) {
         state.db.set_setting(POS_KEY, &format!("{},{}", p.x, p.y));
     }
@@ -111,21 +113,28 @@ fn placement(app: &AppHandle, win: &WebviewWindow) -> Option<PhysicalPosition<i3
 /// `"x,y"` in physical pixels, as [`close`] wrote it.
 fn parse_pos(s: &str) -> Option<PhysicalPosition<i32>> {
     let (x, y) = s.split_once(',')?;
-    Some(PhysicalPosition::new(x.trim().parse().ok()?, y.trim().parse().ok()?))
+    Some(PhysicalPosition::new(
+        x.trim().parse().ok()?,
+        y.trim().parse().ok()?,
+    ))
 }
 
 /// Is that point on a display that is currently connected? Checked on the top-left corner, which
 /// is what `set_position` sets and what the WM keeps reachable.
 fn on_a_display(win: &WebviewWindow, p: PhysicalPosition<i32>) -> bool {
     win.available_monitors().is_ok_and(|monitors| {
-        monitors.iter().any(|m| contains(*m.position(), *m.size(), p))
+        monitors
+            .iter()
+            .any(|m| contains(*m.position(), *m.size(), p))
     })
 }
 
 /// Bottom-right of the display the main window is on, inside its *work area* so a taskbar or dock
 /// doesn't end up sitting on top of the widget.
 fn bottom_right(app: &AppHandle, win: &WebviewWindow) -> Option<PhysicalPosition<i32>> {
-    let anchor = app.get_webview_window("main").unwrap_or_else(|| win.clone());
+    let anchor = app
+        .get_webview_window("main")
+        .unwrap_or_else(|| win.clone());
     let m = anchor
         .current_monitor()
         .ok()
@@ -141,7 +150,11 @@ fn bottom_right(app: &AppHandle, win: &WebviewWindow) -> Option<PhysicalPosition
 
 /// Point-in-rect, physical pixels. Its own function because a second monitor placed left of or
 /// above the primary has a negative origin, which is exactly the case that goes wrong.
-fn contains(origin: PhysicalPosition<i32>, size: PhysicalSize<u32>, p: PhysicalPosition<i32>) -> bool {
+fn contains(
+    origin: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    p: PhysicalPosition<i32>,
+) -> bool {
     (origin.x..origin.x + size.width as i32).contains(&p.x)
         && (origin.y..origin.y + size.height as i32).contains(&p.y)
 }
@@ -155,22 +168,47 @@ mod tests {
     fn parses_what_close_wrote() {
         assert_eq!(parse_pos("120,64"), Some(PhysicalPosition::new(120, 64)));
         // A monitor left of the primary gives negative coordinates.
-        assert_eq!(parse_pos("-1800,-200"), Some(PhysicalPosition::new(-1800, -200)));
+        assert_eq!(
+            parse_pos("-1800,-200"),
+            Some(PhysicalPosition::new(-1800, -200))
+        );
         assert_eq!(parse_pos("garbage"), None);
         assert_eq!(parse_pos("12,"), None);
     }
 
     #[test]
     fn point_lands_on_the_right_display() {
-        let primary = (PhysicalPosition::new(0, 0), PhysicalSize::new(1920u32, 1080));
+        let primary = (
+            PhysicalPosition::new(0, 0),
+            PhysicalSize::new(1920u32, 1080),
+        );
         // Second monitor to the *left* of the primary: origin is negative.
-        let left = (PhysicalPosition::new(-1920, 0), PhysicalSize::new(1920u32, 1080));
+        let left = (
+            PhysicalPosition::new(-1920, 0),
+            PhysicalSize::new(1920u32, 1080),
+        );
 
-        assert!(contains(primary.0, primary.1, PhysicalPosition::new(1300, 800)));
-        assert!(!contains(primary.0, primary.1, PhysicalPosition::new(-500, 800)));
+        assert!(contains(
+            primary.0,
+            primary.1,
+            PhysicalPosition::new(1300, 800)
+        ));
+        assert!(!contains(
+            primary.0,
+            primary.1,
+            PhysicalPosition::new(-500, 800)
+        ));
         assert!(contains(left.0, left.1, PhysicalPosition::new(-500, 800)));
         // Right/bottom edges are exclusive — that pixel belongs to the next display.
-        assert!(!contains(primary.0, primary.1, PhysicalPosition::new(1920, 500)));
-        assert!(!contains(primary.0, primary.1, PhysicalPosition::new(500, 1080)));
+        assert!(!contains(
+            primary.0,
+            primary.1,
+            PhysicalPosition::new(1920, 500)
+        ));
+        assert!(!contains(
+            primary.0,
+            primary.1,
+            PhysicalPosition::new(500, 1080)
+        ));
     }
 }

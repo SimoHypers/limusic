@@ -19,9 +19,17 @@ use crate::state::AppState;
 
 /// Update messages: app → media-controls owner thread.
 enum MediaUpdate {
-    Metadata { title: String, artist: String, album: Option<String>, cover: Option<String> },
+    Metadata {
+        title: String,
+        artist: String,
+        album: Option<String>,
+        cover: Option<String>,
+    },
     Duration(f64),
-    Playback { playing: bool, pos: f64 },
+    Playback {
+        playing: bool,
+        pos: f64,
+    },
 }
 
 /// App-side handle to the media-controls thread. Cheap to clone-send into. `None` when the OS
@@ -31,7 +39,13 @@ pub struct MediaHandle {
 }
 
 impl MediaHandle {
-    pub fn set_metadata(&self, title: &str, artist: &str, album: Option<&str>, cover: Option<&str>) {
+    pub fn set_metadata(
+        &self,
+        title: &str,
+        artist: &str,
+        album: Option<&str>,
+        cover: Option<&str>,
+    ) {
         let _ = self.tx.send(MediaUpdate::Metadata {
             title: title.to_owned(),
             artist: artist.to_owned(),
@@ -77,7 +91,11 @@ fn run(app: AppHandle, rx: std::sync::mpsc::Receiver<MediaUpdate>) {
     #[cfg(not(target_os = "windows"))]
     let hwnd = None;
 
-    let config = PlatformConfig { dbus_name: "limusic", display_name: "Limusic", hwnd };
+    let config = PlatformConfig {
+        dbus_name: "limusic",
+        display_name: "Limusic",
+        hwnd,
+    };
     let mut controls = match MediaControls::new(config) {
         Ok(c) => c,
         Err(e) => {
@@ -102,7 +120,12 @@ fn run(app: AppHandle, rx: std::sync::mpsc::Receiver<MediaUpdate>) {
     // `recv` blocks until the sender drops (app shutdown), keeping `controls` alive.
     while let Ok(update) = rx.recv() {
         match update {
-            MediaUpdate::Metadata { title: t, artist: a, album: al, cover: c } => {
+            MediaUpdate::Metadata {
+                title: t,
+                artist: a,
+                album: al,
+                cover: c,
+            } => {
                 title = t;
                 artist = a;
                 album = al;
@@ -149,7 +172,9 @@ fn apply_metadata(
 fn handle_event(app: &AppHandle, event: MediaControlEvent) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let Some(state) = app.try_state::<Arc<AppState>>() else { return };
+        let Some(state) = app.try_state::<Arc<AppState>>() else {
+            return;
+        };
         let state = state.inner().clone();
         match event {
             MediaControlEvent::Play | MediaControlEvent::Toggle => state.resume_or_toggle().await,
@@ -162,12 +187,24 @@ fn handle_event(app: &AppHandle, event: MediaControlEvent) {
                 let _ = state.player.seek(pos.as_secs_f64());
             }
             MediaControlEvent::SeekBy(dir, by) => {
-                let delta = if matches!(dir, SeekDirection::Forward) { by.as_secs_f64() } else { -by.as_secs_f64() };
-                let _ = state.player.seek((state.current_position() + delta).max(0.0));
+                let delta = if matches!(dir, SeekDirection::Forward) {
+                    by.as_secs_f64()
+                } else {
+                    -by.as_secs_f64()
+                };
+                let _ = state
+                    .player
+                    .seek((state.current_position() + delta).max(0.0));
             }
             MediaControlEvent::Seek(dir) => {
-                let delta = if matches!(dir, SeekDirection::Forward) { 10.0 } else { -10.0 };
-                let _ = state.player.seek((state.current_position() + delta).max(0.0));
+                let delta = if matches!(dir, SeekDirection::Forward) {
+                    10.0
+                } else {
+                    -10.0
+                };
+                let _ = state
+                    .player
+                    .seek((state.current_position() + delta).max(0.0));
             }
             _ => {}
         }

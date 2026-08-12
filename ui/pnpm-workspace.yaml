@@ -1,3 +1,6 @@
+allowBuilds:
+  '@hugeicons/svelte': true
 onlyBuiltDependencies:
   - '@tailwindcss/oxide'
   - esbuild
+  - '@hugeicons/svelte'

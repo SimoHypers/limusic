@@ -82,7 +82,10 @@ enum Msg {
     Track(Box<Track>),
     Duration(f64),
     /// A position tick. `at` is when the value was read — the thread ages it before use.
-    Position { pos: f64, at: Instant },
+    Position {
+        pos: f64,
+        at: Instant,
+    },
     /// A real play/pause transition (mpv's pause flag), never inferred from position ticks.
     Playing(bool),
     Enabled(bool),
@@ -129,7 +132,10 @@ impl DiscordHandle {
 
     /// A raw position tick. Carries no play/pause authority — mpv also ticks on paused seeks.
     pub fn set_position(&self, pos: f64) {
-        let _ = self.tx.send(Msg::Position { pos, at: Instant::now() });
+        let _ = self.tx.send(Msg::Position {
+            pos,
+            at: Instant::now(),
+        });
     }
 
     pub fn set_playing(&self, playing: bool) {
@@ -147,7 +153,10 @@ pub fn spawn(enabled: bool) -> Option<DiscordHandle> {
     // Without a real app id there is nothing to connect *as*. Say so once, loudly, rather than
     // leaving a settings toggle that silently does nothing.
     if APP_ID.is_empty() || !APP_ID.bytes().all(|b| b.is_ascii_digit()) {
-        tracing::warn!(APP_ID, "discord rich presence disabled: APP_ID is not a Discord app id");
+        tracing::warn!(
+            APP_ID,
+            "discord rich presence disabled: APP_ID is not a Discord app id"
+        );
         return None;
     }
     let (tx, rx) = channel::<Msg>();
@@ -368,7 +377,9 @@ impl Presence {
     /// Would Discord's card differ from what we last pushed? This is what keeps the ~1s position
     /// ticks from becoming one presence update per second.
     fn wants_push(&self) -> bool {
-        let Some(track) = &self.track else { return false };
+        let Some(track) = &self.track else {
+            return false;
+        };
         let Some(sent) = &self.sent else { return true };
         if sent.video_id != track.video_id {
             return true;
@@ -478,7 +489,8 @@ impl Presence {
 
     /// Time left before the next connect attempt is allowed, or `None` when we may try now.
     fn connect_backoff_remaining(&self) -> Option<Duration> {
-        self.connect_backoff.checked_sub(self.last_connect_try?.elapsed())
+        self.connect_backoff
+            .checked_sub(self.last_connect_try?.elapsed())
     }
 
     fn ensure_connected(&mut self) -> bool {
@@ -610,7 +622,10 @@ mod tests {
         let mut p = Presence::new(true);
         p.apply(Msg::Track(track(id)));
         p.apply(Msg::Playing(true));
-        p.apply(Msg::Position { pos, at: Instant::now() });
+        p.apply(Msg::Position {
+            pos,
+            at: Instant::now(),
+        });
         p
     }
 
@@ -647,7 +662,11 @@ mod tests {
 
         // mpv reports the length (state.rs hands it over the moment mpv transitions).
         p.apply(Msg::Duration(185.0));
-        assert_eq!(p.plan(), Act::Push, "with the length known, push immediately");
+        assert_eq!(
+            p.plan(),
+            Act::Push,
+            "with the length known, push immediately"
+        );
 
         // That single push carries the bar; nothing further is pending.
         p.sent = Some(Sent {
@@ -684,7 +703,10 @@ mod tests {
         p.duration = 185.0;
         sent_now(&mut p, 1);
         p.last_send = Some(Instant::now()); // just sent
-        p.apply(Msg::Position { pos: 120.0, at: Instant::now() }); // user scrubs
+        p.apply(Msg::Position {
+            pos: 120.0,
+            at: Instant::now(),
+        }); // user scrubs
 
         match p.plan() {
             Act::Wait(d) => assert!(d <= SEND_FLOOR, "waits out the floor, got {d:?}"),
@@ -702,7 +724,11 @@ mod tests {
         let mut p = playing("old", 187.0);
         sent_now(&mut p, 187);
         p.apply(Msg::Track(track("new")));
-        assert!(p.estimate() < 0.5, "new track starts at 0, got {}", p.estimate());
+        assert!(
+            p.estimate() < 0.5,
+            "new track starts at 0, got {}",
+            p.estimate()
+        );
         assert!(p.wants_push(), "track change must push");
     }
 
@@ -713,11 +739,20 @@ mod tests {
         assert!(p.wants_push(), "first track must push");
         sent_now(&mut p, 30);
 
-        p.apply(Msg::Position { pos: 31.0, at: Instant::now() });
-        assert!(!p.wants_push(), "a tick on the pushed timeline must not push");
+        p.apply(Msg::Position {
+            pos: 31.0,
+            at: Instant::now(),
+        });
+        assert!(
+            !p.wants_push(),
+            "a tick on the pushed timeline must not push"
+        );
         assert_eq!(p.plan(), Act::Idle);
 
-        p.apply(Msg::Position { pos: 120.0, at: Instant::now() });
+        p.apply(Msg::Position {
+            pos: 120.0,
+            at: Instant::now(),
+        });
         assert!(p.wants_push(), "a scrub must push");
     }
 
@@ -728,10 +763,16 @@ mod tests {
         let mut p = playing("abc", 0.0);
         sent_now(&mut p, 13);
         // A tick reading 10.0 that took 3s to arrive: the song is really at ~13s now.
-        p.apply(Msg::Position { pos: 10.0, at: Instant::now() - Duration::from_secs(3) });
+        p.apply(Msg::Position {
+            pos: 10.0,
+            at: Instant::now() - Duration::from_secs(3),
+        });
         let est = p.estimate();
         assert!((est - 13.0).abs() < 0.2, "expected ~13, got {est}");
-        assert!(!p.wants_push(), "an aged-but-on-timeline tick must not push");
+        assert!(
+            !p.wants_push(),
+            "an aged-but-on-timeline tick must not push"
+        );
     }
 
     /// Pause freezes the estimate (folding accrued playtime), and no card is wanted while paused.
@@ -741,7 +782,10 @@ mod tests {
         p.pos_at = Instant::now() - Duration::from_secs(3); // 3s of playback accrued
         p.apply(Msg::Playing(false));
         let frozen = p.estimate();
-        assert!((frozen - 13.0).abs() < 0.2, "expected ~13 frozen, got {frozen}");
+        assert!(
+            (frozen - 13.0).abs() < 0.2,
+            "expected ~13 frozen, got {frozen}"
+        );
         assert!(!p.playing, "paused");
         // sync() clears the card when !playing — needs_push is only consulted while playing.
     }
@@ -763,15 +807,26 @@ mod tests {
     #[test]
     fn a_failed_connect_retries_soon_then_backs_off() {
         let mut p = Presence::new(true);
-        assert!(p.connect_backoff_remaining().is_none(), "never tried — try now");
+        assert!(
+            p.connect_backoff_remaining().is_none(),
+            "never tried — try now"
+        );
 
         p.last_connect_try = Some(Instant::now()); // as ensure_connected does on failure
-        let rem = p.connect_backoff_remaining().expect("throttled straight after a failure");
-        assert!(rem <= CONNECT_RETRY_MIN, "first retry within {CONNECT_RETRY_MIN:?}, got {rem:?}");
+        let rem = p
+            .connect_backoff_remaining()
+            .expect("throttled straight after a failure");
+        assert!(
+            rem <= CONNECT_RETRY_MIN,
+            "first retry within {CONNECT_RETRY_MIN:?}, got {rem:?}"
+        );
 
         p.connect_backoff = CONNECT_RETRY_MAX; // after repeated failures
         p.last_connect_try = Some(Instant::now() - CONNECT_RETRY_MAX);
-        assert!(p.connect_backoff_remaining().is_none(), "the backoff still lets retries through");
+        assert!(
+            p.connect_backoff_remaining().is_none(),
+            "the backoff still lets retries through"
+        );
     }
 
     #[test]
@@ -779,7 +834,11 @@ mod tests {
         assert_eq!(field("héllo"), "héllo");
         let long = "é".repeat(200);
         assert!(field(&long).chars().count() <= MAX_FIELD);
-        assert_eq!(field("V").chars().count(), 2, "1-char fields are padded, not rejected");
+        assert_eq!(
+            field("V").chars().count(),
+            2,
+            "1-char fields are padded, not rejected"
+        );
     }
 
     #[test]
@@ -788,10 +847,21 @@ mod tests {
             discord_thumb("https://lh3.googleusercontent.com/x=w60-h60-l90-rj").as_deref(),
             Some("https://lh3.googleusercontent.com/x=w512-h512-l90-rj")
         );
-        assert_eq!(discord_thumb("https://yt3.ggpht.com/y=s176").as_deref(), Some("https://yt3.ggpht.com/y=s512"));
+        assert_eq!(
+            discord_thumb("https://yt3.ggpht.com/y=s176").as_deref(),
+            Some("https://yt3.ggpht.com/y=s512")
+        );
         let ytimg = "https://i.ytimg.com/vi/abc/maxresdefault.jpg";
-        assert_eq!(discord_thumb(ytimg).as_deref(), Some(ytimg), "path-variant thumbs pass through");
+        assert_eq!(
+            discord_thumb(ytimg).as_deref(),
+            Some(ytimg),
+            "path-variant thumbs pass through"
+        );
         let long = format!("https://example.com/{}", "a".repeat(300));
-        assert_eq!(discord_thumb(&long), None, "over-long URLs are dropped, not sent");
+        assert_eq!(
+            discord_thumb(&long),
+            None,
+            "over-long URLs are dropped, not sent"
+        );
     }
 }

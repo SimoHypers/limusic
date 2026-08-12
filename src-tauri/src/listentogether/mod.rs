@@ -25,15 +25,31 @@ pub enum SyncCommand {
     /// Full state (after join / reconnect / request-sync): resolve current track, seek to live
     /// position, set play/pause, mirror the queue.
     ApplyState(RoomState),
-    ChangeTrack { track: Track, position_ms: i64, playing: bool, queue: Vec<Track> },
-    Play { position_ms: i64, server_time_ms: i64 },
-    Pause { position_ms: i64 },
-    Seek { position_ms: i64 },
+    ChangeTrack {
+        track: Track,
+        position_ms: i64,
+        playing: bool,
+        queue: Vec<Track>,
+    },
+    Play {
+        position_ms: i64,
+        server_time_ms: i64,
+    },
+    Pause {
+        position_ms: i64,
+    },
+    Seek {
+        position_ms: i64,
+    },
     /// Guest: mirror the host's upcoming queue (a guest added/the host removed a track).
-    SyncQueue { queue: Vec<Track> },
+    SyncQueue {
+        queue: Vec<Track>,
+    },
     /// Host: a guest's track to insert at the guest boundary (auto-approved suggestion,
     /// `queued_by` already stamped with the guest's name).
-    GuestAdd { track: Track },
+    GuestAdd {
+        track: Track,
+    },
     /// We just became host of a freshly-created room — seed the room with our current now-playing.
     HostSeed,
     /// We left / were kicked / became host — stop applying remote playback.
@@ -136,11 +152,17 @@ pub struct LtSession {
 
 impl LtSession {
     /// Create the session. Returns the receiver the bridge task drains to drive guest playback.
-    pub fn new(app: AppHandle, server_url: String) -> (Arc<Self>, mpsc::UnboundedReceiver<SyncCommand>) {
+    pub fn new(
+        app: AppHandle,
+        server_url: String,
+    ) -> (Arc<Self>, mpsc::UnboundedReceiver<SyncCommand>) {
         // rustls needs a process-wide crypto provider before the first `wss://` handshake.
         let _ = rustls::crypto::ring::default_provider().install_default();
         let (sync_tx, sync_rx) = mpsc::unbounded_channel();
-        let inner = Inner { server_url, ..Inner::default() };
+        let inner = Inner {
+            server_url,
+            ..Inner::default()
+        };
         let s = Arc::new(LtSession {
             app,
             inner: Arc::new(Mutex::new(inner)),
@@ -170,7 +192,11 @@ impl LtSession {
     pub async fn my_username(&self) -> Option<String> {
         let inner = self.inner.lock().await;
         let me = inner.my_id.as_deref()?;
-        inner.users.iter().find(|u| u.user_id == me).map(|u| u.username.clone())
+        inner
+            .users
+            .iter()
+            .find(|u| u.user_id == me)
+            .map(|u| u.username.clone())
     }
 
     /// Host: broadcast a playback action to the room. No-op unless we're the host and connected.
@@ -196,7 +222,11 @@ impl LtSession {
     }
 
     pub async fn join_room(self: &Arc<Self>, code: String, username: String) {
-        self.start(ClientMessage::JoinRoom { room_code: code, username }).await;
+        self.start(ClientMessage::JoinRoom {
+            room_code: code,
+            username,
+        })
+        .await;
     }
 
     pub async fn approve_join(&self, user_id: String) {
@@ -287,7 +317,8 @@ impl LtSession {
             }
             let url = self.inner.lock().await.server_url.clone();
             if url.is_empty() {
-                self.close_locally("Set a server URL first (Listen Together settings).").await;
+                self.close_locally("Set a server URL first (Listen Together settings).")
+                    .await;
                 return;
             }
             {
@@ -380,7 +411,8 @@ impl LtSession {
             // landed just fails.
             let token = self.inner.lock().await.session_token.clone();
             let Some(t) = token else {
-                self.close_locally("Couldn't reach the Listen Together server.").await;
+                self.close_locally("Couldn't reach the Listen Together server.")
+                    .await;
                 return;
             };
             attempt += 1;
@@ -404,7 +436,12 @@ impl LtSession {
         match sm {
             ServerMessage::Pong => return false,
 
-            ServerMessage::RoomCreated { room_code: _, user_id, session_token, state } => {
+            ServerMessage::RoomCreated {
+                room_code: _,
+                user_id,
+                session_token,
+                state,
+            } => {
                 {
                     let mut inner = self.inner.lock().await;
                     inner.role = Role::Host;
@@ -431,7 +468,11 @@ impl LtSession {
                 }
             }
 
-            ServerMessage::JoinApproved { user_id, session_token, state } => {
+            ServerMessage::JoinApproved {
+                user_id,
+                session_token,
+                state,
+            } => {
                 {
                     let mut inner = self.inner.lock().await;
                     inner.role = Role::Guest;
@@ -449,7 +490,11 @@ impl LtSession {
                 return true;
             }
 
-            ServerMessage::Reconnected { user_id, is_host, state } => {
+            ServerMessage::Reconnected {
+                user_id,
+                is_host,
+                state,
+            } => {
                 {
                     let mut inner = self.inner.lock().await;
                     inner.role = if is_host { Role::Host } else { Role::Guest };
@@ -528,9 +573,11 @@ impl LtSession {
                 let mut track = suggestion.track;
                 track.queued_by = Some(suggestion.from_username.clone());
                 let title = track.title.clone();
-                self.send(ClientMessage::ApproveSuggestion { id: suggestion.id }).await;
+                self.send(ClientMessage::ApproveSuggestion { id: suggestion.id })
+                    .await;
                 let _ = self.sync_tx.send(SyncCommand::GuestAdd { track });
-                self.emit_notice(&format!("{} added {title}", suggestion.from_username)).await;
+                self.emit_notice(&format!("{} added {title}", suggestion.from_username))
+                    .await;
             }
             ServerMessage::SuggestionApproved { .. } => {
                 self.emit_notice("Added to the session queue.").await;
@@ -581,20 +628,23 @@ impl LtSession {
             }
         }
         let cmd = match p.kind {
-            PlaybackKind::Play => {
-                Some(SyncCommand::Play { position_ms: p.position_ms, server_time_ms: p.server_time_ms })
-            }
-            PlaybackKind::Pause => Some(SyncCommand::Pause { position_ms: p.position_ms }),
-            PlaybackKind::Seek => Some(SyncCommand::Seek { position_ms: p.position_ms }),
+            PlaybackKind::Play => Some(SyncCommand::Play {
+                position_ms: p.position_ms,
+                server_time_ms: p.server_time_ms,
+            }),
+            PlaybackKind::Pause => Some(SyncCommand::Pause {
+                position_ms: p.position_ms,
+            }),
+            PlaybackKind::Seek => Some(SyncCommand::Seek {
+                position_ms: p.position_ms,
+            }),
             PlaybackKind::ChangeTrack => p.track.map(|track| SyncCommand::ChangeTrack {
                 track,
                 position_ms: p.position_ms,
                 playing: p.playing,
                 queue: p.queue.unwrap_or_default(),
             }),
-            PlaybackKind::SyncQueue => {
-                p.queue.map(|queue| SyncCommand::SyncQueue { queue })
-            }
+            PlaybackKind::SyncQueue => p.queue.map(|queue| SyncCommand::SyncQueue { queue }),
             PlaybackKind::SetVolume => None,
         };
         if let Some(cmd) = cmd {

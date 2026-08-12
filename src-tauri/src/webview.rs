@@ -109,7 +109,10 @@ impl Bridge {
             .map_err(|_| Error::Build("main-thread create dropped".into()))?
             .map_err(Error::Build)?;
 
-        let bridge = Bridge { app: app.clone(), label: label.to_string() };
+        let bridge = Bridge {
+            app: app.clone(),
+            label: label.to_string(),
+        };
 
         // Give the page-load event a brief chance (WebKitGTK fires it in ~tens of ms, so no evals
         // are issued before load there); if it doesn't arrive, fall through to probing JS directly
@@ -132,14 +135,23 @@ impl Bridge {
         let deadline = Instant::now() + Duration::from_secs(12);
         loop {
             let probe = bridge
-                .eval_json("location.protocol==='data:'".into(), Duration::from_millis(800))
+                .eval_json(
+                    "location.protocol==='data:'".into(),
+                    Duration::from_millis(800),
+                )
                 .await;
             if matches!(probe, Ok(Value::Bool(true))) {
-                tracing::info!(label, "webview bridge OK — harness loaded, eval round-trips");
+                tracing::info!(
+                    label,
+                    "webview bridge OK — harness loaded, eval round-trips"
+                );
                 return Ok(bridge);
             }
             if Instant::now() >= deadline {
-                tracing::error!(label, "webview never became ready — harness never loaded / JS never round-tripped");
+                tracing::error!(
+                    label,
+                    "webview never became ready — harness never loaded / JS never round-tripped"
+                );
                 let _ = bridge.destroy();
                 return Err(Error::Timeout(Duration::from_secs(12)));
             }
@@ -197,9 +209,12 @@ impl Bridge {
         let deadline = Instant::now() + timeout;
         let step = Duration::from_millis(100);
         loop {
-            match self.eval_json(format!("({expr})"), Duration::from_secs(3)).await {
+            match self
+                .eval_json(format!("({expr})"), Duration::from_secs(3))
+                .await
+            {
                 Ok(v) if !v.is_null() => return Ok(v),
-                Ok(_) => {} // null → still pending
+                Ok(_) => {}                                        // null → still pending
                 Err(Error::Gone(l)) => return Err(Error::Gone(l)), // window died — stop
                 Err(_) => {} // a transient eval timeout/error → keep polling until the deadline
             }
@@ -226,14 +241,19 @@ impl Bridge {
              catch(e){{window.__slots['{id}']={{ok:0,e:String((e&&e.message)||e)}};}}}})();"
         );
         self.eval(&kick)?;
-        let slot = self.poll_json(&format!("window.__slots['{id}']||null"), timeout).await?;
+        let slot = self
+            .poll_json(&format!("window.__slots['{id}']||null"), timeout)
+            .await?;
         // Free the slot regardless of outcome.
         let _ = self.eval(&format!("delete window.__slots['{id}'];"));
         if slot.get("ok").and_then(Value::as_i64) == Some(1) {
             Ok(slot.get("v").cloned().unwrap_or(Value::Null))
         } else {
             Err(Error::Eval(
-                slot.get("e").and_then(Value::as_str).unwrap_or("async call failed").to_owned(),
+                slot.get("e")
+                    .and_then(Value::as_str)
+                    .unwrap_or("async call failed")
+                    .to_owned(),
             ))
         }
     }
@@ -259,7 +279,9 @@ fn next_call_id() -> u64 {
 /// dispatches to the event loop, so we poll `get_webview_window` until it's `None` (or give up).
 /// Prevents the "a webview with label X already exists" collision on a re-create.
 pub(crate) async fn destroy_and_wait(app: &AppHandle, label: &str) {
-    let Some(wv) = app.get_webview_window(label) else { return };
+    let Some(wv) = app.get_webview_window(label) else {
+        return;
+    };
     let (tx, rx) = tokio::sync::oneshot::channel();
     let _ = app.run_on_main_thread(move || {
         let _ = wv.destroy();
@@ -272,5 +294,8 @@ pub(crate) async fn destroy_and_wait(app: &AppHandle, label: &str) {
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    tracing::warn!(label, "webview label still present after destroy — create may collide");
+    tracing::warn!(
+        label,
+        "webview label still present after destroy — create may collide"
+    );
 }

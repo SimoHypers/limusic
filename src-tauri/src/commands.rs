@@ -31,7 +31,11 @@ pub async fn search(state: St<'_>, query: String) -> Result<Vec<SongItem>, Strin
 #[tauri::command]
 pub async fn search_all(state: St<'_>, query: String) -> Result<SearchResults, String> {
     let client = metadata_client(&state)?;
-    state.it.search_all(client, &query).await.map_err(|e| e.to_string())
+    state
+        .it
+        .search_all(client, &query)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Filtered "Show more" search for one category (albums / artists / playlists).
@@ -42,7 +46,11 @@ pub async fn search_cards(
     category: String,
 ) -> Result<Vec<BrowseItem>, String> {
     let client = metadata_client(&state)?;
-    state.it.search_cards(client, &query, &category).await.map_err(|e| e.to_string())
+    state
+        .it
+        .search_cards(client, &query, &category)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Play a track (from a search result). The UI passes the full item so we can seed the queue
@@ -93,7 +101,11 @@ pub async fn add_to_queue(
     from: Option<String>,
     continuation: Option<String>,
 ) -> Result<(), String> {
-    state.inner().clone().add_to_queue(items, from, continuation).await;
+    state
+        .inner()
+        .clone()
+        .add_to_queue(items, from, continuation)
+        .await;
     Ok(())
 }
 
@@ -236,7 +248,11 @@ pub async fn set_setting(
 #[tauri::command]
 pub async fn get_stream_clients() -> Result<Vec<String>, String> {
     let mut v = vec![innertube::MAIN_CLIENT.to_string()];
-    v.extend(innertube::STREAM_FALLBACK_ORDER.iter().map(|s| s.to_string()));
+    v.extend(
+        innertube::STREAM_FALLBACK_ORDER
+            .iter()
+            .map(|s| s.to_string()),
+    );
     Ok(v)
 }
 
@@ -252,7 +268,11 @@ pub async fn allow_font_file(app: tauri::AppHandle, path: String) -> Result<(), 
     use tauri::Manager;
     const FONT_EXTS: [&str; 4] = ["ttf", "otf", "woff", "woff2"];
     let p = std::path::Path::new(&path);
-    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+    let ext = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     if !FONT_EXTS.contains(&ext.as_str()) {
         return Err(format!("not a font file: {path}"));
     }
@@ -323,7 +343,8 @@ pub async fn open_mini(app: tauri::AppHandle) -> Result<(), String> {
         let _ = tx.send(crate::mini::open(&handle));
     })
     .map_err(|e| e.to_string())?;
-    rx.await.map_err(|_| "the mini player never answered".to_string())?
+    rx.await
+        .map_err(|_| "the mini player never answered".to_string())?
 }
 
 /// Swap back. Same path as the tray, so the widget and the tray can't disagree about what
@@ -337,25 +358,40 @@ pub async fn close_mini(app: tauri::AppHandle) -> Result<(), String> {
 // --- browse / library (context/08) ---------------------------------------------------------
 
 fn metadata_client(state: &Arc<AppState>) -> Result<&innertube::YouTubeClient, String> {
-    state.clients.get(innertube::METADATA_CLIENT).ok_or_else(|| "metadata client missing".into())
+    state
+        .clients
+        .get(innertube::METADATA_CLIENT)
+        .ok_or_else(|| "metadata client missing".into())
 }
 
 #[tauri::command]
 pub async fn get_home(state: St<'_>, params: Option<String>) -> Result<HomePage, String> {
     let client = metadata_client(&state)?;
-    state.it.home(client, params.as_deref()).await.map_err(|e| e.to_string())
+    state
+        .it
+        .home(client, params.as_deref())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_home_more(state: St<'_>, token: String) -> Result<HomePage, String> {
     let client = metadata_client(&state)?;
-    state.it.home_continuation(client, &token).await.map_err(|e| e.to_string())
+    state
+        .it
+        .home_continuation(client, &token)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_library(state: St<'_>) -> Result<Vec<BrowseItem>, String> {
     let client = metadata_client(&state)?;
-    let mut items = state.it.library_playlists(client).await.map_err(|e| e.to_string())?;
+    let mut items = state
+        .it
+        .library_playlists(client)
+        .await
+        .map_err(|e| e.to_string())?;
     // On Repeat leads the library once there's anything in it. Hidden while empty rather than
     // shown as a dead tile on a fresh install.
     let songs = on_repeat_songs(&state);
@@ -380,13 +416,21 @@ pub async fn get_library(state: St<'_>) -> Result<Vec<BrowseItem>, String> {
 #[tauri::command]
 pub async fn get_library_albums(state: St<'_>) -> Result<Vec<BrowseItem>, String> {
     let client = metadata_client(&state)?;
-    state.it.library_albums(client).await.map_err(|e| e.to_string())
+    state
+        .it
+        .library_albums(client)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_library_artists(state: St<'_>) -> Result<Vec<BrowseItem>, String> {
     let client = metadata_client(&state)?;
-    state.it.library_artists(client).await.map_err(|e| e.to_string())
+    state
+        .it
+        .library_artists(client)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// A playlist or album page. `id` is the browseId (`VL…` / `MPRE…`); Liked Songs is `VLLM`, and
@@ -397,7 +441,10 @@ pub async fn get_playlist(state: St<'_>, id: String) -> Result<PlaylistPage, Str
         let items = on_repeat_songs(&state);
         return Ok(PlaylistPage {
             title: Some("On Repeat".into()),
-            subtitle: Some(format!("{} songs you've played most this month", items.len())),
+            subtitle: Some(format!(
+                "{} songs you've played most this month",
+                items.len()
+            )),
             thumbnail: None,
             items,
             continuation: None,
@@ -405,7 +452,11 @@ pub async fn get_playlist(state: St<'_>, id: String) -> Result<PlaylistPage, Str
         });
     }
     let client = metadata_client(&state)?;
-    state.it.playlist(client, &id).await.map_err(|e| e.to_string())
+    state
+        .it
+        .playlist(client, &id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// The On Repeat track list: most-played first, over the trailing window. Rows whose stored JSON
@@ -452,7 +503,11 @@ pub async fn get_playlist_more(
     token: String,
 ) -> Result<PlaylistContinuation, String> {
     let client = metadata_client(&state)?;
-    state.it.playlist_continuation(client, &token).await.map_err(|e| e.to_string())
+    state
+        .it
+        .playlist_continuation(client, &token)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// An album page. `id` is the album browseId (`MPRE…`).
@@ -475,7 +530,11 @@ pub async fn get_album(state: St<'_>, id: String) -> Result<AlbumPage, String> {
 #[tauri::command]
 pub async fn get_artist(state: St<'_>, id: String) -> Result<ArtistPage, String> {
     let client = metadata_client(&state)?;
-    state.it.artist(client, &id).await.map_err(|e| e.to_string())
+    state
+        .it
+        .artist(client, &id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// A card grid reached from a carousel's "More" button (e.g. an artist's full albums list).
@@ -486,7 +545,11 @@ pub async fn get_browse_grid(
     params: Option<String>,
 ) -> Result<Vec<BrowseItem>, String> {
     let client = metadata_client(&state)?;
-    state.it.browse_grid(client, &id, params.as_deref()).await.map_err(|e| e.to_string())
+    state
+        .it
+        .browse_grid(client, &id, params.as_deref())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Play a playlist/album: the given items become the queue (no radio). `start` is the clicked
@@ -509,7 +572,14 @@ pub async fn play_playlist(
 ) -> Result<(), String> {
     let state = state.inner().clone();
     state
-        .play_tracks(items, start, source_id, source_name, shuffle.unwrap_or(false), continuation)
+        .play_tracks(
+            items,
+            start,
+            source_id,
+            source_name,
+            shuffle.unwrap_or(false),
+            continuation,
+        )
         .await;
     Ok(())
 }
@@ -543,15 +613,27 @@ fn require_login(state: &Arc<AppState>) -> Result<&innertube::YouTubeClient, Str
 #[tauri::command]
 pub async fn like(state: St<'_>, video_id: String, liked: bool) -> Result<(), String> {
     let client = require_login(&state)?;
-    state.it.like(client, &video_id, liked).await.map_err(|e| e.to_string())
+    state
+        .it
+        .like(client, &video_id, liked)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Save an album to the library, or remove it. `playlist_id` is the album's `OLAK5uy_…`
 /// (`AlbumPage.playlistId`).
 #[tauri::command]
-pub async fn set_album_saved(state: St<'_>, playlist_id: String, saved: bool) -> Result<(), String> {
+pub async fn set_album_saved(
+    state: St<'_>,
+    playlist_id: String,
+    saved: bool,
+) -> Result<(), String> {
     let client = require_login(&state)?;
-    state.it.like_playlist(client, &playlist_id, saved).await.map_err(|e| e.to_string())
+    state
+        .it
+        .like_playlist(client, &playlist_id, saved)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Login, plus the guard every playlist edit needs: On Repeat has no YouTube playlist behind it, so
@@ -573,7 +655,11 @@ pub async fn add_to_playlist(
     video_id: String,
 ) -> Result<(), String> {
     let client = editable_playlist(&state, &playlist_id)?;
-    state.it.playlist_add(client, &playlist_id, &video_id).await.map_err(|e| e.to_string())
+    state
+        .it
+        .playlist_add(client, &playlist_id, &video_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -594,25 +680,45 @@ pub async fn remove_from_playlist(
 #[tauri::command]
 pub async fn create_playlist(state: St<'_>, title: String) -> Result<String, String> {
     let client = require_login(&state)?;
-    state.it.create_playlist(client, &title).await.map_err(|e| e.to_string())
+    state
+        .it
+        .create_playlist(client, &title)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn rename_playlist(state: St<'_>, playlist_id: String, name: String) -> Result<(), String> {
+pub async fn rename_playlist(
+    state: St<'_>,
+    playlist_id: String,
+    name: String,
+) -> Result<(), String> {
     let client = editable_playlist(&state, &playlist_id)?;
-    state.it.playlist_rename(client, &playlist_id, &name).await.map_err(|e| e.to_string())
+    state
+        .it
+        .playlist_rename(client, &playlist_id, &name)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn delete_playlist(state: St<'_>, playlist_id: String) -> Result<(), String> {
     let client = editable_playlist(&state, &playlist_id)?;
-    state.it.delete_playlist(client, &playlist_id).await.map_err(|e| e.to_string())
+    state
+        .it
+        .delete_playlist(client, &playlist_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn subscribe(state: St<'_>, channel_id: String, subscribed: bool) -> Result<(), String> {
     let client = require_login(&state)?;
-    state.it.subscribe(client, &channel_id, subscribed).await.map_err(|e| e.to_string())
+    state
+        .it
+        .subscribe(client, &channel_id, subscribed)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // --- local music (local.rs) ------------------------------------------------------------------
@@ -763,7 +869,13 @@ pub async fn get_lyrics(
 ) -> Result<Option<crate::lyrics::Lyrics>, String> {
     Ok(crate::lyrics::get_lyrics(
         state.inner(),
-        crate::lyrics::LyricsRequest { video_id, title, artists, album, duration },
+        crate::lyrics::LyricsRequest {
+            video_id,
+            title,
+            artists,
+            album,
+            duration,
+        },
     )
     .await)
 }
@@ -805,7 +917,14 @@ mod tests {
             ..Default::default()
         };
         let row = shed_queue_context(played.clone());
-        assert_eq!(row, SongItem { video_id: "abc".into(), title: "Grace".into(), ..Default::default() });
+        assert_eq!(
+            row,
+            SongItem {
+                video_id: "abc".into(),
+                title: "Grace".into(),
+                ..Default::default()
+            }
+        );
         assert_eq!(row.title, played.title, "the song itself survives");
     }
 }

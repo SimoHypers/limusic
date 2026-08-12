@@ -69,7 +69,9 @@ pub fn open_login(app: AppHandle, state: Arc<AppState>) {
         if let Some(w) = app2.get_webview_window(LOGIN_LABEL) {
             let _ = w.destroy();
         }
-        let Ok(url) = tauri::Url::parse(LOGIN_URL) else { return };
+        let Ok(url) = tauri::Url::parse(LOGIN_URL) else {
+            return;
+        };
         let res = WebviewWindowBuilder::new(&app2, LOGIN_LABEL, WebviewUrl::External(url))
             .title("Sign in to YouTube Music")
             .inner_size(480.0, 720.0)
@@ -83,18 +85,26 @@ pub fn open_login(app: AppHandle, state: Arc<AppState>) {
             })
             .build();
         if let Err(e) = res {
-            let _ = app2.emit("login-error", format!("Couldn't open the sign-in window: {e}"));
+            let _ = app2.emit(
+                "login-error",
+                format!("Couldn't open the sign-in window: {e}"),
+            );
         }
     });
     if let Err(e) = dispatched {
-        let _ = app.emit("login-error", format!("Couldn't open the sign-in window: {e}"));
+        let _ = app.emit(
+            "login-error",
+            format!("Couldn't open the sign-in window: {e}"),
+        );
     }
 }
 
 /// Merge the youtube-domain cookies into a `Cookie` header string. Reads the platform cookie store
 /// (HttpOnly + secure included), matching what a browser sends to music.youtube.com.
 fn read_login_cookies(app: &AppHandle) -> String {
-    let Some(wv) = app.get_webview_window(LOGIN_LABEL) else { return String::new() };
+    let Some(wv) = app.get_webview_window(LOGIN_LABEL) else {
+        return String::new();
+    };
     let mut jar = std::collections::BTreeMap::new();
     for base in ["https://music.youtube.com", "https://www.youtube.com"] {
         if let Ok(url) = tauri::Url::parse(base) {
@@ -105,7 +115,10 @@ fn read_login_cookies(app: &AppHandle) -> String {
             }
         }
     }
-    jar.into_iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("; ")
+    jar.into_iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 fn close_login(app: &AppHandle) {

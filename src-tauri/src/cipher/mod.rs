@@ -103,7 +103,10 @@ impl CipherDeobfuscator {
             return Some(u);
         }
         // One self-heal retry: a stale player.js can silently produce a wrong signature. context/05.
-        tracing::warn!(video_id, "decipher failed — refetching player.js and retrying once");
+        tracing::warn!(
+            video_id,
+            "decipher failed — refetching player.js and retrying once"
+        );
         self.fetcher.invalidate();
         {
             let mut inner = self.inner.lock().await;
@@ -157,9 +160,11 @@ impl CipherDeobfuscator {
             js_string(&decoded)
         );
         match bridge.eval_json(js, CALL_TIMEOUT).await.ok()? {
-            Value::String(newn) if !newn.is_empty() && newn != decoded => {
-                Some(url.replacen(&format!("n={enc}"), &format!("n={}", urlencoding::encode(&newn)), 1))
-            }
+            Value::String(newn) if !newn.is_empty() && newn != decoded => Some(url.replacen(
+                &format!("n={enc}"),
+                &format!("n={}", urlencoding::encode(&newn)),
+                1,
+            )),
             _ => None,
         }
     }
@@ -216,7 +221,10 @@ impl CipherDeobfuscator {
         // STS still comes from player.js when the registry hasn't listed this hash yet: it is a
         // plain literal and stays reliably greppable, and a correct STS keeps the /player requests
         // valid for the direct-URL clients even while deciphering is impossible.
-        let sts = cfg.as_ref().and_then(|c| c.sts).or_else(|| extractor::extract_sts(&player.js));
+        let sts = cfg
+            .as_ref()
+            .and_then(|c| c.sts)
+            .or_else(|| extractor::extract_sts(&player.js));
         // No config for this player means `build_injection` splices no exports at all, so the
         // webview could only discover what we already know. Skip it rather than spend a whole web
         // process and a 2.9 MB injection proving it. Keep the analysis, which is where STS comes
@@ -257,11 +265,15 @@ impl CipherDeobfuscator {
             return Err(e);
         }
         let n_available = matches!(
-            bridge.eval_json("window.__n_ok?true:false".into(), CALL_TIMEOUT).await,
+            bridge
+                .eval_json("window.__n_ok?true:false".into(), CALL_TIMEOUT)
+                .await,
             Ok(Value::Bool(true))
         );
         let sig_available = matches!(
-            bridge.eval_json("window.__sig_ok?true:false".into(), CALL_TIMEOUT).await,
+            bridge
+                .eval_json("window.__sig_ok?true:false".into(), CALL_TIMEOUT)
+                .await,
             Ok(Value::Bool(true))
         );
 

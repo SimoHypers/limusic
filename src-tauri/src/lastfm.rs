@@ -116,7 +116,10 @@ pub fn spawn(session_key: Option<String>) -> LastfmHandle {
             s.apply(msg).await;
         }
     });
-    LastfmHandle { tx, auth_gen: AtomicU64::new(0) }
+    LastfmHandle {
+        tx,
+        auth_gen: AtomicU64::new(0),
+    }
 }
 
 struct Scrobbler {
@@ -160,7 +163,9 @@ impl Scrobbler {
     }
 
     async fn now_playing(&self) {
-        let (Some(sk), Some(t)) = (&self.session, &self.track) else { return };
+        let (Some(sk), Some(t)) = (&self.session, &self.track) else {
+            return;
+        };
         if !scrobbleable(t) {
             return;
         }
@@ -179,7 +184,9 @@ impl Scrobbler {
     }
 
     async fn scrobble(&self) {
-        let (Some(sk), Some(t)) = (&self.session, &self.track) else { return };
+        let (Some(sk), Some(t)) = (&self.session, &self.track) else {
+            return;
+        };
         if !scrobbleable(t) {
             return;
         }
@@ -217,7 +224,11 @@ fn crosses_threshold(pos: f64, duration: f64) -> bool {
     if duration > 0.0 && duration < 30.0 {
         return false;
     }
-    let half = if duration > 0.0 { duration / 2.0 } else { f64::INFINITY };
+    let half = if duration > 0.0 {
+        duration / 2.0
+    } else {
+        f64::INFINITY
+    };
     pos >= half.min(240.0)
 }
 
@@ -231,10 +242,16 @@ struct ApiError {
 
 impl ApiError {
     fn transport(e: impl std::fmt::Display) -> Self {
-        ApiError { code: None, message: e.to_string() }
+        ApiError {
+            code: None,
+            message: e.to_string(),
+        }
     }
     fn retryable(&self) -> bool {
-        matches!(self.code, Some(ERR_TOKEN_PENDING) | Some(ERR_TEMP_UNAVAILABLE) | None)
+        matches!(
+            self.code,
+            Some(ERR_TOKEN_PENDING) | Some(ERR_TEMP_UNAVAILABLE) | None
+        )
     }
 }
 
@@ -269,7 +286,10 @@ async fn call(
             .and_then(|v| v.as_str())
             .unwrap_or("unknown last.fm error")
             .to_string();
-        return Err(ApiError { code: Some(code), message });
+        return Err(ApiError {
+            code: Some(code),
+            message,
+        });
     }
     Ok(body)
 }
@@ -289,7 +309,12 @@ fn sign(params: &[(String, String)]) -> String {
 
 // --- auth flow (connect / disconnect / status) ----------------------------------------------
 
-fn emit_state(app: &tauri::AppHandle, connected: bool, username: Option<&str>, error: Option<&str>) {
+fn emit_state(
+    app: &tauri::AppHandle,
+    connected: bool,
+    username: Option<&str>,
+    error: Option<&str>,
+) {
     let _ = app.emit(
         "lastfm-state",
         serde_json::json!({ "connected": connected, "username": username, "error": error }),
@@ -301,9 +326,11 @@ fn emit_state(app: &tauri::AppHandle, connected: bool, username: Option<&str>, e
 /// is superseded). Resolution arrives via the `lastfm-state` event, not this command.
 pub async fn connect(state: Arc<AppState>) -> Result<(), String> {
     if API_KEY.is_empty() || API_SECRET.is_empty() {
-        return Err("Last.fm isn't configured in this build — paste an API key into lastfm.rs \
+        return Err(
+            "Last.fm isn't configured in this build — paste an API key into lastfm.rs \
                     (see https://www.last.fm/api/account/create)."
-            .into());
+                .into(),
+        );
     }
     let gen = state.lastfm.bump_gen();
     let token = call("auth.getToken", vec![], false)
@@ -328,7 +355,12 @@ pub async fn connect(state: Arc<AppState>) -> Result<(), String> {
                     let name = body.pointer("/session/name").and_then(|v| v.as_str());
                     let key = body.pointer("/session/key").and_then(|v| v.as_str());
                     let (Some(name), Some(key)) = (name, key) else {
-                        emit_state(&state.app, false, None, Some("Last.fm sent a malformed session"));
+                        emit_state(
+                            &state.app,
+                            false,
+                            None,
+                            Some("Last.fm sent a malformed session"),
+                        );
                         return;
                     };
                     state.db.set_setting("lastfm_session_key", key);
@@ -340,12 +372,22 @@ pub async fn connect(state: Arc<AppState>) -> Result<(), String> {
                 }
                 Err(e) if e.retryable() => continue, // not approved yet (or transient) — keep polling
                 Err(e) => {
-                    emit_state(&state.app, false, None, Some(&format!("Last.fm: {}", e.message)));
+                    emit_state(
+                        &state.app,
+                        false,
+                        None,
+                        Some(&format!("Last.fm: {}", e.message)),
+                    );
                     return;
                 }
             }
         }
-        emit_state(&state.app, false, None, Some("Last.fm authorization timed out — try again"));
+        emit_state(
+            &state.app,
+            false,
+            None,
+            Some("Last.fm authorization timed out — try again"),
+        );
     });
     Ok(())
 }
@@ -359,8 +401,14 @@ pub fn disconnect(state: &AppState) {
 }
 
 pub fn status(state: &AppState) -> serde_json::Value {
-    let key = state.db.get_setting("lastfm_session_key").filter(|s| !s.is_empty());
-    let username = state.db.get_setting("lastfm_username").filter(|s| !s.is_empty());
+    let key = state
+        .db
+        .get_setting("lastfm_session_key")
+        .filter(|s| !s.is_empty());
+    let username = state
+        .db
+        .get_setting("lastfm_username")
+        .filter(|s| !s.is_empty());
     serde_json::json!({ "connected": key.is_some(), "username": username })
 }
 
@@ -378,13 +426,19 @@ fn open_browser(url: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     let cmd = {
         use std::os::windows::process::CommandExt;
-        std::process::Command::new("cmd").raw_arg(format!("/C start \"\" \"{url}\"")).spawn()
+        std::process::Command::new("cmd")
+            .raw_arg(format!("/C start \"\" \"{url}\""))
+            .spawn()
     };
-    cmd.map(|_| ()).map_err(|e| format!("Couldn't open the browser: {e}"))
+    cmd.map(|_| ())
+        .map_err(|e| format!("Couldn't open the browser: {e}"))
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 #[cfg(test)]

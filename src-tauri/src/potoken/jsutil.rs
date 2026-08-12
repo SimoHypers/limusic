@@ -44,7 +44,10 @@ pub fn parse_challenge_data(scrambled: &str) -> Result<Value, String> {
         .and_then(|a| a.iter().find_map(|x| x.as_str()))
         .ok_or("no interpreter js in challenge[1]")?;
     let program = arr.get(4).and_then(|v| v.as_str()).ok_or("no program[4]")?;
-    let global_name = arr.get(5).and_then(|v| v.as_str()).ok_or("no globalName[5]")?;
+    let global_name = arr
+        .get(5)
+        .and_then(|v| v.as_str())
+        .ok_or("no globalName[5]")?;
     Ok(serde_json::json!({
         "globalName": global_name,
         "program": program,
@@ -55,9 +58,12 @@ pub fn parse_challenge_data(scrambled: &str) -> Result<Value, String> {
 /// Parse the `/GenerateIT` response into `(integrityToken bytes, ttlSeconds)`.
 /// context/04 `parseIntegrityTokenData`: `[0]` = integrity token (base64), `[1]` = ttl seconds.
 pub fn parse_integrity_token_data(response_body: &str) -> Result<(Vec<u8>, u64), String> {
-    let raw: Value =
-        serde_json::from_str(response_body).map_err(|e| format!("genit json: {e} :: {response_body}"))?;
-    let tok_b64 = raw.get(0).and_then(|v| v.as_str()).ok_or("genit[0] not string")?;
+    let raw: Value = serde_json::from_str(response_body)
+        .map_err(|e| format!("genit json: {e} :: {response_body}"))?;
+    let tok_b64 = raw
+        .get(0)
+        .and_then(|v| v.as_str())
+        .ok_or("genit[0] not string")?;
     let ttl = raw.get(1).and_then(|v| v.as_u64()).unwrap_or(0);
     Ok((b64_decode_loose(tok_b64)?, ttl))
 }
@@ -79,7 +85,10 @@ mod tests {
         let target = r#"["msg",["var x=1;"],null,"hash","PROGRAM","GLOBAL",null,"exp"]"#;
         let pre: Vec<u8> = target.bytes().map(|b| b.wrapping_sub(97)).collect();
         let scrambled = base64::engine::general_purpose::STANDARD.encode(&pre);
-        assert_eq!(descramble(&scrambled).unwrap(), serde_json::from_str::<Value>(target).unwrap());
+        assert_eq!(
+            descramble(&scrambled).unwrap(),
+            serde_json::from_str::<Value>(target).unwrap()
+        );
     }
 
     #[test]

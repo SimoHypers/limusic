@@ -77,7 +77,10 @@ impl Db {
         )?;
         // Migrate pre-Phase-4 DBs that predate the loudness_db column. Errors ("duplicate column")
         // on fresh DBs are expected and ignored — the cache is disposable anyway.
-        let _ = conn.execute("ALTER TABLE stream_url_cache ADD COLUMN loudness_db REAL", []);
+        let _ = conn.execute(
+            "ALTER TABLE stream_url_cache ADD COLUMN loudness_db REAL",
+            [],
+        );
         // Local files are no longer recorded as plays (see `AppState::on_position`), but 0.3.1
         // recorded them for a while, so clear out anything already sitting in On Repeat's table.
         let _ = conn.execute("DELETE FROM plays WHERE video_id LIKE 'LOCAL:%'", []);
@@ -96,8 +99,10 @@ impl Db {
 
     pub fn get_setting(&self, key: &str) -> Option<String> {
         let conn = self.0.lock().unwrap();
-        conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0))
-            .ok()
+        conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| {
+            r.get(0)
+        })
+        .ok()
     }
 
     pub fn set_setting(&self, key: &str, value: &str) {
@@ -148,7 +153,10 @@ impl Db {
     /// Drop a cached URL (e.g. it 403'd on the real GET). context/06 §2.
     pub fn evict_stream(&self, video_id: &str) {
         let conn = self.0.lock().unwrap();
-        let _ = conn.execute("DELETE FROM stream_url_cache WHERE video_id = ?1", [video_id]);
+        let _ = conn.execute(
+            "DELETE FROM stream_url_cache WHERE video_id = ?1",
+            [video_id],
+        );
     }
 
     /// Cache one resolved URL, and drop every entry that has already expired.
@@ -239,9 +247,9 @@ impl Db {
              ORDER BY plays DESC, last DESC
              LIMIT ?2",
         ) {
-            if let Ok(rows) = stmt
-                .query_map(rusqlite::params![since, limit as i64], |r| Ok((r.get(0)?, r.get(1)?)))
-            {
+            if let Ok(rows) = stmt.query_map(rusqlite::params![since, limit as i64], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            }) {
                 out.extend(rows.flatten());
             }
         }
@@ -274,8 +282,15 @@ impl Db {
             let _ = tx.execute(
                 LOCAL_TRACK_UPSERT,
                 rusqlite::params![
-                    t.path, t.title, t.artist, t.album, t.album_key, t.track_no, t.duration_secs,
-                    t.cover, t.mtime
+                    t.path,
+                    t.title,
+                    t.artist,
+                    t.album,
+                    t.album_key,
+                    t.track_no,
+                    t.duration_secs,
+                    t.cover,
+                    t.mtime
                 ],
             );
         }
@@ -299,9 +314,17 @@ impl Db {
     /// collection is thousands of rows, so paging it would buy nothing.
     pub fn local_tracks(&self, album_key: Option<&str>) -> Vec<LocalTrack> {
         let conn = self.0.lock().unwrap();
-        let sql = "SELECT path, title, artist, album, album_key, track_no, duration_secs, cover, mtime
+        let sql =
+            "SELECT path, title, artist, album, album_key, track_no, duration_secs, cover, mtime
                    FROM local_tracks {WHERE} ORDER BY album, track_no, title";
-        let sql = sql.replace("{WHERE}", if album_key.is_some() { "WHERE album_key = ?1" } else { "" });
+        let sql = sql.replace(
+            "{WHERE}",
+            if album_key.is_some() {
+                "WHERE album_key = ?1"
+            } else {
+                ""
+            },
+        );
         let mut out = Vec::new();
         let row = |r: &rusqlite::Row| {
             Ok(LocalTrack {
@@ -401,19 +424,22 @@ mod tests {
             // Piggybacking on the one file-backed test: `journal_mode` answers with a row, so
             // setting it via `pragma_update` would silently do nothing (and `:memory:` cannot be
             // WAL at all, which is why this can't live in its own in-memory test).
-            let mode: String = d
-                .0
-                .lock()
-                .unwrap()
-                .query_row("PRAGMA journal_mode", [], |r| r.get(0))
-                .unwrap();
+            let mode: String =
+                d.0.lock()
+                    .unwrap()
+                    .query_row("PRAGMA journal_mode", [], |r| r.get(0))
+                    .unwrap();
             assert_eq!(mode, "wal");
             d.record_play("LOCAL:/music/a.mp3", "{\"local\":1}", 1_000, 10_000);
             d.record_play("dQw4w9WgXcQ", "{\"yt\":1}", 1_000, 10_000);
             assert_eq!(d.top_plays(0, 20).len(), 2, "both were recorded");
         }
         let d = Db::open(&path).unwrap();
-        assert_eq!(d.top_plays(0, 20), vec![("{\"yt\":1}".to_string(), 1)], "only the YouTube play survives");
+        assert_eq!(
+            d.top_plays(0, 20),
+            vec![("{\"yt\":1}".to_string(), 1)],
+            "only the YouTube play survives"
+        );
         drop(d);
         std::fs::remove_file(&path).ok();
     }
@@ -423,13 +449,22 @@ mod tests {
         let d = db();
         d.put_stream("stale", "https://x/1", 251, 1_000, None, 900);
         d.put_stream("live", "https://x/2", 251, 9_000, None, 900);
-        assert!(d.get_stream("stale", 900).is_some(), "not expired yet at t=900");
+        assert!(
+            d.get_stream("stale", 900).is_some(),
+            "not expired yet at t=900"
+        );
 
         // t=2000: "stale" expired at 1_000, so writing anything now sweeps it.
         d.put_stream("fresh", "https://x/3", 251, 8_000, None, 2_000);
         assert!(d.get_stream("stale", 2_000).is_none());
-        assert!(d.get_stream("live", 2_000).is_some(), "unexpired rows survive the sweep");
-        assert!(d.get_stream("fresh", 2_000).is_some(), "the row just written survives it");
+        assert!(
+            d.get_stream("live", 2_000).is_some(),
+            "unexpired rows survive the sweep"
+        );
+        assert!(
+            d.get_stream("fresh", 2_000).is_some(),
+            "the row just written survives it"
+        );
     }
 
     #[test]
