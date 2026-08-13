@@ -356,13 +356,13 @@ impl Server {
                 if !room.is_host(&me) {
                     return Ok(());
                 }
-
-                if let Some(_) = room.pending.remove(&joiner) {
-                    return tx
+                if let Some(p) = room.pending.remove(&joiner) {
+                    return p
+                        .tx
                         .send(ServerMessage::JoinRejected {
                             reason: "The host declined your request.".into(),
                         })
-                        .map_err(|_| ServerError::Removed);
+                        .map_err(|_| ServerError::JoinRejected);
                 }
                 Ok(())
             }
@@ -541,8 +541,8 @@ impl Server {
             ClientMessage::Reconnect { session_token } => {
                 let (code, user_id) = {
                     let mut index = self.session_index.write().await;
-                    match index.remove(&session_token) {
-                        Some(v) => v,
+                    match index.get(&session_token) {
+                        Some(v) => v.clone(),
                         None => {
                             return tx
                                 .send(err("session_expired", "Your session has expired."))
@@ -586,41 +586,54 @@ impl Server {
 
             ClientMessage::LeaveRoom => {
                 if let (Some(me), Some(code)) = (uid.take(), room_code.take()) {
-                    self.remove_member(&code, &me, true).await;
+                    self.remove_member_if_still_expired(&code, &me).await;
                 }
                 Ok(())
             }
         }
     }
 
-    /// Remove a member entirely (explicit leave, or reconnect grace expired). Handles host handoff
-    /// and empty-room bookkeeping. `graceful` distinguishes an explicit leave (broadcast UserLeft)
-    /// from a grace-expiry sweep (already announced as disconnected).
-    async fn remove_member(&self, code: &str, me: &str, graceful: bool) {
+    /// Conditionally remove a member only if they're still truly expired.
+    /// Prevents race where a peer reconnects between cleanup's discovery phase and removal phase.
+    async fn remove_member_if_still_expired(&self, code: &str, user_id: &str) {
         let mut rooms = self.rooms.write().await;
         let Some(room) = rooms.get_mut(code) else { return };
 
-        if let Some(peer) = room.peers.get(me) {
+        let should_remove = if let Some(peer) = room.peers.get(user_id) {
+            !peer.connected
+                && peer
+                    .disconnected_at
+                    .is_some_and(|time| Instant::now().duration_since(time) > RECONNECT_GRACE)
+        } else {
+            false
+        };
+
+        if !should_remove {
+            return;
+        }
+
+        if let Some(peer) = room.peers.get(user_id) {
             self.session_index.write().await.remove(&peer.session_token);
         }
 
-        room.pending.remove(me);
-        if room.peers.remove(me).is_some() && graceful {
-            room.broadcast(ServerMessage::UserLeft { user_id: me.to_string() }, None);
+        room.pending.remove(user_id);
+        if room.peers.remove(user_id).is_some() {
+            room.broadcast(ServerMessage::UserLeft { user_id: user_id.to_string() }, None);
         }
-        if room.host_id == me {
-            if let Some(next) = room.any_connected_other(me) {
+        
+        if room.host_id == user_id {
+            if let Some(next) = room.any_connected_other(user_id) {
                 room.host_id = next.clone();
                 room.broadcast(ServerMessage::HostChanged { host_id: next }, None);
             }
         }
+        
         if room.peers.is_empty() {
             for (_, p) in room.pending.drain() {
                 let _ = p.tx.send(ServerMessage::JoinRejected {
                     reason: "The host closed the session.".into(),
                 });
             }
-
             rooms.remove(code);
             tracing::info!(room = %code, "room closed (last member left)");
         }
@@ -681,7 +694,7 @@ impl Server {
             let sem = Arc::clone(&limit);
             futures.push(tokio::spawn(async move {
                 let _permit = sem.acquire().await.unwrap();
-                server.remove_member(&code, &id, false).await;
+                server.remove_member_if_still_expired(&code, &id).await;
             }));
         }
 
