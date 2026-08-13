@@ -52,11 +52,13 @@ env:
   # deliberately: a new mpv is a new 117 MB DLL in the installer.
   MPV_DEV_URL: https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20260610/mpv-dev-x86_64-20260610-git-304426c.7z
   MPV_DIR: ${{ github.workspace }}\.libmpv
-  RUSTFLAGS: "-C linker=rust-lld"
 
 jobs:
   build:
     runs-on: windows-latest
+    # A healthy run is ~13 min, and ~20 on a cold cache. The default is six hours, which is what a
+    # wedged download or a stuck installer build would burn while the release sits incomplete.
+    timeout-minutes: 40
     steps:
       - name: Resolve the tag
         id: rel
@@ -66,9 +68,16 @@ jobs:
           [ -n "$TAG" ] || { echo "::error::no tag to build for"; exit 1; }
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v4
+      # Actions are pinned to commit SHAs, not tags: `@v4` and `@v2` are mutable refs. This job
+      # holds TAURI_SIGNING_PRIVATE_KEY and produces the installers users auto-update to, so
+      # nothing in it should be able to change under us. To bump one: read the SHA off the action's
+      # release, update the pin and the trailing version comment together.
+      # persist-credentials: false, because nothing after this step uses git and there is no reason to
+      # leave a writable token in .git/config for the rest of the job to find.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ steps.rel.outputs.tag }}
+          persist-credentials: false
 
       # The tag is the contract: the binaries must be built from the source that tag points at, and
       # the updater compares tauri.conf.json's version. If they disagree, the version bump never got
@@ -114,21 +123,64 @@ jobs:
           done
           echo "::warning::no player-cipher registry reachable — shipping the empty table; clients will fetch it at runtime"
 
-      - uses: actions/setup-node@v4
+      # pnpm before setup-node, so `cache: pnpm` below can find the binary and cache its store.
+      # This step was 44s on Windows against 5s on Linux, all of it re-downloading the same
+      # packages every release. Same shape as website.yml.
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
 
       - name: Frontend deps
         shell: bash
-        run: |
-          npm install -g pnpm@10
-          cd ui && pnpm install --frozen-lockfile
+        run: cd ui && pnpm install --frozen-lockfile
 
       - name: Rust (MSVC)
         shell: bash
         run: rustup default stable-msvc
 
-      - uses: Swatinem/rust-cache@v2
+      # RUSTFLAGS is set HERE, before rust-cache, and never in a later step. The action hashes
+      # RUSTFLAGS into its cache key, and cargo hashes it into every unit's fingerprint. Set it
+      # after the action (or scoped to the build step, where it used to live) and the two disagree:
+      # the key stays the same, so the action restores a target dir built with different flags,
+      # cargo rejects every unit and rebuilds from scratch, and then the post step declines to save
+      # the rebuilt artifacts because the key it restored was an exact match. The result is a full
+      # cold compile on every single release, for ever. Keep this step above the cache.
+      #
+      # Two flags go in:
+      #   -L native=…\.libmpv   the mpv.lib synthesised further down (link-time only; libmpv2-sys
+      #                         ships pregenerated bindings and just emits `cargo:rustc-link-lib`)
+      #   rust-lld              LLD instead of MSVC's link.exe. Cargo is the bulk of this job, and
+      #                         with `codegen-units = 1` + thin LTO most of that is the codegen and
+      #                         link of limusic-app itself. The Linux job took its release build
+      #                         from 6m56 to 3m33 by moving to mold; this is the same lever on the
+      #                         platform that has no mold. rust-lld ships inside the toolchain, so
+      #                         there is nothing to install and nothing to pin.
+      #
+      # The rust-lld half is a SOFT fallback on purpose: if rustup moves the binary, warn and build
+      # with link.exe. A linker optimisation must never be the reason a release fails to build.
+      - name: Resolve RUSTFLAGS (linker + libmpv link path)
+        shell: bash
+        run: |
+          set -euo pipefail
+          FLAGS="-L native=${{ github.workspace }}\.libmpv"
+          SYSROOT="$(rustc --print sysroot | tr '\\' '/')"
+          RUST_LLD="$SYSROOT/lib/rustlib/x86_64-pc-windows-msvc/bin/rust-lld.exe"
+          if [ -f "$RUST_LLD" ]; then
+            FLAGS="$FLAGS -C linker-flavor=lld-link -C linker=$RUST_LLD"
+            echo "linking with rust-lld ($RUST_LLD)"
+          else
+            echo "::warning::rust-lld not found at $RUST_LLD, falling back to MSVC link.exe"
+          fi
+          echo "RUSTFLAGS=$FLAGS" >> "$GITHUB_ENV"
+          echo "RUSTFLAGS=$FLAGS"
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: . -> target
 
@@ -195,14 +247,16 @@ jobs:
           # Scoped to this step only — no other step (or third-party action) sees the signing key.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Point the linker at the mpv.lib we just built.
-          RUSTFLAGS: -L native=${{ github.workspace }}\.libmpv
+          # NOTE: RUSTFLAGS is deliberately NOT set here. It is exported to $GITHUB_ENV before
+          # rust-cache runs, so the cache key and cargo's fingerprints agree. See that step.
         run: |
           set -euo pipefail
           if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
             echo "::error::TAURI_SIGNING_PRIVATE_KEY secret is not set — the build would produce unsignable installers"
             exit 1
           fi
+
+          echo "building with RUSTFLAGS=${RUSTFLAGS:-<unset>}"
           (cd ui && pnpm build)
           # beforeBuildCommand emptied: we just ran it. Left on, tauri runs `pnpm build` from the
           # repo root, which has no package.json, so pnpm's choice between ui/ and website/ is down
@@ -214,6 +268,22 @@ jobs:
         shell: bash
         run: echo "dry_run - build and signing succeeded; release assets left untouched."
 
+      # Nothing in this job ever launches the app, so a dry run can prove the build succeeded and
+      # not that the result starts. Hand the installer over as a workflow artifact instead: a
+      # toolchain change (the linker above, the mpv import lib) can then be installed and clicked
+      # before it goes anywhere near a real release. Artifacts are not release assets, so no user
+      # sees this, and latest.json is untouched.
+      - name: Dry run, keep the installer as an artifact
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: limusic-dry-run-${{ steps.rel.outputs.tag }}
+          path: |
+            target/release/bundle/nsis/*-setup.exe
+            target/release/bundle/nsis/*.sig
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Attach installers + teach latest.json about Windows
         if: ${{ !inputs.dry_run }}
         shell: bash
@@ -222,6 +292,26 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ steps.rel.outputs.tag }}"
+
+          # Every GitHub API call below goes through this. Without it a single transient failure
+          # anywhere in this step aborts the job with the installers already uploaded and
+          # latest.json un-merged, so Windows installs are never offered the update, and nothing
+          # says so. All calls are idempotent (`--clobber` on upload, read-only download), so
+          # retrying is safe.
+          retry() { # retry <attempts> <command…>
+            local n="$1"; shift
+            local i
+            for ((i = 1; i <= n; i++)); do
+              "$@" && return 0
+              echo "::warning::attempt $i/$n failed: $*"
+              sleep $((i * 4))
+            done
+            return 1
+          }
+          fetch_manifest() { # fetch_manifest <dir>
+            rm -rf "$1" && gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir "$1"
+          }
+
           EXE="target/release/bundle/nsis/limusic_${VERSION}_x64-setup.exe"
           SIG="$EXE.sig"
           MSI="$(ls target/release/bundle/msi/limusic_${VERSION}_*.msi 2>/dev/null | head -1 || true)"
@@ -233,7 +323,7 @@ jobs:
             echo "::error::no .sig next to the installer — signing key missing, or createUpdaterArtifacts got turned off"; exit 1
           fi
 
-          gh release upload "$TAG" "$EXE" "$SIG" ${MSI:+"$MSI"} --clobber --repo "$GITHUB_REPOSITORY"
+          retry 3 gh release upload "$TAG" "$EXE" "$SIG" ${MSI:+"$MSI"} --clobber --repo "$GITHUB_REPOSITORY"
 
           # latest.json is the one thing both release workflows write, and they now run in parallel.
           # There is no compare-and-swap on release assets, so: merge, upload, read back, and retry
@@ -241,7 +331,7 @@ jobs:
           # winner's copy, so it converges — normally on the first attempt, worst case the second.
           URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$(basename "$EXE")"
           for attempt in 1 2 3 4 5; do
-            rm -rf manifest && gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir manifest
+            retry 3 fetch_manifest manifest
             MANIFEST_VERSION="$(jq -r .version manifest/latest.json)"
             if [ "$MANIFEST_VERSION" != "$VERSION" ]; then
               echo "::error::the release's latest.json is for $MANIFEST_VERSION but we built $VERSION"; exit 1
@@ -249,10 +339,10 @@ jobs:
             jq --arg sig "$(cat "$SIG")" --arg url "$URL" \
               '.platforms["windows-x86_64"] = { signature: $sig, url: $url }' \
               manifest/latest.json > latest.json
-            gh release upload "$TAG" latest.json --clobber --repo "$GITHUB_REPOSITORY"
+            retry 3 gh release upload "$TAG" latest.json --clobber --repo "$GITHUB_REPOSITORY"
 
             sleep $((3 + RANDOM % 5))
-            rm -rf check && gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir check
+            retry 3 fetch_manifest check
             if [ "$(jq -r '.platforms["windows-x86_64"].url // ""' check/latest.json)" = "$URL" ]; then
               echo "latest.json carries windows-x86_64 (attempt $attempt): $(jq -c '.platforms | keys' check/latest.json)"
               break
