@@ -7,13 +7,15 @@
 //!
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use futures_util::{SinkExt, StreamExt};
 use listen_protocol::{
     ClientMessage, PlaybackKind, RoomState, ServerMessage, Suggestion, Track, User,
 };
-use rand::Rng;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use thiserror::Error;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, RwLock};
@@ -26,6 +28,9 @@ const MAX_USERS_PER_ROOM: usize = 50;
 const CODE_ALPHABET: &[u8] = b"1234567890QWERTYUPASDFGHJKLZXCVBNM";
 
 type Tx = mpsc::UnboundedSender<ServerMessage>;
+
+static RNG: LazyLock<std::sync::Mutex<StdRng>> =
+    LazyLock::new(|| std::sync::Mutex::new(StdRng::from_entropy()));
 
 #[derive(Clone)]
 struct Peer {
@@ -103,9 +108,7 @@ impl Room {
 
     /// Send to every connected peer except `except` (dropped receivers are ignored — the cleanup
     /// path removes them).
-    fn broadcast(&self, msg: &ServerMessage, except: Option<&str>) {
-        let msg = msg.clone();
-
+    fn broadcast(&self, msg: ServerMessage, except: Option<&str>) {
         for (id, p) in &self.peers {
             if p.connected && Some(id.as_str()) != except {
                 let _ = p.tx.send(msg.clone());
@@ -148,17 +151,22 @@ fn now_ms() -> i64 {
 }
 
 fn gen_code() -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = RNG.lock().unwrap();
     (0..8).map(|_| CODE_ALPHABET[rng.gen_range(0..CODE_ALPHABET.len())] as char).collect()
 }
 
 fn gen_user_id() -> String {
+    let mut rng = RNG.lock().unwrap();
+
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    format!("user_{}_{}", nanos, rand::thread_rng().gen_range(0..10000))
+
+    format!("user_{}_{}", nanos, rng.gen_range(0..10000))
 }
 
 fn gen_token() -> String {
-    let bytes: [u8; 16] = rand::thread_rng().gen();
+    let mut rng = RNG.lock().unwrap();
+
+    let bytes: [u8; 16] = rng.gen();
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -200,6 +208,7 @@ impl Server {
                 };
                 let user_id = gen_user_id();
                 let token = gen_token();
+
                 let mut peers = HashMap::new();
                 peers.insert(
                     user_id.clone(),
@@ -333,8 +342,7 @@ impl Server {
                 })
                 .map_err(|_| ServerError::GenericError("Unable to approve join"))?;
 
-                room.broadcast(&ServerMessage::UserJoined { user }, Some(&joiner));
-
+                room.broadcast(ServerMessage::UserJoined { user }, Some(&joiner));
                 Ok(())
             }
 
@@ -406,8 +414,7 @@ impl Server {
                     }
                 }
                 // Host already applied it locally; broadcast to guests only (no echo).
-                room.broadcast(&ServerMessage::SyncPlayback(p), Some(&me));
-
+                room.broadcast(ServerMessage::SyncPlayback(p), Some(&me));
                 Ok(())
             }
 
@@ -504,7 +511,7 @@ impl Server {
                     return Ok(());
                 }
                 if let Some(p) = room.peers.remove(&target) {
-                    room.broadcast(&ServerMessage::UserLeft { user_id: target }, None);
+                    room.broadcast(ServerMessage::UserLeft { user_id: target }, None);
                     return p
                         .tx
                         .send(ServerMessage::Kicked {
@@ -526,25 +533,25 @@ impl Server {
                     return Ok(());
                 }
                 room.host_id = target.clone();
-                room.broadcast(&ServerMessage::HostChanged { host_id: target }, None);
+                room.broadcast(ServerMessage::HostChanged { host_id: target }, None);
 
                 Ok(())
             }
 
             ClientMessage::Reconnect { session_token } => {
-                let mut rooms = self.rooms.write().await;
-
-                // easy way for O(1) time
-                let (code, user_id) = match self.session_index.write().await.remove(&session_token)
-                {
-                    Some(entry) => entry,
-                    None => {
-                        return tx
-                            .send(err("session_expired", "Your session has expired."))
-                            .map_err(|_| ServerError::InvalidSession);
+                let (code, user_id) = {
+                    let mut index = self.session_index.write().await;
+                    match index.remove(&session_token) {
+                        Some(v) => v,
+                        None => {
+                            return tx
+                                .send(err("session_expired", "Your session has expired."))
+                                .map_err(|_| ServerError::InvalidSession);
+                        }
                     }
                 };
 
+                let mut rooms = self.rooms.write().await;
                 let room = rooms.get_mut(&code).unwrap();
                 {
                     let peer = room.peers.get_mut(&user_id).unwrap();
@@ -568,7 +575,7 @@ impl Server {
                     })?;
 
                 room.broadcast(
-                    &ServerMessage::UserReconnected { user_id: user_id.clone() },
+                    ServerMessage::UserReconnected { user_id: user_id.clone() },
                     Some(&user_id),
                 );
                 *uid = Some(user_id);
@@ -605,13 +612,13 @@ impl Server {
 
         room.pending.remove(me);
         if room.peers.remove(me).is_some() && graceful {
-            room.broadcast(&ServerMessage::UserLeft { user_id: me.to_string() }, None);
+            room.broadcast(ServerMessage::UserLeft { user_id: me.to_string() }, None);
         }
         // Host left → hand off to any connected peer.
         if room.host_id == me {
             if let Some(next) = room.any_connected_other(me) {
                 room.host_id = next.clone();
-                room.broadcast(&ServerMessage::HostChanged { host_id: next }, None);
+                room.broadcast(ServerMessage::HostChanged { host_id: next }, None);
             }
         }
         // Last member gone: nobody holds a session token for this room anymore, so it can never be
@@ -641,11 +648,11 @@ impl Server {
         let Some(peer) = room.peers.get_mut(&me) else { return };
         peer.connected = false;
         peer.disconnected_at = Some(Instant::now());
-        room.broadcast(&ServerMessage::UserDisconnected { user_id: me.clone() }, Some(&me));
+        room.broadcast(ServerMessage::UserDisconnected { user_id: me.clone() }, Some(&me));
         if room.host_id == me {
             if let Some(next) = room.any_connected_other(&me) {
                 room.host_id = next.clone();
-                room.broadcast(&ServerMessage::HostChanged { host_id: next }, None);
+                room.broadcast(ServerMessage::HostChanged { host_id: next }, None);
             }
         }
     }
