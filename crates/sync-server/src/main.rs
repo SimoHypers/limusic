@@ -362,7 +362,7 @@ impl Server {
                         .send(ServerMessage::JoinRejected {
                             reason: "The host declined your request.".into(),
                         })
-                        .map_err(|_| ServerError::JoinRejected);
+                        .map_err(|_| ServerError::Removed);
                 }
                 Ok(())
             }
