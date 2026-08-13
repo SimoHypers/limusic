@@ -112,6 +112,10 @@ jobs:
       # webkit2gtk-4.1 + gtk3 + appindicator are Tauri's; libmpv-dev is ours (libmpv2-sys ships
       # pregenerated bindings and just emits `-lmpv`, so only the link-time lib is needed);
       # libdbus-1-dev comes from tao, libssl-dev from reqwest's native-tls path.
+      # 
+      # : linuxdeploy excludes libjack, so fix-appdir-tls.sh copies it in by hand.
+      # glib-networking: supplies the gio TLS module that gets bundled. Without it the webview
+      # has no TLS backend at all, which is the bug that started this whole saga.
       - name: Build deps
         run: |
           sudo apt-get update
@@ -120,9 +124,7 @@ jobs:
             libssl-dev libdbus-1-dev libmpv-dev patchelf file \
             libjack-jackd2-0 glib-networking \
             clang clang++ mold
-          # libjack: linuxdeploy excludes it, so fix-appdir-tls.sh copies it in by hand.
-          # glib-networking: supplies the gio TLS module that gets bundled. Without it the webview
-          # has no TLS backend at all, which is the bug that started this whole saga.
+
 
       - uses: actions/setup-node@v4
         with:

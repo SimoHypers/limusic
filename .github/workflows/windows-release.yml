@@ -52,6 +52,7 @@ env:
   # deliberately: a new mpv is a new 117 MB DLL in the installer.
   MPV_DEV_URL: https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20260610/mpv-dev-x86_64-20260610-git-304426c.7z
   MPV_DIR: ${{ github.workspace }}\.libmpv
+  RUSTFLAGS: "-C linker=rust-lld"
 
 jobs:
   build:
