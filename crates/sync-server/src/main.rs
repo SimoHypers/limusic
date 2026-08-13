@@ -331,8 +331,7 @@ impl Server {
                     session_token: token,
                     state,
                 })
-                .map_err(|_| ServerError::GenericError("Unable to approve join"))
-                .unwrap();
+                .map_err(|_| ServerError::GenericError("Unable to approve join"))?;
 
                 room.broadcast(&ServerMessage::UserJoined { user }, Some(&joiner));
 
@@ -667,7 +666,9 @@ impl Server {
                         .peers
                         .iter()
                         .filter(|(_, p)| {
-                            !p.connected && p.disconnected_at.is_some_and(|time| instant - time > RECONNECT_GRACE)
+                            !p.connected
+                                && p.disconnected_at
+                                    .is_some_and(|time| instant - time > RECONNECT_GRACE)
                         })
                         .map(move |(id, _)| (code.clone(), id.clone()))
                 })

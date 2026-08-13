@@ -10,12 +10,13 @@ name = "limusic-sync"
 path = "src/main.rs"
 
 [dependencies]
-tokio = { workspace = true, default-features=false, features = ["net", "io-util", "signal"] }
-tokio-tungstenite = "0.24"
-futures-util = { workspace = true }
-serde_json = { workspace = true }
-listen-protocol = { workspace = true }
-tracing = { workspace = true }
+tokio = { workspace = true, default-features = false, features = ["net", "io-util", "signal"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-rand = { workspace = true }
+
+tokio-tungstenite = "0.24"
+futures-util.workspace = true
+serde_json.workspace = true
+listen-protocol.workspace = true
+tracing.workspace = true
+rand.workspace = true
 thiserror.workspace = true
