@@ -18,7 +18,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use thiserror::Error;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, RwLock, Semaphore};
 use tokio_tungstenite::tungstenite::Message;
 
 /// How long a dropped participant's slot (and session token) survives for reconnection.
@@ -586,8 +586,7 @@ impl Server {
 
             ClientMessage::LeaveRoom => {
                 if let (Some(me), Some(code)) = (uid.take(), room_code.take()) {
-                    let mut rooms = self.rooms.write().await;
-                    self.remove_member(&mut rooms, &code, &me, true).await;
+                    self.remove_member(&code, &me, true).await;
                 }
                 Ok(())
             }
@@ -597,13 +596,8 @@ impl Server {
     /// Remove a member entirely (explicit leave, or reconnect grace expired). Handles host handoff
     /// and empty-room bookkeeping. `graceful` distinguishes an explicit leave (broadcast UserLeft)
     /// from a grace-expiry sweep (already announced as disconnected).
-    async fn remove_member(
-        &self,
-        rooms: &mut HashMap<String, Room>,
-        code: &str,
-        me: &str,
-        graceful: bool,
-    ) {
+    async fn remove_member(&self, code: &str, me: &str, graceful: bool) {
+        let mut rooms = self.rooms.write().await;
         let Some(room) = rooms.get_mut(code) else { return };
 
         if let Some(peer) = room.peers.get(me) {
@@ -614,15 +608,12 @@ impl Server {
         if room.peers.remove(me).is_some() && graceful {
             room.broadcast(ServerMessage::UserLeft { user_id: me.to_string() }, None);
         }
-        // Host left → hand off to any connected peer.
         if room.host_id == me {
             if let Some(next) = room.any_connected_other(me) {
                 room.host_id = next.clone();
                 room.broadcast(ServerMessage::HostChanged { host_id: next }, None);
             }
         }
-        // Last member gone: nobody holds a session token for this room anymore, so it can never be
-        // re-entered — only trap joiners. Close it, and turn away anyone still knocking.
         if room.peers.is_empty() {
             for (_, p) in room.pending.drain() {
                 let _ = p.tx.send(ServerMessage::JoinRejected {
@@ -658,16 +649,15 @@ impl Server {
     }
 
     /// Sweep expired reconnection slots and empty rooms.
-    async fn cleanup(&self) {
+    async fn cleanup(server: Arc<Server>) {
         let expired: Vec<(String, String)> = {
-            let rooms = &self.rooms.read().await;
+            let rooms = &server.rooms.read().await;
             let instant = Instant::now();
 
             rooms
                 .iter()
-                .flat_map(|(code, rooms)| {
-                    rooms
-                        .peers
+                .flat_map(|(code, room)| {
+                    room.peers
                         .iter()
                         .filter(|(_, p)| {
                             !p.connected
@@ -683,9 +673,20 @@ impl Server {
             return;
         }
 
-        let mut rooms = self.rooms.write().await;
+        let limit = Arc::new(Semaphore::new(2));
+        let mut futures = Vec::with_capacity(expired.len());
+
         for (code, id) in expired {
-            self.remove_member(&mut rooms, &code, &id, false).await;
+            let server = Arc::clone(&server);
+            let sem = Arc::clone(&limit);
+            futures.push(tokio::spawn(async move {
+                let _permit = sem.acquire().await.unwrap();
+                server.remove_member(&code, &id, false).await;
+            }));
+        }
+
+        for f in futures {
+            let _ = f.await;
         }
     }
 }
@@ -764,7 +765,7 @@ async fn main() {
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(30)).await;
-                server.cleanup().await;
+                Server::cleanup(server.clone()).await;
             }
         });
     }
