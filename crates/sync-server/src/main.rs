@@ -667,9 +667,7 @@ impl Server {
                         .peers
                         .iter()
                         .filter(|(_, p)| {
-                            !p.connected
-                                && p.disconnected_at
-                                    .is_some_and(|time| instant - time > RECONNECT_GRACE)
+                            !p.connected && p.disconnected_at.is_some_and(|time| instant - time > RECONNECT_GRACE)
                         })
                         .map(move |(id, _)| (code.clone(), id.clone()))
                 })

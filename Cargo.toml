@@ -5,7 +5,7 @@ members = [
     "crates/player",
     "crates/listen-protocol",
     "crates/sync-server",
-    "src-tauri", "crates/rpc",
+    "src-tauri"
 ]
 
 [workspace.package]
