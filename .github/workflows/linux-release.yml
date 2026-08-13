@@ -90,9 +90,6 @@ jobs:
       # blocks raw.githubusercontent.com. Without a snapshot that user has no cipher at all and
       # every restricted track is skipped. It goes stale within days either way, which is fine; the
       # runtime refresh is what keeps it current.
-      #
-      # NEVER FATAL. These registries are third-party. A release must not fail because one is down,
-      # and shipping the empty table is exactly the behaviour we had before this step existed.
       - name: Bake in the player-cipher registry
         shell: bash
         run: |
