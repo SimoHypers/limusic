@@ -104,11 +104,11 @@ impl Room {
     /// Send to every connected peer except `except` (dropped receivers are ignored — the cleanup
     /// path removes them).
     fn broadcast(&self, msg: &ServerMessage, except: Option<&str>) {
-        let shallow_msg = msg.clone();
+        let msg = msg.clone();
 
         for (id, p) in &self.peers {
             if p.connected && Some(id.as_str()) != except {
-                let _ = p.tx.send(shallow_msg.clone());
+                let _ = p.tx.send(msg.clone());
             }
         }
     }
@@ -505,7 +505,6 @@ impl Server {
                 }
                 if let Some(p) = room.peers.remove(&target) {
                     room.broadcast(&ServerMessage::UserLeft { user_id: target }, None);
-
                     return p
                         .tx
                         .send(ServerMessage::Kicked {
@@ -566,8 +565,7 @@ impl Server {
                             "unable to send a message: {:?}",
                             info.0
                         ))
-                    })
-                    .unwrap();
+                    })?;
 
                 room.broadcast(
                     &ServerMessage::UserReconnected { user_id: user_id.clone() },
@@ -620,10 +618,9 @@ impl Server {
         // re-entered — only trap joiners. Close it, and turn away anyone still knocking.
         if room.peers.is_empty() {
             for (_, p) in room.pending.drain() {
-                p.tx.send(ServerMessage::JoinRejected {
+                let _ = p.tx.send(ServerMessage::JoinRejected {
                     reason: "The host closed the session.".into(),
-                })
-                .unwrap();
+                });
             }
 
             rooms.remove(code);
@@ -722,7 +719,11 @@ async fn handle_conn(stream: TcpStream, server: Arc<Server>) {
     while let Some(next) = read.next().await {
         match next {
             Ok(Message::Text(t)) => match serde_json::from_str::<ClientMessage>(&t) {
-                Ok(cm) => server.dispatch(cm, &tx, &mut uid, &mut room_code).await.unwrap(),
+                Ok(cm) => {
+                    if let Err(e) = server.dispatch(cm, &tx, &mut uid, &mut room_code).await {
+                        tracing::warn!(error = %e, "dispatch failed for client");
+                    }
+                }
                 Err(e) => tracing::debug!(error = %e, "bad client message"),
             },
             Ok(Message::Close(_)) | Err(_) => break,
