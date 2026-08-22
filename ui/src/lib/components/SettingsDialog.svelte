@@ -44,15 +44,16 @@
 		openDownloadPage
 	} from '$lib/updater.svelte';
 	import { getVersion } from '@tauri-apps/api/app';
+	import { t, setLocale, currentLocale, LOCALES, type LocaleId } from '$lib/i18n.svelte';
 
 	type TabId = 'general' | 'themes' | 'playback' | 'data' | 'about';
-	const TABS: { id: TabId; label: string }[] = [
-		{ id: 'general', label: 'General' },
-		{ id: 'themes', label: 'Themes' },
-		{ id: 'playback', label: 'Playback' },
-		{ id: 'data', label: 'Data & storage' },
-		{ id: 'about', label: 'About' }
-	];
+	const TABS = $derived<{ id: TabId; label: string }[]>([
+		{ id: 'general', label: t('settings.tabs.general') },
+		{ id: 'themes', label: t('settings.tabs.themes') },
+		{ id: 'playback', label: t('settings.tabs.playback') },
+		{ id: 'data', label: t('settings.tabs.data') },
+		{ id: 'about', label: t('settings.tabs.about') }
+	]);
 
 	const ACCENT_THEMES = THEMES.filter((t) => t.kind === 'accent');
 	const PALETTE_THEMES = THEMES.filter((t) => t.kind === 'palette');
@@ -271,22 +272,22 @@
 <Dialog.Root bind:open={ui.settingsOpen}>
 	<Dialog.Content class="gap-0 overflow-hidden p-0 sm:max-w-3xl">
 		<div class="flex items-center border-b px-6 py-4">
-			<Dialog.Title class="text-lg font-semibold">Settings</Dialog.Title>
-			<Dialog.Description class="sr-only">Application settings</Dialog.Description>
+			<Dialog.Title class="text-lg font-semibold">{t('settings.title')}</Dialog.Title>
+			<Dialog.Description class="sr-only">{t('settings.general.title')}</Dialog.Description>
 		</div>
 
 		<div class="flex h-[28rem]">
 			<!-- Tab rail -->
 			<nav class="w-48 shrink-0 border-r p-2">
-				{#each TABS as t (t.id)}
+				{#each TABS as tTab (tTab.id)}
 					<button
-						onclick={() => (tab = t.id)}
+						onclick={() => (tab = tTab.id)}
 						class="w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors {tab ===
-						t.id
+						tTab.id
 							? 'bg-accent text-accent-foreground'
 							: 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'}"
 					>
-						{t.label}
+						{tTab.label}
 					</button>
 				{/each}
 			</nav>
@@ -295,42 +296,66 @@
 			     (a long font name, a long path) widens the pane and pushes every tab off the modal. -->
 			<div class="min-w-0 flex-1 overflow-y-auto px-6 py-4">
 				{#if !loaded}
-					<p class="text-sm text-muted-foreground">Loading…</p>
+					<p class="text-sm text-muted-foreground">{t('common.loading')}</p>
 				{:else if tab === 'general'}
+					<div class="flex items-center justify-between gap-8 border-b py-3">
+						<div class="min-w-0">
+							<div class="font-medium">{t('settings.general.language')}</div>
+							<p class="mt-0.5 text-sm text-muted-foreground">
+								{t('settings.general.language_hint')}
+							</p>
+						</div>
+						<Select.Root
+							type="single"
+							value={currentLocale.id}
+							onValueChange={(v) => setLocale(v as LocaleId)}
+						>
+							<Select.Trigger class="w-44 shrink-0" aria-label={t('settings.general.language')}>
+								<span class="flex-1 text-left">
+									{LOCALES.find((l) => l.id === currentLocale.id)?.nativeLabel ?? currentLocale.id}
+								</span>
+							</Select.Trigger>
+							<Select.Content>
+								{#each LOCALES as loc (loc.id)}
+									<Select.Item value={loc.id} label={loc.nativeLabel}>
+										{loc.nativeLabel} ({loc.label})
+									</Select.Item>
+								{/each}
+							</Select.Content>
+						</Select.Root>
+					</div>
 					<div class="flex items-start justify-between gap-4 border-b py-3">
 						<div class="min-w-0">
-							<div class="font-medium">Watch history</div>
+							<div class="font-medium">{t('settings.playback.play_history')}</div>
 							<p class="mt-0.5 text-sm text-muted-foreground">
-								Register plays in your YouTube Music history. Needs sign-in.
+								{t('settings.playback.play_history_hint')}
 							</p>
 						</div>
 						<Switch checked={historyOn} onCheckedChange={setHistory} />
 					</div>
 					<div class="flex items-start justify-between gap-4 border-b py-3">
 						<div class="min-w-0">
-							<div class="font-medium">Discord rich presence</div>
+							<div class="font-medium">{t('settings.general.discord_rpc')}</div>
 							<p class="mt-0.5 text-sm text-muted-foreground">
-								Show what you're listening to on your Discord profile. Needs the Discord desktop app
-								running — no login here.
+								{t('settings.general.discord_rpc_hint')}
 							</p>
 						</div>
 						<Switch checked={discordOn} onCheckedChange={setDiscord} />
 					</div>
 					<div class="flex items-start justify-between gap-4 border-b py-3">
 						<div class="min-w-0">
-							<div class="font-medium">Close to tray</div>
+							<div class="font-medium">{t('settings.general.close_to_tray')}</div>
 							<p class="mt-0.5 text-sm text-muted-foreground">
-								Closing the window keeps music playing in the background. Restore or quit from the
-								tray icon.
+								{t('settings.general.close_to_tray_hint')}
 							</p>
 						</div>
 						<Switch checked={trayOn} onCheckedChange={setTray} />
 					</div>
 					<div class="flex items-start justify-between gap-4 py-3">
 						<div class="min-w-0">
-							<div class="font-medium">Start on login</div>
+							<div class="font-medium">{t('settings.general.autostart')}</div>
 							<p class="mt-0.5 text-sm text-muted-foreground">
-								Launch Limusic automatically when you log in.
+								{t('settings.general.autostart_hint')}
 							</p>
 						</div>
 						<Switch checked={autostartOn} onCheckedChange={setAutostart} />

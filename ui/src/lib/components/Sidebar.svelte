@@ -33,12 +33,13 @@
 		toast
 	} from '$lib/player.svelte';
 	import { mergeSaved, orderLibrary } from '$lib/personal';
+	import { t } from '$lib/i18n.svelte';
 
-	const nav = [
-		{ href: '/', label: 'Home', icon: Home01Icon },
-		{ href: '/search', label: 'Search', icon: Search01Icon },
-		{ href: '/library', label: 'Library', icon: LibraryIcon }
-	];
+	const nav = $derived([
+		{ href: '/', label: t('nav.home'), icon: Home01Icon },
+		{ href: '/search', label: t('nav.search'), icon: Search01Icon },
+		{ href: '/library', label: t('nav.library'), icon: LibraryIcon }
+	]);
 	const isActive = (href: string) =>
 		href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(href);
 
@@ -161,7 +162,7 @@
 		{/each}
 		<button
 			onclick={() => (ui.settingsOpen = true)}
-			title="Settings"
+			title={t('nav.settings')}
 			class="group flex items-center justify-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground {wide(
 				'lg:justify-start'
 			)}"
@@ -170,7 +171,7 @@
 				icon={Settings01Icon}
 				class="h-5 w-5 shrink-0 transition-transform duration-200 group-hover:scale-110"
 			/>
-			<span class="hidden {wide('lg:inline')}">Settings</span>
+			<span class="hidden {wide('lg:inline')}">{t('nav.settings')}</span>
 		</button>
 	</nav>
 
@@ -187,7 +188,7 @@
 					class="mb-2 w-full gap-2"
 					onclick={() => (dialogOpen = true)}
 				>
-					<HugeiconsIcon icon={Add01Icon} class="h-4 w-4" /> New playlist
+					<HugeiconsIcon icon={Add01Icon} class="h-4 w-4" /> {t('nav.new_playlist')}
 				</Button>
 			{/if}
 			<div class="min-h-0 flex-1 overflow-y-auto">
@@ -250,7 +251,7 @@
 					{/if}
 				{:else}
 					{#if library.loading}
-						<p class="px-3 py-1.5 text-xs text-muted-foreground">Loading…</p>
+						<p class="px-3 py-1.5 text-xs text-muted-foreground">{t('common.loading')}</p>
 					{/if}
 				{/each}
 			</div>
@@ -259,8 +260,8 @@
 		<Dialog.Root bind:open={dialogOpen}>
 			<Dialog.Content class="sm:max-w-md">
 				<Dialog.Header>
-					<Dialog.Title>New playlist</Dialog.Title>
-					<Dialog.Description>Give your playlist a name to get started.</Dialog.Description>
+					<Dialog.Title>{t('dialogs.edit_playlist.new_title')}</Dialog.Title>
+					<Dialog.Description>{t('dialogs.edit_playlist.desc_placeholder')}</Dialog.Description>
 				</Dialog.Header>
 				<form
 					class="flex flex-col gap-4"
@@ -269,11 +270,11 @@
 						createNew();
 					}}
 				>
-					<Input bind:value={newTitle} placeholder="Playlist name" autofocus />
+					<Input bind:value={newTitle} placeholder={t('dialogs.edit_playlist.name_placeholder')} autofocus />
 					<Dialog.Footer>
-						<Button type="button" variant="outline" onclick={() => (dialogOpen = false)}>Cancel</Button>
+						<Button type="button" variant="outline" onclick={() => (dialogOpen = false)}>{t('common.cancel')}</Button>
 						<Button type="submit" disabled={creating || !newTitle.trim()}>
-							{creating ? 'Creating…' : 'Create'}
+							{creating ? t('common.loading') : t('common.create')}
 						</Button>
 					</Dialog.Footer>
 				</form>

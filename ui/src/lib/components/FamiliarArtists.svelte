@@ -16,6 +16,7 @@
 	import { getCached, putCached } from '$lib/pagecache';
 	import { topArtistIds } from '$lib/personal';
 	import { personal, toast } from '$lib/player.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	// ponytail: one browse call per artist, because the subscriber count and the subscribe state
 	// only exist on the artist page. Seven of them, shared with the artist route's cache (same key),
@@ -121,7 +122,7 @@
 
 {#if loading ? ids.length >= MIN : artists.length >= MIN}
 	<section>
-		<SectionHeading title="Familiar Artists" icon={UserStar01Icon} />
+		<SectionHeading title={t('home.familiar_artists')} icon={UserStar01Icon} />
 		<div class="grid items-center gap-6 md:grid-cols-2 md:gap-10">
 			<div class="flex flex-col gap-1">
 				{#if loading}
