@@ -6,11 +6,19 @@
 	import { auth, playback, ui } from '$lib/player.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import { thumb } from '$lib/thumb';
+	import { t } from '$lib/i18n.svelte';
 
 	// Fixed at mount — a greeting that flips mid-session is uncanny.
 	const hour = new Date().getHours();
-	const daypart =
-		hour < 5 ? 'Good night' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+	const daypartKey =
+		hour < 5
+			? 'home.good_night'
+			: hour < 12
+				? 'home.good_morning'
+				: hour < 18
+					? 'home.good_afternoon'
+					: 'home.good_evening';
+	const daypart = $derived(t(daypartKey as any));
 
 	let searchQuery = $state('');
 
@@ -102,7 +110,7 @@
 					     artwork and two lines of text, which 20rem can't hold. -->
 					<SearchSuggest
 						bind:value={searchQuery}
-						placeholder="Search"
+						placeholder={t('common.search')}
 						inputClass="rounded-full pl-9"
 						panelClass="right-0 w-[26rem]"
 					/>

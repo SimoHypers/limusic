@@ -27,6 +27,7 @@
 		seedOnRepeatPick,
 		toast
 	} from '$lib/player.svelte';
+	import { t } from '$lib/i18n.svelte';
 	import {
 		arrangeSections,
 		freshen,
@@ -104,9 +105,9 @@
 		const local: Block[] = selected
 			? [] // a mood feed is the chip's: neither of ours belongs in it
 			: [
-					{ id: RECENT, key: RECENT, title: 'Jump back in' },
-					{ id: FAMILIAR, key: FAMILIAR, title: 'Familiar Artists' },
-					{ id: FORGOTTEN, key: FORGOTTEN, title: 'Forgotten favourites' }
+					{ id: RECENT, key: RECENT, title: t('home.jump_back_in') },
+					{ id: FAMILIAR, key: FAMILIAR, title: t('home.familiar_artists') },
+					{ id: FORGOTTEN, key: FORGOTTEN, title: t('home.forgotten_favourites') }
 				];
 		const shelves = feed.map((s, i) => ({
 			id: `${i}:${s.title}`,

@@ -41,6 +41,7 @@
 	} from '$lib/player.svelte';
 	import { mergeSaved, unsynced } from '$lib/personal';
 	import { reveal } from '$lib/reveal.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	let dialogOpen = $state(false);
 	let newTitle = $state('');
@@ -132,7 +133,7 @@
 
 <div class="p-6">
 	<div class="mb-6 flex items-center justify-between">
-		<h1 class="font-heading text-2xl font-bold">Library</h1>
+		<h1 class="font-heading text-2xl font-bold">{t('library.title')}</h1>
 		{#if auth.account?.signedIn}
 			<div class="flex items-center gap-2">
 				<!-- Only with something to push: saves made before signing in, which live on this
@@ -172,14 +173,14 @@
 							</Tooltip.Trigger>
 							<Tooltip.Content side="bottom">
 								{syncing
-									? 'Adding them to YouTube Music…'
+									? t('common.loading')
 									: `Add the ${toSync.length} saved on this device to your YouTube Music library`}
 							</Tooltip.Content>
 						</Tooltip.Root>
 					</Tooltip.Provider>
 				{/if}
 				<Button variant="outline" size="sm" class="gap-2" onclick={() => (dialogOpen = true)}>
-					<HugeiconsIcon icon={Add01Icon} class="h-4 w-4" /> New playlist
+					<HugeiconsIcon icon={Add01Icon} class="h-4 w-4" /> {t('nav.new_playlist')}
 				</Button>
 			</div>
 		{/if}
@@ -188,8 +189,8 @@
 	<Dialog.Root bind:open={dialogOpen}>
 		<Dialog.Content class="sm:max-w-md">
 			<Dialog.Header>
-				<Dialog.Title>New playlist</Dialog.Title>
-				<Dialog.Description>Give your playlist a name to get started.</Dialog.Description>
+				<Dialog.Title>{t('dialogs.edit_playlist.new_title')}</Dialog.Title>
+				<Dialog.Description>{t('dialogs.edit_playlist.desc_placeholder')}</Dialog.Description>
 			</Dialog.Header>
 			<form
 				class="flex flex-col gap-4"
@@ -198,13 +199,13 @@
 					createNew();
 				}}
 			>
-				<Input bind:value={newTitle} placeholder="Playlist name" autofocus />
+				<Input bind:value={newTitle} placeholder={t('dialogs.edit_playlist.name_placeholder')} autofocus />
 				<Dialog.Footer>
 					<Button type="button" variant="outline" onclick={() => (dialogOpen = false)}>
-						Cancel
+						{t('common.cancel')}
 					</Button>
 					<Button type="submit" disabled={busy || !newTitle.trim()}>
-						{busy ? 'Creating…' : 'Create'}
+						{busy ? t('common.loading') : t('common.create')}
 					</Button>
 				</Dialog.Footer>
 			</form>
@@ -215,22 +216,22 @@
 	<Tabs.Root bind:value={tab}>
 		<Tabs.List class="mb-4">
 			<Tabs.Trigger value="all">
-				<HugeiconsIcon icon={SquareStackIcon} class="h-4 w-4" /> All
+				<HugeiconsIcon icon={SquareStackIcon} class="h-4 w-4" /> {t('common.all')}
 			</Tabs.Trigger>
 			<Tabs.Trigger value="playlists">
-				<HugeiconsIcon icon={Playlist02Icon} class="h-4 w-4" /> Playlists
+				<HugeiconsIcon icon={Playlist02Icon} class="h-4 w-4" /> {t('library.playlists_tab')}
 			</Tabs.Trigger>
 			<Tabs.Trigger value="albums">
-				<HugeiconsIcon icon={MusicNoteSquare02Icon} class="h-4 w-4" /> Albums
+				<HugeiconsIcon icon={MusicNoteSquare02Icon} class="h-4 w-4" /> {t('library.albums_tab')}
 			</Tabs.Trigger>
 			<Tabs.Trigger value="artists">
-				<HugeiconsIcon icon={UserSharingIcon} class="h-4 w-4" /> Artists
+				<HugeiconsIcon icon={UserSharingIcon} class="h-4 w-4" /> {t('library.artists_tab')}
 			</Tabs.Trigger>
 			<Tabs.Trigger value="songs">
-				<HugeiconsIcon icon={MusicNote01Icon} class="h-4 w-4" /> Songs
+				<HugeiconsIcon icon={MusicNote01Icon} class="h-4 w-4" /> {t('library.songs_tab')}
 			</Tabs.Trigger>
 			<Tabs.Trigger value="local">
-				<HugeiconsIcon icon={DriveIcon} class="h-4 w-4" /> Local
+				<HugeiconsIcon icon={DriveIcon} class="h-4 w-4" /> {t('library.local_tab')}
 			</Tabs.Trigger>
 		</Tabs.List>
 		<!-- Every branch below is gated on `tab`, because bits-ui never unmounts an inactive panel: it

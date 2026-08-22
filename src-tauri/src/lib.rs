@@ -234,7 +234,13 @@ pub fn run() {
             }
 
             let visitor_for_prewarm = visitor_data.clone();
-            let session = Session { locale: Locale::default(), visitor_data, data_sync_id, cookie };
+            let locale_hl = db.get_setting("locale").unwrap_or_else(|| "en".to_string());
+            let session = Session {
+                locale: Locale { gl: "US".into(), hl: locale_hl },
+                visitor_data,
+                data_sync_id,
+                cookie,
+            };
             let it = InnerTube::new(session, proxy.as_deref()).expect("build InnerTube");
             it.set_hide_videos(db.get_setting("hide_videos").as_deref() == Some("true"));
             let clients = Clients::bundled();

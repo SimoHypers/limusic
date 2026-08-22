@@ -34,6 +34,7 @@
 	import { library, personal, placePick, removePick } from '$lib/player.svelte';
 	import { freshen, MAX_PICKS } from '$lib/personal';
 	import { getDragItem, isDragItem, setDragItem } from '$lib/dnd';
+	import { t } from '$lib/i18n.svelte';
 
 	// The page owns the Edit-home modal; this section only lends it a place to be opened from. Its
 	// header is the first thing on home and the one row that's always there, so the button that
@@ -96,7 +97,7 @@
 <svelte:window ondragend={() => (before = undefined)} />
 
 <section>
-	<SectionHeading title="Shortcuts" icon={DashboardSquare02Icon}>
+	<SectionHeading title={t('home.shortcuts')} icon={DashboardSquare02Icon}>
 		{#snippet lead()}
 			{#if onEdit}
 				<!-- Labelled and outlined, not a bare glyph: this is the only entry point to rearranging
@@ -104,11 +105,11 @@
 				     one-word label can't, sitting as it does under the Shortcuts heading. -->
 				<button
 					onclick={onEdit}
-					title="Edit home"
+					title={t('home.edit_home')}
 					class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-sm font-medium text-muted-foreground transition-colors hover:border-foreground/20 hover:bg-muted hover:text-foreground"
 				>
 					<HugeiconsIcon icon={Edit01Icon} class="h-4 w-4" />
-					Edit Home
+					{t('home.edit_home')}
 				</button>
 			{/if}
 		{/snippet}
@@ -120,14 +121,14 @@
 				class="flex shrink-0 cursor-pointer items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
 			>
 				<HugeiconsIcon icon={Add01Icon} class="h-3.5 w-3.5" />
-				Add
+				{t('common.add')}
 			</button>
 		{/if}
 	</SectionHeading>
 
 	<div
 		role="group"
-		aria-label="Shortcuts"
+		aria-label={t('home.shortcuts')}
 		ondragover={over}
 		ondrop={drop}
 		ondragleave={(e) => {
@@ -157,10 +158,9 @@
 					<HugeiconsIcon icon={Add01Icon} class="h-5 w-5" />
 				</span>
 				<span class="min-w-0">
-					<span class="block text-sm font-medium">Add a shortcut</span>
+					<span class="block text-sm font-medium">{t('home.add_shortcut')}</span>
 					<span class="block text-xs text-muted-foreground">
-						Whatever you reach for most, one click from home. Drag any card here, or pick from your
-						library.
+						{t('home.shortcuts_desc')}
 					</span>
 				</span>
 			</button>
