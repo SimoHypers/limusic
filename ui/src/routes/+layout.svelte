@@ -15,6 +15,7 @@
 	import { cubicOut } from 'svelte/easing';
 	import { appearance, applyArtworkAccent, initTheme } from '$lib/theme.svelte';
 	import { thumb } from '$lib/thumb';
+	import { initLocale, t } from '$lib/i18n.svelte';
 	import { blockForeignDrag, dragScroll } from '$lib/dnd';
 	import { suppressNative } from '$lib/menu';
 	import Sidebar from '$lib/components/Sidebar.svelte';
@@ -75,7 +76,10 @@
 	const isMini = browser && getCurrentWindow().label === 'mini';
 
 	// Apply the saved accent color before the first paint (ssr=false → nothing renders until now).
-	if (browser) initTheme();
+	if (browser) {
+		initTheme();
+		initLocale();
+	}
 
 	// Wire the Tauri event bridge once for the whole app; teardown on destroy. Check for an update
 	// on every app open (silent unless one exists).
@@ -170,20 +174,20 @@
 			transition:fly={{ y: 16, duration: 220, easing: cubicOut }}
 			class="fixed bottom-24 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-3 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
 		>
-			<span>Update available — v{updateState.available.version}</span>
+			<span>{t('settings.about.update_available', { version: updateState.available.version })}</span>
 			{#if updateState.canInstall}
 				<Button size="sm" onclick={installUpdate} disabled={updateState.installing}>
-					{updateState.installing ? 'Updating…' : 'Update now'}
+					{updateState.installing ? t('common.loading') : t('settings.about.install_update')}
 				</Button>
 			{:else}
 				<!-- Packaged build (.rpm, AUR): the updater can only rewrite an AppImage, so send them
 				     to the releases page and let their package manager do it. -->
-				<Button size="sm" onclick={openDownloadPage}>Download</Button>
+				<Button size="sm" onclick={openDownloadPage}>{t('settings.about.download_page')}</Button>
 			{/if}
 			{#if !updateState.installing}
 				<button
 					class="text-muted-foreground hover:text-foreground"
-					aria-label="Dismiss"
+					aria-label={t('common.close')}
 					onclick={() => (updateState.available = null)}>✕</button
 				>
 			{/if}

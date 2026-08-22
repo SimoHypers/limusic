@@ -37,6 +37,7 @@
 	import { thumb } from '$lib/thumb';
 	import LyricsView from './LyricsView.svelte';
 	import Marquee from './Marquee.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	// Which of the two the right column is showing. Local, and reset when the widget is destroyed:
 	// nothing here is worth persisting. The queue is the default because it is the cheaper view —
@@ -132,8 +133,8 @@
 	<button
 		class="absolute left-2 top-2 z-10 flex size-6 cursor-pointer items-center justify-center rounded-md text-white/60 opacity-0 transition hover:bg-white/15 hover:text-white focus-visible:opacity-100 group-hover:opacity-100"
 		onclick={() => api.closeMini().catch(() => {})}
-		title="Back to Limusic"
-		aria-label="Back to Limusic"
+		title={t('common.back')}
+		aria-label={t('common.back')}
 	>
 		<HugeiconsIcon icon={MaximizeScreenIcon} class="h-3.5 w-3.5" />
 	</button>
@@ -207,7 +208,7 @@
 
 		<div class="min-w-0 [text-shadow:0_1px_4px_rgb(0_0_0/0.7)]">
 			<Marquee
-				text={now?.title ?? 'Nothing playing'}
+				text={now?.title ?? t('player.not_playing')}
 				class="font-heading text-[0.95rem] font-semibold leading-tight text-white"
 			/>
 			<Marquee text={now?.artists ?? ''} class="text-xs leading-snug text-white/75" />
@@ -276,7 +277,7 @@
 					<span class="truncate text-xs">{item.title}</span>
 				</button>
 			{:else}
-				<p class="px-1.5 py-0.5 text-xs text-muted-foreground">Nothing up next</p>
+				<p class="px-1.5 py-0.5 text-xs text-muted-foreground">{t('player.empty_queue')}</p>
 			{/each}
 		</div>
 		{/if}
@@ -287,7 +288,7 @@
 			<button
 				class="{panelBtn} {shuffleOn ? 'text-primary' : 'text-muted-foreground'}"
 				onclick={() => api.toggleShuffle()}
-				aria-label="Shuffle"
+				aria-label={t('player.shuffle')}
 				aria-pressed={shuffleOn}
 			>
 				<HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" />
@@ -295,7 +296,7 @@
 			<button
 				class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/80"
 				onclick={() => api.togglePause()}
-				aria-label="Play/pause"
+				aria-label={playback.paused ? t('player.play') : t('player.pause')}
 			>
 				<!-- HugeiconsIcon freezes `icon` at mount, so the swap has to go through
 				     altIcon/showAlt — a ternary on `icon` would never repaint. -->
@@ -304,7 +305,7 @@
 			<button
 				class="{panelBtn} {repeat !== 'off' ? 'text-primary' : 'text-muted-foreground'}"
 				onclick={cycleRepeat}
-				aria-label="Repeat: {repeat}"
+				aria-label="{t('player.repeat_off')}: {repeat}"
 				aria-pressed={repeat !== 'off'}
 			>
 				<HugeiconsIcon
@@ -319,7 +320,7 @@
 					? 'text-primary'
 					: 'text-muted-foreground'}"
 				onclick={() => (tab = tab === 'lyrics' ? 'queue' : 'lyrics')}
-				aria-label={tab === 'lyrics' ? 'Show queue' : 'Show lyrics'}
+				aria-label={tab === 'lyrics' ? t('player.queue') : t('player.lyrics')}
 				aria-pressed={tab === 'lyrics'}
 			>
 				<HugeiconsIcon icon={Mic01Icon} class="h-4 w-4" />

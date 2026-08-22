@@ -20,6 +20,7 @@
 	import * as api from '$lib/api';
 	import { np, playback, prefs, ui, wheelVolume } from '$lib/player.svelte';
 	import { appearance } from '$lib/theme.svelte';
+	import { t } from '$lib/i18n.svelte';
 	import { thumb } from '$lib/thumb';
 	import QueueList from './QueueList.svelte';
 	import LyricsView from './LyricsView.svelte';
@@ -417,10 +418,10 @@
 						<!-- Same two glyphs the player bar uses for the queue and lyrics buttons. -->
 						<Tabs.List class={big ? 'hidden' : 'flex-1'}>
 							<Tabs.Trigger value="queue" class="gap-2.5">
-								<HugeiconsIcon icon={Queue01Icon} class="h-4 w-4" /> Queue
+								<HugeiconsIcon icon={Queue01Icon} class="h-4 w-4" /> {t('player.queue')}
 							</Tabs.Trigger>
 							<Tabs.Trigger value="lyrics" class="gap-2.5">
-								<HugeiconsIcon icon={Mic01Icon} class="h-4 w-4" /> Lyrics
+								<HugeiconsIcon icon={Mic01Icon} class="h-4 w-4" /> {t('player.lyrics')}
 							</Tabs.Trigger>
 						</Tabs.List>
 						{#if np.tab === 'lyrics'}

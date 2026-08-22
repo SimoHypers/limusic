@@ -21,6 +21,7 @@
 	import { thumb } from '$lib/thumb';
 	import { setDragItem } from '$lib/dnd';
 	import { openItem, playItem } from '$lib/browse';
+	import { t } from '$lib/i18n.svelte';
 
 	let { items }: { items: BrowseItem[] } = $props();
 
@@ -43,7 +44,7 @@
 </script>
 
 <section>
-	<SectionHeading title="Jump back in" icon={ArrowTurnBackwardIcon} />
+	<SectionHeading title={t('home.jump_back_in')} icon={ArrowTurnBackwardIcon} />
 	<!-- CSS columns, same idiom as Forgotten favourites: fills top-to-bottom, balances the last
 	     column itself, and needs no row count per breakpoint. -->
 	<div class="columns-1 gap-x-6 md:columns-2 xl:columns-3">

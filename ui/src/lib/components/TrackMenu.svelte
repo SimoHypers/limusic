@@ -27,6 +27,7 @@
 	import type { SongItem } from '$lib/api';
 	import { anchorMenu, ctxHost, fitMenu, NO_ANCHOR, toBody } from '$lib/menu';
 	import { addPick, enqueue, openShare, ratingOf, startRadio, toggleRating } from '$lib/player.svelte';
+	import { t } from '$lib/i18n.svelte';
 	import TempoPitchDialog from './TempoPitchDialog.svelte';
 
 	let {
@@ -119,13 +120,13 @@
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={(e) => run(e, () => enqueue([song], true))}
 			>
-				<HugeiconsIcon icon={ArrowUpNarrowWideIcon} class="h-4 w-4" /> Play next
+				<HugeiconsIcon icon={ArrowUpNarrowWideIcon} class="h-4 w-4" /> {t('player.play_next')}
 			</button>
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={(e) => run(e, () => enqueue([song], false))}
 			>
-				<HugeiconsIcon icon={ArrowDownWideNarrowIcon} class="h-4 w-4" /> Add to queue
+				<HugeiconsIcon icon={ArrowDownWideNarrowIcon} class="h-4 w-4" /> {t('player.add_to_queue')}
 			</button>
 		{/if}
 		<!-- Radio is the one action worth having in the player bar too (`linksOnly`): it's how you
@@ -135,7 +136,7 @@
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={(e) => run(e, () => startRadio('song', song.video_id, song.title))}
 			>
-				<HugeiconsIcon icon={Radio02Icon} class="h-4 w-4" /> Start radio
+				<HugeiconsIcon icon={Radio02Icon} class="h-4 w-4" /> {t('player.start_radio')}
 			</button>
 		{/if}
 		<!-- In the player bar (`linksOnly`) like and add-to-playlist have their own buttons, but those
@@ -170,7 +171,7 @@
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={(e) => run(e, () => goto(`/artist/${encodeURIComponent(song.artist_id!)}`))}
 			>
-				<HugeiconsIcon icon={UserListIcon} class="h-4 w-4" /> Go to artist
+				<HugeiconsIcon icon={UserListIcon} class="h-4 w-4" /> {t('player.go_to_artist')}
 			</button>
 		{/if}
 		<!-- Local files carry no album_id (local.rs). Checked here too: a queue restored from before
@@ -180,7 +181,7 @@
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={(e) => run(e, () => goto(`/album/${encodeURIComponent(song.album_id!)}`))}
 			>
-				<HugeiconsIcon icon={Vynil02Icon} class="h-4 w-4" /> Go to album
+				<HugeiconsIcon icon={Vynil02Icon} class="h-4 w-4" /> {t('player.go_to_album')}
 			</button>
 		{/if}
 		<button
@@ -196,7 +197,7 @@
 					})
 				)}
 		>
-			<HugeiconsIcon icon={DashboardSquare02Icon} class="h-4 w-4" /> Add to shortcuts
+			<HugeiconsIcon icon={DashboardSquare02Icon} class="h-4 w-4" /> {t('nav.shortcuts')}
 		</button>
 		{#if !isLocal}
 			<button
@@ -212,7 +213,7 @@
 						})
 					)}
 			>
-				<HugeiconsIcon icon={Share08Icon} class="h-4 w-4" /> Share
+				<HugeiconsIcon icon={Share08Icon} class="h-4 w-4" /> {t('player.share')}
 			</button>
 		{/if}
 		{#if linksOnly}
@@ -220,7 +221,7 @@
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={(e) => run(e, () => (advancedOpen = true))}
 			>
-				<HugeiconsIcon icon={PreferenceVerticalIcon} class="h-4 w-4" /> Advanced
+				<HugeiconsIcon icon={PreferenceVerticalIcon} class="h-4 w-4" /> {t('dialogs.tempo_pitch.title')}
 			</button>
 		{/if}
 		{#if onAdd && !isLocal}
@@ -230,7 +231,7 @@
 					: 'flex'}"
 				onclick={(e) => run(e, onAdd)}
 			>
-				<HugeiconsIcon icon={PlayListAddIcon} class="h-4 w-4" /> Add to playlist
+				<HugeiconsIcon icon={PlayListAddIcon} class="h-4 w-4" /> {t('player.save_to_playlist')}
 			</button>
 		{/if}
 		{#if onRemove}
