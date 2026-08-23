@@ -268,7 +268,11 @@ impl InnerTube {
         let accept_lang = if s.locale.hl.is_empty() || s.locale.hl == "en" {
             "en-US,en;q=0.9".to_string()
         } else {
-            format!("{0}-{1},{0};q=0.9,en-US;q=0.8,en;q=0.7", s.locale.hl, s.locale.hl.to_uppercase())
+            format!(
+                "{0}-{1},{0};q=0.9,en-US;q=0.8,en;q=0.7",
+                s.locale.hl,
+                s.locale.hl.to_uppercase()
+            )
         };
         set(&mut h, "accept-language", &accept_lang);
         set(&mut h, "x-goog-api-format-version", "1");
