@@ -174,7 +174,7 @@
 							<Tooltip.Content side="bottom">
 								{syncing
 									? t('common.loading')
-									: `Add the ${toSync.length} saved on this device to your YouTube Music library`}
+									: t('library.sync_idle_tooltip', { count: toSync.length })}
 							</Tooltip.Content>
 						</Tooltip.Root>
 					</Tooltip.Provider>
@@ -190,7 +190,7 @@
 		<Dialog.Content class="sm:max-w-md">
 			<Dialog.Header>
 				<Dialog.Title>{t('dialogs.edit_playlist.new_title')}</Dialog.Title>
-				<Dialog.Description>{t('dialogs.edit_playlist.desc_placeholder')}</Dialog.Description>
+				<Dialog.Description>{t('dialogs.edit_playlist.new_desc')}</Dialog.Description>
 			</Dialog.Header>
 			<form
 				class="flex flex-col gap-4"

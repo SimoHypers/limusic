@@ -32,6 +32,9 @@ export async function initLocale(): Promise<LocaleId> {
 		const lang = navigator.language.toLowerCase().split('-')[0];
 		if (lang === 'tr') {
 			activeLocale = 'tr';
+			try {
+				await api.setSetting('locale', 'tr');
+			} catch {}
 		}
 	}
 

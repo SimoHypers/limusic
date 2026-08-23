@@ -150,7 +150,7 @@
 					onRemove={canRemove && i !== playback.queue.currentIndex
 						? () => api.removeFromQueue(i)
 						: undefined}
-					removeLabel={t('player.add_to_queue')}
+					removeLabel={t('player.remove_from_queue')}
 				/>
 			</div>
 		{/each}
@@ -186,7 +186,7 @@
 		{/if}
 		{#if showPrev && view.prev.length}
 			<h3 class="px-2 pt-2 pb-1.5 text-sm font-semibold text-muted-foreground">
-				{t('player.up_next')}
+				{t('player.history')}
 			</h3>
 			{@render rows(view.prev, wins[1])}
 		{/if}
@@ -198,7 +198,7 @@
 					onclick={togglePrev}
 				>
 					<HugeiconsIcon icon={HistoryIcon} class="h-3.5 w-3.5" />
-					{showPrev ? t('common.clear') : t('player.up_next')}
+					{showPrev ? t('player.hide_history') : t('player.show_history')}
 				</button>
 			{/if}
 		</div>

@@ -72,6 +72,7 @@ export const en = {
 		normal_speed: 'Normal speed (1.0x)',
 		play_next: 'Play next',
 		add_to_queue: 'Add to queue',
+		remove_from_queue: 'Remove from queue',
 		save_to_playlist: 'Save to playlist',
 		remove_from_playlist: 'Remove from playlist',
 		go_to_artist: 'Go to artist',
@@ -86,7 +87,11 @@ export const en = {
 		lyrics_synced: 'Synced lyrics',
 		lyrics_plain: 'Plain lyrics',
 		not_playing: 'Not playing',
-		track_details: 'Track Details'
+		track_details: 'Track Details',
+		history: 'History',
+		hide_history: 'Hide history',
+		show_history: 'Load history',
+		repeat_state: 'Repeat: {state}'
 	},
 	home: {
 		good_morning: 'Good morning',
@@ -108,7 +113,9 @@ export const en = {
 		edit_home: 'Edit Home',
 		add_shortcut: 'Add a shortcut',
 		shortcuts_desc: 'Whatever you reach for most, one click from home. Drag any card here, or pick from your library.',
-		jump_back_in: 'Jump back in'
+		jump_back_in: 'Jump back in',
+		show_section: 'Show {title} on home',
+		hide_section: 'Hide {title} from home'
 	},
 	library: {
 		title: 'Library',
@@ -130,7 +137,8 @@ export const en = {
 		sort_album: 'Album',
 		sort_date_added: 'Date added',
 		sort_duration: 'Duration',
-		filter_placeholder: 'Filter songs...'
+		filter_placeholder: 'Filter songs...',
+		sync_idle_tooltip: 'Add the {count} saved on this device to your YouTube Music library'
 	},
 	local: {
 		title: 'Local Music',
@@ -251,6 +259,7 @@ export const en = {
 		edit_playlist: {
 			title: 'Edit Playlist',
 			new_title: 'Create Playlist',
+			new_desc: 'Create a new playlist to organize your songs.',
 			name_label: 'Playlist Name',
 			name_placeholder: 'My Favorite Tracks',
 			desc_label: 'Description',
@@ -291,11 +300,16 @@ export const en = {
 		},
 		tempo_pitch: {
 			title: 'Tempo & Pitch Controls',
+			desc: 'Applies to everything you play, until you change it back or restart the app.',
 			tempo: 'Tempo (Speed)',
 			pitch: 'Pitch (Key)',
 			reset_tempo: 'Reset tempo',
 			reset_pitch: 'Reset pitch',
-			reset_all: 'Reset all'
+			reset_all: 'Reset all',
+			decrease_tempo: 'Decrease tempo',
+			increase_tempo: 'Increase tempo',
+			decrease_pitch: 'Decrease pitch',
+			increase_pitch: 'Increase pitch'
 		}
 	}
 };

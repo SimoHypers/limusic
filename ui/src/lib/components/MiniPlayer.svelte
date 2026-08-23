@@ -305,7 +305,9 @@
 			<button
 				class="{panelBtn} {repeat !== 'off' ? 'text-primary' : 'text-muted-foreground'}"
 				onclick={cycleRepeat}
-				aria-label="{t('player.repeat_off')}: {repeat}"
+				aria-label={t('player.repeat_state', {
+					state: repeat === 'off' ? t('player.repeat_off') : repeat === 'one' ? t('player.repeat_one') : t('player.repeat_all')
+				})}
 				aria-pressed={repeat !== 'off'}
 			>
 				<HugeiconsIcon

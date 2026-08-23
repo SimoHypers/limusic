@@ -100,8 +100,8 @@
 					</span>
 					<button
 						onclick={() => (row.shown = !row.shown)}
-						title={row.shown ? t('common.remove') : t('common.add')}
-						aria-label={row.shown ? `Hide ${row.title}` : `Show ${row.title}`}
+						title={row.shown ? t('home.hide_section', { title: row.title }) : t('home.show_section', { title: row.title })}
+						aria-label={row.shown ? t('home.hide_section', { title: row.title }) : t('home.show_section', { title: row.title })}
 						class="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 					>
 						<!-- altIcon/showAlt, not a ternary on `icon`: that prop is read once at mount. -->

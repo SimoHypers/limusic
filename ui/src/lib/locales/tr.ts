@@ -74,6 +74,7 @@ export const tr: Translations = {
 		normal_speed: 'Normal hız (1.0x)',
 		play_next: 'Sıradakine ekle',
 		add_to_queue: 'Sıraya ekle',
+		remove_from_queue: 'Sıradan kaldır',
 		save_to_playlist: 'Çalma listesine kaydet',
 		remove_from_playlist: 'Çalma listesinden kaldır',
 		go_to_artist: 'Sanatçıya git',
@@ -88,7 +89,11 @@ export const tr: Translations = {
 		lyrics_synced: 'Senkronize sözler',
 		lyrics_plain: 'Düz sözler',
 		not_playing: 'Çalmıyor',
-		track_details: 'Parça Detayları'
+		track_details: 'Parça Detayları',
+		history: 'Geçmiş',
+		hide_history: 'Geçmişi gizle',
+		show_history: 'Geçmişi yükle',
+		repeat_state: 'Tekrar: {state}'
 	},
 	home: {
 		good_morning: 'Günaydın',
@@ -110,7 +115,9 @@ export const tr: Translations = {
 		edit_home: 'Sayfayı Düzenle',
 		add_shortcut: 'Kısayol ekle',
 		shortcuts_desc: 'En çok dinlediğiniz içerikler ana sayfadan tek tık uzağınızda. Kartları buraya sürükleyin veya kitaplığınızdan seçin.',
-		jump_back_in: 'Yeniden dinleyin'
+		jump_back_in: 'Yeniden dinleyin',
+		show_section: '{title} bölümünü göster',
+		hide_section: '{title} bölümünü gizle'
 	},
 	library: {
 		title: 'Kitaplık',
@@ -132,7 +139,8 @@ export const tr: Translations = {
 		sort_album: 'Albüm',
 		sort_date_added: 'Eklenme tarihi',
 		sort_duration: 'Süre',
-		filter_placeholder: 'Şarkıları filtrele...'
+		filter_placeholder: 'Şarkıları filtrele...',
+		sync_idle_tooltip: 'Bu cihazda kayıtlı {count} parçayı YouTube Music kitaplığınıza ekleyin'
 	},
 	local: {
 		title: 'Yerel Müzik',
@@ -253,6 +261,7 @@ export const tr: Translations = {
 		edit_playlist: {
 			title: 'Çalma Listesini Düzenle',
 			new_title: 'Çalma Listesi Oluştur',
+			new_desc: 'Şarkılarınızı düzenlemek için yeni bir çalma listesi oluşturun.',
 			name_label: 'Çalma Listesi Adı',
 			name_placeholder: 'Favori Parçalarım',
 			desc_label: 'Açıklama',
@@ -293,11 +302,16 @@ export const tr: Translations = {
 		},
 		tempo_pitch: {
 			title: 'Tempo ve Perde Kontrolleri',
+			desc: 'Değiştirilene veya uygulama yeniden başlatılana kadar tüm çalınan parçalara uygulanır.',
 			tempo: 'Tempo (Hız)',
 			pitch: 'Perde (Ton)',
 			reset_tempo: 'Tempoyu sıfırla',
 			reset_pitch: 'Perdeyi sıfırla',
-			reset_all: 'Tümünü sıfırla'
+			reset_all: 'Tümünü sıfırla',
+			decrease_tempo: 'Tempoyu azalt',
+			increase_tempo: 'Tempoyu artır',
+			decrease_pitch: 'Perdeyi azalt',
+			increase_pitch: 'Perdeyi artır'
 		}
 	}
 };

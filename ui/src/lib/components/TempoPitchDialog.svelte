@@ -43,7 +43,7 @@
 			size="icon-sm"
 			disabled={atMin}
 			onclick={() => onStep(-1)}
-			aria-label="Decrease {label}"
+			aria-label="- {label}"
 		>
 			<HugeiconsIcon icon={MinusSignIcon} class="h-4 w-4" />
 		</Button>
@@ -53,7 +53,7 @@
 			size="icon-sm"
 			disabled={atMax}
 			onclick={() => onStep(1)}
-			aria-label="Increase {label}"
+			aria-label="+ {label}"
 		>
 			<HugeiconsIcon icon={PlusSignIcon} class="h-4 w-4" />
 		</Button>
@@ -65,7 +65,7 @@
 		<div class="grid gap-1">
 			<Dialog.Title class="text-lg font-semibold">{t('dialogs.tempo_pitch.title')}</Dialog.Title>
 			<Dialog.Description class="text-xs text-muted-foreground">
-				Applies to everything you play, until you change it back or restart the app.
+				{t('dialogs.tempo_pitch.desc')}
 			</Dialog.Description>
 		</div>
 
