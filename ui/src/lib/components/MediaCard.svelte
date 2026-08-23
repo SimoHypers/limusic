@@ -15,7 +15,7 @@
 	import TrackMenu from './TrackMenu.svelte';
 	import PlaylistMenu from './PlaylistMenu.svelte';
 	import ExplicitIcon from './ExplicitIcon.svelte';
-	import { formatSubtitle } from '$lib/i18n.svelte';
+	import { formatSubtitle, t } from '$lib/i18n.svelte';
 
 	let { item, compact = false }: { item: BrowseItem; compact?: boolean } = $props();
 
@@ -145,7 +145,7 @@
 							: 'bottom-2 right-2 h-9 w-9'}"
 						class:animate-pulse={playing}
 						disabled={playing}
-						aria-label="Play"
+						aria-label={t('player.play')}
 						onclick={(e) => {
 							e.stopPropagation();
 							playNow();

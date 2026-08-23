@@ -158,9 +158,9 @@
 				</section>
 			</div>
 		{:else if !res}
-			<p class="text-sm text-muted-foreground">Search for a song, album, artist, or playlist.</p>
+			<p class="text-sm text-muted-foreground">{t('common.search_prompt')}</p>
 		{:else if !sections.length}
-			<p class="text-sm text-muted-foreground">No results for “{searched}”.</p>
+			<p class="text-sm text-muted-foreground">{t('common.no_results', { query: searched })}</p>
 		{:else}
 			<div class="content-in flex flex-col gap-10">
 				{#each sections as sec (sec.key)}
@@ -172,7 +172,7 @@
 									class="cursor-pointer text-xs font-semibold uppercase text-muted-foreground hover:text-foreground"
 									onclick={() => showMore(sec.key as 'songs' | 'albums' | 'artists' | 'playlists')}
 								>
-									Show more
+									{t('common.show_more')}
 								</button>
 							{/if}
 						</div>

@@ -104,7 +104,12 @@
 					<!-- Subtitle when there is one (a creator or an artist tells you more than the kind
 					     does); the kind is the fallback so the second line never collapses. -->
 					<div class="truncate text-xs capitalize text-muted-foreground">
-						{formatSubtitle(item.subtitle) || item.kind}
+						{formatSubtitle(item.subtitle) || (
+							item.kind === 'playlist' ? t('common.playlist_singular') :
+							item.kind === 'album' ? t('common.album_singular') :
+							item.kind === 'artist' ? t('common.artist_singular') :
+							item.kind === 'song' ? t('common.song_singular') : item.kind
+						)}
 					</div>
 				</div>
 				{#if !round}

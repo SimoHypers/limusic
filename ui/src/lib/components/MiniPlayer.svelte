@@ -189,7 +189,7 @@
 				<button
 					class={artBtn}
 					onclick={toggleLike}
-					aria-label={playback.rating === 'like' ? 'Remove from liked songs' : 'Add to liked songs'}
+					aria-label={playback.rating === 'like' ? t('player.remove_from_liked') : t('player.save_to_liked')}
 				>
 					<span
 						class="flex"

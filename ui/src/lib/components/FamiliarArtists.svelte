@@ -110,7 +110,7 @@
 		try {
 			await api.subscribe(a.channelId, next);
 			putCached(`artist:${a.channelId}`, { ...a, subscribed: next }); // keep the cache truthful
-			toast.success(next ? `Subscribed to ${a.name ?? ''}` : 'Unsubscribed');
+			toast.success(next ? t('artist.subscribed') : t('artist.subscribe'));
 		} catch (e) {
 			subs = { ...subs, [a.channelId]: !next };
 			toast.error(String(e));
@@ -170,9 +170,9 @@
 								{/if}
 							</div>
 							<div class="min-w-0 flex-1">
-								<div class="truncate text-sm font-medium">{a.name ?? 'Artist'}</div>
+								<div class="truncate text-sm font-medium">{a.name ?? t('common.unknown_artist')}</div>
 								<div class="truncate text-xs text-muted-foreground">
-									{a.subscribers ?? 'Artist'}
+									{a.subscribers ?? t('common.artists')}
 								</div>
 							</div>
 							<button

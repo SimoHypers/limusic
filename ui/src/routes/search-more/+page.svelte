@@ -71,7 +71,7 @@
 
 <div class="p-6">
 	<h1 class="mb-1 font-heading text-2xl font-bold">{label}</h1>
-	<p class="mb-6 text-sm text-muted-foreground">Results for “{q}”</p>
+	<p class="mb-6 text-sm text-muted-foreground">{t('common.results_for', { query: q })}</p>
 
 	{#if loading}
 		{#if cat === 'songs'}
@@ -97,7 +97,7 @@
 					onAdd={() => openAddToPlaylist(song)}
 				/>
 			{:else}
-				<p class="text-sm text-muted-foreground">Nothing found.</p>
+				<p class="text-sm text-muted-foreground">{t('common.nothing_found')}</p>
 			{/each}
 		</div>
 	{:else if cards.length}
@@ -107,6 +107,6 @@
 			{/each}
 		</div>
 	{:else}
-		<p class="text-sm text-muted-foreground">Nothing found.</p>
+		<p class="text-sm text-muted-foreground">{t('common.nothing_found')}</p>
 	{/if}
 </div>

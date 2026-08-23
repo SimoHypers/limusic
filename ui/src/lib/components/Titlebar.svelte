@@ -152,8 +152,8 @@
 			class="flex h-full w-9 items-center justify-center text-foreground/80 transition-colors hover:bg-accent/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-25"
 			onclick={() => history.back()}
 			disabled={depth === 0}
-			title="Back"
-			aria-label="Back"
+			title={t('common.back')}
+			aria-label={t('common.back')}
 		>
 			<HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2.5} class="h-5 w-5" />
 		</button>
@@ -161,8 +161,8 @@
 			class="flex h-full w-9 items-center justify-center text-foreground/80 transition-colors hover:bg-accent/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-25"
 			onclick={() => history.forward()}
 			disabled={depth === deepest}
-			title="Forward"
-			aria-label="Forward"
+			title={t('common.forward')}
+			aria-label={t('common.forward')}
 		>
 			<HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2.5} class="h-5 w-5" />
 		</button>
@@ -179,8 +179,8 @@
 		<button
 			class="flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
 			onclick={() => (ui.linkOpen = true)}
-			title="Open link"
-			aria-label="Open link"
+			title={t('dialogs.link.title')}
+			aria-label={t('dialogs.link.title')}
 		>
 			<HugeiconsIcon icon={Link04Icon} class="h-4 w-4" />
 		</button>
@@ -192,8 +192,8 @@
 				? 'text-primary'
 				: ''}"
 			onclick={() => (ui.ltOpen = true)}
-			title="Listen Together"
-			aria-label="Listen Together"
+			title={t('nav.listen_together')}
+			aria-label={t('nav.listen_together')}
 		>
 			<span class="relative">
 				<HugeiconsIcon icon={UserGroup02Icon} class="h-4 w-4" />

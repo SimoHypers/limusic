@@ -63,6 +63,7 @@ export async function initLocale(): Promise<LocaleId> {
  */
 export async function setLocale(locale: LocaleId): Promise<void> {
 	if (locale in translations) {
+		const prevLocale = activeLocale;
 		activeLocale = locale;
 		if (typeof window !== 'undefined' && window.localStorage) {
 			localStorage.setItem(LOCALE_STORAGE_KEY, locale);
@@ -71,6 +72,10 @@ export async function setLocale(locale: LocaleId): Promise<void> {
 			await api.setSetting('locale', locale);
 		} catch (e) {
 			console.error('Failed to persist locale setting:', e);
+			activeLocale = prevLocale;
+			if (typeof window !== 'undefined' && window.localStorage) {
+				localStorage.setItem(LOCALE_STORAGE_KEY, prevLocale);
+			}
 		}
 	}
 }

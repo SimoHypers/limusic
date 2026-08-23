@@ -428,7 +428,7 @@
 							<button
 								onclick={() => (big = !big)}
 								class="cursor-pointer rounded-md p-1.5 text-muted-foreground transition-colors hover:text-foreground"
-								aria-label={big ? 'Shrink lyrics' : 'Enlarge lyrics'}
+								aria-label={big ? t('player.shrink_lyrics') : t('player.enlarge_lyrics')}
 							>
 								<!-- icon swap via altIcon/showAlt: `icon` is frozen at mount -->
 								<HugeiconsIcon

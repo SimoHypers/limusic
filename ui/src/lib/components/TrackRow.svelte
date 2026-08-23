@@ -99,7 +99,7 @@
 {#snippet rateButton(icon: IconSvgElement, want: 'like' | 'dislike', label: string)}
 	<button
 		class="cursor-pointer rounded-md p-1.5 text-muted-foreground transition hover:bg-accent/20 hover:text-foreground"
-		aria-label={rated === want ? 'Remove rating' : label}
+		aria-label={rated === want ? t('player.remove_rating') : label}
 		aria-pressed={rated === want}
 		onclick={(e) => {
 			e.stopPropagation();
