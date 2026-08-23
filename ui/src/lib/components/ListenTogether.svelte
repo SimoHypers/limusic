@@ -40,6 +40,14 @@
 	const invite = $derived(makeInvite(lt.serverUrl, lt.roomCode ?? ''));
 	// Sitting between "asked to join" and "in the room" — show a waiting state, block re-sends.
 	const waiting = $derived(lt.requesting && lt.role === 'none');
+	// Translate the raw machine status string so it never appears in the UI untranslated.
+	const statusLabel = $derived(
+		lt.status === 'connecting'
+			? t('dialogs.listen_together.status_connecting')
+			: lt.status === 'connected'
+				? t('dialogs.listen_together.status_connected')
+				: t('dialogs.listen_together.status_disconnected')
+	);
 
 	function rememberName() {
 		localStorage.setItem('lt_name', name.trim());
@@ -182,7 +190,7 @@
 				<!-- Role + invite -->
 				<div class="rounded-lg border bg-muted/40 p-4 text-center">
 					<div class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-						{isHost ? t('dialogs.listen_together.hosting') : t('dialogs.listen_together.listening')} · {lt.status}
+						{isHost ? t('dialogs.listen_together.hosting') : t('dialogs.listen_together.listening')} · {statusLabel}
 					</div>
 					<div
 						class="mt-2 select-all break-all rounded-md bg-background px-2 py-1.5 text-left font-mono text-[11px] leading-snug"
