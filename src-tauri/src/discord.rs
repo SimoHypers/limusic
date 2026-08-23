@@ -420,6 +420,7 @@ impl Presence {
         }
         let mut act = activity::Activity::new()
             .activity_type(activity::ActivityType::Listening)
+            .status_display_type(activity::StatusDisplayType::State)
             .details(field(&track.title))
             .timestamps(ts);
         // A local file has no YouTube page to link, and its id is a path — never put it in a URL.
