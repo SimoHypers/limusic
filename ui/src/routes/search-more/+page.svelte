@@ -9,6 +9,7 @@
 	import type { BrowseItem, SongItem } from '$lib/api';
 	import { openAddToPlaylist, playSong } from '$lib/player.svelte';
 	import { getCached, putCached } from '$lib/pagecache';
+	import { t } from '$lib/i18n.svelte';
 
 	type MoreResult = { songs: SongItem[]; cards: BrowseItem[] };
 
@@ -19,7 +20,14 @@
 
 	const q = $derived(page.url.searchParams.get('q') ?? '');
 	const cat = $derived(page.url.searchParams.get('cat') ?? 'songs');
-	const label = $derived({ songs: 'Songs', albums: 'Albums', artists: 'Artists', playlists: 'Playlists' }[cat] ?? 'Results');
+	const label = $derived(
+		{
+			songs: t('common.songs'),
+			albums: t('common.albums'),
+			artists: t('common.artists'),
+			playlists: t('common.playlists')
+		}[cat] ?? t('common.results')
+	);
 
 	async function load(query: string, category: string) {
 		const key = `searchmore:${category}:${query}`;

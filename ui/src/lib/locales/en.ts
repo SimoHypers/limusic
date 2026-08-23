@@ -32,7 +32,19 @@ export const en = {
 		all: 'All',
 		yes: 'Yes',
 		no: 'No',
-		ok: 'OK'
+		ok: 'OK',
+		top_results: 'Top results',
+		results: 'Results',
+		searching: 'Searching...',
+		shuffle: 'Shuffle',
+		radio: 'Radio',
+		see_all: 'See all',
+		more: 'More',
+		less: 'Less',
+		like: 'Like',
+		dislike: 'Dislike',
+		minimize: 'Minimize',
+		maximize: 'Maximize'
 	},
 	nav: {
 		home: 'Home',
@@ -43,7 +55,14 @@ export const en = {
 		shortcuts: 'Shortcuts',
 		listen_together: 'Listen Together',
 		playlists: 'Playlists',
-		new_playlist: 'New Playlist'
+		new_playlist: 'New Playlist',
+		account: 'Account',
+		sign_in: 'Sign in',
+		sign_out: 'Sign out',
+		switch_channel: 'Switch channel',
+		choose_channel: 'Choose a YouTube channel',
+		choose_channel_desc: 'Library, likes and playlists will use this channel. You can switch again later.',
+		cancel_sign_in: 'Cancel sign in'
 	},
 	player: {
 		play: 'Play',
@@ -90,8 +109,13 @@ export const en = {
 		track_details: 'Track Details',
 		history: 'History',
 		hide_history: 'Hide history',
-		show_history: 'Load history',
-		repeat_state: 'Repeat: {state}'
+		show_history: 'Show history',
+		repeat_state: 'Repeat: {state}',
+		seek: 'Seek',
+		open_player: 'Open player',
+		minimize_player: 'Minimise player',
+		remove_from_liked: 'Remove from liked songs',
+		save_to_liked: 'Save to liked songs'
 	},
 	home: {
 		good_morning: 'Good morning',
@@ -117,6 +141,11 @@ export const en = {
 		show_section: 'Show {title} on home',
 		hide_section: 'Hide {title} from home'
 	},
+	artist: {
+		subscribe: 'Subscribe',
+		subscribed: 'Subscribed',
+		top_songs: 'Top songs'
+	},
 	library: {
 		title: 'Library',
 		songs_tab: 'Songs',
@@ -138,16 +167,24 @@ export const en = {
 		sort_date_added: 'Date added',
 		sort_duration: 'Duration',
 		filter_placeholder: 'Filter songs...',
-		sync_idle_tooltip: 'Add the {count} saved on this device to your YouTube Music library'
+		sync_idle_tooltip: 'Add the {count} saved on this device to your YouTube Music library',
+		save_to_library: 'Save to library',
+		in_library: 'In library',
+		no_matching_tracks: 'No tracks match “{query}”.',
+		empty_album: 'This album is empty.',
+		plays: 'plays',
+		play_count: '{count} plays',
+		added_by: 'Added by {user}'
 	},
 	local: {
 		title: 'Local Music',
 		select_folder: 'Select folder',
 		scanning: 'Scanning folder...',
+		rescan: 'Rescan',
+		change_folder: 'Change folder',
+		no_local_tracks: 'No local music found.',
 		no_files_found: 'No audio files found in the selected folder.',
-		folder_path: 'Folder: {path}',
-		rescan: 'Rescan folder',
-		change_folder: 'Change folder'
+		folder_path: 'Folder: {path}'
 	},
 	settings: {
 		title: 'Settings',
@@ -310,7 +347,25 @@ export const en = {
 			increase_tempo: 'Increase tempo',
 			decrease_pitch: 'Decrease pitch',
 			increase_pitch: 'Increase pitch'
+		},
+		link: {
+			title: 'Open link',
+			desc: 'Paste a YouTube Music link to a song, playlist, album or artist.',
+			open: 'Open',
+			invalid_link: 'That is not a YouTube Music link'
 		}
+	},
+	integrations: {
+		discord_on: 'Discord presence on',
+		discord_off: 'Discord presence off',
+		discord_tooltip_on: 'Discord presence on — click to turn off',
+		discord_tooltip_off: 'Show what you play on Discord',
+		lastfm_scrobbling_as: 'Scrobbling as {user}',
+		lastfm_disconnected: 'Last.fm disconnected',
+		lastfm_approve_in_browser: 'Approve Limusic in your browser',
+		lastfm_connecting: 'Connecting to Last.fm — click to cancel',
+		lastfm_scrobble_to: 'Scrobble to Last.fm',
+		disconnect: 'Disconnect'
 	}
 };
 

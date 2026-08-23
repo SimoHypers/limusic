@@ -34,7 +34,7 @@
 	import { library, personal, placePick, removePick } from '$lib/player.svelte';
 	import { freshen, MAX_PICKS } from '$lib/personal';
 	import { getDragItem, isDragItem, setDragItem } from '$lib/dnd';
-	import { t } from '$lib/i18n.svelte';
+	import { formatSubtitle, t } from '$lib/i18n.svelte';
 
 	// The page owns the Edit-home modal; this section only lends it a place to be opened from. Its
 	// header is the first thing on home and the one row that's always there, so the button that
@@ -242,7 +242,7 @@
 							<div class="min-w-0 flex-1 pr-8">
 								<div class="truncate text-sm font-medium">{item.title}</div>
 								{#if item.subtitle}
-									<div class="truncate text-xs text-muted-foreground">{item.subtitle}</div>
+									<div class="truncate text-xs text-muted-foreground">{formatSubtitle(item.subtitle)}</div>
 								{/if}
 							</div>
 						</div>

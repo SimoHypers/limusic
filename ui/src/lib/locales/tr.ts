@@ -34,7 +34,19 @@ export const tr: Translations = {
 		all: 'Tümü',
 		yes: 'Evet',
 		no: 'Hayır',
-		ok: 'Tamam'
+		ok: 'Tamam',
+		top_results: 'En iyi sonuçlar',
+		results: 'Sonuçlar',
+		searching: 'Aranıyor...',
+		shuffle: 'Karıştır',
+		radio: 'Radyo',
+		see_all: 'Tümünü gör',
+		more: 'Daha fazla',
+		less: 'Daha az',
+		like: 'Beğen',
+		dislike: 'Beğenme',
+		minimize: 'Simge durumuna küçült',
+		maximize: 'Ekranı kapla'
 	},
 	nav: {
 		home: 'Ana Sayfa',
@@ -45,7 +57,14 @@ export const tr: Translations = {
 		shortcuts: 'Kısayollar',
 		listen_together: 'Birlikte Dinle',
 		playlists: 'Çalma Listeleri',
-		new_playlist: 'Yeni Çalma Listesi'
+		new_playlist: 'Yeni Çalma Listesi',
+		account: 'Hesap',
+		sign_in: 'Oturum aç',
+		sign_out: 'Çıkış yap',
+		switch_channel: 'Kanal değiştir',
+		choose_channel: 'Bir YouTube kanalı seçin',
+		choose_channel_desc: 'Kitaplık, beğeniler ve çalma listeleri bu kanalı kullanacak. Daha sonra tekrar değiştirebilirsiniz.',
+		cancel_sign_in: 'Oturum açmayı iptal et'
 	},
 	player: {
 		play: 'Oynat',
@@ -92,8 +111,13 @@ export const tr: Translations = {
 		track_details: 'Parça Detayları',
 		history: 'Geçmiş',
 		hide_history: 'Geçmişi gizle',
-		show_history: 'Geçmişi yükle',
-		repeat_state: 'Tekrar: {state}'
+		show_history: 'Geçmişi göster',
+		repeat_state: 'Tekrar: {state}',
+		seek: 'Konum',
+		open_player: 'Oynatıcıyı aç',
+		minimize_player: 'Oynatıcıyı küçült',
+		remove_from_liked: 'Beğenilen şarkılardan çıkar',
+		save_to_liked: 'Beğenilen şarkılara ekle'
 	},
 	home: {
 		good_morning: 'Günaydın',
@@ -119,6 +143,11 @@ export const tr: Translations = {
 		show_section: '{title} bölümünü göster',
 		hide_section: '{title} bölümünü gizle'
 	},
+	artist: {
+		subscribe: 'Abone ol',
+		subscribed: 'Abone olundu',
+		top_songs: 'En popüler şarkılar'
+	},
 	library: {
 		title: 'Kitaplık',
 		songs_tab: 'Şarkılar',
@@ -140,16 +169,24 @@ export const tr: Translations = {
 		sort_date_added: 'Eklenme tarihi',
 		sort_duration: 'Süre',
 		filter_placeholder: 'Şarkıları filtrele...',
-		sync_idle_tooltip: 'Bu cihazda kayıtlı {count} parçayı YouTube Music kitaplığınıza ekleyin'
+		sync_idle_tooltip: 'Bu cihazda kayıtlı {count} parçayı YouTube Music kitaplığınıza ekleyin',
+		save_to_library: 'Kitaplığa kaydet',
+		in_library: 'Kitaplıkta',
+		no_matching_tracks: '“{query}” ile eşleşen parça bulunamadı.',
+		empty_album: 'Bu albüm boş.',
+		plays: 'dinlenme',
+		play_count: '{count} dinlenme',
+		added_by: '{user} tarafından eklendi'
 	},
 	local: {
 		title: 'Yerel Müzik',
 		select_folder: 'Klasör seç',
 		scanning: 'Klasör taranıyor...',
+		rescan: 'Yeniden tara',
+		change_folder: 'Klasörü değiştir',
+		no_local_tracks: 'Yerel müzik dosyası bulunamadı.',
 		no_files_found: 'Seçilen klasörde ses dosyası bulunamadı.',
-		folder_path: 'Klasör: {path}',
-		rescan: 'Klasörü yeniden tara',
-		change_folder: 'Klasörü değiştir'
+		folder_path: 'Klasör: {path}'
 	},
 	settings: {
 		title: 'Ayarlar',
@@ -312,6 +349,24 @@ export const tr: Translations = {
 			increase_tempo: 'Tempoyu artır',
 			decrease_pitch: 'Perdeyi azalt',
 			increase_pitch: 'Perdeyi artır'
+		},
+		link: {
+			title: 'Bağlantı Aç',
+			desc: 'Şarkı, çalma listesi, albüm veya sanatçıya ait bir YouTube Music bağlantısı yapıştırın.',
+			open: 'Aç',
+			invalid_link: 'Bu geçerli bir YouTube Music bağlantısı değil'
 		}
+	},
+	integrations: {
+		discord_on: 'Discord durumu açık',
+		discord_off: 'Discord durumu kapalı',
+		discord_tooltip_on: 'Discord durumu açık — kapatmak için tıklayın',
+		discord_tooltip_off: 'Çaldığınız parçayı Discord\'da gösterin',
+		lastfm_scrobbling_as: '{user} olarak Scrobble ediliyor',
+		lastfm_disconnected: 'Last.fm bağlantısı kesildi',
+		lastfm_approve_in_browser: 'Tarayıcınızda Limusic\'e izin verin',
+		lastfm_connecting: 'Last.fm\'e bağlanılıyor — iptal etmek için tıklayın',
+		lastfm_scrobble_to: 'Last.fm\'e scrobble et',
+		disconnect: 'Bağlantıyı kes'
 	}
 };

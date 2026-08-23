@@ -9,6 +9,7 @@
 	import { auth, openChannelPicker } from '$lib/player.svelte';
 	import { thumb } from '$lib/thumb';
 	import { anchorMenu, fitMenu, NO_ANCHOR } from '$lib/menu';
+	import { t } from '$lib/i18n.svelte';
 
 	let menuOpen = $state(false);
 	let anchor = $state(NO_ANCHOR);
@@ -39,7 +40,7 @@
 
 <button
 	onclick={openMenu}
-	title={auth.account?.signedIn ? (auth.account.name ?? 'Account') : 'Sign in'}
+	title={auth.account?.signedIn ? (auth.account.name ?? t('nav.account')) : t('nav.sign_in')}
 	aria-expanded={menuOpen}
 	class="flex h-full cursor-pointer items-center gap-2 px-2.5 text-xs transition-colors hover:bg-muted aria-expanded:bg-muted"
 >
@@ -57,7 +58,7 @@
 		<HugeiconsIcon icon={UserCircleIcon} class="h-5 w-5 shrink-0 text-muted-foreground" />
 	{/if}
 	<span class="hidden max-w-28 truncate font-medium lg:block">
-		{auth.account?.signedIn ? (auth.account.name ?? 'Account') : 'Sign in'}
+		{auth.account?.signedIn ? (auth.account.name ?? t('nav.account')) : t('nav.sign_in')}
 	</span>
 	<HugeiconsIcon
 		icon={ArrowDown01Icon}
@@ -71,7 +72,7 @@
 	<button
 		class="fixed inset-0 z-40 cursor-default"
 		onclick={() => (menuOpen = false)}
-		aria-label="Close menu"
+		aria-label={t('common.close')}
 	></button>
 	<div
 		class="fixed z-50 w-72 animate-in rounded-xl border bg-popover p-4 text-popover-foreground shadow-xl duration-150 fade-in-0 zoom-in-95"
@@ -80,7 +81,7 @@
 	>
 		{#if auth.account?.signedIn}
 			<div class="mb-3">
-				<div class="truncate text-sm font-medium">{auth.account.name ?? 'Account'}</div>
+				<div class="truncate text-sm font-medium">{auth.account.name ?? t('nav.account')}</div>
 				{#if auth.account.handle || auth.account.email}
 					<div class="truncate text-xs text-muted-foreground">
 						{auth.account.handle ?? auth.account.email}
@@ -92,14 +93,14 @@
 			     for good. The picker fetches the list live and shows its own error. -->
 			<Button variant="outline" size="sm" class="mb-2 w-full gap-2" onclick={switchChannel}>
 				<HugeiconsIcon icon={UserCircleIcon} class="h-4 w-4" />
-				Switch channel
+				{t('nav.switch_channel')}
 			</Button>
 			<Button variant="outline" size="sm" class="w-full gap-2" onclick={doSignOut}>
 				<HugeiconsIcon icon={Logout01Icon} class="h-4 w-4" />
-				Sign out
+				{t('nav.sign_out')}
 			</Button>
 		{:else}
-			<p class="text-sm font-medium">Sign in</p>
+			<p class="text-sm font-medium">{t('nav.sign_in')}</p>
 			<p class="mt-1 text-xs text-muted-foreground">
 				Sign in with your Google account to reach your YouTube Music library and playlists.
 			</p>

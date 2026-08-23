@@ -43,6 +43,7 @@
     import { getCached, putCached } from "$lib/pagecache";
     import { thumb } from "$lib/thumb";
     import { anchorMenu, fitMenu, NO_ANCHOR, toBody } from "$lib/menu";
+    import { t } from "$lib/i18n.svelte";
 
     let album = $state<AlbumPage | null>(null);
     let artistHero = $state<string | null>(null);
@@ -342,7 +343,7 @@
                         class="mt-1 cursor-pointer text-xs font-semibold uppercase text-muted-foreground hover:text-foreground"
                         onclick={() => (expanded = !expanded)}
                     >
-                        {expanded ? "Less" : "More"}
+                        {expanded ? t("common.less") : t("common.more")}
                     </button>
                 </div>
             {/if}
@@ -354,14 +355,14 @@
                     onclick={() => playAll(null)}
                     disabled={!album.items.length}
                 >
-                    <HugeiconsIcon icon={PlayIcon} class="h-4 w-4" /> Play
+                    <HugeiconsIcon icon={PlayIcon} class="h-4 w-4" /> {t("player.play")}
                 </button>
                 <button
                     class="flex cursor-pointer items-center gap-2 rounded-full border px-5 py-2.5 text-sm font-semibold transition hover:bg-accent/10 disabled:opacity-50"
                     onclick={shuffle}
                     disabled={!album.items.length}
                 >
-                    <HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" /> Shuffle
+                    <HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" /> {t("common.shuffle")}
                 </button>
                 <!-- Local albums are already in the Local tab; everything else is savable, signed
                      in or not. -->
@@ -380,13 +381,13 @@
                             showAlt={inLibrary}
                             class="h-4 w-4"
                         />
-                        {inLibrary ? "In library" : "Save to library"}
+                        {inLibrary ? t("library.in_library") : t("library.save_to_library")}
                     </button>
                 {/if}
                 <button
                     class="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border text-muted-foreground transition hover:bg-accent/10 hover:text-foreground"
                     onclick={openMenu}
-                    aria-label="More options"
+                    aria-label={t("common.more")}
                 >
                     <HugeiconsIcon icon={MoreVerticalIcon} class="h-5 w-5" />
                 </button>
@@ -401,7 +402,7 @@
                             e.preventDefault();
                             menuOpen = false;
                         }}
-                        aria-label="Close menu"
+                        aria-label={t("common.close")}
                         {@attach toBody}
                     ></button>
                     <div
@@ -417,7 +418,7 @@
                             <HugeiconsIcon
                                 icon={ArrowUpNarrowWideIcon}
                                 class="h-4 w-4"
-                            /> Play next
+                            /> {t("player.play_next")}
                         </button>
                         <button
                             class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
@@ -426,7 +427,7 @@
                             <HugeiconsIcon
                                 icon={ArrowDownWideNarrowIcon}
                                 class="h-4 w-4"
-                            /> Add to queue
+                            /> {t("player.add_to_queue")}
                         </button>
                         <!-- The album's audio playlist is what a radio seeds from; an album page
                              without one (rare) has nothing to ask YouTube for. -->
@@ -438,7 +439,7 @@
                                 <HugeiconsIcon
                                     icon={Radio02Icon}
                                     class="h-4 w-4"
-                                /> Start radio
+                                /> {t("player.start_radio")}
                             </button>
                         {/if}
                         {#if !isLocal}
@@ -449,7 +450,7 @@
                                 <HugeiconsIcon
                                     icon={PlayListAddIcon}
                                     class="h-4 w-4"
-                                /> Save to playlist
+                                /> {t("player.save_to_playlist")}
                             </button>
                         {/if}
                         <button
@@ -462,7 +463,7 @@
                             <HugeiconsIcon
                                 icon={DashboardSquare02Icon}
                                 class="h-4 w-4"
-                            /> Add to shortcuts
+                            /> {t("home.add_shortcut")}
                         </button>
                         {#if !isLocal}
                             <button
@@ -475,7 +476,7 @@
                                 <HugeiconsIcon
                                     icon={Share08Icon}
                                     class="h-4 w-4"
-                                /> Share
+                                /> {t("common.share")}
                             </button>
                         {/if}
                     </div>
@@ -499,8 +500,8 @@
         {:else}
             <p class="p-4 text-sm text-muted-foreground">
                 {query.trim()
-                    ? `No tracks match “${query.trim()}”.`
-                    : "This album is empty."}
+                    ? t("library.no_matching_tracks", { query: query.trim() })
+                    : t("library.empty_album")}
             </p>
         {/each}
     </div>

@@ -12,8 +12,26 @@ type NestedKeyOf<ObjectType extends object> = {
 
 export type TranslationKey = NestedKeyOf<Translations>;
 
-// Reactive state for the current locale
-let activeLocale = $state<LocaleId>('en');
+const LOCALE_STORAGE_KEY = 'limusic_locale';
+
+function getInitialLocale(): LocaleId {
+	if (typeof window !== 'undefined' && window.localStorage) {
+		const saved = localStorage.getItem(LOCALE_STORAGE_KEY);
+		if (saved && saved in translations) {
+			return saved as LocaleId;
+		}
+	}
+	if (typeof navigator !== 'undefined' && navigator.language) {
+		const lang = navigator.language.toLowerCase().split('-')[0];
+		if (lang === 'tr') {
+			return 'tr';
+		}
+	}
+	return 'en';
+}
+
+// Reactive state for the current locale initialized synchronously before first paint
+let activeLocale = $state<LocaleId>(getInitialLocale());
 
 /**
  * Initialize locale from saved setting or browser language.
@@ -23,19 +41,18 @@ export async function initLocale(): Promise<LocaleId> {
 		const settings = await api.getSettings();
 		if (settings.locale && settings.locale in translations) {
 			activeLocale = settings.locale as LocaleId;
+			if (typeof window !== 'undefined' && window.localStorage) {
+				localStorage.setItem(LOCALE_STORAGE_KEY, settings.locale);
+			}
 			return activeLocale;
 		}
 	} catch {}
 
-	// Fallback to system / browser language
-	if (typeof navigator !== 'undefined' && navigator.language) {
-		const lang = navigator.language.toLowerCase().split('-')[0];
-		if (lang === 'tr') {
-			activeLocale = 'tr';
-			try {
-				await api.setSetting('locale', 'tr');
-			} catch {}
-		}
+	const initial = getInitialLocale();
+	if (initial !== 'en') {
+		try {
+			await api.setSetting('locale', initial);
+		} catch {}
 	}
 
 	return activeLocale;
@@ -47,6 +64,9 @@ export async function initLocale(): Promise<LocaleId> {
 export async function setLocale(locale: LocaleId): Promise<void> {
 	if (locale in translations) {
 		activeLocale = locale;
+		if (typeof window !== 'undefined' && window.localStorage) {
+			localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+		}
 		try {
 			await api.setSetting('locale', locale);
 		} catch (e) {
@@ -86,7 +106,7 @@ function getNestedValue(obj: any, path: string): any {
  *   t('nav.home')
  *   t('settings.about.version', { version: '0.5.5' })
  */
-export function t(key: string, params?: Record<string, string | number>): string {
+export function t(key: TranslationKey | (string & {}), params?: Record<string, string | number>): string {
 	// Try current locale
 	let str = getNestedValue(translations[activeLocale], key);
 
@@ -106,6 +126,20 @@ export function t(key: string, params?: Record<string, string | number>): string
 	}
 
 	return str;
+}
+
+/**
+ * Format subtitle strings (e.g., "20 songs" -> "20 şarkı") when active locale is Turkish.
+ */
+export function formatSubtitle(s?: string): string {
+	if (!s) return '';
+	if (activeLocale === 'tr') {
+		return s
+			.replace(/(\d+)\s+songs?/gi, '$1 şarkı')
+			.replace(/(\d+)\s+tracks?/gi, '$1 parça')
+			.replace(/Your most played/gi, 'En çok dinledikleriniz');
+	}
+	return s;
 }
 
 export { LOCALES };

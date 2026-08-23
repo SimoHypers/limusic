@@ -29,6 +29,7 @@
 	import { openMiniPlayer, toast, ui } from '$lib/player.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import { anchorMenu, fitMenu, NO_ANCHOR } from '$lib/menu';
+	import { t } from '$lib/i18n.svelte';
 
 	const win = getCurrentWindow();
 
@@ -61,7 +62,7 @@
 		discordOn = next;
 		try {
 			await api.setSetting('discord_rpc', next ? 'true' : 'false');
-			toast.success(next ? 'Discord presence on' : 'Discord presence off');
+			toast.success(next ? t('integrations.discord_on') : t('integrations.discord_off'));
 		} catch (e) {
 			discordOn = !next;
 			toast.error(String(e));
@@ -84,8 +85,8 @@
 			connected = s.connected;
 			username = s.username ?? null;
 			if (s.error) toast.error(s.error);
-			else if (s.connected) toast.success(`Scrobbling as ${s.username}`);
-			else if (!wasConnecting) toast.success('Last.fm disconnected');
+			else if (s.connected) toast.success(t('integrations.lastfm_scrobbling_as', { user: s.username ?? '' }));
+			else if (!wasConnecting) toast.success(t('integrations.lastfm_disconnected'));
 		});
 		return () => sub.then((u) => u());
 	});
@@ -104,7 +105,7 @@
 		connecting = true;
 		try {
 			await api.lastfmConnect();
-			toast('Approve Limusic in your browser');
+			toast(t('integrations.lastfm_approve_in_browser'));
 		} catch (err) {
 			connecting = false;
 			toast.error(String(err));
@@ -123,10 +124,10 @@
 
 	const scrobblerTitle = $derived(
 		connecting
-			? 'Connecting to Last.fm — click to cancel'
+			? t('integrations.lastfm_connecting')
 			: connected
-				? `Scrobbling as ${username}`
-				: 'Scrobble to Last.fm'
+				? t('integrations.lastfm_scrobbling_as', { user: username ?? '' })
+				: t('integrations.lastfm_scrobble_to')
 	);
 </script>
 
@@ -214,8 +215,8 @@
 				? 'text-foreground'
 				: ''}"
 			onclick={toggleDiscord}
-			title={discordOn ? 'Discord presence on — click to turn off' : 'Show what you play on Discord'}
-			aria-label="Discord Rich Presence"
+			title={discordOn ? t('integrations.discord_tooltip_on') : t('integrations.discord_tooltip_off')}
+			aria-label={t('settings.general.discord_rpc')}
 		>
 			<span class="relative">
 				<DiscordIcon class="h-4 w-4" />
@@ -261,8 +262,8 @@
 		<button
 			class="flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
 			onclick={openMiniPlayer}
-			title="Mini player"
-			aria-label="Mini player"
+			title={t('dialogs.shortcuts.toggle_mini')}
+			aria-label={t('dialogs.shortcuts.toggle_mini')}
 		>
 			<HugeiconsIcon icon={MinimizeScreenIcon} class="h-4 w-4" />
 		</button>
@@ -272,21 +273,21 @@
 		<button
 			class="flex h-full w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
 			onclick={() => win.minimize()}
-			aria-label="Minimize"
+			aria-label={t('common.minimize')}
 		>
 			<HugeiconsIcon icon={MinusSignIcon} class="h-4 w-4" />
 		</button>
 		<button
 			class="flex h-full w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
 			onclick={() => win.toggleMaximize()}
-			aria-label="Maximize"
+			aria-label={t('common.maximize')}
 		>
 			<HugeiconsIcon icon={SquareIcon} class="h-3.5 w-3.5" />
 		</button>
 		<button
 			class="flex h-full w-11 items-center justify-center text-muted-foreground transition-colors hover:text-destructive"
 			onclick={() => win.close()}
-			aria-label="Close"
+			aria-label={t('common.close')}
 		>
 			<HugeiconsIcon icon={Cancel01Icon} class="h-4 w-4" />
 		</button>
@@ -297,7 +298,7 @@
 	<button
 		class="fixed inset-0 z-40 cursor-default"
 		onclick={() => (menuOpen = false)}
-		aria-label="Close menu"
+		aria-label={t('common.close')}
 	></button>
 	<div
 		class="fixed z-50 min-w-52 animate-in rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl duration-150 fade-in-0 zoom-in-95"
@@ -308,7 +309,9 @@
 			<LastFmIcon class="h-4 w-4 shrink-0" />
 			<div class="min-w-0">
 				<div class="text-sm font-medium leading-tight">Last.fm</div>
-				<div class="truncate text-xs text-muted-foreground">Scrobbling as {username}</div>
+				<div class="truncate text-xs text-muted-foreground">
+					{t('integrations.lastfm_scrobbling_as', { user: username ?? '' })}
+				</div>
 			</div>
 		</div>
 		<div class="mx-1 my-1 h-px bg-border"></div>
@@ -316,7 +319,7 @@
 			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10"
 			onclick={disconnect}
 		>
-			<HugeiconsIcon icon={HotspotOfflineIcon} class="h-4 w-4" /> Disconnect
+			<HugeiconsIcon icon={HotspotOfflineIcon} class="h-4 w-4" /> {t('integrations.disconnect')}
 		</button>
 	</div>
 {/if}

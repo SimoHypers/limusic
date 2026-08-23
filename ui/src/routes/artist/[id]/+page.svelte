@@ -36,6 +36,7 @@
 	} from '$lib/player.svelte';
 	import { getCached, putCached } from '$lib/pagecache';
 	import { anchorMenu, fitMenu, NO_ANCHOR } from '$lib/menu';
+	import { t } from '$lib/i18n.svelte';
 
 	let artist = $state<ArtistPage | null>(null);
 	let loading = $state(true);
@@ -207,7 +208,7 @@
 					class="mt-1 text-xs font-semibold uppercase text-muted-foreground hover:text-foreground"
 					onclick={() => (expanded = !expanded)}
 				>
-					{expanded ? 'Less' : 'More'}
+					{expanded ? t('common.less') : t('common.more')}
 				</button>
 			{/if}
 			<div class="mt-5 flex items-center gap-3">
@@ -216,7 +217,7 @@
 					onclick={shuffle}
 					disabled={!artist.topSongs.length || shuffleBusy}
 				>
-					<HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" /> Shuffle
+					<HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" /> {t('common.shuffle')}
 				</button>
 				<!-- The deep counterpart to Shuffle above: that one is the finite top-songs playlist,
 				     this one asks YouTube for the artist's own endless mix. -->
@@ -224,7 +225,7 @@
 					class="flex cursor-pointer items-center gap-2 rounded-full border px-5 py-2.5 text-sm font-semibold transition hover:bg-accent/10"
 					onclick={() => startRadio('artist', id, artist?.name)}
 				>
-					<HugeiconsIcon icon={Radio02Icon} class="h-4 w-4" /> Radio
+					<HugeiconsIcon icon={Radio02Icon} class="h-4 w-4" /> {t('common.radio')}
 				</button>
 				<!-- Subscribing is a YouTube write action. Signed out, the same slot saves the artist to
 				     the local library instead of offering a button that can only fail. -->
@@ -237,7 +238,7 @@
 						disabled={subBusy}
 					>
 						<HugeiconsIcon icon={Add01Icon} altIcon={Tick02Icon} showAlt={subscribed} class="h-4 w-4" />
-						{subscribed ? 'Subscribed' : 'Subscribe'}
+						{subscribed ? t('artist.subscribed') : t('artist.subscribe')}
 					</button>
 				{:else}
 					<button
@@ -246,7 +247,7 @@
 							: ''}"
 						onclick={() =>
 							toast.success(
-								toggleSaved(asItem()) ? 'Saved to library' : 'Removed from library'
+								toggleSaved(asItem()) ? t('library.in_library') : t('common.remove')
 							)}
 					>
 						<HugeiconsIcon
@@ -255,13 +256,13 @@
 							showAlt={savedHere}
 							class="h-4 w-4"
 						/>
-						{savedHere ? 'In library' : 'Save to library'}
+						{savedHere ? t('library.in_library') : t('library.save_to_library')}
 					</button>
 				{/if}
 				<button
 					class="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border text-muted-foreground transition hover:bg-accent/10 hover:text-foreground"
 					onclick={openMenu}
-					aria-label="More options"
+					aria-label={t('common.more')}
 				>
 					<HugeiconsIcon icon={MoreVerticalIcon} class="h-5 w-5" />
 				</button>
@@ -278,19 +279,19 @@
 						<button
 							class="min-w-0 cursor-pointer text-left hover:underline"
 							onclick={() => goto(`/playlist/${artist!.topSongsId}`)}
-							title="See all top songs"
+							title={t('common.see_all')}
 						>
-							<h2 class="truncate font-heading text-xl font-bold">Top songs</h2>
+							<h2 class="truncate font-heading text-xl font-bold">{t('artist.top_songs')}</h2>
 						</button>
 						<button
 							class="flex shrink-0 cursor-pointer items-center gap-0.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
 							onclick={() => goto(`/playlist/${artist!.topSongsId}`)}
 						>
-							See all
+							{t('common.see_all')}
 							<HugeiconsIcon icon={ArrowRight01Icon} class="h-3.5 w-3.5" />
 						</button>
 					{:else}
-						<h2 class="truncate font-heading text-xl font-bold">Top songs</h2>
+						<h2 class="truncate font-heading text-xl font-bold">{t('artist.top_songs')}</h2>
 					{/if}
 				</div>
 				{#each artist.topSongs as song, i (song.video_id + i)}
@@ -324,7 +325,7 @@
 			e.preventDefault();
 			menuOpen = false;
 		}}
-		aria-label="Close menu"
+		aria-label={t('common.close')}
 	></button>
 	<div
 		class="fixed z-50 min-w-52 animate-in rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl duration-150 fade-in-0 zoom-in-95"
@@ -338,7 +339,7 @@
 				addPick(asItem());
 			}}
 		>
-			<HugeiconsIcon icon={DashboardSquare02Icon} class="h-4 w-4" /> Add to shortcuts
+			<HugeiconsIcon icon={DashboardSquare02Icon} class="h-4 w-4" /> {t('home.add_shortcut')}
 		</button>
 		<button
 			class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
@@ -347,7 +348,7 @@
 				openShare(asItem());
 			}}
 		>
-			<HugeiconsIcon icon={Share08Icon} class="h-4 w-4" /> Share
+			<HugeiconsIcon icon={Share08Icon} class="h-4 w-4" /> {t('common.share')}
 		</button>
 	</div>
 {/if}

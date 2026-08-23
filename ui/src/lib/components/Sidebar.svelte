@@ -33,7 +33,7 @@
 		toast
 	} from '$lib/player.svelte';
 	import { mergeSaved, orderLibrary } from '$lib/personal';
-	import { t } from '$lib/i18n.svelte';
+	import { formatSubtitle, t } from '$lib/i18n.svelte';
 
 	const nav = $derived([
 		{ href: '/', label: t('nav.home'), icon: Home01Icon },
@@ -55,11 +55,13 @@
 	// YTM's library subtitle is "Owner • 20 tracks" and the rail is too narrow for both, so keep the
 	// count and drop the rest. Subtitles without a number (albums: "Album • Artist") stay whole.
 	const rowSubtitle = (s?: string) =>
-		s
-			?.split('•')
-			.map((p) => p.trim())
-			.filter((p) => /\d/.test(p))
-			.at(-1) ?? s;
+		formatSubtitle(
+			s
+				?.split('•')
+				.map((p) => p.trim())
+				.filter((p) => /\d/.test(p))
+				.at(-1) ?? s
+		);
 
 	const playlistHref = (item: BrowseItem) =>
 		item.kind === 'album'

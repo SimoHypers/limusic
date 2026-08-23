@@ -77,7 +77,7 @@
 	// markup) — the shelf's cards say nothing about a song, and this one is meant to be read.
 	// Songs only: if YouTube ever fills that shelf with something else, it stays a normal card row.
 	const isForgotten = (s: HomeSection) =>
-		/forgotten/i.test(s.title) && s.items.some((i) => i.kind === 'song');
+		/forgotten|unutulan/i.test(s.title) && s.items.some((i) => i.kind === 'song');
 	// Held separately from `home`, not derived from it: YouTube sends the shelf a page or two into the
 	// feed, so it survives the revalidating `home = fresh` that drops back to page one, and a revisit
 	// reads it from the cache instead of walking continuations again.
@@ -270,7 +270,7 @@
 	 */
 	async function cater(page: HomePage, params: string | null) {
 		if (params) return; // a mood-filtered feed is the chip's, not the user's
-		if (!page.sections.some((s) => /community/i.test(s.title))) return;
+		if (!page.sections.some((s) => /community|topluluk/i.test(s.title))) return;
 		const artists = topArtists(personal, 3);
 		if (!artists.length) return;
 		const key = `community:${artists.join('|')}`;
@@ -286,14 +286,15 @@
 		if (selected !== params) return; // the user clicked away to a mood feed
 		// Re-locate the shelf instead of patching the page we were handed: `home` has very likely moved
 		// on while the searches ran (a revalidation, or the Forgotten favourites crawl appending pages).
-		const idx = home?.sections.findIndex((s) => /community/i.test(s.title)) ?? -1;
+		const idx = home?.sections.findIndex((s) => /community|topluluk/i.test(s.title)) ?? -1;
 		if (idx < 0) return;
 		home = { ...home!, sections: home!.sections.map((s, i) => (i === idx ? { ...s, items } : s)) };
 	}
 
 	// Chips only refresh when a response actually carries them (never blank the row mid-switch).
 	$effect(() => {
-		if (home?.chips?.length) chips = home.chips.filter((c) => c.title !== 'Podcasts');
+		if (home?.chips?.length)
+			chips = home.chips.filter((c) => !/podcast|pod yayın/i.test(c.title));
 	});
 
 	onMount(() => load(null));

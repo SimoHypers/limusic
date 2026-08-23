@@ -24,6 +24,7 @@
 	import { getCached, putCached } from '$lib/pagecache';
 	import { openAddToPlaylist, playSong } from '$lib/player.svelte';
 	import { asSong } from '$lib/browse';
+	import { t } from '$lib/i18n.svelte';
 
 	type Cached = { res: SearchResults; songs: SongItem[] };
 
@@ -104,11 +105,11 @@
 	const sections = $derived(
 		res
 			? [
-					{ key: 'top', label: 'Top results', items: res.top, max: 4, more: false, list: false },
-					{ key: 'songs', label: 'Songs', items: res.songs, max: 6, more: true, list: true },
-					{ key: 'albums', label: 'Albums', items: res.albums, max: 5, more: true, list: false },
-					{ key: 'artists', label: 'Artists', items: res.artists, max: 3, more: true, list: false },
-					{ key: 'playlists', label: 'Playlists', items: res.playlists, max: 5, more: true, list: false }
+					{ key: 'top', label: t('common.top_results'), items: res.top, max: 4, more: false, list: false },
+					{ key: 'songs', label: t('common.songs'), items: res.songs, max: 6, more: true, list: true },
+					{ key: 'albums', label: t('common.albums'), items: res.albums, max: 5, more: true, list: false },
+					{ key: 'artists', label: t('common.artists'), items: res.artists, max: 3, more: true, list: false },
+					{ key: 'playlists', label: t('common.playlists'), items: res.playlists, max: 5, more: true, list: false }
 				].filter((s) => (s.list ? songRows.length : s.items.length))
 			: []
 	);
@@ -117,7 +118,7 @@
 
 <div class="flex h-full flex-col">
 	<div class="border-b p-6">
-		<h1 class="mb-4 font-heading text-2xl font-bold">Search</h1>
+		<h1 class="mb-4 font-heading text-2xl font-bold">{t('common.search')}</h1>
 		<form
 			class="flex max-w-xl gap-2"
 			onsubmit={(e) => {
@@ -127,12 +128,12 @@
 		>
 			<SearchSuggest
 				bind:value={query}
-				placeholder="Search songs, albums, artists, playlists…"
+				placeholder={t('common.search_placeholder')}
 				onpick={() => (lastQuery = query)}
 			/>
 			<Button type="submit" class="gap-2" disabled={searching}>
 				<HugeiconsIcon icon={Search01Icon} class="h-4 w-4" />
-				{searching ? 'Searching…' : 'Search'}
+				{searching ? t('common.searching') : t('common.search')}
 			</Button>
 		</form>
 		{#if error}<div class="mt-2"><ErrorState message={error} onRetry={runSearch} /></div>{/if}

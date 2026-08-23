@@ -21,7 +21,7 @@
 	import { thumb } from '$lib/thumb';
 	import { setDragItem } from '$lib/dnd';
 	import { openItem, playItem } from '$lib/browse';
-	import { t } from '$lib/i18n.svelte';
+	import { formatSubtitle, t } from '$lib/i18n.svelte';
 
 	let { items }: { items: BrowseItem[] } = $props();
 
@@ -104,7 +104,7 @@
 					<!-- Subtitle when there is one (a creator or an artist tells you more than the kind
 					     does); the kind is the fallback so the second line never collapses. -->
 					<div class="truncate text-xs capitalize text-muted-foreground">
-						{item.subtitle || item.kind}
+						{formatSubtitle(item.subtitle) || item.kind}
 					</div>
 				</div>
 				{#if !round}
