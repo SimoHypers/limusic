@@ -367,55 +367,65 @@
 
 				<div class="min-w-0 flex-1 overflow-y-auto px-6 py-5">
 					{#if !loaded}
-						<p class="text-sm text-muted-foreground">Loading…</p>
+						<p class="text-sm text-muted-foreground">{t('common.loading')}</p>
 					{:else if tab === 'general'}
 						<section class={GROUP}>
-							<h3 class={LABEL}>Activity</h3>
+							<h3 class={LABEL}>{t('settings.general.language')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Watch history',
-									desc: 'Register plays in your YouTube Music history. Needs sign-in.',
+									title: t('settings.general.language'),
+									desc: t('settings.general.language_hint'),
+									control: languagePicker
+								})}
+							</div>
+						</section>
+						<section class={GROUP}>
+							<h3 class={LABEL}>{t('settings.general.discord_rpc')}</h3>
+							<div class={CARD}>
+								{@render row({
+									title: t('player.history'),
+									desc: t('settings.playback.play_history_hint'),
 									control: historySwitch
 								})}
 								{@render row({
-									title: 'Discord rich presence',
-									desc: "Show what you're listening to on your Discord profile. Needs the Discord desktop app running, no login here.",
+									title: t('settings.general.discord_rpc'),
+									desc: t('settings.general.discord_rpc_hint'),
 									control: discordSwitch
 								})}
 							</div>
 						</section>
 						<section class={GROUP}>
-							<h3 class={LABEL}>System</h3>
+							<h3 class={LABEL}>{t('settings.general.autostart')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Close to tray',
-									desc: 'Closing the window keeps music playing in the background. Restore or quit from the tray icon.',
+									title: t('settings.general.close_to_tray'),
+									desc: t('settings.general.close_to_tray_hint'),
 									control: traySwitch
 								})}
 								{@render row({
-									title: 'Start on login',
-									desc: 'Launch Limusic automatically when you log in.',
+									title: t('settings.general.autostart'),
+									desc: t('settings.general.autostart_hint'),
 									control: autostartSwitch
 								})}
 							</div>
 						</section>
 					{:else if tab === 'themes'}
 						<section class={GROUP}>
-							<h3 class={LABEL}>Theme</h3>
+							<h3 class={LABEL}>{t('settings.themes.accent_themes')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Preset',
-									desc: 'Accent colors tint the default look; palettes swap every color.',
+									title: t('settings.tabs.themes'),
+									desc: t('settings.tabs.themes_hint'),
 									control: presetSelect
 								})}
 								{@render row({
-									title: 'Accent color',
-									desc: 'Buttons, highlights and the progress bar. Applies over any preset.',
+									title: t('settings.themes.primary_color'),
+									desc: t('settings.themes.custom_colors'),
 									control: accentSwatch,
 									below: pickerOpen ? accentPicker : undefined
 								})}
 								{@render row({
-									title: 'Background tint',
+									title: t('settings.themes.background_color'),
 									desc:
 										currentTheme.kind === 'palette'
 											? `Only shades the default palette, ${currentTheme.label} brings its own colors.`
@@ -431,7 +441,7 @@
 						</section>
 
 						<section class={GROUP}>
-							<h3 class={LABEL}>Typography</h3>
+							<h3 class={LABEL}>{t('settings.themes.interface_font')}</h3>
 							<div class={CARD}>
 								{#each FONT_ROWS as fr (fr.key)}
 									<!-- Zero-arg wrappers: a snippet passed as a value can't carry arguments. -->
@@ -445,7 +455,7 @@
 									})}
 								{/each}
 								{@render row({
-									title: 'Font files',
+									title: t('settings.themes.load_font_file'),
 									desc: 'Load a .ttf, .otf or .woff from anywhere on this computer. It joins both dropdowns above.',
 									control: addFontButton,
 									below: custom.fontFiles.length ? fontFileList : undefined
@@ -454,7 +464,7 @@
 						</section>
 
 						<section class={GROUP}>
-							<h3 class={LABEL}>Player view</h3>
+							<h3 class={LABEL}>{t('settings.tabs.themes')}</h3>
 							<div class={CARD}>
 								{@render row({
 									title: 'Open the player when you press play',
@@ -482,7 +492,7 @@
 									tall: true
 								})}
 								{@render row({
-									title: 'Reset customization',
+									title: t('settings.themes.reset_theme'),
 									desc: 'Drop the color, roundness and font overrides. Keeps the preset.',
 									control: resetButton
 								})}
@@ -490,78 +500,78 @@
 						</section>
 					{:else if tab === 'playback'}
 						<section class={GROUP}>
-							<h3 class={LABEL}>Audio</h3>
+							<h3 class={LABEL}>{t('settings.playback.audio_quality')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Audio quality',
-									desc: 'Preferred stream quality when resolving a track.',
+									title: t('settings.playback.audio_quality'),
+									desc: t('settings.playback.audio_quality_hint'),
 									control: qualityPicker
 								})}
 								{@render row({
-									title: 'Autoplay',
-									desc: 'Keep the music going with similar songs when your queue ends.',
+									title: t('settings.playback.autoplay'),
+									desc: t('settings.playback.autoplay_hint'),
 									control: autoplaySwitch
 								})}
 								{@render row({
-									title: 'Prevent duplicate tracks in queue',
-									desc: "Adding a track that's already in the queue moves it from its old position instead of adding a second copy.",
+									title: t('settings.playback.prevent_duplicates'),
+									desc: t('settings.playback.prevent_duplicates_hint'),
 									control: dupSwitch,
 									tall: true
 								})}
 							</div>
 						</section>
 						<section class={GROUP}>
-							<h3 class={LABEL}>Video</h3>
+							<h3 class={LABEL}>{t('settings.playback.music_videos')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Play music videos',
+									title: t('settings.playback.music_videos'),
 									badge: 'Experimental',
-									desc: 'When a track is a music video, the player shows the video instead of the artwork. Uses noticeably more data and battery than audio alone.',
+									desc: t('settings.playback.music_videos_hint'),
 									control: musicVideoSwitch,
 									tall: true
 								})}
 								{@render row({
-									title: 'Hide music videos',
-									desc: "Keep only the audio version of a track, so the official video doesn't turn up beside it. Applies to newly loaded content.",
+									title: t('settings.playback.hide_videos'),
+									desc: t('settings.playback.hide_videos_hint'),
 									control: hideVideoSwitch,
 									tall: true
 								})}
 							</div>
 						</section>
 						<section class={GROUP}>
-							<h3 class={LABEL}>Lyrics</h3>
+							<h3 class={LABEL}>{t('player.lyrics')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Word-by-word lyrics',
-									desc: "Asks lyrics-api.boidu.dev first, the only source here with per-word timings, so lyrics can highlight as they're sung. It's checked for every track, so turning this off keeps your listening off that service. Other sources still provide line-by-line lyrics.",
+									title: t('settings.playback.lyrics_provider'),
+									desc: t('settings.playback.lyrics_provider_hint'),
 									control: boiduSwitch,
 									tall: true
 								})}
 							</div>
 						</section>
 						<section class={GROUP}>
-							<h3 class={LABEL}>Advanced</h3>
+							<h3 class={LABEL}>{t('settings.general.stream_clients')}</h3>
 							<div class={CARD}>
-								{@render row({ title: 'Stream clients', below: clientList })}
+								{@render row({ title: t('settings.general.stream_clients'), below: clientList })}
 							</div>
 						</section>
 					{:else if tab === 'data'}
 						<section class={GROUP}>
-							<h3 class={LABEL}>Network</h3>
+							<h3 class={LABEL}>{t('settings.general.proxy')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Proxy',
-									desc: 'HTTP/SOCKS proxy for all YouTube traffic. Takes effect on restart.',
+									title: t('settings.general.proxy'),
+									desc: t('settings.general.proxy_hint'),
 									below: proxyForm
 								})}
 							</div>
 						</section>
 						<section class={GROUP}>
-							<h3 class={LABEL}>Storage</h3>
+							<h3 class={LABEL}>{t('settings.data.clear_cache')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Cache',
-									desc: 'Clear cached stream URLs and downloaded audio bytes.',
+									title: t('settings.data.clear_cache'),
+									desc: t('settings.data.clear_cache_hint'),
 									control: clearButton
 								})}
 							</div>
@@ -581,27 +591,26 @@
 								{/if}
 							</div>
 							<p class="mt-1.5 max-w-prose text-xs leading-relaxed text-muted-foreground">
-								A cross-platform desktop YouTube Music client. Ad-free playback straight from
-								YouTube's private API, with your real library and OS media keys.
+								{t('settings.about.description')}
 							</p>
 						</div>
 
 						<section class={GROUP}>
-							<h3 class={LABEL}>Updates</h3>
+							<h3 class={LABEL}>{t('settings.about.check_updates')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Updates',
+									title: t('settings.about.check_updates'),
 									desc: updateState.available && !updateState.canInstall
-										? `Version ${updateState.available.version} is available. This build was installed by a package manager, so update it the same way.`
+										? `${updateState.available.version} ${t('settings.about.update_available').replace('{version}', '')} Bu derleme paket yöneticisiyle kuruldu, aynı şekilde güncelleyin.`
 										: updateState.available
-											? `Version ${updateState.available.version} is available.`
-											: 'Check GitHub for a newer release.',
+											? t('settings.about.update_available').replace('{version}', updateState.available.version)
+											: t('settings.about.up_to_date'),
 									control: updateButton,
 									below: updateResult && !updateState.available ? updateAlert : undefined
 								})}
 								{@render row({
-									title: 'Tell me about new versions',
-									desc: 'Check on launch and show a banner when a newer version is out. Off means no check and no banner, so use the button above to look.',
+									title: t('settings.general.update_banner'),
+									desc: t('settings.general.update_banner_hint'),
 									control: bannerSwitch,
 									tall: true
 								})}
@@ -609,11 +618,11 @@
 						</section>
 
 						<section class={GROUP}>
-							<h3 class={LABEL}>What's new</h3>
+							<h3 class={LABEL}>{t('settings.about.changelog')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Release notes',
-									desc: 'What changed in this version and the ones before it.',
+									title: t('settings.about.changelog'),
+									desc: t('settings.about.version').replace('{version}', version),
 									below: changelog
 								})}
 							</div>
@@ -626,6 +635,24 @@
 </Dialog.Root>
 
 <!-- Controls. Split out so the rows above read as a list of settings rather than a wall of markup. -->
+{#snippet languagePicker()}
+	<div class="flex rounded-lg bg-muted p-0.5">
+		{#each LOCALES as locale (locale.id)}
+			<button
+				type="button"
+				onclick={() => setLocale(locale.id)}
+				aria-pressed={currentLocale.id === locale.id}
+				class="cursor-pointer rounded-md px-3.5 py-1.5 text-xs font-medium transition-colors {currentLocale.id ===
+				locale.id
+					? 'bg-background text-foreground shadow-sm'
+					: 'text-muted-foreground hover:text-foreground'}"
+			>
+				{locale.nativeLabel}
+			</button>
+		{/each}
+	</div>
+{/snippet}
+
 {#snippet historySwitch()}<Switch checked={historyOn} onCheckedChange={setHistory} />{/snippet}
 {#snippet discordSwitch()}<Switch checked={discordOn} onCheckedChange={setDiscord} />{/snippet}
 {#snippet traySwitch()}<Switch checked={trayOn} onCheckedChange={setTray} />{/snippet}
@@ -827,7 +854,7 @@
 			fontName = { fontSans: '', fontHeading: '' };
 		}}
 	>
-		Reset
+		{t('common.reset')}
 	</Button>
 {/snippet}
 
@@ -874,26 +901,26 @@
 		}}
 	>
 		<Input bind:value={proxyInput} placeholder="http://host:port (blank = none)" />
-		<Button type="submit" variant="outline">Save</Button>
+		<Button type="submit" variant="outline">{t('common.save')}</Button>
 	</form>
 {/snippet}
 
 {#snippet clearButton()}
 	<Button variant="destructive" size="sm" onclick={doClearCaches} disabled={clearing}>
-		{clearing ? 'Clearing…' : 'Clear caches'}
+		{clearing ? t('common.loading') : t('settings.data.clear_cache_button')}
 	</Button>
 {/snippet}
 
 {#snippet updateButton()}
 	{#if updateState.available && !updateState.canInstall}
-		<Button size="sm" onclick={openDownloadPage}>Download</Button>
+		<Button size="sm" onclick={openDownloadPage}>{t('settings.about.download_page')}</Button>
 	{:else if updateState.available}
 		<Button size="sm" onclick={installUpdate} disabled={updateState.installing}>
-			{updateState.installing ? 'Updating…' : 'Update now'}
+			{updateState.installing ? t('common.loading') : t('settings.about.install_update')}
 		</Button>
 	{:else}
 		<Button variant="outline" size="sm" onclick={checkUpdates} disabled={updateState.checking}>
-			{updateState.checking ? 'Checking…' : 'Check for updates'}
+			{updateState.checking ? t('settings.about.checking_updates') : t('settings.about.check_updates')}
 		</Button>
 	{/if}
 {/snippet}
