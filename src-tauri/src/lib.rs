@@ -248,7 +248,7 @@ pub fn run() {
             // Phase 2 extraction stack: cipher + PoToken hidden webviews behind the orchestrator.
             let config = Arc::new(PlayerConfigStore::new(&data_dir));
             let cipher = Arc::new(CipherDeobfuscator::new(handle.clone(), &data_dir, config));
-            let potoken = Arc::new(PoTokenGenerator::new(handle.clone(), db.clone()));
+            let potoken = Arc::new(PoTokenGenerator::new(db.clone()));
             let orchestrator = Arc::new(Orchestrator::new(
                 it.clone(),
                 clients.clone(),
@@ -367,13 +367,23 @@ pub fn run() {
                     potoken.prewarm(&vd).await;
                 });
             }
-            // Mint-and-destroy policy (Phase-0 decision): drop the PoToken webview when idle.
+            // Mint-and-destroy policy (Phase-0 decision), now applied to the BotGuard V8 isolate
+            // rather than a webview. Measured: the live isolate costs ~92 MB RSS, of which a
+            // teardown returns ~39 MB (the rest is V8 platform + arenas, retained for the life of
+            // the process once BotGuard has run at all).
+            //
+            // The idle window has to outlast a track, not a track gap. The gapless lookahead mints
+            // for the next track seconds after the current one starts, so the runtime then sits
+            // idle for the whole song: at 60s it was torn down and rebuilt once per track, and a
+            // cold bootstrap (~0.8-2.3s) landed on the critical path whenever a track started from
+            // a stop. 10 minutes covers any normal song, so continuous playback keeps one isolate,
+            // and the memory still comes back ten minutes after the user stops listening.
             {
                 let potoken = potoken.clone();
                 tauri::async_runtime::spawn(async move {
                     loop {
                         tokio::time::sleep(Duration::from_secs(30)).await;
-                        potoken.teardown_if_idle(Duration::from_secs(60)).await;
+                        potoken.teardown_if_idle(Duration::from_secs(600)).await;
                     }
                 });
             }

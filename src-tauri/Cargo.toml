@@ -28,6 +28,10 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 # Phase 2 extraction stack (cipher + PoToken). context/04, 05, 13.
+# BotGuard runs under deno_core + JSDOM, NOT in a hidden webview. Every token a real browser engine
+# mints is rejected by googlevideo; a minimal-DOM runtime is the only one that produces an accepted
+# one. Measured in `progress/active/webremix-stream-403.md`. This pulls in V8.
+rustypipe-botguard = "0.1.2"
 base64 = "0.22"
 regex = "1"
 urlencoding = "2"

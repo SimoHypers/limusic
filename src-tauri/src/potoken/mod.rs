@@ -1,64 +1,49 @@
-//! PoToken / BotGuard generator (context/04, context/13). Ports Metrolist's `PoTokenWebView` +
-//! `PoTokenGenerator`, reusing the exact flow the Phase-0 `botguard-spike` proved on WebKitGTK.
+//! PoToken / BotGuard generator (context/04, context/13).
 //!
-//! Native Rust does all HTTP (`/Create`, `/GenerateIT`); the hidden webview only runs Google's
-//! BotGuard JS (which cannot be reimplemented). Two tokens per session/video (context/04): a
-//! session token (minted from visitorData, cached in Rust with its TTL — `get_session_po_token`)
-//! → the `/player` request body; a per-video streaming token (minted from videoId, lazy —
-//! `get_streaming_po_token`) → `&pot=` on the stream URL. Everything is wrapped so a timeout /
-//! broken webview returns `None` and the orchestrator falls through to the non-PoToken clients
-//! (graceful degradation — context/06 §5).
+//! Two tokens per session/video (context/04): a session token (minted from visitorData, cached in
+//! Rust with its TTL — [`PoTokenGenerator::get_session_po_token`]) → the `/player` request body; a
+//! per-video streaming token (minted from videoId, lazy —
+//! [`PoTokenGenerator::get_streaming_po_token`]) → `&pot=` on the stream URL. Everything is wrapped
+//! so a failure or timeout returns `None` and the orchestrator falls through to the non-PoToken
+//! clients (graceful degradation — context/06 §5).
+//!
+//! BotGuard itself runs in [`botguard`], on `rustypipe-botguard` (deno_core + JSDOM), **not** in a
+//! hidden webview. That is the 2026-08-25 fix for KI-1: googlevideo rejects every token a real
+//! browser engine mints, whatever origin, engine, user agent or settings it is given, because
+//! `/GenerateIT` hands that attestation an integrity token of the wrong class. See `botguard.rs`
+//! and `progress/KNOWN-ISSUES.md` KI-1.
 
-mod jsutil;
+mod botguard;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use serde_json::Value;
-use tauri::AppHandle;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 
 use crate::db::{now_secs, Db};
 use crate::http::WEB_UA;
-use crate::webview::{Bridge, Error as WebviewError};
 
-const GOOGLE_API_KEY: &str = "AIzaSyDyT5W0Jh49F30Pqqtyfdf7pDLFKLJoAnw";
-const REQUEST_KEY: &str = "O43z0dpjhgX20SCx4KAo";
-const CREATE: &str = "https://www.youtube.com/api/jnn/v1/Create";
-const GENERATE_IT: &str = "https://www.youtube.com/api/jnn/v1/GenerateIT";
-const POTOKEN_LABEL: &str = "limusic-potoken";
-/// Per-BotGuard-call budget — the webview's sandbox can be culled and hang forever (context/04).
-const CALL_TIMEOUT: Duration = Duration::from_secs(8);
-/// Overall budget for a full mint (webview build + page-load + BotGuard bootstrap + token). Loose
-/// backstop above the sum of the per-step timeouts; the per-call `CALL_TIMEOUT`s do the real work.
-const MINT_BUDGET: Duration = Duration::from_secs(35);
+/// Overall budget for a full bootstrap. Generous because it covers up to `MAX_BOOTSTRAPS` BotGuard
+/// solves (each one a `/Create`, a VM run and a `/GenerateIT`, measured at ~0.8s) while it hunts
+/// for the accepted integrity-token class.
+const MINT_BUDGET: Duration = Duration::from_secs(60);
+/// Budget for one mint on an already-bootstrapped runtime. Pure JS, no network.
+const CALL_TIMEOUT: Duration = Duration::from_secs(15);
 /// Safety margin before the integrity token's TTL (context/04 §GenerateIT).
 const EXPIRY_MARGIN: Duration = Duration::from_secs(10 * 60);
-
-const HARNESS: &str = include_str!("../../po_token.html");
-
-/// Glue defining `__lm.{run,mintInit,mint}` around the harness's BotGuard fns. `webPoSignalOutput`
-/// holds a live JS function that can't cross to Rust, so it's parked in a JS global between calls
-/// (context/13). Split from the spike so one minter serves both the session and per-video tokens.
-const GLUE: &str = r#"window.__lm={
-  wpso:null,
-  async run(cd){var r=await runBotGuard(cd);window.__lm.wpso=r.webPoSignalOutput;return r.botguardResponse;},
-  async mintInit(intTok){await createPoTokenMinter(window.__lm.wpso,new Uint8Array(intTok));return true;},
-  async mint(ident){var t=await obtainPoToken(new Uint8Array(ident));return Array.from(t);}
-};"#;
 
 struct Minter {
     session_id: String,
     expires_at: Instant,
-    bridge: Bridge,
+    inner: botguard::Minter,
     last_used: Instant,
 }
 
 impl Minter {
     fn valid_for(&self, session_id: &str) -> bool {
-        self.session_id == session_id && Instant::now() < self.expires_at && self.bridge.exists()
+        self.session_id == session_id && Instant::now() < self.expires_at
     }
 }
 
@@ -67,14 +52,13 @@ impl Minter {
 const SESSION_TOKEN_KEY: &str = "potoken_session";
 
 /// Cached session token (context/04: minted from visitorData, ~12h TTL). Lives OUTSIDE the
-/// webview `Minter` so the mint-and-destroy idle teardown doesn't force a full BotGuard
-/// bootstrap on the next track start just to re-learn a string we already had.
+/// [`Minter`] so the mint-and-drop idle teardown doesn't force a full BotGuard bootstrap on the
+/// next track start just to re-learn a string we already had.
 ///
 /// Also survives the process, in `settings`. Google's own `/GenerateIT` says how long it is good
-/// for (43200s, ~12h), and re-minting means standing up a whole hidden web process and running
-/// BotGuard: measured at 88 MiB PSS and ~1.6s, at every launch, to re-learn a string we were told
-/// stays valid until tomorrow. `expires_at` is therefore wall-clock, not an `Instant`, which
-/// cannot outlive the process.
+/// for (43200s, ~12h), and re-minting means standing up a V8 isolate and solving BotGuard several
+/// times over to re-learn a string we were told stays valid until tomorrow. `expires_at` is
+/// therefore wall-clock, not an `Instant`, which cannot outlive the process.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct SessionToken {
     session_id: String,
@@ -89,20 +73,17 @@ impl SessionToken {
 }
 
 pub struct PoTokenGenerator {
-    app: AppHandle,
     db: Arc<Db>,
     minter: Mutex<Option<Minter>>,
-    /// Session token cache (context/04: minted from visitorData, ~12h TTL). Lives OUTSIDE the
-    /// webview minter so the mint-and-destroy idle teardown doesn't force a full BotGuard
-    /// bootstrap on the next track start just to re-learn a string we already had.
+    /// Session token cache — see [`SessionToken`].
     session_token: Mutex<Option<SessionToken>>,
-    /// Latched once the system webview proves unusable (uncaught JS error) — thereafter always
-    /// degrade to non-PoToken clients (context/04 §BadWebViewException).
-    webview_bad: AtomicBool,
+    /// Latched once the JS runtime proves unusable — thereafter always degrade to the non-PoToken
+    /// clients (context/04 §BadWebViewException).
+    runtime_bad: AtomicBool,
 }
 
 impl PoTokenGenerator {
-    pub fn new(app: AppHandle, db: Arc<Db>) -> Self {
+    pub fn new(db: Arc<Db>) -> Self {
         // A token stored by a previous run is as good as one minted now, right up to its expiry.
         // A wrong-session or expired one is simply never returned by `cached_session_token`, so it
         // costs nothing to load it optimistically and let the normal validity check reject it.
@@ -115,11 +96,10 @@ impl PoTokenGenerator {
             );
         }
         PoTokenGenerator {
-            app,
             db,
             minter: Mutex::new(None),
             session_token: Mutex::new(stored),
-            webview_bad: AtomicBool::new(false),
+            runtime_bad: AtomicBool::new(false),
         }
     }
 
@@ -136,7 +116,7 @@ impl PoTokenGenerator {
     /// Session token for the `/player` request body (context/04). Cheap when cached; otherwise
     /// performs the full bootstrap (and leaves the minter warm for streaming-token mints).
     pub async fn get_session_po_token(&self, visitor_data: &str) -> Option<String> {
-        if self.webview_bad.load(Ordering::SeqCst) {
+        if self.runtime_bad.load(Ordering::SeqCst) {
             return None;
         }
         if let Some(token) = self.cached_session_token(visitor_data).await {
@@ -145,11 +125,7 @@ impl PoTokenGenerator {
         match timeout(MINT_BUDGET, self.ensure_minter(visitor_data)).await {
             Ok(Ok(_guard)) => self.cached_session_token(visitor_data).await,
             Ok(Err(e)) => {
-                tracing::warn!(error = %e, "PoToken session mint failed — degrading");
-                if matches!(e, MintError::Webview(WebviewError::BadWebview(_))) {
-                    self.webview_bad.store(true, Ordering::SeqCst);
-                }
-                self.teardown().await;
+                self.on_failure("session", &e).await;
                 None
             }
             Err(_) => {
@@ -167,17 +143,13 @@ impl PoTokenGenerator {
         video_id: &str,
         visitor_data: &str,
     ) -> Option<String> {
-        if self.webview_bad.load(Ordering::SeqCst) {
+        if self.runtime_bad.load(Ordering::SeqCst) {
             return None;
         }
         match timeout(MINT_BUDGET, self.mint_streaming(video_id, visitor_data)).await {
             Ok(Ok(pot)) => Some(pot),
             Ok(Err(e)) => {
-                tracing::warn!(video_id, error = %e, "PoToken streaming mint failed — degrading");
-                if matches!(e, MintError::Webview(WebviewError::BadWebview(_))) {
-                    self.webview_bad.store(true, Ordering::SeqCst);
-                }
-                self.teardown().await;
+                self.on_failure(video_id, &e).await;
                 None
             }
             Err(_) => {
@@ -186,6 +158,14 @@ impl PoTokenGenerator {
                 None
             }
         }
+    }
+
+    async fn on_failure(&self, what: &str, e: &botguard::Error) {
+        tracing::warn!(what, error = %e, "PoToken mint failed — degrading");
+        if matches!(e, botguard::Error::Fatal(_)) {
+            self.runtime_bad.store(true, Ordering::SeqCst);
+        }
+        self.teardown().await;
     }
 
     async fn cached_session_token(&self, visitor_data: &str) -> Option<String> {
@@ -198,19 +178,15 @@ impl PoTokenGenerator {
             .map(|t| t.token.clone())
     }
 
-    /// Ensure `self.minter` holds a valid minter for `visitor_data`, (re)building it via
-    /// `create_minter` (which also refreshes the cached session token through `bootstrap_minter`)
-    /// if needed. Returns the locked guard so callers needing the minter's bridge (streaming
-    /// mint) can keep using it without a re-lock race.
+    /// Ensure `self.minter` holds a valid minter for `visitor_data`, (re)building it (which also
+    /// refreshes the cached session token) if needed. Returns the locked guard so callers needing
+    /// the minter (streaming mint) can keep using it without a re-lock race.
     async fn ensure_minter<'a>(
         &'a self,
         visitor_data: &str,
-    ) -> Result<tokio::sync::MutexGuard<'a, Option<Minter>>, MintError> {
+    ) -> Result<tokio::sync::MutexGuard<'a, Option<Minter>>, botguard::Error> {
         let mut guard = self.minter.lock().await;
         if !guard.as_ref().is_some_and(|m| m.valid_for(visitor_data)) {
-            if let Some(old) = guard.take() {
-                let _ = old.bridge.destroy();
-            }
             *guard = Some(self.create_minter(visitor_data).await?);
         }
         Ok(guard)
@@ -221,77 +197,39 @@ impl PoTokenGenerator {
         &self,
         video_id: &str,
         visitor_data: &str,
-    ) -> Result<String, MintError> {
+    ) -> Result<String, botguard::Error> {
         let mut guard = self.ensure_minter(visitor_data).await?;
         let minter = guard.as_mut().expect("minter present");
         minter.last_used = Instant::now();
-        let bridge = minter.bridge.clone();
-        match mint_token(&bridge, video_id.as_bytes()).await {
-            Ok(pot) => Ok(pot),
-            Err(e) => {
-                tracing::debug!(error = %e, "per-video mint failed, rebuilding minter once");
-                let _ = bridge.destroy();
+        match timeout(CALL_TIMEOUT, minter.inner.mint(video_id)).await {
+            Ok(Ok(pot)) => Ok(pot),
+            other => {
+                let why = match other {
+                    Ok(Err(e)) => e.to_string(),
+                    _ => "mint timed out".to_owned(),
+                };
+                tracing::debug!(error = why, "per-video mint failed, rebuilding minter once");
                 let fresh = self.create_minter(visitor_data).await?;
-                let pot = mint_token(&fresh.bridge, video_id.as_bytes()).await?;
+                let pot = timeout(CALL_TIMEOUT, fresh.inner.mint(video_id))
+                    .await
+                    .map_err(|_| botguard::Error::Transient("mint timed out".into()))??;
                 *guard = Some(fresh);
                 Ok(pot)
             }
         }
     }
 
-    /// Full BotGuard bootstrap: Create → runBotGuard → GenerateIT → createMinter → session token.
-    async fn create_minter(&self, session_id: &str) -> Result<Minter, MintError> {
-        let bridge = Bridge::create(&self.app, POTOKEN_LABEL, HARNESS, GLUE).await?;
-        match self.bootstrap_minter(&bridge, session_id).await {
-            Ok(m) => Ok(m),
-            Err(e) => {
-                let _ = bridge.destroy(); // don't orphan the hidden window on a failed bootstrap
-                Err(e)
-            }
-        }
-    }
-
-    /// The fallible BotGuard steps, run against an already-built `bridge`. Split out so
-    /// `create_minter` can destroy the webview on any error path.
-    async fn bootstrap_minter(
-        &self,
-        bridge: &Bridge,
-        session_id: &str,
-    ) -> Result<Minter, MintError> {
-        // 1. /Create → descrambled challengeData for runBotGuard.
-        let scrambled = self.create_challenge().await?;
-        let challenge = jsutil::parse_challenge_data(&scrambled).map_err(MintError::Parse)?;
-
-        // 2. [webview] runBotGuard(challenge) → botguardResponse.
-        let botguard_response = bridge
-            .call_async(&format!("__lm.run({challenge})"), CALL_TIMEOUT)
-            .await?
-            .as_str()
-            .map(str::to_owned)
-            .ok_or_else(|| MintError::Parse("runBotGuard returned non-string".into()))?;
-
-        // 3. /GenerateIT → integrity token + ttl.
-        let (int_token, ttl) = self.generate_it(&botguard_response).await?;
-
-        // 4. [webview] createPoTokenMinter(integrityToken).
-        bridge
-            .call_async(
-                &format!("__lm.mintInit({})", jsutil::js_byte_array(&int_token)),
-                CALL_TIMEOUT,
-            )
-            .await?;
-
-        // 5. [webview] session token (identifier = visitorData). Minted exactly once.
-        let session_pot = mint_token(bridge, session_id.as_bytes()).await?;
+    /// Full bootstrap: a BotGuard runtime that landed in the accepted integrity-token class, plus
+    /// the session token it minted on the way (see [`botguard::Minter::spawn`]).
+    async fn create_minter(&self, session_id: &str) -> Result<Minter, botguard::Error> {
+        let b = botguard::Minter::spawn(WEB_UA.to_owned(), session_id.to_owned()).await?;
         // One lifetime, two clocks: the minter never outlives this process, so its expiry stays an
         // `Instant`, while the session token is written to disk and needs wall-clock.
-        let good_for = Duration::from_secs(ttl).saturating_sub(EXPIRY_MARGIN);
+        let good_for = Duration::from_secs(b.lifetime_secs).saturating_sub(EXPIRY_MARGIN);
 
-        // Cache the session token outside the minter (see `SessionToken` doc) so it survives both
-        // the webview's mint-and-destroy idle teardown and the process itself.
         let token = SessionToken {
             session_id: session_id.to_owned(),
-            token: session_pot,
+            token: b.session_token,
             expires_at: now_secs() + good_for.as_secs() as i64,
         };
         if let Ok(json) = serde_json::to_string(&token) {
@@ -299,63 +237,22 @@ impl PoTokenGenerator {
         }
         *self.session_token.lock().await = Some(token);
 
-        tracing::info!(ttl, "PoToken minter ready");
         Ok(Minter {
             session_id: session_id.to_owned(),
             expires_at: Instant::now() + good_for,
-            bridge: bridge.clone(),
+            inner: b.minter,
             last_used: Instant::now(),
         })
     }
 
-    /// POST `/Create` and return the scrambled challenge blob (`create[1]`). Native HTTP.
-    async fn create_challenge(&self) -> Result<String, MintError> {
-        let resp = crate::http::client()
-            .post(CREATE)
-            .header("User-Agent", WEB_UA)
-            .header("Content-Type", "application/json+protobuf")
-            .header("x-goog-api-key", GOOGLE_API_KEY)
-            .header("x-user-agent", "grpc-web-javascript/0.1")
-            .body(format!("[\"{REQUEST_KEY}\"]"))
-            .send()
-            .await?
-            .text()
-            .await?;
-        let raw: Value =
-            serde_json::from_str(&resp).map_err(|e| MintError::Parse(e.to_string()))?;
-        raw.get(1)
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| MintError::Parse("create[1] missing".into()))
-    }
-
-    /// POST `/GenerateIT(botguardResponse)` → `(integrityToken bytes, ttlSeconds)`. Native HTTP.
-    async fn generate_it(&self, botguard_response: &str) -> Result<(Vec<u8>, u64), MintError> {
-        let body = serde_json::json!([REQUEST_KEY, botguard_response]).to_string();
-        let resp = crate::http::client()
-            .post(GENERATE_IT)
-            .header("User-Agent", WEB_UA)
-            .header("Content-Type", "application/json+protobuf")
-            .header("x-goog-api-key", GOOGLE_API_KEY)
-            .header("x-user-agent", "grpc-web-javascript/0.1")
-            .body(body)
-            .send()
-            .await?
-            .text()
-            .await?;
-        jsutil::parse_integrity_token_data(&resp).map_err(MintError::Parse)
-    }
-
-    /// Warm the PoToken webview for `visitor_data` (context/04 §startup). Non-fatal.
+    /// Warm the minter for `visitor_data` (context/04 §startup). Non-fatal.
     pub async fn prewarm(&self, visitor_data: &str) {
-        if self.webview_bad.load(Ordering::SeqCst) {
+        if self.runtime_bad.load(Ordering::SeqCst) {
             return;
         }
         // The only reason to prewarm is to have the session token ready before the first /player
         // call, and one stored by a previous run is exactly that. The per-video streaming path
         // builds its own minter on demand if it ever needs one, so there is nothing else to warm.
-        // This is what turns the persisted token into a saved web process rather than a saved
-        // round trip.
         if self.cached_session_token(visitor_data).await.is_some() {
             tracing::info!("PoToken session token still valid — skipping the BotGuard bootstrap");
             return;
@@ -371,55 +268,21 @@ impl PoTokenGenerator {
         }
     }
 
-    /// Tear down the webview if it's been idle longer than `idle` — the mint-and-destroy memory
-    /// policy (Phase-0 decision): keep it warm while the queue mints, drop it when idle.
+    /// Drop the runtime if it's been idle longer than `idle` — the mint-and-drop memory policy
+    /// (Phase-0 decision): keep it warm while the queue mints, drop it when idle. Dropping the
+    /// minter ends its thread and frees the V8 isolate.
     // ponytail: called from a periodic task in lib.rs; no self-spawned monitor.
     pub async fn teardown_if_idle(&self, idle: Duration) {
         let mut guard = self.minter.lock().await;
-        if let Some(m) = guard.as_ref() {
-            if m.last_used.elapsed() >= idle {
-                let _ = m.bridge.destroy();
-                *guard = None;
-                tracing::debug!("PoToken webview torn down (idle)");
-            }
+        if guard.as_ref().is_some_and(|m| m.last_used.elapsed() >= idle) {
+            *guard = None;
+            tracing::debug!("BotGuard runtime torn down (idle)");
         }
     }
 
     async fn teardown(&self) {
-        if let Some(m) = self.minter.lock().await.take() {
-            let _ = m.bridge.destroy();
-        }
-        // A failed/cancelled create_minter (or a mint timeout that cancelled us mid-bootstrap)
-        // leaves an untracked window on our label — reclaim it so no hidden webview is orphaned.
-        crate::webview::destroy_and_wait(&self.app, POTOKEN_LABEL).await;
+        *self.minter.lock().await = None;
     }
-}
-
-/// [webview] obtain one PoToken for `identifier` (raw UTF-8 bytes) → URL-safe base64.
-async fn mint_token(bridge: &Bridge, identifier: &[u8]) -> Result<String, MintError> {
-    let arr = bridge
-        .call_async(&format!("__lm.mint({})", jsutil::js_byte_array(identifier)), CALL_TIMEOUT)
-        .await?;
-    let bytes: Vec<u8> = arr
-        .as_array()
-        .ok_or_else(|| MintError::Parse("mint returned non-array".into()))?
-        .iter()
-        .filter_map(|v| v.as_u64().map(|n| n as u8))
-        .collect();
-    if bytes.is_empty() {
-        return Err(MintError::Parse("empty PoToken".into()));
-    }
-    Ok(jsutil::b64url_encode_no_pad(&bytes))
-}
-
-#[derive(Debug, thiserror::Error)]
-enum MintError {
-    #[error("webview: {0}")]
-    Webview(#[from] WebviewError),
-    #[error("http: {0}")]
-    Http(#[from] reqwest::Error),
-    #[error("parse: {0}")]
-    Parse(String),
 }
 
 #[cfg(test)]
