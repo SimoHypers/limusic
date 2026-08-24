@@ -133,12 +133,24 @@
 	const TRIM_TICKS = 8;
 	/** Above this, trimming would take too long to sit through, so pay for one seek instead. */
 	const SEEK_FROM = 2.5;
+	/** The lead on the *first* seek only, the one that is unbuffered: it aims past the re-buffer
+	 *  that seek is about to cost. Every seek after it lands inside the buffer, where a lead would
+	 *  only overshoot. */
 	const SEEK_COST = 1;
 	const SEEK_COOLDOWN = 6000;
-	/** A fresh element starts at 0 while mpv is already a second or two in, because resolving the
-	 *  video costs a round trip. Trimming that in takes seconds of visibly wrong-speed picture, so
-	 *  the first sync seeks instead, whatever the gap. */
+	/** Getting a fresh element onto the music. The first seek is unbuffered, so where it lands
+	 *  cannot be predicted, only measured: it costs about a second of re-buffering and mpv plays on
+	 *  through it. So seek once with a lead, wait for the seek to land *and* for the element to
+	 *  have enough data to play on, then measure again. A correction at that point is a buffered
+	 *  seek (~85 ms), cheap enough to spend and accurate to a frame or two. Bounded, because a
+	 *  stream that will not converge must not seek forever, and deadlined, because a stall must not
+	 *  leave the picture frozen. Only once this is done does the steady-state trim below take over,
+	 *  and by then it only ever sees the slow drift it was designed for. */
+	const SYNC_SEEKS = 3;
+	const SYNC_DEADLINE = 5000;
 	let synced = false;
+	let syncSeeks = 0;
+	let syncStart = 0;
 	let lastSeek = 0;
 	/** A correction in progress, the speed it was picked against, and how many ticks running the
 	 *  drift has been out of band. Plain lets: nothing renders off them. */
@@ -168,6 +180,8 @@
 		videoUrl = null;
 		fetchedId = null;
 		synced = false;
+		syncSeeks = 0;
+		syncStart = 0;
 		lastSeek = 0; // a new element may sync at once, whatever the last one was doing
 	});
 
@@ -209,6 +223,14 @@
 		return playback.speed * (1 + Math.sign(drift) * k);
 	}
 
+	/** Start the picture, if the music is going and this window can see it. Not before the converge
+	 *  phase has finished: playing during it means showing real motion from the wrong moment of the
+	 *  video, which reads as broken in a way a still frame does not. */
+	function resumeVideo() {
+		const el = videoEl;
+		if (el && synced && !playback.paused && !document.hidden) el.play().catch(() => {});
+	}
+
 	function syncVideo() {
 		const el = videoEl;
 		// readyState 0 has no clock to compare against, and mid-seek the comparison is meaningless.
@@ -216,10 +238,33 @@
 		// picture keeps moving perfectly well there.
 		if (!el || !hasVideo || el.seeking || el.readyState < 1) return;
 		const drift = mpvNow() - el.currentTime;
-		if (!synced || Math.abs(drift) > SEEK_FROM) {
+		if (!synced) {
+			if (!syncStart) syncStart = performance.now();
+			const overdue = performance.now() - syncStart > SYNC_DEADLINE;
+			// readyState < 3 means the seek target is not playable yet, so `drift` is still moving
+			// by whatever the re-buffer costs. Measuring now would be measuring the re-buffer.
+			if (syncSeeks > 0 && el.readyState < 3 && !overdue) return;
+			// In band, out of seeks, or out of time: hand over to the trim, which can close
+			// whatever is left without a flush.
+			if ((syncSeeks > 0 && Math.abs(drift) <= TRIM_TO) || syncSeeks >= SYNC_SEEKS || overdue) {
+				synced = true;
+				lastSeek = performance.now();
+				resumeVideo();
+				return;
+			}
+			syncSeeks++;
+			trimming = false;
+			outOfBand = 0;
+			el.playbackRate = playback.speed;
+			// Only the first seek is unbuffered and therefore worth leading past its own cost. The
+			// corrections after it land inside the buffer, where a lead would only overshoot.
+			// Never while paused: mpv is not moving, so there is nothing to lead.
+			el.currentTime = mpvNow() + (playback.paused || syncSeeks > 1 ? 0 : SEEK_COST);
+			return;
+		}
+		if (Math.abs(drift) > SEEK_FROM) {
 			const now = performance.now();
-			if (synced && now - lastSeek < SEEK_COOLDOWN) return; // let the last one finish re-buffering
-			synced = true;
+			if (now - lastSeek < SEEK_COOLDOWN) return; // let the last one finish re-buffering
 			lastSeek = now;
 			trimming = false;
 			outOfBand = 0;
@@ -261,8 +306,10 @@
 		if (!el || !hasVideo) return;
 		// document.hidden for the same reason: unpausing from the mini player must not start a
 		// hidden window decoding again. The visibilitychange handler picks it up on the way back.
-		if (paused || document.hidden) el.pause();
-		else el.play().catch(() => {});
+		// `synced` is a plain let, so this effect does not re-run when it flips; `syncVideo` calls
+		// `resumeVideo` itself at that moment, which is what starts a freshly converged picture.
+		if (paused || document.hidden || !synced) el.pause();
+		else resumeVideo();
 	});
 
 	// Minimised to the tray, the window still decodes video unless we stop it. Nothing here touches
@@ -274,12 +321,16 @@
 				videoEl?.pause();
 				return;
 			}
-			// Seconds out by definition: the picture stood still while the music carried on, so let
-			// it seek straight away rather than sitting out the cooldown.
+			// Seconds out by definition: the picture stood still while the music carried on. Run the
+			// whole converge phase again rather than sitting out the cooldown and then trimming, and
+			// keep the picture still until it lands.
+			synced = false;
+			syncSeeks = 0;
+			syncStart = 0;
 			lastSeek = 0;
-			// Only if mpv is still going: pausing from the mini player while this window is hidden
-			// leaves nothing to resume, and playing here would run the picture against silence.
-			if (!playback.paused) videoEl?.play().catch(() => {});
+			videoEl.pause();
+			// The picture restarts from inside resumeVideo, which is also where the "only if mpv is
+			// still going" check now lives.
 			syncVideo();
 		};
 		document.addEventListener('visibilitychange', onVisibility);
@@ -419,6 +470,7 @@
 								preload="auto"
 								onloadedmetadata={syncVideo}
 								oncanplay={syncVideo}
+								onseeked={syncVideo}
 								onerror={() => (videoUrl = null)}
 								class="w-full rounded-2xl bg-black object-contain {showVideo
 									? 'aspect-video'
