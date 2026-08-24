@@ -669,6 +669,9 @@ fn require_login(state: &Arc<AppState>) -> Result<&innertube::YouTubeClient, Str
 #[tauri::command]
 pub async fn rate(state: St<'_>, video_id: String, rating: Rating) -> Result<(), String> {
     let client = require_login(&state)?;
+    // Before the write, not after: a `refresh_rating` round trip already in flight was asked
+    // before this rating existed, so its answer is stale from here on either way (issue #93).
+    state.rate_epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     state.it.rate(client, &video_id, rating).await.map_err(|e| e.to_string())
 }
 

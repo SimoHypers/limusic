@@ -10,6 +10,9 @@ import { hexToHsv, hsvToHex } from './color.ts';
 
 const SIZE = 32;
 
+/** Cover URL -> accent (or `null` for "this cover has no colour"). */
+const cache = new Map<string, string | null>();
+
 /**
  * Winning colour of an RGBA buffer, normalized into the band an accent has to live in (saturated
  * enough to read as a colour, mid-light so black or white text can sit on it). `null` when the
@@ -52,11 +55,38 @@ export function pickAccent(data: Uint8ClampedArray): string | null {
 }
 
 /**
- * Accent for a cover URL, or `null` if it can't be read. The image is fetched with CORS so the
- * canvas stays untainted (googleusercontent and ytimg both send `access-control-allow-origin: *`);
- * a host that doesn't throws on `getImageData` and lands in the same `null`.
+ * Accent for a cover URL, or `null` if it can't be read. Memoized: the same cover comes back around
+ * constantly (repeat, a queue walked backwards, the setting toggled), and a hit is what lets the
+ * colour start moving on the same frame the artwork does instead of after a decode.
+ *
+ * The image is fetched with CORS so the canvas stays untainted (googleusercontent and ytimg both
+ * send `access-control-allow-origin: *`); a host that doesn't throws on `getImageData` and lands in
+ * the same `null`.
  */
 export async function artworkAccent(url: string): Promise<string | null> {
+	const hit = cache.get(url);
+	if (hit !== undefined) return hit;
+	const accent = await read(url);
+	// ponytail: a whole session's covers, one short string each. Dumped wholesale rather than kept
+	// in LRU order; swap in a real LRU if a cover ever costs more than a hex string to remember.
+	if (cache.size > 500) cache.clear();
+	cache.set(url, accent);
+	return accent;
+}
+
+/**
+ * Decode a cover before anything needs its colour, so the track change itself pays for nothing.
+ * Idle-time work: at the moment this is called the app is mid-playback, and a fetch plus a decode
+ * on the main thread is exactly the sort of thing that shows up as a dropped frame.
+ */
+export function warmAccent(url: string): void {
+	if (cache.has(url)) return;
+	const run = () => artworkAccent(url);
+	if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 2000 });
+	else setTimeout(run, 500);
+}
+
+async function read(url: string): Promise<string | null> {
 	try {
 		const img = new Image();
 		img.crossOrigin = 'anonymous';

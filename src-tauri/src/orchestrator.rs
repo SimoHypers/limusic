@@ -292,7 +292,20 @@ impl Orchestrator {
             //
             // It also stays correct if a valid PoToken lifts the cap on those videos: then HEAD
             // passes and WEB_REMIX is used. Nothing here has to know which way that goes.
-            if self.validate_head(&url, client.map(|c| c.user_agent.as_str())).await {
+            //
+            // EXCEPT for an upload, which is not validated at all. A privately-owned track's URL
+            // is bound to the session that owns it, and a HEAD against it does not predict what
+            // mpv's GET gets: it passes for some accounts' uploads and 403s for others' (issue
+            // #71, and Metrolist stopped validating private tracks for the same reason, PR #3517).
+            // Every client in `UPLOAD_FALLBACK_ORDER` is authenticated and there is nothing behind
+            // the chain to fall through to, so the first one that produced a URL is the best
+            // answer available. Rejecting it only turns a stream that would have played into a
+            // "sign-in needed" skip.
+            //
+            // Short-circuit, so the `else if` below is unreachable for an upload: a failed HEAD
+            // that says nothing must not invalidate the session PoToken or churn the cipher
+            // config, which is playback-wide damage done on behalf of one track.
+            if is_upload || self.validate_head(&url, client.map(|c| c.user_agent.as_str())).await {
                 let ping = main_ping.clone().or_else(|| playback_ping(&resp, &key));
                 return Ok(self.build(
                     video_id,

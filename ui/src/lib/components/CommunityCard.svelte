@@ -11,6 +11,7 @@
 	import { thumb } from '$lib/thumb';
 	import { getCached, putCached } from '$lib/pagecache';
 	import { openAddManyToPlaylist, playFrom, toast, touchPick } from '$lib/player.svelte';
+	import ItemMenu from './ItemMenu.svelte';
 
 	let { item }: { item: BrowseItem } = $props();
 
@@ -80,9 +81,29 @@
 
 <div
 	bind:this={root}
-	class="group flex h-full min-w-0 flex-col gap-2 rounded-2xl border bg-card/40 p-2.5 transition-colors hover:border-foreground/20 hover:bg-card"
+	data-ctx
+	class="group relative flex h-full min-w-0 flex-col gap-2 rounded-2xl border bg-card/40 p-2.5 transition-colors hover:border-foreground/20 hover:bg-card"
 >
-	<button class="block w-full min-w-0 cursor-pointer" onclick={open} title={item.title}>
+	<ItemMenu
+		{item}
+		triggerClass="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-0 shadow-md transition hover:bg-background focus-visible:opacity-100 group-hover:opacity-100 cursor-pointer"
+	/>
+	<!-- A div, not a button: `ctxHost` treats a nested <button> as its own thing and would leave the
+	     card's whole cover-and-title block without a right-click menu. -->
+	<div
+		class="block w-full min-w-0 cursor-pointer"
+		role="button"
+		tabindex="0"
+		onclick={open}
+		onkeydown={(e) => {
+			if (e.target !== e.currentTarget) return;
+			if (e.key === 'Enter' || e.key === ' ') {
+				e.preventDefault();
+				open();
+			}
+		}}
+		title={item.title}
+	>
 		<!-- No shadow at rest, and none faded in on hover: transitioning shadow-sm to shadow-lg makes
 		     WebKit compute a different gaussian blur every frame, for every card in the repainted
 		     tile. The card's border and background already answer the hover. -->
@@ -115,7 +136,7 @@
 		{#if stats}
 			<div class="truncate text-center text-[0.6875rem] text-muted-foreground/70">{stats}</div>
 		{/if}
-	</button>
+	</div>
 
 	<div class="flex min-w-0 flex-col gap-0.5">
 		{#if tracks.length}

@@ -206,6 +206,12 @@ pub struct NextResult {
     /// otherwise just the seed song — that's how a dead `RDAMVM` radio finds a live one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub automix_playlist_id: Option<String>,
+    /// The signed-in user's rating of the **requested** video, off `playerOverlays`. The panel
+    /// rows carry no `likeStatus` of their own (0 of 50, live-checked 2026-08-24), so this is the
+    /// only place a `next` response states one, and it is what YouTube Music's own player bar
+    /// draws its thumbs-up from. `None` when signed out or when YouTube omits the overlay.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rating: Option<Rating>,
 }
 
 /// Logged-in account summary from `account/account_menu`. context/01, context/04A, context/15.
@@ -270,6 +276,9 @@ pub fn parse_next(root: &Value) -> NextResult {
         continuation,
         lyrics_browse_id: lyrics_browse_id(root),
         automix_playlist_id,
+        // Scoped to the overlay on purpose: a bare `find_first_str` over the whole response would
+        // read whatever a future panel row starts carrying instead of the requested video's own.
+        rating: root.get("playerOverlays").and_then(like_status),
     }
 }
 
@@ -1129,6 +1138,30 @@ mod tests {
         assert_eq!(r.items[0].duration.as_deref(), Some("4:05"));
         assert_eq!(r.continuation.as_deref(), Some("CONT_TOKEN"));
         assert_eq!(r.lyrics_browse_id.as_deref(), Some("MPLYt_abc123"));
+        // No overlay in this response, and the panel row carries no `likeStatus` either: the
+        // rating has to read as unknown, not as "not liked".
+        assert_eq!(r.rating, None);
+    }
+
+    /// The one place a `next` response states the requested video's rating (issue #93). It has to
+    /// come from the player overlay, not from a panel row, and not from the *seed* row's absence.
+    #[test]
+    fn next_reads_the_requested_videos_rating_from_the_player_overlay() {
+        let root = json!({
+            "contents": { "playlistPanelRenderer": { "contents": [
+                { "playlistPanelVideoRenderer": {
+                    "videoId": "vid9",
+                    "title": { "runs": [{ "text": "Next Song" }] }
+                }}
+            ] } },
+            "playerOverlays": { "playerOverlayRenderer": { "actions": [
+                { "likeButtonRenderer": { "likeStatus": "LIKE" } }
+            ] } }
+        });
+        let r = parse_next(&root);
+        assert_eq!(r.rating, Some(Rating::Like));
+        // The panel row keeps its own (absent) rating: the overlay speaks for the seed alone.
+        assert_eq!(r.items[0].rating, None);
     }
 
     /// An unfiltered search row leads with the result type ("Song • Delara • 3:02"). It must not

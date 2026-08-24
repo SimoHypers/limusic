@@ -35,6 +35,7 @@
 	import { freshen, MAX_PICKS } from '$lib/personal';
 	import { getDragItem, isDragItem, setDragItem } from '$lib/dnd';
 	import { formatSubtitle, t } from '$lib/i18n.svelte';
+	import ItemMenu from './ItemMenu.svelte';
 
 	// The page owns the Edit-home modal; this section only lends it a place to be opened from. Its
 	// header is the first thing on home and the one row that's always there, so the button that
@@ -170,7 +171,7 @@
 					{@const round = item.kind === 'artist'}
 					{@const onRepeat = item.id === ON_REPEAT_ID}
 					<!-- group/pick, not `group`: nested unnamed groups would fire each other's hovers. -->
-					<div class="group/pick relative" data-pick={item.id} animate:flip={{ duration: 200 }}>
+					<div class="group/pick relative" data-ctx data-pick={item.id} animate:flip={{ duration: 200 }}>
 						<!-- Where the drop lands: a bar down the leading edge of the tile it goes in front of. -->
 						{#if before === item.id}
 							<div class="absolute -left-1 bottom-0 top-0 z-20 w-0.5 rounded-full bg-primary"></div>
@@ -238,14 +239,18 @@
 									</button>
 								{/if}
 							</div>
-							<!-- pr-8 keeps the title clear of the remove button that appears in the corner. -->
-							<div class="min-w-0 flex-1 pr-8">
+							<!-- pr-14 keeps the title clear of the ⋯ and remove buttons in the corner. -->
+							<div class="min-w-0 flex-1 pr-14">
 								<div class="truncate text-sm font-medium">{item.title}</div>
 								{#if item.subtitle}
 									<div class="truncate text-xs text-muted-foreground">{formatSubtitle(item.subtitle)}</div>
 								{/if}
 							</div>
 						</div>
+						<ItemMenu
+							{item}
+							triggerClass="absolute right-7 top-1 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover/pick:opacity-100"
+						/>
 						<button
 							onclick={() => removePick(item.id)}
 							title="Remove from shortcuts"

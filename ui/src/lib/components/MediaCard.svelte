@@ -10,10 +10,8 @@
 	import type { BrowseItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import { setDragItem } from '$lib/dnd';
-	import { asSong, openItem, playItem } from '$lib/browse';
-	import { openAddToPlaylist } from '$lib/player.svelte';
-	import TrackMenu from './TrackMenu.svelte';
-	import PlaylistMenu from './PlaylistMenu.svelte';
+	import { openItem, playItem } from '$lib/browse';
+	import ItemMenu from './ItemMenu.svelte';
 	import ExplicitIcon from './ExplicitIcon.svelte';
 	import { formatSubtitle, t } from '$lib/i18n.svelte';
 
@@ -175,17 +173,8 @@
 	<!-- bg-background/90, not /80 with a backdrop-blur: a backdrop-filter makes WebKit snapshot and
 	     blur everything under the button, on every card in the grid, whether or not the card is
 	     hovered. At 90% over artwork there is nothing left to blur that you can see. -->
-	{#if item.kind === 'song'}
-		<TrackMenu
-			song={asSong(item)}
-			onAdd={() => openAddToPlaylist(asSong(item))}
-			triggerClass="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-0 shadow-md transition hover:bg-background focus-visible:opacity-100 group-hover:opacity-100 cursor-pointer"
-		/>
-	{:else}
-		<PlaylistMenu
-			{item}
-			showPin={item.kind === 'playlist'}
-			triggerClass="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-0 shadow-md transition hover:bg-background focus-visible:opacity-100 group-hover:opacity-100 cursor-pointer"
-		/>
-	{/if}
+	<ItemMenu
+		{item}
+		triggerClass="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-0 shadow-md transition hover:bg-background focus-visible:opacity-100 group-hover:opacity-100 cursor-pointer"
+	/>
 </div>

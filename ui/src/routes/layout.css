@@ -9,6 +9,34 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* The artwork tint's animated properties. Registering them is what makes them interpolable: a
+   plain custom property can only flip from one value to the next, which is why this crossfade used
+   to be a requestAnimationFrame loop rewriting root variables ~60 times a second. Every one of
+   those writes came from JS and forced a full-document style recalc on the main thread, so the
+   fade competed with the track change it was meant to cover. Typed, the engine runs it on its own
+   animation timeline from a single declaration.
+
+   --art-h is a <number>, not an <angle>: theme.svelte.ts keeps it unwrapped (it may sit at 380 or
+   -20) so plain numeric interpolation takes the short way round the wheel. oklch() wraps it back.
+   The two colours interpolate in oklab, so opposite hues cross saturated ground, never grey.
+   The *-foreground pair is deliberately left unregistered: it flips between near-white and
+   near-black, and interpolating that puts every label at mid-grey for half a second. */
+@property --art-h {
+	syntax: '<number>';
+	inherits: true;
+	initial-value: 326;
+}
+@property --primary {
+	syntax: '<color>';
+	inherits: true;
+	initial-value: oklch(0.514 0.222 16.935);
+}
+@property --accent {
+	syntax: '<color>';
+	inherits: true;
+	initial-value: oklch(0.514 0.222 16.935);
+}
+
 /* Desktop app on WebKitGTK: the webview can report no hover-capable pointer, so Tailwind v4's
    default hover variant — gated behind @media (hover: hover) — never matches, silently killing
    every hover: and group-hover: utility in the app. Redefine hover to fire on a real :hover
@@ -415,6 +443,23 @@
 	--sidebar-ring: oklch(0.7729 0.1535 163.2231);
 }
 
+/* The blurred cover behind a hero (HomeHero, NowPlaying, the album and library headers), on its
+   own compositing layer. That promotion is the whole point of the class: left unpromoted,
+   WebKitGTK re-runs the 40px gaussian over the element every time anything underneath it repaints,
+   and the artwork tint below repaints the entire document on every frame of its crossfade. In the
+   now-playing view the wash is the size of the window, so a track change spent more time
+   re-blurring than on everything else put together.
+
+   Measured 2026-08-24, perf/arttint.mjs, now-playing view open, one track change, mean frame:
+   104ms as it was, 37ms promoted, 32ms with the wash deleted outright. Promotion buys back nearly
+   all of it, so the wash stays. (An earlier note in NowPlaying.svelte has promotion measuring as
+   noise: that was the video case, where the damage is the video *under* the blur every frame and
+   the layer has to be re-rasterized regardless. Still true, and still why the wash is dropped
+   while a video plays.) */
+.art-wash {
+	will-change: transform;
+}
+
 /* --- Artwork tint ---
    "Adapt colors to artwork" (Themes tab). `theme.svelte.ts` puts the playing cover's hue in
    --art-h and toggles .art-tint on <html>; every surface below is derived from that one number, so
@@ -427,6 +472,16 @@
 
    Chroma is what makes it visible: the default palette's neutrals sit at 0.003–0.034, which reads
    as grey. Turn the numbers here down together if a saturated cover is too much. */
+/* One duration for the whole palette: the accent and every derived surface land together. Sits on
+   the class itself so dragging the accent picker (which writes --primary directly) stays instant
+   when the tint is off. The reduced-motion block at the bottom of this file flattens it to 0. */
+html.art-tint {
+	transition:
+		--art-h 600ms cubic-bezier(0.4, 0, 0.2, 1),
+		--primary 600ms cubic-bezier(0.4, 0, 0.2, 1),
+		--accent 600ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 html.art-tint:not(.dark) {
 	--background: oklch(0.985 0.014 var(--art-h));
 	--foreground: oklch(0.17 0.03 var(--art-h));

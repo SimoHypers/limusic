@@ -488,6 +488,14 @@ export const setAlbumSaved = (playlistId: string, saved: boolean) =>
 // --- events (context/11). Each returns an unlisten fn; call it on component teardown. --------
 export const onNowPlaying = (cb: (n: NowPlaying) => void): Promise<UnlistenFn> =>
 	listen<NowPlaying>('now-playing', (e) => cb(e.payload));
+/**
+ * The backend asked YouTube what a track's rating really is and got a different answer than the
+ * row we were handed (issue #93). Fires only on a change, at most once per track start.
+ */
+export const onRating = (cb: (videoId: string, rating: Rating) => void): Promise<UnlistenFn> =>
+	listen<{ videoId: string; rating: Rating }>('rating', (e) =>
+		cb(e.payload.videoId, e.payload.rating)
+	);
 export const onQueueChanged = (cb: (q: QueueState) => void): Promise<UnlistenFn> =>
 	listen<QueueState>('queue-changed', (e) => cb(e.payload));
 /**

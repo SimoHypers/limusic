@@ -260,7 +260,7 @@
             <img
                 src={thumb(album.thumbnail, 96)}
                 alt=""
-                class="absolute inset-0 h-full w-full scale-110 object-cover opacity-50 blur-2xl"
+                class="absolute inset-0 h-full w-full art-wash scale-110 object-cover opacity-50 blur-2xl"
             />
         {/if}
         <div

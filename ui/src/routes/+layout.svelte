@@ -13,7 +13,7 @@
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
-	import { appearance, applyArtworkAccent, initTheme } from '$lib/theme.svelte';
+	import { appearance, applyArtworkAccent, prewarmArtworkAccent, initTheme } from '$lib/theme.svelte';
 	import { thumb } from '$lib/thumb';
 	import { initLocale, t } from '$lib/i18n.svelte';
 	import { blockForeignDrag, dragScroll } from '$lib/dnd';
@@ -68,6 +68,13 @@
 		applyArtworkAccent(
 			appearance.artworkAccent ? thumb(playback.now?.thumbnail, 120) : null
 		);
+	});
+	// Same colour, one track early. Reading it off the queue instead of the track change means the
+	// palette starts moving on the frame the artwork swaps, not after a fetch and a decode.
+	$effect(() => {
+		if (!appearance.artworkAccent) return;
+		const q = playback.queue;
+		prewarmArtworkAccent(thumb(q.items[q.currentIndex + 1]?.thumbnail, 120));
 	});
 
 	// The mini player runs this same SPA in a second window (Rust `mini.rs`), so the window label is

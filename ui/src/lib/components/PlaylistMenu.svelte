@@ -26,6 +26,7 @@
 		isSynced,
 		openShare,
 		personal,
+		removePick,
 		startRadio,
 		toast,
 		togglePin,
@@ -49,6 +50,8 @@
 	} = $props();
 
 	const pinned = $derived(personal.pins.includes(item.id));
+	// Already on the home grid: the menu offers the way out rather than a second copy.
+	const isPick = $derived(personal.picks.some((p) => p.id === item.id));
 	// A synced row is on the account too, and dropping only the local copy would leave the card on
 	// screen with a "removed" toast under it. Signed out, the local copy is the whole library again.
 	const savedHere = $derived(
@@ -171,9 +174,10 @@
 		{/if}
 		<button
 			class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
-			onclick={(e) => run(e, () => addPick(item))}
+			onclick={(e) => run(e, () => (isPick ? removePick(item.id) : addPick(item)))}
 		>
-			<HugeiconsIcon icon={DashboardSquare02Icon} class="h-4 w-4" /> Add to shortcuts
+			<HugeiconsIcon icon={DashboardSquare02Icon} class="h-4 w-4" />
+			{isPick ? 'Remove from shortcuts' : 'Add to shortcuts'}
 		</button>
 		{#if onYouTube}
 			<button

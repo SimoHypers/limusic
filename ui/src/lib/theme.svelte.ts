@@ -11,8 +11,8 @@
 // through — the customization is a set of overrides, not a rival theme to maintain.
 
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { hexToHsv, hsvToHex, isLight, lerpHue, type Hsv } from './color';
-import { artworkAccent } from './artcolor';
+import { hexToHsv, isLight, nearestHue } from './color';
+import { artworkAccent, warmAccent } from './artcolor';
 import { allowFontFile } from './api';
 
 export type ThemeId = 'rose' | 'blue' | 'lime' | 'purple' | 'teal' | 'catppuccin' | 'caffeine' | 'neon' | 'breeze';
@@ -118,15 +118,21 @@ export const effective = $state({
 	fontHeading: ''
 });
 
-/** oklch/rgb/anything CSS -> hex, via canvas's own normalization. '#000000' if it won't parse. */
+/**
+ * oklch/oklab/rgb/anything CSS -> hex. Painted and read back rather than taken from `fillStyle`,
+ * which WebKitGTK hands straight back in whatever space it was given: reading the string only ever
+ * worked for the hex accents, so every palette theme's picker opened on black. It matters more now
+ * that `--primary` is a registered property (layout.css) and therefore computes to `oklab()` even
+ * when it was written as a hex. '#000000' if the colour won't parse, same as before.
+ */
 function toHex(color: string): string {
-	const ctx = document.createElement('canvas').getContext('2d');
+	const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
 	if (!ctx) return '#000000';
-	ctx.fillStyle = '#000000';
-	ctx.fillStyle = color; // ignored (leaving black) if this engine can't parse the colour space
-	return typeof ctx.fillStyle === 'string' && ctx.fillStyle.startsWith('#')
-		? ctx.fillStyle
-		: '#000000';
+	ctx.fillStyle = '#000000'; // stays, if the engine can't parse what comes next
+	ctx.fillStyle = color;
+	ctx.fillRect(0, 0, 1, 1);
+	const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+	return '#' + [r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('');
 }
 
 /**
@@ -312,44 +318,22 @@ export function fontAvailable(name: string): boolean {
 // playing, and the next track overwrites it.
 //
 // Two things come out of one colour: the accent quartet (inline vars, as everywhere else) and
-// --art-h, the hue every surface in the `.art-tint` rules is derived from (layout.css). That's why
-// the crossfade runs in HSV rather than mixing two hex values: the hue has to travel the short way
-// round the wheel, and sRGB mixing would take the whole palette through grey on the way.
+// --art-h, the hue every surface in the `.art-tint` rules is derived from (layout.css).
+//
+// The crossfade between tracks is CSS, not JS: `--art-h`, `--primary` and `--accent` are registered
+// with @property in layout.css, so setting them once starts an interpolation the engine owns. This
+// used to be a requestAnimationFrame loop, which meant ~36 style invalidations of the whole
+// document, driven from the main thread, landing exactly on the frames the track change was
+// already paying for. All that is left here is picking the target and keeping the hue continuous.
 
-let art: Hsv | null = null;
-let frame = 0;
+let art: { h: number; hex: string } | null = null;
 let wanted = '';
 
 /** Push the current artwork colour into the accent vars and the tint hue. */
-function setArtVars(c: Hsv): void {
-	setAccentVars(hsvToHex(c));
+function setArtVars(c: { h: number; hex: string }): void {
+	setAccentVars(c.hex);
 	document.documentElement.style.setProperty('--art-h', c.h.toFixed(1));
 	document.documentElement.classList.add(TINT_CLASS);
-}
-
-/** Crossfade to `to` over ~450 ms. A snap between two palettes is the thing this setting would
- *  otherwise be judged on. */
-function fadeTo(to: Hsv): void {
-	const from = art ?? hexToHsv(effective.accent) ?? to;
-	cancelAnimationFrame(frame);
-	const t0 = performance.now();
-	const step = (now: number) => {
-		const k = Math.min(1, (now - t0) / 450);
-		const e = k * k * (3 - 2 * k); // smoothstep
-		art = {
-			h: lerpHue(from.h, to.h, e),
-			s: from.s + (to.s - from.s) * e,
-			v: from.v + (to.v - from.v) * e
-		};
-		if (k < 1) {
-			setArtVars(art);
-			frame = requestAnimationFrame(step);
-		} else {
-			art = to;
-			apply(); // land through the normal path so `effective` (and the pickers) agree
-		}
-	};
-	frame = requestAnimationFrame(step);
 }
 
 /**
@@ -360,7 +344,6 @@ function fadeTo(to: Hsv): void {
 export function applyArtworkAccent(url: string | undefined | null): void {
 	wanted = url ?? '';
 	if (!url) {
-		cancelAnimationFrame(frame);
 		if (art) {
 			art = null;
 			apply();
@@ -368,9 +351,24 @@ export function applyArtworkAccent(url: string | undefined | null): void {
 		return;
 	}
 	artworkAccent(url).then((hex) => {
-		const hsv = hex && hexToHsv(hex);
-		if (hsv && wanted === url) fadeTo(hsv); // a faster track change already won
+		if (!hex || wanted !== url) return; // colourless cover, or a faster track change already won
+		if (art?.hex === hex) return; // same colour (a repeat, or the queue moved under us)
+		const hsv = hexToHsv(hex);
+		if (!hsv) return;
+		// Continuous, never rewrapped: the CSS transition on --art-h is a plain number lerp, so the
+		// short way round the wheel has to be baked into the value it lands on. The first track has
+		// no previous target, so it starts from whatever --art-h currently resolves to.
+		const from =
+			art?.h ??
+			(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--art-h')) || 0);
+		art = { h: nearestHue(from, hsv.h), hex };
+		apply(); // through the normal path, so `effective` and the pickers agree
 	});
+}
+
+/** Decode a cover the user is about to hear, so its colour is ready the instant the track flips. */
+export function prewarmArtworkAccent(url: string | undefined | null): void {
+	if (url) warmAccent(url);
 }
 
 /** Apply the stored theme + customization on startup (defaults to rose, no overrides). */

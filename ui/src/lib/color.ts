@@ -53,7 +53,11 @@ export function isLight(hex: string): boolean {
 	return Math.sqrt(0.299 * r * r + 0.587 * g * g + 0.114 * b * b) > 0.6;
 }
 
-/** Lerp a hue, shortest way round the wheel: 350 -> 10 goes forward through 0, not back through 180. */
-export function lerpHue(a: number, b: number, t: number): number {
-	return (a + (((b - a + 540) % 360) - 180) * clamp01(t) + 360) % 360;
+/**
+ * `to` rewritten as the equivalent hue nearest `from`, so a plain numeric interpolation between the
+ * two takes the short way round the wheel: from 350, a target of 10 comes back as 370, not a
+ * backwards sweep through 180. The result may sit outside 0-360; oklch() and hsv both wrap it.
+ */
+export function nearestHue(from: number, to: number): number {
+	return from + ((((to - from) % 360) + 540) % 360) - 180;
 }

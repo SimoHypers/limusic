@@ -111,10 +111,22 @@
 		else setCustom({ [key]: value } as Partial<Custom>);
 	}
 
+	// Applying a font family rewrites --font-sans/--font-heading on <html>, which restyles and
+	// reflows the whole app (and `apply` then re-reads the computed tokens). Doing that per
+	// keystroke is what made typing a font name lag (#97), so the input updates immediately and the
+	// theme follows once typing pauses. Half-typed names are meaningless anyway.
+	const fontTimers: Record<FontKey, ReturnType<typeof setTimeout> | undefined> = {
+		fontSans: undefined,
+		fontHeading: undefined
+	};
+
 	function typeFont(key: FontKey, name: string) {
 		fontName[key] = name;
-		// Blank clears the override, so the preset's font comes back.
-		setCustom({ [key]: name.trim() ? `'${name.trim()}', sans-serif` : null } as Partial<Custom>);
+		clearTimeout(fontTimers[key]);
+		fontTimers[key] = setTimeout(() => {
+			// Blank clears the override, so the preset's font comes back.
+			setCustom({ [key]: name.trim() ? `'${name.trim()}', sans-serif` : null } as Partial<Custom>);
+		}, 300);
 	}
 
 	let tab = $state<TabId>('general');
@@ -810,7 +822,9 @@
 		spellcheck={false}
 		style="font-family:{effective[key]}"
 	/>
-	{#if fontName[key].trim() && !fontAvailable(fontName[key])}
+	<!-- Probes the *applied* family, not the half-typed one: measuring a font on every keystroke is
+	     the other half of #97, and a name mid-typing is never installed anyway. -->
+	{#if fontName[key].trim() && !fontAvailable(familyName(effective[key]))}
 		<p class="mt-1.5 text-xs text-muted-foreground">
 			Not installed — install the font, then reopen settings.
 		</p>

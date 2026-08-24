@@ -47,7 +47,7 @@
 			<img
 				src={thumb(playback.now.thumbnail, 96)}
 				alt=""
-				class="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl"
+				class="pointer-events-none absolute inset-0 h-full w-full art-wash scale-110 object-cover opacity-60 blur-2xl"
 				onerror={() => (artFailed = true)}
 			/>
 		{:else}

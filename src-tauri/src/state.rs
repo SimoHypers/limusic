@@ -53,6 +53,10 @@ pub struct AppState {
     /// Bumped on every explicit `play`/jump so superseded async resolves discard their result
     /// (cancellation without JoinHandle bookkeeping). context/06 §6.
     generation: AtomicU64,
+    /// Bumped by the `rate` command. [`Self::refresh_rating`] samples it before its round trip
+    /// and throws the answer away if it moved: a like landing in that ~400 ms window is newer
+    /// than what YouTube was asked, and applying the stale reply would flip the heart back.
+    pub rate_epoch: AtomicU64,
     /// A one-shot resume position `(videoId, secs)` set by `restore_queue` and consumed by the
     /// next `start_current` — applied only when that track is the one being started, so jumping to
     /// a different track first doesn't inherit the old position (context/11).
@@ -329,6 +333,7 @@ impl AppState {
             queue: Mutex::new(QueueState::default()),
             is_playing: AtomicBool::new(false),
             generation: AtomicU64::new(0),
+            rate_epoch: AtomicU64::new(0),
             pending_seek: std::sync::Mutex::new(None),
             video_urls: std::sync::Mutex::new(std::collections::HashMap::new()),
             latest_position: AtomicU64::new(0),
@@ -1297,6 +1302,8 @@ impl AppState {
         }
         if let Some(item) = self.current_item().await {
             self.emit_now_playing(&item, "gapless");
+            // Same as `start_current`: an autoplay-appended track carries no rating of its own.
+            self.refresh_rating(&item.video_id, gen);
         }
         self.emit_queue().await;
         self.persist_queue().await; // index advanced without an explicit load → persist it
@@ -1479,6 +1486,9 @@ impl AppState {
             }
         }
         self.emit_now_playing(&item, &data.stream_client);
+        // The rating just emitted is whatever the row was parsed with, which for a search result
+        // or a radio track is nothing at all (issue #93). Ask.
+        self.refresh_rating(&item.video_id, gen);
         // We just told mpv to play, but its `pause` flag was already `false`, so no property event
         // will announce it (see `Player::is_playing`). Say so ourselves — otherwise MPRIS and
         // Discord never learn the track started. After `emit_now_playing`, so the new track is the
@@ -1641,6 +1651,67 @@ impl AppState {
             "duration": duration,
             "volume": saved_volume(&self.db),
         })
+    }
+
+    /// Ask YouTube what the current track's rating actually is, and tell every window if it
+    /// differs from the snapshot they were just handed. Issue #93.
+    ///
+    /// A `SongItem`'s `rating` is only ever a snapshot of the response that produced the row, and
+    /// most rows state nothing at all: search rows carry no `likeStatus` (0 of 29) and `/next`
+    /// panel rows carry none either (0 of 50), both live-checked 2026-08-24, so a liked song
+    /// played from search or reached by autoplay renders exactly like an unrated one. A restored
+    /// queue's rating is worse than absent: it is however old the database is, so a like made on
+    /// the phone since never shows up. The authority is a bare `next(videoId)`'s
+    /// `playerOverlays…likeButtonRenderer` (~4 KB gzipped), which is what YouTube Music's own
+    /// player bar draws from.
+    ///
+    /// Detached and doubly guarded: nothing waits on it, a skip during the round trip discards the
+    /// answer (`generation`), and so does a rating the user set meanwhile (`rate_epoch`).
+    fn refresh_rating(self: &std::sync::Arc<Self>, video_id: &str, gen: u64) {
+        // Signed out there is no rating to be wrong about, and a local file is not a videoId
+        // YouTube has ever heard of.
+        if !self.it.is_logged_in() || crate::local::is_local_song(video_id) {
+            return;
+        }
+        let me = self.clone();
+        let video_id = video_id.to_owned();
+        tauri::async_runtime::spawn(async move {
+            let Some(client) = me.clients.get(innertube::METADATA_CLIENT) else { return };
+            let epoch = me.rate_epoch.load(Ordering::SeqCst);
+            // No playlist id: the overlay is all this call is for, and the bare form is ~25x
+            // smaller than the radio one (4 KB vs 100 KB gzipped).
+            let rating = match me.it.next(client, Some(&video_id), None).await {
+                Ok(next) => next.rating,
+                Err(e) => {
+                    tracing::debug!(error = %e, "rating refresh failed; keeping the snapshot");
+                    return;
+                }
+            };
+            let Some(rating) = rating else { return };
+            if me.generation.load(Ordering::SeqCst) != gen
+                || me.rate_epoch.load(Ordering::SeqCst) != epoch
+            {
+                return;
+            }
+            // Write it back to every copy in the queue as well: that is what the queue panel
+            // renders, what `persist_queue` saves, and what the next `now-playing` emits.
+            let changed = {
+                let mut q = me.queue.lock().await;
+                let mut changed = false;
+                for item in q.items.iter_mut().filter(|i| i.video_id == video_id) {
+                    changed |= item.rating != Some(rating);
+                    item.rating = Some(rating);
+                }
+                changed
+            };
+            if !changed {
+                return;
+            }
+            // Not persisted on purpose: `persist_fingerprint` excludes `rating`, and this runs on
+            // every track start anyway, so a stored copy would only ever be the stale one again.
+            let _ =
+                me.app.emit("rating", serde_json::json!({ "videoId": video_id, "rating": rating }));
+        });
     }
 
     fn emit_now_playing(&self, item: &SongItem, stream_client: &str) {
@@ -2012,7 +2083,7 @@ impl AppState {
     /// Restore the last session's queue on startup — paused, not autoplaying (context/11). The
     /// saved position is applied when the user first hits play (see `start_current`). Emits
     /// `queue-changed` + `now-playing` so the UI shows the restored track.
-    pub async fn restore_queue(&self) {
+    pub async fn restore_queue(self: &std::sync::Arc<Self>) {
         let Some(json) = self.db.get_setting("queue_json") else { return };
         let Ok(saved) = serde_json::from_str::<serde_json::Value>(&json) else { return };
         let items: Vec<SongItem> = saved
@@ -2094,6 +2165,9 @@ impl AppState {
             // up for a song nobody started).
             self.media_set_playing(false);
             self.emit_now_playing(&item, "restored");
+            // The stored rating is as old as the database: a like made on another device since
+            // has never been seen here (issue #93).
+            self.refresh_rating(&item.video_id, self.generation.load(Ordering::SeqCst));
             let _ = self.app.emit("playback-state", "paused");
         }
         self.emit_queue().await;

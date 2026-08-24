@@ -783,6 +783,13 @@ export function initApp(mini = false): () => void {
 			if (n.artists) pl.noteArtist(personal, n.artistId ?? n.artists, pl.firstArtist(n.artists));
 			savePersonal();
 		}),
+		// YouTube's own answer for a track whose row never stated one (issue #93). Into the
+		// override map as well as the player bar: the same song is on screen as a list row too,
+		// and `ratingOf` reads that map for every row that is not the playing one.
+		api.onRating((videoId, rating) => {
+			ratings[videoId] = rating;
+			if (playback.now?.videoId === videoId) playback.rating = rating;
+		}),
 		api.onQueueChanged((q) => (playback.queue = q)),
 		// The items did not change, so keep the array we already hold and patch the rest. Splice
 		// the playing row back in: `start_current` backfills its duration and artists after the
