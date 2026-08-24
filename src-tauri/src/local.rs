@@ -28,7 +28,7 @@ const FOLDERS_SETTING: &str = "local_folders";
 /// Bumped whenever `read_track` starts producing different titles, artists or album keys. The scan
 /// normally trusts stored rows whose file hasn't changed; after a bump it re-reads everything once,
 /// so a library isn't left half-parsed by the old rules and half by the new ones.
-const SCAN_VERSION: &str = "4";
+const SCAN_VERSION: &str = "5";
 const SCAN_VERSION_SETTING: &str = "local_scan_version";
 
 /// Extensions we pick up. Playback itself is mpv, which decodes far more than this — the list is
@@ -264,6 +264,7 @@ fn read_track(file: &Path, path: &str, mtime: i64, covers_dir: &Path) -> LocalTr
         artist,
         album,
         album_key,
+        album_artist,
         track_no: tag.and_then(|t| t.track()).unwrap_or(0) as i64,
         duration_secs,
         cover,
@@ -517,10 +518,18 @@ fn artists_of(tracks: &[LocalTrack]) -> Vec<BrowseItem> {
     artists
 }
 
-/// Who an album is by: the one artist on it, or "Various artists". A folder of loose downloads is
+/// Who an album is by. The AlbumArtist tag wins when the files carry one and agree on it: an album
+/// with guests on half its tracks is still that artist's, and calling it a compilation was issue
+/// #96. Failing that, the one artist on it, or "Various artists" — a folder of loose downloads is
 /// grouped as one album (see `read_track`), and claiming it belongs to whichever track happened to
 /// be first would be wrong on most of its rows.
 fn album_artist(tracks: &[&LocalTrack]) -> String {
+    let mut tagged = tracks.iter().filter_map(|t| t.album_artist.as_deref());
+    if let Some(first) = tagged.next() {
+        if tagged.all(|a| a == first) {
+            return first.to_string();
+        }
+    }
     let first = tracks.first().map(|t| t.artist.as_str()).unwrap_or(UNKNOWN_ARTIST);
     if tracks.iter().all(|t| t.artist == first) {
         first.to_string()
@@ -667,6 +676,7 @@ mod tests {
             artist: artist.into(),
             album: album.into(),
             album_key: key.into(),
+            album_artist: None,
             track_no: 1,
             duration_secs: 10,
             cover: None,
@@ -723,6 +733,19 @@ mod tests {
 
         let same = vec![track("/m/x/a.mp3", "Drake", "Views", "drake--views")];
         assert_eq!(albums_of(&same)[0].subtitle.as_deref(), Some("Drake • 1 song"));
+    }
+
+    #[test]
+    fn a_tagged_album_artist_beats_the_per_track_artists() {
+        // Issue #96: features made every real album read as a compilation.
+        let mut tracks = vec![
+            track("/m/Views/a.mp3", "Drake", "Views", "drake--views"),
+            track("/m/Views/b.mp3", "Drake, Future", "Views", "drake--views"),
+        ];
+        for t in &mut tracks {
+            t.album_artist = Some("Drake".into());
+        }
+        assert_eq!(albums_of(&tracks)[0].subtitle.as_deref(), Some("Drake • 2 songs"));
     }
 
     #[test]
