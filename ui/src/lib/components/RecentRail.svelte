@@ -21,7 +21,7 @@
 	import { thumb } from '$lib/thumb';
 	import { setDragItem } from '$lib/dnd';
 	import { openItem, playItem } from '$lib/browse';
-	import { formatSubtitle, t } from '$lib/i18n.svelte';
+	import { t } from '$lib/i18n.svelte';
 	import ItemMenu from './ItemMenu.svelte';
 
 	let { items }: { items: BrowseItem[] } = $props();
@@ -106,7 +106,7 @@
 					<!-- Subtitle when there is one (a creator or an artist tells you more than the kind
 					     does); the kind is the fallback so the second line never collapses. -->
 					<div class="truncate text-xs capitalize text-muted-foreground">
-						{formatSubtitle(item.subtitle) || (
+						{item.subtitle || (
 							item.kind === 'playlist' ? t('common.playlist_singular') :
 							item.kind === 'album' ? t('common.album_singular') :
 							item.kind === 'artist' ? t('common.artist_singular') :
@@ -123,7 +123,7 @@
 						class="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-md transition-opacity hover:brightness-110 focus-visible:opacity-100 group-hover/row:opacity-100"
 						class:animate-pulse={busy === item.id}
 						disabled={busy === item.id}
-						aria-label="Play {item.title}"
+						aria-label={t('a11y.play_item', { title: item.title })}
 						onclick={(e) => {
 							e.stopPropagation();
 							play(item);

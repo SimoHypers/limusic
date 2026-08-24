@@ -327,7 +327,7 @@
 					<button
 						type="button"
 						onclick={toggle}
-						aria-label="Play/pause"
+						aria-label={t('a11y.play_pause')}
 						class="block w-full cursor-pointer"
 					>
 						{#if flash}
@@ -395,7 +395,7 @@
 						<button
 							type="button"
 							onclick={() => (wantVideo = !wantVideo)}
-							aria-label={showVideo ? 'Show artwork' : 'Show video'}
+							aria-label={showVideo ? t('a11y.show_artwork') : t('a11y.show_video')}
 							class="absolute right-3 top-3 z-10 cursor-pointer rounded-md bg-black/40 p-1.5 text-white/70 transition-colors hover:text-white"
 						>
 							<!-- icon swap via altIcon/showAlt: `icon` is frozen at mount -->

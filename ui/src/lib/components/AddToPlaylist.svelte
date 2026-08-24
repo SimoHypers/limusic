@@ -5,6 +5,7 @@
 	import { Cancel01Icon } from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import type { BrowseItem } from '$lib/api';
+	import { t } from '$lib/i18n.svelte';
 	import {
 		ui,
 		toast,
@@ -62,12 +63,20 @@
 				notePlaylistAdd(pl.id, added);
 			}
 			if (!added.length) {
-				toast(dupes > 1 ? `All ${dupes} are already in ${pl.title}` : `Already in ${pl.title}`);
+				toast(
+					dupes > 1
+						? t('toasts.already_in_all', { count: dupes, playlist: pl.title })
+						: t('toasts.already_in', { playlist: pl.title })
+				);
 			} else if (dupes) {
-				toast.success(`Added ${added.length} to ${pl.title} (${dupes} already there)`);
+				toast.success(
+					t('toasts.added_to_playlist_dupes', { count: added.length, playlist: pl.title, dupes })
+				);
 			} else {
 				toast.success(
-					added.length > 1 ? `Added ${added.length} songs to ${pl.title}` : `Added to ${pl.title}`
+					added.length > 1
+						? t('toasts.added_songs', { count: added.length, playlist: pl.title })
+						: t('toasts.added_one', { playlist: pl.title })
 				);
 			}
 		} catch (e) {
@@ -92,17 +101,17 @@
 			class="w-full max-w-sm rounded-xl border bg-card p-4 shadow-xl"
 		>
 			<div class="mb-3 flex items-center justify-between">
-				<h2 class="font-heading text-base font-semibold">Add to playlist</h2>
+				<h2 class="font-heading text-base font-semibold">{t('player.add_to_playlist')}</h2>
 				<button
 					class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 					onclick={close}
-					aria-label="Close"
+					aria-label={t('a11y.close')}
 				>
 					<HugeiconsIcon icon={Cancel01Icon} class="h-4 w-4" />
 				</button>
 			</div>
 			{#if loading}
-				<p class="p-2 text-sm text-muted-foreground">Loading…</p>
+				<p class="p-2 text-sm text-muted-foreground">{t('common.loading')}</p>
 			{:else if playlists.length}
 				<div class="max-h-80 overflow-y-auto">
 					{#each playlists as pl (pl.id)}
@@ -126,7 +135,7 @@
 				</div>
 			{:else}
 				<p class="p-2 text-sm text-muted-foreground">
-					No playlists yet — create one in your Library.
+					{t('library.no_playlists_create')}
 				</p>
 			{/if}
 		</div>

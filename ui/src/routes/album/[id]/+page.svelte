@@ -268,7 +268,7 @@
         ></div>
 
         <div class="absolute right-6 top-6 z-10">
-            <TrackFilter bind:value={query} placeholder="Search this album" />
+            <TrackFilter bind:value={query} placeholder={t("common.search_this_album")} />
         </div>
 
         <div class="relative flex flex-col gap-5 p-6 pt-10">
@@ -387,7 +387,7 @@
                 <button
                     class="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border text-muted-foreground transition hover:bg-accent/10 hover:text-foreground"
                     onclick={openMenu}
-                    aria-label={t("common.more")}
+                    aria-label={t("a11y.more_options")}
                 >
                     <HugeiconsIcon icon={MoreVerticalIcon} class="h-5 w-5" />
                 </button>
@@ -402,7 +402,7 @@
                             e.preventDefault();
                             menuOpen = false;
                         }}
-                        aria-label={t("common.close")}
+                        aria-label={t("a11y.close_menu")}
                         {@attach toBody}
                     ></button>
                     <div
@@ -476,7 +476,7 @@
                                 <HugeiconsIcon
                                     icon={Share08Icon}
                                     class="h-4 w-4"
-                                /> {t("common.share")}
+                                /> {t("player.share")}
                             </button>
                         {/if}
                     </div>

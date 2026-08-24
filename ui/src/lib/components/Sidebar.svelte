@@ -33,7 +33,7 @@
 		toast
 	} from '$lib/player.svelte';
 	import { mergeSaved, orderLibrary } from '$lib/personal';
-	import { formatSubtitle, t } from '$lib/i18n.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	const nav = $derived([
 		{ href: '/', label: t('nav.home'), icon: Home01Icon },
@@ -55,13 +55,11 @@
 	// YTM's library subtitle is "Owner • 20 tracks" and the rail is too narrow for both, so keep the
 	// count and drop the rest. Subtitles without a number (albums: "Album • Artist") stay whole.
 	const rowSubtitle = (s?: string) =>
-		formatSubtitle(
-			s
-				?.split('•')
-				.map((p) => p.trim())
-				.filter((p) => /\d/.test(p))
-				.at(-1) ?? s
-		);
+		s
+			?.split('•')
+			.map((p) => p.trim())
+			.filter((p) => /\d/.test(p))
+			.at(-1) ?? s;
 
 	const playlistHref = (item: BrowseItem) =>
 		item.kind === 'album'
@@ -80,7 +78,7 @@
 		creating = true;
 		try {
 			await createLibraryPlaylist(title);
-			toast.success(`Created "${title}"`);
+			toast.success(t('toasts.playlist_created', { title }));
 			newTitle = '';
 			dialogOpen = false;
 		} catch (e) {
@@ -114,7 +112,7 @@
 				size="icon-sm"
 				class="hidden hover:text-primary lg:inline-flex"
 				onclick={toggleSidebar}
-				aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+				aria-label={collapsed ? t('a11y.expand_sidebar') : t('a11y.collapse_sidebar')}
 			>
 				<!-- altIcon/showAlt, not a ternary: `icon` is read once at mount. -->
 				<HugeiconsIcon
@@ -130,7 +128,7 @@
 				size="icon-sm"
 				class="hover:text-primary"
 				onclick={toggleMode}
-				aria-label="Toggle theme"
+				aria-label={t('a11y.toggle_theme')}
 			>
 				<HugeiconsIcon icon={Sun01Icon} strokeWidth={2} class="h-4 w-4 dark:hidden" />
 				<HugeiconsIcon icon={Moon02Icon} strokeWidth={2} class="hidden h-4 w-4 dark:block" />

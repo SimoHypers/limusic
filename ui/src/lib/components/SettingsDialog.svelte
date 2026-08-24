@@ -75,10 +75,18 @@
 
 	// --- Themes tab ---
 	type FontKey = 'fontSans' | 'fontHeading';
-	const FONT_ROWS: { key: FontKey; label: string; hint: string }[] = [
-		{ key: 'fontSans', label: 'Interface font', hint: 'Everything except headings.' },
-		{ key: 'fontHeading', label: 'Heading font', hint: 'Page and section titles.' }
-	];
+	const FONT_ROWS: { key: FontKey; label: string; hint: string }[] = $derived([
+		{
+			key: 'fontSans',
+			label: t('settings.themes.interface_font_label'),
+			hint: t('settings.themes.interface_font_short_hint')
+		},
+		{
+			key: 'fontHeading',
+			label: t('settings.themes.heading_font_label'),
+			hint: t('settings.themes.heading_font_short_hint')
+		}
+	]);
 	let pickerOpen = $state(false);
 	// Whether each font row is on "Custom", and the family name typed into it. Kept locally because
 	// the select can sit on Custom before anything has been typed.
@@ -93,12 +101,12 @@
 	async function pickFontFiles() {
 		const picked = await open({
 			multiple: true,
-			title: 'Load a font',
-			filters: [{ name: 'Fonts', extensions: ['ttf', 'otf', 'woff', 'woff2'] }]
+			title: t('settings.themes.load_font_dialog'),
+			filters: [{ name: t('settings.themes.font_filter'), extensions: ['ttf', 'otf', 'woff', 'woff2'] }]
 		});
 		for (const path of picked ?? []) {
 			try {
-				toast.success(`${await addFontFile(path)} loaded — pick it above`);
+				toast.success(t('toasts.font_loaded', { name: await addFontFile(path) }));
 			} catch (e) {
 				toast.error(String(e));
 			}
@@ -130,7 +138,10 @@
 	}
 
 	let tab = $state<TabId>('general');
-	const currentTab = $derived(TABS.find((t) => t.id === tab) ?? TABS[0]);
+	const currentTab = $derived(TABS.find((tb) => tb.id === tab) ?? TABS[0]);
+	const currentLocaleLabel = $derived(
+		LOCALES.find((l) => l.id === currentLocale.id)?.nativeLabel ?? currentLocale.id
+	);
 	let settings = $state<Record<string, string>>({});
 	let clients = $state<string[]>([]);
 	let proxyInput = $state('');
@@ -200,17 +211,17 @@
 	);
 
 	const QUALITIES = [
-		{ id: 'LOW', label: 'Low' },
-		{ id: 'AUTO', label: 'Auto' },
-		{ id: 'HIGH', label: 'High' }
-	];
+		{ id: 'LOW', key: 'settings.playback.quality_low' },
+		{ id: 'AUTO', key: 'settings.playback.quality_auto' },
+		{ id: 'HIGH', key: 'settings.playback.quality_high' }
+	] as const;
 
 	async function setQuality(q: string) {
 		settings.quality = q;
 		await api.setSetting('quality', q);
 		// Cached URLs are keyed by video only, so clear them to apply the new quality everywhere.
 		await api.clearCaches();
-		toast.success('Audio quality updated');
+		toast.success(t('toasts.quality_updated'));
 	}
 
 	async function setHistory(on: boolean) {
@@ -282,14 +293,14 @@
 	async function saveProxy() {
 		settings.proxy = proxyInput.trim();
 		await api.setSetting('proxy', settings.proxy);
-		toast.success('Proxy saved — restart to apply');
+		toast.success(t('toasts.proxy_saved'));
 	}
 
 	async function doClearCaches() {
 		clearing = true;
 		try {
 			await api.clearCaches();
-			toast.success('Caches cleared');
+			toast.success(t('toasts.caches_cleared'));
 		} finally {
 			clearing = false;
 		}
@@ -344,22 +355,22 @@
 					{t('settings.title')}
 				</Dialog.Title>
 				<div class="flex flex-col gap-0.5">
-					{#each TABS as t (t.id)}
+					{#each TABS as tb (tb.id)}
 						<button
-							onclick={() => (tab = t.id)}
-							aria-current={tab === t.id}
+							onclick={() => (tab = tb.id)}
+							aria-current={tab === tb.id}
 							class="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors {tab ===
-							t.id
+							tb.id
 								? 'bg-background text-foreground shadow-sm ring-1 ring-border/70'
 								: 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}"
 						>
 							<HugeiconsIcon
-								icon={t.icon}
+								icon={tb.icon}
 								size={17}
 								strokeWidth={2}
-								class={tab === t.id ? 'text-primary' : ''}
+								class={tab === tb.id ? 'text-primary' : ''}
 							/>
-							<span class="truncate">{t.label}</span>
+							<span class="truncate">{tb.label}</span>
 						</button>
 					{/each}
 				</div>
@@ -440,13 +451,13 @@
 									title: t('settings.themes.background_color'),
 									desc:
 										currentTheme.kind === 'palette'
-											? `Only shades the default palette, ${currentTheme.label} brings its own colors.`
-											: 'Shades the greys: surfaces, borders and secondary text.',
+											? t('settings.themes.tint_palette_hint', { theme: currentTheme.label })
+											: t('settings.themes.tint_hint'),
 									control: tintSlider
 								})}
 								{@render row({
-									title: 'Roundness',
-									desc: 'Corner radius of cards, buttons and artwork.',
+									title: t('settings.themes.roundness'),
+									desc: t('settings.themes.roundness_hint'),
 									control: radiusSlider
 								})}
 							</div>
@@ -468,7 +479,7 @@
 								{/each}
 								{@render row({
 									title: t('settings.themes.load_font_file'),
-									desc: 'Load a .ttf, .otf or .woff from anywhere on this computer. It joins both dropdowns above.',
+									desc: t('settings.themes.load_font_file_hint'),
 									control: addFontButton,
 									below: custom.fontFiles.length ? fontFileList : undefined
 								})}
@@ -479,33 +490,33 @@
 							<h3 class={LABEL}>{t('settings.tabs.themes')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Open the player when you press play',
-									desc: 'On, playing a song, album or playlist brings up the full player view. Off, it starts playing and leaves you on the page you were browsing.',
+									title: t('settings.themes.open_player'),
+									desc: t('settings.themes.open_player_hint'),
 									control: openPlayerSwitch,
 									tall: true
 								})}
 								{@render row({
-									title: 'Queue and lyrics in the player view',
-									desc: "On, the player view carries them as tabs and the bar's two buttons switch between them. Off, those buttons only ever open the side panels, which stay open over the player view so you can see both at once.",
+									title: t('settings.themes.tabbed_player'),
+									desc: t('settings.themes.tabbed_player_hint'),
 									control: tabbedSwitch,
 									tall: true
 								})}
 								{@render row({
-									title: 'Artwork background',
-									desc: "Tint the player view with the playing track's cover, blurred. Off leaves it plain.",
+									title: t('settings.themes.artwork_background'),
+									desc: t('settings.themes.artwork_background_hint'),
 									control: artworkBgSwitch,
 									tall: true
 								})}
 								{@render row({
-									title: 'Adapt colors to artwork',
-									badge: 'Experimental',
-									desc: "Recolor the app from the playing track's cover: accent, surfaces and borders, fading between tracks. Off keeps the selected theme's own colors.",
+									title: t('settings.themes.artwork_accent'),
+									badge: t('settings.themes.experimental'),
+									desc: t('settings.themes.artwork_accent_hint'),
 									control: artworkAccentSwitch,
 									tall: true
 								})}
 								{@render row({
 									title: t('settings.themes.reset_theme'),
-									desc: 'Drop the color, roundness and font overrides. Keeps the preset.',
+									desc: t('settings.themes.reset_theme_hint'),
 									control: resetButton
 								})}
 							</div>
@@ -537,7 +548,7 @@
 							<div class={CARD}>
 								{@render row({
 									title: t('settings.playback.music_videos'),
-									badge: 'Experimental',
+									badge: t('settings.themes.experimental'),
 									desc: t('settings.playback.music_videos_hint'),
 									control: musicVideoSwitch,
 									tall: true
@@ -648,21 +659,22 @@
 
 <!-- Controls. Split out so the rows above read as a list of settings rather than a wall of markup. -->
 {#snippet languagePicker()}
-	<div class="flex rounded-lg bg-muted p-0.5">
-		{#each LOCALES as locale (locale.id)}
-			<button
-				type="button"
-				onclick={() => setLocale(locale.id)}
-				aria-pressed={currentLocale.id === locale.id}
-				class="cursor-pointer rounded-md px-3.5 py-1.5 text-xs font-medium transition-colors {currentLocale.id ===
-				locale.id
-					? 'bg-background text-foreground shadow-sm'
-					: 'text-muted-foreground hover:text-foreground'}"
-			>
-				{locale.nativeLabel}
-			</button>
-		{/each}
-	</div>
+	<Select.Root
+		type="single"
+		value={currentLocale.id}
+		onValueChange={(v) => setLocale(v as LocaleId)}
+	>
+		<Select.Trigger class="w-44 shrink-0" aria-label={t('settings.general.language')}>
+			<span class="flex-1 truncate text-left">{currentLocaleLabel}</span>
+		</Select.Trigger>
+		<Select.Content>
+			{#each LOCALES as locale (locale.id)}
+				<Select.Item value={locale.id} label={locale.nativeLabel}>
+					{locale.nativeLabel}
+				</Select.Item>
+			{/each}
+		</Select.Content>
+	</Select.Root>
 {/snippet}
 
 {#snippet historySwitch()}<Switch checked={historyOn} onCheckedChange={setHistory} />{/snippet}
@@ -697,7 +709,7 @@
 
 {#snippet presetSelect()}
 	<Select.Root type="single" value={theme.id} onValueChange={(v) => applyTheme(v as ThemeId)}>
-		<Select.Trigger class="w-44 shrink-0" aria-label="Theme">
+		<Select.Trigger class="w-44 shrink-0" aria-label={t('a11y.theme')}>
 			<span
 				class="size-4 shrink-0 rounded-full ring-1 ring-black/10"
 				style="background:{currentTheme.color}"
@@ -706,26 +718,26 @@
 		</Select.Trigger>
 		<Select.Content>
 			<Select.Group>
-				<Select.GroupHeading>Accent colors</Select.GroupHeading>
-				{#each ACCENT_THEMES as t (t.id)}
-					<Select.Item value={t.id} label={t.label}>
+				<Select.GroupHeading>{t('settings.themes.accent_colors')}</Select.GroupHeading>
+				{#each ACCENT_THEMES as th (th.id)}
+					<Select.Item value={th.id} label={th.label}>
 						<span
 							class="size-4 shrink-0 rounded-full ring-1 ring-black/10"
-							style="background:{t.color}"
+							style="background:{th.color}"
 						></span>
-						{t.label}
+						{th.label}
 					</Select.Item>
 				{/each}
 			</Select.Group>
 			<Select.Group>
-				<Select.GroupHeading>Palettes</Select.GroupHeading>
-				{#each PALETTE_THEMES as t (t.id)}
-					<Select.Item value={t.id} label={t.label}>
+				<Select.GroupHeading>{t('settings.themes.palettes')}</Select.GroupHeading>
+				{#each PALETTE_THEMES as th (th.id)}
+					<Select.Item value={th.id} label={th.label}>
 						<span
 							class="size-4 shrink-0 rounded-full ring-1 ring-black/10"
-							style="background:{t.color}"
+							style="background:{th.color}"
 						></span>
-						{t.label}
+						{th.label}
 					</Select.Item>
 				{/each}
 			</Select.Group>
@@ -737,7 +749,7 @@
 	<button
 		type="button"
 		onclick={() => (pickerOpen = !pickerOpen)}
-		aria-label="Choose accent color"
+		aria-label={t('a11y.choose_accent')}
 		aria-expanded={pickerOpen}
 		class="size-8 cursor-pointer rounded-lg ring-1 ring-black/10 transition-transform hover:scale-105 {pickerOpen
 			? 'ring-2 ring-primary/60'
@@ -753,7 +765,7 @@
 {#snippet tintSlider()}
 	<Slider
 		type="single"
-		aria-label="Background tint"
+		aria-label={t('a11y.background_tint')}
 		max={360}
 		step={1}
 		disabled={currentTheme.kind === 'palette'}
@@ -767,7 +779,7 @@
 	<div class="flex w-44 shrink-0 items-center gap-3">
 		<Slider
 			type="single"
-			aria-label="Roundness"
+			aria-label={t('a11y.roundness')}
 			max={1.5}
 			step={0.05}
 			value={effective.radius}
@@ -800,7 +812,7 @@
 			{/each}
 			{#if custom.fontFiles.length}
 				<Select.Group>
-					<Select.GroupHeading>Your fonts</Select.GroupHeading>
+					<Select.GroupHeading>{t('settings.themes.your_fonts')}</Select.GroupHeading>
 					{#each fileFonts() as f (f.value)}
 						<Select.Item value={f.value} label={f.label}>
 							<span class="block truncate" style="font-family:{f.value}">{f.label}</span>
@@ -808,7 +820,7 @@
 					{/each}
 				</Select.Group>
 			{/if}
-			<Select.Item value="custom" label="Custom">Custom…</Select.Item>
+			<Select.Item value="custom" label={t('common.custom')}>{t('settings.themes.custom_font')}</Select.Item>
 		</Select.Content>
 	</Select.Root>
 {/snippet}
@@ -817,8 +829,8 @@
 	<Input
 		value={fontName[key]}
 		oninput={(e) => typeFont(key, e.currentTarget.value)}
-		placeholder="Font installed on this computer, e.g. Inter"
-		aria-label="{label} family name"
+		placeholder={t('settings.themes.font_placeholder')}
+		aria-label={t('settings.themes.font_aria', { label })}
 		spellcheck={false}
 		style="font-family:{effective[key]}"
 	/>
@@ -826,13 +838,13 @@
 	     the other half of #97, and a name mid-typing is never installed anyway. -->
 	{#if fontName[key].trim() && !fontAvailable(familyName(effective[key]))}
 		<p class="mt-1.5 text-xs text-muted-foreground">
-			Not installed — install the font, then reopen settings.
+			{t('settings.themes.font_not_installed')}
 		</p>
 	{/if}
 {/snippet}
 
 {#snippet addFontButton()}
-	<Button variant="outline" size="sm" class="shrink-0" onclick={pickFontFiles}>Add font…</Button>
+	<Button variant="outline" size="sm" class="shrink-0" onclick={pickFontFiles}>{t('settings.themes.add_font')}</Button>
 {/snippet}
 
 {#snippet fontFileList()}
@@ -847,7 +859,7 @@
 				<button
 					type="button"
 					onclick={() => removeFontFile(path)}
-					aria-label="Remove {fileFamily(path)}"
+					aria-label={t('a11y.remove_font', { name: fileFamily(path) })}
 					class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
 				>
 					<HugeiconsIcon icon={Cancel01Icon} size={14} />
@@ -885,7 +897,7 @@
 					? 'bg-background text-foreground shadow-sm'
 					: 'text-muted-foreground hover:text-foreground'}"
 			>
-				{q.label}
+				{t(q.key)}
 			</button>
 		{/each}
 	</div>
@@ -893,8 +905,7 @@
 
 {#snippet clientList()}
 	<p class="mb-3 max-w-prose text-xs leading-relaxed text-muted-foreground">
-		Turn a client off to skip it when resolving streams. Overridden by the
-		<span class="font-mono">LIMUSIC_DISABLED_CLIENTS</span> env var.
+		{t('settings.general.stream_clients_hint', { var: 'LIMUSIC_DISABLED_CLIENTS' })}
 	</p>
 	<div class="flex flex-col gap-2">
 		{#each clients as name (name)}
@@ -914,7 +925,7 @@
 			saveProxy();
 		}}
 	>
-		<Input bind:value={proxyInput} placeholder="http://host:port (blank = none)" />
+		<Input bind:value={proxyInput} placeholder={t('settings.general.proxy_placeholder')} />
 		<Button type="submit" variant="outline">{t('common.save')}</Button>
 	</form>
 {/snippet}

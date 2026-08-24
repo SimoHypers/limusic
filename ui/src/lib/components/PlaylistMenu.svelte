@@ -19,6 +19,7 @@
 	import type { BrowseItem } from '$lib/api';
 	import { enqueueItem } from '$lib/browse';
 	import { anchorMenu, ctxHost, fitMenu, NO_ANCHOR, toBody } from '$lib/menu';
+	import { t } from '$lib/i18n.svelte';
 	import {
 		addPick,
 		auth,
@@ -107,7 +108,7 @@
 <button
 	class="{triggerClass} {menuOpen ? 'opacity-100' : ''}"
 	onclick={openMenu}
-	aria-label="Playlist options"
+	aria-label={t('a11y.playlist_options')}
 	{@attach ctxHost(openMenu)}
 >
 	<!-- icon swap via altIcon/showAlt — `icon` is frozen at mount -->
@@ -124,7 +125,7 @@
 		class="fixed inset-0 z-40 cursor-default"
 		onclick={close}
 		oncontextmenu={close}
-		aria-label="Close menu"
+		aria-label={t('a11y.close_menu')}
 		{@attach toBody}
 	></button>
 	<div
@@ -177,7 +178,7 @@
 			onclick={(e) => run(e, () => (isPick ? removePick(item.id) : addPick(item)))}
 		>
 			<HugeiconsIcon icon={DashboardSquare02Icon} class="h-4 w-4" />
-			{isPick ? 'Remove from shortcuts' : 'Add to shortcuts'}
+			{isPick ? t('home.remove_shortcut') : t('player.add_to_shortcuts')}
 		</button>
 		{#if onYouTube}
 			<button
@@ -195,7 +196,7 @@
 				onclick={(e) =>
 					run(e, () => {
 						toggleSaved(item);
-						toast.success('Removed from library');
+						toast.success(t('toasts.removed_from_library'));
 					})}
 			>
 				<HugeiconsIcon icon={BookmarkMinus02Icon} class="h-4 w-4" /> Remove from library

@@ -5,6 +5,7 @@
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { toast } from './player.svelte';
+import { t } from './i18n.svelte';
 import { canSelfUpdate, getSettings, openExternal } from './api';
 
 const RELEASES_URL = 'https://github.com/SimoHypers/limusic/releases/latest';
@@ -63,7 +64,7 @@ export async function checkForUpdatesInteractive(): Promise<{ message: string; e
 /** Send a packaged build to the releases page. Their package manager does the actual updating; all
  *  the app can do is say a new version exists and get out of the way. */
 export function openDownloadPage() {
-	openExternal(RELEASES_URL).catch((e) => toast.error(`Couldn't open the browser: ${e}`));
+	openExternal(RELEASES_URL).catch((e) => toast.error(t('toasts.browser_failed', { error: String(e) })));
 }
 
 /** Download + install the pending update, then relaunch into the new version. */
@@ -74,7 +75,7 @@ export async function installUpdate() {
 		await pending.downloadAndInstall();
 		await relaunch();
 	} catch (e) {
-		toast.error(`Update failed: ${e}`);
+		toast.error(t('toasts.update_failed', { error: String(e) }));
 		updateState.installing = false;
 	}
 }

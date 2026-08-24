@@ -34,6 +34,7 @@
 	import type { BrowseItem } from '$lib/api';
 	import { asSong } from '$lib/browse';
 	import { openAddToPlaylist, openPlayer, playback } from '$lib/player.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	let {
 		title,
@@ -227,7 +228,7 @@
 				class="pointer-events-none absolute inset-y-0 left-0 w-16 bg-gradient-to-r from-background to-transparent"
 			></div>
 			<button
-				aria-label="Scroll left"
+				aria-label={t('a11y.scroll_left')}
 				onclick={() => page(-1)}
 				class="absolute left-1 top-1/2 flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border bg-background text-foreground opacity-0 shadow-lg transition hover:scale-105 focus-visible:opacity-100 group-hover/shelf:opacity-100"
 			>
@@ -239,7 +240,7 @@
 				class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-background to-transparent"
 			></div>
 			<button
-				aria-label="Scroll right"
+				aria-label={t('a11y.scroll_right')}
 				onclick={() => page(1)}
 				class="absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border bg-background text-foreground opacity-0 shadow-lg transition hover:scale-105 focus-visible:opacity-100 group-hover/shelf:opacity-100"
 			>

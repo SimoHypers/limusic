@@ -15,6 +15,7 @@
 	import { openItem, searchPreview } from '$lib/browse';
 	import { MOD } from '$lib/shortcuts';
 	import { thumb } from '$lib/thumb';
+	import { t } from '$lib/i18n.svelte';
 
 	let {
 		value = $bindable(''),
@@ -39,7 +40,12 @@
 	let loadedFor = ''; // query `items` belongs to, so a stale response can't land
 	let debounce: ReturnType<typeof setTimeout> | undefined;
 
-	const KIND = { song: 'Song', album: 'Album', artist: 'Artist', playlist: 'Playlist' };
+	const KIND: Record<string, string> = $derived({
+		song: t('common.song_singular'),
+		album: t('common.album_singular'),
+		artist: t('common.artist_singular'),
+		playlist: t('common.playlist_singular')
+	});
 
 	async function load(q: string) {
 		loadedFor = q;
@@ -144,7 +150,7 @@
 		<div
 			id="search-suggest"
 			role="listbox"
-			aria-label="Search preview"
+			aria-label={t('a11y.search_preview')}
 			class="absolute top-full z-50 mt-2 overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-xl animate-in fade-in-0 zoom-in-95 duration-150 {panelClass}"
 		>
 			{#if loading && !items.length}
@@ -158,7 +164,7 @@
 					</div>
 				{/each}
 			{:else if !items.length}
-				<div class="px-4 py-3 text-sm text-muted-foreground">Nothing quick for that.</div>
+				<div class="px-4 py-3 text-sm text-muted-foreground">{t('common.nothing_quick')}</div>
 			{:else}
 				{#each items as item, i (item.id)}
 					{@const hero = i === 0}

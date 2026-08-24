@@ -36,6 +36,7 @@
 	import { anchorMenu, fitMenu, NO_ANCHOR } from '$lib/menu';
 	import { rowWindow } from '$lib/rows';
 	import { rowScroller } from '$lib/rows.svelte';
+	import { t } from '$lib/i18n.svelte';
 	import {
 		SORTS,
 		fetchSort,
@@ -155,7 +156,7 @@
 	let resorting = $state(false);
 
 	const sortLabel = $derived(
-		sort === 'default' ? 'Sort' : (SORTS.find((s) => s.key === sort)?.label ?? 'Sort')
+		sort === 'default' ? t('sort.label') : t(`sort.${sort}`)
 	);
 	// The local listening history, fetched once and only if "Most played" is ever picked — it is a
 	// SQLite read the other five sorts have no use for.
@@ -233,8 +234,8 @@
 	// Sorted, but a page never arrived. The queue is a snapshot, so the tracks that did not load
 	// are gone from it for good — play them anyway and say so, rather than refusing to play at all
 	// over one failed request. The list's own "Try again" sits at the bottom of the page.
-	function warnPartial(what: string) {
-		toast.error(`Couldn't load all of this playlist, so only what loaded was ${what}.`);
+	function warnPartial(what: 'queued' | 'added') {
+		toast.error(t(what === 'queued' ? 'toasts.partial_playlist_queued' : 'toasts.partial_playlist_added'));
 	}
 
 	// One cache entry per order asked for. "No order asked for" keeps the bare key, because the
@@ -302,7 +303,7 @@
 				await api.setPlaylistSort(pid, store);
 			} catch (e) {
 				// The order still applies here; only the carry-over to other clients is lost.
-				toast.error(`Sorted, but couldn't save it to YouTube: ${e}`);
+				toast.error(t('toasts.sort_not_saved', { error: String(e) }));
 			}
 			if (pid !== id) return;
 		}
@@ -330,7 +331,7 @@
 			loadedKey = key;
 			pl = fresh;
 		} catch (e) {
-			if (current()) toast.error(`Couldn't sort this playlist: ${e}`);
+			if (current()) toast.error(t('toasts.sort_failed', { error: String(e) }));
 		} finally {
 			// Only the newest pick clears it; an older one finishing late must not un-dim the list.
 			if (current()) resorting = false;
@@ -536,7 +537,7 @@
 	const asItem = (): BrowseItem => ({
 		kind: 'playlist',
 		id,
-		title: pl?.title ?? 'Playlist',
+		title: pl?.title ?? t('common.playlist_singular'),
 		subtitle,
 		// On Repeat stays artwork-free wherever it's rendered (shortcuts, recents) so it always
 		// draws its icon rather than one of its songs' covers.
@@ -664,12 +665,12 @@
 		try {
 			if (isLiked) {
 				await api.rate(track.video_id, 'indifferent');
-				toast.success('Removed from Liked Music');
+				toast.success(t('toasts.removed_from_liked'));
 			} else {
 				await api.removeFromPlaylist(id, track.video_id, track.set_video_id!);
 				bumpLibraryTrackCount(id, -1);
 				noteUnsavedFrom(id, track.video_id);
-				toast.success('Removed from playlist');
+				toast.success(t('toasts.removed_from_playlist'));
 			}
 			cacheCurrent();
 		} catch (e) {
@@ -683,7 +684,7 @@
 		try {
 			await api.deletePlaylist(id);
 			invalidateCached(`playlist:${id}`);
-			toast.success('Playlist deleted');
+			toast.success(t('toasts.playlist_deleted'));
 			goto('/library');
 		} catch (e) {
 			toast.error(String(e));
@@ -745,12 +746,12 @@
 						{#if pl.collaborative}
 							<span
 								class="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary"
-								title="Others can add to this playlist">Collab</span
+								title={t('library.collab_tooltip')}>{t('library.collab')}</span
 							>
 						{/if}
 					</div>
 					<h1 class="mt-1 font-heading text-4xl font-bold tracking-tight drop-shadow-lg">
-						{pl.title ?? 'Playlist'}
+						{pl.title ?? t('common.playlist_singular')}
 					</h1>
 					{#if subtitle}<p class="mt-2 text-sm text-muted-foreground">{subtitle}</p>{/if}
 					{#if pl.description}
@@ -764,7 +765,7 @@
 									class="mt-1 cursor-pointer text-xs font-semibold uppercase text-muted-foreground hover:text-foreground"
 									onclick={() => (expanded = !expanded)}
 								>
-									{expanded ? 'Less' : 'More'}
+									{expanded ? t('common.less') : t('common.more')}
 								</button>
 							{/if}
 						</div>
@@ -777,12 +778,12 @@
 								disabled={!pl.items.length || preparing || resorting}
 							>
 								<HugeiconsIcon icon={PlayIcon} class="h-4 w-4" />
-								{preparing || resorting ? 'Sorting…' : 'Play'}
+								{preparing || resorting ? t('common.sorting') : t('player.play')}
 							</Button>
 							{#if confirmingDelete}
 								<div class="flex items-center gap-2 rounded-lg border border-destructive/40 px-2 py-1">
-									<span class="text-xs text-muted-foreground">Delete this playlist?</span>
-									<Button variant="destructive" size="sm" onclick={deleteThisPlaylist}>Delete</Button>
+									<span class="text-xs text-muted-foreground">{t('library.delete_playlist_confirm')}</span>
+									<Button variant="destructive" size="sm" onclick={deleteThisPlaylist}>{t('common.delete')}</Button>
 									<Button variant="ghost" size="sm" onclick={() => (confirmingDelete = false)}>
 										Cancel
 									</Button>
@@ -791,7 +792,7 @@
 								<Button
 									variant="ghost"
 									size="icon"
-									aria-label="Playlist options"
+									aria-label={t('a11y.playlist_options')}
 									onclick={openMenu}
 								>
 									<HugeiconsIcon icon={MoreVerticalIcon} class="h-5 w-5 text-muted-foreground" />
@@ -814,7 +815,7 @@
 								variant="ghost"
 								size="icon"
 								class={desc ? '' : 'text-muted-foreground'}
-								aria-label="Sort direction: {desc ? 'descending' : 'ascending'}"
+								aria-label={t('sort.direction', { dir: desc ? t('sort.descending') : t('sort.ascending') })}
 								onclick={toggleDesc}
 								disabled={!pl.items.length}
 							>
@@ -824,7 +825,7 @@
 					</div>
 				</div>
 				<div class="absolute right-6 top-6">
-					<TrackFilter bind:value={query} placeholder="Search this playlist" />
+					<TrackFilter bind:value={query} placeholder={t('common.search_this_playlist')} />
 				</div>
 			</div>
 			<div
@@ -856,18 +857,19 @@
 					</div>
 				{:else if filtering}
 					<p class="p-4 text-sm text-muted-foreground">
-						No tracks match “{applied.trim()}”{pl.continuation && !moreError
-							? ' yet, still loading'
-							: ''}.
+						{t('library.no_tracks_match_loading', {
+							query: applied.trim(),
+							loading: pl.continuation && !moreError ? t('library.still_loading') : ''
+						})}
 					</p>
 				{:else}
-					<p class="p-4 text-sm text-muted-foreground">This playlist is empty.</p>
+					<p class="p-4 text-sm text-muted-foreground">{t('library.empty_playlist')}</p>
 				{/if}
 				{#if pl.continuation}
 					{#if moreError}
 						<div class="p-3 text-center">
 							<Button variant="outline" size="sm" onclick={loadMore} disabled={loadingMore}>
-								{loadingMore ? 'Loading…' : 'Try again'}
+								{loadingMore ? t('common.loading') : t('common.try_again')}
 							</Button>
 						</div>
 					{:else}
@@ -892,7 +894,7 @@
 	<button
 		class="fixed inset-0 z-40 cursor-default"
 		onclick={() => (sortOpen = false)}
-		aria-label="Close menu"
+		aria-label={t('a11y.close_menu')}
 	></button>
 	<div
 		class="fixed z-50 min-w-44 animate-in rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl duration-150 fade-in-0 zoom-in-95"
@@ -904,12 +906,12 @@
 			onValueChange={(v) => chooseSort(v as SortKey)}
 			class="gap-0"
 		>
-			{#each SORTS as s (s.key)}
+			{#each SORTS as key (key)}
 				<label
 					class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				>
-					<RadioGroup.Item value={s.key} />
-					{s.label}
+					<RadioGroup.Item value={key} />
+					{t(`sort.${key}`)}
 				</label>
 			{/each}
 		</RadioGroup.Root>
@@ -924,7 +926,7 @@
 			e.preventDefault();
 			menuOpen = false;
 		}}
-		aria-label="Close menu"
+		aria-label={t('a11y.close_menu')}
 	></button>
 	<div
 		class="fixed z-50 min-w-52 animate-in rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl duration-150 fade-in-0 zoom-in-95"
@@ -936,21 +938,21 @@
 			onclick={() => run(shufflePlay)}
 			disabled={!pl?.items.length}
 		>
-			<HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" /> Shuffle play
+			<HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" /> {t('player.shuffle_play')}
 		</button>
 		<button
 			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 			onclick={() => run(() => queue(true))}
 			disabled={!pl?.items.length}
 		>
-			<HugeiconsIcon icon={ArrowUpNarrowWideIcon} class="h-4 w-4" /> Play next
+			<HugeiconsIcon icon={ArrowUpNarrowWideIcon} class="h-4 w-4" /> {t('player.play_next')}
 		</button>
 		<button
 			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 			onclick={() => run(() => queue(false))}
 			disabled={!pl?.items.length}
 		>
-			<HugeiconsIcon icon={ArrowDownWideNarrowIcon} class="h-4 w-4" /> Add to queue
+			<HugeiconsIcon icon={ArrowDownWideNarrowIcon} class="h-4 w-4" /> {t('player.add_to_queue')}
 		</button>
 		<!-- On Repeat is built from local play counts — there is no YouTube playlist to seed a
 		     radio from. -->
@@ -959,21 +961,21 @@
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={() => run(() => startRadio('playlist', id, pl?.title))}
 			>
-				<HugeiconsIcon icon={Radio02Icon} class="h-4 w-4" /> Start radio
+				<HugeiconsIcon icon={Radio02Icon} class="h-4 w-4" /> {t('player.start_radio')}
 			</button>
 		{/if}
 		<button
 			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 			onclick={() => run(() => addPick(asItem()))}
 		>
-			<HugeiconsIcon icon={DashboardSquare02Icon} class="h-4 w-4" /> Add to shortcuts
+			<HugeiconsIcon icon={DashboardSquare02Icon} class="h-4 w-4" /> {t('player.add_to_shortcuts')}
 		</button>
 		{#if !isOnRepeat}
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={() => run(() => openShare(asItem()))}
 			>
-				<HugeiconsIcon icon={Share08Icon} class="h-4 w-4" /> Share
+				<HugeiconsIcon icon={Share08Icon} class="h-4 w-4" /> {t('player.share')}
 			</button>
 		{/if}
 		{#if savable}
@@ -982,7 +984,9 @@
 				onclick={() =>
 					run(() =>
 						toast.success(
-							toggleSaved(asItem()) ? 'Saved to library' : 'Removed from library'
+							toggleSaved(asItem())
+								? t('library.saved_to_library')
+								: t('library.removed_from_library')
 						)
 					)}
 			>
@@ -993,7 +997,7 @@
 					showAlt={savedHere}
 					class="h-4 w-4"
 				/>
-				{savedHere ? 'Remove from library' : 'Save to library'}
+				{savedHere ? t('library.remove_from_library') : t('library.save_to_library')}
 			</button>
 		{/if}
 		{#if editable}
@@ -1001,13 +1005,13 @@
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={() => run(() => (editing = true))}
 			>
-				<HugeiconsIcon icon={PencilEdit02Icon} class="h-4 w-4" /> Edit playlist
+				<HugeiconsIcon icon={PencilEdit02Icon} class="h-4 w-4" /> {t('player.edit_playlist')}
 			</button>
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10"
 				onclick={() => run(() => (confirmingDelete = true))}
 			>
-				<HugeiconsIcon icon={Delete02Icon} class="h-4 w-4" /> Delete playlist
+				<HugeiconsIcon icon={Delete02Icon} class="h-4 w-4" /> {t('player.delete_playlist')}
 			</button>
 		{/if}
 	</div>

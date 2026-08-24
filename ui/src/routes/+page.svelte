@@ -77,7 +77,7 @@
 	// markup) — the shelf's cards say nothing about a song, and this one is meant to be read.
 	// Songs only: if YouTube ever fills that shelf with something else, it stays a normal card row.
 	const isForgotten = (s: HomeSection) =>
-		/forgotten|unutulan/i.test(s.title) && s.items.some((i) => i.kind === 'song');
+		/forgotten/i.test(s.title) && s.items.some((i) => i.kind === 'song');
 	// Held separately from `home`, not derived from it: YouTube sends the shelf a page or two into the
 	// feed, so it survives the revalidating `home = fresh` that drops back to page one, and a revisit
 	// reads it from the cache instead of walking continuations again.
@@ -231,7 +231,7 @@
 		} catch (e) {
 			// Stop auto-loading and offer a retry — auto-retrying a visible sentinel would spin.
 			moreError = true;
-			toast.error('Could not load more');
+			toast.error(t('toasts.could_not_load_more'));
 		} finally {
 			loadingMore = false;
 		}
@@ -270,7 +270,7 @@
 	 */
 	async function cater(page: HomePage, params: string | null) {
 		if (params) return; // a mood-filtered feed is the chip's, not the user's
-		if (!page.sections.some((s) => /community|topluluk/i.test(s.title))) return;
+		if (!page.sections.some((s) => /community/i.test(s.title))) return;
 		const artists = topArtists(personal, 3);
 		if (!artists.length) return;
 		const key = `community:${artists.join('|')}`;
@@ -286,15 +286,14 @@
 		if (selected !== params) return; // the user clicked away to a mood feed
 		// Re-locate the shelf instead of patching the page we were handed: `home` has very likely moved
 		// on while the searches ran (a revalidation, or the Forgotten favourites crawl appending pages).
-		const idx = home?.sections.findIndex((s) => /community|topluluk/i.test(s.title)) ?? -1;
+		const idx = home?.sections.findIndex((s) => /community/i.test(s.title)) ?? -1;
 		if (idx < 0) return;
 		home = { ...home!, sections: home!.sections.map((s, i) => (i === idx ? { ...s, items } : s)) };
 	}
 
 	// Chips only refresh when a response actually carries them (never blank the row mid-switch).
 	$effect(() => {
-		if (home?.chips?.length)
-			chips = home.chips.filter((c) => !/podcast|pod yayın/i.test(c.title));
+		if (home?.chips?.length) chips = home.chips.filter((c) => c.title !== 'Podcasts');
 	});
 
 	onMount(() => load(null));
@@ -319,7 +318,7 @@
 			<div class="flex gap-2 overflow-x-auto pb-2">
 				<!-- An explicit "All" is the way out of a filter. Clicking the active chip again also
 				     clears it, but nobody discovers that, and nothing else on screen says you're filtered. -->
-				<button onclick={() => load(null)} class={chipClass(!selected)}>All</button>
+				<button onclick={() => load(null)} class={chipClass(!selected)}>{t('common.all')}</button>
 				{#each chips as chip (chip.params)}
 					<button
 						onclick={() => load(selected === chip.params ? null : chip.params)}
@@ -408,20 +407,20 @@
 					<HugeiconsIcon icon={MusicNote01Icon} class="h-8 w-8 text-muted-foreground/40" />
 					<p class="max-w-sm text-sm text-muted-foreground">
 						{auth.account?.signedIn
-							? 'Your home feed came back empty this time.'
-							: 'Sign in and home fills up with mixes and playlists built from what you listen to.'}
+							? t('home.feed_empty')
+							: t('home.signed_out_hint')}
 					</p>
 					{#if auth.account?.signedIn}
-						<Button variant="outline" size="sm" onclick={() => load(selected)}>Try again</Button>
+						<Button variant="outline" size="sm" onclick={() => load(selected)}>{t('common.try_again')}</Button>
 					{:else}
-						<Button size="sm" onclick={() => api.loginWebview()}>Sign in with Google</Button>
+						<Button size="sm" onclick={() => api.loginWebview()}>{t('common.sign_in_google')}</Button>
 					{/if}
 				</div>
 			{:else if home.continuation}
 				{#if moreError}
 					<div class="p-3 text-center">
 						<Button variant="outline" size="sm" onclick={loadMore} disabled={loadingMore}>
-							{loadingMore ? 'Loading…' : 'Try again'}
+							{loadingMore ? t('common.loading') : t('common.try_again')}
 						</Button>
 					</div>
 				{:else}
@@ -442,7 +441,7 @@
 	<button
 		transition:fade={{ duration: 150 }}
 		onclick={() => scroller?.scrollTo({ top: 0, behavior: 'smooth' })}
-		aria-label="Back to top"
+		aria-label={t('a11y.back_to_top')}
 		class="fixed right-6 z-10 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-110 {playback.now
 			? 'bottom-24'
 			: 'bottom-6'}"

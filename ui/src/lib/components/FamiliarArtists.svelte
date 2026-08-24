@@ -95,7 +95,7 @@
 	const asItem = (a: ArtistPage): BrowseItem => ({
 		kind: 'artist',
 		id: a.channelId,
-		title: a.name ?? 'Artist',
+		title: a.name ?? t('common.artist_singular'),
 		subtitle: a.subscribers,
 		thumbnail: a.thumbnail
 	});
@@ -221,8 +221,8 @@
 						{:else}
 							<button
 								class="h-full w-full cursor-pointer overflow-hidden rounded-full bg-muted transition-transform duration-200 ease-out hover:scale-105"
-								title={a.name ?? 'Artist'}
-								aria-label={a.name ?? 'Artist'}
+								title={a.name ?? t('common.artist_singular')}
+								aria-label={a.name ?? t('common.artist_singular')}
 								onclick={() => open(a)}
 							>
 								{#if a.thumbnail && !failed[a.channelId]}

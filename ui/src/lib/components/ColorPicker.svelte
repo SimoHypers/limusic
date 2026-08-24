@@ -12,6 +12,7 @@
 	import { Slider } from '$lib/components/ui/slider';
 	import { Input } from '$lib/components/ui/input';
 	import { hexToHsv, hsvToHex, type Hsv } from '$lib/color';
+	import { t } from '$lib/i18n.svelte';
 
 	let { value, onchange }: { value: string; onchange: (hex: string) => void } = $props();
 
@@ -76,7 +77,7 @@
 	     page, and the hex input below is the accessible route to any colour. -->
 	<div
 		role="application"
-		aria-label="Saturation and brightness"
+		aria-label={t('a11y.saturation_brightness')}
 		class="relative h-32 w-full cursor-crosshair rounded-lg"
 		style="background:
 			linear-gradient(to top, #000, transparent),
@@ -99,7 +100,7 @@
 
 	<Slider
 		type="single"
-		aria-label="Hue"
+		aria-label={t('a11y.hue')}
 		max={360}
 		step={1}
 		value={hsv.h}
@@ -112,7 +113,7 @@
 			<button
 				type="button"
 				onclick={eyeDrop}
-				aria-label="Pick a colour from the screen"
+				aria-label={t('a11y.pick_colour')}
 				class="flex size-8 shrink-0 items-center justify-center rounded-md border text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
 			>
 				<HugeiconsIcon icon={ColorPickerIcon} size={16} />
@@ -121,7 +122,7 @@
 		<Input
 			value={text}
 			oninput={(e) => typed(e.currentTarget.value)}
-			aria-label="Hex colour"
+			aria-label={t('a11y.hex_colour')}
 			spellcheck={false}
 			class="h-8 bg-secondary px-2 font-mono text-xs shadow-none"
 		/>

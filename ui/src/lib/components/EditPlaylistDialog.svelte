@@ -65,8 +65,8 @@
 		// this machine's copy.
 		const picked = await pickFile({
 			multiple: false,
-			title: 'Choose playlist artwork',
-			filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png'] }]
+			title: t('dialogs.edit_playlist.pick_artwork'),
+			filters: [{ name: t('dialogs.edit_playlist.image_filter'), extensions: ['jpg', 'jpeg', 'png'] }]
 		});
 		if (typeof picked === 'string') await storeCover(picked);
 	}
@@ -108,7 +108,7 @@
 		open = false;
 		try {
 			await api.editPlaylistDetails(id, changes);
-			toast.success('Playlist updated');
+			toast.success(t('toasts.playlist_updated'));
 		} catch (e) {
 			onchange(before);
 			toast.error(String(e));
@@ -181,18 +181,17 @@
 			</div>
 			<div class="flex items-center justify-between gap-4 rounded-2xl border px-3 py-2.5">
 				<div class="min-w-0">
-					<div class="text-sm font-medium">Public</div>
+					<div class="text-sm font-medium">{t('common.public')}</div>
 					<p class="text-xs text-muted-foreground">
 						{isPublic
-							? 'Anyone can find this playlist on YouTube Music.'
-							: 'Only you can see this playlist.'}
+							? t('dialogs.edit_playlist.public_on')
+							: t('dialogs.edit_playlist.public_off')}
 					</p>
 				</div>
-				<Switch bind:checked={isPublic} aria-label="Public playlist" />
+				<Switch bind:checked={isPublic} aria-label={t('a11y.public_playlist')} />
 			</div>
 			<p class="text-xs text-muted-foreground">
-				Artwork applies here at once and uploads to YouTube Music in the background. Square JPEG or
-				PNG works best.
+				{t('dialogs.edit_playlist.artwork_note')}
 			</p>
 			<Dialog.Footer>
 				<Button type="button" variant="outline" onclick={() => (open = false)}>{t('common.cancel')}</Button>

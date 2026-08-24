@@ -44,7 +44,7 @@
 		triggerClass = '',
 		onAdd,
 		onRemove,
-		removeLabel = 'Remove from playlist',
+		removeLabel = t('player.remove_from_playlist'),
 		linksOnly = false
 	}: {
 		song: SongItem;
@@ -101,7 +101,7 @@
 <button
 	class="{triggerClass} {menuOpen ? 'opacity-100' : ''}"
 	onclick={openMenu}
-	aria-label="Track options"
+	aria-label={t('a11y.track_options')}
 	{@attach ctxHost(openMenu)}
 >
 	<!-- icon swap via altIcon/showAlt — `icon` is frozen at mount -->
@@ -118,7 +118,7 @@
 		class="fixed inset-0 z-40 cursor-default"
 		onclick={close}
 		oncontextmenu={close}
-		aria-label="Close menu"
+		aria-label={t('a11y.close_menu')}
 		{@attach toBody}
 	></button>
 	<div
@@ -165,7 +165,7 @@
 					icon={ThumbsUpIcon}
 					class="h-4 w-4 {rated === 'like' ? 'fill-current text-primary' : ''}"
 				/>
-				{rated === 'like' ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
+				{rated === 'like' ? t('player.remove_from_liked') : t('player.save_to_liked')}
 			</button>
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
@@ -175,7 +175,7 @@
 					icon={ThumbsDownIcon}
 					class="h-4 w-4 {rated === 'dislike' ? 'fill-current text-foreground' : ''}"
 				/>
-				{rated === 'dislike' ? 'Remove dislike' : 'Dislike'}
+				{rated === 'dislike' ? t('player.remove_dislike') : t('common.dislike')}
 			</button>
 		{/if}
 		{#if song.artist_id}
@@ -212,7 +212,7 @@
 				)}
 		>
 			<HugeiconsIcon icon={DashboardSquare02Icon} class="h-4 w-4" />
-			{isPick ? t('home.remove_shortcut' as any) || 'Remove from shortcuts' : t('home.add_shortcut')}
+			{isPick ? t('home.remove_shortcut') : t('home.add_shortcut')}
 		</button>
 		{#if !isLocal}
 			<button

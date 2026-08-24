@@ -96,7 +96,7 @@
 				copied = true;
 				setTimeout(() => (copied = false), 1500);
 			},
-			() => toast.error('Could not copy the link. Select it and press Ctrl+C.')
+			() => toast.error(t('toasts.could_not_copy_link'))
 		);
 	}
 </script>
@@ -168,24 +168,24 @@
 			{#if privacy === 'PRIVATE'}
 				<div class="mt-3 flex items-start gap-2 text-xs text-amber-600 dark:text-amber-500">
 					<HugeiconsIcon icon={Alert02Icon} class="mt-px h-4 w-4 shrink-0" />
-					<p>This playlist is private. Anyone you send the link to will get an error.</p>
+					<p>{t('dialogs.share.private_note')}</p>
 				</div>
 			{/if}
 
 			{#if wasPrivate && canToggle}
 				<div class="mt-3 flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5">
 					<div class="min-w-0">
-						<div class="text-sm font-medium">Public</div>
+						<div class="text-sm font-medium">{t('common.public')}</div>
 						<p class="text-xs text-muted-foreground">
 							{privacy === 'PUBLIC'
-								? 'Anyone with the link can open it.'
-								: 'Turn on to make the link work for everyone.'}
+								? t('dialogs.share.public_link_on')
+								: t('dialogs.share.public_link_off')}
 						</p>
 					</div>
 					<Switch
 						checked={privacy === 'PUBLIC'}
 						onCheckedChange={setPublic}
-						aria-label="Public playlist"
+						aria-label={t('a11y.public_playlist')}
 					/>
 				</div>
 			{/if}

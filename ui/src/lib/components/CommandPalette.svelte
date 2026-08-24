@@ -16,8 +16,14 @@
 	import { openItem, searchPreview } from '$lib/browse';
 	import { ui } from '$lib/player.svelte';
 	import { thumb } from '$lib/thumb';
+	import { t } from '$lib/i18n.svelte';
 
-	const KIND = { song: 'Song', album: 'Album', artist: 'Artist', playlist: 'Playlist' };
+	const KIND: Record<string, string> = $derived({
+		song: t('common.song_singular'),
+		album: t('common.album_singular'),
+		artist: t('common.artist_singular'),
+		playlist: t('common.playlist_singular')
+	});
 
 	let query = $state('');
 	let items = $state<BrowseItem[]>([]);
@@ -78,11 +84,11 @@
 	shouldFilter={false}
 	vimBindings={false}
 	loop
-	title="Search"
-	description="Search songs, albums, artists and playlists"
+	title={t('common.search')}
+	description={t('common.command_description')}
 	class="sm:max-w-xl"
 >
-	<Command.Input bind:value={query} placeholder="Search songs, albums, artists, playlists…" />
+	<Command.Input bind:value={query} placeholder={t('common.search_placeholder')} />
 	<Command.List class="max-h-[22rem]">
 		{#if loading}
 			{#each Array(4) as _, i (i)}
@@ -96,10 +102,10 @@
 			{/each}
 		{:else if !items.length}
 			<div class="px-4 py-6 text-center text-sm text-muted-foreground">
-				{query.trim().length < 2 ? 'Type to search.' : 'Nothing quick for that.'}
+				{query.trim().length < 2 ? t('common.type_to_search') : t('common.nothing_quick')}
 			</div>
 		{:else}
-			<Command.Group heading="Results">
+			<Command.Group heading={t('common.results')}>
 				{#each items as item (item.id)}
 					<Command.Item value={item.id} onSelect={() => choose(item)} class="gap-3 px-2 py-1.5">
 						{#if item.thumbnail}

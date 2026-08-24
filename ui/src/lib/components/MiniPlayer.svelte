@@ -150,7 +150,7 @@
 			<div
 				class="flex items-center"
 				role="group"
-				aria-label="Volume"
+				aria-label={t('a11y.volume')}
 				onpointerenter={() => (volHover = true)}
 				onpointerleave={() => (volHover = false)}
 			>
@@ -169,7 +169,7 @@
 					oninput={(e) => dragVolume(Number(e.currentTarget.value))}
 					onchange={(e) => commitVolume(Number(e.currentTarget.value))}
 					onwheel={wheelVolume}
-					aria-label="Volume"
+					aria-label={t('a11y.volume')}
 				/>
 				<button
 					class={artBtn}
@@ -215,7 +215,7 @@
 		</div>
 
 		<div class="flex items-center gap-2">
-			<button class={artBtn} onclick={() => api.prevTrack()} aria-label="Previous">
+			<button class={artBtn} onclick={() => api.prevTrack()} aria-label={t('a11y.previous')}>
 				<HugeiconsIcon icon={PreviousIcon} class="h-4 w-4" />
 			</button>
 			<input
@@ -227,9 +227,9 @@
 				value={shownPosition}
 				oninput={onSeekInput}
 				onchange={onSeekCommit}
-				aria-label="Seek"
+				aria-label={t('a11y.seek')}
 			/>
-			<button class={artBtn} onclick={() => api.nextTrack()} aria-label="Next">
+			<button class={artBtn} onclick={() => api.nextTrack()} aria-label={t('a11y.next')}>
 				<HugeiconsIcon icon={NextIcon} class="h-4 w-4" />
 			</button>
 		</div>

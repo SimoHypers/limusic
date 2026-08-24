@@ -5,34 +5,36 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { MOD } from '$lib/shortcuts';
 	import { ui } from '$lib/player.svelte';
+	import { t } from '$lib/i18n.svelte';
 
-	const GROUPS: { title: string; rows: [string, string][] }[] = [
-		{ title: 'Search', rows: [[`${MOD}K`, 'Search from anywhere']] },
+	// $derived, not a plain const: the list is rebuilt when the language changes under it.
+	const GROUPS: { title: string; rows: [string, string][] }[] = $derived([
+		{ title: t('dialogs.shortcuts.group_search'), rows: [[`${MOD}K`, t('dialogs.shortcuts.search_anywhere')]] },
 		{
-			title: 'Playback',
+			title: t('dialogs.shortcuts.group_playback'),
 			rows: [
-				[`${MOD}E`, 'Show or hide the now-playing view'],
-				[`${MOD}>`, 'Volume up'],
-				[`${MOD}<`, 'Volume down']
+				[`${MOD}E`, t('dialogs.shortcuts.toggle_now_playing')],
+				[`${MOD}>`, t('dialogs.shortcuts.volume_up')],
+				[`${MOD}<`, t('dialogs.shortcuts.volume_down')]
 			]
 		},
 		{
-			title: 'Window',
+			title: t('dialogs.shortcuts.group_window'),
 			rows: [
-				[`${MOD}+`, 'Zoom in'],
-				[`${MOD}-`, 'Zoom out'],
-				[`${MOD}0`, 'Reset zoom'],
-				[`${MOD}H`, 'Show this list']
+				[`${MOD}+`, t('dialogs.shortcuts.zoom_in')],
+				[`${MOD}-`, t('dialogs.shortcuts.zoom_out')],
+				[`${MOD}0`, t('dialogs.shortcuts.reset_zoom')],
+				[`${MOD}H`, t('dialogs.shortcuts.show_this_list')]
 			]
 		}
-	];
+	]);
 </script>
 
 <Dialog.Root bind:open={ui.shortcutsOpen}>
 	<Dialog.Content class="sm:max-w-md">
 		<Dialog.Header>
-			<Dialog.Title>Keyboard shortcuts</Dialog.Title>
-			<Dialog.Description>{MOD}H brings this back at any time.</Dialog.Description>
+			<Dialog.Title>{t('dialogs.shortcuts.title')}</Dialog.Title>
+			<Dialog.Description>{t('dialogs.shortcuts.reopen_hint', { mod: MOD })}</Dialog.Description>
 		</Dialog.Header>
 		<div class="flex flex-col gap-5">
 			{#each GROUPS as group (group.title)}

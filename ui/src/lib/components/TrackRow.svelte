@@ -30,7 +30,7 @@
 		onplay,
 		onAdd,
 		onRemove,
-		removeLabel = 'Remove from playlist'
+		removeLabel = t('player.remove_from_playlist')
 	}: {
 		song: SongItem;
 		/** Position badge when set (playlist/queue); omitted for flat search results. */

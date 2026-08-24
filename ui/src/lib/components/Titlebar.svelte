@@ -262,8 +262,8 @@
 		<button
 			class="flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
 			onclick={openMiniPlayer}
-			title={t('dialogs.shortcuts.toggle_mini')}
-			aria-label={t('dialogs.shortcuts.toggle_mini')}
+			title={t('a11y.toggle_mini')}
+			aria-label={t('a11y.toggle_mini')}
 		>
 			<HugeiconsIcon icon={MinimizeScreenIcon} class="h-4 w-4" />
 		</button>

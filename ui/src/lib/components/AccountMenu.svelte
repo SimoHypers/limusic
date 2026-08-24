@@ -102,9 +102,9 @@
 		{:else}
 			<p class="text-sm font-medium">{t('nav.sign_in')}</p>
 			<p class="mt-1 text-xs text-muted-foreground">
-				Sign in with your Google account to reach your YouTube Music library and playlists.
+				{t('nav.sign_in_hint')}
 			</p>
-			<Button class="mt-3 w-full" onclick={signInGoogle}>Sign in with Google</Button>
+			<Button class="mt-3 w-full" onclick={signInGoogle}>{t('common.sign_in_google')}</Button>
 		{/if}
 	</div>
 {/if}

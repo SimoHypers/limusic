@@ -13,7 +13,7 @@
 	import { openItem, playItem } from '$lib/browse';
 	import ItemMenu from './ItemMenu.svelte';
 	import ExplicitIcon from './ExplicitIcon.svelte';
-	import { formatSubtitle, t } from '$lib/i18n.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	let { item, compact = false }: { item: BrowseItem; compact?: boolean } = $props();
 
@@ -165,7 +165,7 @@
 					{#if item.explicit}
 						<ExplicitIcon class="h-3 w-3 shrink-0" />
 					{/if}
-					<span class="truncate">{formatSubtitle(item.subtitle)}</span>
+					<span class="truncate">{item.subtitle}</span>
 				</div>
 			{/if}
 		</div>

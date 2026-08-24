@@ -7,6 +7,7 @@
 	import type { BrowseItem } from '$lib/api';
 	import { getCached, putCached } from '$lib/pagecache';
 	import { reveal } from '$lib/reveal.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	let items = $state<BrowseItem[]>([]);
 	let loading = $state(true);
@@ -70,6 +71,6 @@
 		<!-- Outside the grid, or it would be laid out as a cell. -->
 		{#if rv.more(items.length)}<div {@attach rv.sentinel}></div>{/if}
 	{:else}
-		<p class="text-sm text-muted-foreground">Nothing here.</p>
+		<p class="text-sm text-muted-foreground">{t('common.nothing_here')}</p>
 	{/if}
 </div>

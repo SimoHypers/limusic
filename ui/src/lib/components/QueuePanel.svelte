@@ -2,6 +2,7 @@
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import QueueList from './QueueList.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	let { onClose }: { onClose: () => void } = $props();
 </script>
@@ -13,13 +14,13 @@
 <button
 	class="absolute inset-0 z-20 cursor-default bg-black/40 lg:hidden"
 	onclick={onClose}
-	aria-label="Close queue"
+	aria-label={t('a11y.close_queue')}
 	transition:fade={{ duration: 150 }}
 ></button>
 <aside
 	transition:fly={{ x: 32, duration: 220, easing: cubicOut }}
 	class="absolute inset-y-0 right-0 z-30 flex h-full w-80 max-w-[80vw] flex-col border-l bg-card shadow-2xl"
 >
-	<h2 class="border-b px-4 py-3 font-heading text-sm font-semibold">Queue</h2>
+	<h2 class="border-b px-4 py-3 font-heading text-sm font-semibold">{t('queue.title')}</h2>
 	<QueueList />
 </aside>

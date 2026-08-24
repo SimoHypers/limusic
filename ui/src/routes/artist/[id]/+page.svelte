@@ -95,7 +95,7 @@
 	const asItem = (): BrowseItem => ({
 		kind: 'artist',
 		id,
-		title: artist?.name ?? 'Artist',
+		title: artist?.name ?? t('common.artist_singular'),
 		subtitle: artist?.subscribers,
 		thumbnail: artist?.thumbnail
 	});
@@ -348,7 +348,7 @@
 				openShare(asItem());
 			}}
 		>
-			<HugeiconsIcon icon={Share08Icon} class="h-4 w-4" /> {t('common.share')}
+			<HugeiconsIcon icon={Share08Icon} class="h-4 w-4" /> {t('player.share')}
 		</button>
 	</div>
 {/if}

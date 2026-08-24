@@ -90,9 +90,9 @@
 		const n = toSync.length;
 		try {
 			const { synced, failed } = await syncSavedToYouTube();
-			if (failed && synced) toast(`Synced ${synced} of ${n}. ${failed} failed, still saved here.`);
-			else if (failed) toast.error(`Nothing synced. ${failed} failed, still saved here.`);
-			else toast.success(`Synced ${synced} to YouTube Music`);
+			if (failed && synced) toast(t('toasts.synced_partial', { synced, total: n, failed }));
+			else if (failed) toast.error(t('toasts.synced_none', { failed }));
+			else toast.success(t('toasts.synced_all', { count: synced }));
 		} catch (e) {
 			toast.error(String(e));
 		} finally {
@@ -106,7 +106,7 @@
 		busy = true;
 		try {
 			await createLibraryPlaylist(title);
-			toast.success(`Created "${title}"`);
+			toast.success(t('toasts.playlist_created', { title }));
 			newTitle = '';
 			dialogOpen = false;
 		} catch (e) {
@@ -153,7 +153,7 @@
 										size="icon-sm"
 										onclick={sync}
 										disabled={syncing}
-										aria-label="Sync {toSync.length} saved items to YouTube Music"
+										aria-label={t('a11y.sync_to_ytm', { count: toSync.length })}
 									>
 										<span class="relative">
 											<HugeiconsIcon

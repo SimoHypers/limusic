@@ -34,7 +34,7 @@
 	import { library, personal, placePick, removePick } from '$lib/player.svelte';
 	import { freshen, MAX_PICKS } from '$lib/personal';
 	import { getDragItem, isDragItem, setDragItem } from '$lib/dnd';
-	import { formatSubtitle, t } from '$lib/i18n.svelte';
+	import { t } from '$lib/i18n.svelte';
 	import ItemMenu from './ItemMenu.svelte';
 
 	// The page owns the Edit-home modal; this section only lends it a place to be opened from. Its
@@ -229,7 +229,7 @@
 										class="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/50 text-white opacity-0 transition-opacity hover:bg-black/60 focus-visible:opacity-100 group-hover/pick:opacity-100"
 										class:animate-pulse={busy === item.id}
 										disabled={busy === item.id}
-										aria-label="Play {item.title}"
+										aria-label={t('a11y.play_item', { title: item.title })}
 										onclick={(e) => {
 											e.stopPropagation();
 											play(item);
@@ -243,7 +243,7 @@
 							<div class="min-w-0 flex-1 pr-14">
 								<div class="truncate text-sm font-medium">{item.title}</div>
 								{#if item.subtitle}
-									<div class="truncate text-xs text-muted-foreground">{formatSubtitle(item.subtitle)}</div>
+									<div class="truncate text-xs text-muted-foreground">{item.subtitle}</div>
 								{/if}
 							</div>
 						</div>
@@ -253,8 +253,8 @@
 						/>
 						<button
 							onclick={() => removePick(item.id)}
-							title="Remove from shortcuts"
-							aria-label="Remove from shortcuts"
+							title={t('home.remove_shortcut')}
+							aria-label={t('home.remove_shortcut')}
 							class="absolute right-1 top-1 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover/pick:opacity-100"
 						>
 							<HugeiconsIcon icon={Cancel01Icon} class="h-3 w-3" />

@@ -12,6 +12,7 @@
 	import { getCached, putCached } from '$lib/pagecache';
 	import { openAddManyToPlaylist, playFrom, toast, touchPick } from '$lib/player.svelte';
 	import ItemMenu from './ItemMenu.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	let { item }: { item: BrowseItem } = $props();
 
@@ -72,7 +73,7 @@
 		try {
 			run(await load());
 		} catch {
-			toast.error('Could not load that playlist — try opening it instead');
+			toast.error(t('toasts.could_not_load_playlist'));
 		} finally {
 			busy = false;
 		}
@@ -181,7 +182,7 @@
 
 	<div class="mt-auto flex items-center justify-center gap-3 pt-1">
 		<button
-			aria-label="Play"
+			aria-label={t('a11y.play')}
 			disabled={busy}
 			class:animate-pulse={busy}
 			class="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md transition hover:brightness-110"
@@ -190,7 +191,7 @@
 			<HugeiconsIcon icon={PlayIcon} class="h-3.5 w-3.5" />
 		</button>
 		<button
-			aria-label="Add to playlist"
+			aria-label={t('player.add_to_playlist')}
 			disabled={busy}
 			class="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border text-foreground transition-colors hover:bg-accent/10"
 			onclick={() => act((p) => openAddManyToPlaylist(p.items))}
