@@ -8,7 +8,8 @@
 		PaintBoardIcon,
 		PlayCircleIcon,
 		Database02Icon,
-		InformationCircleIcon
+		InformationCircleIcon,
+		KeyboardIcon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -19,6 +20,7 @@
 	import * as Select from '$lib/components/ui/select';
 	import * as api from '$lib/api';
 	import { prefs, ui, toast } from '$lib/player.svelte';
+	import { MOD } from '$lib/shortcuts';
 	import ColorPicker from '$lib/components/ColorPicker.svelte';
 	import Changelog from '$lib/components/Changelog.svelte';
 	import {
@@ -380,6 +382,19 @@
 					{#if !loaded}
 						<p class="text-sm text-muted-foreground">Loading…</p>
 					{:else if tab === 'general'}
+						<!-- The shortcuts list has no other entry point in the chrome. Closing settings
+						     first: two stacked dialogs would trap focus in the wrong one. -->
+						<button
+							type="button"
+							class="mb-5 inline-flex items-center gap-2 rounded-full border bg-muted/50 px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+							onclick={() => {
+								ui.settingsOpen = false;
+								ui.shortcutsOpen = true;
+							}}
+						>
+							<HugeiconsIcon icon={KeyboardIcon} class="h-3.5 w-3.5" />
+							Open the keyboard shortcuts with <kbd class="font-mono font-medium">{MOD}H</kbd>
+						</button>
 						<section class={GROUP}>
 							<h3 class={LABEL}>Activity</h3>
 							<div class={CARD}>

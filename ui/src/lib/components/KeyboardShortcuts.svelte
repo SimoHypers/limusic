@@ -7,50 +7,49 @@
 	import { ui } from '$lib/player.svelte';
 
 	const GROUPS: { title: string; rows: [string, string][] }[] = [
-		{ title: 'Search', rows: [[`${MOD}K`, 'Search from anywhere']] },
 		{
 			title: 'Playback',
 			rows: [
-				[`${MOD}E`, 'Show or hide the now-playing view'],
-				[`${MOD}>`, 'Volume up'],
-				[`${MOD}<`, 'Volume down']
+				['Play or pause', 'SPACE or ;'],
+				['Next song', `${MOD}F`],
+				['Previous song', `${MOD}D`],
+				['Shuffle queue', `${MOD}S`],
+				['Toggle repeat', `${MOD}R`],
+				['Mute or unmute', `${MOD}M`],
+				['Volume up', `${MOD}>`],
+				['Volume down', `${MOD}<`]
 			]
 		},
 		{
-			title: 'Window',
+			title: 'General',
 			rows: [
-				[`${MOD}+`, 'Zoom in'],
-				[`${MOD}-`, 'Zoom out'],
-				[`${MOD}0`, 'Reset zoom'],
-				[`${MOD}H`, 'Show this list']
+				['Search from anywhere', `${MOD}K`],
+				['Toggle the now-playing view', `${MOD}E`],
+				['Zoom in', `${MOD}+`],
+				['Zoom out', `${MOD}-`],
+				['Reset zoom', `${MOD}0`],
+				['Show this list', `${MOD}H`]
 			]
 		}
 	];
 </script>
 
 <Dialog.Root bind:open={ui.shortcutsOpen}>
-	<Dialog.Content class="sm:max-w-md">
+	<Dialog.Content class="sm:max-w-2xl">
 		<Dialog.Header>
 			<Dialog.Title>Keyboard shortcuts</Dialog.Title>
 			<Dialog.Description>{MOD}H brings this back at any time.</Dialog.Description>
 		</Dialog.Header>
-		<div class="flex flex-col gap-5">
+		<!-- Two columns that flow, so adding a row never means rebalancing the layout by hand. -->
+		<div class="gap-x-10 sm:columns-2">
 			{#each GROUPS as group (group.title)}
-				<section>
-					<h3 class="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-						{group.title}
-					</h3>
-					<dl class="flex flex-col gap-1.5">
-						{#each group.rows as [keys, what] (keys)}
-							<div class="flex items-center justify-between gap-4">
-								<dt class="min-w-0 truncate text-sm">{what}</dt>
-								<dd>
-									<kbd
-										class="rounded border bg-muted px-1.5 py-0.5 font-mono text-[0.6875rem] font-medium tracking-wide text-muted-foreground"
-									>
-										{keys}
-									</kbd>
-								</dd>
+				<section class="mb-6 break-inside-avoid">
+					<h3 class="mb-2 text-base font-semibold">{group.title}</h3>
+					<dl>
+						{#each group.rows as [what, keys] (what)}
+							<div class="grid grid-cols-2 items-center gap-4 border-b py-2 last:border-0">
+								<dt class="text-sm text-muted-foreground">{what}</dt>
+								<dd class="font-mono text-xs font-medium">{keys}</dd>
 							</div>
 						{/each}
 					</dl>
