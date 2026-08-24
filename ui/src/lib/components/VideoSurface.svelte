@@ -57,6 +57,16 @@
 	 *  picture at completely the wrong place and then fight itself on the steady-state cooldown. */
 	const SYNC_SEEKS = 3;
 	const SYNC_WAIT = 4000;
+	/** How long the picture keeps running after the window goes away. Opening the mini player hides
+	 *  the main window (src-tauri/src/mini.rs), and coming back from it is the same expensive
+	 *  mid-track seek that reopening this view used to be. Pausing on the spot buys a little CPU and
+	 *  costs that seek every single time. `dormant` is where it lands once the grace has run out,
+	 *  and it is the only thing that stops the picture other than the music itself stopping.
+	 *  ponytail: one flat timer. Nobody has measured how long a mini-player session usually is, so
+	 *  raise it if coming back still resyncs, lower it if idle CPU ever becomes a complaint. */
+	const HIDDEN_GRACE = 60000;
+	let hiddenTimer: ReturnType<typeof setTimeout> | undefined;
+	let dormant = false;
 	let synced = false;
 	let syncSeeks = 0;
 	let syncStart = 0;
@@ -140,11 +150,11 @@
 		return false;
 	}
 
-	/** Start the picture, if the music is going and this window can see it. Not before the converge
-	 *  phase has finished: playing during it means showing real motion from the wrong moment of the
-	 *  video, which reads as broken in a way a still frame does not. */
+	/** Start the picture, if the music is going and this window has not gone dormant. Not before the
+	 *  converge phase has finished: playing during it means showing real motion from the wrong
+	 *  moment of the video, which reads as broken in a way a still frame does not. */
 	function resumeVideo() {
-		if (el && synced && !playback.paused && !document.hidden) el.play().catch(() => {});
+		if (el && synced && !playback.paused && !dormant) el.play().catch(() => {});
 	}
 
 	function syncVideo() {
@@ -225,26 +235,37 @@
 	$effect(() => {
 		const paused = playback.paused;
 		if (!el || !hasVideo()) return;
-		// document.hidden for the same reason: unpausing from the mini player must not start a
-		// hidden window decoding again. The visibilitychange handler picks it up on the way back.
-		// `synced` is a plain let, so this effect does not re-run when it flips; `syncVideo` calls
-		// `resumeVideo` itself at that moment, which is what starts a freshly converged picture.
-		if (paused || document.hidden || !synced) el.pause();
+		// `dormant`, not `document.hidden`: a hidden window keeps the picture for HIDDEN_GRACE, so a
+		// mini-player round trip comes back with nothing to re-sync. Past that it stops, and
+		// unpausing from the mini player must not start a dormant window decoding again.
+		// `synced` and `dormant` are plain lets, so this effect does not re-run when they flip;
+		// `syncVideo` and the visibility handler call `resumeVideo` themselves at those moments.
+		if (paused || dormant || !synced) el.pause();
 		else resumeVideo();
 	});
 
-	// Minimised to the tray, the window still decodes video unless we stop it. Nothing here touches
-	// mpv, so the audio carries on.
+	// Hidden away, the window still decodes video unless we stop it, so eventually we do. Nothing
+	// here touches mpv, so the audio carries on either way. The tray and the mini player both arrive
+	// here: mini.rs hides the main window rather than doing anything the webview could tell apart.
 	$effect(() => {
 		const onVisibility = () => {
 			if (!el) return;
+			clearTimeout(hiddenTimer);
 			if (document.hidden) {
-				el.pause();
+				// Not on the spot: see HIDDEN_GRACE.
+				hiddenTimer = setTimeout(() => {
+					dormant = true;
+					el?.pause();
+				}, HIDDEN_GRACE);
 				return;
 			}
-			// Seconds out by definition: the picture stood still while the music carried on. Run the
-			// whole converge phase again rather than sitting out the cooldown and then trimming, and
-			// keep the picture still until it lands.
+			// Back inside the grace, so the picture never stopped and never lost step. That is the
+			// whole point of the grace: there is nothing to do.
+			if (!dormant) return;
+			// It sat out the grace and stopped, so it is seconds out by definition: the picture stood
+			// still while the music carried on. Run the whole converge phase again rather than
+			// sitting out the cooldown and then trimming, and keep the picture still until it lands.
+			dormant = false;
 			synced = false;
 			syncSeeks = 0;
 			syncStart = 0;
