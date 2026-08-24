@@ -33,7 +33,7 @@
 	import * as api from '$lib/api';
 	import type { BrowseItem } from '$lib/api';
 	import { asSong } from '$lib/browse';
-	import { openAddToPlaylist, openPlayer, playback } from '$lib/player.svelte';
+	import { openAddToPlaylist, openPlayer, playSong, playback } from '$lib/player.svelte';
 
 	let {
 		title,
@@ -41,7 +41,8 @@
 		onMore,
 		community = false,
 		rich = true,
-		headingClass = 'font-heading text-lg font-semibold'
+		headingClass = 'font-heading text-lg font-semibold',
+		queueAll = true
 	}: {
 		title?: string;
 		items: BrowseItem[];
@@ -56,6 +57,12 @@
 		rich?: boolean;
 		/** Artist and album pages use text-xl font-bold; home uses the default. */
 		headingClass?: string;
+		/**
+		 * Whether clicking a song row queues the rest of the shelf behind it. True for a shelf that
+		 * is a set (an album's songs, an artist's top tracks). False on home, where a shelf is a pile
+		 * of unrelated suggestions: clicking one there plays that one and lets autoplay take over.
+		 */
+		queueAll?: boolean;
 	} = $props();
 
 	// A shelf is only worth a form of its own when it's overwhelmingly one kind of thing. Below the
@@ -92,7 +99,9 @@
 		)
 	);
 	// Clicking any row starts there and queues the whole shelf, so a shelf plays as the set it is.
+	// Unless the shelf isn't a set (`queueAll={false}`), where only the clicked song plays.
 	const play = (start: number) => {
+		if (!queueAll) return playSong(songs[start]);
 		openPlayer();
 		return api.playPlaylist(songs, start, undefined, title);
 	};
