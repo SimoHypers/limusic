@@ -104,11 +104,6 @@ impl InnerTube {
         self.hide_videos.load(Ordering::Relaxed)
     }
 
-    /// Update InnerTube locale (e.g. hl = "tr", gl = "US").
-    pub fn set_locale(&self, locale: crate::models::context::Locale) {
-        self.session.write().unwrap().locale = locale;
-    }
-
     // --- session accessors (context/15) -----------------------------------------------------
 
     /// True when a login cookie is set.
@@ -263,18 +258,7 @@ impl InnerTube {
         };
         set(&mut h, "content-type", "application/json");
         set(&mut h, "accept", "application/json");
-
-        let s = self.session.read().unwrap();
-        let accept_lang = if s.locale.hl.is_empty() || s.locale.hl == "en" {
-            "en-US,en;q=0.9".to_string()
-        } else {
-            format!(
-                "{0}-{1},{0};q=0.9,en-US;q=0.8,en;q=0.7",
-                s.locale.hl,
-                s.locale.hl.to_uppercase()
-            )
-        };
-        set(&mut h, "accept-language", &accept_lang);
+        set(&mut h, "accept-language", "en-US,en;q=0.9");
         set(&mut h, "x-goog-api-format-version", "1");
         set(&mut h, "x-youtube-client-name", &client.client_id);
         set(&mut h, "x-youtube-client-version", &client.client_version);
@@ -282,6 +266,7 @@ impl InnerTube {
         set(&mut h, "referer", REFERER);
         set(&mut h, "user-agent", &client.user_agent);
 
+        let s = self.session.read().unwrap();
         if let Some(vd) = &s.visitor_data {
             set(&mut h, "x-goog-visitor-id", vd);
         }

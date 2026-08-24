@@ -15,7 +15,7 @@
 	import { cubicOut } from 'svelte/easing';
 	import { appearance, applyArtworkAccent, prewarmArtworkAccent, initTheme } from '$lib/theme.svelte';
 	import { thumb } from '$lib/thumb';
-	import { initLocale, t } from '$lib/i18n.svelte';
+	import { t } from '$lib/i18n.svelte';
 	import { blockForeignDrag, dragScroll } from '$lib/dnd';
 	import { suppressNative } from '$lib/menu';
 	import Sidebar from '$lib/components/Sidebar.svelte';
@@ -83,10 +83,7 @@
 	const isMini = browser && getCurrentWindow().label === 'mini';
 
 	// Apply the saved accent color before the first paint (ssr=false → nothing renders until now).
-	if (browser) {
-		initTheme();
-		initLocale();
-	}
+	if (browser) initTheme();
 
 	// Wire the Tauri event bridge once for the whole app; teardown on destroy. Check for an update
 	// on every app open (silent unless one exists).
