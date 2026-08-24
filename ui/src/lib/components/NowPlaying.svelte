@@ -95,7 +95,14 @@
 	let videoUrl = $state<string | null>(null);
 	let videoEl = $state<HTMLVideoElement | null>(null);
 	const canVideo = $derived(prefs.musicVideos && !!playback.now?.isVideo);
-	const showVideo = $derived(canVideo && wantVideo && !!videoUrl);
+	/** The element exists for the whole track once it has a URL, whether or not it is on screen:
+	 *  unmounting it on "show artwork" meant coming back rebuilt it, refetched from byte 0 and
+	 *  re-seeked, which is the black frame in #107. Hidden it keeps decoding in step with mpv, so
+	 *  the way back is a class swap.
+	 *  ponytail: that is one muted decode the user cannot see. It only runs while this view is
+	 *  open (+layout unmounts the whole component on minimise), so it is bounded. */
+	const hasVideo = $derived(canVideo && !!videoUrl);
+	const showVideo = $derived(hasVideo && wantVideo);
 
 	// How the picture is kept in step with mpv. Measured against mpv actually playing the same
 	// track, because the guesses before it were all wrong in the same direction:
@@ -115,9 +122,15 @@
 	// and it aims past the target by what the re-buffer will cost. The first sync of a fresh element
 	// is one of those cases by definition: resolving the video costs a round trip, so mpv is already
 	// a second or two in before the element can seek at all.
-	/** Trim bands. Quantised so a correction costs a handful of rate writes, never one per tick. */
-	const TRIM_FROM = 0.2;
-	const TRIM_TO = 0.06;
+	/** Trim bands. A rate write is *not* free on WebKitGTK, whatever the steady-state measurement
+	 *  above says: WebKit's GStreamer backend implements a `playbackRate` change as a flushing
+	 *  seek, so every write drops the sink's buffers and shows as a flicker (#107). So the rate is
+	 *  written twice per correction at most, once to start it and once to end it, and never for
+	 *  the wobble that ~4 Hz sampling puts on `drift`. TRIM_TICKS is that guard: about two seconds
+	 *  of sustained out-of-band drift before a correction starts at all. */
+	const TRIM_FROM = 0.35;
+	const TRIM_TO = 0.15;
+	const TRIM_TICKS = 8;
 	/** Above this, trimming would take too long to sit through, so pay for one seek instead. */
 	const SEEK_FROM = 2.5;
 	const SEEK_COST = 1;
@@ -127,6 +140,11 @@
 	 *  the first sync seeks instead, whatever the gap. */
 	let synced = false;
 	let lastSeek = 0;
+	/** A correction in progress, the speed it was picked against, and how many ticks running the
+	 *  drift has been out of band. Plain lets: nothing renders off them. */
+	let trimming = false;
+	let trimSpeed = 1;
+	let outOfBand = 0;
 
 	/** The ladder YouTube actually publishes. Snapped up, so the picture is never softer than the
 	 *  box; capped at 720 because that is already more than the box gets on a 1080p screen.
@@ -137,17 +155,37 @@
 		return [360, 480, 720].find((h) => h >= px) ?? 720;
 	}
 
+	/** Which track the URL below was fetched for. A plain let, so the fetch effect can read it
+	 *  without depending on itself. */
+	let fetchedId: string | null = null;
+
+	// Two effects, not one: the reset must key on the *track*, or toggling back to artwork would
+	// throw the URL away and the way back would be a fresh download (#107). Effects run in
+	// creation order, so this one clears before the next one fetches.
 	$effect(() => {
-		const id = playback.now?.videoId;
+		playback.now?.videoId;
+		canVideo;
 		videoUrl = null;
+		fetchedId = null;
 		synced = false;
 		lastSeek = 0; // a new element may sync at once, whatever the last one was doing
-		if (!id || !canVideo || !wantVideo) return;
+	});
+
+	$effect(() => {
+		const id = playback.now?.videoId;
+		// wantVideo is a dependency so turning video on mid-track starts the fetch; fetchedId is
+		// what stops turning it off and on again from refetching what we already have.
+		if (!id || !canVideo || !wantVideo || fetchedId === id) return;
+		fetchedId = id;
 		let cancelled = false;
 		// Silent on failure: a null answer is the ordinary case (no video stream), and the artwork
 		// staying put is already the right thing to show.
 		api.videoStream(id, wantedHeight()).then((u) => !cancelled && (videoUrl = u)).catch(() => {});
-		return () => (cancelled = true);
+		// Cancelled with nothing to show for it (toggled off mid-flight): let it be tried again.
+		return () => {
+			cancelled = true;
+			if (!videoUrl) fetchedId = null;
+		};
 	});
 
 	/** Where mpv is *now*, not where it was when the last tick was emitted. Ticks land at ~4 Hz
@@ -163,11 +201,11 @@
 		return playback.position + since * playback.speed;
 	}
 
-	/** Catch-up rate for a gap. `floor` keeps a correction that has already started running until
-	 *  the gap is properly closed, so the rate does not chatter around `TRIM_FROM`. */
-	function trimFor(drift: number, floor: boolean) {
+	/** Catch-up rate for a gap, picked once when the correction starts and held until it closes:
+	 *  re-picking it as the gap shrinks would cost a flush per band crossed. */
+	function trimFor(drift: number) {
 		const a = Math.abs(drift);
-		const k = a > 1.2 ? 0.5 : a > 0.5 ? 0.25 : a > TRIM_FROM || floor ? 0.1 : 0;
+		const k = a > 1.2 ? 0.5 : a > 0.5 ? 0.25 : 0.1;
 		return playback.speed * (1 + Math.sign(drift) * k);
 	}
 
@@ -176,13 +214,15 @@
 		// readyState 0 has no clock to compare against, and mid-seek the comparison is meaningless.
 		// Anything above that is fair game: re-buffering sits at 2 for long stretches and the
 		// picture keeps moving perfectly well there.
-		if (!el || !showVideo || el.seeking || el.readyState < 1) return;
+		if (!el || !hasVideo || el.seeking || el.readyState < 1) return;
 		const drift = mpvNow() - el.currentTime;
 		if (!synced || Math.abs(drift) > SEEK_FROM) {
 			const now = performance.now();
 			if (synced && now - lastSeek < SEEK_COOLDOWN) return; // let the last one finish re-buffering
 			synced = true;
 			lastSeek = now;
+			trimming = false;
+			outOfBand = 0;
 			el.playbackRate = playback.speed;
 			// Aim past the re-buffer this is about to cost, or it lands behind by exactly that.
 			// Not while paused: mpv is not moving, so the lead would only overshoot.
@@ -190,21 +230,35 @@
 			return;
 		}
 		if (playback.paused) return; // nothing is moving, so there is nothing to trim
-		const trimming = el.playbackRate !== playback.speed;
-		const want = trimFor(drift, trimming && Math.abs(drift) >= TRIM_TO);
-		if (el.playbackRate !== want) el.playbackRate = want;
+		// A tempo change makes the held rate meaningless: it was picked against the old speed.
+		if (trimming && trimSpeed !== playback.speed) trimming = false;
+		if (trimming) {
+			if (Math.abs(drift) > TRIM_TO) return; // still closing: hold the rate, write nothing
+			trimming = false;
+		}
+		if (el.playbackRate !== playback.speed) {
+			el.playbackRate = playback.speed; // ends a correction, or follows a tempo change
+			return;
+		}
+		outOfBand = Math.abs(drift) > TRIM_FROM ? outOfBand + 1 : 0;
+		if (outOfBand < TRIM_TICKS) return;
+		outOfBand = 0;
+		trimming = true;
+		trimSpeed = playback.speed;
+		el.playbackRate = trimFor(drift);
 	}
 
 	$effect(() => {
 		playback.position; // the tick this runs on
 		playback.paused; // and a pause/resume, which position ticks do not cover
+		playback.speed; // and a tempo change, which must reach the picture without waiting for drift
 		syncVideo();
 	});
 
 	$effect(() => {
 		const paused = playback.paused;
 		const el = videoEl;
-		if (!el || !showVideo) return;
+		if (!el || !hasVideo) return;
 		// document.hidden for the same reason: unpausing from the mini player must not start a
 		// hidden window decoding again. The visibilitychange handler picks it up on the way back.
 		if (paused || document.hidden) el.pause();
@@ -348,7 +402,7 @@
 								</div>
 							</div>
 						{/if}
-						{#if showVideo}
+						{#if hasVideo}
 							<!-- Muted and never seeked by the user: mpv is the clock (see the sync effects).
 							     16:9 in --vid, the width that spends the height the square leaves empty.
 
@@ -366,9 +420,14 @@
 								onloadedmetadata={syncVideo}
 								oncanplay={syncVideo}
 								onerror={() => (videoUrl = null)}
-								class="aspect-video w-full rounded-2xl bg-black object-contain"
+								class="w-full rounded-2xl bg-black object-contain {showVideo
+									? 'aspect-video'
+									: 'pointer-events-none absolute inset-0 h-full opacity-0'}"
 							></video>
-						{:else if src && attempt < srcs.length}
+						{/if}
+						<!-- The artwork, when the video above isn't the picture. Both arms carry the same
+						     guard rather than nesting, so the branch below keeps its indentation. -->
+						{#if !showVideo && src && attempt < srcs.length}
 							<!-- The 120 underneath is the one the player bar already has for this track, so it
 							     paints on the frame the track changes. Without it an <img> keeps showing the
 							     *previous* track's picture for as long as this one's fetch takes (#77): 720 is
@@ -380,7 +439,7 @@
 								style={srcs[2] ? `background-image:url(${srcs[2]})` : undefined}
 								class="aspect-square w-full rounded-2xl bg-cover object-cover shadow-2xl"
 							/>
-						{:else}
+						{:else if !showVideo}
 							<div
 								class="flex aspect-square w-full items-center justify-center rounded-2xl bg-muted text-muted-foreground/40"
 							>
