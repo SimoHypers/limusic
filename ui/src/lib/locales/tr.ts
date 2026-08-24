@@ -45,23 +45,23 @@ export const tr: Translations = {
 		dislike: 'Beğenme',
 		minimize: 'Simge durumuna küçült',
 		maximize: 'Ekranı kapla',
-		try_again: 'Try again', // TODO(tr)
-		sign_in_google: 'Sign in with Google', // TODO(tr)
-		public: 'Public', // TODO(tr)
-		sorting: 'Sorting…', // TODO(tr)
-		type_to_search: 'Type to search.', // TODO(tr)
-		nothing_quick: 'Nothing quick for that.', // TODO(tr)
-		nothing_here: 'Nothing here.', // TODO(tr)
-		nothing_matches: 'Nothing matches that.', // TODO(tr)
-		search_this_list: 'Search this list', // TODO(tr)
-		search_this_album: 'Search this album', // TODO(tr)
-		search_this_playlist: 'Search this playlist', // TODO(tr)
-		search_your_songs: 'Search your songs', // TODO(tr)
-		search_your_music: 'Search your music', // TODO(tr)
-		filter_library: 'Filter your library…', // TODO(tr)
-		command_description: 'Search songs, albums, artists and playlists', // TODO(tr)
-		shuffle_all: 'Shuffle all', // TODO(tr)
-		play_all: 'Play all', // TODO(tr)
+		try_again: 'Tekrar dene',
+		sign_in_google: 'Google ile giriş yap',
+		public: 'Açık',
+		sorting: 'Sıralama…',
+		type_to_search: 'Aramak için yazın.',
+		nothing_quick: 'Bu arama için hızlı sonuç bulunamadı.',
+		nothing_here: 'Burada hiçbir şey yok.',
+		nothing_matches: 'Bununla eşleşen bir şey yok.',
+		search_this_list: 'Bu listeyi ara',
+		search_this_album: 'Bu albümü ara',
+		search_this_playlist: 'Bu çalma listesini ara',
+		search_your_songs: 'Şarkılarını ara',
+		search_your_music: 'Müziğini ara',
+		filter_library: 'Kitaplığı filtrele…',
+		command_description: 'Şarkı, albüm, sanatçı ve çalma listesi ara',
+		shuffle_all: 'Hepsini karıştır',
+		play_all: 'Hepsini oynat',
 	},
 	nav: {
 		home: 'Ana Sayfa',
@@ -77,7 +77,7 @@ export const tr: Translations = {
 		choose_channel: 'Bir YouTube kanalı seçin',
 		choose_channel_desc: 'Kitaplık, beğeniler ve çalma listeleri bu kanalı kullanacak. Daha sonra tekrar değiştirebilirsiniz.',
 		cancel_sign_in: 'Oturum açmayı iptal et',
-		sign_in_hint: 'Sign in with your Google account to reach your YouTube Music library and playlists.', // TODO(tr)
+		sign_in_hint: 'Google hesabınızla giriş yaparak YouTube Music kitaplığınıza ve çalma listelerinize ulaşabilirsiniz.',
 	},
 	player: {
 		play: 'Oynat',
@@ -120,12 +120,12 @@ export const tr: Translations = {
 		enlarge_lyrics: 'Şarkı sözlerini büyüt',
 		shrink_lyrics: 'Şarkı sözlerini küçült',
 		remove_rating: 'Puanı kaldır',
-		shuffle_play: 'Shuffle play', // TODO(tr)
-		add_to_shortcuts: 'Add to shortcuts', // TODO(tr)
-		edit_playlist: 'Edit playlist', // TODO(tr)
-		delete_playlist: 'Delete playlist', // TODO(tr),
-		remove_dislike: 'Remove dislike', // TODO(tr),
-		add_to_playlist: 'Add to playlist', // TODO(tr)
+		shuffle_play: 'Karıştır ve oynat',
+		add_to_shortcuts: 'Kısayollara ekle',
+		edit_playlist: 'Çalma listesini düzenle',
+		delete_playlist: 'Çalma listesini sil',
+		remove_dislike: 'Beğenmeyi kaldır',
+		add_to_playlist: 'Çalma listesine ekle',
 	},
 	home: {
 		good_morning: 'Günaydın',
@@ -137,13 +137,13 @@ export const tr: Translations = {
 		shortcuts: 'Kısayollar',
 		edit_home: 'Sayfayı Düzenle',
 		add_shortcut: 'Kısayol ekle',
-		remove_shortcut: 'Remove from shortcuts', // TODO(tr)
+		remove_shortcut: 'Kısayollardan çıkar',
 		shortcuts_desc: 'En çok dinlediğiniz içerikler ana sayfadan tek tık uzağınızda. Kartları buraya sürükleyin veya kitaplığınızdan seçin.',
 		jump_back_in: 'Yeniden dinleyin',
 		show_section: '{title} bölümünü göster',
 		hide_section: '{title} bölümünü gizle',
-		feed_empty: 'Your home feed came back empty this time.', // TODO(tr)
-		signed_out_hint: 'Sign in and home fills up with mixes and playlists built from what you listen to.', // TODO(tr)
+		feed_empty: 'Ana sayfanız bu sefer boş döndü',
+		signed_out_hint: 'Giriş yapın ve ana sayfanız dinlediklerinizle oluşturulan miksler ve çalma sildeleriyle dolsun.',
 	},
 	artist: {
 		subscribe: 'Abone ol',
@@ -166,28 +166,28 @@ export const tr: Translations = {
 		empty_album: 'Bu albüm boş.',
 		play_count: '{count} dinlenme',
 		added_by: '{user} tarafından eklendi',
-		no_playlists_create: 'No playlists yet — create one in your Library.', // TODO(tr)
-		no_playlists_hint: 'No playlists yet. Save one from its page, or create one in your Library.', // TODO(tr)
-		empty_playlist: 'This playlist is empty.', // TODO(tr)
-		collab: 'Collab', // TODO(tr)
-		collab_tooltip: 'Others can add to this playlist', // TODO(tr)
-		delete_playlist_confirm: 'Delete this playlist?', // TODO(tr)
-		remove_from_library: 'Remove from library', // TODO(tr)
-		no_tracks_match_loading: 'No tracks match “{query}”{loading}.', // TODO(tr)
-		still_loading: ' yet, still loading', // TODO(tr)
-		saved_to_library: 'Saved to library', // TODO(tr)
-		removed_from_library: 'Removed from library', // TODO(tr),
-		every_song_saved: 'Every song you’ve saved, in one list', // TODO(tr)
+		no_playlists_create: 'Şu an hiçbir çalma listesi yok, kütüphanenizde bir liste oluşturun.',
+		no_playlists_hint: 'Şu an hiçbir çalma listesi yok. Sayfasında bir listeyi kaydedin veya kütüphanenizde bir liste oluşturun.',
+		empty_playlist: 'Bu çalma listesi boş.',
+		collab: 'İşbirliği',
+		collab_tooltip: 'Diğerler bu çalma listesine ekleyebilir',
+		delete_playlist_confirm: 'Bu çalma listesini silmek istediğinizden emin misiniz?',
+		remove_from_library: 'Kitaplıktan çıkar',
+		no_tracks_match_loading: '“{query}”{loading} ile eşleşen hiçbir parça bulunamadı.',
+		still_loading: ' henüz yükleniyor',
+		saved_to_library: 'Kitaplığa kaydedildi',
+		removed_from_library: 'Kitaplıktan çıkarıldı',
+		every_song_saved: 'Kaydettiğin bütün şarkılar tek bir listede',
 	},
 	local: {
 		scanning: 'Klasör taranıyor...',
 		rescan: 'Yeniden tara',
-		nothing_matches_device: 'Nothing on this device matches “{query}”.', // TODO(tr)
-		albums_count: 'Albums ({count})', // TODO(tr)
-		artists_count: 'Artists ({count})', // TODO(tr)
-		songs_count: 'Songs ({count})', // TODO(tr),
-		add_folder: 'Add folder', // TODO(tr)
-		pick_folder_dialog: 'Add a music folder', // TODO(tr)
+		nothing_matches_device: 'Bu cihazda “{query}” ile eşleşen hiçbir parça bulunamadı.',
+		albums_count: 'Albümler ({count})',
+		artists_count: 'Sanatçılar ({count})',
+		songs_count: 'Şarkılar ({count})', ,
+		add_folder: 'Klasör ekle',
+		pick_folder_dialog: 'Müzik klasörünü seç',
 	},
 	settings: {
 		title: 'Ayarlar',
@@ -228,35 +228,35 @@ export const tr: Translations = {
 			primary_color: 'Ana Vurgu Rengi',
 			background_color: 'Arka Plan',
 			reset_theme: 'Varsayılan temaya sıfırla',
-			accent_colors: 'Accent colors', // TODO(tr)
-			palettes: 'Palettes', // TODO(tr)
-			your_fonts: 'Your fonts', // TODO(tr)
-			custom_font: 'Custom…', // TODO(tr)
-			font_placeholder: 'Font installed on this computer, e.g. Inter', // TODO(tr)
-			font_aria: '{label} family name', // TODO(tr)
-			font_not_installed: 'Not installed — install the font, then reopen settings.', // TODO(tr)
-			add_font: 'Add font…', // TODO(tr),
-			tint_palette_hint: 'Only shades the default palette, {theme} brings its own colors.', // TODO(tr)
-			tint_hint: 'Shades the greys: surfaces, borders and secondary text.', // TODO(tr)
-			roundness: 'Roundness', // TODO(tr)
-			roundness_hint: 'Corner radius of cards, buttons and artwork.', // TODO(tr)
-			load_font_file_hint: 'Load a .ttf, .otf or .woff from anywhere on this computer. It joins both dropdowns above.', // TODO(tr)
-			open_player: 'Open the player when you press play', // TODO(tr)
-			open_player_hint: 'On, playing a song, album or playlist brings up the full player view. Off, it starts playing and leaves you on the page you were browsing.', // TODO(tr)
-			tabbed_player: 'Queue and lyrics in the player view', // TODO(tr)
-			tabbed_player_hint: 'On, the player view carries them as tabs and the bar\'s two buttons switch between them. Off, those buttons only ever open the side panels, which stay open over the player view so you can see both at once.', // TODO(tr)
-			artwork_background: 'Artwork background', // TODO(tr)
-			artwork_background_hint: 'Tint the player view with the playing track\'s cover, blurred. Off leaves it plain.', // TODO(tr)
-			artwork_accent: 'Adapt colors to artwork', // TODO(tr)
-			artwork_accent_hint: 'Recolor the app from the playing track\'s cover: accent, surfaces and borders, fading between tracks. Off keeps the selected theme\'s own colors.', // TODO(tr)
-			reset_theme_hint: 'Drop the color, roundness and font overrides. Keeps the preset.', // TODO(tr)
-			interface_font_label: 'Interface font', // TODO(tr)
-			interface_font_short_hint: 'Everything except headings.', // TODO(tr)
-			heading_font_label: 'Heading font', // TODO(tr)
-			heading_font_short_hint: 'Page and section titles.', // TODO(tr)
-			load_font_dialog: 'Load a font', // TODO(tr)
-			font_filter: 'Fonts', // TODO(tr),
-			experimental: 'Experimental', // TODO(tr)
+			accent_colors: 'Aksan renkleri',
+			palettes: 'Paletler',
+			your_fonts: 'Yazı tipleriniz',
+			custom_font: 'Özel…',
+			font_placeholder: 'Bu bilgisayarda yüklü olan yazı tipi, örn. Inter',
+			font_aria: '{label} aile adı',
+			font_not_installed: 'Yüklü değil. Önce yazı tipini yükeyip bu ayarları yeniden açın.',
+			add_font: 'Yazı tipi ekle', ,
+			tint_palette_hint: 'Yalnızca varsayılan paleti gölgeler, {theme} kendi renklerini getirir.',
+			tint_hint: 'Gri tonları gölgeler: yüzeyler, kenarlıklar ve ikincil metin.',
+			roundness: 'Yuvarlaklık',
+			roundness_hint: 'Kartların, düğmelerin ve kapakların köşe yarıçapı.',
+			load_font_file_hint: 'Bu bilgisayardaki herhangi bir .ttf, .otf veya .woff dosyasını yükleyin. Yukarıdaki iki açılır menüye eklenir.',
+			open_player: 'Oynata bastığınızda oynatıcı açar',
+			open_player_hint: 'Açıkken, bir şarkı, albüm veya çalma listesi çalmak tam oynatıcı görünümünü getirir. Kapalıyken, çalmaya başlar ve sizi göz attığınız sayfada bırakır.',
+			tabbed_player: 'Sıra ve şarkı sözlerini oynatıcı görünümünde göster',
+			tabbed_player_hint: 'Açıkken, oynatıcı görünümü sekmeleri taşır ve çubuktaki iki düğme aralarında geçiş yapar. Kapalıyken, bu düğmeler yalnızca yan panelleri açar ve yan paneller oynatıcı görünümünün üzerinde açık kalarak ikisini aynı anda görmenizi sağlar.',
+			artwork_background: 'Kapak arka planı',
+			artwork_background_hint: 'Çalan parçanın bulanık kapağıyla oynatıcı görünümünü renklendirir. Kapalıyken düz bırakır.',
+			artwork_accent: 'Kapağa göre renkleri ayarla',
+			artwork_accent_hint: 'Çalan parçanın kapağındaki renklere göre uygulamayı renklendirir: vurgu, yüzeyler ve kenarlıklar, parçalar arasında geçiş yapar. Kapalıyken, seçilen temanın kendi renklerini korur.',
+			reset_theme_hint: 'Renk, yuvarlaklık ve yazı tipi geçersiz kılmalarını kaldırır. Ön ayarı korur.',
+			interface_font_label: 'Arayüz yazı tipi',
+			interface_font_short_hint: 'Başlıklar dışındaki her şey.',
+			heading_font_label: 'Başlık yazı tipi',
+			heading_font_short_hint: 'Sayfa ve bölüm başlıkları.',
+			load_font_dialog: 'Bir yazı tipi yükle',
+			font_filter: 'Yazı Tipleri', ,
+			experimental: 'Deneysel',
 		},
 		playback: {
 			audio_quality: 'Ses kalitesi',
@@ -305,33 +305,33 @@ export const tr: Translations = {
 			change_cover: 'Görseli değiştir',
 			remove_cover: 'Görseli kaldır',
 			save_btn: 'Çalma Listesini Kaydet',
-			public_on: 'Anyone can find this playlist on YouTube Music.', // TODO(tr)
-			public_off: 'Only you can see this playlist.', // TODO(tr)
-			artwork_note: 'Artwork applies here at once and uploads to YouTube Music in the background. Square JPEG or PNG works best.', // TODO(tr),
-			pick_artwork: 'Choose playlist artwork', // TODO(tr)
-			image_filter: 'Images', // TODO(tr)
+			public_on: 'Anyone can find this playlist on YouTube Music.',
+			public_off: 'Only you can see this playlist.',
+			artwork_note: 'Artwork applies here at once and uploads to YouTube Music in the background. Square JPEG or PNG works best.', ,
+			pick_artwork: 'Choose playlist artwork',
+			image_filter: 'Images',
 		},
 		share: {
 			title: 'Paylaş',
 			copy_link: 'Bağlantıyı Kopyala',
-			public_link_on: 'Anyone with the link can open it.', // TODO(tr)
-			public_link_off: 'Turn on to make the link work for everyone.', // TODO(tr)
-			private_note: 'This playlist is private. Anyone you send the link to will get an error.', // TODO(tr)
+			public_link_on: 'Anyone with the link can open it.',
+			public_link_off: 'Turn on to make the link work for everyone.',
+			private_note: 'This playlist is private. Anyone you send the link to will get an error.',
 		},
 		shortcuts: {
 			title: 'Klavye Kısayolları',
-			reopen_hint: '{mod}H brings this back at any time.', // TODO(tr)
+			reopen_hint: '{mod}H brings this back at any time.',
 			group_search: 'Arama',
 			group_playback: 'Oynatma',
-			group_window: 'Window', // TODO(tr)
-			search_anywhere: 'Search from anywhere', // TODO(tr)
-			toggle_now_playing: 'Show or hide the now-playing view', // TODO(tr)
+			group_window: 'Window',
+			search_anywhere: 'Search from anywhere',
+			toggle_now_playing: 'Show or hide the now-playing view',
 			volume_up: 'Sesi artır',
 			volume_down: 'Sesi azalt',
-			zoom_in: 'Zoom in', // TODO(tr)
-			zoom_out: 'Zoom out', // TODO(tr)
-			reset_zoom: 'Reset zoom', // TODO(tr)
-			show_this_list: 'Show this list', // TODO(tr)
+			zoom_in: 'Zoom in',
+			zoom_out: 'Zoom out',
+			reset_zoom: 'Reset zoom',
+			show_this_list: 'Show this list',
 		},
 		tempo_pitch: {
 			title: 'Tempo ve Perde Kontrolleri',
@@ -400,111 +400,111 @@ export const tr: Translations = {
 		disconnect: 'Bağlantıyı kes'
 	},
 	a11y: {
-		close: 'Close', // TODO(tr)
-		close_menu: 'Close menu', // TODO(tr)
-		close_queue: 'Close queue', // TODO(tr)
-		close_lyrics: 'Close lyrics', // TODO(tr)
-		play: 'Play', // TODO(tr)
-		play_item: 'Play {title}', // TODO(tr)
-		play_pause: 'Play/pause', // TODO(tr)
-		previous: 'Previous', // TODO(tr)
-		next: 'Next', // TODO(tr)
-		seek: 'Seek', // TODO(tr)
-		volume: 'Volume', // TODO(tr)
-		track_options: 'Track options', // TODO(tr)
-		playlist_options: 'Playlist options', // TODO(tr)
-		clear_search: 'Clear search', // TODO(tr)
-		search_preview: 'Search preview', // TODO(tr)
-		scroll_left: 'Scroll left', // TODO(tr)
-		scroll_right: 'Scroll right', // TODO(tr)
-		back_to_top: 'Back to top', // TODO(tr)
+		close: 'Kapat',
+		close_menu: 'Menüyü kapat',
+		close_queue: 'Sırayı kapat',
+		close_lyrics: 'Şarkı sözlerini kapat',
+		play: 'Çal',
+		play_item: '{title} çal',
+		play_pause: 'Çal/Duraklat',
+		previous: 'Önceki',
+		next: 'Sonraki',
+		seek: 'İlerle',
+		volume: 'Ses',
+		track_options: 'Parça seçenekleri',
+		playlist_options: 'Çalma listesi seçenekleri',
+		clear_search: 'Aramayı temizle',
+		search_preview: 'Arama ön izlemesi',
+		scroll_left: 'Sola kaydır',
+		scroll_right: 'Sağa kaydır',
+		back_to_top: 'Başa dön',
 		toggle_mini: 'Mini oynatıcıyı aç / kapat',
-		toggle_theme: 'Toggle theme', // TODO(tr)
-		explicit: 'Explicit', // TODO(tr)
-		shrink_lyrics: 'Shrink lyrics', // TODO(tr)
-		expand_lyrics: 'Expand lyrics', // TODO(tr)
-		public_playlist: 'Public playlist', // TODO(tr)
-		remove_folder: 'Remove folder', // TODO(tr)
-		remove_font: 'Remove {name}', // TODO(tr)
-		sync_to_ytm: 'Sync {count} saved items to YouTube Music', // TODO(tr)
-		listen_together: 'Listen Together', // TODO(tr)
-		saturation_brightness: 'Saturation and brightness', // TODO(tr)
-		hue: 'Hue', // TODO(tr)
-		pick_colour: 'Pick a colour from the screen', // TODO(tr)
-		hex_colour: 'Hex colour', // TODO(tr)
-		theme: 'Theme', // TODO(tr)
-		choose_accent: 'Choose accent color', // TODO(tr)
-		background_tint: 'Background tint', // TODO(tr)
-		roundness: 'Roundness', // TODO(tr)
-		more_options: 'More options', // TODO(tr),
-		expand_sidebar: 'Expand sidebar', // TODO(tr)
-		collapse_sidebar: 'Collapse sidebar', // TODO(tr),
-		show_artwork: 'Show artwork', // TODO(tr)
-		show_video: 'Show video', // TODO(tr)
+		toggle_theme: 'Tema değiştir',
+		explicit: 'Belirgin',
+		shrink_lyrics: 'Şarkı sözlerini daralt',
+		expand_lyrics: 'Şarkı sözlerini genişlet',
+		public_playlist: 'Herkese açık çalma listesi',
+		remove_folder: 'Klasörü kaldır',
+		remove_font: '{name} kaldır',
+		sync_to_ytm: '{count} favori parçayı YouTube Music ile senkronize et',
+		listen_together: 'Birlikte Dinle',
+		saturation_brightness: 'Doygunluk ve parlaklık',
+		hue: 'Renk tonu',
+		pick_colour: 'Ekrandan renk seç',
+		hex_colour: 'Hex renk',
+		theme: 'Tema',
+		choose_accent: 'Birincil renk seç',
+		background_tint: 'Arka plan tonu',
+		roundness: 'Yuvarlaklık',
+		more_options: 'Diğer seçenekler', ,
+		expand_sidebar: 'Yan paneli genişlet',
+		collapse_sidebar: 'Yan paneli daralt', ,
+		show_artwork: 'Kapak göster',
+		show_video: 'Video göster',
 	},
 	lyrics: {
-		title: 'Lyrics', // TODO(tr)
-		instrumental: 'Instrumental', // TODO(tr)
-		none_found: 'No lyrics found for this track.', // TODO(tr)
+		title: 'Şarkı sözleri',
+		instrumental: 'Enstrümantal',
+		none_found: 'Bu parça için şarkı sözü bulunamadı.',
 	},
 	queue: {
-		title: 'Queue', // TODO(tr)
+		title: 'Sıra',
 	},
 	sort: {
-		label: 'Sort', // TODO(tr)
-		default: 'Default', // TODO(tr)
-		newest: 'Newest first', // TODO(tr)
-		oldest: 'Oldest first', // TODO(tr)
-		title: 'Title', // TODO(tr)
-		artist: 'Artist', // TODO(tr)
-		album: 'Album', // TODO(tr)
-		plays: 'Most played', // TODO(tr)
-		direction: 'Sort direction: {dir}', // TODO(tr)
-		ascending: 'ascending', // TODO(tr)
-		descending: 'descending', // TODO(tr)
-		top: 'Top voted', // TODO(tr)
+		label: 'Sırala',
+		default: 'Varsayılan',
+		newest: 'Yeni ilk',
+		oldest: 'Eskiden yeniye',
+		title: 'Başlık',
+		artist: 'Sanatçı',
+		album: 'Albüm',
+		plays: 'En çok dinlenen',
+		direction: 'Sıralama yönü: {dir}',
+		ascending: 'artan',
+		descending: 'azalan',
+		top: 'En beğenilen',
 	},
 	changelog: {
-		version: 'Version {version}', // TODO(tr)
-		installed: 'installed', // TODO(tr)
-		no_releases: 'No releases yet.', // TODO(tr)
-		load_failed: 'Couldn\'t load the changelog ({error}).', // TODO(tr)
+		version: 'Sürüm {version}',
+		installed: 'Kurulu',
+		no_releases: 'Henüz bir sürüm yok.',
+		load_failed: 'Güncelleme günlüğü yüklenirken hata oluştu ({error}).',
 	},
 	toasts: {
-		could_not_play: 'Could not play — try opening it instead', // TODO(tr)
-		could_not_queue: 'Could not queue that — try opening it instead', // TODO(tr)
-		could_not_load_playlist: 'Could not load that playlist — try opening it instead', // TODO(tr)
-		could_not_load_more: 'Could not load more', // TODO(tr)
-		could_not_copy_link: 'Could not copy the link. Select it and press Ctrl+C.', // TODO(tr)
-		browser_failed: 'Couldn\'t open the browser: {error}', // TODO(tr)
-		update_failed: 'Update failed: {error}', // TODO(tr)
-		shortcuts_dropped_one: 'Removed 1 shortcut for deleted music', // TODO(tr)
-		shortcuts_dropped: 'Removed {count} shortcuts for deleted music', // TODO(tr)
-		pins_full: 'Unpin one first — {max} pins max', // TODO(tr)
-		starting_radio: 'Starting radio…', // TODO(tr)
-		signed_in: 'Signed in', // TODO(tr)
-		folder_removed: 'Folder removed from your local library', // TODO(tr)
-		playlist_updated: 'Playlist updated', // TODO(tr)
-		playlist_created: 'Created "{title}"', // TODO(tr)
-		playlist_deleted: 'Playlist deleted', // TODO(tr)
-		removed_from_library: 'Removed from library', // TODO(tr)
-		removed_from_liked: 'Removed from Liked Music', // TODO(tr)
-		removed_from_playlist: 'Removed from playlist', // TODO(tr)
-		font_loaded: '{name} loaded — pick it above', // TODO(tr)
-		quality_updated: 'Audio quality updated', // TODO(tr)
-		proxy_saved: 'Proxy saved — restart to apply', // TODO(tr)
-		caches_cleared: 'Caches cleared', // TODO(tr)
-		synced_partial: 'Synced {synced} of {total}. {failed} failed, still saved here.', // TODO(tr)
-		synced_none: 'Nothing synced. {failed} failed, still saved here.', // TODO(tr)
-		synced_all: 'Synced {count} to YouTube Music', // TODO(tr)
-		added_to_playlist_dupes: 'Added {count} to {playlist} ({dupes} already there)', // TODO(tr)
-		partial_playlist_queued: 'Couldn\'t load all of this playlist, so only what loaded was queued.', // TODO(tr)
-		partial_playlist_added: 'Couldn\'t load all of this playlist, so only what loaded was added.', // TODO(tr)
-		sort_not_saved: 'Sorted, but couldn\'t save it to YouTube: {error}', // TODO(tr)
-		sort_failed: 'Couldn\'t sort this playlist: {error}', // TODO(tr),
-		already_in_all: 'All {count} are already in {playlist}', // TODO(tr)
-		already_in: 'Already in {playlist}', // TODO(tr)
-		added_songs: 'Added {count} songs to {playlist}', // TODO(tr)
-		added_one: 'Added to {playlist}', // TODO(tr)
+		could_not_play: 'Çalamadı — bunun yerine açmayı deneyin',
+		could_not_queue: 'Sıraya eklenemedi — bunun yerine açmayı deneyin',
+		could_not_load_playlist: 'Bu çalma listesi yüklenemedi — bunun yerine açmayı deneyin',
+		could_not_load_more: 'Daha fazlası yüklenemedi',
+		could_not_copy_link: 'Bağlantı kopyalanamadı. Seçin ve Ctrl+C tuşuna basın.',
+		browser_failed: 'Tarayıcı açılamadı: {error}',
+		update_failed: 'Güncelleme başarısız: {error}',
+		shortcuts_dropped_one: '1 kısayol silindi',
+		shortcuts_dropped: '{count} kısayol silindi',
+		pins_full: 'Önce birini kaldır — en fazla {max} pin',
+		starting_radio: 'Şarkı önerileri başlatılıyor…',
+		signed_in: 'Oturum açıldı',
+		folder_removed: 'Klasör yerel kitaplığından kaldırıldı',
+		playlist_updated: 'Çalma listesi güncellendi',
+		playlist_created: '"{title}" oluşturuldu',
+		playlist_deleted: 'Çalma listesi silindi',
+		removed_from_library: 'Kitaplıktan çıkarıldı',
+		removed_from_liked: 'Beğenilenlerden çıkarıldı',
+		removed_from_playlist: 'Çalma listesinden çıkarıldı',
+		font_loaded: '{name} yüklendi — yukarıdan seçin',
+		quality_updated: 'Ses kalitesi güncellendi',
+		proxy_saved: 'Proxy kaydedildi — uygulamayı yeniden başlatın',
+		caches_cleared: 'Önbellek temizlendi',
+		synced_partial: '{total} parçadan {synced} tanesi senkronize edildi. {failed} hata oluştu, hâlâ burada duruyor.',
+		synced_none: 'Hiçbir parça senkronize edilmedi. {failed} hata oluştu, hâlâ burada duruyor.',
+		synced_all: '{count} parça YouTube Music ile senkronize edildi',
+		added_to_playlist_dupes: '{count} parça eklendi, {dupes} tanesi zaten vardı',
+		partial_playlist_queued: 'Bu çalma listesinin tamamı yüklenemedi, bu yüzden yalnızca yüklenenler sıraya eklendi.',
+		partial_playlist_added: 'Bu çalma listesinin tamamı yüklenemedi, bu yüzden yalnızca yüklenenler eklendi.',
+		sort_not_saved: 'Sıralandı, ancak YouTube\'a kaydedilemedi: {error}',
+		sort_failed: 'Bu çalma listesi sıralanamadı: {error}', ,
+		already_in_all: 'Tüm {count} parça zaten {playlist} çalma listesinde',
+		already_in: '{playlist} çalma listesinde zaten var',
+		added_songs: '{playlist} çalma listesine {count} parça eklendi',
+		added_one: '{playlist} çalma listesine eklendi',
 	}
 };
