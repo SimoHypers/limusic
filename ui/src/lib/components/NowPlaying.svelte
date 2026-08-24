@@ -18,7 +18,15 @@
 	} from '@hugeicons/core-free-icons';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import * as api from '$lib/api';
-	import { np, playback, prefs, ui, wheelVolume } from '$lib/player.svelte';
+	import {
+		forgetVideoUrl,
+		np,
+		playback,
+		prefs,
+		ui,
+		videoUrlFor,
+		wheelVolume
+	} from '$lib/player.svelte';
 	import { appearance } from '$lib/theme.svelte';
 	import { thumb } from '$lib/thumb';
 	import QueueList from './QueueList.svelte';
@@ -158,15 +166,6 @@
 	let trimSpeed = 1;
 	let outOfBand = 0;
 
-	/** The ladder YouTube actually publishes. Snapped up, so the picture is never softer than the
-	 *  box; capped at 720 because that is already more than the box gets on a 1080p screen.
-	 *  ponytail: measured once per track, not re-measured on resize. Resizing mid-track keeps the
-	 *  picture it started with, which is a soft edge at worst. */
-	function wantedHeight() {
-		const px = (window.innerHeight - 176) * 0.85; // --vid's height, see the layout comment below
-		return [360, 480, 720].find((h) => h >= px) ?? 720;
-	}
-
 	/** Which track the URL below was fetched for. A plain let, so the fetch effect can read it
 	 *  without depending on itself. */
 	let fetchedId: string | null = null;
@@ -192,9 +191,20 @@
 		if (!id || !canVideo || !wantVideo || fetchedId === id) return;
 		fetchedId = id;
 		let cancelled = false;
-		// Silent on failure: a null answer is the ordinary case (no video stream), and the artwork
-		// staying put is already the right thing to show.
-		api.videoStream(id, wantedHeight()).then((u) => !cancelled && (videoUrl = u)).catch(() => {});
+		// Usually already resolved (the store warms it when the track starts, and keeps it across
+		// this component being unmounted), in which case this settles without touching the network.
+		videoUrlFor(id).then((u) => {
+			if (cancelled) return;
+			// Open the stream where the music already is. Without this the element opens at byte 0,
+			// buffers, and then pays for an unbuffered seek to get to the same place: two
+			// connections and two re-buffers to reach a position it could have started at.
+			// `mpvNow()` here is read outside the effect's tracking (this callback is async), so it
+			// does not make the src reload on every position tick, which is exactly what must not
+			// happen: the fragment is fixed for the life of this element.
+			// ponytail: silently ignored if WebKitGTK's GStreamer backend does not honour media
+			// fragments, in which case this is exactly today's behaviour and the sync still lands it.
+			videoUrl = u && `${u}#t=${Math.max(0, mpvNow()).toFixed(2)}`;
+		});
 		// Cancelled with nothing to show for it (toggled off mid-flight): let it be tried again.
 		return () => {
 			cancelled = true;
@@ -471,7 +481,10 @@
 								onloadedmetadata={syncVideo}
 								oncanplay={syncVideo}
 								onseeked={syncVideo}
-								onerror={() => (videoUrl = null)}
+								onerror={() => {
+									if (playback.now?.videoId) forgetVideoUrl(playback.now.videoId);
+									videoUrl = null;
+								}}
 								class="w-full rounded-2xl bg-black object-contain {showVideo
 									? 'aspect-video'
 									: 'pointer-events-none absolute inset-0 h-full opacity-0'}"

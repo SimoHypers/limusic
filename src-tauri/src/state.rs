@@ -70,11 +70,13 @@ pub struct AppState {
     last_pos_persist: AtomicU64,
     /// Wall-clock secs of the last position push to the OS media controls (throttled ~1s).
     last_media_push: AtomicU64,
-    /// videoId → the googlevideo URL the `limusicvideo://` proxy streams from. Written by the
-    /// `video_stream` command, read by `videoproxy::handle`. Only the player view uses this, and it
-    /// only ever looks at one track at a time.
-    /// ponytail: cleared wholesale at 8 entries rather than LRU-evicted.
-    video_urls: std::sync::Mutex<std::collections::HashMap<String, String>>,
+    /// videoId → (the googlevideo URL the loopback proxy streams from, unix seconds it stops being
+    /// treated as usable). Written by the `video_stream` command, read by `videoproxy::handle` and
+    /// by `video_stream` itself: an entry that is still live answers a reopen with no network at
+    /// all, where re-resolving costs up to two `/player` round trips the user waits through.
+    /// ponytail: cleared wholesale at 8 entries rather than LRU-evicted. The player view only ever
+    /// looks at one track at a time, so a real LRU would be book-keeping for nothing.
+    video_urls: std::sync::Mutex<std::collections::HashMap<String, (String, i64)>>,
     /// Fingerprint of the item list the UI was last sent (see `queue_fingerprint`). When it is
     /// unchanged, `emit_queue` sends the small `queue-index` event instead of megabytes of JSON:
     /// a Tauri event inlines its payload into a JavaScript source string, so a 5,000-track queue
@@ -303,6 +305,28 @@ impl QueueState {
     }
 }
 
+/// How long a resolved googlevideo URL is treated as usable. YouTube's links last about six hours;
+/// four is the conservative margin, and the cost of guessing low is one extra resolve.
+const VIDEO_URL_TTL_SECS: i64 = 4 * 60 * 60;
+
+/// How many resolved URLs are kept. Small on purpose: the map exists so a reopen and a replay are
+/// free, not to be a download cache.
+const VIDEO_URL_CAP: usize = 8;
+
+type VideoUrls = std::collections::HashMap<String, (String, i64)>;
+
+fn put_url(map: &mut VideoUrls, id: &str, url: String, now: i64) {
+    if map.len() >= VIDEO_URL_CAP {
+        map.clear();
+    }
+    map.insert(id.to_owned(), (url, now + VIDEO_URL_TTL_SECS));
+}
+
+fn get_url(map: &VideoUrls, id: &str, now: i64) -> Option<String> {
+    let (url, expires_at) = map.get(id)?;
+    (*expires_at > now).then(|| url.clone())
+}
+
 impl AppState {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -344,17 +368,24 @@ impl AppState {
         }
     }
 
-    /// Remember where the `limusicvideo://` proxy should fetch `id` from.
+    /// Remember where the loopback video proxy should fetch `id` from.
     pub fn put_video_url(&self, id: &str, url: String) {
         let Ok(mut map) = self.video_urls.lock() else { return };
-        if map.len() >= 8 {
-            map.clear();
-        }
-        map.insert(id.to_owned(), url);
+        put_url(&mut map, id, url, crate::db::now_secs());
     }
 
     pub fn video_url(&self, id: &str) -> Option<String> {
-        self.video_urls.lock().ok()?.get(id).cloned()
+        let map = self.video_urls.lock().ok()?;
+        get_url(&map, id, crate::db::now_secs())
+    }
+
+    /// Drop a remembered URL the `<video>` element could not load. A googlevideo link that has
+    /// expired early, or been revoked, looks exactly like this from the webview, and without this
+    /// the cache would keep handing back the dead one until its TTL ran out.
+    pub fn forget_video_url(&self, id: &str) {
+        if let Ok(mut map) = self.video_urls.lock() {
+            map.remove(id);
+        }
     }
 
     fn quality(&self) -> AudioQuality {
@@ -3276,11 +3307,36 @@ fn persist_fingerprint(q: &QueueState) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        append_page, backfill_metadata, drop_duplicates, enqueue_at, format_duration,
+        append_page, backfill_metadata, drop_duplicates, enqueue_at, format_duration, get_url,
         guest_insert_index, is_mix, loudness_gain, merge_radio, next_index, parse_duration_ms,
-        persist_fingerprint, queue_fingerprint, radio_seed_for, shuffle_new_queue,
+        persist_fingerprint, put_url, queue_fingerprint, radio_seed_for, shuffle_new_queue,
         shuffle_upcoming, splice_radio_into, unshuffled, upcoming_queued, QueueState, RepeatMode,
+        VideoUrls,
     };
+
+    /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
+    /// entry has to hit and a stale one has to miss. Getting the second one wrong hands the proxy a
+    /// dead googlevideo link for hours.
+    #[test]
+    fn a_cached_video_url_lives_then_expires() {
+        let mut map = VideoUrls::new();
+        let t0 = 1_700_000_000;
+        put_url(&mut map, "abc", "https://example.invalid/v".into(), t0);
+        assert_eq!(get_url(&map, "abc", t0 + 60).as_deref(), Some("https://example.invalid/v"));
+        assert_eq!(get_url(&map, "abc", t0 + 5 * 60 * 60), None, "past the TTL, must miss");
+        assert_eq!(get_url(&map, "nope", t0).as_deref(), None);
+    }
+
+    /// The cap is a clear, not an eviction, so the ninth insert leaves exactly one entry.
+    #[test]
+    fn the_video_url_map_clears_at_its_cap() {
+        let mut map = VideoUrls::new();
+        for i in 0..9 {
+            put_url(&mut map, &format!("id{i}"), "u".into(), 0);
+        }
+        assert_eq!(map.len(), 1);
+        assert!(get_url(&map, "id8", 0).is_some(), "the newest insert survives the clear");
+    }
 
     #[test]
     fn queue_fingerprint_tracks_the_rows_not_their_metadata() {

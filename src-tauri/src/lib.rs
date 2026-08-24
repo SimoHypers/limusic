@@ -419,6 +419,7 @@ pub fn run() {
             commands::get_queue,
             commands::get_playback,
             commands::video_stream,
+            commands::forget_video_stream,
             commands::get_settings,
             commands::set_setting,
             commands::get_stream_clients,

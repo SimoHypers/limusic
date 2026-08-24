@@ -54,6 +54,47 @@ export const np = $state({ open: false, tab: 'queue' as 'queue' | 'lyrics' });
  */
 export const prefs = $state({ musicVideos: false });
 
+/** videoId → the in-flight or settled loopback URL for its music video (null when it has none).
+ *
+ *  It lives here, not in `NowPlaying`, because the layout unmounts that component whenever the
+ *  player view is closed. Without this, reopening the view re-runs `video_stream`, which is up to
+ *  two `/player` round trips to YouTube that the user sits through every single time. Storing the
+ *  promise rather than the value also means the prefetch below and the view's own request are the
+ *  same request when they overlap.
+ *
+ *  ponytail: bounded by insertion order, not use. The Rust side keeps eight too, so anything
+ *  evicted here is still a cheap answer there. */
+const videoUrls = new Map<string, Promise<string | null>>();
+
+/** The picture ladder YouTube publishes, snapped up so the box is never upscaled, capped at 720
+ *  because that is already more than the player view's box gets on a 1080p screen. `176` is `11rem`
+ *  at the default root font size, the chrome above and below the box (see the `--vid` calc in
+ *  NowPlaying.svelte). If the titlebar or the player bar changes height, this changes with it. */
+export function wantedVideoHeight() {
+	const px = (window.innerHeight - 176) * 0.85;
+	return [360, 480, 720].find((h) => h >= px) ?? 720;
+}
+
+/** The loopback URL for a track's music video, resolving it at most once. */
+export function videoUrlFor(videoId: string): Promise<string | null> {
+	let p = videoUrls.get(videoId);
+	if (!p) {
+		// Silent on failure: a null answer is the ordinary case (the track has no video stream),
+		// and the artwork staying put is already the right thing to show.
+		p = api.videoStream(videoId, wantedVideoHeight()).catch(() => null);
+		if (videoUrls.size >= 8) videoUrls.delete(videoUrls.keys().next().value!);
+		videoUrls.set(videoId, p);
+	}
+	return p;
+}
+
+/** Forget a URL the element could not load, here and in Rust, so the next open resolves a fresh
+ *  one instead of failing the same way. */
+export function forgetVideoUrl(videoId: string) {
+	videoUrls.delete(videoId);
+	api.forgetVideoStream(videoId).catch(() => {});
+}
+
 /** No-op when the user has turned the auto-open off (#64): playback starts, the view stays put. */
 export const openPlayer = () => {
 	if (appearance.openPlayerOnPlay) np.open = true;
@@ -782,6 +823,10 @@ export function initApp(mini = false): () => void {
 			pl.touchPick(personal, n.videoId);
 			if (n.artists) pl.noteArtist(personal, n.artistId ?? n.artists, pl.firstArtist(n.artists));
 			savePersonal();
+			// Warm the music video now rather than when the view opens: the resolve is a round trip
+			// to YouTube, and paid here it overlaps the track starting instead of the user's click.
+			// Not in the mini player, which has no player view to show it in.
+			if (!mini && prefs.musicVideos && n.isVideo) videoUrlFor(n.videoId);
 		}),
 		// YouTube's own answer for a track whose row never stated one (issue #93). Into the
 		// override map as well as the player bar: the same song is on screen as a list row too,
