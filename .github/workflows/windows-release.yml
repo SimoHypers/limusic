@@ -51,6 +51,9 @@ env:
   # AVX2 and would crash on older CPUs. libmpv2 needs mpv >= 0.35 (client API 2.x). Bump
   # deliberately: a new mpv is a new 117 MB DLL in the installer.
   MPV_DEV_URL: https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20260610/mpv-dev-x86_64-20260610-git-304426c.7z
+  # The release asset's own digest, pinning MPV_DEV_URL. setup-windows-mpv.ps1 carries the same
+  # pair for local builds, so a URL bump has to move both.
+  MPV_DEV_SHA256: 8cbb25ea784f01afbb3f904217cab1317430a8bcfd5680fd827a866367f71cc9
   MPV_DIR: ${{ github.workspace }}\.libmpv
 
 jobs:
@@ -199,8 +202,15 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path "$env:MPV_DIR" | Out-Null
-          curl.exe -fsSL -o "$env:MPV_DIR\mpv-dev.7z" "$env:MPV_DEV_URL"
+          curl.exe -fSL --retry 3 -o "$env:MPV_DIR\mpv-dev.7z" "$env:MPV_DEV_URL"
+          # A native exe's non-zero exit does not trip $ErrorActionPreference.
+          if ($LASTEXITCODE -ne 0) { throw "curl exited $LASTEXITCODE fetching MPV_DEV_URL" }
+          # This DLL ends up in the installer, so the bytes are checked before anything unpacks them.
+          $sha = (Get-FileHash "$env:MPV_DIR\mpv-dev.7z" -Algorithm SHA256).Hash
+          if ($sha -ne $env:MPV_DEV_SHA256) { throw "mpv-dev.7z SHA-256 is $sha, expected $env:MPV_DEV_SHA256" }
           7z x "$env:MPV_DIR\mpv-dev.7z" -o"$env:MPV_DIR" -y | Out-Null
+          # 7-Zip exits 1 on a non-fatal warning; 2 and up are the real failures.
+          if ($LASTEXITCODE -gt 1) { throw "7z exited $LASTEXITCODE extracting mpv-dev.7z" }
           if (-not (Test-Path "$env:MPV_DIR\libmpv-2.dll")) { throw "libmpv-2.dll not found in the dev package — did MPV_DEV_URL change shape?" }
 
           # dumpbin/lib live in the MSVC toolchain. (cargo itself finds MSVC on its own; this is
@@ -217,6 +227,7 @@ jobs:
           if ($names.Count -lt 50) { throw "parsed only $($names.Count) exports from libmpv-2.dll — dumpbin output format changed?" }
           @("EXPORTS") + ($names | ForEach-Object { "    $_" }) | Set-Content -Path mpv.def -Encoding ascii
           & lib /def:mpv.def /name:libmpv-2.dll /out:mpv.lib /machine:x64
+          if ($LASTEXITCODE -ne 0) { throw "lib.exe exited $LASTEXITCODE generating mpv.lib" }
           if (-not (Test-Path "$env:MPV_DIR\mpv.lib")) { throw "lib.exe did not produce mpv.lib" }
           Write-Host "mpv.lib built from $($names.Count) exports"
 
