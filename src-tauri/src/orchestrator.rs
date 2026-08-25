@@ -253,38 +253,14 @@ impl Orchestrator {
             let needs_n = client.is_some_and(|c| c.use_web_po_tokens)
                 || NEEDS_N_TRANSFORM.contains(&key.as_str());
             if needs_n {
-                // A web stream needs BOTH: an untransformed `n` and a missing `pot` each 403 on
-                // their own (measured). Both used to fail silently, so record what we actually
-                // built. This is the line that says which half is broken.
-                let before = url.clone();
                 url = self.cipher.transform_n_param_in_url(&url).await;
-                let n_transformed = url != before;
-                let mut has_pot = false;
                 if client.is_some_and(|c| c.use_web_po_tokens) {
                     if let Some(vd) = &visitor {
                         if let Some(pot) = self.potoken.get_streaming_po_token(video_id, vd).await {
-                            tracing::debug!(video_id, pot, "streaming PoToken minted");
                             let sep = if url.contains('?') { '&' } else { '?' };
                             url = format!("{url}{sep}pot={}", urlencoding::encode(&pot));
-                            has_pot = true;
                         }
                     }
-                }
-                tracing::debug!(
-                    client = %key,
-                    n_transformed,
-                    has_pot,
-                    url,
-                    ciphered = format.direct_url().is_none(),
-                    "web stream URL built"
-                );
-                if !n_transformed || !has_pot {
-                    tracing::warn!(
-                        client = %key,
-                        n_transformed,
-                        has_pot,
-                        "web stream URL is incomplete, it will 403"
-                    );
                 }
             }
 
@@ -329,9 +305,7 @@ impl Orchestrator {
             // Short-circuit, so the `else if` below is unreachable for an upload: a failed HEAD
             // that says nothing must not invalidate the session PoToken or churn the cipher
             // config, which is playback-wide damage done on behalf of one track.
-            if is_upload
-                || self.validate_head(&url, client.map(|c| c.user_agent.as_str()), &key).await
-            {
+            if is_upload || self.validate_head(&url, client.map(|c| c.user_agent.as_str())).await {
                 let ping = main_ping.clone().or_else(|| playback_ping(&resp, &key));
                 return Ok(self.build(
                     video_id,
@@ -451,10 +425,7 @@ impl Orchestrator {
     }
 
     /// HEAD validation (context/06 §validateStatus). Success = 2xx. False on any error.
-    ///
-    /// Logs why it failed. A rejected stream used to fall through in complete silence, which is
-    /// how WEB_REMIX could be broken for months without a single line in the log saying so.
-    async fn validate_head(&self, url: &str, ua: Option<&str>, client: &str) -> bool {
+    async fn validate_head(&self, url: &str, ua: Option<&str>) -> bool {
         // The 10s budget used to live on a client of its own; it is a property of this one
         // probe, not of the app's HTTP.
         let mut req = crate::http::client().head(url).timeout(Duration::from_secs(10));
@@ -464,18 +435,7 @@ impl Orchestrator {
         if let Some(cookie) = self.it.cookie() {
             req = req.header("Cookie", cookie.as_str());
         }
-        match req.send().await {
-            Ok(r) if r.status().is_success() => true,
-            Ok(r) => {
-                tracing::warn!(client, status = r.status().as_u16(), "stream URL rejected by HEAD");
-                tracing::debug!(client, url, "rejected stream URL");
-                false
-            }
-            Err(e) => {
-                tracing::warn!(client, error = %e, "stream URL HEAD failed");
-                false
-            }
-        }
+        matches!(req.send().await, Ok(r) if r.status().is_success())
     }
 
     #[allow(clippy::too_many_arguments)]

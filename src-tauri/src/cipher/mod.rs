@@ -13,7 +13,7 @@ pub use config::PlayerConfigStore;
 
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::Value;
 use tauri::AppHandle;
@@ -25,8 +25,6 @@ use fetcher::PlayerJsFetcher;
 const CIPHER_LABEL: &str = "limusic-cipher";
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 const LOAD_TIMEOUT: Duration = Duration::from_secs(15);
-/// Least time between two self-heals that re-fetch player.js and rebuild the webview.
-const HEAL_COOLDOWN: Duration = Duration::from_secs(60);
 
 /// Minimal harness: predefine `_yt_player` (the IIFE arg) so the injected player.js can run.
 const HARNESS: &str = "<!doctype html><html><head><meta charset=utf-8></head><body>\
@@ -44,10 +42,8 @@ const DISCOVERY_JS: &str = r#"(function(){
   function ok(s){return typeof s==='string'&&/^[A-Za-z0-9_-]+$/.test(s)&&s!==t;}
   window.__n_ok=false;
   window.__sig_ok=false;
-  window.__n_probe='';
-  window.__sig_probe='';
-  try{window.__n_probe=String(window._nTransformFunc(t));window.__n_ok=ok(window.__n_probe);}catch(e){}
-  try{window.__sig_probe=String(window._cipherSigFunc(t));window.__sig_ok=(typeof window._cipherSigFunc(t)==='string');}catch(e){}
+  try{window.__n_ok=(typeof window._nTransformFunc==='function'&&ok(window._nTransformFunc(t)));}catch(e){}
+  try{window.__sig_ok=(typeof window._cipherSigFunc==='function'&&typeof window._cipherSigFunc(t)==='string');}catch(e){}
   window.__cipher_loaded=true;
 })();"#;
 
@@ -72,8 +68,6 @@ pub struct CipherDeobfuscator {
     fetcher: PlayerJsFetcher,
     config: Arc<PlayerConfigStore>,
     inner: Mutex<Inner>,
-    /// When the last player.js/webview self-heal ran (see `on_stream_rejected`).
-    last_heal: Mutex<Option<Instant>>,
 }
 
 impl CipherDeobfuscator {
@@ -82,7 +76,6 @@ impl CipherDeobfuscator {
             fetcher: PlayerJsFetcher::new(app_data_dir),
             config,
             inner: Mutex::new(Inner::default()),
-            last_heal: Mutex::new(None),
             app,
         }
     }
@@ -134,9 +127,6 @@ impl CipherDeobfuscator {
             Value::String(sig) if !sig.is_empty() => sig,
             _ => return None,
         };
-        // Every intermediate, so a rejected URL can be rebuilt by hand from the log and the
-        // bad *piece* separated from a bad *assembly*.
-        tracing::debug!(s = %s, sp = %sp, sig = %sig, base = %base, "cipher: deciphered");
         let sep = if base.contains('?') { '&' } else { '?' };
         Some(format!("{base}{sep}{sp}={}", urlencoding::encode(&sig)))
     }
@@ -166,33 +156,20 @@ impl CipherDeobfuscator {
             "(function(){{try{{return String(window._nTransformFunc({}));}}catch(e){{return null;}}}})()",
             js_string(&decoded)
         );
-        let newn = match bridge.eval_json(js, CALL_TIMEOUT).await.ok()? {
-            Value::String(n) if !n.is_empty() && n != decoded => n,
-            _ => return None,
-        };
-        tracing::debug!(n_in = %decoded, n_out = %newn, "cipher: n transformed");
-        Some(url.replacen(&format!("n={enc}"), &format!("n={}", urlencoding::encode(&newn)), 1))
+        match bridge.eval_json(js, CALL_TIMEOUT).await.ok()? {
+            Value::String(newn) if !newn.is_empty() && newn != decoded => Some(url.replacen(
+                &format!("n={enc}"),
+                &format!("n={}", urlencoding::encode(&newn)),
+                1,
+            )),
+            _ => None,
+        }
     }
 
     /// Self-heal after a 403 on a deciphered URL: refresh the config table + invalidate player.js.
     /// Returns true if something changed (caller may clear WEB_REMIX failure memory). context/05, 06.
-    ///
-    /// Rate-limited. Dropping player.js and the webview on *every* rejection meant a 2.9 MB
-    /// re-fetch and a full webview rebuild per track once a stream started failing reliably, and
-    /// a rebuild racing whatever concurrent resolve (the queue lookahead) was mid-decipher, whose
-    /// `n`-transform then found no bridge and silently returned the URL untransformed, which
-    /// 403s, which heals again. The heal has to be rarer than the failure it reacts to.
     pub async fn on_stream_rejected(&self) -> bool {
         let table_changed = self.config.refresh_after_stream_rejection().await;
-        if !table_changed {
-            let mut last = self.last_heal.lock().await;
-            if last.is_some_and(|t| t.elapsed() < HEAL_COOLDOWN) {
-                return false;
-            }
-            *last = Some(Instant::now());
-        } else {
-            *self.last_heal.lock().await = Some(Instant::now());
-        }
         self.fetcher.invalidate();
         {
             let mut inner = self.inner.lock().await;
@@ -289,23 +266,6 @@ impl CipherDeobfuscator {
             bridge.eval_json("window.__sig_ok?true:false".into(), CALL_TIMEOUT).await,
             Ok(Value::Bool(true))
         );
-        // Both transforms run on a fixed probe string, so the answers are comparable across
-        // machines and against a reference run of the same player.js. `n_available` only says
-        // the function returned *something*; these say whether it returned the RIGHT something,
-        // which is the difference between a stream that plays and a silent 403.
-        let n_probe = bridge
-            .eval_json("String(window.__n_probe||'')".into(), CALL_TIMEOUT)
-            .await
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .unwrap_or_default();
-        let sig_probe = bridge
-            .eval_json("String(window.__sig_probe||'')".into(), CALL_TIMEOUT)
-            .await
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .unwrap_or_default();
-        tracing::info!(hash = player.hash, n_probe, sig_probe, "cipher probe");
 
         let mut inner = self.inner.lock().await;
         if keep_bridge(sig_available, n_available) {

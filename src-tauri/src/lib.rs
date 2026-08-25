@@ -172,11 +172,7 @@ pub fn run() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                // `app_lib`, not `limusic-app`: the tracing target is the *library* crate name
-                // (see [lib] in Cargo.toml). This said `limusic_app` for months, which matched
-                // nothing, so every debug! in the app was discarded and failures fell through in
-                // silence.
-                .unwrap_or_else(|_| "info,app_lib=debug".into()),
+                .unwrap_or_else(|_| "info,limusic_app=debug".into()),
         )
         .init();
 
