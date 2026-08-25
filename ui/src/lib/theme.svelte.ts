@@ -94,7 +94,7 @@ export const appearance = $state({
 	 * side panels, which then sit over the now-playing view like they sit over a page (#62).
 	 */
 	tabbedPlayer: true,
-	/** Starting playback opens the now-playing view. Off, it plays and leaves you where you are (#64). */
+	/** Starting playback opens the now-playing sidebar. Off, it plays and opens nothing (#64). */
 	openPlayerOnPlay: true,
 	/** Take the accent colour from the playing track's cover, crossfading on each change. */
 	artworkAccent: false

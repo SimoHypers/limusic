@@ -40,17 +40,22 @@ export const playback = $state({
 });
 
 /**
- * The full-window now-playing view (NowPlaying.svelte): big artwork, plus the Queue/Lyrics tabs.
- * It lives here rather than in the layout because starting something playing opens it, and every
+ * `open` is the full-window now-playing view (NowPlaying.svelte): big artwork, plus the
+ * Queue/Lyrics tabs. `sidebarOpen` is the docked panel beside the page. Both can be true at once:
+ * the layout renders the sidebar only while `!open`, so the full view hides it rather than closing
+ * it, and dismissing the full view brings it back.
+ * This lives here rather than in the layout because starting something playing opens it, and every
  * "play this" path already goes through this module. The open has to happen at the click: a
  * gapless advance looks exactly like a user play from the `now-playing` event alone.
+ * `sidebarOpen` starts false so the auto-open preference decides the first one, not this default.
  */
-export const np = $state({ open: false, sidebarOpen: true, tab: 'queue' as 'queue' | 'lyrics' });
+export const np = $state({ open: false, sidebarOpen: false, tab: 'queue' as 'queue' | 'lyrics' });
 
 export const prefs = $state({ musicVideos: false });
 
-/** Show the right Now Playing sidebar when playback starts. */
+/** No-op when the user has turned the auto-open off (#64): playback starts, the view stays put. */
 export const openPlayer = () => {
+	if (!appearance.openPlayerOnPlay) return;
 	np.sidebarOpen = true;
 	np.open = false;
 };

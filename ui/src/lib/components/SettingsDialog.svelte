@@ -469,7 +469,7 @@
 							<div class={CARD}>
 								{@render row({
 									title: 'Open the player when you press play',
-									desc: 'On, playing a song, album or playlist brings up the full player view. Off, it starts playing and leaves you on the page you were browsing.',
+									desc: 'On, playing a song, album or playlist opens the now playing sidebar beside the page. Off, nothing opens and you stay exactly where you are.',
 									control: openPlayerSwitch,
 									tall: true
 								})}
