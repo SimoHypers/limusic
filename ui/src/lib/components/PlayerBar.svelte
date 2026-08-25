@@ -338,11 +338,18 @@
 		<!-- One cluster, so they sit tighter to each other than to the volume slider. -->
 		<div class="flex items-center gap-0.5">
 			<Button
-				variant={np.sidebarOpen ? 'secondary' : 'ghost'}
+				variant={np.sidebarOpen && !np.open ? 'secondary' : 'ghost'}
 				size="icon-sm"
 				onclick={() => {
+					// The full view hides the sidebar rather than closing it, so while it is up this
+					// has to bring the sidebar back. Toggling the flag instead would spend the click
+					// turning off something already off screen.
+					if (np.open) {
+						np.open = false;
+						np.sidebarOpen = true;
+						return;
+					}
 					np.sidebarOpen = !np.sidebarOpen;
-					if (np.sidebarOpen) np.open = false;
 				}}
 				aria-label="Now playing view"
 				title="Now playing view"
@@ -369,14 +376,12 @@
 				<HugeiconsIcon icon={Queue01Icon} class="h-5 w-5" />
 			</Button>
 			<!-- The keyboard (and discoverable) way in and out of the now-playing view; clicking the
-			     bar's empty space does the same thing. -->
+			     bar's empty space and Ctrl+E do the same thing. The sidebar is left alone on the way
+			     in: the layout already hides it while `np.open`, so it comes back on the way out. -->
 			<Button
 				variant="ghost"
 				size="icon-sm"
-				onclick={() => {
-					np.open = !np.open;
-					if (np.open) np.sidebarOpen = false;
-				}}
+				onclick={() => (np.open = !np.open)}
 				aria-label={np.open ? 'Minimise player' : 'Open player'}
 				aria-expanded={np.open}
 			>
