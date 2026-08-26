@@ -158,6 +158,7 @@ export const tr: Translations = {
 		albums_tab: 'Albümler',
 		artists_tab: 'Sanatçılar',
 		local_tab: 'Yerel',
+		uploads_tab: 'Yüklemeler',
 		matching_songs: '{count} eşleşen',
 		matching_songs_so_far: 'şu ana kadar {count} eşleşen',
 		sync_idle_tooltip: 'Bu cihazda kayıtlı {count} parçayı YouTube Music kitaplığınıza ekleyin',
@@ -180,6 +181,9 @@ export const tr: Translations = {
 		saved_to_library: 'Kitaplığa kaydedildi',
 		removed_from_library: 'Kitaplıktan çıkarıldı',
 		every_song_saved: 'Kaydettiğin bütün şarkılar tek bir listede',
+		every_upload: 'YouTube Music’a yüklediğin bütün parçalar',
+		no_uploads: 'Henüz bir şey yüklemedin. music.youtube.com üzerinden yüklediğin şarkılar burada görünür.',
+		uploads_signed_out: 'YouTube Music’a yüklediğin müzikleri görmek için giriş yap.'
 	},
 	local: {
 		scanning: 'Klasör taranıyor...',

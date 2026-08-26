@@ -168,6 +168,13 @@ export const LIKED_MUSIC_ID = 'VLLM';
 export const LIBRARY_SONGS_ID = 'FEmusic_liked_videos';
 
 /**
+ * The tracks the signed-in user uploaded to YouTube Music themselves. Browses like the songs grid
+ * above, so the same tab component reads it; the rows come back with `is_upload` set, which is what
+ * sends them down the login-only fallback chain when they play (issue #71).
+ */
+export const LIBRARY_UPLOADS_ID = 'FEmusic_library_privately_owned_tracks';
+
+/**
  * Local music (Rust `local.rs`). A file on disk is a song whose `video_id` is `LOCAL:<path>`, and
  * an album of them is a browseId `LOCALALBUM:<key>` — so local items ride every existing surface
  * (cards, queue, Shortcuts, the album page) and play with no network.
