@@ -8,7 +8,8 @@
 		PaintBoardIcon,
 		PlayCircleIcon,
 		Database02Icon,
-		InformationCircleIcon
+		InformationCircleIcon,
+		KeyboardIcon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -17,6 +18,7 @@
 	import { Alert, AlertDescription } from '$lib/components/ui/alert';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Select from '$lib/components/ui/select';
+	import { MOD } from '$lib/shortcuts';
 	import * as api from '$lib/api';
 	import { prefs, ui, toast } from '$lib/player.svelte';
 	import ColorPicker from '$lib/components/ColorPicker.svelte';
@@ -139,6 +141,7 @@
 
 	let tab = $state<TabId>('general');
 	const currentTab = $derived(TABS.find((tb) => tb.id === tab) ?? TABS[0]);
+	const shortcutsHint = $derived(t('settings.general.shortcuts_hint').split('{key}'));
 	const currentLocaleLabel = $derived(
 		LOCALES.find((l) => l.id === currentLocale.id)?.nativeLabel ?? currentLocale.id
 	);
@@ -392,8 +395,24 @@
 					{#if !loaded}
 						<p class="text-sm text-muted-foreground">{t('common.loading')}</p>
 					{:else if tab === 'general'}
+						<!-- The shortcuts list has no other entry point in the chrome. Closing settings
+						     first: two stacked dialogs would trap focus in the wrong one. -->
+						<button
+							type="button"
+							class="mb-5 inline-flex items-center gap-2 rounded-full border bg-muted/50 px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+							onclick={() => {
+								ui.settingsOpen = false;
+								ui.shortcutsOpen = true;
+							}}
+						>
+							<HugeiconsIcon icon={KeyboardIcon} class="h-3.5 w-3.5" />
+							<span
+								>{shortcutsHint[0]}<kbd class="font-mono font-medium">{MOD}H</kbd>{shortcutsHint[1] ??
+									''}</span
+							>
+						</button>
 						<section class={GROUP}>
-							<h3 class={LABEL}>{t('settings.general.language')}</h3>
+							<h3 class={LABEL}>{t('settings.sections.language')}</h3>
 							<div class={CARD}>
 								{@render row({
 									title: t('settings.general.language'),
@@ -403,7 +422,7 @@
 							</div>
 						</section>
 						<section class={GROUP}>
-							<h3 class={LABEL}>{t('settings.general.discord_rpc')}</h3>
+							<h3 class={LABEL}>{t('settings.sections.activity')}</h3>
 							<div class={CARD}>
 								{@render row({
 									title: t('player.history'),
@@ -418,7 +437,7 @@
 							</div>
 						</section>
 						<section class={GROUP}>
-							<h3 class={LABEL}>{t('settings.general.autostart')}</h3>
+							<h3 class={LABEL}>{t('settings.sections.system')}</h3>
 							<div class={CARD}>
 								{@render row({
 									title: t('settings.general.close_to_tray'),
@@ -434,7 +453,7 @@
 						</section>
 					{:else if tab === 'themes'}
 						<section class={GROUP}>
-							<h3 class={LABEL}>{t('settings.themes.accent_themes')}</h3>
+							<h3 class={LABEL}>{t('settings.sections.theme')}</h3>
 							<div class={CARD}>
 								{@render row({
 									title: t('settings.tabs.themes'),
@@ -464,7 +483,7 @@
 						</section>
 
 						<section class={GROUP}>
-							<h3 class={LABEL}>{t('settings.themes.interface_font')}</h3>
+							<h3 class={LABEL}>{t('settings.sections.typography')}</h3>
 							<div class={CARD}>
 								{#each FONT_ROWS as fr (fr.key)}
 									<!-- Zero-arg wrappers: a snippet passed as a value can't carry arguments. -->
@@ -487,7 +506,7 @@
 						</section>
 
 						<section class={GROUP}>
-							<h3 class={LABEL}>{t('settings.tabs.themes')}</h3>
+							<h3 class={LABEL}>{t('settings.sections.player_view')}</h3>
 							<div class={CARD}>
 								{@render row({
 									title: t('settings.themes.open_player'),
@@ -523,7 +542,7 @@
 						</section>
 					{:else if tab === 'playback'}
 						<section class={GROUP}>
-							<h3 class={LABEL}>{t('settings.playback.audio_quality')}</h3>
+							<h3 class={LABEL}>{t('settings.sections.audio')}</h3>
 							<div class={CARD}>
 								{@render row({
 									title: t('settings.playback.audio_quality'),
@@ -544,7 +563,7 @@
 							</div>
 						</section>
 						<section class={GROUP}>
-							<h3 class={LABEL}>{t('settings.playback.music_videos')}</h3>
+							<h3 class={LABEL}>{t('settings.sections.video')}</h3>
 							<div class={CARD}>
 								{@render row({
 									title: t('settings.playback.music_videos'),
@@ -562,7 +581,7 @@
 							</div>
 						</section>
 						<section class={GROUP}>
-							<h3 class={LABEL}>{t('player.lyrics')}</h3>
+							<h3 class={LABEL}>{t('settings.sections.lyrics')}</h3>
 							<div class={CARD}>
 								{@render row({
 									title: t('settings.playback.lyrics_provider'),
@@ -573,14 +592,14 @@
 							</div>
 						</section>
 						<section class={GROUP}>
-							<h3 class={LABEL}>{t('settings.general.stream_clients')}</h3>
+							<h3 class={LABEL}>{t('settings.sections.advanced')}</h3>
 							<div class={CARD}>
 								{@render row({ title: t('settings.general.stream_clients'), below: clientList })}
 							</div>
 						</section>
 					{:else if tab === 'data'}
 						<section class={GROUP}>
-							<h3 class={LABEL}>{t('settings.general.proxy')}</h3>
+							<h3 class={LABEL}>{t('settings.sections.network')}</h3>
 							<div class={CARD}>
 								{@render row({
 									title: t('settings.general.proxy'),
@@ -590,7 +609,7 @@
 							</div>
 						</section>
 						<section class={GROUP}>
-							<h3 class={LABEL}>{t('settings.data.clear_cache')}</h3>
+							<h3 class={LABEL}>{t('settings.sections.storage')}</h3>
 							<div class={CARD}>
 								{@render row({
 									title: t('settings.data.clear_cache'),
@@ -619,7 +638,7 @@
 						</div>
 
 						<section class={GROUP}>
-							<h3 class={LABEL}>{t('settings.about.check_updates')}</h3>
+							<h3 class={LABEL}>{t('settings.sections.updates')}</h3>
 							<div class={CARD}>
 								{@render row({
 									title: t('settings.about.check_updates'),
@@ -641,7 +660,7 @@
 						</section>
 
 						<section class={GROUP}>
-							<h3 class={LABEL}>{t('settings.about.changelog')}</h3>
+							<h3 class={LABEL}>{t('settings.sections.whats_new')}</h3>
 							<div class={CARD}>
 								{@render row({
 									title: t('settings.about.changelog'),

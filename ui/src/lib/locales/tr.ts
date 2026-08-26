@@ -203,9 +203,26 @@ export const tr: Translations = {
 			about: 'Hakkında',
 			about_hint: 'Sürüm, güncellemeler ve değişiklikler.'
 		},
-		general: {
+		sections: {
 			language: 'Dil (Language)',
+			activity: 'Etkinlik',
+			system: 'Sistem',
+			theme: 'Tema',
+			typography: 'Tipografi',
+			player_view: 'Oynatıcı görünümü',
+			audio: 'Ses',
+			video: 'Video',
+			lyrics: 'Şarkı sözleri',
+			advanced: 'Gelişmiş',
+			network: 'Ağ',
+			storage: 'Depolama',
+			updates: 'Güncellemeler',
+			whats_new: 'Yenilikler'
+		},
+		general: {
+			language: 'Arayüz dili',
 			language_hint: 'Arayüzün görüntüleneceği dili seçin.',
+			shortcuts_hint: 'Klavye kısayollarını {key} ile açın',
 			autostart: 'Başlangıçta çalıştır',
 			autostart_hint: 'Sistem açıldığında Limusic uygulamasını otomatik başlatın.',
 			close_to_tray: 'Sistem tepsisine küçült',
@@ -218,7 +235,8 @@ export const tr: Translations = {
 			proxy_hint: 'Ağ isteklerini özel bir vekil sunucu üzerinden yönlendirin.',
 			proxy_placeholder: 'örn. http://127.0.0.1:7890',
 			stream_clients: 'Akış istemcileri',
-			stream_clients_hint: 'Ses ayrıştırma için alternatif akış istemcilerini açıp kapatın.'
+			stream_clients_hint:
+				'Bir istemciyi kapatarak akış çözümlemesinde atlanmasını sağlayın. {var} ortam değişkeni bu ayarı geçersiz kılar.'
 		},
 		themes: {
 			accent_themes: 'Vurgu Temaları',

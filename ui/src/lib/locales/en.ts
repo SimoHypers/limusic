@@ -201,9 +201,26 @@ export const en = {
 			about: 'About',
 			about_hint: 'Version, updates and what changed.'
 		},
-		general: {
+		sections: {
 			language: 'Language',
+			activity: 'Activity',
+			system: 'System',
+			theme: 'Theme',
+			typography: 'Typography',
+			player_view: 'Player view',
+			audio: 'Audio',
+			video: 'Video',
+			lyrics: 'Lyrics',
+			advanced: 'Advanced',
+			network: 'Network',
+			storage: 'Storage',
+			updates: 'Updates',
+			whats_new: "What's new"
+		},
+		general: {
+			language: 'Interface language',
 			language_hint: 'Select the interface display language.',
+			shortcuts_hint: 'Open the keyboard shortcuts with {key}',
 			autostart: 'Launch on startup',
 			autostart_hint: 'Automatically start Limusic when your system boots.',
 			close_to_tray: 'Close to system tray',
