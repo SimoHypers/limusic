@@ -2,11 +2,13 @@
 //!
 //! Phase 2: WEB_REMIX is the primary client (STS + PoToken + cipher/n-transform), with the
 //! direct-URL clients (VISIONOS → ANDROID_VR → IOS) as graceful fallback and rustypipe as the
-//! last-ditch net. All seven context/06 critical behaviors are preserved: metadata from MAIN,
-//! WEB_REMIX skips HEAD (with per-videoId failure memory), last client accepted unvalidated,
-//! HIGH two-pass, off-hot-path self-heal, and graceful PoToken/cipher degradation.
+//! last-ditch net. The context/06 critical behaviors are preserved: metadata from MAIN, the
+//! per-videoId WEB_REMIX failure memory, the HIGH two-pass, off-hot-path self-heal, and graceful
+//! PoToken/cipher degradation. Every client is HEAD-validated (see the note in `resolve`); for an
+//! upload a failed HEAD demotes the URL instead of rejecting it, because there is no anonymous
+//! chain behind an upload to fall through to.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -197,18 +199,22 @@ impl Orchestrator {
 
         // 4. Fallback loop. idx == -1 reuses the main response; 0.. are the fallback clients.
         let mut best: Option<Candidate> = None;
+        // A login client's upload URL that failed HEAD. Used only if nothing validates.
+        let mut upload_fallback: Option<Candidate> = None;
         let last_idx = order.len() as isize - 1;
 
         for idx in -1..=last_idx {
             let (key, resp): (String, PlayerResponse) = if idx == -1 {
                 // A WEB_REMIX stream that already died in the player is not retried for this
                 // video: it passed HEAD and failed anyway, so validation has nothing left to say.
-                // Not for an upload: WEB_REMIX and WEB_CREATOR are the only login clients that
-                // can serve one, and both hang off this slot (WEB_CREATOR via the gate retry
-                // above). Honouring the memory here would leave attempt two with nothing at all.
+                // Uploads included. This used to exempt them, on the belief that skipping this
+                // slot left the retry with nothing, but the rest of `UPLOAD_FALLBACK_ORDER`
+                // (TVHTML5, then WEB_CREATOR) is exactly what the retry is for. Exempting them
+                // meant the second attempt re-resolved the same dead WEB_REMIX URL and failed
+                // identically, which is the loop issue #71 has been stuck in.
                 if !main_ok
                     || disabled.contains(MAIN_CLIENT)
-                    || (!is_upload && self.web_remix_failed.lock().await.contains(video_id))
+                    || self.web_remix_failed.lock().await.contains(video_id)
                 {
                     continue;
                 }
@@ -283,10 +289,10 @@ impl Orchestrator {
             // - WEB_REMIX skipped it on Metrolist's note that its authed URLs 403 on HEAD but
             //   stream on GET. That holds for ExoPlayer, which fetches in bounded ranges. mpv opens
             //   with `Range: bytes=0-`, and for the videos where googlevideo caps a WEB_REMIX URL
-            //   (only the first ~768 KiB is served, in ≤256 KiB pieces) that open-ended request
+            //   (only the first ~768 KiB is served, in <=256 KiB pieces) that open-ended request
             //   gets the same 403 the HEAD does.
             //
-            // Measured on fresh URLs, HEAD agrees with what mpv gets every time — 200/206 for
+            // Measured on fresh URLs, HEAD agrees with what mpv gets every time: 200/206 for
             // dQw4w9WgXcQ, 403/403 for XqZsoesa55w and D07O_cbJ_Rw. So the check costs one
             // round trip and turns a guaranteed failed load, an error toast, a retry and a round
             // of cipher/PoToken self-heal churn into a silent fall-through at resolve time.
@@ -294,19 +300,12 @@ impl Orchestrator {
             // It also stays correct if a valid PoToken lifts the cap on those videos: then HEAD
             // passes and WEB_REMIX is used. Nothing here has to know which way that goes.
             //
-            // EXCEPT for an upload, which is not validated at all. A privately-owned track's URL
-            // is bound to the session that owns it, and a HEAD against it does not predict what
-            // mpv's GET gets: it passes for some accounts' uploads and 403s for others' (issue
-            // #71, and Metrolist stopped validating private tracks for the same reason, PR #3517).
-            // Every client in `UPLOAD_FALLBACK_ORDER` is authenticated and there is nothing behind
-            // the chain to fall through to, so the first one that produced a URL is the best
-            // answer available. Rejecting it only turns a stream that would have played into a
-            // "sign-in needed" skip.
-            //
-            // Short-circuit, so the `else if` below is unreachable for an upload: a failed HEAD
-            // that says nothing must not invalidate the session PoToken or churn the cipher
-            // config, which is playback-wide damage done on behalf of one track.
-            if is_upload || self.validate_head(&url, client.map(|c| c.user_agent.as_str())).await {
+            // The probe sends exactly the headers `build` will hand mpv (same UA, cookie only
+            // where mpv gets one), because a HEAD that carries something the real GET does not
+            // is not a prediction of anything. Issue #71.
+            let headers =
+                stream_headers(client.map(|c| c.user_agent.clone()), self.it.cookie(), is_upload);
+            if self.validate_head(&url, &headers).await {
                 let ping = main_ping.clone().or_else(|| playback_ping(&resp, &key));
                 return Ok(self.build(
                     video_id,
@@ -317,29 +316,39 @@ impl Orchestrator {
                     audio_config_loudness,
                     &main_resp,
                     ping,
-                    is_upload,
+                    headers,
                 ));
-            } else if needs_n {
-                // A cipher client that fails validation may have a stale config → self-heal off
-                // the hot path so it never blocks falling through (context/06 §7). If the heal
-                // changes the config table, clear the WEB_REMIX failure memory (context/06 §2).
-                let cipher = self.cipher.clone();
-                let potoken = self.potoken.clone();
-                let failed = self.web_remix_failed.clone();
-                tauri::async_runtime::spawn(async move {
-                    // The session PoToken now outlives the process, so a rejected web stream is
-                    // the only signal left that Google stopped honouring it early. Drop it here
-                    // rather than replay it for the rest of its nominal 12 hours.
-                    potoken.invalidate_session_token().await;
-                    if cipher.on_stream_rejected().await {
-                        failed.lock().await.clear();
-                    }
-                });
+            }
+
+            // An upload's failed HEAD is a demotion, never a rejection. Metrolist stopped
+            // validating privately-owned tracks outright (PR #3517) because a HEAD against one
+            // does not reliably predict its GET, and this app then went further and returned the
+            // very first URL unvalidated. That made WEB_REMIX the only client an upload ever
+            // used: TVHTML5 and WEB_CREATOR sat behind an unconditional `return` and could never
+            // run, so an account whose WEB_REMIX URLs 403 (no accepted PoToken on that machine, a
+            // stale cipher) had no second chance and no way to recover. Issue #71.
+            //
+            // So: keep the first URL as a last resort, let the rest of the chain have its turn,
+            // and hand the unvalidated one back only if nothing better turns up. Worst case this
+            // is what the old code did, one or two round trips later.
+            if is_upload {
+                if upload_fallback.is_none() {
+                    tracing::info!(video_id, client = %key, "upload stream failed HEAD, trying the next login client");
+                    let ping = main_ping.clone().or_else(|| playback_ping(&resp, &key));
+                    upload_fallback =
+                        Some(Candidate { format: format.clone(), url, expires, client: key, ping });
+                }
+                continue;
+            }
+
+            if needs_n {
+                self.self_heal();
             }
         }
 
         // 6. HIGH wanted but only a non-HIGH found → use the remembered best.
         if let Some(c) = best {
+            let headers = self.headers_for(&c.client, is_upload);
             return Ok(self.build(
                 video_id,
                 &c.format,
@@ -349,7 +358,30 @@ impl Orchestrator {
                 audio_config_loudness,
                 &main_resp,
                 c.ping,
-                is_upload,
+                headers,
+            ));
+        }
+
+        // 6b. An upload nothing validated: hand back the first URL a login client produced
+        // rather than skip the track. See the demotion note in the loop.
+        if let Some(c) = upload_fallback {
+            tracing::warn!(video_id, client = %c.client, "no upload stream passed HEAD, using the first anyway");
+            // Every login client's URL was refused, which is the one upload failure that does say
+            // something about the session rather than about the track. Heal off the hot path so a
+            // machine stuck on a rejected PoToken or a stale cipher can get itself out; without
+            // this an upload-only failure had no route back at all.
+            self.self_heal();
+            let headers = self.headers_for(&c.client, is_upload);
+            return Ok(self.build(
+                video_id,
+                &c.format,
+                c.url,
+                c.expires,
+                &c.client,
+                audio_config_loudness,
+                &main_resp,
+                c.ping,
+                headers,
             ));
         }
 
@@ -426,17 +458,45 @@ impl Orchestrator {
     }
 
     /// HEAD validation (context/06 §validateStatus). Success = 2xx. False on any error.
-    async fn validate_head(&self, url: &str, ua: Option<&str>) -> bool {
+    ///
+    /// `headers` is what mpv will send for this stream, so the probe is the same request the
+    /// player will make. It used to always attach the cookie while `build` attached it only for
+    /// uploads, which let an ordinary track pass validation and then 403 on the real open.
+    async fn validate_head(&self, url: &str, headers: &HashMap<String, String>) -> bool {
         // The 10s budget used to live on a client of its own; it is a property of this one
         // probe, not of the app's HTTP.
         let mut req = crate::http::client().head(url).timeout(Duration::from_secs(10));
-        if let Some(ua) = ua {
-            req = req.header("User-Agent", ua);
-        }
-        if let Some(cookie) = self.it.cookie() {
-            req = req.header("Cookie", cookie.as_str());
+        for (k, v) in headers {
+            req = req.header(k, v);
         }
         matches!(req.send().await, Ok(r) if r.status().is_success())
+    }
+
+    /// A cipher client's stream was refused → its config may be stale. Heal off the hot path so
+    /// it never blocks falling through (context/06 §7). If the heal changes the config table,
+    /// clear the WEB_REMIX failure memory (context/06 §2).
+    fn self_heal(&self) {
+        let cipher = self.cipher.clone();
+        let potoken = self.potoken.clone();
+        let failed = self.web_remix_failed.clone();
+        tauri::async_runtime::spawn(async move {
+            // The session PoToken now outlives the process, so a rejected web stream is the only
+            // signal left that Google stopped honouring it early. Drop it here rather than replay
+            // it for the rest of its nominal 12 hours.
+            potoken.invalidate_session_token().await;
+            if cipher.on_stream_rejected().await {
+                failed.lock().await.clear();
+            }
+        });
+    }
+
+    /// [`stream_headers`] for a client registry key.
+    fn headers_for(&self, client: &str, is_upload: bool) -> HashMap<String, String> {
+        stream_headers(
+            self.clients.get(client).map(|c| c.user_agent.clone()),
+            self.it.cookie(),
+            is_upload,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -450,26 +510,8 @@ impl Orchestrator {
         loudness: Option<f64>,
         main_resp: &Option<PlayerResponse>,
         ping: Option<PlaybackPing>,
-        is_upload: bool,
+        headers: HashMap<String, String>,
     ) -> PlaybackData {
-        let ua = self.clients.get(client).map(|c| c.user_agent.clone());
-        let mut headers = std::collections::HashMap::new();
-        if let Some(ua) = ua {
-            headers.insert("User-Agent".to_owned(), ua);
-        }
-        // A privately-owned track's googlevideo URL is only served to the session that owns it, so
-        // mpv's GET has to carry the cookie too. `validate_head` already sends it, which is how an
-        // upload could pass HEAD and then 403 on the real open. Uploads only: this is the hot path
-        // and there is no evidence an ordinary stream wants a cookie. Issue #71.
-        //
-        // mpv's header properties are global (crates/player: `http-header-fields`), so a track
-        // appended for gapless playback inherits whatever the current one set. Same host either
-        // way, so it is harmless, but it means the cookie can outlive the upload that needed it.
-        if is_upload {
-            if let Some(cookie) = self.it.cookie() {
-                headers.insert("Cookie".to_owned(), cookie.to_string());
-            }
-        }
         let vd = main_resp.as_ref().and_then(|r| r.video_details.as_ref());
         tracing::info!(video_id, client, itag = format.itag, "resolved stream");
         PlaybackData {
@@ -488,6 +530,32 @@ impl Orchestrator {
             stream_client: client.to_owned(),
         }
     }
+}
+
+/// The headers mpv (and the validating HEAD) must send for one stream.
+///
+/// A privately-owned track's googlevideo URL is only served to the session that owns it, so an
+/// upload's GET has to carry the cookie. Uploads only: this is the hot path and there is no
+/// evidence an ordinary stream wants one. Issue #71.
+///
+/// mpv's header properties are global (crates/player: `http-header-fields`), so a track appended
+/// for gapless playback inherits whatever the current one set. Same host either way, so it is
+/// harmless, but it means the cookie can outlive the upload that needed it.
+fn stream_headers(
+    ua: Option<String>,
+    cookie: Option<String>,
+    is_upload: bool,
+) -> HashMap<String, String> {
+    let mut headers = HashMap::new();
+    if let Some(ua) = ua {
+        headers.insert("User-Agent".to_owned(), ua);
+    }
+    if is_upload {
+        if let Some(cookie) = cookie {
+            headers.insert("Cookie".to_owned(), cookie);
+        }
+    }
+    headers
 }
 
 fn is_high(f: &Format) -> bool {
@@ -536,4 +604,28 @@ fn best_thumbnail(resp: &PlayerResponse) -> Option<String> {
         .and_then(|v| v.thumbnail.as_ref())
         .and_then(|t| t.thumbnails.last())
         .map(|t| t.url.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stream_headers;
+
+    /// The HEAD probe and mpv share this, so what it returns has to be identical for both callers
+    /// (that mismatch is issue #71): the cookie rides along for an upload and for nothing else.
+    #[test]
+    fn only_an_upload_carries_the_cookie() {
+        let ua = || Some("UA/1".to_owned());
+        let cookie = || Some("SAPISID=secret".to_owned());
+
+        let up = stream_headers(ua(), cookie(), true);
+        assert_eq!(up.get("User-Agent").map(String::as_str), Some("UA/1"));
+        assert_eq!(up.get("Cookie").map(String::as_str), Some("SAPISID=secret"));
+
+        let ordinary = stream_headers(ua(), cookie(), false);
+        assert_eq!(ordinary.get("User-Agent").map(String::as_str), Some("UA/1"));
+        assert!(!ordinary.contains_key("Cookie"), "an ordinary stream must not send the cookie");
+
+        // Signed out: an upload cannot play at all, but it must not produce a bogus header.
+        assert!(!stream_headers(ua(), None, true).contains_key("Cookie"));
+    }
 }

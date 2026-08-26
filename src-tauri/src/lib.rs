@@ -613,8 +613,18 @@ fn spawn_event_pump(
                     // The track died (dead/403 URL etc). on_track_failed records a WEB_REMIX 403
                     // (context/06 §2), evicts the poisoned cache, and retries the track once via
                     // the fallback clients — only toast the error if it gave up and advanced.
-                    tracing::warn!(error = %msg, "track failed");
+                    //
+                    // Read the client before the retry: it advances the queue when it gives up,
+                    // and which client served the dead URL is the one fact a bug report has to
+                    // carry. Nobody can read the log on Windows (no console, no log file), so it
+                    // goes in the message the user can see and copy. Issue #71.
+                    let client = state.current_stream_client().await;
+                    tracing::warn!(error = %msg, client = ?client, "track failed");
                     if !state.on_track_failed().await {
+                        let msg = match client {
+                            Some(c) => format!("{msg} ({c})"),
+                            None => msg,
+                        };
                         let _ = app.emit("playback-error", serde_json::json!({ "message": msg }));
                     }
                 }
