@@ -42,13 +42,14 @@
 
 {#snippet body()}{#if children}{@render children()}{:else}{text}{/if}{/snippet}
 
-<div bind:this={box} class="overflow-hidden {cls}">
+<div bind:this={box} class="marquee-box overflow-hidden {cls}">
 	{#key text}
 		{#if width}
 			<!-- The copy is what the loop scrolls into view: by the time the first one has moved
 			     its own width plus the gap, the second sits exactly where it started, so the
 			     restart is invisible and the line only ever travels one way. `inert` keeps any
-			     links in the copy out of the tab order and unclickable.
+			     links in the copy out of the tab order and unclickable. The gap is a margin, not
+			     padding, so a hover underline drawn on this span stops at the text.
 			     It is positioned, not laid out, on purpose. The title and the artist line share one
 			     shrink-to-fit column, so a second in-flow copy would double this line's max-content
 			     width, widen the column, and un-truncate the very text that asked to scroll: both
@@ -61,7 +62,7 @@
 				<span class="block whitespace-nowrap" data-mq>{@render body()}</span>
 				<span
 					class="absolute left-full top-0 whitespace-nowrap"
-					style="padding-left:{GAP}px"
+					style="margin-left:{GAP}px"
 					aria-hidden="true"
 					inert>{@render body()}</span
 				>

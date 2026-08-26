@@ -162,21 +162,27 @@
 		{/key}
 		<div class="min-w-0">
 			<div class="flex items-center gap-1.5">
-				<Marquee
-					text={playback.now?.title ?? t('player.not_playing')}
-					class="text-sm font-medium"
-				>
-					{#if albumId}
-						<button
-							class="cursor-pointer text-left hover:underline"
-							onclick={() => goto(`/album/${encodeURIComponent(albumId!)}`)}
-						>
-							{playback.now?.title}
-						</button>
-					{:else}
-						{playback.now?.title ?? t('player.not_playing')}
-					{/if}
-				</Marquee>
+				{#snippet title()}
+					<Marquee
+						text={playback.now?.title ?? t('player.not_playing')}
+						class="text-sm font-medium"
+					/>
+				{/snippet}
+				<!-- The button wraps the whole marquee rather than the text inside it: mid-scroll the
+				     visible half of the line is the inert trailing copy, so a button around the text
+				     itself is only clickable while the original copy is on screen. The underline goes
+				     on the spans, not the button: text-decoration doesn't reach the trailing copy,
+				     which is absolutely positioned. -->
+				{#if albumId}
+					<button
+						class="min-w-0 cursor-pointer text-left hover:[&_span]:underline"
+						onclick={() => goto(`/album/${encodeURIComponent(albumId)}`)}
+					>
+						{@render title()}
+					</button>
+				{:else}
+					{@render title()}
+				{/if}
 				{#if autoplayTrack}
 					<span
 						class="shrink-0 text-muted-foreground"

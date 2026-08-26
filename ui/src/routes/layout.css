@@ -657,8 +657,10 @@ html.art-tint.dark {
 	to { transform: translateX(calc(var(--marquee-dx) * -1)); }
 }
 .marquee { animation: marquee linear infinite; }
-/* Hovering holds it still: the artist line's names are links, and hitting a moving target is not. */
-.marquee:hover { animation-play-state: paused; }
+/* Hovering holds it still: the artist line's names are links, and hitting a moving target is not.
+   Triggered from the clipping box, not the scrolling track: the trailing copy is inert, so it is
+   not hit-testable and hovering it would never reach the track itself. */
+.marquee-box:hover .marquee { animation-play-state: paused; }
 
 /* A small "pop" for the like button when a track is favourited. */
 @keyframes heart-pop {
