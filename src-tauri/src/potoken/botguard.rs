@@ -136,6 +136,10 @@ async fn bootstrap(
 ) -> Result<(Botguard, String, u64), Error> {
     let mut last = None;
     for attempt in 1..=MAX_BOOTSTRAPS {
+        // Drop the previous attempt's runtime before building the next: v8 asserts isolates are
+        // dropped in reverse creation order (v8-130 isolate.rs:1666) and panics the whole thread
+        // if two overlap, which kills the minter for the rest of the process.
+        drop(last.take());
         let mut bg = Botguard::builder().user_agent(user_agent).init().await.map_err(classify)?;
         // Session token first, on a fresh minter, before any other identifier — Metrolist enforces
         // that ordering under a mutex and there is no reason to find out the hard way why.
