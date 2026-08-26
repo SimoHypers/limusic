@@ -156,20 +156,39 @@
 		return !!found;
 	}
 
+	/** Forgotten favourites renders at the top but arrives deep in the feed. */
+	const wantForgotten = () => !forgotten && !hidden.has(FORGOTTEN);
+
 	/**
-	 * The shelf renders at the top but arrives deep in the feed, so walk a few continuations for it
-	 * instead of leaving the slot empty until the user happens to scroll past where YouTube put it.
-	 * Bounded — it's a shelf, not worth crawling the whole feed for.
+	 * A custom arrangement can only be honoured for the shelves that have loaded, so a section the
+	 * user dragged upwards stayed missing until they scrolled to wherever YouTube actually put it.
+	 * True while some section ranked *above* one already on screen hasn't arrived yet — the ones
+	 * ranked below it land at the bottom regardless, which is what scrolling is for.
+	 */
+	function missingRanked() {
+		const order = personal.home.order;
+		if (!order.length) return false;
+		const rank = new Map(order.map((k, i) => [k, i]));
+		const here = new Set([RECENT, FAMILIAR, FORGOTTEN, ...feed.map((s) => s.title)]);
+		let deepest = -1;
+		for (const [k, r] of rank) if (here.has(k) && r > deepest) deepest = r;
+		for (const [k, r] of rank) if (r < deepest && !here.has(k) && !hidden.has(k)) return true;
+		return false;
+	}
+
+	/**
+	 * Walk a few continuations up front rather than leaving those slots empty until the reader
+	 * happens to scroll past them. Bounded — the feed is long and this is a nicety.
 	 */
 	async function seekForgotten(params: string | null) {
-		if (params || forgotten) return; // a mood feed is the chip's; a cached shelf needs no crawl
-		if (hidden.has(FORGOTTEN)) return; // four round-trips for a shelf that won't be rendered
+		if (params) return; // a mood feed is the chip's, and its shelves aren't home's
 		seeking = true;
 		try {
-			for (let i = 0; i < 4; i++) {
-				if (forgotten || moreError || loadingMore) return;
+			for (let i = 0; i < 6; i++) {
+				if (moreError || loadingMore) return;
+				if (!wantForgotten() && !missingRanked()) return;
 				if (selected !== params || !home?.continuation) return;
-				await loadMore(); // latches the shelf itself if the page carries it
+				await loadMore(); // latches the forgotten shelf itself if the page carries it
 			}
 		} finally {
 			seeking = false;
