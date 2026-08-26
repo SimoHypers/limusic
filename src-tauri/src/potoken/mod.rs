@@ -122,8 +122,8 @@ impl PoTokenGenerator {
         if let Some(token) = self.cached_session_token(visitor_data).await {
             return Some(token);
         }
-        match timeout(MINT_BUDGET, self.ensure_minter(visitor_data)).await {
-            Ok(Ok(_guard)) => self.cached_session_token(visitor_data).await,
+        match timeout(MINT_BUDGET, self.mint_session(visitor_data)).await {
+            Ok(Ok(token)) => Some(token),
             Ok(Err(e)) => {
                 self.on_failure("session", &e).await;
                 None
@@ -192,6 +192,30 @@ impl PoTokenGenerator {
         Ok(guard)
     }
 
+    /// Session token off a warm (or freshly built) minter.
+    ///
+    /// `create_minter` caches one on the way, but the orchestrator's self-heal drops the cached
+    /// token and leaves the minter alive (`invalidate_session_token`, called from
+    /// orchestrator.rs when a web-client stream fails HEAD validation). Minting here is what stops
+    /// that from leaving the session with no session token until the idle teardown: while a queue
+    /// keeps playing, `last_used` keeps refreshing and the minter never ages out.
+    async fn mint_session(&self, visitor_data: &str) -> Result<String, botguard::Error> {
+        let mut guard = self.ensure_minter(visitor_data).await?;
+        if let Some(token) = self.cached_session_token(visitor_data).await {
+            return Ok(token); // ensure_minter built one, which caches a token on the way
+        }
+        let minter = guard.as_mut().expect("minter present");
+        minter.last_used = Instant::now();
+        // The token is only good while the integrity token behind it is, which is what the
+        // minter's own expiry tracks.
+        let good_for = minter.expires_at.saturating_duration_since(Instant::now());
+        let token = timeout(CALL_TIMEOUT, minter.inner.mint(visitor_data))
+            .await
+            .map_err(|_| botguard::Error::Transient("session mint timed out".into()))??;
+        self.store_session_token(visitor_data, token.clone(), good_for).await;
+        Ok(token)
+    }
+
     /// Per-video token (identifier = videoId). One retry with a fresh minter on failure.
     async fn mint_streaming(
         &self,
@@ -227,15 +251,7 @@ impl PoTokenGenerator {
         // `Instant`, while the session token is written to disk and needs wall-clock.
         let good_for = Duration::from_secs(b.lifetime_secs).saturating_sub(EXPIRY_MARGIN);
 
-        let token = SessionToken {
-            session_id: session_id.to_owned(),
-            token: b.session_token,
-            expires_at: now_secs() + good_for.as_secs() as i64,
-        };
-        if let Ok(json) = serde_json::to_string(&token) {
-            self.db.set_setting(SESSION_TOKEN_KEY, &json);
-        }
-        *self.session_token.lock().await = Some(token);
+        self.store_session_token(session_id, b.session_token, good_for).await;
 
         Ok(Minter {
             session_id: session_id.to_owned(),
@@ -243,6 +259,22 @@ impl PoTokenGenerator {
             inner: b.minter,
             last_used: Instant::now(),
         })
+    }
+
+    /// Cache a session token good for `good_for`, in memory and on disk.
+    ///
+    /// Locks `session_token` and nothing else: every caller already holds the `minter` lock, so
+    /// the one lock order in this file is minter → session_token.
+    async fn store_session_token(&self, session_id: &str, token: String, good_for: Duration) {
+        let token = SessionToken {
+            session_id: session_id.to_owned(),
+            token,
+            expires_at: now_secs() + good_for.as_secs() as i64,
+        };
+        if let Ok(json) = serde_json::to_string(&token) {
+            self.db.set_setting(SESSION_TOKEN_KEY, &json);
+        }
+        *self.session_token.lock().await = Some(token);
     }
 
     /// Warm the minter for `visitor_data` (context/04 §startup). Non-fatal.
@@ -291,6 +323,28 @@ mod tests {
 
     fn token(session_id: &str, expires_at: i64) -> SessionToken {
         SessionToken { session_id: session_id.to_owned(), token: "tok".to_owned(), expires_at }
+    }
+
+    /// The self-heal sequence: orchestrator.rs invalidates the session token while the minter is
+    /// still alive, and something has to be able to put one back (before this, nothing but
+    /// `create_minter` ever wrote one, so the session stayed tokenless until the idle teardown).
+    /// The mint itself needs V8 and the network, so the end-to-end proof is the `live` test in
+    /// botguard.rs; this pins the cache and the `settings` row either side of it.
+    #[tokio::test]
+    async fn a_session_token_can_be_stored_again_after_invalidation() {
+        let db = Arc::new(Db::open(std::path::Path::new(":memory:")).unwrap());
+        let g = PoTokenGenerator::new(db);
+
+        g.store_session_token("vd123", "tok".to_owned(), Duration::from_secs(3600)).await;
+        assert_eq!(g.cached_session_token("vd123").await.as_deref(), Some("tok"));
+        assert!(g.db.get_setting(SESSION_TOKEN_KEY).is_some());
+
+        g.invalidate_session_token().await;
+        assert_eq!(g.cached_session_token("vd123").await, None);
+        assert_eq!(g.db.get_setting(SESSION_TOKEN_KEY), None);
+
+        g.store_session_token("vd123", "tok2".to_owned(), Duration::from_secs(3600)).await;
+        assert_eq!(g.cached_session_token("vd123").await.as_deref(), Some("tok2"));
     }
 
     #[test]

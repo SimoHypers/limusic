@@ -26,7 +26,7 @@ const POT_OVERHEAD: usize = 14;
 /// (accepted) and 65-66 (rejected) with nothing in between, so the threshold sits in the gap.
 const ACCEPTED_MAX_IT: usize = 63;
 /// How many bootstraps to spend looking for the accepted class. At the measured ~1-in-3 rate this
-/// misses about once in 25 launches, and a miss degrades to the direct clients exactly as before.
+/// misses about once in 25 launches; a miss keeps the last runtime and mints from it anyway.
 const MAX_BOOTSTRAPS: usize = 8;
 /// Identifier the class check mints against: plain ASCII, so its decoded byte length is its char
 /// length and the integrity-token arithmetic is exact. visitorData is not usable for this — it
@@ -35,21 +35,23 @@ const CLASS_PROBE: &str = "limusicprobe";
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// The JS runtime itself is broken. Nothing will fix it at runtime, so the caller latches and
-    /// degrades permanently (context/04 §BadWebViewException, same policy as the old webview path).
+    /// No JS runtime can be stood up at all: the thread would not spawn, or tokio would not build.
+    /// Nothing will fix that at runtime, so the caller latches and degrades permanently (context/04
+    /// §BadWebViewException, same policy as the old webview path). Constructed only in [`spawn`].
     #[error("botguard runtime: {0}")]
     Fatal(String),
-    /// Network trouble, a challenge we could not solve, or MAX_BOOTSTRAPS without the accepted
-    /// class. Worth trying again on the next track.
+    /// Network trouble, or a challenge we could not solve. Worth trying again on the next track.
     #[error("botguard: {0}")]
     Transient(String),
 }
 
+/// Everything BotGuard itself can fail at is transient, `BgError::Js` included: a JS error here
+/// means the program YouTube shipped today threw, which is the case that fixes itself the next time
+/// the program is downloaded. Latching on it (as the webview path did, where a JS error really did
+/// mean a broken engine) left the app degraded to the non-PoToken clients until it was restarted,
+/// and this app runs for days.
 fn classify(e: BgError) -> Error {
-    match e {
-        BgError::Js(_) => Error::Fatal(e.to_string()),
-        _ => Error::Transient(e.to_string()),
-    }
+    Error::Transient(e.to_string())
 }
 
 enum Cmd {
@@ -70,8 +72,8 @@ pub struct Bootstrap {
 }
 
 impl Minter {
-    /// Stand up a BotGuard runtime bound to `session_ident` (visitorData), retrying the whole
-    /// bootstrap until it lands in the accepted integrity-token class.
+    /// Stand up a BotGuard runtime bound to `session_ident` (visitorData), re-rolling the whole
+    /// bootstrap while it lands in the rejected integrity-token class (see [`bootstrap`]).
     pub async fn spawn(user_agent: String, session_ident: String) -> Result<Bootstrap, Error> {
         let (tx, rx) = mpsc::channel::<Cmd>();
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
@@ -122,7 +124,7 @@ impl Minter {
 }
 
 /// `Botguard::init` + one session mint, repeated until the integrity token is in the class
-/// googlevideo honours.
+/// googlevideo honours, or `MAX_BOOTSTRAPS` tries in which case the last runtime is used anyway.
 ///
 /// No snapshot path is passed. `rustypipe-botguard` caches a solved runtime in a process-wide
 /// `OnceLock`, so a snapshot would freeze whichever class it was written with for the rest of the
@@ -132,7 +134,7 @@ async fn bootstrap(
     user_agent: &str,
     session_ident: &str,
 ) -> Result<(Botguard, String, u64), Error> {
-    let mut last_it = None;
+    let mut last = None;
     for attempt in 1..=MAX_BOOTSTRAPS {
         let mut bg = Botguard::builder().user_agent(user_agent).init().await.map_err(classify)?;
         // Session token first, on a fresh minter, before any other identifier — Metrolist enforces
@@ -155,11 +157,20 @@ async fn bootstrap(
             it_bytes = it,
             "botguard bootstrap in the rejected class, re-rolling"
         );
-        last_it = it;
+        last = Some((bg, token, lifetime, it));
     }
-    Err(Error::Transient(format!(
-        "no accepted-class integrity token in {MAX_BOOTSTRAPS} bootstraps (last {last_it:?} bytes)"
-    )))
+    // Keep the last one rather than degrade with nothing. A rejected-class token costs one HEAD
+    // (the orchestrator validates every URL and falls through cleanly), and it might work: the
+    // 61-62 / 65-66 byte split is one measurement session's, so if YouTube moves the wrapper by a
+    // byte then every mint misclassifies and this warn is the only thing that says so.
+    let (bg, token, lifetime, it) = last.expect("MAX_BOOTSTRAPS >= 1");
+    tracing::warn!(
+        it_bytes = it,
+        ttl = lifetime,
+        "no accepted-class integrity token in {MAX_BOOTSTRAPS} bootstraps, using a rejected-class \
+         token (expect 403s; if this keeps happening the class arithmetic has drifted)"
+    );
+    Ok((bg, token, lifetime))
 }
 
 /// Recover the `/GenerateIT` integrity token's size from a minted pot, which is the only way to see
@@ -192,6 +203,15 @@ mod tests {
         assert_eq!(integrity_token_len(rejected, "PtHEr7siapo"), Some(66));
         assert!(integrity_token_len(accepted, "PtHEr7siapo").is_some_and(|n| n <= ACCEPTED_MAX_IT));
         assert!(!integrity_token_len(rejected, "PtHEr7siapo").is_some_and(|n| n <= ACCEPTED_MAX_IT));
+    }
+
+    /// A JS error is "YouTube shipped new BotGuard today", not "this machine cannot run JS". If it
+    /// classifies as `Fatal` again, `PoTokenGenerator` latches `runtime_bad` and the app stops
+    /// sending PoTokens until it is restarted.
+    #[test]
+    fn js_errors_are_transient() {
+        assert!(matches!(classify(BgError::Js("boom".into())), Error::Transient(_)));
+        assert!(matches!(classify(BgError::InvalidPoToken("nope".into())), Error::Transient(_)));
     }
 
     #[test]
@@ -254,5 +274,31 @@ mod live {
         let pot2 = again.minter.mint(&video_id).await.expect("mint after teardown");
         println!("after teardown: it {:?}", integrity_token_len(&pot2, &video_id));
         assert!(integrity_token_len(&pot2, &video_id).is_some_and(|n| n <= ACCEPTED_MAX_IT));
+    }
+
+    /// The orchestrator's self-heal drops the cached session token and leaves the minter alive, so
+    /// the next `/player` call has to mint another one off that live runtime. Lives here rather
+    /// than beside `PoTokenGenerator` because only a real runtime proves it.
+    ///
+    ///   cargo test -p limusic-app session_token_is_reminted -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore = "hits live YouTube"]
+    async fn session_token_is_reminted_after_invalidation() {
+        let visitor = std::env::var("LIMUSIC_VISITOR_DATA")
+            .expect("set LIMUSIC_VISITOR_DATA to the app's visitor_data setting");
+        let db =
+            std::sync::Arc::new(crate::db::Db::open(std::path::Path::new(":memory:")).unwrap());
+        let g = crate::potoken::PoTokenGenerator::new(db);
+
+        assert!(g.get_session_po_token(&visitor).await.is_some(), "first mint");
+        g.invalidate_session_token().await;
+        let t1 = Instant::now();
+        assert!(
+            g.get_session_po_token(&visitor).await.is_some(),
+            "no session token after invalidation: the minter is alive but nothing re-mints"
+        );
+        // A re-mint on a warm runtime is pure JS; a bootstrap is ~0.8s and up. If this creeps up,
+        // the warm path is being missed and every self-heal costs a bootstrap on the hot path.
+        println!("re-mint after invalidation: {:?}", t1.elapsed());
     }
 }

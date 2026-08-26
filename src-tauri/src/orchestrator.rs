@@ -166,9 +166,10 @@ impl Orchestrator {
         let mut main_key = MAIN_CLIENT;
 
         // Age/login gate on WEB_REMIX → retry with WEB_CREATOR (login-only). context/06 §4, seam #7.
-        // ponytail: metadata + structure are correct now, but WEB_CREATOR streams are ciphered, so
-        // this only becomes *audible* once KI-1 (sig/n extraction) is solved. Until then it degrades
-        // exactly as before (falls through to the direct clients / rustypipe) — no regression.
+        // ponytail: WEB_CREATOR streams are ciphered, so this depends on the whole web path working
+        // (decipher, then a PoToken googlevideo accepts). Both do since 2026-08-25 (KI-1), so an
+        // age-gated track now has a real chance here; when the path fails it still falls through to
+        // the direct clients / rustypipe exactly as before.
         if logged_in && main_resp.as_ref().is_some_and(|r| r.playability_status.is_age_gated()) {
             if let Some(cc) = self.clients.get("WEB_CREATOR") {
                 let cc_pot = if cc.use_web_po_tokens { session_pot } else { None };
