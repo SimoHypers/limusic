@@ -643,11 +643,25 @@ async function rate(song: SongItem, next: Rating) {
 	try {
 		await api.rate(song.video_id, next);
 		toast.success(RATED[next]);
+		if (next === 'dislike') dropDisliked(song.video_id, isNow);
 	} catch (e) {
 		ratings[song.video_id] = prev;
 		if (isNow) playback.rating = prev;
 		toast.error(String(e));
 	}
+}
+
+/** A disliked track shouldn't keep playing, or sit waiting to. Skip it if it's playing, and drop
+ *  every upcoming copy of it from the queue (back to front, so the indices stay valid).
+ *  Already-played entries stay: the history is what happened, not what you'd pick again. */
+async function dropDisliked(videoId: string, isNow: boolean) {
+	const { items, currentIndex } = playback.queue;
+	// Removals first, and only above the playing row, so `currentIndex` never shifts under us and
+	// the skip lands on a track that survived. Sequential: each one renumbers the backend's queue.
+	for (let i = items.length - 1; i > currentIndex; i--) {
+		if (items[i]?.video_id === videoId) await api.removeFromQueue(i).catch(() => {});
+	}
+	if (isNow) api.nextTrack().catch((e) => toast.error(String(e)));
 }
 
 /** Click the rating you already have to clear it, the way YouTube Music's own buttons work.
