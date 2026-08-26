@@ -1353,6 +1353,13 @@ impl AppState {
         });
     }
 
+    /// Which client's URL the playing track was resolved from ("WEB_REMIX", "cache", ...).
+    /// Names the culprit in a playback-error toast, which on Windows is the only diagnostic a
+    /// reporter can actually produce.
+    pub async fn current_stream_client(&self) -> Option<String> {
+        self.queue.lock().await.current_client.clone()
+    }
+
     /// A track died at the player layer (dead/403 URL). If WEB_REMIX served it, record the failure
     /// so the next resolve for this id bypasses WEB_REMIX (context/06 §2). Then retry the SAME
     /// track once — the re-resolve now runs the direct-URL fallback clients, which is what makes
