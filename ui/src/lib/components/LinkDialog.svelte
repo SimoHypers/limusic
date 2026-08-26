@@ -8,6 +8,7 @@
 	import { hrefFor } from '$lib/browse';
 	import { parseYtLink } from '$lib/ytlink';
 	import { startRadio, toast, ui } from '$lib/player.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	let url = $state('');
 
@@ -15,7 +16,7 @@
 		e.preventDefault();
 		const target = parseYtLink(url);
 		if (!target) {
-			toast.error('That is not a YouTube Music link');
+			toast.error(t('dialogs.link.invalid_link'));
 			return;
 		}
 		ui.linkOpen = false;
@@ -30,14 +31,14 @@
 <Dialog.Root bind:open={ui.linkOpen}>
 	<Dialog.Content class="sm:max-w-md">
 		<Dialog.Header>
-			<Dialog.Title>Open link</Dialog.Title>
+			<Dialog.Title>{t('dialogs.link.title')}</Dialog.Title>
 			<Dialog.Description>
-				Paste a YouTube Music link to a song, playlist, album or artist.
+				{t('dialogs.link.desc')}
 			</Dialog.Description>
 		</Dialog.Header>
 		<form class="flex gap-2" onsubmit={submit}>
 			<Input bind:value={url} placeholder="https://music.youtube.com/playlist?list=..." />
-			<Button type="submit" disabled={!url.trim()}>Open</Button>
+			<Button type="submit" disabled={!url.trim()}>{t('dialogs.link.open')}</Button>
 		</form>
 	</Dialog.Content>
 </Dialog.Root>

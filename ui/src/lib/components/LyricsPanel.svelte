@@ -6,6 +6,7 @@
 	import { Maximize01Icon, Minimize01Icon } from '@hugeicons/core-free-icons';
 	import LyricsView from './LyricsView.svelte';
 	import { ui } from '$lib/player.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	let { onClose, queueOpen = false }: { onClose: () => void; queueOpen?: boolean } = $props();
 
@@ -24,7 +25,7 @@
 <button
 	class="absolute inset-0 z-20 cursor-default bg-black/40 lg:hidden"
 	onclick={onClose}
-	aria-label="Close lyrics"
+	aria-label={t('a11y.close_lyrics')}
 	transition:fade={{ duration: 150 }}
 ></button>
 <aside
@@ -36,11 +37,11 @@
 		: `absolute inset-y-0 right-0 z-30 flex h-full w-80 max-w-[80vw] flex-col border-l bg-card shadow-2xl ${queueOpen ? 'lg:right-80' : ''}`}
 >
 	<div class="flex items-center justify-between border-b px-4 py-3">
-		<h2 class="font-heading text-sm font-semibold">Lyrics</h2>
+		<h2 class="font-heading text-sm font-semibold">{t('lyrics.title')}</h2>
 		<button
 			onclick={() => (expanded = !expanded)}
 			class="cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
-			aria-label={expanded ? 'Shrink lyrics' : 'Expand lyrics'}
+			aria-label={expanded ? t('a11y.shrink_lyrics') : t('a11y.expand_lyrics')}
 		>
 			<!-- icon swap via altIcon/showAlt: `icon` is frozen at mount -->
 			<HugeiconsIcon

@@ -19,6 +19,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { personal, saveHomeLayout } from '$lib/player.svelte';
 	import { hiddenSections } from '$lib/personal';
+	import { t } from '$lib/i18n.svelte';
 
 	let {
 		open = $bindable(false),
@@ -64,9 +65,9 @@
 <Dialog.Root bind:open>
 	<Dialog.Content class="gap-0 overflow-hidden p-0 sm:max-w-md">
 		<div class="border-b px-5 py-4">
-			<Dialog.Title class="text-lg font-semibold">Edit home</Dialog.Title>
+			<Dialog.Title class="text-lg font-semibold">{t('home.edit_home')}</Dialog.Title>
 			<Dialog.Description class="text-xs text-muted-foreground">
-				Drag to reorder. Hide anything you don't want on the page.
+				{t('home.shortcuts_desc')}
 			</Dialog.Description>
 		</div>
 
@@ -99,8 +100,8 @@
 					</span>
 					<button
 						onclick={() => (row.shown = !row.shown)}
-						title={row.shown ? 'Hide from home' : 'Show on home'}
-						aria-label={row.shown ? `Hide ${row.title}` : `Show ${row.title}`}
+						title={row.shown ? t('home.hide_section', { title: row.title }) : t('home.show_section', { title: row.title })}
+						aria-label={row.shown ? t('home.hide_section', { title: row.title }) : t('home.show_section', { title: row.title })}
 						class="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 					>
 						<!-- altIcon/showAlt, not a ternary on `icon`: that prop is read once at mount. -->
@@ -124,11 +125,11 @@
 		<div class="flex justify-end gap-2 border-t px-5 py-3">
 			<Button variant="outline" size="sm" onclick={() => (open = false)}>
 				<HugeiconsIcon icon={Cancel02Icon} class="h-4 w-4" />
-				Cancel
+				{t('common.cancel')}
 			</Button>
 			<Button size="sm" onclick={save}>
 				<HugeiconsIcon icon={SaveIcon} class="h-4 w-4" />
-				Save
+				{t('common.save')}
 			</Button>
 		</div>
 	</Dialog.Content>

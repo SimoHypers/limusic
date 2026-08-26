@@ -5,40 +5,42 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { MOD } from '$lib/shortcuts';
 	import { ui } from '$lib/player.svelte';
+	import { t } from '$lib/i18n.svelte';
 
-	const GROUPS: { title: string; rows: [string, string][] }[] = [
+	// $derived, not a plain const: the list is rebuilt when the language changes under it.
+	const GROUPS: { title: string; rows: [string, string][] }[] = $derived([
 		{
-			title: 'Playback',
+			title: t('dialogs.shortcuts.group_playback'),
 			rows: [
-				['Play or pause', 'SPACE or ;'],
-				['Next song', `${MOD}F`],
-				['Previous song', `${MOD}D`],
-				['Shuffle queue', `${MOD}S`],
-				['Toggle repeat', `${MOD}R`],
-				['Mute or unmute', `${MOD}M`],
-				['Volume up', `${MOD}>`],
-				['Volume down', `${MOD}<`]
+				[t('dialogs.shortcuts.play_pause'), 'SPACE or ;'],
+				[t('dialogs.shortcuts.next_song'), `${MOD}F`],
+				[t('dialogs.shortcuts.previous_song'), `${MOD}D`],
+				[t('dialogs.shortcuts.shuffle_queue'), `${MOD}S`],
+				[t('dialogs.shortcuts.toggle_repeat'), `${MOD}R`],
+				[t('dialogs.shortcuts.mute_unmute'), `${MOD}M`],
+				[t('dialogs.shortcuts.volume_up'), `${MOD}>`],
+				[t('dialogs.shortcuts.volume_down'), `${MOD}<`]
 			]
 		},
 		{
-			title: 'General',
+			title: t('dialogs.shortcuts.group_general'),
 			rows: [
-				['Search from anywhere', `${MOD}K`],
-				['Toggle the now-playing view', `${MOD}E`],
-				['Zoom in', `${MOD}+`],
-				['Zoom out', `${MOD}-`],
-				['Reset zoom', `${MOD}0`],
-				['Show this list', `${MOD}H`]
+				[t('dialogs.shortcuts.search_anywhere'), `${MOD}K`],
+				[t('dialogs.shortcuts.toggle_now_playing'), `${MOD}E`],
+				[t('dialogs.shortcuts.zoom_in'), `${MOD}+`],
+				[t('dialogs.shortcuts.zoom_out'), `${MOD}-`],
+				[t('dialogs.shortcuts.reset_zoom'), `${MOD}0`],
+				[t('dialogs.shortcuts.show_this_list'), `${MOD}H`]
 			]
 		}
-	];
+	]);
 </script>
 
 <Dialog.Root bind:open={ui.shortcutsOpen}>
 	<Dialog.Content class="sm:max-w-2xl">
 		<Dialog.Header>
-			<Dialog.Title>Keyboard shortcuts</Dialog.Title>
-			<Dialog.Description>{MOD}H brings this back at any time.</Dialog.Description>
+			<Dialog.Title>{t('dialogs.shortcuts.title')}</Dialog.Title>
+			<Dialog.Description>{t('dialogs.shortcuts.reopen_hint', { mod: MOD })}</Dialog.Description>
 		</Dialog.Header>
 		<!-- Two columns that flow, so adding a row never means rebalancing the layout by hand. -->
 		<div class="gap-x-10 sm:columns-2">

@@ -14,6 +14,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { inRoom } from '$lib/lt.svelte';
 	import { playback, setTempoPitch as apply } from '$lib/player.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	let { open = $bindable(false) }: { open: boolean } = $props();
 
@@ -42,7 +43,7 @@
 			size="icon-sm"
 			disabled={atMin}
 			onclick={() => onStep(-1)}
-			aria-label="Decrease {label}"
+			aria-label="- {label}"
 		>
 			<HugeiconsIcon icon={MinusSignIcon} class="h-4 w-4" />
 		</Button>
@@ -52,7 +53,7 @@
 			size="icon-sm"
 			disabled={atMax}
 			onclick={() => onStep(1)}
-			aria-label="Increase {label}"
+			aria-label="+ {label}"
 		>
 			<HugeiconsIcon icon={PlusSignIcon} class="h-4 w-4" />
 		</Button>
@@ -62,9 +63,9 @@
 <Dialog.Root bind:open>
 	<Dialog.Content class="gap-5 sm:max-w-sm">
 		<div class="grid gap-1">
-			<Dialog.Title class="text-lg font-semibold">Tempo and pitch</Dialog.Title>
+			<Dialog.Title class="text-lg font-semibold">{t('dialogs.tempo_pitch.title')}</Dialog.Title>
 			<Dialog.Description class="text-xs text-muted-foreground">
-				Applies to everything you play, until you change it back or restart the app.
+				{t('dialogs.tempo_pitch.desc')}
 			</Dialog.Description>
 		</div>
 
@@ -74,7 +75,7 @@
 			{#if !inRoom()}
 				{@render stepper(
 					FastForwardIcon,
-					'Tempo',
+					t('dialogs.tempo_pitch.tempo'),
 					`${playback.speed.toFixed(2)}x`,
 					(d) => apply(SPEEDS[speedIndex + d], playback.semitones),
 					speedIndex === 0,
@@ -83,7 +84,7 @@
 			{/if}
 			{@render stepper(
 				AudioWave02Icon,
-				'Pitch',
+				t('dialogs.tempo_pitch.pitch'),
 				playback.semitones > 0 ? `+${playback.semitones}` : String(playback.semitones),
 				(d) => apply(playback.speed, playback.semitones + d),
 				playback.semitones === SEMITONES.min,
@@ -93,8 +94,8 @@
 
 		<div class="flex justify-end gap-2">
 			<!-- Reset does not close: you're usually resetting to hear the difference. -->
-			<Button variant="outline" size="sm" onclick={() => apply(1, 0)}>Reset</Button>
-			<Button size="sm" onclick={() => (open = false)}>Done</Button>
+			<Button variant="outline" size="sm" onclick={() => apply(1, 0)}>{t('common.reset')}</Button>
+			<Button size="sm" onclick={() => (open = false)}>{t('common.done')}</Button>
 		</div>
 	</Dialog.Content>
 </Dialog.Root>

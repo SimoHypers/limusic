@@ -21,6 +21,7 @@
 	import { np, playback, ui, wheelVolume } from '$lib/player.svelte';
 	import { canVideo, claimVideo, parkVideo, showVideo, video } from '$lib/video.svelte';
 	import { appearance } from '$lib/theme.svelte';
+	import { t } from '$lib/i18n.svelte';
 	import { thumb } from '$lib/thumb';
 	import QueueList from './QueueList.svelte';
 	import LyricsView from './LyricsView.svelte';
@@ -180,7 +181,7 @@
 					<button
 						type="button"
 						onclick={toggle}
-						aria-label="Play/pause"
+						aria-label={t('a11y.play_pause')}
 						class="block w-full cursor-pointer"
 					>
 						{#if flash}
@@ -241,7 +242,7 @@
 						<button
 							type="button"
 							onclick={() => (video.want = !video.want)}
-							aria-label={showVideo() ? 'Show artwork' : 'Show video'}
+							aria-label={showVideo() ? t('a11y.show_artwork') : t('a11y.show_video')}
 							class="absolute right-3 top-3 z-10 cursor-pointer rounded-md bg-black/40 p-1.5 text-white/70 transition-colors hover:text-white"
 						>
 							<!-- icon swap via altIcon/showAlt: `icon` is frozen at mount -->
@@ -268,17 +269,17 @@
 						<!-- Same two glyphs the player bar uses for the queue and lyrics buttons. -->
 						<Tabs.List class={big ? 'hidden' : 'flex-1'}>
 							<Tabs.Trigger value="queue" class="gap-2.5">
-								<HugeiconsIcon icon={Queue01Icon} class="h-4 w-4" /> Queue
+								<HugeiconsIcon icon={Queue01Icon} class="h-4 w-4" /> {t('player.queue')}
 							</Tabs.Trigger>
 							<Tabs.Trigger value="lyrics" class="gap-2.5">
-								<HugeiconsIcon icon={Mic01Icon} class="h-4 w-4" /> Lyrics
+								<HugeiconsIcon icon={Mic01Icon} class="h-4 w-4" /> {t('player.lyrics')}
 							</Tabs.Trigger>
 						</Tabs.List>
 						{#if np.tab === 'lyrics'}
 							<button
 								onclick={() => (big = !big)}
 								class="cursor-pointer rounded-md p-1.5 text-muted-foreground transition-colors hover:text-foreground"
-								aria-label={big ? 'Shrink lyrics' : 'Enlarge lyrics'}
+								aria-label={big ? t('player.shrink_lyrics') : t('player.enlarge_lyrics')}
 							>
 								<!-- icon swap via altIcon/showAlt: `icon` is frozen at mount -->
 								<HugeiconsIcon

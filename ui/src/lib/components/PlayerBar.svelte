@@ -39,6 +39,7 @@
 	import ArtistLine from './ArtistLine.svelte';
 	import Marquee from './Marquee.svelte';
 	import TrackMenu from './TrackMenu.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	let {
 		onToggleQueue,
@@ -155,13 +156,13 @@
 		<div class="min-w-0">
 			<div class="flex items-center gap-1.5">
 				<Marquee
-					text={playback.now?.title ?? 'Nothing playing'}
+					text={playback.now?.title ?? t('player.not_playing')}
 					class="text-sm font-medium"
 				/>
 				{#if autoplayTrack}
 					<span
 						class="shrink-0 text-muted-foreground"
-						title="Playing similar music (Autoplay)"
+						title={t('player.autoplay_notice')}
 						in:fade={{ duration: 200 }}
 					>
 						<HugeiconsIcon icon={InfinityIcon} class="h-3.5 w-3.5" />
@@ -187,7 +188,7 @@
 						size="icon-sm"
 						class="hidden lg:inline-flex"
 						onclick={toggleLike}
-						aria-label="Like"
+						aria-label={t('common.like')}
 					>
 						<span
 							class="inline-flex"
@@ -215,7 +216,7 @@
 								duration: now.duration
 							});
 						}}
-						aria-label="Add to playlist"
+						aria-label={t('player.save_to_playlist')}
 					>
 						<HugeiconsIcon icon={Add01Icon} class="h-4 w-4 text-muted-foreground" />
 					</Button>
@@ -239,7 +240,7 @@
 				variant="ghost"
 				size="icon-sm"
 				onclick={() => api.toggleShuffle()}
-				aria-label="Shuffle"
+				aria-label={t('player.shuffle')}
 				aria-pressed={shuffleOn}
 			>
 				<HugeiconsIcon
@@ -247,7 +248,7 @@
 					class="h-4 w-4 {shuffleOn ? 'text-primary' : 'text-muted-foreground'}"
 				/>
 			</Button>
-			<Button variant="ghost" size="icon-sm" onclick={() => api.prevTrack()} aria-label="Previous">
+			<Button variant="ghost" size="icon-sm" onclick={() => api.prevTrack()} aria-label={t('player.previous')}>
 				<HugeiconsIcon icon={PreviousIcon} class="h-5 w-5" />
 			</Button>
 			<Button
@@ -255,7 +256,7 @@
 				size="icon"
 				class="rounded-full"
 				onclick={() => api.togglePause()}
-				aria-label="Play/pause"
+				aria-label={playback.paused ? t('player.play') : t('player.pause')}
 			>
 				<!-- HugeiconsIcon only re-renders `altIcon`/`showAlt`, not `icon` (frozen at mount) —
 			     so toggle via showAlt, not a ternary on `icon`. -->
@@ -266,14 +267,16 @@
 				class="h-5 w-5"
 			/>
 			</Button>
-			<Button variant="ghost" size="icon-sm" onclick={() => api.nextTrack()} aria-label="Next">
+			<Button variant="ghost" size="icon-sm" onclick={() => api.nextTrack()} aria-label={t('player.next')}>
 				<HugeiconsIcon icon={NextIcon} class="h-5 w-5" />
 			</Button>
 			<Button
 				variant="ghost"
 				size="icon-sm"
 				onclick={cycleRepeat}
-				aria-label="Repeat: {repeat}"
+				aria-label={t('player.repeat_state', {
+					state: repeat === 'off' ? t('player.repeat_off') : repeat === 'one' ? t('player.repeat_one') : t('player.repeat_all')
+				})}
 				aria-pressed={repeat !== 'off'}
 			>
 				<!-- icon swap via altIcon/showAlt — `icon` is frozen at mount (see play/pause above) -->
@@ -296,7 +299,7 @@
 				value={shownPosition}
 				oninput={onSeekInput}
 				onchange={onSeekCommit}
-				aria-label="Seek"
+				aria-label={t('player.seek')}
 			/>
 			<span class="tabular-nums">{fmt(playback.duration)}</span>
 		</div>
@@ -311,7 +314,7 @@
 				size="icon-sm"
 				class="text-muted-foreground"
 				onclick={toggleMute}
-				aria-label={playback.volume === 0 ? 'Unmute' : 'Mute'}
+				aria-label={playback.volume === 0 ? t('player.unmute') : t('player.mute')}
 			>
 				<!-- icon swap via altIcon/showAlt — `icon` is frozen at mount (see play/pause above) -->
 				<HugeiconsIcon
@@ -331,19 +334,19 @@
 				oninput={onVolume}
 				onchange={onVolumeCommit}
 				onwheel={wheelVolume}
-				aria-label="Volume"
+				aria-label={t('player.volume')}
 			/>
 		</div>
 		<!-- One cluster, so they sit tighter to each other than to the volume slider. -->
 		<div class="flex items-center gap-0.5">
-			<Button variant="ghost" size="icon-sm" onclick={openMiniPlayer} aria-label="Mini player">
+			<Button variant="ghost" size="icon-sm" onclick={openMiniPlayer} aria-label={t('player.mini_player')}>
 				<HugeiconsIcon icon={MinimizeScreenIcon} class="h-5 w-5" />
 			</Button>
 			<Button
 				variant={lyricsOpen ? 'secondary' : 'ghost'}
 				size="icon-sm"
 				onclick={onToggleLyrics}
-				aria-label="Toggle lyrics"
+				aria-label={t('player.lyrics')}
 			>
 				<HugeiconsIcon icon={Mic01Icon} class="h-5 w-5" />
 			</Button>
@@ -351,7 +354,7 @@
 				variant={queueOpen ? 'secondary' : 'ghost'}
 				size="icon-sm"
 				onclick={onToggleQueue}
-				aria-label="Toggle queue"
+				aria-label={t('player.queue')}
 			>
 				<HugeiconsIcon icon={Queue01Icon} class="h-5 w-5" />
 			</Button>
@@ -361,7 +364,7 @@
 				variant="ghost"
 				size="icon-sm"
 				onclick={() => (np.open = !np.open)}
-				aria-label={np.open ? 'Minimise player' : 'Open player'}
+				aria-label={np.open ? t('player.minimize_player') : t('player.open_player')}
 				aria-expanded={np.open}
 			>
 				<!-- icon swap via altIcon/showAlt — `icon` is frozen at mount (see play/pause above) -->

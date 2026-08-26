@@ -1,6 +1,7 @@
 <script lang="ts">
 	import * as api from '$lib/api';
 	import { playback } from '$lib/player.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	// `expanded` only sizes the type and centres the column. The owner of the extra room (the side
 	// panel, or the now-playing view) decides how much there is. Toggling it must not remount this
@@ -163,7 +164,7 @@
 			{/each}
 		</div>
 	{:else if lyrics?.instrumental}
-		<p class="py-8 text-center text-lg text-muted-foreground">Instrumental ♪</p>
+		<p class="py-8 text-center text-lg text-muted-foreground">{t('lyrics.instrumental')} ♪</p>
 	{:else if lyrics && lyrics.synced}
 		<!-- Padding lets the first/last lines center-scroll. -->
 		<div class="py-[35vh] {expanded ? 'mx-auto max-w-3xl' : ''}">
@@ -245,7 +246,7 @@
 			{/each}
 		</div>
 	{:else}
-		<p class="py-8 text-center text-sm text-muted-foreground">No lyrics found for this track.</p>
+		<p class="py-8 text-center text-sm text-muted-foreground">{t('lyrics.none_found')}</p>
 	{/if}
 </div>
 {#if lyrics && !loading && !compact}

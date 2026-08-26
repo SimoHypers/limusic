@@ -10,6 +10,7 @@
 	import { thumb } from '$lib/thumb';
 	import { addPick, library, loadLibrary, personal } from '$lib/player.svelte';
 	import { mergeSaved } from '$lib/personal';
+	import { t } from '$lib/i18n.svelte';
 
 	let { onclose }: { onclose: () => void } = $props();
 
@@ -36,11 +37,11 @@
 		class="flex max-h-[32rem] w-full max-w-sm flex-col rounded-xl border bg-card p-4 shadow-xl"
 	>
 		<div class="mb-3 flex items-center justify-between">
-			<h2 class="font-heading text-base font-semibold">Add a shortcut</h2>
+			<h2 class="font-heading text-base font-semibold">{t('home.add_shortcut')}</h2>
 			<button
 				class="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 				onclick={onclose}
-				aria-label="Close"
+				aria-label={t('a11y.close')}
 			>
 				<HugeiconsIcon icon={Cancel01Icon} class="h-4 w-4" />
 			</button>
@@ -49,11 +50,11 @@
 		<input
 			bind:value={filter}
 			autofocus
-			placeholder="Filter your library…"
+			placeholder={t('common.filter_library')}
 			class="mb-2 w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
 		/>
 		{#if library.loading && !library.items.length}
-			<p class="p-2 text-sm text-muted-foreground">Loading…</p>
+			<p class="p-2 text-sm text-muted-foreground">{t('common.loading')}</p>
 		{:else if matches.length}
 			<div class="min-h-0 flex-1 overflow-y-auto">
 				{#each matches as item (item.id)}
@@ -90,9 +91,7 @@
 			</div>
 		{:else}
 			<p class="p-2 text-sm text-muted-foreground">
-				{filter.trim()
-					? 'Nothing matches that.'
-					: 'No playlists yet. Save one from its page, or create one in your Library.'}
+				{filter.trim() ? t('common.nothing_matches') : t('library.no_playlists_hint')}
 			</p>
 		{/if}
 	</div>

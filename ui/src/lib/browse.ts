@@ -5,6 +5,7 @@ import { goto } from '$app/navigation';
 import * as api from './api';
 import type { BrowseItem, SearchResults, SongItem } from './api';
 import { getCached, putCached } from './pagecache';
+import { t } from './i18n.svelte';
 import { enqueue, playFrom, playSong, toast, touchPick } from './player.svelte';
 
 /**
@@ -81,7 +82,7 @@ export async function playItem(item: BrowseItem): Promise<void> {
 			);
 		}
 	} catch {
-		toast.error('Could not play — try opening it instead');
+		toast.error(t('toasts.could_not_play'));
 	}
 }
 
@@ -107,7 +108,7 @@ export async function enqueueItem(item: BrowseItem, next: boolean): Promise<void
 			await enqueue(pl.items, next, pl.title ?? item.title, pl.continuation);
 		}
 	} catch {
-		toast.error('Could not queue that — try opening it instead');
+		toast.error(t('toasts.could_not_queue'));
 	}
 }
 

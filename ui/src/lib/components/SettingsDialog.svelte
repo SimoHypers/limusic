@@ -18,9 +18,9 @@
 	import { Alert, AlertDescription } from '$lib/components/ui/alert';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Select from '$lib/components/ui/select';
+	import { MOD } from '$lib/shortcuts';
 	import * as api from '$lib/api';
 	import { prefs, ui, toast } from '$lib/player.svelte';
-	import { MOD } from '$lib/shortcuts';
 	import ColorPicker from '$lib/components/ColorPicker.svelte';
 	import Changelog from '$lib/components/Changelog.svelte';
 	import {
@@ -53,15 +53,16 @@
 		openDownloadPage
 	} from '$lib/updater.svelte';
 	import { getVersion } from '@tauri-apps/api/app';
+	import { t, setLocale, currentLocale, LOCALES, type LocaleId } from '$lib/i18n.svelte';
 
 	type TabId = 'general' | 'themes' | 'playback' | 'data' | 'about';
-	const TABS: { id: TabId; label: string; hint: string; icon: typeof Settings02Icon }[] = [
-		{ id: 'general', label: 'General', hint: 'History, integrations and how the app starts.', icon: Settings02Icon },
-		{ id: 'themes', label: 'Appearance', hint: 'Colors, fonts and the player view.', icon: PaintBoardIcon },
-		{ id: 'playback', label: 'Playback', hint: 'Quality, queue behaviour and lyrics.', icon: PlayCircleIcon },
-		{ id: 'data', label: 'Data & storage', hint: 'Network and cached files.', icon: Database02Icon },
-		{ id: 'about', label: 'About', hint: 'Version, updates and what changed.', icon: InformationCircleIcon }
-	];
+	const TABS = $derived<{ id: TabId; label: string; hint: string; icon: typeof Settings02Icon }[]>([
+		{ id: 'general', label: t('settings.tabs.general'), hint: t('settings.tabs.general_hint'), icon: Settings02Icon },
+		{ id: 'themes', label: t('settings.tabs.themes'), hint: t('settings.tabs.themes_hint'), icon: PaintBoardIcon },
+		{ id: 'playback', label: t('settings.tabs.playback'), hint: t('settings.tabs.playback_hint'), icon: PlayCircleIcon },
+		{ id: 'data', label: t('settings.tabs.data'), hint: t('settings.tabs.data_hint'), icon: Database02Icon },
+		{ id: 'about', label: t('settings.tabs.about'), hint: t('settings.tabs.about_hint'), icon: InformationCircleIcon }
+	]);
 
 	// Shared shapes for the settings rows. Kept as strings so the markup below stays readable and
 	// every group looks identical without a wrapper component per row.
@@ -76,10 +77,18 @@
 
 	// --- Themes tab ---
 	type FontKey = 'fontSans' | 'fontHeading';
-	const FONT_ROWS: { key: FontKey; label: string; hint: string }[] = [
-		{ key: 'fontSans', label: 'Interface font', hint: 'Everything except headings.' },
-		{ key: 'fontHeading', label: 'Heading font', hint: 'Page and section titles.' }
-	];
+	const FONT_ROWS: { key: FontKey; label: string; hint: string }[] = $derived([
+		{
+			key: 'fontSans',
+			label: t('settings.themes.interface_font_label'),
+			hint: t('settings.themes.interface_font_short_hint')
+		},
+		{
+			key: 'fontHeading',
+			label: t('settings.themes.heading_font_label'),
+			hint: t('settings.themes.heading_font_short_hint')
+		}
+	]);
 	let pickerOpen = $state(false);
 	// Whether each font row is on "Custom", and the family name typed into it. Kept locally because
 	// the select can sit on Custom before anything has been typed.
@@ -94,12 +103,12 @@
 	async function pickFontFiles() {
 		const picked = await open({
 			multiple: true,
-			title: 'Load a font',
-			filters: [{ name: 'Fonts', extensions: ['ttf', 'otf', 'woff', 'woff2'] }]
+			title: t('settings.themes.load_font_dialog'),
+			filters: [{ name: t('settings.themes.font_filter'), extensions: ['ttf', 'otf', 'woff', 'woff2'] }]
 		});
 		for (const path of picked ?? []) {
 			try {
-				toast.success(`${await addFontFile(path)} loaded — pick it above`);
+				toast.success(t('toasts.font_loaded', { name: await addFontFile(path) }));
 			} catch (e) {
 				toast.error(String(e));
 			}
@@ -131,7 +140,11 @@
 	}
 
 	let tab = $state<TabId>('general');
-	const currentTab = $derived(TABS.find((t) => t.id === tab) ?? TABS[0]);
+	const currentTab = $derived(TABS.find((tb) => tb.id === tab) ?? TABS[0]);
+	const shortcutsHint = $derived(t('settings.general.shortcuts_hint').split('{key}'));
+	const currentLocaleLabel = $derived(
+		LOCALES.find((l) => l.id === currentLocale.id)?.nativeLabel ?? currentLocale.id
+	);
 	let settings = $state<Record<string, string>>({});
 	let clients = $state<string[]>([]);
 	let proxyInput = $state('');
@@ -201,17 +214,17 @@
 	);
 
 	const QUALITIES = [
-		{ id: 'LOW', label: 'Low' },
-		{ id: 'AUTO', label: 'Auto' },
-		{ id: 'HIGH', label: 'High' }
-	];
+		{ id: 'LOW', key: 'settings.playback.quality_low' },
+		{ id: 'AUTO', key: 'settings.playback.quality_auto' },
+		{ id: 'HIGH', key: 'settings.playback.quality_high' }
+	] as const;
 
 	async function setQuality(q: string) {
 		settings.quality = q;
 		await api.setSetting('quality', q);
 		// Cached URLs are keyed by video only, so clear them to apply the new quality everywhere.
 		await api.clearCaches();
-		toast.success('Audio quality updated');
+		toast.success(t('toasts.quality_updated'));
 	}
 
 	async function setHistory(on: boolean) {
@@ -283,14 +296,14 @@
 	async function saveProxy() {
 		settings.proxy = proxyInput.trim();
 		await api.setSetting('proxy', settings.proxy);
-		toast.success('Proxy saved — restart to apply');
+		toast.success(t('toasts.proxy_saved'));
 	}
 
 	async function doClearCaches() {
 		clearing = true;
 		try {
 			await api.clearCaches();
-			toast.success('Caches cleared');
+			toast.success(t('toasts.caches_cleared'));
 		} finally {
 			clearing = false;
 		}
@@ -336,31 +349,31 @@
 
 <Dialog.Root bind:open={ui.settingsOpen}>
 	<Dialog.Content class="gap-0 overflow-hidden p-0 sm:max-w-3xl">
-		<Dialog.Description class="sr-only">Application settings</Dialog.Description>
+		<Dialog.Description class="sr-only">{t('settings.title')}</Dialog.Description>
 
 		<div class="flex h-[min(34rem,72vh)]">
 			<!-- Tab rail -->
 			<nav class="flex w-52 shrink-0 flex-col border-r bg-muted/40 p-3">
 				<Dialog.Title class="px-3 pt-1 pb-4 font-heading text-base font-semibold">
-					Settings
+					{t('settings.title')}
 				</Dialog.Title>
 				<div class="flex flex-col gap-0.5">
-					{#each TABS as t (t.id)}
+					{#each TABS as tb (tb.id)}
 						<button
-							onclick={() => (tab = t.id)}
-							aria-current={tab === t.id}
+							onclick={() => (tab = tb.id)}
+							aria-current={tab === tb.id}
 							class="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors {tab ===
-							t.id
+							tb.id
 								? 'bg-background text-foreground shadow-sm ring-1 ring-border/70'
 								: 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}"
 						>
 							<HugeiconsIcon
-								icon={t.icon}
+								icon={tb.icon}
 								size={17}
 								strokeWidth={2}
-								class={tab === t.id ? 'text-primary' : ''}
+								class={tab === tb.id ? 'text-primary' : ''}
 							/>
-							<span class="truncate">{t.label}</span>
+							<span class="truncate">{tb.label}</span>
 						</button>
 					{/each}
 				</div>
@@ -380,7 +393,7 @@
 
 				<div class="min-w-0 flex-1 overflow-y-auto px-6 py-5">
 					{#if !loaded}
-						<p class="text-sm text-muted-foreground">Loading…</p>
+						<p class="text-sm text-muted-foreground">{t('common.loading')}</p>
 					{:else if tab === 'general'}
 						<!-- The shortcuts list has no other entry point in the chrome. Closing settings
 						     first: two stacked dialogs would trap focus in the wrong one. -->
@@ -393,71 +406,84 @@
 							}}
 						>
 							<HugeiconsIcon icon={KeyboardIcon} class="h-3.5 w-3.5" />
-							Open the keyboard shortcuts with <kbd class="font-mono font-medium">{MOD}H</kbd>
+							<span
+								>{shortcutsHint[0]}<kbd class="font-mono font-medium">{MOD}H</kbd>{shortcutsHint[1] ??
+									''}</span
+							>
 						</button>
 						<section class={GROUP}>
-							<h3 class={LABEL}>Activity</h3>
+							<h3 class={LABEL}>{t('settings.sections.language')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Watch history',
-									desc: 'Register plays in your YouTube Music history. Needs sign-in.',
+									title: t('settings.general.language'),
+									desc: t('settings.general.language_hint'),
+									control: languagePicker
+								})}
+							</div>
+						</section>
+						<section class={GROUP}>
+							<h3 class={LABEL}>{t('settings.sections.activity')}</h3>
+							<div class={CARD}>
+								{@render row({
+									title: t('player.history'),
+									desc: t('settings.playback.play_history_hint'),
 									control: historySwitch
 								})}
 								{@render row({
-									title: 'Discord rich presence',
-									desc: "Show what you're listening to on your Discord profile. Needs the Discord desktop app running, no login here.",
+									title: t('settings.general.discord_rpc'),
+									desc: t('settings.general.discord_rpc_hint'),
 									control: discordSwitch
 								})}
 							</div>
 						</section>
 						<section class={GROUP}>
-							<h3 class={LABEL}>System</h3>
+							<h3 class={LABEL}>{t('settings.sections.system')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Close to tray',
-									desc: 'Closing the window keeps music playing in the background. Restore or quit from the tray icon.',
+									title: t('settings.general.close_to_tray'),
+									desc: t('settings.general.close_to_tray_hint'),
 									control: traySwitch
 								})}
 								{@render row({
-									title: 'Start on login',
-									desc: 'Launch Limusic automatically when you log in.',
+									title: t('settings.general.autostart'),
+									desc: t('settings.general.autostart_hint'),
 									control: autostartSwitch
 								})}
 							</div>
 						</section>
 					{:else if tab === 'themes'}
 						<section class={GROUP}>
-							<h3 class={LABEL}>Theme</h3>
+							<h3 class={LABEL}>{t('settings.sections.theme')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Preset',
-									desc: 'Accent colors tint the default look; palettes swap every color.',
+									title: t('settings.tabs.themes'),
+									desc: t('settings.tabs.themes_hint'),
 									control: presetSelect
 								})}
 								{@render row({
-									title: 'Accent color',
-									desc: 'Buttons, highlights and the progress bar. Applies over any preset.',
+									title: t('settings.themes.primary_color'),
+									desc: t('settings.themes.custom_colors'),
 									control: accentSwatch,
 									below: pickerOpen ? accentPicker : undefined
 								})}
 								{@render row({
-									title: 'Background tint',
+									title: t('settings.themes.background_color'),
 									desc:
 										currentTheme.kind === 'palette'
-											? `Only shades the default palette, ${currentTheme.label} brings its own colors.`
-											: 'Shades the greys: surfaces, borders and secondary text.',
+											? t('settings.themes.tint_palette_hint', { theme: currentTheme.label })
+											: t('settings.themes.tint_hint'),
 									control: tintSlider
 								})}
 								{@render row({
-									title: 'Roundness',
-									desc: 'Corner radius of cards, buttons and artwork.',
+									title: t('settings.themes.roundness'),
+									desc: t('settings.themes.roundness_hint'),
 									control: radiusSlider
 								})}
 							</div>
 						</section>
 
 						<section class={GROUP}>
-							<h3 class={LABEL}>Typography</h3>
+							<h3 class={LABEL}>{t('settings.sections.typography')}</h3>
 							<div class={CARD}>
 								{#each FONT_ROWS as fr (fr.key)}
 									<!-- Zero-arg wrappers: a snippet passed as a value can't carry arguments. -->
@@ -471,8 +497,8 @@
 									})}
 								{/each}
 								{@render row({
-									title: 'Font files',
-									desc: 'Load a .ttf, .otf or .woff from anywhere on this computer. It joins both dropdowns above.',
+									title: t('settings.themes.load_font_file'),
+									desc: t('settings.themes.load_font_file_hint'),
 									control: addFontButton,
 									below: custom.fontFiles.length ? fontFileList : undefined
 								})}
@@ -480,114 +506,114 @@
 						</section>
 
 						<section class={GROUP}>
-							<h3 class={LABEL}>Player view</h3>
+							<h3 class={LABEL}>{t('settings.sections.player_view')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Open the player when you press play',
-									desc: 'On, playing a song, album or playlist brings up the full player view. Off, it starts playing and leaves you on the page you were browsing.',
+									title: t('settings.themes.open_player'),
+									desc: t('settings.themes.open_player_hint'),
 									control: openPlayerSwitch,
 									tall: true
 								})}
 								{@render row({
-									title: 'Queue and lyrics in the player view',
-									desc: "On, the player view carries them as tabs and the bar's two buttons switch between them. Off, those buttons only ever open the side panels, which stay open over the player view so you can see both at once.",
+									title: t('settings.themes.tabbed_player'),
+									desc: t('settings.themes.tabbed_player_hint'),
 									control: tabbedSwitch,
 									tall: true
 								})}
 								{@render row({
-									title: 'Artwork background',
-									desc: "Tint the player view with the playing track's cover, blurred. Off leaves it plain.",
+									title: t('settings.themes.artwork_background'),
+									desc: t('settings.themes.artwork_background_hint'),
 									control: artworkBgSwitch,
 									tall: true
 								})}
 								{@render row({
-									title: 'Adapt colors to artwork',
-									badge: 'Experimental',
-									desc: "Recolor the app from the playing track's cover: accent, surfaces and borders, fading between tracks. Off keeps the selected theme's own colors.",
+									title: t('settings.themes.artwork_accent'),
+									badge: t('settings.themes.experimental'),
+									desc: t('settings.themes.artwork_accent_hint'),
 									control: artworkAccentSwitch,
 									tall: true
 								})}
 								{@render row({
-									title: 'Reset customization',
-									desc: 'Drop the color, roundness and font overrides. Keeps the preset.',
+									title: t('settings.themes.reset_theme'),
+									desc: t('settings.themes.reset_theme_hint'),
 									control: resetButton
 								})}
 							</div>
 						</section>
 					{:else if tab === 'playback'}
 						<section class={GROUP}>
-							<h3 class={LABEL}>Audio</h3>
+							<h3 class={LABEL}>{t('settings.sections.audio')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Audio quality',
-									desc: 'Preferred stream quality when resolving a track.',
+									title: t('settings.playback.audio_quality'),
+									desc: t('settings.playback.audio_quality_hint'),
 									control: qualityPicker
 								})}
 								{@render row({
-									title: 'Autoplay',
-									desc: 'Keep the music going with similar songs when your queue ends.',
+									title: t('settings.playback.autoplay'),
+									desc: t('settings.playback.autoplay_hint'),
 									control: autoplaySwitch
 								})}
 								{@render row({
-									title: 'Prevent duplicate tracks in queue',
-									desc: "Adding a track that's already in the queue moves it from its old position instead of adding a second copy.",
+									title: t('settings.playback.prevent_duplicates'),
+									desc: t('settings.playback.prevent_duplicates_hint'),
 									control: dupSwitch,
 									tall: true
 								})}
 							</div>
 						</section>
 						<section class={GROUP}>
-							<h3 class={LABEL}>Video</h3>
+							<h3 class={LABEL}>{t('settings.sections.video')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Play music videos',
-									badge: 'Experimental',
-									desc: 'When a track is a music video, the player shows the video instead of the artwork. Uses noticeably more data and battery than audio alone.',
+									title: t('settings.playback.music_videos'),
+									badge: t('settings.themes.experimental'),
+									desc: t('settings.playback.music_videos_hint'),
 									control: musicVideoSwitch,
 									tall: true
 								})}
 								{@render row({
-									title: 'Hide music videos',
-									desc: "Keep only the audio version of a track, so the official video doesn't turn up beside it. Applies to newly loaded content.",
+									title: t('settings.playback.hide_videos'),
+									desc: t('settings.playback.hide_videos_hint'),
 									control: hideVideoSwitch,
 									tall: true
 								})}
 							</div>
 						</section>
 						<section class={GROUP}>
-							<h3 class={LABEL}>Lyrics</h3>
+							<h3 class={LABEL}>{t('settings.sections.lyrics')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Word-by-word lyrics',
-									desc: "Asks lyrics-api.boidu.dev first, the only source here with per-word timings, so lyrics can highlight as they're sung. It's checked for every track, so turning this off keeps your listening off that service. Other sources still provide line-by-line lyrics.",
+									title: t('settings.playback.lyrics_provider'),
+									desc: t('settings.playback.lyrics_provider_hint'),
 									control: boiduSwitch,
 									tall: true
 								})}
 							</div>
 						</section>
 						<section class={GROUP}>
-							<h3 class={LABEL}>Advanced</h3>
+							<h3 class={LABEL}>{t('settings.sections.advanced')}</h3>
 							<div class={CARD}>
-								{@render row({ title: 'Stream clients', below: clientList })}
+								{@render row({ title: t('settings.general.stream_clients'), below: clientList })}
 							</div>
 						</section>
 					{:else if tab === 'data'}
 						<section class={GROUP}>
-							<h3 class={LABEL}>Network</h3>
+							<h3 class={LABEL}>{t('settings.sections.network')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Proxy',
-									desc: 'HTTP/SOCKS proxy for all YouTube traffic. Takes effect on restart.',
+									title: t('settings.general.proxy'),
+									desc: t('settings.general.proxy_hint'),
 									below: proxyForm
 								})}
 							</div>
 						</section>
 						<section class={GROUP}>
-							<h3 class={LABEL}>Storage</h3>
+							<h3 class={LABEL}>{t('settings.sections.storage')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Cache',
-									desc: 'Clear cached stream URLs and downloaded audio bytes.',
+									title: t('settings.data.clear_cache'),
+									desc: t('settings.data.clear_cache_hint'),
 									control: clearButton
 								})}
 							</div>
@@ -607,27 +633,26 @@
 								{/if}
 							</div>
 							<p class="mt-1.5 max-w-prose text-xs leading-relaxed text-muted-foreground">
-								A cross-platform desktop YouTube Music client. Ad-free playback straight from
-								YouTube's private API, with your real library and OS media keys.
+								{t('settings.about.description')}
 							</p>
 						</div>
 
 						<section class={GROUP}>
-							<h3 class={LABEL}>Updates</h3>
+							<h3 class={LABEL}>{t('settings.sections.updates')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Updates',
+									title: t('settings.about.check_updates'),
 									desc: updateState.available && !updateState.canInstall
-										? `Version ${updateState.available.version} is available. This build was installed by a package manager, so update it the same way.`
+										? `${updateState.available.version} ${t('settings.about.update_available').replace('{version}', '')} Bu derleme paket yöneticisiyle kuruldu, aynı şekilde güncelleyin.`
 										: updateState.available
-											? `Version ${updateState.available.version} is available.`
-											: 'Check GitHub for a newer release.',
+											? t('settings.about.update_available').replace('{version}', updateState.available.version)
+											: t('settings.about.up_to_date'),
 									control: updateButton,
 									below: updateResult && !updateState.available ? updateAlert : undefined
 								})}
 								{@render row({
-									title: 'Tell me about new versions',
-									desc: 'Check on launch and show a banner when a newer version is out. Off means no check and no banner, so use the button above to look.',
+									title: t('settings.general.update_banner'),
+									desc: t('settings.general.update_banner_hint'),
 									control: bannerSwitch,
 									tall: true
 								})}
@@ -635,11 +660,11 @@
 						</section>
 
 						<section class={GROUP}>
-							<h3 class={LABEL}>What's new</h3>
+							<h3 class={LABEL}>{t('settings.sections.whats_new')}</h3>
 							<div class={CARD}>
 								{@render row({
-									title: 'Release notes',
-									desc: 'What changed in this version and the ones before it.',
+									title: t('settings.about.changelog'),
+									desc: t('settings.about.version').replace('{version}', version),
 									below: changelog
 								})}
 							</div>
@@ -652,6 +677,25 @@
 </Dialog.Root>
 
 <!-- Controls. Split out so the rows above read as a list of settings rather than a wall of markup. -->
+{#snippet languagePicker()}
+	<Select.Root
+		type="single"
+		value={currentLocale.id}
+		onValueChange={(v) => setLocale(v as LocaleId)}
+	>
+		<Select.Trigger class="w-44 shrink-0" aria-label={t('settings.general.language')}>
+			<span class="flex-1 truncate text-left">{currentLocaleLabel}</span>
+		</Select.Trigger>
+		<Select.Content>
+			{#each LOCALES as locale (locale.id)}
+				<Select.Item value={locale.id} label={locale.nativeLabel}>
+					{locale.nativeLabel}
+				</Select.Item>
+			{/each}
+		</Select.Content>
+	</Select.Root>
+{/snippet}
+
 {#snippet historySwitch()}<Switch checked={historyOn} onCheckedChange={setHistory} />{/snippet}
 {#snippet discordSwitch()}<Switch checked={discordOn} onCheckedChange={setDiscord} />{/snippet}
 {#snippet traySwitch()}<Switch checked={trayOn} onCheckedChange={setTray} />{/snippet}
@@ -684,7 +728,7 @@
 
 {#snippet presetSelect()}
 	<Select.Root type="single" value={theme.id} onValueChange={(v) => applyTheme(v as ThemeId)}>
-		<Select.Trigger class="w-44 shrink-0" aria-label="Theme">
+		<Select.Trigger class="w-44 shrink-0" aria-label={t('a11y.theme')}>
 			<span
 				class="size-4 shrink-0 rounded-full ring-1 ring-black/10"
 				style="background:{currentTheme.color}"
@@ -693,26 +737,26 @@
 		</Select.Trigger>
 		<Select.Content>
 			<Select.Group>
-				<Select.GroupHeading>Accent colors</Select.GroupHeading>
-				{#each ACCENT_THEMES as t (t.id)}
-					<Select.Item value={t.id} label={t.label}>
+				<Select.GroupHeading>{t('settings.themes.accent_colors')}</Select.GroupHeading>
+				{#each ACCENT_THEMES as th (th.id)}
+					<Select.Item value={th.id} label={th.label}>
 						<span
 							class="size-4 shrink-0 rounded-full ring-1 ring-black/10"
-							style="background:{t.color}"
+							style="background:{th.color}"
 						></span>
-						{t.label}
+						{th.label}
 					</Select.Item>
 				{/each}
 			</Select.Group>
 			<Select.Group>
-				<Select.GroupHeading>Palettes</Select.GroupHeading>
-				{#each PALETTE_THEMES as t (t.id)}
-					<Select.Item value={t.id} label={t.label}>
+				<Select.GroupHeading>{t('settings.themes.palettes')}</Select.GroupHeading>
+				{#each PALETTE_THEMES as th (th.id)}
+					<Select.Item value={th.id} label={th.label}>
 						<span
 							class="size-4 shrink-0 rounded-full ring-1 ring-black/10"
-							style="background:{t.color}"
+							style="background:{th.color}"
 						></span>
-						{t.label}
+						{th.label}
 					</Select.Item>
 				{/each}
 			</Select.Group>
@@ -724,7 +768,7 @@
 	<button
 		type="button"
 		onclick={() => (pickerOpen = !pickerOpen)}
-		aria-label="Choose accent color"
+		aria-label={t('a11y.choose_accent')}
 		aria-expanded={pickerOpen}
 		class="size-8 cursor-pointer rounded-lg ring-1 ring-black/10 transition-transform hover:scale-105 {pickerOpen
 			? 'ring-2 ring-primary/60'
@@ -740,7 +784,7 @@
 {#snippet tintSlider()}
 	<Slider
 		type="single"
-		aria-label="Background tint"
+		aria-label={t('a11y.background_tint')}
 		max={360}
 		step={1}
 		disabled={currentTheme.kind === 'palette'}
@@ -754,7 +798,7 @@
 	<div class="flex w-44 shrink-0 items-center gap-3">
 		<Slider
 			type="single"
-			aria-label="Roundness"
+			aria-label={t('a11y.roundness')}
 			max={1.5}
 			step={0.05}
 			value={effective.radius}
@@ -787,7 +831,7 @@
 			{/each}
 			{#if custom.fontFiles.length}
 				<Select.Group>
-					<Select.GroupHeading>Your fonts</Select.GroupHeading>
+					<Select.GroupHeading>{t('settings.themes.your_fonts')}</Select.GroupHeading>
 					{#each fileFonts() as f (f.value)}
 						<Select.Item value={f.value} label={f.label}>
 							<span class="block truncate" style="font-family:{f.value}">{f.label}</span>
@@ -795,7 +839,7 @@
 					{/each}
 				</Select.Group>
 			{/if}
-			<Select.Item value="custom" label="Custom">Custom…</Select.Item>
+			<Select.Item value="custom" label={t('common.custom')}>{t('settings.themes.custom_font')}</Select.Item>
 		</Select.Content>
 	</Select.Root>
 {/snippet}
@@ -804,8 +848,8 @@
 	<Input
 		value={fontName[key]}
 		oninput={(e) => typeFont(key, e.currentTarget.value)}
-		placeholder="Font installed on this computer, e.g. Inter"
-		aria-label="{label} family name"
+		placeholder={t('settings.themes.font_placeholder')}
+		aria-label={t('settings.themes.font_aria', { label })}
 		spellcheck={false}
 		style="font-family:{effective[key]}"
 	/>
@@ -813,13 +857,13 @@
 	     the other half of #97, and a name mid-typing is never installed anyway. -->
 	{#if fontName[key].trim() && !fontAvailable(familyName(effective[key]))}
 		<p class="mt-1.5 text-xs text-muted-foreground">
-			Not installed — install the font, then reopen settings.
+			{t('settings.themes.font_not_installed')}
 		</p>
 	{/if}
 {/snippet}
 
 {#snippet addFontButton()}
-	<Button variant="outline" size="sm" class="shrink-0" onclick={pickFontFiles}>Add font…</Button>
+	<Button variant="outline" size="sm" class="shrink-0" onclick={pickFontFiles}>{t('settings.themes.add_font')}</Button>
 {/snippet}
 
 {#snippet fontFileList()}
@@ -834,7 +878,7 @@
 				<button
 					type="button"
 					onclick={() => removeFontFile(path)}
-					aria-label="Remove {fileFamily(path)}"
+					aria-label={t('a11y.remove_font', { name: fileFamily(path) })}
 					class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
 				>
 					<HugeiconsIcon icon={Cancel01Icon} size={14} />
@@ -855,7 +899,7 @@
 			fontName = { fontSans: '', fontHeading: '' };
 		}}
 	>
-		Reset
+		{t('common.reset')}
 	</Button>
 {/snippet}
 
@@ -872,7 +916,7 @@
 					? 'bg-background text-foreground shadow-sm'
 					: 'text-muted-foreground hover:text-foreground'}"
 			>
-				{q.label}
+				{t(q.key)}
 			</button>
 		{/each}
 	</div>
@@ -880,8 +924,7 @@
 
 {#snippet clientList()}
 	<p class="mb-3 max-w-prose text-xs leading-relaxed text-muted-foreground">
-		Turn a client off to skip it when resolving streams. Overridden by the
-		<span class="font-mono">LIMUSIC_DISABLED_CLIENTS</span> env var.
+		{t('settings.general.stream_clients_hint', { var: 'LIMUSIC_DISABLED_CLIENTS' })}
 	</p>
 	<div class="flex flex-col gap-2">
 		{#each clients as name (name)}
@@ -901,27 +944,27 @@
 			saveProxy();
 		}}
 	>
-		<Input bind:value={proxyInput} placeholder="http://host:port (blank = none)" />
-		<Button type="submit" variant="outline">Save</Button>
+		<Input bind:value={proxyInput} placeholder={t('settings.general.proxy_placeholder')} />
+		<Button type="submit" variant="outline">{t('common.save')}</Button>
 	</form>
 {/snippet}
 
 {#snippet clearButton()}
 	<Button variant="destructive" size="sm" onclick={doClearCaches} disabled={clearing}>
-		{clearing ? 'Clearing…' : 'Clear caches'}
+		{clearing ? t('common.loading') : t('settings.data.clear_cache_button')}
 	</Button>
 {/snippet}
 
 {#snippet updateButton()}
 	{#if updateState.available && !updateState.canInstall}
-		<Button size="sm" onclick={openDownloadPage}>Download</Button>
+		<Button size="sm" onclick={openDownloadPage}>{t('settings.about.download_page')}</Button>
 	{:else if updateState.available}
 		<Button size="sm" onclick={installUpdate} disabled={updateState.installing}>
-			{updateState.installing ? 'Updating…' : 'Update now'}
+			{updateState.installing ? t('common.loading') : t('settings.about.install_update')}
 		</Button>
 	{:else}
 		<Button variant="outline" size="sm" onclick={checkUpdates} disabled={updateState.checking}>
-			{updateState.checking ? 'Checking…' : 'Check for updates'}
+			{updateState.checking ? t('settings.about.checking_updates') : t('settings.about.check_updates')}
 		</Button>
 	{/if}
 {/snippet}

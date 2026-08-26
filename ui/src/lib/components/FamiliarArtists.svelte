@@ -16,6 +16,7 @@
 	import { getCached, putCached } from '$lib/pagecache';
 	import { topArtistIds } from '$lib/personal';
 	import { personal, toast } from '$lib/player.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	// ponytail: one browse call per artist, because the subscriber count and the subscribe state
 	// only exist on the artist page. Seven of them, shared with the artist route's cache (same key),
@@ -94,7 +95,7 @@
 	const asItem = (a: ArtistPage): BrowseItem => ({
 		kind: 'artist',
 		id: a.channelId,
-		title: a.name ?? 'Artist',
+		title: a.name ?? t('common.artist_singular'),
 		subtitle: a.subscribers,
 		thumbnail: a.thumbnail
 	});
@@ -109,7 +110,7 @@
 		try {
 			await api.subscribe(a.channelId, next);
 			putCached(`artist:${a.channelId}`, { ...a, subscribed: next }); // keep the cache truthful
-			toast.success(next ? `Subscribed to ${a.name ?? ''}` : 'Unsubscribed');
+			toast.success(next ? t('artist.subscribed') : t('artist.subscribe'));
 		} catch (e) {
 			subs = { ...subs, [a.channelId]: !next };
 			toast.error(String(e));
@@ -121,7 +122,7 @@
 
 {#if loading ? ids.length >= MIN : artists.length >= MIN}
 	<section>
-		<SectionHeading title="Familiar Artists" icon={UserStar01Icon} />
+		<SectionHeading title={t('home.familiar_artists')} icon={UserStar01Icon} />
 		<div class="grid items-center gap-6 md:grid-cols-2 md:gap-10">
 			<div class="flex flex-col gap-1">
 				{#if loading}
@@ -169,9 +170,9 @@
 								{/if}
 							</div>
 							<div class="min-w-0 flex-1">
-								<div class="truncate text-sm font-medium">{a.name ?? 'Artist'}</div>
+								<div class="truncate text-sm font-medium">{a.name ?? t('common.unknown_artist')}</div>
 								<div class="truncate text-xs text-muted-foreground">
-									{a.subscribers ?? 'Artist'}
+									{a.subscribers ?? t('common.artists')}
 								</div>
 							</div>
 							<button
@@ -220,8 +221,8 @@
 						{:else}
 							<button
 								class="h-full w-full cursor-pointer overflow-hidden rounded-full bg-muted transition-transform duration-200 ease-out hover:scale-105"
-								title={a.name ?? 'Artist'}
-								aria-label={a.name ?? 'Artist'}
+								title={a.name ?? t('common.artist_singular')}
+								aria-label={a.name ?? t('common.artist_singular')}
 								onclick={() => open(a)}
 							>
 								{#if a.thumbnail && !failed[a.channelId]}

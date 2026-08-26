@@ -12,6 +12,7 @@
 	import { dragScroll, QUEUE_ROW_MIME } from '$lib/dnd';
 	import { playback, openAddToPlaylist } from '$lib/player.svelte';
 	import { lt } from '$lib/lt.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	// Guests are add-only in a session — no removing (theirs or anyone's) and no reordering. The
 	// playing row can't be removed either (backend guards it too).
@@ -149,7 +150,7 @@
 					onRemove={canRemove && i !== playback.queue.currentIndex
 						? () => api.removeFromQueue(i)
 						: undefined}
-					removeLabel="Remove from queue"
+					removeLabel={t('player.remove_from_queue')}
 				/>
 			</div>
 		{/each}
@@ -185,19 +186,19 @@
 		{/if}
 		{#if showPrev && view.prev.length}
 			<h3 class="px-2 pt-2 pb-1.5 text-sm font-semibold text-muted-foreground">
-				Previously played
+				{t('player.history')}
 			</h3>
 			{@render rows(view.prev, wins[1])}
 		{/if}
 		<div bind:this={nowEl} class="flex items-center justify-between gap-2 px-2 pt-2 pb-1.5">
-			<h3 class="truncate text-sm font-semibold">Now playing</h3>
+			<h3 class="truncate text-sm font-semibold">{t('player.now_playing')}</h3>
 			{#if view.prev.length}
 				<button
 					class="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
 					onclick={togglePrev}
 				>
 					<HugeiconsIcon icon={HistoryIcon} class="h-3.5 w-3.5" />
-					{showPrev ? 'Hide previous' : 'Load previous'}
+					{showPrev ? t('player.hide_history') : t('player.show_history')}
 				</button>
 			{/if}
 		</div>
@@ -207,11 +208,10 @@
 			{#if block.autoplay}
 				<div
 					class="mt-3 flex items-center gap-2 border-t px-2 pt-2.5 pb-1.5 text-muted-foreground"
-					title="Autoplay keeps the music going with similar songs. Turn it off in Settings ▸ Playback."
+					title={t('player.autoplay_notice')}
 				>
 					<HugeiconsIcon icon={InfinityIcon} class="h-3.5 w-3.5" />
-					<span class="text-xs font-medium">Autoplay</span>
-					<span class="truncate text-xs">· similar music</span>
+					<span class="text-xs font-medium">{t('settings.playback.autoplay')}</span>
 				</div>
 			{:else}
 				<div class="mt-3 flex items-center justify-between gap-2 px-2 pb-1.5">
@@ -221,7 +221,7 @@
 							class="shrink-0 cursor-pointer text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
 							onclick={() => api.clearQueued()}
 						>
-							Clear queue
+							{t('player.clear_queue')}
 						</button>
 					{/if}
 				</div>
@@ -229,6 +229,6 @@
 			{@render rows(block.rows, wins[b + 3])}
 		{/each}
 	{:else}
-		<p class="p-4 text-sm text-muted-foreground">The queue is empty.</p>
+		<p class="p-4 text-sm text-muted-foreground">{t('player.empty_queue')}</p>
 	{/if}
 </div>

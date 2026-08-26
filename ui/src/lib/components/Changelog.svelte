@@ -10,6 +10,7 @@
 -->
 <script lang="ts">
 	import { releaseNotes, openExternal } from '$lib/api';
+	import { t } from '$lib/i18n.svelte';
 
 	let { current }: { current: string } = $props();
 
@@ -84,14 +85,14 @@
 {#snippet spans(list: Span[])}{#each list as s}{#if s.t === 'b'}<strong class="font-medium text-foreground">{s.s}</strong>{:else if s.t === 'code'}<code class="rounded bg-muted px-1 py-0.5 text-xs">{s.s}</code>{:else if s.t === 'link'}<button type="button" class="text-primary hover:underline" onclick={() => openExternal(s.href!)}>{s.s}</button>{:else}{s.s}{/if}{/each}{/snippet}
 
 {#await load}
-	<p class="py-2 text-sm text-muted-foreground">Loading…</p>
+	<p class="py-2 text-sm text-muted-foreground">{t('common.loading')}</p>
 {:then releases}
 	{#each releases as r, i (r.version)}
 		<details class="border-b last:border-b-0" open={i === 0}>
 			<summary class="flex cursor-pointer items-center gap-2 py-2 text-sm marker:text-muted-foreground">
-				<span class="font-medium">Version {r.version}</span>
+				<span class="font-medium">{t('changelog.version', { version: r.version })}</span>
 				{#if r.version === current}
-					<span class="rounded bg-primary/15 px-1.5 py-0.5 text-xs text-primary">installed</span>
+					<span class="rounded bg-primary/15 px-1.5 py-0.5 text-xs text-primary">{t('changelog.installed')}</span>
 				{/if}
 				<span class="ml-auto text-xs text-muted-foreground">{day(r.date)}</span>
 			</summary>
@@ -120,8 +121,8 @@
 			</div>
 		</details>
 	{:else}
-		<p class="py-2 text-sm text-muted-foreground">No releases yet.</p>
+		<p class="py-2 text-sm text-muted-foreground">{t('changelog.no_releases')}</p>
 	{/each}
 {:catch e}
-	<p class="py-2 text-sm text-muted-foreground">Couldn't load the changelog ({e}).</p>
+	<p class="py-2 text-sm text-muted-foreground">{t('changelog.load_failed', { error: e })}</p>
 {/await}

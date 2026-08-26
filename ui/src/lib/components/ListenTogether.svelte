@@ -17,6 +17,7 @@
 	import { copyText } from '$lib/clipboard';
 	import { ui, toast } from '$lib/player.svelte';
 	import { lt } from '$lib/lt.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	let mode = $state<'join' | 'host'>('join');
 	let name = $state('');
@@ -39,6 +40,14 @@
 	const invite = $derived(makeInvite(lt.serverUrl, lt.roomCode ?? ''));
 	// Sitting between "asked to join" and "in the room" — show a waiting state, block re-sends.
 	const waiting = $derived(lt.requesting && lt.role === 'none');
+	// Translate the raw machine status string so it never appears in the UI untranslated.
+	const statusLabel = $derived(
+		lt.status === 'connecting'
+			? t('dialogs.listen_together.status_connecting')
+			: lt.status === 'connected'
+				? t('dialogs.listen_together.status_connected')
+				: t('dialogs.listen_together.status_disconnected')
+	);
 
 	function rememberName() {
 		localStorage.setItem('lt_name', name.trim());
@@ -63,9 +72,9 @@
 	}
 
 	async function host() {
-		if (!name.trim()) return toast.error('Enter a name first');
+		if (!name.trim()) return toast.error(t('dialogs.listen_together.err_enter_name'));
 		const u = serverUrl.trim();
-		if (!u) return toast.error('Enter your sync server URL');
+		if (!u) return toast.error(t('dialogs.listen_together.err_enter_server'));
 		busy = true;
 		try {
 			if (u !== lt.serverUrl) await api.ltSetServerUrl(u);
@@ -78,11 +87,11 @@
 
 	async function join(e?: Event) {
 		e?.preventDefault();
-		if (!name.trim()) return toast.error('Enter a name first');
+		if (!name.trim()) return toast.error(t('dialogs.listen_together.err_enter_name'));
 		const parsed = parseInvite(inviteInput);
-		if (!parsed || !parsed.code) return toast.error('Paste the invite code your friend sent');
+		if (!parsed || !parsed.code) return toast.error(t('dialogs.listen_together.err_paste_code'));
 		const server = parsed.server || lt.serverUrl;
-		if (!server) return toast.error('Paste the full invite from the host, it carries the server address');
+		if (!server) return toast.error(t('dialogs.listen_together.err_paste_full_invite'));
 		busy = true;
 		try {
 			if (server !== lt.serverUrl) await api.ltSetServerUrl(server);
@@ -99,8 +108,8 @@
 
 	function copyInvite() {
 		copyText(invite).then(
-			() => toast.success('Invite copied, send it to a friend'),
-			() => toast.error('Could not copy the invite')
+			() => toast.success(t('dialogs.listen_together.invite_copied')),
+			() => toast.error(t('dialogs.listen_together.invite_copy_failed'))
 		);
 	}
 </script>
@@ -108,8 +117,8 @@
 <Dialog.Root bind:open={ui.ltOpen}>
 	<Dialog.Content class="overflow-hidden sm:max-w-md">
 		<Dialog.Header>
-			<Dialog.Title>Listen Together</Dialog.Title>
-			<Dialog.Description class="sr-only">Synced listening session</Dialog.Description>
+			<Dialog.Title>{t('dialogs.listen_together.title')}</Dialog.Title>
+			<Dialog.Description class="sr-only">{t('dialogs.listen_together.desc')}</Dialog.Description>
 		</Dialog.Header>
 
 		{#if waiting}
@@ -120,10 +129,10 @@
 				></div>
 				<p class="text-sm text-muted-foreground">
 					{lt.status === 'connecting'
-						? 'Connecting…'
-						: 'Waiting for the host to let you in…'}
+						? t('dialogs.listen_together.connecting')
+						: t('dialogs.listen_together.waiting_for_host')}
 				</p>
-				<Button variant="outline" size="sm" onclick={leave}>Cancel</Button>
+				<Button variant="outline" size="sm" onclick={leave}>{t('common.cancel')}</Button>
 			</div>
 		{:else if !inRoom}
 			<!-- Setup: join a friend (just a name + invite) or host your own. -->
@@ -133,45 +142,45 @@
 						class="flex-1 rounded-md py-1.5 font-medium transition-colors {mode === 'join'
 							? 'bg-background shadow-sm'
 							: 'text-muted-foreground'}"
-						onclick={() => (mode = 'join')}>Join</button
+						onclick={() => (mode = 'join')}>{t('dialogs.listen_together.join_tab')}</button
 					>
 					<button
 						class="flex-1 rounded-md py-1.5 font-medium transition-colors {mode === 'host'
 							? 'bg-background shadow-sm'
 							: 'text-muted-foreground'}"
-						onclick={() => (mode = 'host')}>Host</button
+						onclick={() => (mode = 'host')}>{t('dialogs.listen_together.host_tab')}</button
 					>
 				</div>
 
 				{#if mode === 'join'}
 					<form class="flex flex-col gap-4" onsubmit={join}>
 						<div>
-							<div class="mb-1 text-sm font-medium">Invite code</div>
-							<Input bind:value={inviteInput} placeholder="Paste the invite your friend sent" />
+							<div class="mb-1 text-sm font-medium">{t('dialogs.listen_together.invite_code')}</div>
+							<Input bind:value={inviteInput} placeholder={t('dialogs.listen_together.invite_placeholder')} />
 							<p class="mt-1 text-xs text-muted-foreground">
-								The invite carries the server address, nothing else to set up.
+								{t('dialogs.listen_together.invite_hint')}
 							</p>
 						</div>
 						<div>
-							<div class="mb-1 text-sm font-medium">Your name</div>
-							<Input bind:value={name} placeholder="Your name" />
+							<div class="mb-1 text-sm font-medium">{t('dialogs.listen_together.your_name')}</div>
+							<Input bind:value={name} placeholder={t('dialogs.listen_together.your_name_placeholder')} />
 						</div>
-						<Button type="submit" disabled={busy}>Join session</Button>
+						<Button type="submit" disabled={busy}>{t('dialogs.listen_together.join_button')}</Button>
 					</form>
 				{:else}
 					<div class="flex flex-col gap-4">
 						<div>
-							<div class="mb-1 text-sm font-medium">Sync server</div>
-							<Input bind:value={serverUrl} placeholder="wss://your-machine.ts.net/ws" />
+							<div class="mb-1 text-sm font-medium">{t('dialogs.listen_together.sync_server')}</div>
+							<Input bind:value={serverUrl} placeholder={t('dialogs.listen_together.sync_server_placeholder')} />
 							<p class="mt-1 text-xs text-muted-foreground">
-								Your self-hosted server (e.g. the Tailscale Funnel URL). Saved for next time.
+								{t('dialogs.listen_together.sync_server_hint')}
 							</p>
 						</div>
 						<div>
-							<div class="mb-1 text-sm font-medium">Your name</div>
-							<Input bind:value={name} placeholder="Your name" />
+							<div class="mb-1 text-sm font-medium">{t('dialogs.listen_together.your_name')}</div>
+							<Input bind:value={name} placeholder={t('dialogs.listen_together.your_name_placeholder')} />
 						</div>
-						<Button onclick={host} disabled={busy}>Start a session</Button>
+						<Button onclick={host} disabled={busy}>{t('dialogs.listen_together.start_button')}</Button>
 					</div>
 				{/if}
 			</div>
@@ -181,7 +190,7 @@
 				<!-- Role + invite -->
 				<div class="rounded-lg border bg-muted/40 p-4 text-center">
 					<div class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-						{isHost ? 'Hosting' : 'Listening'} · {lt.status}
+						{isHost ? t('dialogs.listen_together.hosting') : t('dialogs.listen_together.listening')} · {statusLabel}
 					</div>
 					<div
 						class="mt-2 select-all break-all rounded-md bg-background px-2 py-1.5 text-left font-mono text-[11px] leading-snug"
@@ -190,7 +199,7 @@
 					</div>
 					<Button variant="outline" size="sm" class="mt-3 w-full" onclick={copyInvite}>
 						<HugeiconsIcon icon={Copy01Icon} class="h-4 w-4" />
-						Copy invite
+						{t('dialogs.listen_together.copy_invite')}
 					</Button>
 				</div>
 
@@ -214,7 +223,7 @@
 				<!-- Host: pending join requests -->
 				{#if isHost && lt.pendingJoins.length}
 					<div>
-						<div class="mb-2 text-sm font-medium">Join requests</div>
+						<div class="mb-2 text-sm font-medium">{t('dialogs.listen_together.join_requests')}</div>
 						<div class="flex flex-col gap-2">
 							{#each lt.pendingJoins as p (p.userId)}
 								<div class="flex min-w-0 items-center gap-2">
@@ -233,7 +242,7 @@
 
 				<!-- Participants -->
 				<div>
-					<div class="mb-2 text-sm font-medium">In the room ({lt.users.length})</div>
+					<div class="mb-2 text-sm font-medium">{t('dialogs.listen_together.in_room', { count: lt.users.length })}</div>
 					<div class="flex flex-col gap-1">
 						{#each lt.users as u (u.user_id)}
 							<div class="flex min-w-0 items-center gap-2 rounded-md px-1 py-1">
@@ -241,10 +250,10 @@
 									class="h-2 w-2 shrink-0 rounded-full {u.is_connected
 										? 'bg-green-500'
 										: 'bg-muted-foreground/40'}"
-									title={u.is_connected ? 'Connected' : 'Disconnected'}
+									title={u.is_connected ? t('dialogs.listen_together.connected') : t('dialogs.listen_together.disconnected')}
 								></span>
 								<span class="min-w-0 flex-1 truncate text-sm {u.is_connected ? '' : 'opacity-50'}">
-									{u.username}{u.user_id === lt.myId ? ' (you)' : ''}
+									{u.username}{u.user_id === lt.myId ? ` ${t('dialogs.listen_together.you')}` : ''}
 								</span>
 								{#if u.is_host}
 									<HugeiconsIcon icon={CrownIcon} class="h-4 w-4 shrink-0 text-yellow-500" />
@@ -252,14 +261,14 @@
 								{#if isHost && u.user_id !== lt.myId}
 									<button
 										class="shrink-0 text-muted-foreground hover:text-foreground"
-										title="Make host"
+										title={t('dialogs.listen_together.make_host')}
 										onclick={() => api.ltTransferHost(u.user_id)}
 									>
 										<HugeiconsIcon icon={Exchange01Icon} class="h-4 w-4" />
 									</button>
 									<button
 										class="shrink-0 text-muted-foreground hover:text-destructive"
-										title="Remove"
+										title={t('dialogs.listen_together.remove')}
 										onclick={() => api.ltKick(u.user_id)}
 									>
 										<HugeiconsIcon icon={UserRemove01Icon} class="h-4 w-4" />
@@ -273,14 +282,14 @@
 				<!-- Host: suggestions from guests -->
 				{#if isHost && lt.suggestions.length}
 					<div>
-						<div class="mb-2 text-sm font-medium">Suggestions</div>
+						<div class="mb-2 text-sm font-medium">{t('dialogs.listen_together.suggestions')}</div>
 						<div class="flex flex-col gap-2">
 							{#each lt.suggestions as s (s.id)}
 								<div class="flex min-w-0 items-center gap-2">
 									<div class="min-w-0 flex-1">
 										<div class="truncate text-sm">{s.track.title}</div>
 										<div class="truncate text-xs text-muted-foreground">
-											{s.track.artist} · from {s.from_username}
+											{s.track.artist} · {t('dialogs.listen_together.from_user', { user: s.from_username })}
 										</div>
 									</div>
 									<Button size="sm" onclick={() => api.ltApproveSuggestion(s.id)}>
@@ -300,13 +309,13 @@
 					{#if !isHost}
 						<Button variant="outline" size="sm" onclick={() => api.ltRequestSync()}>
 							<HugeiconsIcon icon={RefreshIcon} class="h-4 w-4" />
-							Re-sync
+							{t('dialogs.listen_together.resync')}
 						</Button>
 					{/if}
 					<div class="flex-1"></div>
 					<Button variant="destructive" size="sm" onclick={leave}>
 						<HugeiconsIcon icon={Logout01Icon} class="h-4 w-4" />
-						Leave
+						{t('dialogs.listen_together.leave')}
 					</Button>
 				</div>
 			</div>

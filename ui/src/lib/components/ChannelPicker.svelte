@@ -7,6 +7,7 @@
 	import type { AccountIdentity } from '$lib/api';
 	import { toast, ui } from '$lib/player.svelte';
 	import { thumb } from '$lib/thumb';
+	import { t } from '$lib/i18n.svelte';
 
 	let loading = $state(false);
 	let switching = $state<string | null>(null);
@@ -83,19 +84,19 @@
 		interactOutsideBehavior={dismissable}
 	>
 		<div class="border-b px-5 py-4">
-			<Dialog.Title class="text-lg font-semibold">Choose a YouTube channel</Dialog.Title>
+			<Dialog.Title class="text-lg font-semibold">{t('nav.choose_channel')}</Dialog.Title>
 			<Dialog.Description class="mt-1 text-xs text-muted-foreground">
-				Library, likes and playlists will use this channel. You can switch again later.
+				{t('nav.choose_channel_desc')}
 			</Dialog.Description>
 		</div>
 
 		<div class="max-h-[26rem] min-h-32 overflow-y-auto p-2">
 			{#if loading}
-				<p class="px-3 py-8 text-center text-sm text-muted-foreground">Loading channels…</p>
+				<p class="px-3 py-8 text-center text-sm text-muted-foreground">{t('common.loading')}</p>
 			{:else if error}
 				<div class="space-y-3 px-3 py-6 text-center">
 					<p class="text-sm text-destructive">{error}</p>
-					<Button variant="outline" size="sm" onclick={loadIdentities}>Try again</Button>
+					<Button variant="outline" size="sm" onclick={loadIdentities}>{t('common.retry')}</Button>
 				</div>
 			{:else if ui.channelIdentities.length === 0}
 				<p class="px-3 py-8 text-center text-sm text-muted-foreground">
@@ -131,7 +132,7 @@
 						{#if identity.selected}
 							<span class="flex shrink-0 items-center gap-1 text-xs text-primary">
 								<HugeiconsIcon icon={CheckmarkCircle02Icon} class="h-4 w-4" />
-								Selected
+								{t('library.in_library')}
 							</span>
 						{/if}
 					</button>
@@ -142,7 +143,7 @@
 		<div class="flex justify-end border-t px-5 py-3">
 			{#if ui.channelPickerRequired}
 				<Button variant="outline" size="sm" onclick={cancelSignIn} disabled={cancelling || switching !== null}>
-					{cancelling ? 'Cancelling…' : 'Cancel sign-in'}
+					{cancelling ? t('common.loading') : t('nav.cancel_sign_in')}
 				</Button>
 			{:else}
 				<Button variant="outline" size="sm" onclick={() => (ui.channelPickerOpen = false)}>

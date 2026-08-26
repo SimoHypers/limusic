@@ -8,6 +8,7 @@
 	import { Button } from "$lib/components/ui/button/index.js";
 	import { HugeiconsIcon } from "@hugeicons/svelte"
 	import { Cancel01Icon } from '@hugeicons/core-free-icons';
+	import { t } from '$lib/i18n.svelte';
 
 	let {
 		ref = $bindable(null),
@@ -45,7 +46,7 @@
 					{#snippet child({ props })}
 						<Button variant="ghost" class="absolute top-4 right-4" size="icon-sm" {...props}>
 							<HugeiconsIcon icon={Cancel01Icon} strokeWidth={2}  />
-							<span class="sr-only">Close</span>
+							<span class="sr-only">{t('common.close')}</span>
 						</Button>
 					{/snippet}
 				</DialogPrimitive.Close>

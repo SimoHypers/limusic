@@ -13,6 +13,7 @@
 	import { Switch } from '$lib/components/ui/switch';
 	import { thumb } from '$lib/thumb';
 	import { ui, toast } from '$lib/player.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	// Playlist browseIds carry a `VL` prefix that the watch/playlist URLs don't take.
 	function shareUrl(item: BrowseItem): string {
@@ -95,7 +96,7 @@
 				copied = true;
 				setTimeout(() => (copied = false), 1500);
 			},
-			() => toast.error('Could not copy the link. Select it and press Ctrl+C.')
+			() => toast.error(t('toasts.could_not_copy_link'))
 		);
 	}
 </script>
@@ -115,12 +116,12 @@
 			transition:scale={{ duration: 180, start: 0.96, easing: cubicOut }}
 			class="w-full max-w-md rounded-xl border bg-card p-4 shadow-xl"
 		>
-			<div class="mb-3 flex items-start justify-between gap-3">
-				<h2 class="font-heading text-base font-semibold">Share</h2>
+			<div class="mb-4 flex items-center justify-between">
+				<h2 class="text-base font-semibold">{t('dialogs.share.title')}</h2>
 				<button
 					class="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 					onclick={close}
-					aria-label="Close"
+					aria-label={t('common.close')}
 				>
 					<HugeiconsIcon icon={Cancel01Icon} class="h-4 w-4" />
 				</button>
@@ -156,35 +157,35 @@
 				<button
 					class="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-sm transition-colors hover:bg-accent/10"
 					onclick={copy}
-					aria-label="Copy link"
+					aria-label={t('dialogs.share.copy_link')}
 				>
 					<!-- icon swap via altIcon/showAlt: `icon` is frozen at mount -->
 					<HugeiconsIcon icon={Copy01Icon} altIcon={Tick02Icon} showAlt={copied} class="h-4 w-4" />
-					{copied ? 'Copied' : 'Copy'}
+					{copied ? t('common.done') : t('dialogs.share.copy_link')}
 				</button>
 			</div>
 
 			{#if privacy === 'PRIVATE'}
 				<div class="mt-3 flex items-start gap-2 text-xs text-amber-600 dark:text-amber-500">
 					<HugeiconsIcon icon={Alert02Icon} class="mt-px h-4 w-4 shrink-0" />
-					<p>This playlist is private. Anyone you send the link to will get an error.</p>
+					<p>{t('dialogs.share.private_note')}</p>
 				</div>
 			{/if}
 
 			{#if wasPrivate && canToggle}
 				<div class="mt-3 flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5">
 					<div class="min-w-0">
-						<div class="text-sm font-medium">Public</div>
+						<div class="text-sm font-medium">{t('common.public')}</div>
 						<p class="text-xs text-muted-foreground">
 							{privacy === 'PUBLIC'
-								? 'Anyone with the link can open it.'
-								: 'Turn on to make the link work for everyone.'}
+								? t('dialogs.share.public_link_on')
+								: t('dialogs.share.public_link_off')}
 						</p>
 					</div>
 					<Switch
 						checked={privacy === 'PUBLIC'}
 						onCheckedChange={setPublic}
-						aria-label="Public playlist"
+						aria-label={t('a11y.public_playlist')}
 					/>
 				</div>
 			{/if}

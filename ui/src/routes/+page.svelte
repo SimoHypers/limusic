@@ -27,6 +27,7 @@
 		seedOnRepeatPick,
 		toast
 	} from '$lib/player.svelte';
+	import { t } from '$lib/i18n.svelte';
 	import {
 		arrangeSections,
 		freshen,
@@ -104,9 +105,9 @@
 		const local: Block[] = selected
 			? [] // a mood feed is the chip's: neither of ours belongs in it
 			: [
-					{ id: RECENT, key: RECENT, title: 'Jump back in' },
-					{ id: FAMILIAR, key: FAMILIAR, title: 'Familiar Artists' },
-					{ id: FORGOTTEN, key: FORGOTTEN, title: 'Forgotten favourites' }
+					{ id: RECENT, key: RECENT, title: t('home.jump_back_in') },
+					{ id: FAMILIAR, key: FAMILIAR, title: t('home.familiar_artists') },
+					{ id: FORGOTTEN, key: FORGOTTEN, title: t('home.forgotten_favourites') }
 				];
 		const shelves = feed.map((s, i) => ({
 			id: `${i}:${s.title}`,
@@ -230,7 +231,7 @@
 		} catch (e) {
 			// Stop auto-loading and offer a retry — auto-retrying a visible sentinel would spin.
 			moreError = true;
-			toast.error('Could not load more');
+			toast.error(t('toasts.could_not_load_more'));
 		} finally {
 			loadingMore = false;
 		}
@@ -317,7 +318,7 @@
 			<div class="flex gap-2 overflow-x-auto pb-2">
 				<!-- An explicit "All" is the way out of a filter. Clicking the active chip again also
 				     clears it, but nobody discovers that, and nothing else on screen says you're filtered. -->
-				<button onclick={() => load(null)} class={chipClass(!selected)}>All</button>
+				<button onclick={() => load(null)} class={chipClass(!selected)}>{t('common.all')}</button>
 				{#each chips as chip (chip.params)}
 					<button
 						onclick={() => load(selected === chip.params ? null : chip.params)}
@@ -407,20 +408,20 @@
 					<HugeiconsIcon icon={MusicNote01Icon} class="h-8 w-8 text-muted-foreground/40" />
 					<p class="max-w-sm text-sm text-muted-foreground">
 						{auth.account?.signedIn
-							? 'Your home feed came back empty this time.'
-							: 'Sign in and home fills up with mixes and playlists built from what you listen to.'}
+							? t('home.feed_empty')
+							: t('home.signed_out_hint')}
 					</p>
 					{#if auth.account?.signedIn}
-						<Button variant="outline" size="sm" onclick={() => load(selected)}>Try again</Button>
+						<Button variant="outline" size="sm" onclick={() => load(selected)}>{t('common.try_again')}</Button>
 					{:else}
-						<Button size="sm" onclick={() => api.loginWebview()}>Sign in with Google</Button>
+						<Button size="sm" onclick={() => api.loginWebview()}>{t('common.sign_in_google')}</Button>
 					{/if}
 				</div>
 			{:else if home.continuation}
 				{#if moreError}
 					<div class="p-3 text-center">
 						<Button variant="outline" size="sm" onclick={loadMore} disabled={loadingMore}>
-							{loadingMore ? 'Loading…' : 'Try again'}
+							{loadingMore ? t('common.loading') : t('common.try_again')}
 						</Button>
 					</div>
 				{:else}
@@ -441,7 +442,7 @@
 	<button
 		transition:fade={{ duration: 150 }}
 		onclick={() => scroller?.scrollTo({ top: 0, behavior: 'smooth' })}
-		aria-label="Back to top"
+		aria-label={t('a11y.back_to_top')}
 		class="fixed right-6 z-10 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-110 {playback.now
 			? 'bottom-24'
 			: 'bottom-6'}"

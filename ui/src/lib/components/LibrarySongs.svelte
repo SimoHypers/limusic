@@ -18,6 +18,7 @@
 	import { getCached, putCached } from '$lib/pagecache';
 	import { thumb } from '$lib/thumb';
 	import { openAddToPlaylist, openPlayer, playback } from '$lib/player.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	// Cached like every other browse page, so switching tabs (or leaving the Library and coming
 	// back) paints the list instead of refetching it and losing every page you scrolled in.
@@ -58,8 +59,10 @@
 	// filter walks every page), and say so while that walk is still running.
 	const line = $derived(
 		filtering
-			? `${shownSongs.length.toLocaleString()} matching${token && !moreError ? ' so far' : ''}`
-			: 'Every song you’ve saved, in one list'
+			? token && !moreError
+				? t('library.matching_songs_so_far', { count: shownSongs.length.toLocaleString() })
+				: t('library.matching_songs', { count: shownSongs.length.toLocaleString() })
+			: t('library.every_song_saved')
 	);
 	// Four covers for the mosaic. Distinct ones: a library that opens on six tracks off the same
 	// album would otherwise draw the same sleeve four times.
@@ -219,13 +222,13 @@
 				</div>
 			{/if}
 			<div class="min-w-0 flex-1">
-				<h2 class="font-heading text-2xl font-bold tracking-tight">Songs</h2>
+				<h2 class="font-heading text-2xl font-bold tracking-tight">{t('common.songs')}</h2>
 				<p class="mt-0.5 text-sm text-muted-foreground">
 					{line}
 				</p>
 				<div class="mt-3 flex flex-wrap items-center gap-2">
 					<Button class="gap-2 rounded-full" disabled={!songs.length} onclick={() => play(null, true)}>
-						<HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" /> Shuffle all
+						<HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" /> {t('common.shuffle_all')}
 					</Button>
 					<Button
 						variant="outline"
@@ -233,11 +236,11 @@
 						disabled={!songs.length}
 						onclick={() => play(null)}
 					>
-						<HugeiconsIcon icon={PlayIcon} class="h-4 w-4" /> Play all
+						<HugeiconsIcon icon={PlayIcon} class="h-4 w-4" /> {t('common.play_all')}
 					</Button>
 				</div>
 			</div>
-			<TrackFilter bind:value={query} placeholder="Search your songs" />
+			<TrackFilter bind:value={query} placeholder={t('common.search_your_songs')} />
 		</div>
 	</div>
 
@@ -268,7 +271,7 @@
 	{#if moreError}
 		<div class="p-3 text-center">
 			<Button variant="outline" size="sm" onclick={() => ((moreError = false), loadMore())}>
-				{loadingMore ? 'Loading…' : 'Try again'}
+				{loadingMore ? t('common.loading') : t('common.try_again')}
 			</Button>
 		</div>
 	{:else if shown < shownSongs.length || token}

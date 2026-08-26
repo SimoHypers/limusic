@@ -22,6 +22,7 @@
 	import TrackRow from './TrackRow.svelte';
 	import * as api from '$lib/api';
 	import { indexCards, indexSongs, match } from '$lib/localsearch';
+	import { t } from '$lib/i18n.svelte';
 	import {
 		addLocalFolder,
 		local,
@@ -83,7 +84,7 @@
 	const SOURCE = 'Local music';
 
 	async function pickFolder() {
-		const picked = await open({ directory: true, multiple: false, title: 'Add a music folder' });
+		const picked = await open({ directory: true, multiple: false, title: t('local.pick_folder_dialog') });
 		if (typeof picked === 'string') await addLocalFolder(picked);
 	}
 
@@ -96,7 +97,7 @@
 
 	async function forget(path: string) {
 		await removeLocalFolder(path);
-		toast.success('Folder removed from your local library');
+		toast.success(t('toasts.folder_removed'));
 	}
 </script>
 
@@ -121,10 +122,10 @@
 					onclick={() => scanLocal()}
 				>
 					<HugeiconsIcon icon={RefreshIcon} class="h-4 w-4" />
-					{local.loading ? 'Scanning…' : 'Rescan'}
+					{local.loading ? t('local.scanning') : t('local.rescan')}
 				</Button>
 				<Button variant="outline" size="sm" class="gap-2" onclick={pickFolder}>
-					<HugeiconsIcon icon={Add01Icon} class="h-4 w-4" /> Add folder
+					<HugeiconsIcon icon={Add01Icon} class="h-4 w-4" /> {t('local.add_folder')}
 				</Button>
 			</div>
 		</div>
@@ -137,7 +138,7 @@
 						</span>
 						<button
 							class="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
-							aria-label="Remove folder"
+							aria-label={t('a11y.remove_folder')}
 							onclick={() => forget(folder)}
 						>
 							<HugeiconsIcon icon={Delete02Icon} class="h-4 w-4" />
@@ -165,14 +166,14 @@
 			<!-- The counts follow the filter, so the tabs say where the matches are. -->
 			<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
 				<Tabs.List>
-					<Tabs.Trigger value="albums">Albums ({albums.length})</Tabs.Trigger>
-					<Tabs.Trigger value="artists">Artists ({artists.length})</Tabs.Trigger>
-					<Tabs.Trigger value="songs">Songs ({songs.length})</Tabs.Trigger>
+					<Tabs.Trigger value="albums">{t('local.albums_count', { count: albums.length })}</Tabs.Trigger>
+					<Tabs.Trigger value="artists">{t('local.artists_count', { count: artists.length })}</Tabs.Trigger>
+					<Tabs.Trigger value="songs">{t('local.songs_count', { count: songs.length })}</Tabs.Trigger>
 				</Tabs.List>
-				<TrackFilter bind:value={query} placeholder="Search your music" />
+				<TrackFilter bind:value={query} placeholder={t('common.search_your_music')} />
 			</div>
 			{#if q && !songs.length && !albums.length && !artists.length}
-				<p class="text-sm text-muted-foreground">Nothing on this device matches “{q}”.</p>
+				<p class="text-sm text-muted-foreground">{t('local.nothing_matches_device', { query: q })}</p>
 			{/if}
 			<!-- Gated on `view`: bits-ui hides an inactive panel rather than unmounting it, so all three
 			     views of the same collection would be built on every visit. -->

@@ -23,10 +23,11 @@
 <script lang="ts">
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { SearchList01Icon, Cancel01Icon } from '@hugeicons/core-free-icons';
+	import { t } from '$lib/i18n.svelte';
 
 	let {
 		value = $bindable(''),
-		placeholder = 'Search this list'
+		placeholder = t('common.search_this_list')
 	}: { value?: string; placeholder?: string } = $props();
 </script>
 
@@ -50,7 +51,7 @@
 		class="w-4 shrink-0 cursor-pointer text-muted-foreground transition hover:text-foreground"
 		class:invisible={!value}
 		onclick={() => (value = '')}
-		aria-label="Clear search"
+		aria-label={t('a11y.clear_search')}
 		tabindex={value ? 0 : -1}
 	>
 		<HugeiconsIcon icon={Cancel01Icon} strokeWidth={2.5} class="h-4 w-4" />

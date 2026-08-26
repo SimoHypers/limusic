@@ -17,6 +17,7 @@
 	import TrackMenu from './TrackMenu.svelte';
 	import ArtistLine from './ArtistLine.svelte';
 	import ExplicitIcon from './ExplicitIcon.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	let {
 		song,
@@ -29,7 +30,7 @@
 		onplay,
 		onAdd,
 		onRemove,
-		removeLabel = 'Remove from playlist'
+		removeLabel = t('player.remove_from_playlist')
 	}: {
 		song: SongItem;
 		/** Position badge when set (playlist/queue); omitted for flat search results. */
@@ -98,7 +99,7 @@
 {#snippet rateButton(icon: IconSvgElement, want: 'like' | 'dislike', label: string)}
 	<button
 		class="cursor-pointer rounded-md p-1.5 text-muted-foreground transition hover:bg-accent/20 hover:text-foreground"
-		aria-label={rated === want ? 'Remove rating' : label}
+		aria-label={rated === want ? t('player.remove_rating') : label}
 		aria-pressed={rated === want}
 		onclick={(e) => {
 			e.stopPropagation();
@@ -187,7 +188,7 @@
 	     rather than dropping it, since it never needs more than "1,234 plays" worth of room. -->
 	{#if song.play_count && showPlayCount && !compact}
 		<div class="flex shrink-0 items-center justify-center text-xs text-muted-foreground lg:flex-1">
-			<span class="truncate">{song.play_count} plays</span>
+			<span class="truncate">{t('library.play_count', { count: song.play_count })}</span>
 		</div>
 	{/if}
 
@@ -198,7 +199,7 @@
 			<img
 				src={song.added_by_avatar}
 				alt=""
-				title="Added by {song.added_by}"
+				title={t('library.added_by', { user: song.added_by ?? '' })}
 				class="h-5 w-5 shrink-0 rounded-full object-cover"
 				loading="lazy"
 			/>
@@ -233,8 +234,8 @@
 					? 'opacity-0'
 					: ''}"
 			>
-				{@render rateButton(ThumbsUpIcon, 'like', 'Like')}
-				{@render rateButton(ThumbsDownIcon, 'dislike', 'Dislike')}
+				{@render rateButton(ThumbsUpIcon, 'like', t('common.like'))}
+				{@render rateButton(ThumbsDownIcon, 'dislike', t('common.dislike'))}
 			</div>
 		{/if}
 		{#if duration && !compact}
@@ -244,7 +245,7 @@
 			<!-- Persistent, not hover-only: a filled heart is state the row has to keep showing. -->
 			<button
 				class="cursor-pointer rounded-md p-1.5 text-muted-foreground transition hover:bg-accent/20 hover:text-foreground"
-				aria-label={isLiked(song) ? 'Remove from liked songs' : 'Save to liked songs'}
+				aria-label={isLiked(song) ? t('player.remove_from_liked') : t('player.save_to_liked')}
 				aria-pressed={isLiked(song)}
 				onclick={(e) => {
 					e.stopPropagation();

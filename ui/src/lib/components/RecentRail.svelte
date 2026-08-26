@@ -21,6 +21,7 @@
 	import { thumb } from '$lib/thumb';
 	import { setDragItem } from '$lib/dnd';
 	import { openItem, playItem } from '$lib/browse';
+	import { t } from '$lib/i18n.svelte';
 	import ItemMenu from './ItemMenu.svelte';
 
 	let { items }: { items: BrowseItem[] } = $props();
@@ -44,7 +45,7 @@
 </script>
 
 <section>
-	<SectionHeading title="Jump back in" icon={ArrowTurnBackwardIcon} />
+	<SectionHeading title={t('home.jump_back_in')} icon={ArrowTurnBackwardIcon} />
 	<!-- CSS columns, same idiom as Forgotten favourites: fills top-to-bottom, balances the last
 	     column itself, and needs no row count per breakpoint. -->
 	<div class="columns-1 gap-x-6 md:columns-2 xl:columns-3">
@@ -105,7 +106,12 @@
 					<!-- Subtitle when there is one (a creator or an artist tells you more than the kind
 					     does); the kind is the fallback so the second line never collapses. -->
 					<div class="truncate text-xs capitalize text-muted-foreground">
-						{item.subtitle || item.kind}
+						{item.subtitle || (
+							item.kind === 'playlist' ? t('common.playlist_singular') :
+							item.kind === 'album' ? t('common.album_singular') :
+							item.kind === 'artist' ? t('common.artist_singular') :
+							item.kind === 'song' ? t('common.song_singular') : item.kind
+						)}
 					</div>
 				</div>
 				<ItemMenu
@@ -117,7 +123,7 @@
 						class="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-md transition-opacity hover:brightness-110 focus-visible:opacity-100 group-hover/row:opacity-100"
 						class:animate-pulse={busy === item.id}
 						disabled={busy === item.id}
-						aria-label="Play {item.title}"
+						aria-label={t('a11y.play_item', { title: item.title })}
 						onclick={(e) => {
 							e.stopPropagation();
 							play(item);

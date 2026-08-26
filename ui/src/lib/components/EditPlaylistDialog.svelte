@@ -14,6 +14,7 @@
 	import * as api from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import { toast } from '$lib/player.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	/** What the page shows while YouTube catches up, and what it puts back if the write fails. */
 	type Edit = { title?: string; description?: string; privacy?: string; cover?: string };
@@ -64,8 +65,8 @@
 		// this machine's copy.
 		const picked = await pickFile({
 			multiple: false,
-			title: 'Choose playlist artwork',
-			filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png'] }]
+			title: t('dialogs.edit_playlist.pick_artwork'),
+			filters: [{ name: t('dialogs.edit_playlist.image_filter'), extensions: ['jpg', 'jpeg', 'png'] }]
 		});
 		if (typeof picked === 'string') await storeCover(picked);
 	}
@@ -107,7 +108,7 @@
 		open = false;
 		try {
 			await api.editPlaylistDetails(id, changes);
-			toast.success('Playlist updated');
+			toast.success(t('toasts.playlist_updated'));
 		} catch (e) {
 			onchange(before);
 			toast.error(String(e));
@@ -120,8 +121,8 @@
 <Dialog.Root bind:open>
 	<Dialog.Content class="sm:max-w-xl">
 		<Dialog.Header>
-			<Dialog.Title>Edit playlist</Dialog.Title>
-			<Dialog.Description>Change how this playlist looks and who can see it.</Dialog.Description>
+			<Dialog.Title>{t('dialogs.edit_playlist.title')}</Dialog.Title>
+			<Dialog.Description>{t('dialogs.edit_playlist.desc_placeholder')}</Dialog.Description>
 		</Dialog.Header>
 		<form
 			class="flex flex-col gap-4"
@@ -136,7 +137,7 @@
 						type="button"
 						class="group relative h-32 w-32 cursor-pointer overflow-hidden rounded-xl border bg-muted"
 						onclick={pickCover}
-						aria-label="Change cover art"
+						aria-label={t('dialogs.edit_playlist.change_cover')}
 					>
 						{#if preview}
 							<img src={preview} alt="" class="h-full w-full object-cover" />
@@ -150,7 +151,7 @@
 								: 'opacity-100'}"
 						>
 							<HugeiconsIcon icon={ImageAdd02Icon} class="h-6 w-6" />
-							Choose image
+							{t('dialogs.edit_playlist.change_cover')}
 						</span>
 					</button>
 					{#if cover}
@@ -163,16 +164,16 @@
 							disabled={removing}
 						>
 							<HugeiconsIcon icon={Delete02Icon} class="h-3.5 w-3.5" />
-							{removing ? 'Removing…' : 'Remove'}
+							{removing ? t('common.loading') : t('dialogs.edit_playlist.remove_cover')}
 						</Button>
 					{/if}
 				</div>
 				<div class="flex min-w-0 flex-1 flex-col gap-3">
-					<Input bind:value={draftName} placeholder="Playlist name" aria-label="Playlist name" />
+					<Input bind:value={draftName} placeholder={t('dialogs.edit_playlist.name_placeholder')} aria-label={t('dialogs.edit_playlist.name_label')} />
 					<textarea
 						bind:value={draftDescription}
-						placeholder="Description"
-						aria-label="Playlist description"
+						placeholder={t('dialogs.edit_playlist.desc_placeholder')}
+						aria-label={t('dialogs.edit_playlist.desc_label')}
 						rows="4"
 						class="w-full flex-1 resize-none rounded-2xl border border-input bg-input/30 px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
 					></textarea>
@@ -180,23 +181,22 @@
 			</div>
 			<div class="flex items-center justify-between gap-4 rounded-2xl border px-3 py-2.5">
 				<div class="min-w-0">
-					<div class="text-sm font-medium">Public</div>
+					<div class="text-sm font-medium">{t('common.public')}</div>
 					<p class="text-xs text-muted-foreground">
 						{isPublic
-							? 'Anyone can find this playlist on YouTube Music.'
-							: 'Only you can see this playlist.'}
+							? t('dialogs.edit_playlist.public_on')
+							: t('dialogs.edit_playlist.public_off')}
 					</p>
 				</div>
-				<Switch bind:checked={isPublic} aria-label="Public playlist" />
+				<Switch bind:checked={isPublic} aria-label={t('a11y.public_playlist')} />
 			</div>
 			<p class="text-xs text-muted-foreground">
-				Artwork applies here at once and uploads to YouTube Music in the background. Square JPEG or
-				PNG works best.
+				{t('dialogs.edit_playlist.artwork_note')}
 			</p>
 			<Dialog.Footer>
-				<Button type="button" variant="outline" onclick={() => (open = false)}>Cancel</Button>
+				<Button type="button" variant="outline" onclick={() => (open = false)}>{t('common.cancel')}</Button>
 				<Button type="submit" disabled={saving || !draftName.trim()}>
-					{saving ? 'Saving…' : 'Save'}
+					{saving ? t('common.loading') : t('dialogs.edit_playlist.save_btn')}
 				</Button>
 			</Dialog.Footer>
 		</form>

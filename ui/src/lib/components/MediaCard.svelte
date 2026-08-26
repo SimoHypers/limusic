@@ -13,6 +13,7 @@
 	import { openItem, playItem } from '$lib/browse';
 	import ItemMenu from './ItemMenu.svelte';
 	import ExplicitIcon from './ExplicitIcon.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	let { item, compact = false }: { item: BrowseItem; compact?: boolean } = $props();
 
@@ -142,7 +143,7 @@
 							: 'bottom-2 right-2 h-9 w-9'}"
 						class:animate-pulse={playing}
 						disabled={playing}
-						aria-label="Play"
+						aria-label={t('player.play')}
 						onclick={(e) => {
 							e.stopPropagation();
 							playNow();

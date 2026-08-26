@@ -5,6 +5,7 @@
 	import { Cancel01Icon } from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import type { BrowseItem } from '$lib/api';
+	import { t } from '$lib/i18n.svelte';
 	import {
 		ui,
 		toast,
@@ -75,12 +76,20 @@
 				notePlaylistAdd(pl.id, added);
 			}
 			if (!added.length) {
-				toast(dupes > 1 ? `All ${dupes} are already in ${pl.title}` : `Already in ${pl.title}`);
+				toast(
+					dupes > 1
+						? t('toasts.already_in_all', { count: dupes, playlist: pl.title })
+						: t('toasts.already_in', { playlist: pl.title })
+				);
 			} else if (dupes) {
-				toast.success(`Added ${added.length} to ${pl.title} (${dupes} already there)`);
+				toast.success(
+					t('toasts.added_to_playlist_dupes', { count: added.length, playlist: pl.title, dupes })
+				);
 			} else {
 				toast.success(
-					added.length > 1 ? `Added ${added.length} songs to ${pl.title}` : `Added to ${pl.title}`
+					added.length > 1
+						? t('toasts.added_songs', { count: added.length, playlist: pl.title })
+						: t('toasts.added_one', { playlist: pl.title })
 				);
 			}
 		} catch (e) {
@@ -105,11 +114,11 @@
 			class="flex max-h-[32rem] w-full max-w-sm flex-col rounded-xl border bg-card p-4 shadow-xl"
 		>
 			<div class="mb-3 flex items-center justify-between">
-				<h2 class="font-heading text-base font-semibold">Add to playlist</h2>
+				<h2 class="font-heading text-base font-semibold">{t('player.add_to_playlist')}</h2>
 				<button
 					class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 					onclick={close}
-					aria-label="Close"
+					aria-label={t('a11y.close')}
 				>
 					<HugeiconsIcon icon={Cancel01Icon} class="h-4 w-4" />
 				</button>
@@ -118,13 +127,13 @@
 				<input
 					bind:this={box}
 					bind:value={filter}
-					placeholder="Search your playlists…"
+					placeholder={t('library.search_playlists')}
 					onkeydown={(e) => e.key === 'Enter' && matches[0] && pick(matches[0])}
 					class="mb-2 w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
 				/>
 			{/if}
 			{#if loading}
-				<p class="p-2 text-sm text-muted-foreground">Loading…</p>
+				<p class="p-2 text-sm text-muted-foreground">{t('common.loading')}</p>
 			{:else if matches.length}
 				<div class="min-h-0 flex-1 overflow-y-auto">
 					{#each matches as pl (pl.id)}
@@ -148,7 +157,7 @@
 				</div>
 			{:else}
 				<p class="p-2 text-sm text-muted-foreground">
-					{filter.trim() ? 'Nothing matches that.' : 'No playlists yet, create one in your Library.'}
+					{filter.trim() ? t('common.no_matches') : t('library.no_playlists_create')}
 				</p>
 			{/if}
 		</div>

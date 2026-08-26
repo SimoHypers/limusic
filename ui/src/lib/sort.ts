@@ -11,15 +11,7 @@ export type SortKey = ServerSort | 'plays';
 
 /** `top` is YouTube's "Top voted": a list can already be in it, so the key has to round-trip, but
  *  it is deliberately not offered here — there is no way to compute it for a list we sort locally. */
-export const SORTS: { key: SortKey; label: string }[] = [
-	{ key: 'default', label: 'Default' },
-	{ key: 'newest', label: 'Newest first' },
-	{ key: 'oldest', label: 'Oldest first' },
-	{ key: 'title', label: 'Title' },
-	{ key: 'artist', label: 'Artist' },
-	{ key: 'album', label: 'Album' },
-	{ key: 'plays', label: 'Most played' }
-];
+export const SORTS: SortKey[] = ['default', 'newest', 'oldest', 'title', 'artist', 'album', 'plays'];
 
 /**
  * The nearest order YouTube can store for this choice, or `null` when it has none at all.

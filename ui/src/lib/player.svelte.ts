@@ -17,6 +17,7 @@ import { clearCached } from './pagecache';
 import * as pl from './personal';
 import type { Personal } from './personal';
 import { appearance } from './theme.svelte';
+import { t } from './i18n.svelte';
 
 export const playback = $state({
 	now: null as NowPlaying | null,
@@ -305,7 +306,12 @@ export function forgetLocal(removed: string[]) {
 	local.artists = local.artists.filter((a) => !gone.has(a.id));
 	const dropped = pl.forgetIds(personal, removed);
 	savePersonal();
-	if (dropped) toast(`Removed ${dropped} shortcut${dropped === 1 ? '' : 's'} for deleted music`);
+	if (dropped)
+		toast(
+			dropped === 1
+				? t('toasts.shortcuts_dropped_one')
+				: t('toasts.shortcuts_dropped', { count: dropped })
+		);
 }
 
 /** Take a scan result: replace the library, then prune whatever it reports as gone. */
@@ -499,7 +505,7 @@ export async function syncSavedToYouTube(): Promise<{ synced: number; failed: nu
 
 export function togglePin(id: string) {
 	const result = pl.togglePin(personal, id);
-	if (result === 'full') toast.error(`Unpin one first — ${pl.MAX_PINS} pins max`);
+	if (result === 'full') toast.error(t('toasts.pins_full', { max: pl.MAX_PINS }));
 	else savePersonal();
 	return result;
 }
@@ -708,7 +714,7 @@ export async function startRadio(
 	id: string,
 	name?: string
 ) {
-	toast('Starting radio…');
+	toast(t('toasts.starting_radio'));
 	openPlayer();
 	try {
 		await api.startRadio(kind, id, name);
@@ -886,7 +892,7 @@ export function initApp(mini = false): () => void {
 		}),
 		api.onAccountSelectionRequired(() => openChannelPicker(true)),
 		api.onLoginError((msg) => toast.error(msg)),
-		api.onLoginDone(() => toast.success('Signed in')),
+		api.onLoginDone(() => toast.success(t('toasts.signed_in'))),
 		// Listen Together (context/19): mirror the Rust session state; surface notices as toasts.
 		api.onLtState((s) => {
 			// A room is a shared clock, so tempo is off while one is on (the stepper hides itself).

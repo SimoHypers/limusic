@@ -9,6 +9,7 @@
 	import type { BrowseItem, SongItem } from '$lib/api';
 	import { openAddToPlaylist, playSong } from '$lib/player.svelte';
 	import { getCached, putCached } from '$lib/pagecache';
+	import { t } from '$lib/i18n.svelte';
 
 	type MoreResult = { songs: SongItem[]; cards: BrowseItem[] };
 
@@ -19,7 +20,14 @@
 
 	const q = $derived(page.url.searchParams.get('q') ?? '');
 	const cat = $derived(page.url.searchParams.get('cat') ?? 'songs');
-	const label = $derived({ songs: 'Songs', albums: 'Albums', artists: 'Artists', playlists: 'Playlists' }[cat] ?? 'Results');
+	const label = $derived(
+		{
+			songs: t('common.songs'),
+			albums: t('common.albums'),
+			artists: t('common.artists'),
+			playlists: t('common.playlists')
+		}[cat] ?? t('common.results')
+	);
 
 	async function load(query: string, category: string) {
 		const key = `searchmore:${category}:${query}`;
@@ -63,7 +71,7 @@
 
 <div class="p-6">
 	<h1 class="mb-1 font-heading text-2xl font-bold">{label}</h1>
-	<p class="mb-6 text-sm text-muted-foreground">Results for “{q}”</p>
+	<p class="mb-6 text-sm text-muted-foreground">{t('common.results_for', { query: q })}</p>
 
 	{#if loading}
 		{#if cat === 'songs'}
@@ -89,7 +97,7 @@
 					onAdd={() => openAddToPlaylist(song)}
 				/>
 			{:else}
-				<p class="text-sm text-muted-foreground">Nothing found.</p>
+				<p class="text-sm text-muted-foreground">{t('common.nothing_found')}</p>
 			{/each}
 		</div>
 	{:else if cards.length}
@@ -99,6 +107,6 @@
 			{/each}
 		</div>
 	{:else}
-		<p class="text-sm text-muted-foreground">Nothing found.</p>
+		<p class="text-sm text-muted-foreground">{t('common.nothing_found')}</p>
 	{/if}
 </div>
