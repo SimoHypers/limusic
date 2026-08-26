@@ -96,14 +96,22 @@ jobs:
       # The tag is the contract: the binaries must be built from the source that tag points at, and
       # the updater compares tauri.conf.json's version. If they disagree, the version bump never got
       # committed — stop before shipping a mislabelled AppImage.
+      #
+      # A dry run is allowed to disagree, because that is the only way to test this workflow against
+      # a branch instead of a published tag. Nothing is uploaded on a dry run, so a mislabelled
+      # build cannot escape.
       - name: Check the tag matches the app version
         run: |
           VERSION="$(jq -r .version src-tauri/tauri.conf.json)"
-          if [ "v$VERSION" != "${{ steps.rel.outputs.tag }}" ]; then
-            echo "::error::tauri.conf.json says $VERSION but the tag is ${{ steps.rel.outputs.tag }} — was the version bump committed before the tag was cut?"
-            exit 1
-          fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          if [ "v$VERSION" != "${{ steps.rel.outputs.tag }}" ]; then
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              echo "::warning::dry run: built ref is ${{ steps.rel.outputs.tag }} but the app version is $VERSION"
+            else
+              echo "::error::tauri.conf.json says $VERSION but the tag is ${{ steps.rel.outputs.tag }}. Was the version bump committed before the tag was cut?"
+              exit 1
+            fi
+          fi
 
       # The foreign-distro check at the end of this job used to spend ~1 min pulling these two
       # images, on an idle network, after the build had finished. Start them here instead and let
