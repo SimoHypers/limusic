@@ -156,6 +156,7 @@ export const en = {
 		albums_tab: 'Albums',
 		artists_tab: 'Artists',
 		local_tab: 'Local',
+		uploads_tab: 'Uploads',
 		matching_songs: '{count} matching',
 		matching_songs_so_far: '{count} matching so far',
 		sync_idle_tooltip: 'Add the {count} saved on this device to your YouTube Music library',
@@ -177,7 +178,10 @@ export const en = {
 		still_loading: ' yet, still loading',
 		saved_to_library: 'Saved to library',
 		removed_from_library: 'Removed from library',
-		every_song_saved: 'Every song you’ve saved, in one list'
+		every_song_saved: 'Every song you’ve saved, in one list',
+		every_upload: 'Every track you’ve uploaded to YouTube Music',
+		no_uploads: 'Nothing uploaded yet. Songs you upload at music.youtube.com show up here.',
+		uploads_signed_out: 'Sign in to see the music you’ve uploaded to YouTube Music.'
 	},
 	local: {
 		scanning: 'Scanning folder...',

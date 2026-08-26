@@ -11,6 +11,7 @@
 	import {
 		Add01Icon,
 		CloudSyncIcon,
+		CloudUploadIcon,
 		DriveIcon,
 		MusicNote01Icon,
 		MusicNoteSquare02Icon,
@@ -230,16 +231,19 @@
 			<Tabs.Trigger value="songs">
 				<HugeiconsIcon icon={MusicNote01Icon} class="h-4 w-4" /> {t('library.songs_tab')}
 			</Tabs.Trigger>
+			<Tabs.Trigger value="uploads">
+				<HugeiconsIcon icon={CloudUploadIcon} class="h-4 w-4" /> {t('library.uploads_tab')}
+			</Tabs.Trigger>
 			<Tabs.Trigger value="local">
 				<HugeiconsIcon icon={DriveIcon} class="h-4 w-4" /> {t('library.local_tab')}
 			</Tabs.Trigger>
 		</Tabs.List>
 		<!-- Every branch below is gated on `tab`, because bits-ui never unmounts an inactive panel: it
-		     renders all five and hides the others. Left alone, opening Library builds each card twice
+		     renders every one and hides the inactive ones. Left alone, opening Library builds each card twice
 		     (once for All, once for its own tab) and mounts the whole Local tab, disk scan included,
 		     for a panel you cannot see. -->
-		<!-- Songs and Local stand apart: one is a track list rather than a card grid, the other needs
-		     neither an account nor a connection, and the states below fit neither. -->
+		<!-- Songs, Uploads and Local stand apart: two are track lists rather than card grids, the
+		     third needs neither an account nor a connection, and the states below fit none of them. -->
 		<Tabs.Content value="songs">
 			{#if tab === 'songs'}
 				{#if signedOut}
@@ -252,9 +256,18 @@
 				{/if}
 			{/if}
 		</Tabs.Content>
+		<Tabs.Content value="uploads">
+			{#if tab === 'uploads'}
+				{#if signedOut}
+					<p class="text-sm text-muted-foreground">{t('library.uploads_signed_out')}</p>
+				{:else}
+					<LibrarySongs uploads />
+				{/if}
+			{/if}
+		</Tabs.Content>
 		<Tabs.Content value="local">{#if tab === 'local'}<LocalMusic />{/if}</Tabs.Content>
-		{#if tab === 'local' || tab === 'songs'}
-			<!-- nothing else: the grid states below have no bearing on these two -->
+		{#if tab === 'local' || tab === 'songs' || tab === 'uploads'}
+			<!-- nothing else: the grid states below have no bearing on these three -->
 		{:else if loading}
 			<div class="card-grid">
 				{#each Array(12) as _, i (i)}
