@@ -162,6 +162,8 @@ pub(crate) fn handle_event(app: &AppHandle, event: MediaControlEvent) {
             MediaControlEvent::Pause | MediaControlEvent::Stop => {
                 let _ = state.player.pause();
             }
+            // GNOME's panel media widget calls MPRIS Raise when the entry itself is clicked.
+            MediaControlEvent::Raise => crate::tray::show_main(&app),
             MediaControlEvent::Next => state.next_in_queue().await,
             MediaControlEvent::Previous => state.prev_in_queue().await,
             MediaControlEvent::SetPosition(MediaPosition(pos)) => {
