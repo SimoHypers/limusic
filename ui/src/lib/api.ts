@@ -329,6 +329,10 @@ export const getQueue = () => invoke<QueueState>('get_queue');
 export const videoStream = (videoId: string, maxHeight: number) =>
 	invoke<string | null>('video_stream', { videoId, maxHeight });
 
+/** Drop the backend's memory of this track's video URL, after the element failed to load it. */
+export const forgetVideoStream = (videoId: string) =>
+	invoke<void>('forget_video_stream', { videoId });
+
 /** What the event stream already reported, for a webview that started after it did. */
 export interface PlaybackSnapshot {
 	now: NowPlaying | null;

@@ -371,6 +371,7 @@
 					<Shelf
 						title={block.shelf.title}
 						items={block.shelf.items}
+						queueAll={false}
 						community={/community/i.test(block.shelf.title)}
 						onMore={block.shelf.moreBrowseId ? () => showMore(block.shelf!) : undefined}
 					/>

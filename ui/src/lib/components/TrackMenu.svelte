@@ -151,9 +151,9 @@
 				<HugeiconsIcon icon={Radio02Icon} class="h-4 w-4" /> {t('player.start_radio')}
 			</button>
 		{/if}
-		<!-- In the player bar (`linksOnly`) like and add-to-playlist have their own buttons, but those
-		     drop below lg to leave the title room, so the menu carries them at that width instead.
-		     Dislike has no button of its own anywhere, so it stays visible at every width. -->
+		<!-- In the player bar (`linksOnly`) like has its own button, which drops below lg to leave the
+		     title room, so the menu carries it at that width instead. Dislike has no button of its own
+		     anywhere, so it stays visible at every width. -->
 		{#if !isLocal}
 			<button
 				class="w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10 {linksOnly
@@ -239,11 +239,11 @@
 				<HugeiconsIcon icon={PreferenceVerticalIcon} class="h-4 w-4" /> {t('dialogs.tempo_pitch.title')}
 			</button>
 		{/if}
+		<!-- Always here, including the player bar at full width where the + button is right there:
+		     people look for this in the menu and miss the icon. -->
 		{#if onAdd && !isLocal}
 			<button
-				class="w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10 {linksOnly
-					? 'flex lg:hidden'
-					: 'flex'}"
+				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={(e) => run(e, onAdd)}
 			>
 				<HugeiconsIcon icon={PlayListAddIcon} class="h-4 w-4" /> {t('player.save_to_playlist')}

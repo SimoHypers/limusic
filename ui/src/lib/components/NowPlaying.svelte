@@ -18,7 +18,8 @@
 	} from '@hugeicons/core-free-icons';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import * as api from '$lib/api';
-	import { np, playback, prefs, ui, wheelVolume } from '$lib/player.svelte';
+	import { np, playback, ui, wheelVolume } from '$lib/player.svelte';
+	import { canVideo, claimVideo, parkVideo, showVideo, video } from '$lib/video.svelte';
 	import { appearance } from '$lib/theme.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import { thumb } from '$lib/thumb';
@@ -85,153 +86,6 @@
 		volTimer = setTimeout(() => (volFlash = false), 1000);
 	}
 
-	// --- Music videos (plan 031) -------------------------------------------------------------
-	// When the track *is* a music video, this box draws the video instead of the artwork. mpv stays
-	// the audio master: the element is muted and its clock is stapled to mpv's position. Bytes come
-	// from Rust over a loopback proxy, so nothing here ever sees a googlevideo URL.
-	//
-	// `wantVideo` is session-sticky on purpose: someone who hits "show artwork" wants artwork now
-	// and almost certainly on the next video too, but a permanent no is what the setting is for.
-	let wantVideo = $state(true);
-	let videoUrl = $state<string | null>(null);
-	let videoEl = $state<HTMLVideoElement | null>(null);
-	const canVideo = $derived(prefs.musicVideos && !!playback.now?.isVideo);
-	const showVideo = $derived(canVideo && wantVideo && !!videoUrl);
-
-	// How the picture is kept in step with mpv. Measured against mpv actually playing the same
-	// track, because the guesses before it were all wrong in the same direction:
-	//
-	//   - Drift is *flat*. Once the two agree they stay agreeing over minutes, so nothing needs
-	//     continuous correction.
-	//   - A seek is expensive. A tiny buffered one loses ~85 ms of motion; a real mid-stream one
-	//     costs about a second of re-buffering, and mpv plays on throughout. A seek issued to close
-	//     a small gap therefore *opens* a gap of roughly its own cost, and a loop that seeks
-	//     whenever it is out seeks forever. That was the stutter, twice, and it is also where the
-	//     steady half-second offset came from: the seek landed exactly its own cost behind.
-	//   - A `playbackRate` change is nearly free and holds exactly: 1.5x measured a dead-steady
-	//     ratio of 1.500 with no stalls, on a picture that is muted anyway.
-	//
-	// So the rate does the work and seeking is the exception. A seek is only for a gap too big to
-	// trim out in reasonable time (opening the view mid-track, a scrub, coming back from the tray),
-	// and it aims past the target by what the re-buffer will cost. The first sync of a fresh element
-	// is one of those cases by definition: resolving the video costs a round trip, so mpv is already
-	// a second or two in before the element can seek at all.
-	/** Trim bands. Quantised so a correction costs a handful of rate writes, never one per tick. */
-	const TRIM_FROM = 0.2;
-	const TRIM_TO = 0.06;
-	/** Above this, trimming would take too long to sit through, so pay for one seek instead. */
-	const SEEK_FROM = 2.5;
-	const SEEK_COST = 1;
-	const SEEK_COOLDOWN = 6000;
-	/** A fresh element starts at 0 while mpv is already a second or two in, because resolving the
-	 *  video costs a round trip. Trimming that in takes seconds of visibly wrong-speed picture, so
-	 *  the first sync seeks instead, whatever the gap. */
-	let synced = false;
-	let lastSeek = 0;
-
-	/** The ladder YouTube actually publishes. Snapped up, so the picture is never softer than the
-	 *  box; capped at 720 because that is already more than the box gets on a 1080p screen.
-	 *  ponytail: measured once per track, not re-measured on resize. Resizing mid-track keeps the
-	 *  picture it started with, which is a soft edge at worst. */
-	function wantedHeight() {
-		const px = (window.innerHeight - 176) * 0.85; // --vid's height, see the layout comment below
-		return [360, 480, 720].find((h) => h >= px) ?? 720;
-	}
-
-	$effect(() => {
-		const id = playback.now?.videoId;
-		videoUrl = null;
-		synced = false;
-		lastSeek = 0; // a new element may sync at once, whatever the last one was doing
-		if (!id || !canVideo || !wantVideo) return;
-		let cancelled = false;
-		// Silent on failure: a null answer is the ordinary case (no video stream), and the artwork
-		// staying put is already the right thing to show.
-		api.videoStream(id, wantedHeight()).then((u) => !cancelled && (videoUrl = u)).catch(() => {});
-		return () => (cancelled = true);
-	});
-
-	/** Where mpv is *now*, not where it was when the last tick was emitted. Ticks land at ~4 Hz
-	 *  (src-tauri/src/lib.rs), so `playback.position` alone is up to 250 ms old, and lining the
-	 *  picture up against it parks it that far behind the music every time. */
-	function mpvNow() {
-		if (playback.paused) return playback.position;
-		const since = (performance.now() - playback.positionAt) / 1000;
-		// Past a couple of tick intervals the stream has stopped rather than slowed: a stall, a
-		// backgrounded window, or the instant after unpausing, where the newest sample is still the
-		// one from the pause. Extrapolating there would be a guess that overshoots.
-		if (since > 0.4) return playback.position;
-		return playback.position + since * playback.speed;
-	}
-
-	/** Catch-up rate for a gap. `floor` keeps a correction that has already started running until
-	 *  the gap is properly closed, so the rate does not chatter around `TRIM_FROM`. */
-	function trimFor(drift: number, floor: boolean) {
-		const a = Math.abs(drift);
-		const k = a > 1.2 ? 0.5 : a > 0.5 ? 0.25 : a > TRIM_FROM || floor ? 0.1 : 0;
-		return playback.speed * (1 + Math.sign(drift) * k);
-	}
-
-	function syncVideo() {
-		const el = videoEl;
-		// readyState 0 has no clock to compare against, and mid-seek the comparison is meaningless.
-		// Anything above that is fair game: re-buffering sits at 2 for long stretches and the
-		// picture keeps moving perfectly well there.
-		if (!el || !showVideo || el.seeking || el.readyState < 1) return;
-		const drift = mpvNow() - el.currentTime;
-		if (!synced || Math.abs(drift) > SEEK_FROM) {
-			const now = performance.now();
-			if (synced && now - lastSeek < SEEK_COOLDOWN) return; // let the last one finish re-buffering
-			synced = true;
-			lastSeek = now;
-			el.playbackRate = playback.speed;
-			// Aim past the re-buffer this is about to cost, or it lands behind by exactly that.
-			// Not while paused: mpv is not moving, so the lead would only overshoot.
-			el.currentTime = mpvNow() + (playback.paused ? 0 : SEEK_COST);
-			return;
-		}
-		if (playback.paused) return; // nothing is moving, so there is nothing to trim
-		const trimming = el.playbackRate !== playback.speed;
-		const want = trimFor(drift, trimming && Math.abs(drift) >= TRIM_TO);
-		if (el.playbackRate !== want) el.playbackRate = want;
-	}
-
-	$effect(() => {
-		playback.position; // the tick this runs on
-		playback.paused; // and a pause/resume, which position ticks do not cover
-		syncVideo();
-	});
-
-	$effect(() => {
-		const paused = playback.paused;
-		const el = videoEl;
-		if (!el || !showVideo) return;
-		// document.hidden for the same reason: unpausing from the mini player must not start a
-		// hidden window decoding again. The visibilitychange handler picks it up on the way back.
-		if (paused || document.hidden) el.pause();
-		else el.play().catch(() => {});
-	});
-
-	// Minimised to the tray, the window still decodes video unless we stop it. Nothing here touches
-	// mpv, so the audio carries on.
-	$effect(() => {
-		const onVisibility = () => {
-			if (!videoEl) return;
-			if (document.hidden) {
-				videoEl?.pause();
-				return;
-			}
-			// Seconds out by definition: the picture stood still while the music carried on, so let
-			// it seek straight away rather than sitting out the cooldown.
-			lastSeek = 0;
-			// Only if mpv is still going: pausing from the mini player while this window is hidden
-			// leaves nothing to resume, and playing here would run the picture against silence.
-			if (!playback.paused) videoEl?.play().catch(() => {});
-			syncVideo();
-		};
-		document.addEventListener('visibilitychange', onVisibility);
-		return () => document.removeEventListener('visibilitychange', onVisibility);
-	});
 </script>
 
 <!-- Covers the page but not the sidebar (you navigate away to minimise) and not the player bar,
@@ -262,7 +116,7 @@
 	     translateZ(0) and contain:paint all measured as noise), and the cost tracks the blur
 	     radius rather than the image. A video fills the view on its own, so there is nothing to
 	     replace it with. -->
-	{#if appearance.artworkBackground && !showVideo && srcs[2] && !bgFailed}
+	{#if appearance.artworkBackground && !showVideo() && srcs[2] && !bgFailed}
 		<img
 			src={srcs[2]}
 			alt=""
@@ -284,7 +138,7 @@
 	     80rem cap exists to stop a square drifting into an empty half, which a video this wide
 	     never does. -->
 	<div
-		class="relative flex w-full gap-6 xl:gap-10 {showVideo ? 'max-w-[100rem]' : 'max-w-[80rem]'}"
+		class="relative flex w-full gap-6 xl:gap-10 {showVideo() ? 'max-w-[100rem]' : 'max-w-[80rem]'}"
 		style="--art:calc(min(100%,100vh - 11rem) * 0.75); --vid:calc((100vh - 11rem) * 0.85 * 16 / 9)"
 	>
 		{#if !big}
@@ -298,7 +152,7 @@
 				     button rather than nested inside it (nested buttons are invalid HTML and the
 				     inner one never reliably gets the click). -->
 				<div
-					class="relative w-full {showVideo ? 'max-w-[var(--vid)]' : 'max-w-[var(--art)]'}"
+					class="relative w-full {showVideo() ? 'max-w-[var(--vid)]' : 'max-w-[var(--art)]'}"
 					onwheel={onWheel}
 				>
 					{#if volFlash}
@@ -349,27 +203,20 @@
 								</div>
 							</div>
 						{/if}
-						{#if showVideo}
-							<!-- Muted and never seeked by the user: mpv is the clock (see the sync effects).
-							     16:9 in --vid, the width that spends the height the square leaves empty.
-
-							     No shadow, unlike the artwork: WebKitGTK re-blurs a resting box-shadow over
-							     the whole tile on every repaint, and a video repaints 24 times a second at
-							     this size. It dragged the whole app, not just the picture. Same cause as
-							     the card-hover cost measured on 2026-08-06. -->
-							<!-- svelte-ignore a11y_media_has_caption -->
-							<video
-								bind:this={videoEl}
-								src={videoUrl}
-								muted
-								playsinline
-								preload="auto"
-								onloadedmetadata={syncVideo}
-								oncanplay={syncVideo}
-								onerror={() => (videoUrl = null)}
-								class="aspect-video w-full rounded-2xl bg-black object-contain"
-							></video>
-						{:else if src && attempt < srcs.length}
+						<!-- The picture is not built here. VideoSurface owns it so it survives this view
+						     being closed, and this is where it gets moved to while the view is open.
+						     `display: contents` so the wrapper generates no box of its own and the video's
+						     `w-full` still resolves against the button. -->
+						<div
+							class="contents"
+							{@attach (box: HTMLElement) => {
+								claimVideo(box);
+								return parkVideo;
+							}}
+						></div>
+						<!-- The artwork, when the video above isn't the picture. Both arms carry the same
+						     guard rather than nesting, so the branch below keeps its indentation. -->
+						{#if !showVideo() && src && attempt < srcs.length}
 							<!-- The 120 underneath is the one the player bar already has for this track, so it
 							     paints on the frame the track changes. Without it an <img> keeps showing the
 							     *previous* track's picture for as long as this one's fetch takes (#77): 720 is
@@ -381,7 +228,7 @@
 								style={srcs[2] ? `background-image:url(${srcs[2]})` : undefined}
 								class="aspect-square w-full rounded-2xl bg-cover object-cover shadow-2xl"
 							/>
-						{:else}
+						{:else if !showVideo()}
 							<div
 								class="flex aspect-square w-full items-center justify-center rounded-2xl bg-muted text-muted-foreground/40"
 							>
@@ -389,20 +236,20 @@
 							</div>
 						{/if}
 					</button>
-					{#if canVideo}
+					{#if canVideo()}
 						<!-- Both directions, or there is no way back to the video. On a plate, since it sits
 						     over whatever frame happens to be showing. -->
 						<button
 							type="button"
-							onclick={() => (wantVideo = !wantVideo)}
-							aria-label={showVideo ? t('a11y.show_artwork') : t('a11y.show_video')}
+							onclick={() => (video.want = !video.want)}
+							aria-label={showVideo() ? t('a11y.show_artwork') : t('a11y.show_video')}
 							class="absolute right-3 top-3 z-10 cursor-pointer rounded-md bg-black/40 p-1.5 text-white/70 transition-colors hover:text-white"
 						>
 							<!-- icon swap via altIcon/showAlt: `icon` is frozen at mount -->
 							<HugeiconsIcon
 								icon={Video01Icon}
 								altIcon={VideoOffIcon}
-								showAlt={showVideo}
+								showAlt={showVideo()}
 								class="h-4 w-4"
 							/>
 						</button>

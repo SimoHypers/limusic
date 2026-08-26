@@ -16,6 +16,18 @@
 
 	let playlists = $state<BrowseItem[]>([]);
 	let loading = $state(false);
+	let filter = $state('');
+	let box = $state<HTMLInputElement | null>(null);
+	// `autofocus` is unreliable on an element inserted after load (and mid-transition), so focus it
+	// ourselves the frame it exists: the modal opens ready to type.
+	$effect(() => {
+		box?.focus();
+	});
+	// ponytail: plain substring, not fuzzy. A library is tens of playlists, and "rap" finding
+	// "Rap Caviar" is what issue #100 actually asked for.
+	const matches = $derived(
+		playlists.filter((p) => p.title.toLowerCase().includes(filter.trim().toLowerCase()))
+	);
 
 	// Fetch the library playlists fresh each time the picker opens (cheap; picks up new playlists).
 	// On Repeat and Liked Music are dropped: On Repeat is built from local play counts, and Liked
@@ -24,6 +36,7 @@
 	$effect(() => {
 		if (ui.addSongs) {
 			loading = true;
+			filter = '';
 			api
 				.getLibrary()
 				.then(
@@ -98,7 +111,7 @@
 	>
 		<div
 			transition:scale={{ duration: 180, start: 0.96, easing: cubicOut }}
-			class="w-full max-w-sm rounded-xl border bg-card p-4 shadow-xl"
+			class="flex max-h-[32rem] w-full max-w-sm flex-col rounded-xl border bg-card p-4 shadow-xl"
 		>
 			<div class="mb-3 flex items-center justify-between">
 				<h2 class="font-heading text-base font-semibold">{t('player.add_to_playlist')}</h2>
@@ -110,11 +123,20 @@
 					<HugeiconsIcon icon={Cancel01Icon} class="h-4 w-4" />
 				</button>
 			</div>
+			{#if playlists.length > 1}
+				<input
+					bind:this={box}
+					bind:value={filter}
+					placeholder={t('library.search_playlists')}
+					onkeydown={(e) => e.key === 'Enter' && matches[0] && pick(matches[0])}
+					class="mb-2 w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				/>
+			{/if}
 			{#if loading}
 				<p class="p-2 text-sm text-muted-foreground">{t('common.loading')}</p>
-			{:else if playlists.length}
-				<div class="max-h-80 overflow-y-auto">
-					{#each playlists as pl (pl.id)}
+			{:else if matches.length}
+				<div class="min-h-0 flex-1 overflow-y-auto">
+					{#each matches as pl (pl.id)}
 						<button
 							class="flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-accent/10"
 							onclick={() => pick(pl)}
@@ -135,7 +157,7 @@
 				</div>
 			{:else}
 				<p class="p-2 text-sm text-muted-foreground">
-					{t('library.no_playlists_create')}
+					{filter.trim() ? t('common.no_matches') : t('library.no_playlists_create')}
 				</p>
 			{/if}
 		</div>

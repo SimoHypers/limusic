@@ -208,6 +208,12 @@ pub async fn video_stream(
     if crate::local::is_local_song(&video_id) {
         return Ok(None);
     }
+    // Already resolved and still live: the loopback URL is a pure function of the videoId, so
+    // there is nothing left to do. Re-resolving costs up to two `/player` round trips, and the
+    // player view pays them on every reopen otherwise.
+    if state.video_url(&video_id).is_some() {
+        return Ok(crate::videoproxy::url_for(&video_id));
+    }
     // The webview picks the height from its own box, so clamp it here rather than trusting it.
     let max_height = max_height.clamp(144, 1080);
     match state.orchestrator.resolve_video(&video_id, max_height).await {
@@ -217,6 +223,15 @@ pub async fn video_stream(
         }
         None => Ok(None),
     }
+}
+
+/// Forget a resolved music-video URL, so the next `video_stream` for this id resolves a fresh one.
+/// The player view calls this when the `<video>` element fails to load, which is what an expired
+/// or revoked googlevideo link looks like from the webview.
+#[tauri::command]
+pub async fn forget_video_stream(state: St<'_>, video_id: String) -> Result<(), String> {
+    state.forget_video_url(&video_id);
+    Ok(())
 }
 
 #[tauri::command]

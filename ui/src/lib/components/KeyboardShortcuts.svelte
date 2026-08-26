@@ -9,50 +9,49 @@
 
 	// $derived, not a plain const: the list is rebuilt when the language changes under it.
 	const GROUPS: { title: string; rows: [string, string][] }[] = $derived([
-		{ title: t('dialogs.shortcuts.group_search'), rows: [[`${MOD}K`, t('dialogs.shortcuts.search_anywhere')]] },
 		{
 			title: t('dialogs.shortcuts.group_playback'),
 			rows: [
-				[`${MOD}E`, t('dialogs.shortcuts.toggle_now_playing')],
-				[`${MOD}>`, t('dialogs.shortcuts.volume_up')],
-				[`${MOD}<`, t('dialogs.shortcuts.volume_down')]
+				[t('dialogs.shortcuts.play_pause'), 'SPACE or ;'],
+				[t('dialogs.shortcuts.next_song'), `${MOD}F`],
+				[t('dialogs.shortcuts.previous_song'), `${MOD}D`],
+				[t('dialogs.shortcuts.shuffle_queue'), `${MOD}S`],
+				[t('dialogs.shortcuts.toggle_repeat'), `${MOD}R`],
+				[t('dialogs.shortcuts.mute_unmute'), `${MOD}M`],
+				[t('dialogs.shortcuts.volume_up'), `${MOD}>`],
+				[t('dialogs.shortcuts.volume_down'), `${MOD}<`]
 			]
 		},
 		{
-			title: t('dialogs.shortcuts.group_window'),
+			title: t('dialogs.shortcuts.group_general'),
 			rows: [
-				[`${MOD}+`, t('dialogs.shortcuts.zoom_in')],
-				[`${MOD}-`, t('dialogs.shortcuts.zoom_out')],
-				[`${MOD}0`, t('dialogs.shortcuts.reset_zoom')],
-				[`${MOD}H`, t('dialogs.shortcuts.show_this_list')]
+				[t('dialogs.shortcuts.search_anywhere'), `${MOD}K`],
+				[t('dialogs.shortcuts.toggle_now_playing'), `${MOD}E`],
+				[t('dialogs.shortcuts.zoom_in'), `${MOD}+`],
+				[t('dialogs.shortcuts.zoom_out'), `${MOD}-`],
+				[t('dialogs.shortcuts.reset_zoom'), `${MOD}0`],
+				[t('dialogs.shortcuts.show_this_list'), `${MOD}H`]
 			]
 		}
 	]);
 </script>
 
 <Dialog.Root bind:open={ui.shortcutsOpen}>
-	<Dialog.Content class="sm:max-w-md">
+	<Dialog.Content class="sm:max-w-2xl">
 		<Dialog.Header>
 			<Dialog.Title>{t('dialogs.shortcuts.title')}</Dialog.Title>
 			<Dialog.Description>{t('dialogs.shortcuts.reopen_hint', { mod: MOD })}</Dialog.Description>
 		</Dialog.Header>
-		<div class="flex flex-col gap-5">
+		<!-- Two columns that flow, so adding a row never means rebalancing the layout by hand. -->
+		<div class="gap-x-10 sm:columns-2">
 			{#each GROUPS as group (group.title)}
-				<section>
-					<h3 class="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-						{group.title}
-					</h3>
-					<dl class="flex flex-col gap-1.5">
-						{#each group.rows as [keys, what] (keys)}
-							<div class="flex items-center justify-between gap-4">
-								<dt class="min-w-0 truncate text-sm">{what}</dt>
-								<dd>
-									<kbd
-										class="rounded border bg-muted px-1.5 py-0.5 font-mono text-[0.6875rem] font-medium tracking-wide text-muted-foreground"
-									>
-										{keys}
-									</kbd>
-								</dd>
+				<section class="mb-6 break-inside-avoid">
+					<h3 class="mb-2 text-base font-semibold">{group.title}</h3>
+					<dl>
+						{#each group.rows as [what, keys] (what)}
+							<div class="grid grid-cols-2 items-center gap-4 border-b py-2 last:border-0">
+								<dt class="text-sm text-muted-foreground">{what}</dt>
+								<dd class="font-mono text-xs font-medium">{keys}</dd>
 							</div>
 						{/each}
 					</dl>

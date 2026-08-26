@@ -80,6 +80,7 @@ impl Db {
                 artist        TEXT NOT NULL,
                 album         TEXT NOT NULL,
                 album_key     TEXT NOT NULL,
+                album_artist  TEXT,
                 track_no      INTEGER NOT NULL,
                 duration_secs INTEGER NOT NULL,
                 cover         TEXT,
@@ -97,6 +98,9 @@ impl Db {
         // Migrate pre-Phase-4 DBs that predate the loudness_db column. Errors ("duplicate column")
         // on fresh DBs are expected and ignored — the cache is disposable anyway.
         let _ = conn.execute("ALTER TABLE stream_url_cache ADD COLUMN loudness_db REAL", []);
+        // Same for the AlbumArtist tag, which older scans read but never stored. The SCAN_VERSION
+        // bump in local.rs is what refills it; this only makes the column exist.
+        let _ = conn.execute("ALTER TABLE local_tracks ADD COLUMN album_artist TEXT", []);
         // Same one-shot for the music-video verdict, except the rows that predate it have to go:
         // a cache hit skips `/player`, so a NULL there reads as "no music video" for as long as
         // the URL lives (hours). `execute` succeeds only on the launch that adds the column, so
@@ -489,6 +493,7 @@ impl Db {
                     t.artist,
                     t.album,
                     t.album_key,
+                    t.album_artist,
                     t.track_no,
                     t.duration_secs,
                     t.cover,
@@ -517,7 +522,7 @@ impl Db {
     pub fn local_tracks(&self, album_key: Option<&str>) -> Vec<LocalTrack> {
         let conn = self.0.lock().unwrap();
         let sql =
-            "SELECT path, title, artist, album, album_key, track_no, duration_secs, cover, mtime
+            "SELECT path, title, artist, album, album_key, album_artist, track_no, duration_secs, cover, mtime
                    FROM local_tracks {WHERE} ORDER BY album, track_no, title";
         let sql =
             sql.replace("{WHERE}", if album_key.is_some() { "WHERE album_key = ?1" } else { "" });
@@ -529,10 +534,11 @@ impl Db {
                 artist: r.get(2)?,
                 album: r.get(3)?,
                 album_key: r.get(4)?,
-                track_no: r.get(5)?,
-                duration_secs: r.get(6)?,
-                cover: r.get(7)?,
-                mtime: r.get(8)?,
+                album_artist: r.get(5)?,
+                track_no: r.get(6)?,
+                duration_secs: r.get(7)?,
+                cover: r.get(8)?,
+                mtime: r.get(9)?,
             })
         };
         if let Ok(mut stmt) = conn.prepare(&sql) {
@@ -549,10 +555,11 @@ impl Db {
 }
 
 const LOCAL_TRACK_UPSERT: &str =
-    "INSERT INTO local_tracks(path, title, artist, album, album_key, track_no, duration_secs, cover, mtime)
-     VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+    "INSERT INTO local_tracks(path, title, artist, album, album_key, album_artist, track_no, duration_secs, cover, mtime)
+     VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
      ON CONFLICT(path) DO UPDATE SET title = excluded.title, artist = excluded.artist,
-        album = excluded.album, album_key = excluded.album_key, track_no = excluded.track_no,
+        album = excluded.album, album_key = excluded.album_key,
+        album_artist = excluded.album_artist, track_no = excluded.track_no,
         duration_secs = excluded.duration_secs, cover = excluded.cover, mtime = excluded.mtime";
 
 /// One file in the local library. Tag data as read at scan time; `mtime` is the change detector.
@@ -564,6 +571,9 @@ pub struct LocalTrack {
     pub album: String,
     /// Stable, human-readable album id fragment (`artist--album`, sanitized). See `local.rs`.
     pub album_key: String,
+    /// The AlbumArtist tag, when the file has one. What an album is credited to, even when its
+    /// tracks name different performers.
+    pub album_artist: Option<String>,
     pub track_no: i64,
     pub duration_secs: i64,
     /// Absolute path to the cover image (extracted or found next to the files).
