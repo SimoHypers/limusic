@@ -471,7 +471,7 @@ impl Orchestrator {
             }
         }
         let vd = main_resp.as_ref().and_then(|r| r.video_details.as_ref());
-        tracing::info!(client, itag = format.itag, "resolved stream");
+        tracing::info!(video_id, client, itag = format.itag, "resolved stream");
         PlaybackData {
             video_id: video_id.to_owned(),
             stream_url: url,
