@@ -32,6 +32,7 @@
 	import LinkDialog from '$lib/components/LinkDialog.svelte';
 	import MiniPlayer from '$lib/components/MiniPlayer.svelte';
 	import NowPlaying from '$lib/components/NowPlaying.svelte';
+	import TheaterMode from '$lib/components/TheaterMode.svelte';
 	import VideoSurface from '$lib/components/VideoSurface.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import KeyboardShortcuts from '$lib/components/KeyboardShortcuts.svelte';
@@ -171,6 +172,11 @@
 			</div>
 		{/if}
 	</div>
+
+	<!-- Theater mode covers everything, titlebar included, and puts the window in fullscreen for as
+	     long as it is mounted. Nothing playing means nothing to show, and that guard is also what
+	     closes it (and leaves fullscreen) when the queue runs out. -->
+	{#if ui.theaterOpen && playback.now}<TheaterMode />{/if}
 
 	<CommandPalette />
 	<KeyboardShortcuts />

@@ -15,6 +15,7 @@
 		SquareIcon,
 		Cancel01Icon,
 		MinimizeScreenIcon,
+		CameraVideoIcon,
 		CheckmarkCircle01Icon,
 		Loading03Icon,
 		HotspotOfflineIcon,
@@ -26,7 +27,7 @@
 	import AccountMenu from './AccountMenu.svelte';
 	import logo from '$lib/assets/favicon.svg';
 	import * as api from '$lib/api';
-	import { openMiniPlayer, toast, ui } from '$lib/player.svelte';
+	import { openMiniPlayer, playback, toast, ui } from '$lib/player.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import { anchorMenu, fitMenu, NO_ANCHOR } from '$lib/menu';
 	import { t } from '$lib/i18n.svelte';
@@ -254,6 +255,19 @@
 					/>
 				{/if}
 			</span>
+		</button>
+
+		<!-- Theater mode: fullscreen, cover and lyrics, nothing else. Next to the mini player because
+		     the pair are the same idea in opposite directions (shrink the app / become the screen),
+		     and disabled with nothing playing, since there'd be nothing to show. -->
+		<button
+			class="flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-25"
+			onclick={() => (ui.theaterOpen = true)}
+			disabled={!playback.now}
+			title={t('player.theater_mode')}
+			aria-label={t('player.theater_mode')}
+		>
+			<HugeiconsIcon icon={CameraVideoIcon} class="h-4 w-4" />
 		</button>
 
 		<!-- Mini player: hides the app to the tray and hands over to the floating widget (mini.rs).
