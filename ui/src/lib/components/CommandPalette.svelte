@@ -12,6 +12,7 @@
 	import * as Command from '$lib/components/ui/command/index.js';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import ExplicitIcon from './ExplicitIcon.svelte';
+	import ItemMenu from './ItemMenu.svelte';
 	import type { BrowseItem } from '$lib/api';
 	import { openItem, searchPreview } from '$lib/browse';
 	import { ui } from '$lib/player.svelte';
@@ -29,6 +30,18 @@
 	let items = $state<BrowseItem[]>([]);
 	let loading = $state(false);
 	let loadedFor = ''; // query `items` belongs to, so a stale response can't land
+	// The row a right-click menu belongs to: whatever the pointer last entered. One menu for the
+	// whole dialog, because `data-ctx` sits on the dialog itself (see below) and only one row can be
+	// under the pointer.
+	let ctxItem = $state<BrowseItem | null>(null);
+
+	// The menu's popup lives on <body>, which the dialog counts as an interaction outside itself and
+	// would close on, unmounting the menu mid-click. `data-menu` marks the popup and its backdrop, so
+	// clicking one is treated as still being inside. Everything else outside still dismisses.
+	const inMenu = (e: { detail: { originalEvent: Event } }) => {
+		const t = e.detail.originalEvent.target;
+		return t instanceof Element && !!t.closest('[data-menu]');
+	};
 
 	// Opening is itself a keystroke, so nothing is fetched until the typing pauses. `loading` is set
 	// on the keystroke rather than when the timer fires: otherwise the empty list reads as "no
@@ -87,6 +100,17 @@
 	title={t('common.search')}
 	description={t('common.command_description')}
 	class="sm:max-w-xl"
+	contentProps={{
+		// data-ctx: right-clicking a row opens that item's menu at the pointer (see `ctxHost`). The
+		// input keeps WebKit's own menu (`wantsNative`).
+		'data-ctx': '',
+		onInteractOutside: (e: { detail: { originalEvent: Event }; preventDefault: () => void }) => {
+			if (inMenu(e)) e.preventDefault();
+		},
+		onFocusOutside: (e: { detail: { originalEvent: Event }; preventDefault: () => void }) => {
+			if (inMenu(e)) e.preventDefault();
+		}
+	}}
 >
 	<Command.Input bind:value={query} placeholder={t('common.search_placeholder')} />
 	<Command.List class="max-h-[22rem]">
@@ -107,7 +131,12 @@
 		{:else}
 			<Command.Group heading={t('common.results')}>
 				{#each items as item (item.id)}
-					<Command.Item value={item.id} onSelect={() => choose(item)} class="gap-3 px-2 py-1.5">
+					<Command.Item
+						value={item.id}
+						onSelect={() => choose(item)}
+						onmouseenter={() => (ctxItem = item)}
+						class="gap-3 px-2 py-1.5"
+					>
 						{#if item.thumbnail}
 							<!-- 400, the same size the cards ask for: the CDN doesn't serve every rewritten
 							     size, that one is verified, and the row lands on an image the grid already
@@ -157,4 +186,9 @@
 			</Command.Group>
 		{/if}
 	</Command.List>
+	<!-- No visible trigger: a palette row is too small for a hover-only ⋯, and this only ever opens
+	     from a right-click. -->
+	{#if ctxItem}
+		<ItemMenu item={ctxItem} triggerClass="hidden" />
+	{/if}
 </Command.Dialog>

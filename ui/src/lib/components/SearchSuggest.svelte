@@ -11,6 +11,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import ExplicitIcon from './ExplicitIcon.svelte';
+	import ItemMenu from './ItemMenu.svelte';
 	import type { BrowseItem } from '$lib/api';
 	import { openItem, searchPreview } from '$lib/browse';
 	import { MOD } from '$lib/shortcuts';
@@ -38,6 +39,10 @@
 	let loading = $state(false);
 	let active = $state(-1); // keyboard-highlighted row, -1 = none (Enter submits the form)
 	let loadedFor = ''; // query `items` belongs to, so a stale response can't land
+	// The row the right-click menu belongs to: whatever the pointer last entered. It lives outside
+	// the panel and outlives it, because taking a menu action moves focus and closes the panel, and
+	// a menu unmounted mid-click is a menu that does nothing.
+	let ctxItem = $state<BrowseItem | null>(null);
 	let debounce: ReturnType<typeof setTimeout> | undefined;
 
 	const KIND: Record<string, string> = $derived({
@@ -119,8 +124,11 @@
 
 <!-- Rows preventDefault on mousedown, so focus never leaves the input while one is being clicked:
      anything that reaches focusout is a real move away from the field. -->
+<!-- data-ctx: right-clicking a row opens that item's menu at the pointer (see `ctxHost`). The host
+     is this whole block, but the input inside it keeps WebKit's own menu (`wantsNative`). -->
 <div
 	class="relative w-full min-w-0"
+	data-ctx
 	onfocusout={(e) => {
 		if (!e.currentTarget.contains(e.relatedTarget as Node | null)) close();
 	}}
@@ -168,16 +176,23 @@
 			{:else}
 				{#each items as item, i (item.id)}
 					{@const hero = i === 0}
-					<button
-						type="button"
+					<!-- A div, not a button: `ctxHost` treats a nested <button> as its own thing and would
+					     leave every row without a right-click menu. -->
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- The keyboard never reaches a row: the input owns arrow keys and Enter (onKeydown). -->
+					<div
 						role="option"
+						tabindex="-1"
 						aria-selected={i === active}
 						class="flex w-full cursor-pointer items-center gap-3 px-3 text-left transition-colors {i ===
 						active
 							? 'bg-accent/60'
 							: 'hover:bg-accent/40'} {hero ? 'border-b py-2.5' : 'py-1.5'}"
 						onmousedown={(e) => e.preventDefault()}
-						onmouseenter={() => (active = i)}
+						onmouseenter={() => {
+							active = i;
+							ctxItem = item;
+						}}
 						onclick={() => choose(item)}
 					>
 						{#if item.thumbnail}
@@ -221,7 +236,7 @@
 								Top result
 							</span>
 						{/if}
-					</button>
+					</div>
 				{/each}
 			{/if}
 			<!-- submit, so the enclosing form decides what "all results" does. -->
@@ -236,5 +251,10 @@
 				All results for “{value.trim()}”
 			</button>
 		</div>
+	{/if}
+	<!-- Outside the panel, and with no visible trigger: a row is too small for a hover-only ⋯, and
+	     this one only ever opens from a right-click. -->
+	{#if ctxItem}
+		<ItemMenu item={ctxItem} triggerClass="hidden" />
 	{/if}
 </div>

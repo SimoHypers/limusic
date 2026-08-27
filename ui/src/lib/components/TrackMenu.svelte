@@ -114,15 +114,22 @@
 </button>
 
 {#if menuOpen}
+	<!-- Above the modal layer (z-50), not below it: opened from a row inside a dialog, a backdrop
+	     underneath left the dialog's own rows live under the menu. Only the popup itself is above.
+	     pointer-events-auto on both: an open bits-ui dialog sets `pointer-events: none` on <body>,
+	     which is where these two are portalled, so without it the menu is visible but every click
+	     falls through it onto the dialog's own rows. -->
 	<button
-		class="fixed inset-0 z-40 cursor-default"
+		data-menu
+		class="pointer-events-auto fixed inset-0 z-[60] cursor-default"
 		onclick={close}
 		oncontextmenu={close}
 		aria-label={t('a11y.close_menu')}
 		{@attach toBody}
 	></button>
 	<div
-		class="fixed z-50 min-w-44 animate-in rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl duration-150 fade-in-0 zoom-in-95"
+		data-menu
+		class="pointer-events-auto fixed z-[70] min-w-44 animate-in rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl duration-150 fade-in-0 zoom-in-95"
 		style={anchor.style}
 		{@attach toBody}
 		{@attach fitMenu(anchor)}
