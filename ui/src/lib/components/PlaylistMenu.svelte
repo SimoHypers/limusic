@@ -159,7 +159,7 @@
 					queue(true);
 				}}
 			>
-				<HugeiconsIcon icon={ArrowUpNarrowWideIcon} class="h-4 w-4" /> Play next
+				<HugeiconsIcon icon={ArrowUpNarrowWideIcon} class="h-4 w-4" /> {t('player.play_next')}
 			</button>
 			<button
 				class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10 disabled:opacity-50"
@@ -169,7 +169,7 @@
 					queue(false);
 				}}
 			>
-				<HugeiconsIcon icon={ArrowDownWideNarrowIcon} class="h-4 w-4" /> Add to queue
+				<HugeiconsIcon icon={ArrowDownWideNarrowIcon} class="h-4 w-4" /> {t("player.add_to_queue")}
 			</button>
 		{/if}
 		{#if onYouTube}
@@ -177,7 +177,7 @@
 				class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={(e) => run(e, () => startRadio(item.kind as 'artist' | 'album' | 'playlist', item.id, item.title))}
 			>
-				<HugeiconsIcon icon={Radio02Icon} class="h-4 w-4" /> Start radio
+				<HugeiconsIcon icon={Radio02Icon} class="h-4 w-4" /> {t('player.start_radio')}
 			</button>
 		{/if}
 		<button
@@ -192,7 +192,7 @@
 				class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={(e) => run(e, () => openShare(item))}
 			>
-				<HugeiconsIcon icon={Share08Icon} class="h-4 w-4" /> Share
+				<HugeiconsIcon icon={Share08Icon} class="h-4 w-4" /> {t("player.share")}
 			</button>
 		{/if}
 		<!-- Only for cards saved on this machine: YouTube's own library rows are unsaved from their
