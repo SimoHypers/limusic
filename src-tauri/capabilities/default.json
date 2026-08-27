@@ -11,6 +11,7 @@
     "core:webview:allow-set-webview-zoom",
     "updater:default",
     "process:default",
+    "core:window:allow-show",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-internal-toggle-maximize",

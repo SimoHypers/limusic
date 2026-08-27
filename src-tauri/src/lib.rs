@@ -393,7 +393,7 @@ pub fn run() {
             // show it anyway rather than leaving the app with no window at all.
             if let Some(w) = app.get_webview_window("main") {
                 tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    tokio::time::sleep(Duration::from_secs(2)).await;
                     if !w.is_visible().unwrap_or(true) {
                         let _ = w.show();
                     }
