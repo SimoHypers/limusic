@@ -80,6 +80,9 @@
 		debounce = setTimeout(() => load(q), 500);
 	}
 
+	// Deliberately no reopen-on-focus: rows preventDefault on mousedown, so the input keeps focus
+	// after a row is taken, and the focus the window restores on regaining it would repaint the panel
+	// over whatever is on screen by then, the now-playing view included (#124). Typing reopens it.
 	function close() {
 		clearTimeout(debounce);
 		open = false;
@@ -132,9 +135,6 @@
 		aria-controls="search-suggest"
 		oninput={onType}
 		onkeydown={onKeydown}
-		onfocus={() => {
-			if (items.length && value.trim() === loadedFor) open = true;
-		}}
 	/>
 	<!-- Advertises the palette, which searches the same thing from anywhere in the app
 	     (shortcuts.ts). Out of the way once there is a query to read, and never a click target:
