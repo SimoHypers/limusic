@@ -825,6 +825,7 @@ impl AppState {
         }
         let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let video_id = seed.video_id.clone();
+        let sticky = self.sticky_shuffle();
 
         {
             let mut q = self.queue.lock().await;
@@ -841,8 +842,9 @@ impl AppState {
             q.lookahead_loaded = None;
             q.radio_seed = None; // single-song queue → autoplay re-seeds from the last track
             q.radio = false;
-            // Shuffle is sticky across queues: keep it ON (re-snapshotted after radio hydration).
-            q.shuffle_orig = q.shuffle_orig.is_some().then(|| q.items.clone());
+            // Shuffle carries into the new queue only when it's sticky (re-snapshotted after
+            // radio hydration); otherwise a new context starts unshuffled.
+            q.shuffle_orig = (sticky && q.shuffle_orig.is_some()).then(|| q.items.clone());
         }
 
         if !self.start_current(gen).await {
@@ -929,11 +931,14 @@ impl AppState {
         }
         // A mix has no "rest of the playlist" worth walking (see `is_mix`) — drop the token.
         let continuation = continuation.filter(|_| !is_mix(source_id.as_deref()));
+        let sticky = self.sticky_shuffle();
         let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         {
             let mut q = self.queue.lock().await;
-            // Sticky across queues, or explicitly requested by a page Shuffle button.
-            let keep_shuffled = q.shuffle_orig.is_some() || shuffle;
+            // Explicitly requested by a page Shuffle button, or already on and set to stick
+            // across queues (issue #117: off by default, so an album opened while shuffle is on
+            // plays in order).
+            let keep_shuffled = shuffle || (sticky && q.shuffle_orig.is_some());
             let start = match start {
                 Some(i) => i.min(items.len() - 1),
                 None if keep_shuffled => {
@@ -958,6 +963,8 @@ impl AppState {
                 q.shuffle_orig = Some(q.items.clone());
                 let start = q.current;
                 q.current = shuffle_new_queue(&mut q.items, start);
+            } else {
+                q.shuffle_orig = None; // non-sticky shuffle ends with the queue it was turned on for
             }
             // Whatever the queue starts on is where the played run starts: the tracks in front of
             // a playlist opened at track 7 were never heard.
@@ -1110,6 +1117,9 @@ impl AppState {
     ) {
         {
             let mut q = self.queue.lock().await;
+            if !self.sticky_shuffle() {
+                q.shuffle_orig = None; // a radio is a new context, so a non-sticky shuffle ends here
+            }
             splice_radio_into(&mut q, items, seed, title);
             // Whatever mpv had primed as the gapless next belongs to the old queue.
             if q.lookahead_loaded.take().is_some() {
@@ -2003,6 +2013,12 @@ impl AppState {
     /// Watch-history ping enabled? Default on; only an explicit `"false"` disables it.
     fn history_enabled(&self) -> bool {
         self.db.get_setting("enable_history").map(|v| v != "false").unwrap_or(true)
+    }
+
+    /// Shuffle sticky across queues? Default off: turning shuffle on applies to the queue that's
+    /// playing, and opening an album/playlist afterwards plays it in order (issue #117).
+    fn sticky_shuffle(&self) -> bool {
+        self.db.get_setting("sticky_shuffle").as_deref() == Some("true")
     }
 
     /// Autoplay enabled? Default on; only an explicit `"false"` disables it (mirrors

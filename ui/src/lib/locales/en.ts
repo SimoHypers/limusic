@@ -289,6 +289,9 @@ export const en = {
 			autoplay_hint: 'Continuously play recommended tracks when the queue finishes.',
 			prevent_duplicates: 'Prevent duplicate songs in queue',
 			prevent_duplicates_hint: 'Avoid adding songs that are already in the current queue.',
+			sticky_shuffle: 'Keep shuffle on across queues',
+			sticky_shuffle_hint:
+				"Leave off and shuffle applies only to what's playing: opening an album or playlist afterwards plays it in order.",
 			play_history_hint: 'Remember recently played tracks for personalized recommendations.',
 			music_videos: 'Enable music videos',
 			music_videos_hint: 'Show video stream when available instead of audio only.',

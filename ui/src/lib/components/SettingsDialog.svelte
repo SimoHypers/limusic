@@ -200,6 +200,8 @@
 	const musicVideosOn = $derived(settings.music_videos === 'true');
 	const boiduOn = $derived(settings.lyrics_boidu !== 'false');
 	const preventDuplicatesOn = $derived(settings.prevent_duplicates === 'true');
+	// Off by default: shuffle applies to the queue it was turned on for (issue #117).
+	const stickyShuffleOn = $derived(settings.sticky_shuffle === 'true');
 	const updateBannerOn = $derived(settings.update_banner !== 'false');
 	const discordOn = $derived(settings.discord_rpc === 'true');
 	const trayOn = $derived(settings.close_to_tray !== 'false');
@@ -258,6 +260,11 @@
 	async function setPreventDuplicates(on: boolean) {
 		settings.prevent_duplicates = on ? 'true' : 'false';
 		await api.setSetting('prevent_duplicates', settings.prevent_duplicates);
+	}
+
+	async function setStickyShuffle(on: boolean) {
+		settings.sticky_shuffle = on ? 'true' : 'false';
+		await api.setSetting('sticky_shuffle', settings.sticky_shuffle);
 	}
 
 	async function setUpdateBanner(on: boolean) {
@@ -560,6 +567,12 @@
 									control: dupSwitch,
 									tall: true
 								})}
+								{@render row({
+									title: t('settings.playback.sticky_shuffle'),
+									desc: t('settings.playback.sticky_shuffle_hint'),
+									control: stickyShuffleSwitch,
+									tall: true
+								})}
 							</div>
 						</section>
 						<section class={GROUP}>
@@ -704,6 +717,10 @@
 {#snippet dupSwitch()}<Switch
 		checked={preventDuplicatesOn}
 		onCheckedChange={setPreventDuplicates}
+	/>{/snippet}
+{#snippet stickyShuffleSwitch()}<Switch
+		checked={stickyShuffleOn}
+		onCheckedChange={setStickyShuffle}
 	/>{/snippet}
 {#snippet musicVideoSwitch()}<Switch checked={musicVideosOn} onCheckedChange={setMusicVideos} />{/snippet}
 {#snippet hideVideoSwitch()}<Switch checked={hideVideosOn} onCheckedChange={setHideVideos} />{/snippet}

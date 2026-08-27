@@ -292,6 +292,9 @@ export const tr: Translations = {
 			autoplay_hint: 'Sıradaki parçalar bittiğinde önerilen şarkıları çalmaya devam eder.',
 			prevent_duplicates: 'Sırada yinelenen şarkıları engelle',
 			prevent_duplicates_hint: 'Zaten sırada bulunan şarkıların tekrar eklenmesini önler.',
+			sticky_shuffle: 'Karıştırmayı sıralar arasında açık tut',
+			sticky_shuffle_hint:
+				'Kapalıyken karıştırma yalnızca çalmakta olana uygulanır: sonrasında açılan albüm veya çalma listesi kendi sırasıyla çalar.',
 			play_history_hint: 'Kişiselleştirilmiş öneriler için son dinlenen parçaları hatırlar.',
 			music_videos: 'Müzik videolarını etkinleştir',
 			music_videos_hint: 'Yalnızca ses yerine uygun olduğunda video akışını gösterir.',
