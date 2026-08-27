@@ -10,6 +10,9 @@ import { canSelfUpdate, getSettings, openExternal } from './api';
 
 const RELEASES_URL = 'https://github.com/SimoHypers/limusic/releases/latest';
 
+/** How often the quiet check repeats while the app stays open. */
+export const QUIET_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
 export const updateState = $state({
 	available: null as { version: string } | null, // set when a newer version is waiting
 	canInstall: true, // false on packaged Linux builds; always resolved before `available` is set
@@ -34,11 +37,14 @@ async function look(): Promise<boolean> {
 	return false;
 }
 
-/** On app open: show the update banner if one exists, stay silent otherwise. With `update_banner`
- *  off the check is skipped entirely (no banner, no request), leaving Settings > About > Check for
- *  updates as the only way to find one. */
+/** On app open, and every `QUIET_INTERVAL_MS` after: show the update banner if one exists, stay
+ *  silent otherwise. Repeating matters because ✕ hides to tray by default, so the webview mounts
+ *  once and can stay up for days: a mount-only check never sees a release published while the app
+ *  is running. With `update_banner` off the check is skipped entirely (no banner, no request),
+ *  leaving Settings > About > Check for updates as the only way to find one. */
 export async function checkForUpdatesQuiet() {
 	try {
+		if (updateState.available) return; // one is already on screen; don't re-fetch behind it
 		if ((await getSettings()).update_banner === 'false') return;
 		await look();
 	} catch (e) {

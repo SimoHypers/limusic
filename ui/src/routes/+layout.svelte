@@ -44,7 +44,8 @@
 		updateState,
 		installUpdate,
 		openDownloadPage,
-		checkForUpdatesQuiet
+		checkForUpdatesQuiet,
+		QUIET_INTERVAL_MS
 	} from '$lib/updater.svelte';
 
 	let { children } = $props();
@@ -93,10 +94,14 @@
 		// First: it reveals the window (see initWin).
 		const teardownWin = initWin();
 		checkForUpdatesQuiet();
+		// Repeat while the app stays open: ✕ hides to tray by default, so this component can stay
+		// mounted for days and a mount-only check would never see a release published in between.
+		const updateTimer = setInterval(checkForUpdatesQuiet, QUIET_INTERVAL_MS);
 		const teardownApp = initApp();
 		const teardownZoom = initZoom();
 		const teardownShortcuts = initShortcuts();
 		return () => {
+			clearInterval(updateTimer);
 			teardownApp();
 			teardownWin();
 			teardownZoom();
