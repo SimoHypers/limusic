@@ -32,6 +32,7 @@
 		playFrom,
 		startRadio,
 		toast,
+		noteLibrary,
 		toggleSaved
 	} from '$lib/player.svelte';
 	import { getCached, putCached } from '$lib/pagecache';
@@ -136,6 +137,7 @@
 		try {
 			await api.subscribe(artist.channelId, next);
 			putCached(`artist:${id}`, { ...artist, subscribed: next }); // keep the cache truthful
+			noteLibrary(asItem(), next); // so every card's menu agrees the artist is in the library
 			toast.success(next ? `Subscribed to ${artist.name ?? ''}` : `Unsubscribed`);
 		} catch (e) {
 			subscribed = !next; // revert

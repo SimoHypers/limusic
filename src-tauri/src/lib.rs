@@ -461,6 +461,7 @@ pub fn run() {
             commands::play_playlist,
             commands::start_radio,
             commands::rate,
+            commands::set_song_saved,
             commands::set_album_saved,
             commands::add_to_playlist,
             commands::remove_from_playlist,

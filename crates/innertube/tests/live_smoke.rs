@@ -382,3 +382,140 @@ async fn library_songs_browse_returns_tracks() {
         assert!(!more.items.is_empty(), "the paging token resolved to nothing");
     }
 }
+
+/// "Add to library" on a song is a `feedbackEndpoint` token minted on the row itself, not a rating,
+/// so the whole feature stands on rows still arriving with that menu. It is invisible if it breaks:
+/// no tokens simply means the menu never offers the action. Reports what each surface carried, and
+/// dumps a row's actual menu when nothing matched, since the shape is the thing in question.
+///   LIMUSIC_COOKIE=… LIMUSIC_VISITOR=… cargo test -p innertube --features integration-tests library_tokens -- --ignored --nocapture
+#[tokio::test]
+#[ignore]
+async fn song_rows_carry_library_tokens() {
+    let Some(cookie) = std::env::var("LIMUSIC_COOKIE").ok().filter(|s| !s.is_empty()) else {
+        eprintln!("skipped: set LIMUSIC_COOKIE (+LIMUSIC_VISITOR) to run");
+        return;
+    };
+    let visitor = std::env::var("LIMUSIC_VISITOR").ok().filter(|s| !s.is_empty());
+    let it = InnerTube::new(
+        Session { cookie: Some(cookie), visitor_data: visitor, ..Session::default() },
+        None,
+    )
+    .unwrap();
+    let clients = Clients::bundled();
+    let client = clients.get("WEB_REMIX").expect("WEB_REMIX client");
+
+    // Every menu entry of the first song row, as YouTube sends it: renderer name, icon, and which
+    // kind of endpoint hangs off it. That is exactly the information the parser matches on.
+    fn dump_menu(label: &str, row: &serde_json::Value) {
+        let Some(menu) = row.get("menu") else {
+            let keys: Vec<&str> =
+                row.as_object().map(|o| o.keys().map(String::as_str).collect()).unwrap_or_default();
+            eprintln!("  {label}: no menu on this row. keys: {keys:?}");
+            return;
+        };
+        eprintln!("  {label} menu:");
+        for item in
+            menu.pointer("/menuRenderer/items").and_then(|i| i.as_array()).unwrap_or(&vec![])
+        {
+            let Some((renderer, body)) = item.as_object().and_then(|o| o.iter().next()) else {
+                continue;
+            };
+            let icon = |k: &str| {
+                body.pointer(&format!("/{k}/iconType")).and_then(|v| v.as_str()).unwrap_or("-")
+            };
+            let text = body
+                .pointer("/text/runs/0/text")
+                .or_else(|| body.pointer("/defaultText/runs/0/text"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("-");
+            let endpoints: Vec<&str> = body
+                .as_object()
+                .map(|o| o.keys().filter(|k| k.contains("Endpoint")).map(String::as_str).collect())
+                .unwrap_or_default();
+            eprintln!(
+                "    {renderer}: text={text:?} icon={} default={} toggled={} endpoints={endpoints:?} feedback={}",
+                icon("icon"),
+                icon("defaultIcon"),
+                icon("toggledIcon"),
+                serde_json::to_string(body).unwrap_or_default().contains("feedbackEndpoint")
+            );
+        }
+    }
+
+    let raw = it.search_json(client, "daft punk", Some("EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D")).await;
+    let search = it.search_songs(client, "daft punk").await.expect("search");
+    let with_tokens = search.items.iter().filter(|s| s.library.is_some()).count();
+    eprintln!("search: {}/{} rows carry a library action", with_tokens, search.items.len());
+    if with_tokens == 0 {
+        if let Ok(raw) = &raw {
+            let rows = find_rows(raw, "musicResponsiveListItemRenderer");
+            eprintln!(
+                "  {} raw search rows; feedbackToken anywhere in the response: {}",
+                rows.len(),
+                serde_json::to_string(raw).unwrap_or_default().contains("feedbackToken")
+            );
+            if let Some(row) = rows.iter().find(|r| r.get("menu").is_some()).or(rows.first()) {
+                dump_menu("search row", row);
+            }
+        }
+    }
+
+    // Search is the surface this feature lives on: every row there carried the toggle when this was
+    // written (20/20, 2026-08-28). Zero means the menu shape moved again, and the dump above says how.
+    assert!(with_tokens > 0, "no search row carried a library action — the menu shape changed");
+
+    // Library ▸ Songs rows come from a browse, a different response with its own menus. Most of
+    // them ship without a menu at all, so this half only reports: it is not a guard.
+    // Note the rows that do carry one report `in_library: false` — that list is your *liked*
+    // songs, and liking is not the same write as saving to the library.
+    let page = it.playlist(client, "FEmusic_liked_videos", None).await.expect("library songs");
+    let saved = page.items.iter().filter(|s| s.library.is_some()).count();
+    let already =
+        page.items.iter().filter(|s| s.library.as_ref().is_some_and(|l| l.in_library)).count();
+    eprintln!(
+        "library songs: {}/{} carry an action, {} report in_library",
+        saved,
+        page.items.len(),
+        already
+    );
+    if saved == 0 {
+        if let Ok(raw) = it.browse_json(client, "FEmusic_liked_videos").await {
+            let rows = find_rows(&raw, "musicResponsiveListItemRenderer");
+            eprintln!("  {} raw library rows", rows.len());
+            if let Some(row) = rows.iter().find(|r| r.get("menu").is_some()).or(rows.first()) {
+                dump_menu("library row", row);
+            }
+        }
+    }
+    if let Some(song) = page.items.iter().find(|s| s.library.is_some()) {
+        let lib = song.library.as_ref().unwrap();
+        eprintln!(
+            "  {:?}: in_library={} add={:?} remove={:?}",
+            song.title,
+            lib.in_library,
+            lib.add_token.as_deref().map(|t| &t[..t.len().min(12)]),
+            lib.remove_token.as_deref().map(|t| &t[..t.len().min(12)])
+        );
+    }
+}
+
+/// Every `key` node in the tree, in document order (the crate keeps its own walker private).
+fn find_rows<'a>(root: &'a serde_json::Value, key: &str) -> Vec<&'a serde_json::Value> {
+    let mut out = Vec::new();
+    fn walk<'a>(v: &'a serde_json::Value, key: &str, out: &mut Vec<&'a serde_json::Value>) {
+        match v {
+            serde_json::Value::Object(map) => {
+                for (k, val) in map {
+                    if k == key {
+                        out.push(val);
+                    }
+                    walk(val, key, out);
+                }
+            }
+            serde_json::Value::Array(arr) => arr.iter().for_each(|e| walk(e, key, out)),
+            _ => {}
+        }
+    }
+    walk(root, key, &mut out);
+    out
+}

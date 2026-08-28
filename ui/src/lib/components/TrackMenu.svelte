@@ -12,6 +12,8 @@
 		MoreVerticalIcon,
 		PlayListAddIcon,
 		PlayListRemoveIcon,
+		BookmarkMinus02Icon,
+		BookPlusIcon,
 		ArrowUpNarrowWideIcon,
 		ArrowDownWideNarrowIcon,
 		Radio02Icon,
@@ -29,12 +31,15 @@
 	import {
 		addPick,
 		enqueue,
+		inSongLibrary,
+		songLibraryToken,
 		openShare,
 		personal,
 		ratingOf,
 		removePick,
 		startRadio,
-		toggleRating
+		toggleRating,
+		toggleSongLibrary
 	} from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import TempoPitchDialog from './TempoPitchDialog.svelte';
@@ -93,6 +98,11 @@
 	}
 
 	const rated = $derived(ratingOf(song));
+	// Library ▸ Songs, which is a different list from Liked Music and a different write. Only rows
+	// YouTube sent a menu with carry the tokens for it, so the row is absent on the ones this app
+	// builds itself (local files, On Repeat, a mirrored guest queue) rather than dead.
+	const inLib = $derived(inSongLibrary(song));
+	const libraryToken = $derived(songLibraryToken(song));
 	// A local file has no YouTube identity: liking it or putting it in a YTM playlist is not a
 	// thing, so those items don't show. Queue, shortcuts and go-to-album work normally.
 	const isLocal = $derived(api.isLocalId(song.video_id));
@@ -183,6 +193,21 @@
 					class="h-4 w-4 {rated === 'dislike' ? 'fill-current text-foreground' : ''}"
 				/>
 				{rated === 'dislike' ? t('player.remove_dislike') : t('common.dislike')}
+			</button>
+		{/if}
+		{#if libraryToken}
+			<button
+				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+				onclick={(e) => run(e, () => toggleSongLibrary(song))}
+			>
+				<!-- altIcon/showAlt, not a ternary: `icon` is read once at mount. -->
+				<HugeiconsIcon
+					icon={BookPlusIcon}
+					altIcon={BookmarkMinus02Icon}
+					showAlt={inLib}
+					class="h-4 w-4"
+				/>
+				{inLib ? t('library.remove_from_library') : t('library.save_to_library')}
 			</button>
 		{/if}
 		{#if song.artist_id}

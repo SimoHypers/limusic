@@ -88,6 +88,30 @@ pub struct SongItem {
     /// reads false even when the same song shows the badge on an album page.
     #[serde(default)]
     pub explicit: bool,
+    /// "Add to library" / "Remove from library" off this row's own menu ([`library_toggle`]).
+    /// `None` on rows YouTube sent no such menu for, and on the ones this app builds itself (local
+    /// files, On Repeat), where there is nothing to send.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub library: Option<LibraryToggle>,
+}
+
+/// A track's library membership as its menu states it, with the tokens for both directions.
+///
+/// Library ▸ Songs is not Liked Music: adding a song to the library is a `feedbackEndpoint`, a
+/// separate write from the rating, and the only handle on it is an opaque token minted with the
+/// row. That is why this rides along on every `SongItem` instead of being asked for later, and why
+/// a row we built ourselves can't offer the action.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LibraryToggle {
+    /// Whether the song is in the library right now, per the menu YouTube sent with the row.
+    pub in_library: bool,
+    /// One token per direction. Both are present when the row's menu is a *toggle*; a row that
+    /// offers the action one way only (a plain menu item, which is how some surfaces send it)
+    /// carries just the one it offers, and the way back has to come from a re-fetched row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub add_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remove_token: Option<String>,
 }
 
 /// How the signed-in user rated a track. One type for both directions: it's what a row's
@@ -508,6 +532,7 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
         is_video: is_video_row(node),
         is_upload: is_upload_row(node),
         explicit: is_explicit(node),
+        library: library_toggle(node),
     })
 }
 
@@ -600,6 +625,71 @@ fn removable(node: &Value) -> bool {
     find_all(node, "action").iter().any(|a| a.as_str() == Some("ACTION_REMOVE_VIDEO"))
 }
 
+/// The row's "Save to library" action, in either shape YouTube sends it.
+///
+/// Usually a `toggleMenuServiceItemRenderer` holding both directions, one `feedbackEndpoint` each.
+/// It carries no state field, so which way round it is comes from the icons: YouTube puts the
+/// action available *now* in `defaultIcon`/`defaultServiceEndpoint`, so a song already in the
+/// library arrives with the filled bookmark as its default. Some surfaces send a plain
+/// `menuServiceItemRenderer` with one direction only; that is the fallback below.
+///
+/// Icons, not the label, because the label is localised. A track menu carries other feedback
+/// toggles that must not match: "Add to liked songs" (FAVORITE/UNFAVORITE, a rating and a
+/// different list) and "Pin to Listen again" (KEEP/KEEP_OFF). Live-checked 2026-08-28: search rows
+/// send BOOKMARK_BORDER/BOOKMARK; the LIBRARY_* spellings are kept as YouTube has used them too.
+fn library_toggle(node: &Value) -> Option<LibraryToggle> {
+    /// The bookmark is empty when the song is not in the library — that direction adds it.
+    const ADDS: [&str; 2] = ["BOOKMARK_BORDER", "LIBRARY_ADD"];
+    /// Filled: it is in there, and this direction takes it out.
+    const REMOVES: [&str; 3] = ["BOOKMARK", "LIBRARY_REMOVE", "LIBRARY_SAVED"];
+
+    // Scoped to the row's menu where there is one: `find_all` walks everything, and a row can
+    // carry other people's endpoints (an album's, an artist's) elsewhere in its tree.
+    let menu = node.get("menu").unwrap_or(node);
+    let feedback_token = |endpoint: Option<&Value>| {
+        find_first_str(endpoint?.get("feedbackEndpoint")?, "feedbackToken")
+    };
+    let both = find_all(menu, "toggleMenuServiceItemRenderer").into_iter().find_map(|toggle| {
+        let icon = |key: &str| find_first_str(toggle.get(key)?, "iconType");
+        let default = feedback_token(toggle.get("defaultServiceEndpoint"))?;
+        let toggled = feedback_token(toggle.get("toggledServiceEndpoint"))?;
+        let (default_icon, toggled_icon) = (icon("defaultIcon")?, icon("toggledIcon")?);
+        let (default_icon, toggled_icon) = (default_icon.as_str(), toggled_icon.as_str());
+        if ADDS.contains(&default_icon) && REMOVES.contains(&toggled_icon) {
+            Some(LibraryToggle {
+                in_library: false,
+                add_token: Some(default),
+                remove_token: Some(toggled),
+            })
+        } else if REMOVES.contains(&default_icon) && ADDS.contains(&toggled_icon) {
+            Some(LibraryToggle {
+                in_library: true,
+                add_token: Some(toggled),
+                remove_token: Some(default),
+            })
+        } else {
+            None
+        }
+    });
+    both.or_else(|| {
+        find_all(menu, "menuServiceItemRenderer").into_iter().find_map(|item| {
+            let token = feedback_token(item.get("serviceEndpoint"))?;
+            let icon = find_first_str(item.get("icon")?, "iconType")?;
+            if ADDS.contains(&icon.as_str()) {
+                Some(LibraryToggle {
+                    in_library: false,
+                    add_token: Some(token),
+                    remove_token: None,
+                })
+            } else if REMOVES.contains(&icon.as_str()) {
+                Some(LibraryToggle { in_library: true, add_token: None, remove_token: Some(token) })
+            } else {
+                None
+            }
+        })
+    })
+}
+
 fn like_status(node: &Value) -> Option<Rating> {
     find_first_str(node, "likeStatus").map(|s| match s.as_str() {
         "LIKE" => Rating::Like,
@@ -643,6 +733,7 @@ fn parse_panel_video(node: &Value) -> Option<SongItem> {
         // Queue-panel rows carry no badges today; asking anyway costs a map lookup and picks the
         // flag up for free if YouTube ever adds one.
         explicit: is_explicit(node),
+        library: library_toggle(node),
     })
 }
 
@@ -968,6 +1059,58 @@ mod tests {
         // Fail closed: no tag means an ordinary track, so the normal client chain still runs.
         assert!(!is_upload_row(&json!({ "navigationEndpoint": cfg("MUSIC_VIDEO_TYPE_OMV") })));
         assert!(!is_upload_row(&json!({})));
+    }
+
+    // The library toggle is opaque tokens and no state field: which one is live is told by the
+    // icons alone, so a mixed-up pair would send "add" for a song already in the library (a no-op
+    // the UI would report as success). Both orientations, the one-way shape, and the two feedback
+    // toggles that sit right next to it in a real track menu and must not be mistaken for it.
+    #[test]
+    fn reads_the_library_action_in_every_shape() {
+        let toggle = |default_icon: &str, toggled_icon: &str| {
+            json!({ "menu": { "menuRenderer": { "items": [
+                { "toggleMenuServiceItemRenderer": {
+                    "defaultIcon": { "iconType": default_icon },
+                    "defaultServiceEndpoint": { "feedbackEndpoint": { "feedbackToken": "TOK_DEFAULT" } },
+                    "toggledIcon": { "iconType": toggled_icon },
+                    "toggledServiceEndpoint": { "feedbackEndpoint": { "feedbackToken": "TOK_TOGGLED" } }
+                } }
+            ] } } })
+        };
+
+        // Not in the library: the empty bookmark is the action on offer, so its token is default.
+        let out = library_toggle(&toggle("BOOKMARK_BORDER", "BOOKMARK")).unwrap();
+        assert!(!out.in_library);
+        assert_eq!(out.add_token.as_deref(), Some("TOK_DEFAULT"));
+        assert_eq!(out.remove_token.as_deref(), Some("TOK_TOGGLED"));
+
+        // Already in it: the same renderer arrives the other way round.
+        let out = library_toggle(&toggle("BOOKMARK", "BOOKMARK_BORDER")).unwrap();
+        assert!(out.in_library);
+        assert_eq!(out.add_token.as_deref(), Some("TOK_TOGGLED"));
+        assert_eq!(out.remove_token.as_deref(), Some("TOK_DEFAULT"));
+
+        // The older spelling, still accepted.
+        assert!(!library_toggle(&toggle("LIBRARY_ADD", "LIBRARY_REMOVE")).unwrap().in_library);
+
+        // One direction only, as a plain menu item: still worth offering, with no way back until
+        // the row is fetched again.
+        let one_way = json!({ "menu": { "menuRenderer": { "items": [
+            { "menuServiceItemRenderer": {
+                "icon": { "iconType": "BOOKMARK_BORDER" },
+                "serviceEndpoint": { "feedbackEndpoint": { "feedbackToken": "TOK_ONE_WAY" } }
+            } }
+        ] } } });
+        let out = library_toggle(&one_way).unwrap();
+        assert!(!out.in_library);
+        assert_eq!(out.add_token.as_deref(), Some("TOK_ONE_WAY"));
+        assert_eq!(out.remove_token, None);
+
+        // Its neighbours in a real menu: "Add to liked songs" is a rating on a different list, and
+        // "Pin to Listen again" is a feedback toggle too. Neither is this.
+        assert_eq!(library_toggle(&toggle("FAVORITE", "UNFAVORITE")), None);
+        assert_eq!(library_toggle(&toggle("KEEP", "KEEP_OFF")), None);
+        assert_eq!(library_toggle(&json!({})), None);
     }
 
     // The rating drives both thumbs on every row, and the third state is new: `DISLIKE` used to

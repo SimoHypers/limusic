@@ -519,6 +519,7 @@ export const en = {
 		playlist_updated: 'Playlist updated',
 		playlist_created: 'Created "{title}"',
 		playlist_deleted: 'Playlist deleted',
+		already_in_library: 'Already in your library',
 		removed_from_library: 'Removed from library',
 		removed_from_liked: 'Removed from Liked Music',
 		removed_from_playlist: 'Removed from playlist',

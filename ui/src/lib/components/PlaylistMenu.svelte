@@ -11,7 +11,9 @@
 		Radio02Icon,
 		ArrowUpNarrowWideIcon,
 		ArrowDownWideNarrowIcon,
+		BookmarkCheck02Icon,
 		BookmarkMinus02Icon,
+		BookPlusIcon,
 		DashboardSquare02Icon,
 		Share08Icon
 	} from '@hugeicons/core-free-icons';
@@ -22,9 +24,14 @@
 	import { t } from '$lib/i18n.svelte';
 	import {
 		addPick,
+		addToLibrary,
 		auth,
+		inLibrary,
 		isSaved,
+		ownedByUser,
+		removeFromLibrary,
 		isSynced,
+		loadLibraryExtras,
 		openShare,
 		personal,
 		removePick,
@@ -58,6 +65,13 @@
 	const savedHere = $derived(
 		isSaved(item.id) && !(auth.account?.signedIn && isSynced(item.id))
 	);
+	// Saved here or on the account. `savedHere` is the narrower one: only a local row can be taken
+	// back out from a menu, since undoing YouTube's own copy belongs on the item's page.
+	const inLib = $derived(inLibrary(item));
+	// Your own playlists, uploads, Liked Music and On Repeat are in the library by being what they
+	// are: the row says so and does nothing. Everything else got saved, so it can be unsaved.
+	const owned = $derived(ownedByUser(item));
+
 	// Radio and Share both need a YouTube item behind them: local folders and the locally-built
 	// On Repeat have none.
 	const onYouTube = $derived(!api.isLocalId(item.id) && item.id !== api.ON_REPEAT_ID);
@@ -79,6 +93,37 @@
 		}
 	}
 
+	let saving = $state(false);
+	async function save() {
+		if (saving) return;
+		saving = true;
+		try {
+			const result = await addToLibrary(item);
+			toast.success(
+				result === 'already' ? t('toasts.already_in_library') : t('library.saved_to_library')
+			);
+			menuOpen = false;
+		} catch (e) {
+			toast.error(String(e));
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function unsave() {
+		if (saving) return;
+		saving = true;
+		try {
+			await removeFromLibrary(item);
+			toast.success(t('toasts.removed_from_library'));
+			menuOpen = false;
+		} catch (e) {
+			toast.error(String(e));
+		} finally {
+			saving = false;
+		}
+	}
+
 	let menuOpen = $state(false);
 	let anchor = $state(NO_ANCHOR);
 
@@ -86,6 +131,11 @@
 	function openMenu(e: MouseEvent) {
 		e.preventDefault(); // a right-click must not also raise WebKit's own menu
 		e.stopPropagation();
+		// Saved albums and artists are only fetched by the Library page, and without them every card
+		// outside it would offer "Save to library" for something the account already holds. Cached
+		// after the first menu, so this is one pair of requests per session.
+		if (auth.account?.signedIn && (item.kind === 'album' || item.kind === 'artist'))
+			loadLibraryExtras();
 		anchor = anchorMenu(e, { align: 'right' });
 		menuOpen = true;
 	}
@@ -195,6 +245,37 @@
 				<HugeiconsIcon icon={Share08Icon} class="h-4 w-4" /> {t("player.share")}
 			</button>
 		{/if}
+		<!-- One row for library membership: put it in, take the local copy back out, or just say it
+		     is already there (YouTube's own copy is unsaved from the item's page, which knows which
+		     write to send). Local folders and On Repeat have no library to be in. -->
+		{#if onYouTube && !inLib}
+			<button
+				class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10 disabled:opacity-50"
+				disabled={saving}
+				onclick={(e) => {
+					e.stopPropagation();
+					save();
+				}}
+			>
+				<HugeiconsIcon icon={BookPlusIcon} class="h-4 w-4" /> {t('library.save_to_library')}
+			</button>
+		{:else if onYouTube && !savedHere && !owned}
+			<button
+				class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10 disabled:opacity-50"
+				disabled={saving}
+				onclick={(e) => {
+					e.stopPropagation();
+					unsave();
+				}}
+			>
+				<HugeiconsIcon icon={BookmarkMinus02Icon} class="h-4 w-4" />
+				{t('library.remove_from_library')}
+			</button>
+		{:else if onYouTube}
+			<div class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground">
+				<HugeiconsIcon icon={BookmarkCheck02Icon} class="h-4 w-4" /> {t('library.in_library')}
+			</div>
+		{/if}
 		<!-- Only for cards saved on this machine: YouTube's own library rows are unsaved from their
 		     page, where the button knows which write action to send. -->
 		{#if savedHere}
@@ -206,7 +287,7 @@
 						toast.success(t('toasts.removed_from_library'));
 					})}
 			>
-				<HugeiconsIcon icon={BookmarkMinus02Icon} class="h-4 w-4" /> Remove from library
+				<HugeiconsIcon icon={BookmarkMinus02Icon} class="h-4 w-4" /> {t('library.remove_from_library')}
 			</button>
 		{/if}
 	</div>

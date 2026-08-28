@@ -196,7 +196,10 @@ export async function createLibraryPlaylist(title: string): Promise<void> {
 	// YouTube's library browse is eventually-consistent and won't include a brand-new playlist for a
 	// few seconds, so surface it immediately instead of refetching.
 	const browseId = id.startsWith('VL') ? id : `VL${id}`;
-	library.items = [{ kind: 'playlist', id: browseId, title }, ...library.items];
+	// The owner line in YouTube's own format ("<owner> • N tracks"), because that is what
+	// `ownedByUser` reads to know this one is yours before the library reloads and says so itself.
+	const subtitle = auth.account?.name ? `${auth.account.name} \u2022 0 tracks` : undefined;
+	library.items = [{ kind: 'playlist', id: browseId, title, subtitle }, ...library.items];
 }
 
 /** Optimistically apply an edit to a library playlist's row (sidebar + Library grid), so a rename
@@ -234,7 +237,9 @@ export const savedIn = $state({ map: {} as Record<string, string[]> });
 export function savedPlaylists(videoId: string): BrowseItem[] {
 	const ids = savedIn.map[videoId];
 	if (!ids?.length) return [];
-	const holding = new Set(ids);
+	// Liked Music is indexed (it is what fills the heart on a search row) but never named here:
+	// the thumbs-up next to the chip already says it.
+	const holding = new Set(ids.filter((id) => id !== api.LIKED_MUSIC_ID));
 	return library.items.filter((it) => holding.has(it.id));
 }
 
@@ -455,6 +460,148 @@ export const isSaved = (id: string): boolean => pl.isSaved(personal, id);
 export const isSynced = (id: string): boolean => pl.isSynced(personal, id);
 
 /**
+ * Put one saved card on the account. `known` is the library's playlist grid when the caller already
+ * has it. Answers what happened: 'saved', 'already' when YouTube's own copy made it a no-op, or
+ * 'unsupported' for a kind YouTube has nothing to save (a song, which lives in Liked Music).
+ */
+async function pushSaved(
+	item: BrowseItem,
+	known?: Set<string>
+): Promise<'saved' | 'already' | 'unsupported'> {
+	if (item.kind === 'album') {
+		// YouTube's own answer, so it can't be liked twice. The album's audio playlist is the like
+		// target and only its page carries it, which is what this fetch is for.
+		const album = await api.getAlbum(item.id);
+		if (album.inLibrary) return 'already';
+		if (!album.playlistId) throw new Error('no album playlist');
+		await api.setAlbumSaved(album.playlistId, true);
+	} else if (item.kind === 'artist') {
+		// Subscribing twice is the same subscription. No pre-check: the library's artist grid is
+		// built from the songs in your library, not from subscriptions, so it can't answer.
+		await api.subscribe(item.id, true);
+	} else if (item.kind === 'playlist') {
+		// A playlist is liked by its browseId (Rust strips the `VL`), and it lands in the same grid
+		// `known` was built from, so a hit there means it is already saved.
+		if (known?.has(item.id)) return 'already';
+		await api.setAlbumSaved(item.id, true);
+	} else {
+		return 'unsupported';
+	}
+	return 'saved';
+}
+
+/**
+ * Is this card in the library, wherever the library happens to live: saved on this machine, or on
+ * the signed-in account. Albums and artists only answer once `loadLibraryExtras` has run, which is
+ * why the menus kick it off when they open.
+ *
+ * Songs are not here: their library is Liked Music (Library ▸ Songs browses `FEmusic_liked_videos`),
+ * so `isLiked` is the answer and TrackMenu uses it.
+ */
+export function inLibrary(item: BrowseItem): boolean {
+	if (pl.isSaved(personal, item.id)) return true;
+	if (!auth.account?.signedIn) return false;
+	const list =
+		item.kind === 'album' ? library.albums : item.kind === 'artist' ? library.artists : library.items;
+	return list.some((i) => i.id === item.id);
+}
+
+/**
+ * The menu's "Save to library": the local row always (it is the whole library signed out, and it is
+ * what makes the indicator flip everywhere at once), plus the matching write on the account when
+ * signed in, flagged `synced` so the Library's sync button has nothing left to push for it.
+ */
+export async function addToLibrary(item: BrowseItem): Promise<'saved' | 'already'> {
+	// Whatever the menu was showing, say so instead of writing again: the card can have landed in
+	// the account library from another device since this view was fetched.
+	if (inLibrary(item)) return 'already';
+	const known = item.kind === 'playlist' ? new Set(library.items.map((i) => i.id)) : undefined;
+	pl.toggleSaved(personal, item);
+	savePersonal(); // before the write: a rejected push must not lose the local row too
+	if (!auth.account?.signedIn) return 'saved';
+	const result = await pushSaved(item, known);
+	if (result !== 'unsupported') {
+		pl.markSynced(personal, [item.id]);
+		savePersonal();
+	}
+	return result === 'already' ? 'already' : 'saved';
+}
+
+/**
+ * Yours by definition, so there is no "remove from library" to offer: a playlist you made (YTM's
+ * library subtitle is "<owner> • N tracks", and on your own it names you), your uploads, Liked
+ * Music and the locally-built On Repeat. Everything else in the library got there by being saved,
+ * and can be unsaved.
+ *
+ * ponytail: the owner name, because the grid browse carries no ownership flag (only a playlist's
+ * own page does, via `musicEditablePlaylistDetailHeaderRenderer`). If this ever reads wrong, the
+ * removal it wrongly offers is a no-op and `loadLibrary(true)` puts the row straight back.
+ */
+export function ownedByUser(item: BrowseItem): boolean {
+	if (item.id === api.LIKED_MUSIC_ID || item.id === api.ON_REPEAT_ID || api.isLocalId(item.id))
+		return true;
+	if (item.isUpload) return true;
+	if (item.kind !== 'playlist') return false;
+	const me = auth.account?.name?.trim();
+	if (!me) return false;
+	// The library's own row wins: a card from a home shelf carries a different subtitle.
+	const row = library.items.find((i) => i.id === item.id) ?? item;
+	return (row.subtitle ?? '').split('\u2022')[0].trim() === me;
+}
+
+/**
+ * Take a card back out of the library: the local row, and the account's own copy when signed in
+ * (an album's like, an artist's subscription, a saved playlist's like). Optimistic, like every
+ * other library write here, and reverted if YouTube says no. Not for the kinds `ownedByUser`
+ * covers, which have nothing to undo.
+ */
+export async function removeFromLibrary(item: BrowseItem): Promise<void> {
+	const wasSaved = pl.isSaved(personal, item.id);
+	if (wasSaved) {
+		pl.toggleSaved(personal, item);
+		savePersonal();
+	}
+	if (!auth.account?.signedIn) return;
+	const before = { items: library.items, albums: library.albums, artists: library.artists };
+	library.items = library.items.filter((i) => i.id !== item.id);
+	library.albums = library.albums.filter((i) => i.id !== item.id);
+	library.artists = library.artists.filter((i) => i.id !== item.id);
+	try {
+		if (item.kind === 'album') {
+			// The like sits on the album's audio playlist, which only its page carries.
+			const album = await api.getAlbum(item.id);
+			if (album.inLibrary && album.playlistId) await api.setAlbumSaved(album.playlistId, false);
+		} else if (item.kind === 'artist') {
+			await api.subscribe(item.id, false);
+		} else if (item.kind === 'playlist') {
+			await api.setAlbumSaved(item.id, false);
+		}
+	} catch (e) {
+		library.items = before.items;
+		library.albums = before.albums;
+		library.artists = before.artists;
+		if (wasSaved) {
+			pl.toggleSaved(personal, item);
+			savePersonal();
+		}
+		throw e;
+	}
+}
+
+/**
+ * Mirror an account-side save into the local library row: the artist page's Subscribe, the album
+ * page's Save. Without it a card's ⋯ menu would keep offering "Save to library" for something the
+ * account already holds, since the library's artist grid is built from songs, not subscriptions.
+ * Flagged `synced`, so the Library's sync button doesn't count it and no menu offers a local-only
+ * removal of a row YouTube owns.
+ */
+export function noteLibrary(item: BrowseItem, saved: boolean) {
+	if (saved !== pl.isSaved(personal, item.id)) pl.toggleSaved(personal, item);
+	if (saved) pl.markSynced(personal, [item.id]);
+	savePersonal();
+}
+
+/**
  * Push everything saved on this machine into the signed-in account. The local rows stay put and are
  * only flagged `synced`: they are the whole library again the moment the user signs out, and
  * `mergeSaved` dedupes the two copies into one card while signed in. Sequential, like every other
@@ -469,25 +616,7 @@ export async function syncSavedToYouTube(): Promise<{ synced: number; failed: nu
 	let failed = 0;
 	for (const item of pl.unsynced(personal)) {
 		try {
-			if (item.kind === 'album') {
-				// YouTube's own answer, so it can't be liked twice. The album's audio playlist is the
-				// like target and only its page carries it, which is what this fetch is for.
-				const album = await api.getAlbum(item.id);
-				if (!album.inLibrary) {
-					if (!album.playlistId) throw new Error('no album playlist');
-					await api.setAlbumSaved(album.playlistId, true);
-				}
-			} else if (item.kind === 'artist') {
-				// Subscribing twice is the same subscription. No pre-check: the library's artist grid
-				// is built from the songs in your library, not from subscriptions, so it can't answer.
-				await api.subscribe(item.id, true);
-			} else if (item.kind === 'playlist') {
-				// A playlist is liked by its browseId (Rust strips the `VL`), and it lands in the same
-				// grid `known` was built from, so a hit there means it is already saved.
-				if (!known.has(item.id)) await api.setAlbumSaved(item.id, true);
-			} else {
-				continue; // ponytail: songs can't be saved today, so there is nothing to push
-			}
+			if ((await pushSaved(item, known)) === 'unsupported') continue;
 			done.push(item.id);
 		} catch {
 			failed++;
@@ -518,7 +647,15 @@ const ratings = $state<Record<string, Rating>>({});
 
 export function ratingOf(song: SongItem): Rating {
 	if (playback.now?.videoId === song.video_id) return playback.rating;
-	return ratings[song.video_id] ?? song.rating ?? 'indifferent';
+	// The saved-in index is the fallback, not an override: a `search` response carries no
+	// `likeStatus` on any row (live-checked 2026-08-28), so without it every search result drew
+	// itself unrated. A row that does state its rating still wins, since it is fresher than a
+	// crawl up to six hours old.
+	return (
+		ratings[song.video_id] ??
+		song.rating ??
+		(savedIn.map[song.video_id]?.includes(api.LIKED_MUSIC_ID) ? 'like' : 'indifferent')
+	);
 }
 
 export const isLiked = (song: SongItem): boolean => ratingOf(song) === 'like';
@@ -642,6 +779,10 @@ async function rate(song: SongItem, next: Rating) {
 	if (isNow) playback.rating = next;
 	try {
 		await api.rate(song.video_id, next);
+		// Keep the index in step: it outlives this override on a reload, and the crawl that would
+		// otherwise correct it runs at most every six hours.
+		if (next === 'like') noteSavedIn(api.LIKED_MUSIC_ID, [song.video_id]);
+		else noteUnsavedFrom(api.LIKED_MUSIC_ID, song.video_id);
 		toast.success(RATED[next]);
 		if (next === 'dislike') dropDisliked(song.video_id, isNow);
 	} catch (e) {
@@ -662,6 +803,42 @@ async function dropDisliked(videoId: string, isNow: boolean) {
 		if (items[i]?.video_id === videoId) await api.removeFromQueue(i).catch(() => {});
 	}
 	if (isNow) api.nextTrack().catch((e) => toast.error(String(e)));
+}
+
+// Library membership for songs, overriding what the row was fetched with — the same trick as
+// `ratings` above and for the same reason: one song shows up in a list, its ⋯ menu and the queue at
+// once, and all three have to agree the moment one of them writes.
+const songLibrary = $state<Record<string, boolean>>({});
+
+/** The token for the direction this song can move in, if the row carried one. A menu that offered
+ *  only one way (see `LibraryToggle`) runs out after that one write, and the row hides the action
+ *  until the list is fetched again — better than a button that answers "token expired". */
+export function songLibraryToken(song: SongItem): string | undefined {
+	return inSongLibrary(song) ? song.library?.remove_token : song.library?.add_token;
+}
+
+/** In Library ▸ Songs? The row's own menu is the fallback; a write in this session wins. */
+export function inSongLibrary(song: SongItem): boolean {
+	return songLibrary[song.video_id] ?? song.library?.in_library ?? false;
+}
+
+/**
+ * Add a song to the library, or take it out. Nothing to do with the rating: Library ▸ Songs and
+ * Liked Music are separate lists, and this write is a feedback token minted on the row itself, so
+ * only songs YouTube sent a menu with can offer it (`song.library`).
+ */
+export async function toggleSongLibrary(song: SongItem): Promise<void> {
+	const next = !inSongLibrary(song);
+	const token = songLibraryToken(song);
+	if (!token) return;
+	songLibrary[song.video_id] = next; // optimistic
+	try {
+		await api.setSongSaved(token);
+		toast.success(next ? t('library.saved_to_library') : t('toasts.removed_from_library'));
+	} catch (e) {
+		delete songLibrary[song.video_id];
+		toast.error(String(e));
+	}
 }
 
 /** Click the rating you already have to clear it, the way YouTube Music's own buttons work.

@@ -522,6 +522,7 @@ export const tr: Translations = {
 		playlist_updated: 'Çalma listesi güncellendi',
 		playlist_created: '"{title}" oluşturuldu',
 		playlist_deleted: 'Çalma listesi silindi',
+		already_in_library: 'Zaten kitaplığınızda',
 		removed_from_library: 'Kitaplıktan çıkarıldı',
 		removed_from_liked: 'Beğenilenlerden çıkarıldı',
 		removed_from_playlist: 'Çalma listesinden çıkarıldı',

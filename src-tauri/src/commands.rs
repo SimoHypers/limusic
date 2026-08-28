@@ -687,6 +687,15 @@ pub async fn rate(state: St<'_>, video_id: String, rating: Rating) -> Result<(),
     state.it.rate(client, &video_id, rating).await.map_err(|e| e.to_string())
 }
 
+/// Add a song to the library (Library ▸ Songs), or take it out. `token` comes from the row's own
+/// menu (`SongItem.library`), which is the only handle YouTube gives on this: it is a feedback
+/// action, not a rating, so it leaves Liked Music alone.
+#[tauri::command]
+pub async fn set_song_saved(state: St<'_>, token: String) -> Result<(), String> {
+    let client = require_login(&state)?;
+    state.it.feedback(client, &token).await.map_err(|e| e.to_string())
+}
+
 /// Save an album to the library, or remove it. `playlist_id` is the album's `OLAK5uy_…`
 /// (`AlbumPage.playlistId`).
 #[tauri::command]
