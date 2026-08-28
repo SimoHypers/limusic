@@ -130,8 +130,8 @@ export const tr: Translations = {
 		delete_playlist: 'Çalma listesini sil',
 		remove_dislike: 'Beğenmeyi kaldır',
     add_to_playlist: 'Çalma listesine ekle',
-    pin_to_top: 'Başa tuttur',
-		unpin: 'Baştan kaldır'
+    pin_to_top: 'En üste sabitle',
+		unpin: 'Sabitlemeyi kaldır'
 	},
 	home: {
 		good_morning: 'Günaydın',
