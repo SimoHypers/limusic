@@ -696,6 +696,16 @@ input[type='range'].range::-webkit-slider-thumb {
 	opacity: 0;
 	transition: opacity 0.15s ease, transform 0.15s ease;
 }
+/* Theater mode's bar is the width of the cover and is being read from across a room, where 4px on
+   that width reads as a hairline. */
+input[type='range'].range.theater-range::-webkit-slider-runnable-track {
+	height: 6px;
+}
+input[type='range'].range.theater-range::-webkit-slider-thumb {
+	margin-top: -4px;
+	height: 14px;
+	width: 14px;
+}
 /* The mini player's seek bar sits on cover art, where --muted has nothing to contrast with. */
 input[type='range'].range.on-art::-webkit-slider-runnable-track {
 	background: linear-gradient(to right, var(--primary) var(--pct, 0%), rgb(255 255 255 / 0.35) var(--pct, 0%));

@@ -581,16 +581,3 @@
 		{/if}
 	</div>
 </section>
-
-<style>
-	/* A thicker track than the app-wide `.range`: this bar is the width of the cover and is being
-	   read from across a room, and 4px on that width reads as a hairline. */
-	.theater-range::-webkit-slider-runnable-track {
-		height: 6px;
-	}
-	.theater-range::-webkit-slider-thumb {
-		margin-top: -4px;
-		height: 14px;
-		width: 14px;
-	}
-</style>
