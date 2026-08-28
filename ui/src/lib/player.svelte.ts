@@ -13,7 +13,7 @@ import type {
 	SongItem
 } from './api';
 import { applyLtState, lt } from './lt.svelte';
-import { clearCached } from './pagecache';
+import { clearCached, invalidateCached, LIBRARY_SONGS_KEY } from './pagecache';
 import * as pl from './personal';
 import type { Personal } from './personal';
 import { appearance } from './theme.svelte';
@@ -784,6 +784,9 @@ async function rate(song: SongItem, next: Rating, msg?: string) {
 		// otherwise correct it runs at most every six hours.
 		if (next === 'like') noteSavedIn(api.LIKED_MUSIC_ID, [song.video_id]);
 		else noteUnsavedFrom(api.LIKED_MUSIC_ID, song.video_id);
+		// Library ▸ Songs *is* the liked-videos browse, and its tab paints from the cache without
+		// revalidating, so a like from anywhere else has to drop it or the row is missing for 5 min.
+		invalidateCached(LIBRARY_SONGS_KEY);
 		toast.success(msg ?? RATED[next]);
 		if (next === 'dislike') dropDisliked(song.video_id, isNow);
 	} catch (e) {
@@ -869,6 +872,7 @@ export async function toggleSongLibrary(song: SongItem): Promise<void> {
 	songLibrary[song.video_id] = next; // optimistic
 	try {
 		await api.setSongSaved(token);
+		invalidateCached(LIBRARY_SONGS_KEY); // the tab paints from cache; this changed what's in it
 		toast.success(next ? t('library.saved_to_library') : t('toasts.removed_from_library'));
 	} catch (e) {
 		delete songLibrary[song.video_id];

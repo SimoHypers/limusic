@@ -21,7 +21,7 @@
 	import ErrorState from './ErrorState.svelte';
 	import * as api from '$lib/api';
 	import type { SongItem } from '$lib/api';
-	import { getCached, putCached } from '$lib/pagecache';
+	import { getCached, putCached, LIBRARY_SONGS_KEY } from '$lib/pagecache';
 	import { thumb } from '$lib/thumb';
 	import {
 		openAddToPlaylist,
@@ -40,7 +40,7 @@
 
 	// Cached like every other browse page, so switching tabs (or leaving the Library and coming
 	// back) paints the list instead of refetching it and losing every page you scrolled in.
-	const KEY = $derived(uploads ? 'library:uploads' : 'library:songs');
+	const KEY = $derived(uploads ? 'library:uploads' : LIBRARY_SONGS_KEY);
 	type Cached = { items: SongItem[]; continuation?: string };
 
 	// `$state.raw`, same reason as the playlist page: a deep proxy puts every read of every row

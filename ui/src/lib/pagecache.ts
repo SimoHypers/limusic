@@ -26,6 +26,9 @@ export function putCached(key: string, data: unknown): void {
 	store.set(key, { data, at: Date.now() });
 }
 
+/** Library ▸ Songs, shared: every write that changes what's in that list has to drop it. */
+export const LIBRARY_SONGS_KEY = 'library:songs';
+
 export function invalidateCached(key: string): void {
 	store.delete(key);
 }
