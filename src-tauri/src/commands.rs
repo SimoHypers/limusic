@@ -724,9 +724,10 @@ fn editable_playlist<'a>(
     require_login(state)
 }
 
-/// Liked Music is a library playlist like any other, but the row already carries its thumbs-up
-/// state, so a second mark saying the same thing is noise. It is also the one list that runs to
-/// thousands of tracks, which would double the crawl on its own.
+/// Liked Music. It is indexed like the rest, because a search row is the one place YouTube tells
+/// us nothing: `search` responses carry no `likeStatus` at all (live-checked 2026-08-28), so
+/// membership of this list is the only way a result can draw its heart filled. Not shown in the
+/// "saved in" chip, though: the thumbs-up already says it (the UI filters it out there).
 const LIKED_MUSIC_ID: &str = "VLLM";
 /// How long the membership index is trusted before a re-crawl. Adds and removes made in this app
 /// patch it as they happen, so this window only ever covers edits made somewhere else.
@@ -760,7 +761,9 @@ pub async fn sync_playlist_index(
     }
     let fresh_until = state
         .db
-        .get_setting("playlist_index_synced_at")
+        // `_v2`: the key changed when Liked Music joined the index, so an install with a fresh
+        // stamp re-crawls once instead of showing hearts empty for another six hours.
+        .get_setting("playlist_index_synced_at_v2")
         .and_then(|at| at.parse::<i64>().ok())
         .map(|at| at + PLAYLIST_INDEX_TTL_SECS);
     if fresh_until.is_some_and(|until| now_secs() < until) {
@@ -776,7 +779,7 @@ pub async fn sync_playlist_index(
     }
     let mut indexed: Vec<String> = Vec::new();
     for item in library {
-        if item.id == ON_REPEAT_ID || item.id == LIKED_MUSIC_ID {
+        if item.id == ON_REPEAT_ID {
             continue;
         }
         // One playlist failing (a deleted id, a hiccup) must not abandon the rest of the crawl,
@@ -788,7 +791,9 @@ pub async fn sync_playlist_index(
         };
         // A collaborative playlist reads `owned: false` (YouTube drops the editable header on it)
         // but is one you add to and remove from, so the membership index has to cover it too.
-        if !page.owned && !page.collaborative {
+        // Liked Music is exempt: YouTube sends it without the editable header, so it reads
+        // `owned: false` even though it is yours.
+        if item.id != LIKED_MUSIC_ID && !page.owned && !page.collaborative {
             continue;
         }
         let mut video_ids: Vec<String> = page.items.into_iter().map(|song| song.video_id).collect();
@@ -803,7 +808,7 @@ pub async fn sync_playlist_index(
         indexed.push(item.id);
     }
     state.db.retain_playlists(&indexed);
-    state.db.set_setting("playlist_index_synced_at", &now_secs().to_string());
+    state.db.set_setting("playlist_index_synced_at_v2", &now_secs().to_string());
     Ok(state.db.playlist_memberships())
 }
 
