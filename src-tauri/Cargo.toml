@@ -21,7 +21,7 @@ tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
-tauri = { version = "2", features = ["webview-data-url", "tray-icon", "protocol-asset", "macos-private-api"] }
+tauri = { version = "2", features = ["tray-icon", "protocol-asset", "macos-private-api"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"
