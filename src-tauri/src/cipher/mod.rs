@@ -1,7 +1,8 @@
 //! `CipherDeobfuscator` (context/05) — the signature/`n`-transform runtime the orchestrator calls.
 //!
 //! Ties [`fetcher`] (player.js) + [`extractor`]/[`config`] (function names) + a hidden cipher
-//! webview ([`crate::webview`]) that runs YouTube's own code. Every public method degrades
+//! webview ([`crate::webview`]) that runs YouTube's own code (its `_yt_player` harness global comes
+//! with the document — see `webview::HARNESS_HTML`). Every public method degrades
 //! gracefully: a webview or extraction failure yields `None` / the original URL, and the
 //! orchestrator falls through to the non-cipher fallback clients (context/06 §5).
 
@@ -25,10 +26,6 @@ use fetcher::PlayerJsFetcher;
 const CIPHER_LABEL: &str = "limusic-cipher";
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 const LOAD_TIMEOUT: Duration = Duration::from_secs(15);
-
-/// Minimal harness: predefine `_yt_player` (the IIFE arg) so the injected player.js can run.
-const HARNESS: &str = "<!doctype html><html><head><meta charset=utf-8></head><body>\
-<script>window._yt_player=window._yt_player||{};</script></body></html>";
 
 /// Discovery/validation (context/05): prove the injected exports actually WORK before the
 /// orchestrator commits to this player, by running each on a sample input.
@@ -251,9 +248,7 @@ impl CipherDeobfuscator {
                 let _ = b.destroy();
             }
         }
-        let bridge = Bridge::create(&self.app, CIPHER_LABEL, HARNESS, "")
-            .await
-            .map_err(|e| e.to_string())?;
+        let bridge = Bridge::create(&self.app, CIPHER_LABEL).await.map_err(|e| e.to_string())?;
         if let Err(e) = Self::load_player(&bridge, &injected).await {
             let _ = bridge.destroy(); // don't orphan the hidden window on a failed load
             return Err(e);

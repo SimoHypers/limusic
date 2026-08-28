@@ -1,24 +1,28 @@
-//! Shared hidden-webview bridge for the cipher + PoToken JS runtimes. context/13.
+//! Shared hidden-webview bridge for the cipher JS runtime. context/13.
 //!
 //! Mechanics pinned against the installed tauri 2.11 / wry 0.55 source:
 //! - **Rust→JS→Rust:** [`WebviewWindow::eval_with_callback`] delivers the JSON of a *synchronous*
 //!   JS value. wry's WebKitGTK `run_javascript` does NOT await promises, so synchronous calls
-//!   (cipher sig/n) round-trip in one shot; async work (BotGuard) stores its result into a JS
-//!   global that we poll ([`Bridge::call_async`]).
+//!   (cipher sig/n) round-trip in one shot; async work stores its result into a JS global that we
+//!   poll ([`Bridge::call_async`]).
 //! - **Handles:** fetched fresh via `get_webview_window` per call and dropped before any `.await`,
 //!   so we never hold a non-`Send` handle across a suspension point.
 //! - **Lifecycle:** create/destroy run on the main thread via `run_on_main_thread` (GTK requires
 //!   it). Callers must invoke `create` from a spawned task, not from `setup()` — the event loop
 //!   isn't pumping yet during setup and the closure would never run.
-//! - **Harness HTML:** loaded as a `data:text/html` URL (CustomProtocol). The app CSP is `null`
-//!   so nothing is injected; BotGuard's dynamic eval runs unhindered (proven in botguard-spike).
-//!   **Keep it `null`.** Tauri injects the configured CSP as a `<meta>` tag into any `data:` URL
-//!   webview (`tauri::manager::webview`, `prepare_webview`). A `data:` document has an opaque
-//!   origin, so a policy as ordinary as `default-src 'self'` blocks every inline script here and
-//!   the harness loads with none of its functions defined — the page still reports "loaded" and
-//!   the eval probe still round-trips, so it fails as `Can't find variable: runBotGuard` at mint
-//!   time, not at build time. Hardening the main window costs the extraction stack; if it's ever
-//!   worth it, serve the harness from a custom URI scheme (which Tauri does not rewrite) first.
+//! - **Harness HTML:** served over the app's own `limusicharness://` URI scheme (registered in
+//!   `lib.rs`), NOT a `data:` URL. Tauri hands a `data:` URL to wry as a plain URL, and on Windows
+//!   wry navigates to it — which Chromium refuses for a top-level document, so WebView2 sat on the
+//!   initial `about:blank` forever and the readiness probe (then `location.protocol==='data:'`)
+//!   could never pass. The cipher webview therefore never existed on Windows: no deciphered URLs,
+//!   so WEB_REMIX/TVHTML5/WEB_CREATOR produced nothing and the user's own uploads (the one thing
+//!   with no anonymous chain behind it) failed with "sign-in needed". Issues #71/#128.
+//!   A registered scheme is a real document on all three engines (wry maps it to
+//!   `http://limusicharness.localhost` on Windows), so page-load fires, the origin is not opaque,
+//!   and Tauri does not rewrite the response the way it rewrites a `data:` URL to inject CSP.
+//!   **Keep the app CSP `null`.** BotGuard is gone from here, but the injected player.js still
+//!   needs unhindered inline script; a policy as ordinary as `default-src 'self'` would block the
+//!   harness's own inline preamble and the page would load with none of its globals defined.
 
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
@@ -50,37 +54,45 @@ pub struct Bridge {
     label: String,
 }
 
+/// URI scheme the harness document is served over. Registered on the Tauri builder in `lib.rs`
+/// (see [`HARNESS_HTML`]); wry rewrites it to `http://limusicharness.localhost` on Windows.
+pub const SCHEME: &str = "limusicharness";
+
+/// The harness document. Everything the bridge needs lives in this inline script rather than in an
+/// `initialization_script`, because an init script is registered *after* the engine has already
+/// created its first `about:blank` document: if a navigation ever fails, the page that is left has
+/// no globals at all. Part of the document, they exist exactly when the document does — which is
+/// also what `__harness` proves to the readiness probe.
+///
+/// `_yt_player` is the IIFE argument YouTube's player.js expects (context/05); the error hooks feed
+/// [`Error::BadWebview`], and `__slots` is the bag [`Bridge::call_async`] parks its results in.
+pub const HARNESS_HTML: &str = "<!doctype html><html><head><meta charset=utf-8></head><body>\
+<script>\
+window.__jserr=null;window.__slots={};window._yt_player=window._yt_player||{};\
+window.addEventListener('error',function(e){window.__jserr=String((e&&e.message)||e);});\
+window.onunhandledrejection=function(e){window.__jserr=String((e.reason&&e.reason.message)||e.reason);};\
+window.__harness=1;\
+</script></body></html>";
+
 impl Bridge {
-    /// Create a hidden webview over `html` (loaded from a `data:` URL) + an initialization script
-    /// (runs before the document's own scripts). Resolves once the page has finished loading (Tauri
-    /// `on_page_load`) AND a probe confirms JS↔Rust round-trips. On any failure the just-built
-    /// window is destroyed so its label can be reused (no orphan "already exists").
-    pub async fn create(
-        app: &AppHandle,
-        label: &str,
-        html: &str,
-        init_script: &str,
-    ) -> Result<Bridge, Error> {
+    /// Create a hidden webview over the [`HARNESS_HTML`] document. Resolves once the page has
+    /// finished loading (Tauri `on_page_load`) AND a probe confirms JS↔Rust round-trips. On any
+    /// failure the just-built window is destroyed so its label can be reused (no orphan
+    /// "already exists").
+    pub async fn create(app: &AppHandle, label: &str) -> Result<Bridge, Error> {
         // Reclaim the label if a prior attempt left an orphan (or a concurrent build raced us).
         destroy_and_wait(app, label).await;
 
-        // Preamble every harness gets: uncaught-error capture (for BadWebview) + a slots bag.
-        let init = format!(
-            "window.__jserr=null;window.__slots={{}};\
-             window.addEventListener('error',function(e){{window.__jserr=String((e&&e.message)||e);}});\
-             window.onunhandledrejection=function(e){{window.__jserr=String((e.reason&&e.reason.message)||e.reason);}};\n{init_script}"
-        );
-        let raw_url = format!("data:text/html,{}", urlencoding::encode(html));
-        let url = tauri::Url::parse(&raw_url).map_err(|e| Error::Build(e.to_string()))?;
+        let url = tauri::Url::parse(&format!("{SCHEME}://localhost/"))
+            .map_err(|e| Error::Build(e.to_string()))?;
         // The readiness probe (see below): proves the round-trip AND that OUR document is the one
-        // answering, since `about:blank` (where a fresh WebView2 sits) is not a `data:` page.
-        let probe = "location.protocol==='data:'";
+        // answering, since `about:blank` (where a fresh WebView2 sits) defines no `__harness`.
+        let probe = "window.__harness===1";
         let webview_url = WebviewUrl::CustomProtocol(url);
 
-        // Page-load signal from the runtime (`on_page_load` → Finished). It's the fast path on
-        // WebKitGTK; on WebView2 it is unreliable for the initial `data:` harness (loaded as
-        // NavigateToString, whose NavigationCompleted often never fires — WebView2Feedback #998),
-        // so it's an accelerator here, not the gate. The real readiness gate is an eval round-trip.
+        // Page-load signal from the runtime (`on_page_load` → Finished). An accelerator, not the
+        // gate: WebView2's NavigationCompleted is not always delivered for a webview built this way
+        // (WebView2Feedback #998). The real readiness gate is the eval round-trip below.
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
         let ready_slot = Arc::new(StdMutex::new(Some(ready_tx)));
 
@@ -95,7 +107,6 @@ impl Bridge {
                 .skip_taskbar(true)
                 .decorations(false)
                 .focused(false)
-                .initialization_script(init)
                 .on_page_load(move |_wv, payload| {
                     if matches!(payload.event(), PageLoadEvent::Finished) {
                         if let Some(tx) = ready_slot2.lock().unwrap().take() {
@@ -117,21 +128,18 @@ impl Bridge {
 
         // Give the page-load event a brief chance (WebKitGTK fires it in ~tens of ms, so no evals
         // are issued before load there); if it doesn't arrive, fall through to probing JS directly
-        // — a hidden WebView2 runs JS even when NavigationCompleted never fires. This is the fix
-        // that makes the cipher/PoToken webviews work on Windows.
+        // — a hidden WebView2 runs JS even when NavigationCompleted never fires.
         tokio::select! {
             _ = ready_rx => tracing::info!(label, "webview page loaded"),
             _ = tokio::time::sleep(Duration::from_secs(1)) =>
                 tracing::debug!(label, "no page-load event within 1s — probing JS directly"),
         }
 
-        // Real readiness gate: poll until JS confirms our own document is actually loaded, which
-        // (unlike a plain `1+1`, which would pass on `about:blank` too) proves BOTH the JS↔Rust
-        // round-trip works AND the right document loaded. WebView2 misses the load *event*, not the
-        // load itself; on WebKitGTK the document is loaded via `load_uri`, so the check holds there
-        // too (no Linux regression). Short per-attempt timeout so an eval whose callback is dropped
-        // pre-load (WebKitGTK quirk) retries instead of stalling. On timeout the window exists but
-        // is unusable — destroy it.
+        // Real readiness gate: poll until the harness's own global answers, which (unlike a plain
+        // `1+1`, which would pass on `about:blank` too) proves BOTH the JS↔Rust round-trip works
+        // AND that the document we asked for is the one running. Short per-attempt timeout so an
+        // eval whose callback is dropped pre-load (WebKitGTK quirk) retries instead of stalling.
+        // On timeout the window exists but is unusable — destroy it.
         let deadline = Instant::now() + Duration::from_secs(12);
         loop {
             let ready = bridge.eval_json(probe.to_owned(), Duration::from_millis(800)).await;
