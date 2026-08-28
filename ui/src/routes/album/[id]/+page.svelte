@@ -38,6 +38,7 @@
         playFrom,
         startRadio,
         toast,
+        noteLibrary,
         toggleSaved,
     } from "$lib/player.svelte";
     import { getCached, putCached } from "$lib/pagecache";
@@ -184,16 +185,19 @@
             toast.success(next ? "Saved to library" : "Removed from library");
             return;
         }
-        // Signed in: YouTube owns it from here, so drop any local row left from before signing in.
-        if (savedHere) toggleSaved(asItem());
+        // Signed in: YouTube owns it from here. The local row is kept in step rather than dropped,
+        // so a card's ⋯ menu elsewhere shows the album as being in the library (and it still renders
+        // offline); `noteLibrary` flags it synced, so nothing offers a local-only removal.
         if (a.inLibrary === next) {
+            noteLibrary(asItem(), next);
             toast.success(next ? "Saved to library" : "Removed from library");
-            return; // YouTube already agrees; only the local row had to go
+            return; // YouTube already agrees; only the local row had to move
         }
         a.inLibrary = next;
         savingLibrary = true;
         try {
             await api.setAlbumSaved(a.playlistId, next);
+            noteLibrary(asItem(), next);
             toast.success(next ? "Saved to library" : "Removed from library");
         } catch (e) {
             a.inLibrary = !next;

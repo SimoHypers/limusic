@@ -123,6 +123,36 @@ pub(crate) fn tune_webview_labelled(app: &tauri::AppHandle, label: &str, media: 
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Logs to stdout **and** to `<app data>/limusic.log`, truncated each launch (the previous run is
+/// kept as `limusic.log.1`).
+///
+/// The file is the only way a Windows or macOS user can produce a log at all: `main.rs` sets
+/// `windows_subsystem = "windows"` in release, so there is no console to print to, and a bug that
+/// only reproduces on their machine (issue #71) otherwise has to be debugged by guessing.
+/// `RUST_LOG` still overrides the default filter for both.
+fn init_logging(dir: &std::path::Path) {
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    use tracing_subscriber::Layer;
+
+    let filter = || {
+        tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| "info,limusic_app=debug".into())
+    };
+    let path = dir.join("limusic.log");
+    let _ = std::fs::rename(&path, dir.join("limusic.log.1"));
+    // ponytail: one file per launch, no size cap. A run long enough to matter is a run whose log
+    // someone wants anyway; add rotation if that stops being true.
+    let file = std::fs::File::create(&path).ok().map(std::sync::Mutex::new);
+    let file_layer = file.map(|f| {
+        tracing_subscriber::fmt::layer().with_ansi(false).with_writer(f).with_filter(filter())
+    });
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_filter(filter()))
+        .with(file_layer)
+        .init();
+}
+
 pub fn run() {
     // NVIDIA + Wayland: WebKitGTK's DMABUF renderer trips over NVIDIA's explicit
     // sync (GBM buffer failures / blank window / Gdk Error 71). Disabling explicit
@@ -169,13 +199,6 @@ pub fn run() {
         }
     }
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,limusic_app=debug".into()),
-        )
-        .init();
-
     tauri::Builder::default()
         // Must be the first plugin registered (its documented requirement). A second launch —
         // e.g. clicking the app icon while we're hidden in the tray — re-shows this instance
@@ -183,6 +206,14 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             tray::show_main(app);
         }))
+        // The hidden cipher webview's document (webview.rs). A registered scheme, because a
+        // `data:` URL is not a document WebView2 will navigate to.
+        .register_uri_scheme_protocol(webview::SCHEME, |_ctx, _req| {
+            tauri::http::Response::builder()
+                .header(tauri::http::header::CONTENT_TYPE, "text/html")
+                .body(webview::HARNESS_HTML.as_bytes())
+                .expect("static harness response")
+        })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         // Folder picker for the local-music library (local.rs).
@@ -211,6 +242,7 @@ pub fn run() {
             // App data dir for the SQLite file and mpv's on-disk audio cache.
             let data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir());
             std::fs::create_dir_all(&data_dir).ok();
+            init_logging(&data_dir);
             let cache_dir = data_dir.join("audio-cache");
             std::fs::create_dir_all(&cache_dir).ok();
 
@@ -461,6 +493,7 @@ pub fn run() {
             commands::play_playlist,
             commands::start_radio,
             commands::rate,
+            commands::set_song_saved,
             commands::set_album_saved,
             commands::add_to_playlist,
             commands::remove_from_playlist,

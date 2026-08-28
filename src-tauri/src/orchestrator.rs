@@ -250,8 +250,12 @@ impl Orchestrator {
                 audio_config_loudness = main_loudness(&resp);
             }
 
-            // Resolve the URL: direct, else decipher (context/05).
+            // Resolve the URL: direct, else decipher (context/05). A ciphered format with no
+            // working cipher webview lands here, and for an upload that is fatal: every client on
+            // its chain is a web client, so the whole chain produces nothing and the user sees
+            // "sign-in needed" for what is really a broken extraction runtime. Issues #71/#128.
             let Some(mut url) = self.find_url(format, video_id).await else {
+                tracing::warn!(video_id, client = %key, itag = format.itag, "no stream URL (deciphering unavailable?)");
                 continue;
             };
 

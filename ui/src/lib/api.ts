@@ -36,6 +36,11 @@ export interface SongItem {
 	added_by_avatar?: string;
 	/** The signed-in user's rating (absent when the response didn't say — same as 'indifferent'). */
 	rating?: Rating;
+	/** "Add to library" off the row's own menu, with a token for each direction. Absent on rows
+	 *  YouTube sent no menu for, and on the ones built here (local files, On Repeat, a Listen
+	 *  Together guest's queue) — the menu hides the action rather than offering a dead one.
+	 *  Library ▸ Songs is not Liked Music: this is a feedback write, not a rating. */
+	library?: { in_library: boolean; add_token?: string; remove_token?: string };
 	/** Listen Together: name of the guest who added this queue item (session adds only). */
 	queued_by?: string;
 	/** Queued to play next ("Play next", or a guest's session add) — the "Next in queue" block. */
@@ -492,6 +497,9 @@ export const deletePlaylist = (playlistId: string) =>
 	invoke<void>('delete_playlist', { playlistId });
 export const subscribe = (channelId: string, subscribed: boolean) =>
 	invoke<void>('subscribe', { channelId, subscribed });
+/** Add a song to Library ▸ Songs, or take it out. `token` is `SongItem.library.add_token` /
+ *  `.remove_token`; YouTube mints them per row, so they come from the list the song was shown in. */
+export const setSongSaved = (token: string) => invoke<void>('set_song_saved', { token });
 /** Save an album to the library (or remove it). `playlistId` is `AlbumPage.playlistId`. */
 export const setAlbumSaved = (playlistId: string, saved: boolean) =>
 	invoke<void>('set_album_saved', { playlistId, saved });

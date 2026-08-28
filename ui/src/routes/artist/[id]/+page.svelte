@@ -32,6 +32,7 @@
 		playFrom,
 		startRadio,
 		toast,
+		noteLibrary,
 		toggleSaved
 	} from '$lib/player.svelte';
 	import { getCached, putCached } from '$lib/pagecache';
@@ -130,15 +131,22 @@
 
 	async function toggleSub() {
 		if (!artist || subBusy) return;
+		// Everything below the await names the artist this click was about, not whoever the page is
+		// showing by the time YouTube answers (same guard as `shuffle`).
+		const who = artist;
+		const cid = id;
+		const item = asItem();
 		const next = !subscribed;
 		subBusy = true;
 		subscribed = next; // optimistic
 		try {
-			await api.subscribe(artist.channelId, next);
-			putCached(`artist:${id}`, { ...artist, subscribed: next }); // keep the cache truthful
-			toast.success(next ? `Subscribed to ${artist.name ?? ''}` : `Unsubscribed`);
+			await api.subscribe(who.channelId, next);
+			putCached(`artist:${cid}`, { ...who, subscribed: next }); // keep the cache truthful
+			if (cid === id) subscribed = next; // left and came back: `load` repainted the old answer
+			noteLibrary(item, next); // so every card's menu agrees the artist is in the library
+			toast.success(next ? `Subscribed to ${who.name ?? ''}` : `Unsubscribed`);
 		} catch (e) {
-			subscribed = !next; // revert
+			if (cid === id) subscribed = !next; // revert, unless we've since left that artist
 			toast.error(String(e));
 		} finally {
 			subBusy = false;

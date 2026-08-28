@@ -15,6 +15,7 @@
 		DashboardSquare02Icon,
 		Share08Icon,
 		BookmarkAdd02Icon,
+		BookmarkCheck02Icon,
 		BookmarkMinus02Icon,
 		ListRestartIcon,
 		Sorting01Icon,
@@ -47,7 +48,11 @@
 	} from '$lib/sort';
 	import {
 		addPick,
+		addToLibrary,
 		auth,
+		library,
+		ownedByUser,
+		removeFromLibrary,
 		enqueue,
 		isSaved,
 		isSynced,
@@ -133,9 +138,12 @@
 	// playlists, Liked Music and On Repeat are in the library already by definition.
 	// Once the sync button has put it on the account, the account owns the save: removing only the
 	// local copy would leave it in the library grid, so the entry hides until the user signs out.
-	const savable = $derived(
-		!isOnRepeat && !isLiked && !editable && !(auth.account?.signedIn && isSynced(id))
+	// On the account already (pushed from here, or saved on another device): the local copy is not
+	// what holds it in the library any more, so the menu says so instead of offering a second save.
+	const inAccount = $derived(
+		!!auth.account?.signedIn && (isSynced(id) || library.items.some((i) => i.id === id))
 	);
+	const savable = $derived(!isOnRepeat && !isLiked && !editable && !inAccount);
 	const savedHere = $derived(isSaved(id));
 	// YouTube's header count includes rows that never make it into the list (unavailable or
 	// region-blocked tracks), so it reads high. Once every page is in, we know the real number, so
@@ -534,6 +542,34 @@
 	});
 
 	// This playlist as a card, for the sidebar's last-played sort and the Shortcuts grid.
+	// Saving goes through the shared path (local row, plus the account write when signed in), so a
+	// playlist saved here is in the library everywhere and not only until the next sync. Removal
+	// stays local: undoing YouTube's own copy is what `inAccount` hides this row for.
+	async function saveToLibrary() {
+		if (savedHere) {
+			toggleSaved(asItem());
+			toast.success(t('library.removed_from_library'));
+			return;
+		}
+		try {
+			const result = await addToLibrary(asItem());
+			toast.success(
+				result === 'already' ? t('toasts.already_in_library') : t('library.saved_to_library')
+			);
+		} catch (e) {
+			toast.error(String(e));
+		}
+	}
+
+	async function unsaveFromLibrary() {
+		try {
+			await removeFromLibrary(asItem());
+			toast.success(t('library.removed_from_library'));
+		} catch (e) {
+			toast.error(String(e));
+		}
+	}
+
 	const asItem = (): BrowseItem => ({
 		kind: 'playlist',
 		id,
@@ -981,14 +1017,7 @@
 		{#if savable}
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
-				onclick={() =>
-					run(() =>
-						toast.success(
-							toggleSaved(asItem())
-								? t('library.saved_to_library')
-								: t('library.removed_from_library')
-						)
-					)}
+				onclick={() => run(saveToLibrary)}
 			>
 				<!-- altIcon/showAlt, not a ternary: `icon` is read once at mount. -->
 				<HugeiconsIcon
@@ -999,6 +1028,20 @@
 				/>
 				{savedHere ? t('library.remove_from_library') : t('library.save_to_library')}
 			</button>
+		{:else if inAccount && !isOnRepeat && !isLiked && !editable}
+			{#if ownedByUser(asItem())}
+				<div class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground">
+					<HugeiconsIcon icon={BookmarkCheck02Icon} class="h-4 w-4" /> {t('library.in_library')}
+				</div>
+			{:else}
+				<button
+					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+					onclick={() => run(unsaveFromLibrary)}
+				>
+					<HugeiconsIcon icon={BookmarkMinus02Icon} class="h-4 w-4" />
+					{t('library.remove_from_library')}
+				</button>
+			{/if}
 		{/if}
 		{#if editable}
 			<button

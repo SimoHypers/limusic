@@ -525,6 +525,58 @@ impl InnerTube {
         Ok(())
     }
 
+    /// The raw `search` / `browse` responses, for the live smoke tests only (feature-gated, never
+    /// built into the app). Diagnosing a menu shape needs the JSON before the parsers drop it.
+    #[cfg(feature = "integration-tests")]
+    pub async fn search_json(
+        &self,
+        client: &YouTubeClient,
+        query: &str,
+        params: Option<&str>,
+    ) -> Result<serde_json::Value, Error> {
+        self.search_raw(client, query, params).await
+    }
+
+    #[cfg(feature = "integration-tests")]
+    pub async fn browse_json(
+        &self,
+        client: &YouTubeClient,
+        browse_id: &str,
+    ) -> Result<serde_json::Value, Error> {
+        self.browse(client, Some(browse_id), None).await
+    }
+
+    /// Add a track to the library, or take it out: `youtubei/v1/feedback` with a token minted on
+    /// the row itself ([`crate::models::LibraryToggle`]). Not the same thing as a like, which is
+    /// what `rate` does: Library ▸ Songs and Liked Music are separate lists on the account.
+    ///
+    /// YouTube answers 200 with a per-token result rather than an HTTP error, so a token that has
+    /// gone stale (the row was fetched long enough ago) surfaces here, not as a silent no-op.
+    pub async fn feedback(&self, client: &YouTubeClient, token: &str) -> Result<(), Error> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct FeedbackBody {
+            context: Context,
+            feedback_tokens: Vec<String>,
+        }
+        let body = FeedbackBody {
+            context: self.context_for(client),
+            feedback_tokens: vec![token.to_owned()],
+        };
+        let value = self.post("feedback", client, &body, true).await?;
+        let processed = value
+            .pointer("/feedbackResponses/0/isProcessed")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if processed {
+            Ok(())
+        } else {
+            Err(Error::Other(
+                "YouTube turned down the library change — reopen the list and try again.".into(),
+            ))
+        }
+    }
+
     /// Save an album/playlist to the library, or remove it. Same `like` endpoint as a track, with
     /// a playlist target: for an album pass its `OLAK5uy_…` audio playlist id. Live-verified.
     pub async fn like_playlist(

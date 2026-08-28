@@ -239,13 +239,18 @@
 					</div>
 				{/each}
 			{/if}
-			<!-- submit, so the enclosing form decides what "all results" does. -->
+			<!-- Submits the enclosing form, which is where each caller decides what "all results" does.
+			     Explicitly, not type="submit": closing the panel unmounts this button mid-click, and a
+			     submit button removed from the DOM before the click completes never submits (#125). -->
 			<button
-				type="submit"
+				type="button"
 				class="flex w-full cursor-pointer items-center gap-2 border-t bg-muted/30 px-3 py-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
 				onmousedown={(e) => e.preventDefault()}
 				onmouseenter={() => (active = -1)}
-				onclick={close}
+				onclick={(e) => {
+					e.currentTarget.form?.requestSubmit();
+					close();
+				}}
 			>
 				<HugeiconsIcon icon={Search01Icon} class="h-3.5 w-3.5" />
 				All results for “{value.trim()}”
