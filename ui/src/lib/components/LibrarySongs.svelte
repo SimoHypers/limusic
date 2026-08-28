@@ -23,7 +23,13 @@
 	import type { SongItem } from '$lib/api';
 	import { getCached, putCached } from '$lib/pagecache';
 	import { thumb } from '$lib/thumb';
-	import { openAddToPlaylist, openPlayer, playback } from '$lib/player.svelte';
+	import {
+		openAddToPlaylist,
+		openPlayer,
+		playback,
+		removeSongFromLibrary,
+		songLibraryRemoval
+	} from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
 
 	// The same tab, pointed at a different browse id: Library ▸ Songs by default, or the tracks the
@@ -193,6 +199,19 @@
 	// plays after it. The pages that haven't arrived ride along as the token, which the backend
 	// walks into the queue behind what's playing (mixing them into the unplayed tail on shuffle),
 	// so Shuffle all is a shuffle of the library and not of the first 25 songs.
+	// Only where there is a way out: YouTube sends no menu for a song that is in this list because
+	// its album is saved, and the album is what holds it. The Uploads tab is a different list
+	// entirely, and removing from it would be deleting the upload.
+	const removable = (song: SongItem) => !uploads && !!songLibraryRemoval(song);
+
+	// Drop the row on success only, and write the shortened list back to the page cache: coming
+	// back to the tab paints from there, and a row that is gone from YouTube must not reappear.
+	async function remove(song: SongItem) {
+		if (!(await removeSongFromLibrary(song))) return;
+		songs = songs.filter((s) => s !== song);
+		cache();
+	}
+
 	function play(start: number | null, shuffle = false) {
 		if (!songs.length) return;
 		openPlayer();
@@ -269,8 +288,11 @@
 					{song}
 					index={i}
 					active={song.video_id === nowId}
+					inLibraryList={!uploads}
 					onplay={() => play(songs.indexOf(song))}
 					onAdd={() => openAddToPlaylist(song)}
+					onRemove={removable(song) ? () => remove(song) : undefined}
+					removeLabel={t('library.remove_from_library')}
 				/>
 			{/each}
 		</div>

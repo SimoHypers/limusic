@@ -30,7 +30,8 @@
 		onplay,
 		onAdd,
 		onRemove,
-		removeLabel = t('player.remove_from_playlist')
+		removeLabel = t('player.remove_from_playlist'),
+		inLibraryList = false
 	}: {
 		song: SongItem;
 		/** Position badge when set (playlist/queue); omitted for flat search results. */
@@ -56,6 +57,8 @@
 		 */
 		hideRating?: boolean;
 		onplay: () => void;
+		/** The row lives in Library ▸ Songs: passed through so its menu drops "Save to library". */
+		inLibraryList?: boolean;
 		/** Adds an "Add to playlist" menu item. */
 		onAdd?: () => void;
 		/** Adds a remove menu item (label via `removeLabel`). */
@@ -263,6 +266,7 @@
 			{onAdd}
 			{onRemove}
 			{removeLabel}
+			{inLibraryList}
 			triggerClass="cursor-pointer rounded-md p-1.5 text-muted-foreground transition hover:bg-accent/20 hover:text-foreground focus-visible:opacity-100 {compact
 				? ''
 				: 'opacity-0 group-hover:opacity-100'}"

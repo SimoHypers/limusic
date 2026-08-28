@@ -50,7 +50,8 @@
 		onAdd,
 		onRemove,
 		removeLabel = t('player.remove_from_playlist'),
-		linksOnly = false
+		linksOnly = false,
+		inLibraryList = false
 	}: {
 		song: SongItem;
 		/** Classes for the ⋯ trigger button (positioning differs per host: inline vs overlay). */
@@ -63,6 +64,12 @@
 		/** Player-bar variant: ⋮ trigger, and only artist/album/shortcuts (queue and like already
 		    have their own buttons there). */
 		linksOnly?: boolean;
+		/**
+		 * The row is being shown *in* Library ▸ Songs, where "Save to library" makes no sense: the
+		 * only direction is out, and that is the host's `onRemove` (it owns the list the row has to
+		 * disappear from). A song sitting in that list because its album is saved gets neither.
+		 */
+		inLibraryList?: boolean;
 	} = $props();
 
 	// Already on the home grid: the menu offers the way out rather than a second copy.
@@ -195,7 +202,7 @@
 				{rated === 'dislike' ? t('player.remove_dislike') : t('common.dislike')}
 			</button>
 		{/if}
-		{#if libraryToken}
+		{#if libraryToken && !inLibraryList}
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={(e) => run(e, () => toggleSongLibrary(song))}

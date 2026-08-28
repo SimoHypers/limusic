@@ -770,8 +770,9 @@ const RATED: Record<Rating, string> = {
 	indifferent: 'Rating removed'
 };
 
-/** Optimistic rating change, reverted if YouTube rejects it. */
-async function rate(song: SongItem, next: Rating) {
+/** Optimistic rating change, reverted if YouTube rejects it. `msg` overrides the toast, for the
+ *  callers that clear a like by another name (out of Library ▸ Songs, which is that same list). */
+async function rate(song: SongItem, next: Rating, msg?: string) {
 	const prev = ratingOf(song);
 	if (prev === next) return;
 	const isNow = playback.now?.videoId === song.video_id;
@@ -783,7 +784,7 @@ async function rate(song: SongItem, next: Rating) {
 		// otherwise correct it runs at most every six hours.
 		if (next === 'like') noteSavedIn(api.LIKED_MUSIC_ID, [song.video_id]);
 		else noteUnsavedFrom(api.LIKED_MUSIC_ID, song.video_id);
-		toast.success(RATED[next]);
+		toast.success(msg ?? RATED[next]);
 		if (next === 'dislike') dropDisliked(song.video_id, isNow);
 	} catch (e) {
 		ratings[song.video_id] = prev;
@@ -815,6 +816,40 @@ const songLibrary = $state<Record<string, boolean>>({});
  *  until the list is fetched again — better than a button that answers "token expired". */
 export function songLibraryToken(song: SongItem): string | undefined {
 	return inSongLibrary(song) ? song.library?.remove_token : song.library?.add_token;
+}
+
+/**
+ * How a row in Library ▸ Songs can be taken back out, if it can at all.
+ *
+ * `token` when YouTube sent one with the row, which is the individually-saved case. Otherwise a
+ * like is what put the song in that list (it browses `FEmusic_liked_videos`), so clearing the like
+ * is the removal. A song that is only there because its album is saved has neither, and gets no
+ * option: YouTube sends those rows without a menu, which is its own way of saying the album is
+ * what holds them.
+ */
+export function songLibraryRemoval(song: SongItem): 'token' | 'like' | undefined {
+	if (song.library?.remove_token) return 'token';
+	return isLiked(song) ? 'like' : undefined;
+}
+
+/** Take a song out of Library ▸ Songs by whichever route it has. Answers whether it worked, so the
+ *  list only drops the row on success. Toasts either way. */
+export async function removeSongFromLibrary(song: SongItem): Promise<boolean> {
+	const how = songLibraryRemoval(song);
+	if (!how) return false;
+	if (how === 'like') {
+		await rate(song, 'indifferent', t('toasts.removed_from_library'));
+		return ratingOf(song) !== 'like';
+	}
+	try {
+		await api.setSongSaved(song.library!.remove_token!);
+		songLibrary[song.video_id] = false;
+		toast.success(t('toasts.removed_from_library'));
+		return true;
+	} catch (e) {
+		toast.error(String(e));
+		return false;
+	}
 }
 
 /** In Library ▸ Songs? The row's own menu is the fallback; a write in this session wins. */
