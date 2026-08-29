@@ -222,6 +222,11 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         // Folder picker for the local-music library (local.rs).
         .plugin(tauri_plugin_dialog::init())
+        // Copying goes through Rust, not the webview. WebKitGTK gates JavaScript clipboard writes
+        // (both `execCommand('copy')` and `navigator.clipboard`) behind its own policy, and on
+        // Fedora every copy button in the app silently did nothing. The OS clipboard from the app
+        // process has no such gate. See ui/src/lib/clipboard.ts.
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
