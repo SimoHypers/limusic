@@ -9,12 +9,25 @@
 //! pot's own length tells us before it is ever attached to a URL. Evidence and the harness:
 //! `progress/KNOWN-ISSUES.md` KI-1, with the harness in `progress/active/webremix-403-harness/`.
 //!
-//! `deno_core::JsRuntime` is `!Send`, so the runtime lives on its own thread and is driven over a
-//! channel. Dropping the [`Minter`] closes that channel, which ends the thread and frees the V8
-//! isolate: that is the whole teardown path, there is nothing else to shut down.
+//! `deno_core::JsRuntime` is `!Send`, so the runtime lives on a thread of its own and is driven
+//! over a channel. That thread is a **process-wide singleton, created once and never replaced**,
+//! and this is not a nicety: V8's default platform write-protects its JIT pages with a memory
+//! protection key, and `PKRU` (which grants access to that key) is per-thread and inherited only
+//! at clone time. So "all threads using v8 [must be] created as descendent threads of the thread
+//! that called `v8::Initialize`" (rusty_v8 `new_default_platform` docs). A second thread spawned
+//! later from a tokio worker is not one of those, and the first thing V8 touches on it faults with
+//! `SIGSEGV / SEGV_PKUERR`, killing the whole app. That was issue #133: play a track (thread 1
+//! initialises V8), leave it idle past the 10 minute teardown, play again, instant crash.
+//!
+//! So the thread stays; the isolate is what comes and goes. Dropping the [`Minter`] tells the
+//! thread to drop its `Botguard`, which frees the isolate, and the next bootstrap builds another
+//! one on that same thread. Handles carry a generation so a late `Shutdown` from a replaced
+//! `Minter` cannot free the runtime that replaced it.
 
-use std::sync::mpsc::{self, Sender};
+use std::sync::OnceLock;
 use std::thread;
+
+use tokio::sync::{mpsc, oneshot};
 
 use base64::Engine;
 use rustypipe_botguard::{Botguard, Error as BgError};
@@ -55,12 +68,91 @@ fn classify(e: BgError) -> Error {
 }
 
 enum Cmd {
-    Mint { ident: String, reply: tokio::sync::oneshot::Sender<Result<String, Error>> },
+    /// Build a fresh runtime, replacing whatever is live. Replies with its generation, the session
+    /// token it minted on the way, and the integrity token's lifetime.
+    Bootstrap {
+        user_agent: String,
+        session_ident: String,
+        reply: oneshot::Sender<Result<(u64, String, u64), Error>>,
+    },
+    Mint {
+        generation: u64,
+        ident: String,
+        reply: oneshot::Sender<Result<String, Error>>,
+    },
+    /// Free the isolate, if `generation` is still the live one. Sent by [`Minter`]'s `Drop`.
+    Shutdown {
+        generation: u64,
+    },
 }
 
-/// A live BotGuard runtime. Clone-free on purpose: one owner, and dropping it kills the thread.
+/// The one V8 thread (see the module docs). Started on first use and kept for the life of the
+/// process, holding at most one `Botguard` at a time.
+fn host() -> &'static mpsc::UnboundedSender<Cmd> {
+    static HOST: OnceLock<mpsc::UnboundedSender<Cmd>> = OnceLock::new();
+    HOST.get_or_init(|| {
+        let (tx, mut rx) = mpsc::unbounded_channel::<Cmd>();
+        // If the thread cannot start, or tokio cannot be built on it, `rx` is dropped here and
+        // every send below fails as `Error::Fatal` — which is the permanent-degradation latch.
+        let _ = thread::Builder::new().name("botguard".into()).spawn(move || {
+            let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+                return;
+            };
+            rt.block_on(async move {
+                let mut generation = 0_u64;
+                let mut live: Option<(u64, Botguard)> = None;
+                while let Some(cmd) = rx.recv().await {
+                    match cmd {
+                        Cmd::Bootstrap { user_agent, session_ident, reply } => {
+                            // Never two isolates at once: v8 asserts they are dropped in reverse
+                            // creation order (v8-130 isolate.rs:1666) and panics this thread if
+                            // they overlap.
+                            drop(live.take());
+                            generation += 1;
+                            match bootstrap(&user_agent, &session_ident).await {
+                                Ok((bg, token, lifetime)) => {
+                                    // A failed send means the caller timed out and will never hold
+                                    // this generation, so `bg` drops here rather than idling.
+                                    if reply.send(Ok((generation, token, lifetime))).is_ok() {
+                                        live = Some((generation, bg));
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = reply.send(Err(e));
+                                }
+                            }
+                        }
+                        Cmd::Mint { generation: g, ident, reply } => {
+                            let minted = match &mut live {
+                                Some((live_gen, bg)) if *live_gen == g => {
+                                    bg.mint_token(&ident).await.map_err(classify)
+                                }
+                                _ => Err(Error::Transient("botguard runtime is gone".into())),
+                            };
+                            let _ = reply.send(minted);
+                        }
+                        Cmd::Shutdown { generation: g } => {
+                            if live.as_ref().is_some_and(|(live_gen, _)| *live_gen == g) {
+                                live = None;
+                            }
+                        }
+                    }
+                }
+            });
+        });
+        tx
+    })
+}
+
+/// A live BotGuard runtime. Clone-free on purpose: one owner, and dropping it frees the isolate.
 pub struct Minter {
-    tx: Sender<Cmd>,
+    generation: u64,
+}
+
+impl Drop for Minter {
+    fn drop(&mut self) {
+        let _ = host().send(Cmd::Shutdown { generation: self.generation });
+    }
 }
 
 /// What a successful bootstrap yields. The session token comes out of the bootstrap because the
@@ -75,49 +167,21 @@ impl Minter {
     /// Stand up a BotGuard runtime bound to `session_ident` (visitorData), re-rolling the whole
     /// bootstrap while it lands in the rejected integrity-token class (see [`bootstrap`]).
     pub async fn spawn(user_agent: String, session_ident: String) -> Result<Bootstrap, Error> {
-        let (tx, rx) = mpsc::channel::<Cmd>();
-        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-
-        thread::Builder::new()
-            .name("botguard".into())
-            .spawn(move || {
-                let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-                    Ok(rt) => rt,
-                    Err(e) => {
-                        let _ = ready_tx.send(Err(Error::Fatal(e.to_string())));
-                        return;
-                    }
-                };
-                let mut bg = match rt.block_on(bootstrap(&user_agent, &session_ident)) {
-                    Ok((bg, token, lifetime_secs)) => {
-                        if ready_tx.send(Ok((token, lifetime_secs))).is_err() {
-                            return; // caller gave up (timeout) — don't hold a V8 isolate for nobody
-                        }
-                        bg
-                    }
-                    Err(e) => {
-                        let _ = ready_tx.send(Err(e));
-                        return;
-                    }
-                };
-                // Ends when the `Minter` is dropped and the channel closes.
-                while let Ok(Cmd::Mint { ident, reply }) = rx.recv() {
-                    let _ = reply.send(rt.block_on(bg.mint_token(&ident)).map_err(classify));
-                }
-            })
-            .map_err(|e| Error::Fatal(e.to_string()))?;
-
-        let (session_token, lifetime_secs) = ready_rx
+        let (reply, rx) = oneshot::channel();
+        host()
+            .send(Cmd::Bootstrap { user_agent, session_ident, reply })
+            .map_err(|_| Error::Fatal("botguard thread unavailable".into()))?;
+        let (generation, session_token, lifetime_secs) = rx
             .await
             .map_err(|_| Error::Fatal("botguard thread stopped during bootstrap".into()))??;
-        Ok(Bootstrap { minter: Minter { tx }, session_token, lifetime_secs })
+        Ok(Bootstrap { minter: Minter { generation }, session_token, lifetime_secs })
     }
 
     /// Mint one PoToken for `ident` (a videoId, for the `&pot=` URL parameter).
     pub async fn mint(&self, ident: &str) -> Result<String, Error> {
-        let (reply, rx) = tokio::sync::oneshot::channel();
-        self.tx
-            .send(Cmd::Mint { ident: ident.to_owned(), reply })
+        let (reply, rx) = oneshot::channel();
+        host()
+            .send(Cmd::Mint { generation: self.generation, ident: ident.to_owned(), reply })
             .map_err(|_| Error::Transient("botguard thread gone".into()))?;
         rx.await.map_err(|_| Error::Transient("botguard thread gone".into()))?
     }
@@ -268,9 +332,10 @@ mod live {
         );
         assert!(it.is_some_and(|n| n <= ACCEPTED_MAX_IT), "mint fell out of the accepted class");
 
-        // The idle teardown drops the minter, which ends its thread and its V8 isolate; the next
-        // track start builds a fresh one. Prove a second isolate can be created in the same process
-        // after the first is gone, because that is what `teardown_if_idle` does all day.
+        // The idle teardown drops the minter, which frees the V8 isolate; the next track start
+        // builds a fresh one on the same thread. This is the #133 crash: before the singleton
+        // thread, the second isolate died with SIGSEGV / SEGV_PKUERR. Run it under a debugger or
+        // watch for a core dump, because a segfault here takes the test process with it.
         drop(b);
         let again = Minter::spawn(crate::http::WEB_UA.to_owned(), visitor)
             .await
