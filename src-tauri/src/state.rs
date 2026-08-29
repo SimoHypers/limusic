@@ -61,6 +61,14 @@ pub struct AppState {
     /// next `start_current` — applied only when that track is the one being started, so jumping to
     /// a different track first doesn't inherit the old position (context/11).
     pending_seek: std::sync::Mutex<Option<(String, f64)>>,
+    /// Whether the watch-history ping has already fired for the current play (latched, so the
+    /// frequent position events fire it exactly once; cleared wherever a fresh play starts).
+    /// An atomic rather than a `QueueState` field because `on_position` runs on every raw mpv
+    /// tick, well above the 4 Hz the UI emit is throttled to, and the flag is latched true for all
+    /// but the first ~30 seconds of each track: taking the app's most contended lock to read it
+    /// stalled the event pump behind `emit_queue`, `persist_queue`, `prime_lookahead` and the
+    /// Listen Together broadcasts for nothing.
+    history_pinged: AtomicBool,
     /// Mirror of mpv's pause flag (set in `media_set_playing`). Position ticks must consult this
     /// instead of assuming "playing" — mpv fires `time-pos` on seeks while paused too.
     is_playing: AtomicBool,
@@ -291,10 +299,9 @@ struct QueueState {
     /// advance, mirroring current/lookahead_client). context/01 §registerPlayback.
     playback_ping: Option<PlaybackPing>,
     lookahead_playback_ping: Option<PlaybackPing>,
-    /// Content Playback Nonce for the current play + whether we've already fired the history ping
-    /// for it (latched so the frequent position events fire it exactly once). context/01.
+    /// Content Playback Nonce for the current play. context/01. (The "already pinged" latch that
+    /// used to live beside it is `AppState::history_pinged`.)
     cpn: String,
-    history_pinged: bool,
     /// Latest mpv-reported track duration (secs), for the history-ping threshold.
     duration: f64,
     /// Last videoId we re-resolved after a playback failure — guards the one-shot retry in
@@ -362,6 +369,7 @@ impl AppState {
             discord,
             lastfm,
             queue: Mutex::new(QueueState::default()),
+            history_pinged: AtomicBool::new(false),
             is_playing: AtomicBool::new(false),
             generation: AtomicU64::new(0),
             rate_epoch: AtomicU64::new(0),
@@ -1346,7 +1354,7 @@ impl AppState {
             // New track is now playing → fresh history state (mirrors start_current).
             q.playback_ping = q.lookahead_playback_ping.take();
             q.cpn = innertube::generate_cpn();
-            q.history_pinged = false;
+            self.history_pinged.store(false, Ordering::Relaxed);
             q.duration = 0.0;
         }
         if let Some(item) = self.current_item().await {
@@ -1525,7 +1533,7 @@ impl AppState {
             // Fresh play → fresh history state (context/01 §registerPlayback).
             q.playback_ping = data.playback_ping.clone();
             q.cpn = innertube::generate_cpn();
-            q.history_pinged = false;
+            self.history_pinged.store(false, Ordering::Relaxed);
             q.duration = 0.0;
             let cur = q.current;
             if let Some(qi) = q.items.get_mut(cur) {
@@ -1948,19 +1956,22 @@ impl AppState {
     /// gated on the `enable_history` setting + being logged in. Best-effort (errors logged).
     pub async fn on_position(&self, pos: f64) {
         self.record_position(pos);
+        // Latched: nothing below can fire again for this play, so don't queue up behind the
+        // queue mutex on every tick just to be told so. See `AppState::history_pinged`.
+        if self.history_pinged.load(Ordering::Relaxed) {
+            return;
+        }
         let crossed = {
-            let mut q = self.queue.lock().await;
-            if q.history_pinged {
-                None
+            let q = self.queue.lock().await;
+            // `swap` and not a store: the early-return above reads the flag outside the lock,
+            // so the latch has to be the thing that decides, not the read. Latches even if the
+            // ping below is missing or fails, so it is never retried.
+            if pos >= history_threshold(q.duration)
+                && !self.history_pinged.swap(true, Ordering::Relaxed)
+            {
+                Some((q.playback_ping.clone(), q.cpn.clone(), q.items.get(q.current).cloned()))
             } else {
-                // Threshold: halfway, capped at 30s (default 30s until mpv reports duration).
-                let threshold = if q.duration > 1.0 { (q.duration / 2.0).min(30.0) } else { 30.0 };
-                if pos >= threshold {
-                    q.history_pinged = true; // latch even if the ping is missing — never retry
-                    Some((q.playback_ping.clone(), q.cpn.clone(), q.items.get(q.current).cloned()))
-                } else {
-                    None
-                }
+                None
             }
         };
         let Some((ping, cpn, played)) = crossed else { return };
@@ -3292,6 +3303,16 @@ pub fn saved_volume(db: &Db) -> i64 {
     v.filter(|v| (0..=100).contains(v)).unwrap_or(100)
 }
 
+/// How far into a track a play counts (context/01 §registerPlayback): halfway, capped at 30s.
+/// `duration` is mpv's, which is 0.0 until it reports one, so an unknown length means the full 30s.
+fn history_threshold(duration: f64) -> f64 {
+    if duration > 1.0 {
+        (duration / 2.0).min(30.0)
+    } else {
+        30.0
+    }
+}
+
 /// Per-track loudness gain (dB) from YouTube's `loudnessDb` (context/03, context/14). Attenuate
 /// only toward reference loudness: loud masters get pulled down, quieter tracks aren't boosted,
 /// so there's no clipping and no limiter to add.
@@ -3357,10 +3378,10 @@ fn persist_fingerprint(q: &QueueState) -> u64 {
 mod tests {
     use super::{
         append_page, backfill_metadata, drop_duplicates, enqueue_at, format_duration, get_url,
-        guest_insert_index, is_mix, loudness_gain, merge_radio, next_index, parse_duration_ms,
-        persist_fingerprint, put_url, queue_fingerprint, radio_seed_for, shuffle_new_queue,
-        shuffle_upcoming, splice_radio_into, unshuffled, upcoming_queued, QueueState, RepeatMode,
-        VideoUrls,
+        guest_insert_index, history_threshold, is_mix, loudness_gain, merge_radio, next_index,
+        parse_duration_ms, persist_fingerprint, put_url, queue_fingerprint, radio_seed_for,
+        shuffle_new_queue, shuffle_upcoming, splice_radio_into, unshuffled, upcoming_queued,
+        QueueState, RepeatMode, VideoUrls,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -3374,6 +3395,16 @@ mod tests {
         assert_eq!(get_url(&map, "abc", t0 + 60).as_deref(), Some("https://example.invalid/v"));
         assert_eq!(get_url(&map, "abc", t0 + 5 * 60 * 60), None, "past the TTL, must miss");
         assert_eq!(get_url(&map, "nope", t0).as_deref(), None);
+    }
+
+    /// The play threshold decides whether a play ever reaches YouTube's history or On Repeat, and
+    /// the two ends are the ones that bite: a track whose duration mpv hasn't reported yet must not
+    /// count instantly, and a long track must not need half an hour.
+    #[test]
+    fn a_play_counts_halfway_in_or_at_thirty_seconds() {
+        assert_eq!(history_threshold(0.0), 30.0, "unknown duration falls back to the full 30s");
+        assert_eq!(history_threshold(40.0), 20.0, "short track: halfway");
+        assert_eq!(history_threshold(600.0), 30.0, "long track: capped, not five minutes");
     }
 
     /// The cap is a clear, not an eviction, so the ninth insert leaves exactly one entry.
