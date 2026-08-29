@@ -70,6 +70,13 @@ pub struct AppState {
     last_pos_persist: AtomicU64,
     /// Wall-clock secs of the last position push to the OS media controls (throttled ~1s).
     last_media_push: AtomicU64,
+    /// Last `(playing, position)` actually handed to the OS media controls, so the steady-state
+    /// scrubber tick can be dropped. souvlaki emits a D-Bus `PropertiesChanged` broadcast on every
+    /// `set_playback` even when nothing changed, waking every MPRIS client on the desktop; and
+    /// MPRIS `Position` is read-on-demand, so the signal does not even carry the one value that
+    /// moved. It cannot be dropped entirely: souvlaki answers a `Position` read from the progress
+    /// of the last push, so the value still has to be refreshed periodically.
+    last_media_state: std::sync::Mutex<Option<(bool, f64)>>,
     /// videoId → (the googlevideo URL the loopback proxy streams from, unix seconds it stops being
     /// treated as usable). Written by the `video_stream` command, read by `videoproxy::handle` and
     /// by `video_stream` itself: an entry that is still live answers a reopen with no network at
@@ -363,6 +370,7 @@ impl AppState {
             latest_position: AtomicU64::new(0),
             last_pos_persist: AtomicU64::new(0),
             last_media_push: AtomicU64::new(0),
+            last_media_state: std::sync::Mutex::new(None),
             last_queue_fingerprint: AtomicU64::new(0),
             last_persisted_fingerprint: AtomicU64::new(0),
         }
@@ -1796,7 +1804,10 @@ impl AppState {
     pub fn media_set_playing(&self, playing: bool) {
         self.is_playing.store(playing, Ordering::Relaxed);
         if let Some(m) = &self.media {
-            m.set_playback(playing, self.current_position());
+            let pos = self.current_position();
+            // Record what the controls now hold, or the next tick would repeat this very push.
+            *self.last_media_state.lock().unwrap() = Some((playing, pos));
+            m.set_playback(playing, pos);
         }
         #[cfg(target_os = "windows")]
         crate::taskbar::set_playing(&self.app, playing);
@@ -2247,7 +2258,20 @@ impl AppState {
             // which mpv now pushes (it derives from `idle-active`, not just `pause`).
             let playing = self.is_playing.load(Ordering::Relaxed);
             if let Some(m) = &self.media {
-                m.set_playback(playing, pos);
+                // Push when the play state flipped, or when the position moved further than one
+                // tick of ordinary playback explains (a seek, a track change). Not every second:
+                // see `last_media_state`. At a 1 s gate this settles into a push every 2-3
+                // seconds, which keeps a polled scrubber within a couple of seconds of the truth.
+                let mut last = self.last_media_state.lock().unwrap();
+                let send = match *last {
+                    None => true,
+                    Some((p, at)) => p != playing || (pos - at).abs() > 2.0,
+                };
+                if send {
+                    *last = Some((playing, pos));
+                    drop(last);
+                    m.set_playback(playing, pos);
+                }
             }
             if let Some(d) = &self.discord {
                 d.set_position(pos);
