@@ -645,6 +645,14 @@ export function togglePin(id: string) {
 // stays owned by `playback.rating`, which the Rust side reseeds on every track change.
 const ratings = $state<Record<string, Rating>>({});
 
+/** Overrides only: a dropped entry falls back to whatever the row was fetched with, which is right.
+ *  So a hard clear on overflow is enough (the shape `artcolor.ts` uses) and there is no need for
+ *  real LRU book-keeping: past MAX_OVERRIDES entries the whole map goes. */
+const MAX_OVERRIDES = 500;
+function capOverrides(map: Record<string, unknown>): void {
+	if (Object.keys(map).length > MAX_OVERRIDES) for (const k in map) delete map[k];
+}
+
 export function ratingOf(song: SongItem): Rating {
 	if (playback.now?.videoId === song.video_id) return playback.rating;
 	// The saved-in index is the fallback, not an override: a `search` response carries no
@@ -777,6 +785,7 @@ async function rate(song: SongItem, next: Rating, msg?: string) {
 	if (prev === next) return;
 	const isNow = playback.now?.videoId === song.video_id;
 	ratings[song.video_id] = next;
+	capOverrides(ratings);
 	if (isNow) playback.rating = next;
 	try {
 		await api.rate(song.video_id, next);
@@ -847,6 +856,7 @@ export async function removeSongFromLibrary(song: SongItem): Promise<boolean> {
 	try {
 		await api.setSongSaved(song.library!.remove_token!);
 		songLibrary[song.video_id] = false;
+		capOverrides(songLibrary);
 		toast.success(t('toasts.removed_from_library'));
 		return true;
 	} catch (e) {
@@ -870,6 +880,7 @@ export async function toggleSongLibrary(song: SongItem): Promise<void> {
 	const token = songLibraryToken(song);
 	if (!token) return;
 	songLibrary[song.video_id] = next; // optimistic
+	capOverrides(songLibrary);
 	try {
 		await api.setSongSaved(token);
 		invalidateCached(LIBRARY_SONGS_KEY); // the tab paints from cache; this changed what's in it
@@ -1070,6 +1081,7 @@ export function initApp(mini = false): () => void {
 		// and `ratingOf` reads that map for every row that is not the playing one.
 		api.onRating((videoId, rating) => {
 			ratings[videoId] = rating;
+			capOverrides(ratings);
 			if (playback.now?.videoId === videoId) playback.rating = rating;
 		}),
 		api.onQueueChanged((q) => (playback.queue = q)),
@@ -1087,6 +1099,22 @@ export function initApp(mini = false): () => void {
 				shuffle: q.shuffle,
 				repeat: q.repeat,
 				sourceName: q.sourceName
+			};
+		}),
+		api.onQueueAppended((q) => {
+			const items = [...playback.queue.items, ...q.items];
+			if (items.length !== q.len) {
+				// Missed an event. Cheaper to refetch once than to guess at what we are missing.
+				api.getQueue()
+					.then((full) => (playback.queue = full))
+					.catch(() => {});
+				return;
+			}
+			playback.queue = {
+				...playback.queue,
+				items,
+				currentIndex: q.currentIndex,
+				playedFrom: q.playedFrom
 			};
 		}),
 		api.onPosition((p) => {
