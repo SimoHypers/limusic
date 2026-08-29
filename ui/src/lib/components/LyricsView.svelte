@@ -115,9 +115,18 @@
 	// sweep moves every frame instead of stepping four times a second.
 	let interpolatedPosSecs = $state(playback.position);
 
+	/** The rAF clock exists for the word sweep and nothing else. Unsynced lyrics have no cues, and
+	 *  line-level-only lyrics move at most once a line, so both are served perfectly well by the
+	 *  position tick they already get. Without this gate the loop ran at refresh rate for any
+	 *  mounted lyrics panel, on every track, for the whole session, which meant the app never
+	 *  reached an idle frame. */
+	const needsFrameClock = $derived(
+		!!lyrics?.synced && lyrics.lines.some((l) => (l.words?.length ?? 0) > 0)
+	);
+
 	$effect(() => {
 		const pos = playback.position;
-		if (playback.paused) {
+		if (playback.paused || !needsFrameClock) {
 			interpolatedPosSecs = pos;
 			return;
 		}
