@@ -67,12 +67,26 @@ pub fn start(state: Arc<AppState>) {
     tauri::async_runtime::spawn(async move {
         let Ok(listener) = tokio::net::TcpListener::from_std(listener) else { return };
         loop {
-            let Ok((stream, _)) = listener.accept().await else { continue };
+            let (stream, _) = match listener.accept().await {
+                Ok(v) => v,
+                Err(e) => {
+                    // EMFILE/ENFILE/ENOBUFS return immediately, so `continue` alone was a tight
+                    // loop pinning a core for the rest of the process.
+                    tracing::warn!(error = %e, "video proxy: accept failed");
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    continue;
+                }
+            };
             let state = state.clone();
             tauri::async_runtime::spawn(async move {
                 let svc = service_fn(move |req| serve(req, state.clone()));
+                // No connection cap: the three timeouts here remove the unbounded cases, and a
+                // semaphore is real book-keeping for a proxy that serves one <video> element.
                 // A dropped connection is what a seek looks like from here, so errors are expected.
-                let _ = http1::Builder::new().serve_connection(TokioIo::new(stream), svc).await;
+                let _ = http1::Builder::new()
+                    .header_read_timeout(std::time::Duration::from_secs(15))
+                    .serve_connection(TokioIo::new(stream), svc)
+                    .await;
             });
         }
     });
@@ -117,6 +131,11 @@ async fn handle(
 
     // The element's Range goes upstream untouched and googlevideo does the arithmetic, so there is
     // no range maths here to get wrong. Everything else the webview sent is dropped.
+    // No upstream timeout on purpose. `reqwest` 0.12 exposes `read_timeout` only on the *client*
+    // builder, and `crate::http::client()` is shared with lyrics and the orchestrator (http.rs says
+    // why it is one client), so bounding the byte gap here would change behaviour for every caller.
+    // `.timeout()` is not the substitute: it is total duration and would cut a long stream
+    // mid-track. Revisit if reqwest gains a request-level `read_timeout`.
     let mut out = crate::http::client().get(&upstream);
     if let Some(range) = req.headers().get(header::RANGE) {
         out = out.header(header::RANGE.as_str(), range);
