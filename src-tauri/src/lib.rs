@@ -171,37 +171,20 @@ pub fn run() {
         if std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {
             std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
         }
-        // AppImage + NVIDIA: the AppImage ships its own WebKitGTK/GTK stack, and inside
-        // that environment the DMABUF renderer fails GBM buffer allocation ("Failed to
-        // create GBM buffer … Invalid argument") → solid white window. The explicit-sync
-        // fix above does NOT cover this case — verified 2026-07-15: the raw binary renders
-        // on the system webkit (same 2.52.4) while the AppImage white-screens, and only
-        // disabling DMABUF makes the AppImage paint. Cost: CPU software rendering, so gate
-        // it tightly — rpm/dev builds and non-NVIDIA AppImages keep full GPU compositing.
+        // The AppImage used to force WEBKIT_DISABLE_DMABUF_RENDERER=1 on NVIDIA, because in
+        // July 2026 its bundled GTK stack failed GBM buffer allocation and painted a white
+        // window. b4d98fa (2026-07-27) stopped the AppDir shadowing the host's libwayland-client,
+        // which is what broke Mesa's EGL vendor loading, and the white screen went with it:
+        // re-verified 2026-08-29 on a GTX 1060 / driver 580.173.02, Fedora 44 Wayland, WebKitGTK
+        // 2.52.3 — the 0.6.4 AppImage renders the full UI with the workaround skipped.
         //
-        // That cost is much larger than "no GPU compositing" implies. Measured on this
-        // WebKitGTK 2.52.5, same page of 300 cards, only the renderer differing:
+        // Removing it matters well beyond compositing smoothness. Software rendering turns every
+        // composited layer into a CPU-side backing store, and it was the single biggest term in
+        // this app's memory use (measured on the same page of 300 cards: 135 MiB with GPU
+        // compositing, 245 MiB without, and the gap grows with content).
         //
-        //     GPU compositing      97 MiB idle → 135 MiB
-        //     software rendering   62 MiB idle → 245 MiB
-        //
-        // The gap grows with content, because every composited layer becomes a CPU-side
-        // backing store. It is the single biggest term in this app's memory use, far ahead
-        // of thumbnail sizes or DOM size (both measured, both made no difference).
-        //
-        // This workaround is also older than the fix that probably caused the failure:
-        // it went in 2026-07-15, and b4d98fa (2026-07-27) stopped the AppDir shadowing the
-        // host's libwayland-client, which broke Mesa's EGL vendor loading — the same class
-        // of failure, and its commit message notes it was "invisible on NVIDIA". Set
-        // LIMUSIC_FORCE_GPU=1 to skip the workaround and check whether the AppImage still
-        // white-screens. If it renders, delete this block.
-        if std::env::var_os("APPIMAGE").is_some()
-            && std::path::Path::new("/dev/nvidiactl").exists()
-            && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
-            && std::env::var_os("LIMUSIC_FORCE_GPU").is_none()
-        {
-            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-        }
+        // WEBKIT_DISABLE_DMABUF_RENDERER is WebKit's own env var and is still honoured, so anyone
+        // whose driver does regress can set it by hand without a new build.
     }
 
     tauri::Builder::default()

@@ -1,8 +1,17 @@
-# Fedora/WebKitGTK-on-Wayland fix. Without this the window dies at startup with
+# This used to force GDK_BACKEND=x11 and WEBKIT_DISABLE_DMABUF_RENDERER=1 for every cargo run, as
+# a Fedora/WebKitGTK-on-Wayland fix: without them the window died at startup with
 #   Gdk-Message: Error 71 (Protocol error) dispatching to Wayland display
-# and DMABUF/GBM buffer errors. Primary target is Fedora/WebKitGTK (CLAUDE.md), so default the
-# workaround here. Not `force`d — set GDK_BACKEND=wayland in your shell to override and experiment.
-# Ignored on macOS/Windows (no GDK). ponytail: drop this once WebKitGTK/Wayland stops needing it.
-[env]
-GDK_BACKEND = "x11"
-WEBKIT_DISABLE_DMABUF_RENDERER = "1"
+# plus DMABUF/GBM buffer failures. Both outlived their cause. The Error 71 and the GBM failures are
+# the NVIDIA explicit-sync bug that `__NV_DISABLE_EXPLICIT_SYNC=1` (set in lib.rs `run()`) fixes,
+# and keeping them cost far more than they bought:
+#
+#   - WEBKIT_DISABLE_DMABUF_RENDERER=1 is not "a different accelerated path" on WebKitGTK 2.46+,
+#     it is full CPU software rendering. Every composited layer becomes a CPU-side backing store
+#     and every animation repaints it on the main thread.
+#   - GDK_BACKEND=x11 puts the app on XWayland, where the DMABUF renderer *does* fail GBM
+#     allocation on NVIDIA ("Failed to create GBM buffer of size WxH: Invalid argument"). On
+#     native Wayland with the explicit-sync fix it allocates fine.
+#
+# Verified 2026-08-29, GTX 1060 / driver 580.173.02, Fedora 44 Wayland, WebKitGTK 2.52.3: with
+# neither variable set the dev build renders the full UI on native Wayland with GPU compositing,
+# no GBM errors and no Error 71. Set either in your shell if a driver ever regresses.
