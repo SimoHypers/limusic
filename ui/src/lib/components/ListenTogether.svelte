@@ -53,12 +53,14 @@
 		localStorage.setItem('lt_name', name.trim());
 	}
 
-	// An invite bundles the server + code so a guest only pastes one thing. `LMSC~<base64(server|code)>`.
+	// An invite bundles the server + code so a guest only pastes one thing: `<code>@<host>`.
+	// `wss://` and the `/ws` path are implied, so the usual invite stays short and typable.
 	function makeInvite(server: string, code: string): string {
-		return 'LMSC~' + btoa(`${server}|${code}`);
+		return code + '@' + server.replace(/^wss:\/\//, '').replace(/\/ws$/, '');
 	}
 	function parseInvite(raw: string): { server: string; code: string } | null {
 		const s = raw.trim();
+		// Invites minted before 0.6.5: `LMSC~<base64(server|code)>`.
 		if (s.startsWith('LMSC~')) {
 			try {
 				const [server, code] = atob(s.slice(5)).split('|');
@@ -67,8 +69,13 @@
 				return null;
 			}
 		}
-		// A bare room code — reuse whatever server we last connected to.
-		return { server: '', code: s.toUpperCase() };
+		const at = s.lastIndexOf('@');
+		// A bare room code: reuse whatever server we last connected to.
+		if (at < 0) return { server: '', code: s.toUpperCase() };
+		let server = s.slice(at + 1);
+		if (!/^wss?:\/\//.test(server)) server = 'wss://' + server;
+		if (!server.replace(/^wss?:\/\//, '').includes('/')) server += '/ws';
+		return { server, code: s.slice(0, at).toUpperCase() };
 	}
 
 	async function host() {
