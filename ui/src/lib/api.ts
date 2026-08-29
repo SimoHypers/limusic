@@ -382,6 +382,13 @@ export const canSelfUpdate = () => invoke<boolean>('can_self_update');
 /** Open an http(s) link in the real browser, never in the webview itself. */
 export const openExternal = (url: string) => invoke<void>('open_external', { url });
 
+/** Environment + the redacted tail of `limusic.log`, for pasting into a bug report. */
+export const diagnostics = () => invoke<string>('diagnostics');
+/** Just the environment block, for prefilling the GitHub bug form. */
+export const diagnosticsSummary = () => invoke<string>('diagnostics_summary');
+/** The same text, written to a path the user picked in a save dialog. */
+export const saveDiagnostics = (path: string) => invoke<void>('save_diagnostics', { path });
+
 // --- auth (context/15) ---------------------------------------------------------------------
 export const getAccount = () => invoke<Account>('get_account');
 export const getAccountIdentities = () =>
@@ -534,6 +541,21 @@ export interface QueueIndex {
 
 export const onQueueIndex = (cb: (q: QueueIndex) => void): Promise<UnlistenFn> =>
 	listen<QueueIndex>('queue-index', (e) => cb(e.payload));
+/**
+ * Autoplay topped the queue up at the tail. Carries only the new rows plus the resulting length, so
+ * an endless radio session does not re-ship the whole list (which a Tauri event delivers as
+ * JavaScript *source*) every twenty tracks. `len` is the resync guard: if the array we hold does
+ * not reach that length once the rows are appended, an event was missed and the panel refetches.
+ */
+export interface QueueAppended {
+	items: SongItem[];
+	len: number;
+	currentIndex: number;
+	playedFrom?: number;
+}
+
+export const onQueueAppended = (cb: (q: QueueAppended) => void): Promise<UnlistenFn> =>
+	listen<QueueAppended>('queue-appended', (e) => cb(e.payload));
 export const onPosition = (cb: (p: number) => void): Promise<UnlistenFn> =>
 	listen<{ position: number }>('position', (e) => cb(e.payload.position));
 export const onDuration = (cb: (d: number) => void): Promise<UnlistenFn> =>

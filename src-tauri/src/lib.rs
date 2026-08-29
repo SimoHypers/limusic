@@ -3,6 +3,7 @@
 mod cipher;
 mod commands;
 mod db;
+mod diagnostics;
 mod discord;
 mod http;
 mod lastfm;
@@ -126,6 +127,10 @@ pub(crate) fn tune_webview_labelled(app: &tauri::AppHandle, label: &str, media: 
 /// Logs to stdout **and** to `<app data>/limusic.log`, truncated each launch (the previous run is
 /// kept as `limusic.log.1`).
 ///
+/// The filter names `app_lib`, the `[lib]` name, because that is what every tracing target in this
+/// crate carries (`app_lib::orchestrator`). It said `limusic_app` until 2026-08-29, which only ever
+/// matched `main.rs`, so every `debug!` in the app was dropped.
+///
 /// The file is the only way a Windows or macOS user can produce a log at all: `main.rs` sets
 /// `windows_subsystem = "windows"` in release, so there is no console to print to, and a bug that
 /// only reproduces on their machine (issue #71) otherwise has to be debugged by guessing.
@@ -137,7 +142,7 @@ fn init_logging(dir: &std::path::Path) {
 
     let filter = || {
         tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "info,limusic_app=debug".into())
+            .unwrap_or_else(|_| "info,app_lib=debug".into())
     };
     let path = dir.join("limusic.log");
     let _ = std::fs::rename(&path, dir.join("limusic.log.1"));
@@ -218,6 +223,11 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         // Folder picker for the local-music library (local.rs).
         .plugin(tauri_plugin_dialog::init())
+        // Copying goes through Rust, not the webview. WebKitGTK gates JavaScript clipboard writes
+        // (both `execCommand('copy')` and `navigator.clipboard`) behind its own policy, and on
+        // Fedora every copy button in the app silently did nothing. The OS clipboard from the app
+        // process has no such gate. See ui/src/lib/clipboard.ts.
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -523,6 +533,10 @@ pub fn run() {
             commands::release_notes,
             commands::can_self_update,
             commands::open_external,
+            commands::diagnostics,
+            commands::diagnostics_summary,
+            commands::save_diagnostics,
+            commands::log_ui,
         ])
         .on_window_event(|window, event| {
             // Close-to-tray: ✕ hides the main window and playback keeps running; real quit is

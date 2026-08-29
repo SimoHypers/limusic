@@ -30,6 +30,15 @@ body:
       placeholder: "0.4.6"
 
   - type: textarea
+    id: system
+    attributes:
+      label: System details
+      description: >
+        Settings, About tab, "Open the bug form" fills this in for you. Leave it blank if you
+        got here another way.
+      render: text
+
+  - type: textarea
     id: extra
     attributes:
       label: Anything else?

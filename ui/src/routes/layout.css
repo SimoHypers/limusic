@@ -656,7 +656,11 @@ html.art-tint.dark {
 @keyframes marquee {
 	to { transform: translateX(calc(var(--marquee-dx) * -1)); }
 }
-.marquee { animation: marquee linear infinite; }
+/* Three passes, not `infinite`: an overflowing title kept a transform animation running for the
+   whole session, so the compositor never reached an idle frame and every other repaint in the app
+   was re-incurred at refresh rate. Three passes is enough to read a long title; hovering still
+   holds it still, and `{#key text}` in Marquee.svelte restarts it on every track change. */
+.marquee { animation: marquee linear 3; }
 /* Hovering holds it still: the artist line's names are links, and hitting a moving target is not.
    Triggered from the clipping box, not the scrolling track: the trailing copy is inert, so it is
    not hit-testable and hovering it would never reach the track itself. */

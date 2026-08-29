@@ -61,6 +61,14 @@ pub struct AppState {
     /// next `start_current` — applied only when that track is the one being started, so jumping to
     /// a different track first doesn't inherit the old position (context/11).
     pending_seek: std::sync::Mutex<Option<(String, f64)>>,
+    /// Whether the watch-history ping has already fired for the current play (latched, so the
+    /// frequent position events fire it exactly once; cleared wherever a fresh play starts).
+    /// An atomic rather than a `QueueState` field because `on_position` runs on every raw mpv
+    /// tick, well above the 4 Hz the UI emit is throttled to, and the flag is latched true for all
+    /// but the first ~30 seconds of each track: taking the app's most contended lock to read it
+    /// stalled the event pump behind `emit_queue`, `persist_queue`, `prime_lookahead` and the
+    /// Listen Together broadcasts for nothing.
+    history_pinged: AtomicBool,
     /// Mirror of mpv's pause flag (set in `media_set_playing`). Position ticks must consult this
     /// instead of assuming "playing" — mpv fires `time-pos` on seeks while paused too.
     is_playing: AtomicBool,
@@ -70,6 +78,13 @@ pub struct AppState {
     last_pos_persist: AtomicU64,
     /// Wall-clock secs of the last position push to the OS media controls (throttled ~1s).
     last_media_push: AtomicU64,
+    /// Last `(playing, position)` actually handed to the OS media controls, so the steady-state
+    /// scrubber tick can be dropped. souvlaki emits a D-Bus `PropertiesChanged` broadcast on every
+    /// `set_playback` even when nothing changed, waking every MPRIS client on the desktop; and
+    /// MPRIS `Position` is read-on-demand, so the signal does not even carry the one value that
+    /// moved. It cannot be dropped entirely: souvlaki answers a `Position` read from the progress
+    /// of the last push, so the value still has to be refreshed periodically.
+    last_media_state: std::sync::Mutex<Option<(bool, f64)>>,
     /// videoId → (the googlevideo URL the loopback proxy streams from, unix seconds it stops being
     /// treated as usable). Written by the `video_stream` command, read by `videoproxy::handle` and
     /// by `video_stream` itself: an entry that is still live answers a reopen with no network at
@@ -284,10 +299,9 @@ struct QueueState {
     /// advance, mirroring current/lookahead_client). context/01 §registerPlayback.
     playback_ping: Option<PlaybackPing>,
     lookahead_playback_ping: Option<PlaybackPing>,
-    /// Content Playback Nonce for the current play + whether we've already fired the history ping
-    /// for it (latched so the frequent position events fire it exactly once). context/01.
+    /// Content Playback Nonce for the current play. context/01. (The "already pinged" latch that
+    /// used to live beside it is `AppState::history_pinged`.)
     cpn: String,
-    history_pinged: bool,
     /// Latest mpv-reported track duration (secs), for the history-ping threshold.
     duration: f64,
     /// Last videoId we re-resolved after a playback failure — guards the one-shot retry in
@@ -355,6 +369,7 @@ impl AppState {
             discord,
             lastfm,
             queue: Mutex::new(QueueState::default()),
+            history_pinged: AtomicBool::new(false),
             is_playing: AtomicBool::new(false),
             generation: AtomicU64::new(0),
             rate_epoch: AtomicU64::new(0),
@@ -363,6 +378,7 @@ impl AppState {
             latest_position: AtomicU64::new(0),
             last_pos_persist: AtomicU64::new(0),
             last_media_push: AtomicU64::new(0),
+            last_media_state: std::sync::Mutex::new(None),
             last_queue_fingerprint: AtomicU64::new(0),
             last_persisted_fingerprint: AtomicU64::new(0),
         }
@@ -1338,7 +1354,7 @@ impl AppState {
             // New track is now playing → fresh history state (mirrors start_current).
             q.playback_ping = q.lookahead_playback_ping.take();
             q.cpn = innertube::generate_cpn();
-            q.history_pinged = false;
+            self.history_pinged.store(false, Ordering::Relaxed);
             q.duration = 0.0;
         }
         if let Some(item) = self.current_item().await {
@@ -1517,7 +1533,7 @@ impl AppState {
             // Fresh play → fresh history state (context/01 §registerPlayback).
             q.playback_ping = data.playback_ping.clone();
             q.cpn = innertube::generate_cpn();
-            q.history_pinged = false;
+            self.history_pinged.store(false, Ordering::Relaxed);
             q.duration = 0.0;
             let cur = q.current;
             if let Some(qi) = q.items.get_mut(cur) {
@@ -1796,7 +1812,10 @@ impl AppState {
     pub fn media_set_playing(&self, playing: bool) {
         self.is_playing.store(playing, Ordering::Relaxed);
         if let Some(m) = &self.media {
-            m.set_playback(playing, self.current_position());
+            let pos = self.current_position();
+            // Record what the controls now hold, or the next tick would repeat this very push.
+            *self.last_media_state.lock().unwrap() = Some((playing, pos));
+            m.set_playback(playing, pos);
         }
         #[cfg(target_os = "windows")]
         crate::taskbar::set_playing(&self.app, playing);
@@ -1886,6 +1905,28 @@ impl AppState {
         let _ = self.app.emit(if unchanged { "queue-index" } else { "queue-changed" }, payload);
     }
 
+    /// A pure tail append: ship the added rows, not the whole list.
+    ///
+    /// `emit_queue` sends every row whenever the fingerprint changed, and an autoplay top-up
+    /// changes it every time. Since the list only grew at the end, the panel can push the new rows
+    /// onto the array it already holds. `len` is what the queue is now, so a UI that missed an
+    /// event can tell (its own length will not match) and re-sync with `get_queue` instead of
+    /// drifting silently.
+    async fn emit_queue_appended(&self, added: usize) {
+        let q = self.queue.lock().await;
+        let start = q.items.len().saturating_sub(added);
+        let payload = serde_json::json!({
+            "items": &q.items[start..],
+            "len": q.items.len(),
+            "currentIndex": q.current,
+            "playedFrom": q.played_from,
+        });
+        // Load-bearing: without it the next `emit_queue` thinks the rows are unchanged and sends a
+        // `queue-index` for a list that grew, leaving the panel stale.
+        self.last_queue_fingerprint.store(queue_fingerprint(&q.items), Ordering::Relaxed);
+        let _ = self.app.emit("queue-appended", payload);
+    }
+
     fn emit_error(&self, video_id: &str, message: &str) {
         tracing::error!(video_id, message, "playback error");
         let _ = self
@@ -1937,19 +1978,22 @@ impl AppState {
     /// gated on the `enable_history` setting + being logged in. Best-effort (errors logged).
     pub async fn on_position(&self, pos: f64) {
         self.record_position(pos);
+        // Latched: nothing below can fire again for this play, so don't queue up behind the
+        // queue mutex on every tick just to be told so. See `AppState::history_pinged`.
+        if self.history_pinged.load(Ordering::Relaxed) {
+            return;
+        }
         let crossed = {
-            let mut q = self.queue.lock().await;
-            if q.history_pinged {
-                None
+            let q = self.queue.lock().await;
+            // `swap` and not a store: the early-return above reads the flag outside the lock,
+            // so the latch has to be the thing that decides, not the read. Latches even if the
+            // ping below is missing or fails, so it is never retried.
+            if pos >= history_threshold(q.duration)
+                && !self.history_pinged.swap(true, Ordering::Relaxed)
+            {
+                Some((q.playback_ping.clone(), q.cpn.clone(), q.items.get(q.current).cloned()))
             } else {
-                // Threshold: halfway, capped at 30s (default 30s until mpv reports duration).
-                let threshold = if q.duration > 1.0 { (q.duration / 2.0).min(30.0) } else { 30.0 };
-                if pos >= threshold {
-                    q.history_pinged = true; // latch even if the ping is missing — never retry
-                    Some((q.playback_ping.clone(), q.cpn.clone(), q.items.get(q.current).cloned()))
-                } else {
-                    None
-                }
+                None
             }
         };
         let Some((ping, cpn, played)) = crossed else { return };
@@ -2070,13 +2114,33 @@ impl AppState {
         if self.generation.load(Ordering::SeqCst) != gen {
             return 0; // user moved on while we fetched
         }
-        let added = {
+        let (added, trimmed) = {
             let mut q = self.queue.lock().await;
-            merge_radio(&mut q.items, fresh, existing, AUTOPLAY_BATCH)
+            let added = merge_radio(&mut q.items, fresh, existing, AUTOPLAY_BATCH);
+            // Not while shuffle is on: `shuffle_orig` is a parallel clone of the list and rebasing
+            // both consistently is a bigger change than this one. Deliberate, see plan 039.
+            let trimmed = if added > 0 && q.shuffle_orig.is_none() {
+                let cur = q.current;
+                let dropped = trim_played(&mut q.items, cur, KEEP_PLAYED);
+                if dropped > 0 {
+                    q.current -= dropped;
+                    q.played_from = q.played_from.saturating_sub(dropped);
+                    // Only ever set to `current` or `current + 1`, so this never underflows.
+                    q.lookahead_loaded = q.lookahead_loaded.map(|i| i.saturating_sub(dropped));
+                }
+                dropped
+            } else {
+                0
+            };
+            (added, trimmed)
         };
         if added > 0 {
-            tracing::info!(added, seed = %seed, "autoplay extended the queue");
-            self.emit_queue().await;
+            tracing::info!(added, trimmed, seed = %seed, "autoplay extended the queue");
+            if trimmed == 0 {
+                self.emit_queue_appended(added).await;
+            } else {
+                self.emit_queue().await; // the front moved, so indices shifted: send the truth
+            }
             self.persist_queue().await;
             self.lt_broadcast_queue().await;
             // Appending at the tail never touches a primed lookahead slot; this covers the
@@ -2247,7 +2311,20 @@ impl AppState {
             // which mpv now pushes (it derives from `idle-active`, not just `pause`).
             let playing = self.is_playing.load(Ordering::Relaxed);
             if let Some(m) = &self.media {
-                m.set_playback(playing, pos);
+                // Push when the play state flipped, or when the position moved further than one
+                // tick of ordinary playback explains (a seek, a track change). Not every second:
+                // see `last_media_state`. At a 1 s gate this settles into a push every 2-3
+                // seconds, which keeps a polled scrubber within a couple of seconds of the truth.
+                let mut last = self.last_media_state.lock().unwrap();
+                let send = match *last {
+                    None => true,
+                    Some((p, at)) => p != playing || (pos - at).abs() > 2.0,
+                };
+                if send {
+                    *last = Some((playing, pos));
+                    drop(last);
+                    m.set_playback(playing, pos);
+                }
             }
             if let Some(d) = &self.discord {
                 d.set_position(pos);
@@ -3028,6 +3105,26 @@ fn splice_radio_into(
     }
 }
 
+/// How many already-played rows an endlessly-extending queue keeps behind the play pointer.
+///
+/// Autoplay appends forever and nothing used to drop anything, so a long session grew the item list
+/// without bound (measured 336,776 bytes of `queue_json` on a real install). Every append re-emits
+/// the whole list as a JavaScript source string and rewrites the whole blob, so the per-track cost
+/// rose with how long you had been listening. 200 is well past what the panel's "Previously played"
+/// section shows and past any plausible scroll-back.
+const KEEP_PLAYED: usize = 200;
+
+/// Drop played rows beyond `keep` from the front, returning how many were removed so the caller can
+/// rebase every index that pointed into `items`.
+fn trim_played(items: &mut Vec<innertube::SongItem>, current: usize, keep: usize) -> usize {
+    let drop = current.saturating_sub(keep);
+    if drop == 0 {
+        return 0;
+    }
+    items.drain(..drop);
+    drop
+}
+
 /// Append radio-continuation tracks to the queue: dedupe against `existing` (the whole current
 /// queue + everything appended this hop), cap at `cap`, and mark each as `autoplay` so the UI can
 /// show where the chosen queue ends and autoplay begins. Returns how many were appended.
@@ -3268,6 +3365,16 @@ pub fn saved_volume(db: &Db) -> i64 {
     v.filter(|v| (0..=100).contains(v)).unwrap_or(100)
 }
 
+/// How far into a track a play counts (context/01 §registerPlayback): halfway, capped at 30s.
+/// `duration` is mpv's, which is 0.0 until it reports one, so an unknown length means the full 30s.
+fn history_threshold(duration: f64) -> f64 {
+    if duration > 1.0 {
+        (duration / 2.0).min(30.0)
+    } else {
+        30.0
+    }
+}
+
 /// Per-track loudness gain (dB) from YouTube's `loudnessDb` (context/03, context/14). Attenuate
 /// only toward reference loudness: loud masters get pulled down, quieter tracks aren't boosted,
 /// so there's no clipping and no limiter to add.
@@ -3333,10 +3440,10 @@ fn persist_fingerprint(q: &QueueState) -> u64 {
 mod tests {
     use super::{
         append_page, backfill_metadata, drop_duplicates, enqueue_at, format_duration, get_url,
-        guest_insert_index, is_mix, loudness_gain, merge_radio, next_index, parse_duration_ms,
-        persist_fingerprint, put_url, queue_fingerprint, radio_seed_for, shuffle_new_queue,
-        shuffle_upcoming, splice_radio_into, unshuffled, upcoming_queued, QueueState, RepeatMode,
-        VideoUrls,
+        guest_insert_index, history_threshold, is_mix, loudness_gain, merge_radio, next_index,
+        parse_duration_ms, persist_fingerprint, put_url, queue_fingerprint, radio_seed_for,
+        shuffle_new_queue, shuffle_upcoming, splice_radio_into, trim_played, unshuffled,
+        upcoming_queued, QueueState, RepeatMode, VideoUrls, KEEP_PLAYED,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -3350,6 +3457,16 @@ mod tests {
         assert_eq!(get_url(&map, "abc", t0 + 60).as_deref(), Some("https://example.invalid/v"));
         assert_eq!(get_url(&map, "abc", t0 + 5 * 60 * 60), None, "past the TTL, must miss");
         assert_eq!(get_url(&map, "nope", t0).as_deref(), None);
+    }
+
+    /// The play threshold decides whether a play ever reaches YouTube's history or On Repeat, and
+    /// the two ends are the ones that bite: a track whose duration mpv hasn't reported yet must not
+    /// count instantly, and a long track must not need half an hour.
+    #[test]
+    fn a_play_counts_halfway_in_or_at_thirty_seconds() {
+        assert_eq!(history_threshold(0.0), 30.0, "unknown duration falls back to the full 30s");
+        assert_eq!(history_threshold(40.0), 20.0, "short track: halfway");
+        assert_eq!(history_threshold(600.0), 30.0, "long track: capped, not five minutes");
     }
 
     /// The cap is a clear, not an eviction, so the ninth insert leaves exactly one entry.
@@ -3536,6 +3653,39 @@ mod tests {
         it.is_video = true;
         backfill_metadata(&mut it, None, None, None);
         assert!(it.is_video);
+    }
+
+    /// The trim is what keeps an endless radio session from growing the queue (and every emit and
+    /// every persisted blob with it) forever. Indices are what it can break, so assert on video ids.
+    #[test]
+    fn trim_played_keeps_the_history_bounded() {
+        let mut items: Vec<_> = (0..300).map(|i| song(&format!("s{i}"), None)).collect();
+
+        // Nothing to drop while the played run is still within the cap.
+        let mut short = items[..150].to_vec();
+        assert_eq!(trim_played(&mut short, 150, KEEP_PLAYED), 0);
+        assert_eq!(short.len(), 150);
+        assert_eq!(trim_played(&mut Vec::new(), 0, KEEP_PLAYED), 0);
+
+        // Past the cap: exactly the excess goes, and the playing row is still the playing row.
+        let current = 250;
+        let playing = items[current].video_id.clone();
+        let dropped = trim_played(&mut items, current, KEEP_PLAYED);
+        assert_eq!(dropped, 50);
+        assert_eq!(items.len(), 250);
+        assert_eq!(items[current - dropped].video_id, playing);
+
+        // An endless radio: append a batch, advance through it, trim. Bounded, not 600-and-rising.
+        let mut items = vec![song("seed", None)];
+        let mut current = 0;
+        for hop in 0..30 {
+            items.extend((0..20).map(|i| song(&format!("h{hop}-{i}"), None)));
+            current += 20;
+            let playing = items[current].video_id.clone();
+            current -= trim_played(&mut items, current, KEEP_PLAYED);
+            assert_eq!(items[current].video_id, playing);
+            assert!(items.len() <= KEEP_PLAYED + 21, "grew to {}", items.len());
+        }
     }
 
     #[test]

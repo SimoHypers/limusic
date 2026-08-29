@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack, type Snippet } from 'svelte';
-	import { open } from '@tauri-apps/plugin-dialog';
+	import { open, save } from '@tauri-apps/plugin-dialog';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		Cancel01Icon,
@@ -19,6 +19,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Select from '$lib/components/ui/select';
 	import { MOD } from '$lib/shortcuts';
+	import { copyText } from '$lib/clipboard';
 	import * as api from '$lib/api';
 	import { prefs, ui, toast } from '$lib/player.svelte';
 	import ColorPicker from '$lib/components/ColorPicker.svelte';
@@ -177,6 +178,61 @@
 
 	async function checkUpdates() {
 		updateResult = await checkForUpdatesInteractive();
+	}
+
+	// Diagnostics. Toasts render behind this modal, so the buttons report on themselves.
+	let diagState = $state<'idle' | 'busy' | 'copied' | 'saved'>('idle');
+	let diagError = $state('');
+
+	function flash(kind: 'copied' | 'saved') {
+		diagState = kind;
+		setTimeout(() => (diagState = 'idle'), 2500);
+	}
+
+	async function copyDiagnostics() {
+		diagError = '';
+		diagState = 'busy';
+		try {
+			await copyText(await api.diagnostics());
+			flash('copied');
+		} catch (e) {
+			diagState = 'idle';
+			diagError = String(e);
+		}
+	}
+
+	async function saveDiagnostics() {
+		diagError = '';
+		try {
+			const path = await save({
+				defaultPath: `limusic-diagnostics-${new Date().toISOString().slice(0, 10)}.txt`,
+				filters: [{ name: 'Text', extensions: ['txt'] }]
+			});
+			if (!path) return;
+			diagState = 'busy';
+			await api.saveDiagnostics(path);
+			flash('saved');
+		} catch (e) {
+			diagState = 'idle';
+			diagError = String(e);
+		}
+	}
+
+	async function openBugForm() {
+		diagError = '';
+		try {
+			// GitHub's prefill only reaches `input` and `textarea` fields, so the "Which system?"
+			// dropdown stays the user's one click and everything the app knows goes in `system`.
+			const system = await api.diagnosticsSummary();
+			const q = new URLSearchParams({
+				template: 'bug_report.yml',
+				version,
+				system
+			});
+			await api.openExternal(`https://github.com/SimoHypers/limusic/issues/new?${q}`);
+		} catch (e) {
+			diagError = String(e);
+		}
 	}
 
 	async function load() {
@@ -673,6 +729,29 @@
 						</section>
 
 						<section class={GROUP}>
+							<h3 class={LABEL}>{t('settings.sections.report')}</h3>
+							<div class={CARD}>
+								{@render row({
+									title: t('settings.about.diagnostics'),
+									desc: t('settings.about.diagnostics_hint'),
+									control: copyDiagButton,
+									tall: true,
+									below: diagError ? diagAlert : undefined
+								})}
+								{@render row({
+									title: t('settings.about.diagnostics_save'),
+									desc: t('settings.about.diagnostics_save_hint'),
+									control: saveDiagButton
+								})}
+								{@render row({
+									title: t('settings.about.report_issue'),
+									desc: t('settings.about.report_issue_hint'),
+									control: reportButton
+								})}
+							</div>
+						</section>
+
+						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.whats_new')}</h3>
 							<div class={CARD}>
 								{@render row({
@@ -970,6 +1049,28 @@
 	<Button variant="destructive" size="sm" onclick={doClearCaches} disabled={clearing}>
 		{clearing ? t('common.loading') : t('settings.data.clear_cache_button')}
 	</Button>
+{/snippet}
+
+{#snippet copyDiagButton()}
+	<Button variant="secondary" size="sm" onclick={copyDiagnostics} disabled={diagState === 'busy'}>
+		{diagState === 'copied' ? t('settings.about.diagnostics_copied') : t('settings.about.copy')}
+	</Button>
+{/snippet}
+
+{#snippet saveDiagButton()}
+	<Button variant="secondary" size="sm" onclick={saveDiagnostics} disabled={diagState === 'busy'}>
+		{diagState === 'saved' ? t('settings.about.diagnostics_saved') : t('common.save')}
+	</Button>
+{/snippet}
+
+{#snippet reportButton()}
+	<Button size="sm" onclick={openBugForm}>{t('settings.about.report_issue_button')}</Button>
+{/snippet}
+
+{#snippet diagAlert()}
+	<Alert variant="destructive" class="mt-3">
+		<AlertDescription>{diagError}</AlertDescription>
+	</Alert>
 {/snippet}
 
 {#snippet updateButton()}

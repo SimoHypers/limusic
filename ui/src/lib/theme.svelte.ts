@@ -125,8 +125,16 @@ export const effective = $state({
  * that `--primary` is a registered property (layout.css) and therefore computes to `oklab()` even
  * when it was written as a hex. '#000000' if the colour won't parse, same as before.
  */
+let scratch: CanvasRenderingContext2D | null | undefined;
 function toHex(color: string): string {
-	const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+	// One scratch canvas, reused. A fresh 2D context per call is a native allocation the JS heap
+	// measurement cannot see, and this runs on most track changes (via `applyArtworkAccent`).
+	if (scratch === undefined) {
+		const c = document.createElement('canvas');
+		c.width = c.height = 1;
+		scratch = c.getContext('2d', { willReadFrequently: true });
+	}
+	const ctx = scratch;
 	if (!ctx) return '#000000';
 	ctx.fillStyle = '#000000'; // stays, if the engine can't parse what comes next
 	ctx.fillStyle = color;

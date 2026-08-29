@@ -228,6 +228,7 @@ export const tr: Translations = {
 			network: 'Ağ',
 			storage: 'Depolama',
 			updates: 'Güncellemeler',
+			report: 'Sorun bildir',
 			whats_new: 'Yenilikler'
 		},
 		general: {
@@ -323,6 +324,17 @@ export const tr: Translations = {
 			install_update: 'Yükle ve Yeniden Başlat',
 			download_page: 'İndirme sayfasını aç',
 			changelog: 'Değişiklik Günlüğü ve Sürüm Notları',
+			copy: 'Kopyala',
+			diagnostics: 'Tanılama bilgisini kopyala',
+			diagnostics_hint:
+				'Sürümünüz, bu sistem ve uygulama günlüğünün son bölümü; hata bildirimine yapıştırmaya hazır. Çerezler, jetonlar, imzalı bağlantılar, dosya yolları ve IP adresleri önce temizlenir.',
+			diagnostics_copied: 'Kopyalandı',
+			diagnostics_save: 'Tanılama bilgisini dosyaya kaydet',
+			diagnostics_save_hint: 'Aynı metin .txt olarak; yapıştırmak yerine bildirime sürükleyin.',
+			diagnostics_saved: 'Kaydedildi',
+			report_issue: 'Hata formunu aç',
+			report_issue_hint: 'GitHub tarayıcınızda açılır, sürüm ve sistem doldurulmuş olarak gelir.',
+			report_issue_button: 'Bildir'
 		}
 	},
 	dialogs: {

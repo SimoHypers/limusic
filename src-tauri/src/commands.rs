@@ -1311,6 +1311,43 @@ pub async fn open_external(url: String) -> Result<(), String> {
     crate::lastfm::open_browser(&url)
 }
 
+// --- Diagnostics ----------------------------------------------------------------------------
+
+/// The bug-report blob for Settings ▸ About: environment header plus the redacted tail of
+/// `limusic.log`. See `crate::diagnostics`.
+#[tauri::command]
+pub fn diagnostics(app: tauri::AppHandle, state: St<'_>) -> String {
+    crate::diagnostics::report(&app, &state.db)
+}
+
+/// The environment block on its own, for prefilling the bug form's `system` field. GitHub's query
+/// parameters only reach `input` and `textarea` fields, so this is how the app tells us what it is
+/// running on without the user typing it.
+#[tauri::command]
+pub fn diagnostics_summary(app: tauri::AppHandle, state: St<'_>) -> String {
+    crate::diagnostics::summary(&app, &state.db)
+}
+
+/// The same text written to a path the user picked in a save dialog, for attaching to an issue
+/// when it is too long to paste comfortably.
+#[tauri::command]
+pub fn save_diagnostics(app: tauri::AppHandle, state: St<'_>, path: String) -> Result<(), String> {
+    std::fs::write(&path, crate::diagnostics::report(&app, &state.db)).map_err(|e| e.to_string())
+}
+
+/// The webview's own errors, into the same log file as everything else. Without this a blank
+/// screen or a rejected `invoke` leaves no trace at all in the log a user hands over.
+#[tauri::command]
+pub fn log_ui(level: String, message: String) {
+    // Bounded: a throwing `$effect` re-fires every frame, and the file has no size cap.
+    let message: String = message.chars().take(2000).collect();
+    match level.as_str() {
+        "info" => tracing::info!(target: "ui", "{message}"),
+        "warn" => tracing::warn!(target: "ui", "{message}"),
+        _ => tracing::error!(target: "ui", "{message}"),
+    }
+}
+
 // --- Last.fm scrobbling ---------------------------------------------------------------------
 
 /// Start the browser auth flow. Returns once the authorize page is open; the outcome (session

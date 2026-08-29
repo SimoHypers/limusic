@@ -69,10 +69,19 @@ export function dragScroll(el: HTMLElement, mime: string = ITEM_MIME) {
 	let y: number | null = null;
 	let timer: ReturnType<typeof setInterval> | undefined;
 	let last = 0;
+	/** A drag whose terminating event never reaches `document` (a source row unmounted by the
+	 *  windowed queue list, or WebKitGTK's nested drag loop swallowing it) used to leave this
+	 *  interval running at 60 Hz forever, forcing layout on every tick. `dragover` fires
+	 *  continuously while a drag is live, so going quiet for this long means the drag is over.
+	 *  Generous, because the comment above says WebKitGTK stops sending them when the pointer holds
+	 *  still: this has to outlast a parked-at-the-edge drag, and 3s still bounds a stranded timer. */
+	const IDLE_STOP = 3000;
+	let lastOver = 0;
 
 	function step() {
 		if (y === null) return;
 		const now = performance.now();
+		if (now - lastOver > IDLE_STOP) return stop();
 		// Capped: after a long stall, catching up in one jump throws the page past what you aimed at.
 		const dt = Math.min(now - last, MAX_STEP) / 1000;
 		last = now;
@@ -83,6 +92,7 @@ export function dragScroll(el: HTMLElement, mime: string = ITEM_MIME) {
 	function over(e: DragEvent) {
 		if (!e.dataTransfer?.types.includes(mime)) return; // a file, a link, or someone else's drag
 		y = e.clientY;
+		lastOver = performance.now();
 		if (timer === undefined) {
 			last = performance.now();
 			timer = setInterval(step, TICK);

@@ -91,6 +91,13 @@ impl Player {
         mpv.set_property("cache", "yes")?;
         mpv.set_property("cache-on-disk", "yes")?;
         mpv.set_property("demuxer-cache-dir", cache_dir)?;
+        // The demuxer runs at mpv's browser-sized defaults otherwise: 150 MiB forward and 50 MiB
+        // back, per open file, and the gapless lookahead keeps two open across every transition.
+        // This is audio only (`vid=no` above), so a whole 5-minute Opus track is about 4 MB and
+        // those ceilings only ever reserve headroom nothing uses. 32 MiB forward is several tracks
+        // of read-ahead; 8 MiB back is minutes of backward-seek without a refetch.
+        mpv.set_property("demuxer-max-bytes", 32 * 1024 * 1024_i64)?;
+        mpv.set_property("demuxer-max-back-bytes", 8 * 1024 * 1024_i64)?;
         let mpv = Arc::new(mpv);
 
         let (tx, rx) = unbounded_channel();
