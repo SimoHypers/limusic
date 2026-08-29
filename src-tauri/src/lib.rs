@@ -126,6 +126,10 @@ pub(crate) fn tune_webview_labelled(app: &tauri::AppHandle, label: &str, media: 
 /// Logs to stdout **and** to `<app data>/limusic.log`, truncated each launch (the previous run is
 /// kept as `limusic.log.1`).
 ///
+/// The filter names `app_lib`, the `[lib]` name, because that is what every tracing target in this
+/// crate carries (`app_lib::orchestrator`). It said `limusic_app` until 2026-08-29, which only ever
+/// matched `main.rs`, so every `debug!` in the app was dropped.
+///
 /// The file is the only way a Windows or macOS user can produce a log at all: `main.rs` sets
 /// `windows_subsystem = "windows"` in release, so there is no console to print to, and a bug that
 /// only reproduces on their machine (issue #71) otherwise has to be debugged by guessing.
@@ -137,7 +141,7 @@ fn init_logging(dir: &std::path::Path) {
 
     let filter = || {
         tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "info,limusic_app=debug".into())
+            .unwrap_or_else(|_| "info,app_lib=debug".into())
     };
     let path = dir.join("limusic.log");
     let _ = std::fs::rename(&path, dir.join("limusic.log.1"));
