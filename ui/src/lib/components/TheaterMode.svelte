@@ -125,6 +125,10 @@
 	// which is what made this view crawl; a bitmap upscale is something the compositor does for free.
 	// Same CORS story as artcolor: googleusercontent and ytimg send `access-control-allow-origin: *`,
 	// and a host that doesn't taints the canvas, throws on toDataURL, and lands in the same `null`.
+	// Bounded: insertion-order eviction, the house pattern from `pagecache.ts`. A long listening
+	// session in theater mode is exactly the case that used to keep one base64 PNG (and the CSS
+	// image resource WebKit decodes from it) per cover for the life of the view.
+	const MAX_WASHES = 8;
 	const washes = new Map<string, string>();
 	let wash = $state<string | null>(null);
 	$effect(() => {
@@ -141,8 +145,10 @@
 		let alive = true;
 		bake(url).then((data) => {
 			if (!alive || !data) return;
-			// ponytail: one small data URL per cover for the life of the view. It is cleared with the
-			// component, and nobody sits in theater mode through a thousand tracks.
+			if (washes.size >= MAX_WASHES && !washes.has(url)) {
+				const oldest = washes.keys().next().value;
+				if (oldest !== undefined) washes.delete(oldest);
+			}
 			washes.set(url, data);
 			wash = data;
 		});
