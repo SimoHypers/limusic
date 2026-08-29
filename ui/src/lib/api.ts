@@ -382,6 +382,13 @@ export const canSelfUpdate = () => invoke<boolean>('can_self_update');
 /** Open an http(s) link in the real browser, never in the webview itself. */
 export const openExternal = (url: string) => invoke<void>('open_external', { url });
 
+/** Environment + the redacted tail of `limusic.log`, for pasting into a bug report. */
+export const diagnostics = () => invoke<string>('diagnostics');
+/** Just the environment block, for prefilling the GitHub bug form. */
+export const diagnosticsSummary = () => invoke<string>('diagnostics_summary');
+/** The same text, written to a path the user picked in a save dialog. */
+export const saveDiagnostics = (path: string) => invoke<void>('save_diagnostics', { path });
+
 // --- auth (context/15) ---------------------------------------------------------------------
 export const getAccount = () => invoke<Account>('get_account');
 export const getAccountIdentities = () =>

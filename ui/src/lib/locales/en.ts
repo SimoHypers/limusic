@@ -224,6 +224,7 @@ export const en = {
 			network: 'Network',
 			storage: 'Storage',
 			updates: 'Updates',
+			report: 'Report a problem',
 			whats_new: "What's new"
 		},
 		general: {
@@ -318,6 +319,17 @@ export const en = {
 			install_update: 'Install and Restart',
 			download_page: 'Open download page',
 			changelog: 'Changelog & Release Notes',
+			copy: 'Copy',
+			diagnostics: 'Copy diagnostics',
+			diagnostics_hint:
+				'Your version, this system and the last part of the app log, ready to paste into a bug report. Cookies, tokens, signed links, file paths and IP addresses are removed first.',
+			diagnostics_copied: 'Copied',
+			diagnostics_save: 'Save diagnostics to a file',
+			diagnostics_save_hint: 'Same text as a .txt, for dragging into the issue instead of pasting it.',
+			diagnostics_saved: 'Saved',
+			report_issue: 'Open the bug form',
+			report_issue_hint: 'Opens GitHub in your browser, with the version and system filled in.',
+			report_issue_button: 'Report'
 		}
 	},
 	dialogs: {

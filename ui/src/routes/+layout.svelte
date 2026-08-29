@@ -41,6 +41,7 @@
 	import { win, initWin } from '$lib/win.svelte';
 	import { initZoom } from '$lib/zoom';
 	import { initShortcuts } from '$lib/shortcuts';
+	import { initErrorLog } from '$lib/errlog';
 	import {
 		updateState,
 		installUpdate,
@@ -91,6 +92,8 @@
 	// Wire the Tauri event bridge once for the whole app; teardown on destroy. Check for an update
 	// on every app open (silent unless one exists).
 	onMount(() => {
+		// Before the mini-window bail-out: both windows run this SPA and both can throw.
+		initErrorLog();
 		if (isMini) return initApp(true);
 		// First: it reveals the window (see initWin).
 		const teardownWin = initWin();

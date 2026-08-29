@@ -3,6 +3,7 @@
 mod cipher;
 mod commands;
 mod db;
+mod diagnostics;
 mod discord;
 mod http;
 mod lastfm;
@@ -532,6 +533,10 @@ pub fn run() {
             commands::release_notes,
             commands::can_self_update,
             commands::open_external,
+            commands::diagnostics,
+            commands::diagnostics_summary,
+            commands::save_diagnostics,
+            commands::log_ui,
         ])
         .on_window_event(|window, event| {
             // Close-to-tray: ✕ hides the main window and playback keeps running; real quit is
