@@ -238,9 +238,11 @@ impl Bridge {
              catch(e){{window.__slots['{id}']={{ok:0,e:String((e&&e.message)||e)}};}}}})();"
         );
         self.eval(&kick)?;
-        let slot = self.poll_json(&format!("window.__slots['{id}']||null"), timeout).await?;
-        // Free the slot regardless of outcome.
+        let res = self.poll_json(&format!("window.__slots['{id}']||null"), timeout).await;
+        // Free the slot regardless of outcome: an early `?` here used to leave the slot pinned in
+        // the harness's heap for the life of the process, once per failed call.
         let _ = self.eval(&format!("delete window.__slots['{id}'];"));
+        let slot = res?;
         if slot.get("ok").and_then(Value::as_i64) == Some(1) {
             Ok(slot.get("v").cloned().unwrap_or(Value::Null))
         } else {
