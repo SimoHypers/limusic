@@ -534,6 +534,21 @@ export interface QueueIndex {
 
 export const onQueueIndex = (cb: (q: QueueIndex) => void): Promise<UnlistenFn> =>
 	listen<QueueIndex>('queue-index', (e) => cb(e.payload));
+/**
+ * Autoplay topped the queue up at the tail. Carries only the new rows plus the resulting length, so
+ * an endless radio session does not re-ship the whole list (which a Tauri event delivers as
+ * JavaScript *source*) every twenty tracks. `len` is the resync guard: if the array we hold does
+ * not reach that length once the rows are appended, an event was missed and the panel refetches.
+ */
+export interface QueueAppended {
+	items: SongItem[];
+	len: number;
+	currentIndex: number;
+	playedFrom?: number;
+}
+
+export const onQueueAppended = (cb: (q: QueueAppended) => void): Promise<UnlistenFn> =>
+	listen<QueueAppended>('queue-appended', (e) => cb(e.payload));
 export const onPosition = (cb: (p: number) => void): Promise<UnlistenFn> =>
 	listen<{ position: number }>('position', (e) => cb(e.payload.position));
 export const onDuration = (cb: (d: number) => void): Promise<UnlistenFn> =>

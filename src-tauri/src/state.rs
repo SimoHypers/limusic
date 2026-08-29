@@ -1905,6 +1905,28 @@ impl AppState {
         let _ = self.app.emit(if unchanged { "queue-index" } else { "queue-changed" }, payload);
     }
 
+    /// A pure tail append: ship the added rows, not the whole list.
+    ///
+    /// `emit_queue` sends every row whenever the fingerprint changed, and an autoplay top-up
+    /// changes it every time. Since the list only grew at the end, the panel can push the new rows
+    /// onto the array it already holds. `len` is what the queue is now, so a UI that missed an
+    /// event can tell (its own length will not match) and re-sync with `get_queue` instead of
+    /// drifting silently.
+    async fn emit_queue_appended(&self, added: usize) {
+        let q = self.queue.lock().await;
+        let start = q.items.len().saturating_sub(added);
+        let payload = serde_json::json!({
+            "items": &q.items[start..],
+            "len": q.items.len(),
+            "currentIndex": q.current,
+            "playedFrom": q.played_from,
+        });
+        // Load-bearing: without it the next `emit_queue` thinks the rows are unchanged and sends a
+        // `queue-index` for a list that grew, leaving the panel stale.
+        self.last_queue_fingerprint.store(queue_fingerprint(&q.items), Ordering::Relaxed);
+        let _ = self.app.emit("queue-appended", payload);
+    }
+
     fn emit_error(&self, video_id: &str, message: &str) {
         tracing::error!(video_id, message, "playback error");
         let _ = self
@@ -2092,13 +2114,33 @@ impl AppState {
         if self.generation.load(Ordering::SeqCst) != gen {
             return 0; // user moved on while we fetched
         }
-        let added = {
+        let (added, trimmed) = {
             let mut q = self.queue.lock().await;
-            merge_radio(&mut q.items, fresh, existing, AUTOPLAY_BATCH)
+            let added = merge_radio(&mut q.items, fresh, existing, AUTOPLAY_BATCH);
+            // Not while shuffle is on: `shuffle_orig` is a parallel clone of the list and rebasing
+            // both consistently is a bigger change than this one. Deliberate, see plan 039.
+            let trimmed = if added > 0 && q.shuffle_orig.is_none() {
+                let cur = q.current;
+                let dropped = trim_played(&mut q.items, cur, KEEP_PLAYED);
+                if dropped > 0 {
+                    q.current -= dropped;
+                    q.played_from = q.played_from.saturating_sub(dropped);
+                    // Only ever set to `current` or `current + 1`, so this never underflows.
+                    q.lookahead_loaded = q.lookahead_loaded.map(|i| i.saturating_sub(dropped));
+                }
+                dropped
+            } else {
+                0
+            };
+            (added, trimmed)
         };
         if added > 0 {
-            tracing::info!(added, seed = %seed, "autoplay extended the queue");
-            self.emit_queue().await;
+            tracing::info!(added, trimmed, seed = %seed, "autoplay extended the queue");
+            if trimmed == 0 {
+                self.emit_queue_appended(added).await;
+            } else {
+                self.emit_queue().await; // the front moved, so indices shifted: send the truth
+            }
             self.persist_queue().await;
             self.lt_broadcast_queue().await;
             // Appending at the tail never touches a primed lookahead slot; this covers the
@@ -3063,6 +3105,26 @@ fn splice_radio_into(
     }
 }
 
+/// How many already-played rows an endlessly-extending queue keeps behind the play pointer.
+///
+/// Autoplay appends forever and nothing used to drop anything, so a long session grew the item list
+/// without bound (measured 336,776 bytes of `queue_json` on a real install). Every append re-emits
+/// the whole list as a JavaScript source string and rewrites the whole blob, so the per-track cost
+/// rose with how long you had been listening. 200 is well past what the panel's "Previously played"
+/// section shows and past any plausible scroll-back.
+const KEEP_PLAYED: usize = 200;
+
+/// Drop played rows beyond `keep` from the front, returning how many were removed so the caller can
+/// rebase every index that pointed into `items`.
+fn trim_played(items: &mut Vec<innertube::SongItem>, current: usize, keep: usize) -> usize {
+    let drop = current.saturating_sub(keep);
+    if drop == 0 {
+        return 0;
+    }
+    items.drain(..drop);
+    drop
+}
+
 /// Append radio-continuation tracks to the queue: dedupe against `existing` (the whole current
 /// queue + everything appended this hop), cap at `cap`, and mark each as `autoplay` so the UI can
 /// show where the chosen queue ends and autoplay begins. Returns how many were appended.
@@ -3380,8 +3442,8 @@ mod tests {
         append_page, backfill_metadata, drop_duplicates, enqueue_at, format_duration, get_url,
         guest_insert_index, history_threshold, is_mix, loudness_gain, merge_radio, next_index,
         parse_duration_ms, persist_fingerprint, put_url, queue_fingerprint, radio_seed_for,
-        shuffle_new_queue, shuffle_upcoming, splice_radio_into, unshuffled, upcoming_queued,
-        QueueState, RepeatMode, VideoUrls,
+        shuffle_new_queue, shuffle_upcoming, splice_radio_into, trim_played, unshuffled,
+        upcoming_queued, QueueState, RepeatMode, VideoUrls, KEEP_PLAYED,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -3591,6 +3653,39 @@ mod tests {
         it.is_video = true;
         backfill_metadata(&mut it, None, None, None);
         assert!(it.is_video);
+    }
+
+    /// The trim is what keeps an endless radio session from growing the queue (and every emit and
+    /// every persisted blob with it) forever. Indices are what it can break, so assert on video ids.
+    #[test]
+    fn trim_played_keeps_the_history_bounded() {
+        let mut items: Vec<_> = (0..300).map(|i| song(&format!("s{i}"), None)).collect();
+
+        // Nothing to drop while the played run is still within the cap.
+        let mut short = items[..150].to_vec();
+        assert_eq!(trim_played(&mut short, 150, KEEP_PLAYED), 0);
+        assert_eq!(short.len(), 150);
+        assert_eq!(trim_played(&mut Vec::new(), 0, KEEP_PLAYED), 0);
+
+        // Past the cap: exactly the excess goes, and the playing row is still the playing row.
+        let current = 250;
+        let playing = items[current].video_id.clone();
+        let dropped = trim_played(&mut items, current, KEEP_PLAYED);
+        assert_eq!(dropped, 50);
+        assert_eq!(items.len(), 250);
+        assert_eq!(items[current - dropped].video_id, playing);
+
+        // An endless radio: append a batch, advance through it, trim. Bounded, not 600-and-rising.
+        let mut items = vec![song("seed", None)];
+        let mut current = 0;
+        for hop in 0..30 {
+            items.extend((0..20).map(|i| song(&format!("h{hop}-{i}"), None)));
+            current += 20;
+            let playing = items[current].video_id.clone();
+            current -= trim_played(&mut items, current, KEEP_PLAYED);
+            assert_eq!(items[current].video_id, playing);
+            assert!(items.len() <= KEEP_PLAYED + 21, "grew to {}", items.len());
+        }
     }
 
     #[test]
