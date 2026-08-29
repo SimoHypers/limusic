@@ -51,7 +51,10 @@
 	let before = $state<string | null | undefined>(undefined);
 	let busy = $state<string | null>(null); // id of the tile whose fetch-then-play is in flight
 	// Google's CDN 404s some rewritten sizes; a dead thumb degrades to a placeholder icon rather than
-	// the browser's broken-image glyph.
+	// the browser's broken-image glyph. Keyed by URL, not by tile id: a tile's stored cover is a
+	// snapshot that can have expired since it was pinned, and `freshen` swaps in the live library's
+	// URL a moment after startup. Keyed by id, that first failure stuck to the tile and the new URL
+	// was never tried, so the shortcut sat blank until navigating away and back remounted this (#138).
 	let failed = $state<Record<string, boolean>>({});
 
 	// One handler for the whole section: the tile under the cursor carries its id in `data-pick`, so
@@ -200,14 +203,14 @@
 									? 'my-2 ml-2 h-12 w-12 rounded-full'
 									: 'h-16 w-16'}"
 							>
-								{#if item.thumbnail && !failed[item.id] && !onRepeat}
+								{#if item.thumbnail && !failed[item.thumbnail] && !onRepeat}
 									<img
 										src={thumb(item.thumbnail, 400)}
 										alt=""
 										class="h-full w-full object-cover"
 										loading="lazy"
 										draggable="false"
-										onerror={() => (failed = { ...failed, [item.id]: true })}
+										onerror={() => (failed = { ...failed, [item.thumbnail!]: true })}
 									/>
 								{:else}
 									<div

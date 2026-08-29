@@ -30,7 +30,9 @@
 	// play). One at a time: a second click while the first resolves is a mis-click, not a request.
 	let busy = $state<string | null>(null);
 	// Google's CDN 404s some rewritten sizes; a dead thumb degrades to the placeholder icon rather
-	// than the browser's broken-image glyph. Keyed by id — a handful of rows, so a plain object.
+	// than the browser's broken-image glyph. Keyed by URL, not by id: a recent keeps the cover it had
+	// the day it was played and `freshen` swaps in the live library's a moment after startup, so an id
+	// key made the first failure outlive the URL that caused it (#138).
 	let failed = $state<Record<string, boolean>>({});
 
 	async function play(item: BrowseItem) {
@@ -73,7 +75,7 @@
 						? 'rounded-full'
 						: 'rounded-md'}"
 				>
-					{#if item.thumbnail && !failed[item.id]}
+					{#if item.thumbnail && !failed[item.thumbnail]}
 						<!-- 400 for a 40px slot: it's the size every card on the page already asked for, so
 						     it comes straight out of the webview's cache. -->
 						<img
@@ -82,7 +84,7 @@
 							class="h-full w-full object-cover"
 							loading="lazy"
 							draggable="false"
-							onerror={() => (failed = { ...failed, [item.id]: true })}
+							onerror={() => (failed = { ...failed, [item.thumbnail!]: true })}
 						/>
 					{:else}
 						{@const onRepeat = item.id === ON_REPEAT_ID}
