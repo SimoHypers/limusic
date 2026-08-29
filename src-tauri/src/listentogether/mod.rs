@@ -7,6 +7,7 @@
 //! No back-reference to `AppState` (avoids an Arc cycle): everything the connection needs is the
 //! `AppHandle` (to emit UI events) and the sync channel.
 
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,8 +17,11 @@ use listen_protocol::{
     ClientMessage, Playback, PlaybackKind, RoomState, ServerMessage, Suggestion, Track, User,
 };
 use tauri::{AppHandle, Emitter};
+use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex};
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::{Error as WsError, Message};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 /// Playback intents the connection hands to the bridge task to apply to the local player.
 #[derive(Debug, Clone)]
@@ -316,8 +320,16 @@ impl LtSession {
             }
             self.emit_state().await;
 
-            match tokio_tungstenite::connect_async(&url).await {
-                Ok((ws, _)) => {
+            match connect_ws(&url).await {
+                Ok(ws) => {
+                    // A connect that outlived its cancellation must not touch shared state:
+                    // `leave()` and a second Host/Join click bump `gen`, but neither can interrupt
+                    // an in-flight connect. Without this check a late arrival overwrites the live
+                    // connection's `outbound` sender and re-sends its stale CreateRoom/JoinRoom on
+                    // a second socket.
+                    if self.gen.load(Ordering::SeqCst) != gen {
+                        return;
+                    }
                     attempt = 0;
                     let (mut sink, mut read) = ws.split();
                     let (otx, mut orx) = mpsc::unbounded_channel::<ClientMessage>();
@@ -385,7 +397,10 @@ impl LtSession {
                     }
                     writer.abort();
                     ping.abort();
-                    self.inner.lock().await.outbound = None;
+                    // Only if we still own the session: a newer connection may have replaced us.
+                    if self.gen.load(Ordering::SeqCst) == gen {
+                        self.inner.lock().await.outbound = None;
+                    }
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "listen-together connect failed");
@@ -491,6 +506,9 @@ impl LtSession {
             ServerMessage::UserLeft { user_id } => {
                 let mut inner = self.inner.lock().await;
                 inner.users.retain(|u| u.user_id != user_id);
+                // Also covers a joiner who vanished while still pending: without this the host's
+                // request list keeps a row that approving can never clear.
+                inner.pending_joins.retain(|(id, _)| id != &user_id);
             }
             ServerMessage::UserDisconnected { user_id } => {
                 let mut inner = self.inner.lock().await;
@@ -663,6 +681,87 @@ impl LtSession {
 
     async fn emit_notice(&self, msg: &str) {
         let _ = self.app.emit("lt-notice", msg);
+    }
+}
+
+/// How long one address gets to complete a TCP handshake before we move to the next.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
+
+/// Open the WebSocket, giving every resolved address its own short deadline.
+///
+/// `tokio_tungstenite::connect_async` hands `host:port` straight to `TcpStream::connect`, which
+/// walks the resolved addresses one at a time and waits out the OS SYN timeout (~127s on Linux) on
+/// each dead one. Tailscale Funnel publishes three AAAA and three A records for a node, and the
+/// AAAA ingress is a black hole from some networks; glibc sorts IPv6 first, so a host with working
+/// IPv6 burned six minutes on dead addresses before ever trying the IPv4 that works. Same reason a
+/// join request never reached the host: the socket carrying it was still in a SYN retry.
+async fn connect_ws(url: &str) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, WsError> {
+    let req = url.into_client_request()?;
+    let uri = req.uri().clone();
+    let host = uri
+        .host()
+        .ok_or(WsError::Url(tokio_tungstenite::tungstenite::error::UrlError::NoHostName))?;
+    let port = uri.port_u16().unwrap_or(if uri.scheme_str() == Some("ws") { 80 } else { 443 });
+
+    let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, port)).await?.collect();
+    let socket = connect_first(&addrs).await.map_err(WsError::Io)?;
+
+    let (ws, _) = tokio_tungstenite::client_async_tls_with_config(req, socket, None, None).await?;
+    Ok(ws)
+}
+
+/// First address that completes a handshake within [`CONNECT_TIMEOUT`], in order.
+async fn connect_first(addrs: &[SocketAddr]) -> std::io::Result<TcpStream> {
+    let mut last: Option<std::io::Error> = None;
+    for &addr in addrs {
+        match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await {
+            Ok(Ok(s)) => return Ok(s),
+            Ok(Err(e)) => {
+                tracing::debug!(%addr, error = %e, "listen-together: address refused");
+                last = Some(e);
+            }
+            Err(_) => {
+                tracing::debug!(%addr, "listen-together: address timed out");
+                last = Some(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!("{addr} did not answer in {CONNECT_TIMEOUT:?}"),
+                ));
+            }
+        }
+    }
+    Err(last.unwrap_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "host resolved to nothing")
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bug: a dead address ahead of a live one used to cost a full OS SYN timeout (~127s on
+    /// Linux, six minutes across Funnel's three AAAA records). It must now fall through fast.
+    #[tokio::test]
+    async fn dead_address_does_not_block_the_live_one() {
+        let live = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let live_addr = live.local_addr().unwrap();
+        // 198.51.100.0/24 is TEST-NET-2: routed nowhere, so this either hangs (→ our timeout) or
+        // errors out, which is exactly the fall-through we want to exercise.
+        let dead: SocketAddr = "198.51.100.1:443".parse().unwrap();
+
+        let t = std::time::Instant::now();
+        let s = connect_first(&[dead, live_addr]).await.expect("should reach the live address");
+        assert_eq!(s.peer_addr().unwrap(), live_addr);
+        assert!(
+            t.elapsed() < CONNECT_TIMEOUT * 2,
+            "fell through in {:?}, expected under {:?}",
+            t.elapsed(),
+            CONNECT_TIMEOUT * 2
+        );
+    }
+
+    #[tokio::test]
+    async fn no_addresses_is_an_error_not_a_hang() {
+        assert!(connect_first(&[]).await.is_err());
     }
 }
 
