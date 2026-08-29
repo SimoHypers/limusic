@@ -96,6 +96,10 @@
 		syncSeeks = 0;
 		syncStart = 0;
 		lastSeek = 0; // a new track may sync at once, whatever the last one was doing
+		// `dormant` is deliberately *not* reset here: it means "this window is hidden and past the
+		// grace", which a track change does not undo. Clearing it would start the next video track
+		// decoding into a window nobody is looking at. Coming back into view is what clears it, and
+		// that path already re-runs the whole converge phase.
 	});
 
 	$effect(() => {
@@ -234,7 +238,15 @@
 
 	$effect(() => {
 		const paused = playback.paused;
-		if (!el || !hasVideo()) return;
+		if (!el) return;
+		// Losing the video has to stop the picture, and it used to fall out of the guard below
+		// before it could: `hasVideo()` goes false on every track change (the reset effect clears
+		// `video.url`), so an audio track after a video one left the old picture decoding at full
+		// rate inside the parked 0x0 container until it reached its own end.
+		if (!hasVideo()) {
+			el.pause();
+			return;
+		}
 		// `dormant`, not `document.hidden`: a hidden window keeps the picture for HIDDEN_GRACE, so a
 		// mini-player round trip comes back with nothing to re-sync. Past that it stops, and
 		// unpausing from the mini player must not start a dormant window decoding again.
@@ -276,7 +288,10 @@
 			syncVideo();
 		};
 		document.addEventListener('visibilitychange', onVisibility);
-		return () => document.removeEventListener('visibilitychange', onVisibility);
+		return () => {
+			clearTimeout(hiddenTimer);
+			document.removeEventListener('visibilitychange', onVisibility);
+		};
 	});
 
 	// The element is built by hand, not by an {#if}, because it has to move between DOM parents and
@@ -307,7 +322,16 @@
 		const u = hasVideo() ? video.url : null;
 		// Setting src to the same string would still reload the element, so only write a change.
 		if (u && el.getAttribute('src') !== u) el.setAttribute('src', u);
-		else if (!u && el.hasAttribute('src')) el.removeAttribute('src');
+		else if (!u && el.hasAttribute('src')) {
+			el.removeAttribute('src');
+			// Removing the attribute does not run the media load algorithm (HTML 4.8.11 says so
+			// outright), so without this the element keeps the finished video's GStreamer pipeline,
+			// its buffers and its connection to the proxy for the rest of the session. `load()` is
+			// the only thing that runs the release steps. Never on a src *swap*: that path already
+			// reloads, and resetting readyState mid-swap is what the converge phase is written
+			// around.
+			el.load();
+		}
 	});
 
 	$effect(() => {
