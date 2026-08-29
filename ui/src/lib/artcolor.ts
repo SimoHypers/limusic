@@ -86,15 +86,26 @@ export function warmAccent(url: string): void {
 	else setTimeout(run, 500);
 }
 
+// One scratch canvas, reused: a fresh SIZExSIZE backing store per cover is a native allocation the
+// JS heap measurement cannot see. Everything after the `await` in `read` is synchronous, so two
+// overlapping decodes cannot interleave on it.
+let scratch: CanvasRenderingContext2D | null | undefined;
+function scratchCtx(): CanvasRenderingContext2D | null {
+	if (scratch === undefined) {
+		const c = document.createElement('canvas');
+		c.width = c.height = SIZE;
+		scratch = c.getContext('2d', { willReadFrequently: true });
+	}
+	return scratch;
+}
+
 async function read(url: string): Promise<string | null> {
 	try {
 		const img = new Image();
 		img.crossOrigin = 'anonymous';
 		img.src = url;
 		await img.decode();
-		const canvas = document.createElement('canvas');
-		canvas.width = canvas.height = SIZE;
-		const ctx = canvas.getContext('2d', { willReadFrequently: true });
+		const ctx = scratchCtx();
 		if (!ctx) return null;
 		ctx.drawImage(img, 0, 0, SIZE, SIZE);
 		return pickAccent(ctx.getImageData(0, 0, SIZE, SIZE).data);
