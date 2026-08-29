@@ -127,7 +127,9 @@ export const en = {
 		edit_playlist: 'Edit playlist',
 		delete_playlist: 'Delete playlist',
 		remove_dislike: 'Remove dislike',
-		add_to_playlist: 'Add to playlist'
+    add_to_playlist: 'Add to playlist',
+		pin_to_top: 'Pin to top',
+		unpin: 'Unpin'
 	},
 	home: {
 		good_morning: 'Good morning',

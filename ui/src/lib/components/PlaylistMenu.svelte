@@ -197,7 +197,7 @@
 				onclick={(e) => run(e, () => togglePin(item.id))}
 			>
 				<HugeiconsIcon icon={pinned ? PinOffIcon : PinIcon} class="h-4 w-4" />
-				{pinned ? 'Unpin' : 'Pin to top'}
+				{pinned ? t("player.unpin") : t("player.pin_to_top")}
 			</button>
 		{/if}
 		{#if canQueue}
