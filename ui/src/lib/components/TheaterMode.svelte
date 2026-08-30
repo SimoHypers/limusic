@@ -61,11 +61,27 @@
 	// rule the now-playing view and the expanded lyrics panel use: navigating anywhere closes this.
 	beforeNavigate(close);
 
+	// Going fullscreen straight from a maximized window is unreliable on Windows (issue #139): the
+	// window keeps its maximized frame, so it lands under the taskbar with a border around it. Drop
+	// the maximized state first there, and restore it on the way out so closing theater puts the
+	// window back the way the user left it. Windows only: on Linux the extra unmaximize is what
+	// breaks it, the compositor ends up with a screen-sized window that was never marked fullscreen
+	// and keeps the panel on top.
 	onMount(() => {
 		const w = getCurrentWindow();
-		w.setFullscreen(true).catch((e) => console.error('theater fullscreen failed', e));
+		const isWindows = navigator.platform.startsWith('Win');
+		let wasMaximized = false;
+		(async () => {
+			if (isWindows && (await w.isMaximized())) {
+				wasMaximized = true;
+				await w.unmaximize();
+			}
+			await w.setFullscreen(true);
+		})().catch((e) => console.error('theater fullscreen failed', e));
 		return () => {
-			w.setFullscreen(false).catch(() => {});
+			w.setFullscreen(false)
+				.then(() => (wasMaximized ? w.maximize() : undefined))
+				.catch(() => {});
 		};
 	});
 

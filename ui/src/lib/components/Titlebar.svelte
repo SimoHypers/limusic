@@ -133,10 +133,12 @@
 </script>
 
 <!-- `relative` makes this a stacking context, so the account/window dropdowns inside it are capped
-     at this z — it must outrank the panels below (LyricsPanel/QueuePanel, z-30). -->
+     at this z — it must outrank the panels below (LyricsPanel/QueuePanel, z-30). Theater mode is
+     the exception: it sits at z-40 so dialogs (z-50) can open over it, so the bar has to duck
+     under it instead of the other way round. -->
 <header
 	data-tauri-drag-region
-	class="relative z-50 flex h-9 shrink-0 select-none items-center justify-between border-b border-border/60 bg-background"
+	class="relative {ui.theaterOpen ? 'z-0' : 'z-50'} flex h-9 shrink-0 select-none items-center justify-between border-b border-border/60 bg-background"
 >
 	<span
 		class="pointer-events-none absolute inset-x-0 text-center text-xs font-medium tracking-wide text-muted-foreground"
