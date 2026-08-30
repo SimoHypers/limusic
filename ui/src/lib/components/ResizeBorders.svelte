@@ -2,9 +2,10 @@
 	// Undecorated window (tauri.conf `decorations: false`) = the compositor no longer provides
 	// resize borders, so the app recreates them: invisible strips along every edge/corner that
 	// hand the mousedown to the compositor's interactive resize. Hidden while maximized — a
-	// maximized window has no edges to grab.
+	// maximized window has no edges to grab, and neither has a fullscreen one (theater mode).
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { win } from '$lib/win.svelte';
+	import { ui } from '$lib/player.svelte';
 
 	type Dir =
 		| 'North'
@@ -37,7 +38,7 @@
 	];
 </script>
 
-{#if !win.maximized}
+{#if !win.maximized && !ui.theaterOpen}
 	{#each handles as h (h.dir)}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="fixed z-[60] {h.cls}" onmousedown={(e) => start(e, h.dir)} aria-hidden="true"></div>

@@ -12,7 +12,12 @@ export interface QueueRow {
 }
 
 export interface QueueBlock {
-	/** Stable id for keyed rendering (the first row's key). */
+	/** Stable id for keyed rendering: the block's kind plus its ordinal among blocks of that kind.
+	 *  Deliberately not the first row's key. That changes on every track advance (the row it names
+	 *  is the one that just started playing), which changed the block's key, which made Svelte tear
+	 *  down and rebuild the entire block, every track, for as long as the panel stayed open. WebKit
+	 *  does not give all of that back: it cost ~40 KB per rendered row per track, which is how a
+	 *  two-hour listen reached 3.5 GB. */
 	key: string;
 	/** What groups a run: same kind ⇒ same block. */
 	kind: string;
@@ -82,6 +87,7 @@ export function queueBlocks(q: QueueState): {
 	}
 
 	const blocks: QueueBlock[] = [];
+	const kindSeen = new Map<string, number>();
 	let cleared = false;
 	for (let i = currentIndex + 1; i < items.length; i++) {
 		const r = row(i);
@@ -102,8 +108,10 @@ export function queueBlocks(q: QueueState): {
 			last.rows.push(r);
 			continue;
 		}
+		const ord = kindSeen.get(kind) ?? 0;
+		kindSeen.set(kind, ord + 1);
 		blocks.push({
-			key: r.key,
+			key: `${kind}#${ord}`,
 			kind,
 			heading: '',
 			autoplay: !!it.autoplay,

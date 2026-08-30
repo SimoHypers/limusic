@@ -38,8 +38,8 @@
 	// The menu's popup lives on <body>, which the dialog counts as an interaction outside itself and
 	// would close on, unmounting the menu mid-click. `data-menu` marks the popup and its backdrop, so
 	// clicking one is treated as still being inside. Everything else outside still dismisses.
-	const inMenu = (e: { detail: { originalEvent: Event } }) => {
-		const t = e.detail.originalEvent.target;
+	const inMenu = (e: Event) => {
+		const t = e.target;
 		return t instanceof Element && !!t.closest('[data-menu]');
 	};
 
@@ -104,10 +104,10 @@
 		// data-ctx: right-clicking a row opens that item's menu at the pointer (see `ctxHost`). The
 		// input keeps WebKit's own menu (`wantsNative`).
 		'data-ctx': '',
-		onInteractOutside: (e: { detail: { originalEvent: Event }; preventDefault: () => void }) => {
+		onInteractOutside: (e: PointerEvent) => {
 			if (inMenu(e)) e.preventDefault();
 		},
-		onFocusOutside: (e: { detail: { originalEvent: Event }; preventDefault: () => void }) => {
+		onFocusOutside: (e: FocusEvent) => {
 			if (inMenu(e)) e.preventDefault();
 		}
 	}}

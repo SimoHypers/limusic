@@ -159,46 +159,38 @@ fn init_logging(dir: &std::path::Path) {
 }
 
 pub fn run() {
-    // NVIDIA + Wayland: WebKitGTK's DMABUF renderer trips over NVIDIA's explicit
-    // sync (GBM buffer failures / blank window / Gdk Error 71). Disabling explicit
-    // sync keeps hardware-accelerated rendering, unlike the old
-    // WEBKIT_DISABLE_DMABUF_RENDERER=1 workaround which forced CPU software
-    // rendering on WebKitGTK 2.46+ and made the whole UI laggy. Harmless no-op on
-    // non-NVIDIA drivers. ponytail: blanket-set on Linux; probe driver/session if
-    // an X11/NVIDIA blank-window report ever comes in.
+    // Two separate NVIDIA/WebKitGTK failures, two separate variables. Neither substitutes for
+    // the other, which is the mistake ee48c55 made.
     #[cfg(target_os = "linux")]
     {
+        // Without this the window dies at startup with "Gdk-Message: Error 71 (Protocol error)
+        // dispatching to Wayland display". Harmless no-op on non-NVIDIA drivers.
         if std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {
             std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
         }
-        // AppImage + NVIDIA: the AppImage ships its own WebKitGTK/GTK stack, and inside
-        // that environment the DMABUF renderer fails GBM buffer allocation ("Failed to
-        // create GBM buffer … Invalid argument") → solid white window. The explicit-sync
-        // fix above does NOT cover this case — verified 2026-07-15: the raw binary renders
-        // on the system webkit (same 2.52.4) while the AppImage white-screens, and only
-        // disabling DMABUF makes the AppImage paint. Cost: CPU software rendering, so gate
-        // it tightly — rpm/dev builds and non-NVIDIA AppImages keep full GPU compositing.
+        // NVIDIA + WebKitGTK: the DMABUF renderer does not work on this driver, on either
+        // display backend. Measured 2026-08-30 on a GTX 1060 (driver 580.173.02, Fedora 44,
+        // WebKitGTK 2.52.5), with the explicit-sync fix above set in every case:
         //
-        // That cost is much larger than "no GPU compositing" implies. Measured on this
-        // WebKitGTK 2.52.5, same page of 300 cards, only the renderer differing:
+        //   native Wayland, DMABUF on    the window paints and then hangs
+        //   GDK_BACKEND=x11, DMABUF on   "Failed to create GBM buffer of size WxH: Invalid
+        //                                argument", no window ever appears
+        //   native Wayland, DMABUF off   works
         //
-        //     GPU compositing      97 MiB idle → 135 MiB
-        //     software rendering   62 MiB idle → 245 MiB
+        // ee48c55 dropped this on the theory that __NV_DISABLE_EXPLICIT_SYNC=1 had replaced it.
+        // It has not: that variable fixes the Gdk "Error 71 (Protocol error)" crash, which is a
+        // different failure, and the dev build froze without this one.
         //
-        // The gap grows with content, because every composited layer becomes a CPU-side
-        // backing store. It is the single biggest term in this app's memory use, far ahead
-        // of thumbnail sizes or DOM size (both measured, both made no difference).
+        // The cost is real, which is why it is gated rather than blanket-set: on WebKitGTK 2.46+
+        // this is CPU software rendering, not a second accelerated path, and it roughly doubles
+        // web process memory on a heavy page (135 MiB vs 245 MiB on 300 cards). AMD and Intel keep
+        // full GPU compositing. /dev/nvidiactl is the proprietary driver's control node, present
+        // whenever it is loaded and absent under nouveau, which does not have this bug.
         //
-        // This workaround is also older than the fix that probably caused the failure:
-        // it went in 2026-07-15, and b4d98fa (2026-07-27) stopped the AppDir shadowing the
-        // host's libwayland-client, which broke Mesa's EGL vendor loading — the same class
-        // of failure, and its commit message notes it was "invisible on NVIDIA". Set
-        // LIMUSIC_FORCE_GPU=1 to skip the workaround and check whether the AppImage still
-        // white-screens. If it renders, delete this block.
-        if std::env::var_os("APPIMAGE").is_some()
-            && std::path::Path::new("/dev/nvidiactl").exists()
+        // Set the variable yourself to override in either direction: WebKit reads it, we only
+        // default it. ponytail: drop the whole block the day a driver release makes row one pass.
+        if std::path::Path::new("/dev/nvidiactl").exists()
             && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
-            && std::env::var_os("LIMUSIC_FORCE_GPU").is_none()
         {
             std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         }

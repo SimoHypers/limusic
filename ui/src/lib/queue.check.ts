@@ -80,6 +80,14 @@ v = queueBlocks(
 ok(v.blocks.map((b) => b.heading).join() === 'Next from: X,Next from: Y', 'one block each');
 ok(v.blocks[0].key !== v.blocks[1].key, 'block keys are distinct (keyed rendering)');
 
+// The one that leaked: advancing a track must not change a block's key. It used to be the first
+// row's key, so every track change re-keyed the block and Svelte rebuilt every row under it.
+const long = [song('a'), song('b'), song('c'), song('d')];
+ok(
+	queueBlocks(q(long, 0)).blocks[0].key === queueBlocks(q(long, 1)).blocks[0].key,
+	'a block keeps its key when the queue advances'
+);
+
 // No source name and nothing manual: the plain "Next up" case still works, as one block.
 v = queueBlocks(q([song('a'), song('b'), song('c')], 0));
 ok(v.blocks.length === 1 && v.blocks[0].heading === 'Next up', 'unnamed context is one block');
