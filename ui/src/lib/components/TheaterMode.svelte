@@ -71,6 +71,10 @@
 
 	// Escape is the way out that needs no chrome on screen, which is what lets the chrome hide.
 	function onKey(e: KeyboardEvent) {
+		// A dialog or menu open over this one (the palette, the shortcut sheet, a track menu) already
+		// took the key: bits-ui listens on the document and preventDefaults it, and its Escape should
+		// only close itself, not the view underneath.
+		if (e.defaultPrevented) return;
 		if (e.key === 'Escape') {
 			e.preventDefault();
 			close();
@@ -263,14 +267,15 @@
 
 <svelte:window onkeydown={onKey} onpointerup={() => (volDragging = false)} />
 
-<!-- Below the toast/update banners (z-100) so a notification still reaches the user, above
-     everything else including the titlebar: fullscreen means fullscreen. -->
+<!-- Above the whole app including the titlebar (the chrome tops out at z-20): fullscreen means
+     fullscreen. Below the dialogs and menus (z-50 and up) and the toast/update banners (z-100),
+     which have to stay reachable from in here: Ctrl+K opened the palette behind this view. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -- wheel is the volume gesture, move only wakes the chrome -->
 <section
 	transition:fade={{ duration: 220 }}
 	onwheel={wheelVolume}
 	onpointermove={wake}
-	class="theater fixed inset-0 z-[90] flex flex-col overflow-hidden bg-background text-foreground {idle
+	class="theater fixed inset-0 z-40 flex flex-col overflow-hidden bg-background text-foreground {idle
 		? 'cursor-none'
 		: ''}"
 >
