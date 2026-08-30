@@ -57,11 +57,18 @@ export async function checkForUpdatesQuiet() {
 export async function checkForUpdatesInteractive(): Promise<{ message: string; error: boolean }> {
 	updateState.checking = true;
 	try {
-		if (await look())
-			return { message: `Update available: v${updateState.available!.version}`, error: false };
-		return { message: 'You are running the latest version', error: false };
+		if (await look()) {
+			const key = !updateState.canInstall
+				? 'settings.about.update_available_pkg'
+				: 'settings.about.update_available';
+			return {
+				message: t(key, { version: updateState.available!.version }),
+				error: false
+			};
+		}
+		return { message: t('settings.about.up_to_date'), error: false };
 	} catch (e) {
-		return { message: `Update check failed: ${e}`, error: true };
+		return { message: t('toasts.update_failed', { error: String(e) }), error: true };
 	} finally {
 		updateState.checking = false;
 	}

@@ -318,6 +318,8 @@ export const en = {
 			checking_updates: 'Checking for updates...',
 			up_to_date: 'You are using the latest version.',
 			update_available: 'Version {version} is available!',
+			update_available_pkg:
+				'Version {version} is available! This build was installed via a package manager, update it the same way.',
 			install_update: 'Install and Restart',
 			download_page: 'Open download page',
 			changelog: 'Changelog & Release Notes',
