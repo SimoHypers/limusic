@@ -39,11 +39,15 @@
 	}
 
 	// Every card is one browse call, and a shelf holds 20 — only spend it once the card is on screen.
+	// `loading` also gates the placeholder pulse below: a card that has never been scrolled to is
+	// not loading anything, and an infinite animation on it runs for the whole session.
+	let loading = $state(false);
 	$effect(() => {
 		if (!root) return;
 		const io = new IntersectionObserver((entries) => {
 			if (!entries.some((e) => e.isIntersecting)) return;
 			io.disconnect();
+			loading = true;
 			load().catch(() => {}); // best-effort: a card without its tracks still opens and plays
 		});
 		io.observe(root);
@@ -167,13 +171,19 @@
 				</button>
 			{/each}
 		{:else}
-			<!-- Three placeholder rows: the card keeps its height when the tracks land. -->
+			<!-- Three placeholder rows: the card keeps its height when the tracks land.
+			     `still` until the card has been scrolled to: the shelf holds 20 of these and only
+			     the first few are ever on screen, so an unconditional pulse left ~180 infinite
+			     animations running off-screen for the whole session, which is most of the app's
+			     idle CPU. A card that has not started fetching is not loading, so it does not
+			     animate. -->
+			{@const still = loading ? '' : 'animate-none'}
 			{#each Array(3) as _, i (i)}
 				<div class="flex items-center gap-2 p-1">
-					<Skeleton class="h-8 w-8 shrink-0 rounded-md" />
+					<Skeleton class="h-8 w-8 shrink-0 rounded-md {still}" />
 					<div class="min-w-0 flex-1">
-						<Skeleton class="mb-1 h-3 w-3/5 rounded" />
-						<Skeleton class="h-2.5 w-2/5 rounded" />
+						<Skeleton class="mb-1 h-3 w-3/5 rounded {still}" />
+						<Skeleton class="h-2.5 w-2/5 rounded {still}" />
 					</div>
 				</div>
 			{/each}

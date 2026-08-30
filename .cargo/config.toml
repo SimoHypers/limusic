@@ -1,8 +1,14 @@
-# Fedora/WebKitGTK-on-Wayland fix. Without this the window dies at startup with
-#   Gdk-Message: Error 71 (Protocol error) dispatching to Wayland display
-# and DMABUF/GBM buffer errors. Primary target is Fedora/WebKitGTK (CLAUDE.md), so default the
-# workaround here. Not `force`d — set GDK_BACKEND=wayland in your shell to override and experiment.
-# Ignored on macOS/Windows (no GDK). ponytail: drop this once WebKitGTK/Wayland stops needing it.
-[env]
-GDK_BACKEND = "x11"
-WEBKIT_DISABLE_DMABUF_RENDERER = "1"
+# Nothing is forced here any more, deliberately.
+#
+# This file used to set GDK_BACKEND=x11 and WEBKIT_DISABLE_DMABUF_RENDERER=1 for every `cargo run`,
+# which made the dev build the only one that got the Fedora/NVIDIA rendering workarounds, and made
+# them impossible to override from the shell: cargo's non-forced [env] sets a variable precisely
+# when the environment does not have it, so `env -u WEBKIT_DISABLE_DMABUF_RENDERER cargo tauri dev`
+# silently got it back.
+#
+# Both now live in `src-tauri/src/lib.rs` `run()`, gated on the driver actually being NVIDIA, so
+# dev, rpm and AppImage builds behave identically and anyone whose driver differs keeps GPU
+# compositing. GDK_BACKEND is set nowhere: native Wayland is fine once DMABUF is off, and forcing
+# XWayland only added GBM allocation failures.
+#
+# To check which renderer a run actually used, read /proc/<webprocess pid>/environ. Never assume.
