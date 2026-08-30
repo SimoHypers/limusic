@@ -383,7 +383,7 @@ export const uk: Translations = {
 		},
 		tempo_pitch: {
 			title: 'Керування темпом і висотою тону',
-			desc: 'Застосовується до всього, що ви слухаєте, до зміни або перезапуску додатка.',
+			desc: 'Застосовується до всіх треків до скидання або перезапуску додатка.',
 			tempo: 'Темп (Швидкість)',
 			pitch: 'Висота тону'
 		},
@@ -506,7 +506,7 @@ export const uk: Translations = {
 		title: 'Назва',
 		artist: 'Виконавець',
 		album: 'Альбом',
-		plays: 'Найбільш популярні',
+		plays: 'Найчастіше прослуховувані',
 		direction: 'Порядок сортування: {dir}',
 		ascending: 'за зростанням',
 		descending: 'за спаданням',
@@ -543,8 +543,8 @@ export const uk: Translations = {
 		quality_updated: 'Якість аудіо оновлено',
 		proxy_saved: 'Проксі збережено — перезапустіть додаток для застосування',
 		caches_cleared: 'Кеш очищено',
-		synced_partial: 'Синхронізовано {synced} з {total}. Не вдалося: {failed}, збережено тут.',
-		synced_none: 'Нічого не синхронізовано. Не вдалося: {failed}, збережено тут.',
+		synced_partial: 'Синхронізовано {synced} з {total}. Не вдалося: {failed}, збережено локально.',
+		synced_none: 'Нічого не синхронізовано. Не вдалося: {failed}, збережено локально.',
 		synced_all: 'Синхронізовано {count} з YouTube Music',
 		added_to_playlist_dupes: 'Додано {count} до {playlist} ({dupes} вже було)',
 		partial_playlist_queued: 'Не вдалося завантажити весь плейліст, у чергу додано лише завантажену частину.',
