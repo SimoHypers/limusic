@@ -159,32 +159,41 @@ fn init_logging(dir: &std::path::Path) {
 }
 
 pub fn run() {
-    // NVIDIA + Wayland: WebKitGTK's DMABUF renderer trips over NVIDIA's explicit
-    // sync (GBM buffer failures / blank window / Gdk Error 71). Disabling explicit
-    // sync keeps hardware-accelerated rendering, unlike the old
-    // WEBKIT_DISABLE_DMABUF_RENDERER=1 workaround which forced CPU software
-    // rendering on WebKitGTK 2.46+ and made the whole UI laggy. Harmless no-op on
-    // non-NVIDIA drivers. ponytail: blanket-set on Linux; probe driver/session if
-    // an X11/NVIDIA blank-window report ever comes in.
+    // Two separate NVIDIA/WebKitGTK failures, two separate variables. Neither substitutes for
+    // the other, which is the mistake ee48c55 made.
     #[cfg(target_os = "linux")]
     {
+        // Without this the window dies at startup with "Gdk-Message: Error 71 (Protocol error)
+        // dispatching to Wayland display". Harmless no-op on non-NVIDIA drivers.
         if std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {
             std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
         }
-        // The AppImage used to force WEBKIT_DISABLE_DMABUF_RENDERER=1 on NVIDIA, because in
-        // July 2026 its bundled GTK stack failed GBM buffer allocation and painted a white
-        // window. b4d98fa (2026-07-27) stopped the AppDir shadowing the host's libwayland-client,
-        // which is what broke Mesa's EGL vendor loading, and the white screen went with it:
-        // re-verified 2026-08-29 on a GTX 1060 / driver 580.173.02, Fedora 44 Wayland, WebKitGTK
-        // 2.52.3 — the 0.6.4 AppImage renders the full UI with the workaround skipped.
+        // NVIDIA + WebKitGTK: the DMABUF renderer does not work on this driver, on either
+        // display backend. Measured 2026-08-30 on a GTX 1060 (driver 580.173.02, Fedora 44,
+        // WebKitGTK 2.52.5), with the explicit-sync fix above set in every case:
         //
-        // Removing it matters well beyond compositing smoothness. Software rendering turns every
-        // composited layer into a CPU-side backing store, and it was the single biggest term in
-        // this app's memory use (measured on the same page of 300 cards: 135 MiB with GPU
-        // compositing, 245 MiB without, and the gap grows with content).
+        //   native Wayland, DMABUF on    the window paints and then hangs
+        //   GDK_BACKEND=x11, DMABUF on   "Failed to create GBM buffer of size WxH: Invalid
+        //                                argument", no window ever appears
+        //   native Wayland, DMABUF off   works
         //
-        // WEBKIT_DISABLE_DMABUF_RENDERER is WebKit's own env var and is still honoured, so anyone
-        // whose driver does regress can set it by hand without a new build.
+        // ee48c55 dropped this on the theory that __NV_DISABLE_EXPLICIT_SYNC=1 had replaced it.
+        // It has not: that variable fixes the Gdk "Error 71 (Protocol error)" crash, which is a
+        // different failure, and the dev build froze without this one.
+        //
+        // The cost is real, which is why it is gated rather than blanket-set: on WebKitGTK 2.46+
+        // this is CPU software rendering, not a second accelerated path, and it roughly doubles
+        // web process memory on a heavy page (135 MiB vs 245 MiB on 300 cards). AMD and Intel keep
+        // full GPU compositing. /dev/nvidiactl is the proprietary driver's control node, present
+        // whenever it is loaded and absent under nouveau, which does not have this bug.
+        //
+        // Set the variable yourself to override in either direction: WebKit reads it, we only
+        // default it. ponytail: drop the whole block the day a driver release makes row one pass.
+        if std::path::Path::new("/dev/nvidiactl").exists()
+            && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+        {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
     }
 
     tauri::Builder::default()
