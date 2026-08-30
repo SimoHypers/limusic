@@ -321,6 +321,8 @@ export const tr: Translations = {
 			checking_updates: 'Güncellemeler denetleniyor...',
 			up_to_date: 'En güncel sürümü kullanıyorsunuz.',
 			update_available: '{version} sürümü mevcut!',
+			update_available_pkg:
+				'{version} sürümü mevcut! Bu derleme paket yöneticisiyle kuruldu, aynı şekilde güncelleyin.',
 			install_update: 'Yükle ve Yeniden Başlat',
 			download_page: 'İndirme sayfasını aç',
 			changelog: 'Değişiklik Günlüğü ve Sürüm Notları',

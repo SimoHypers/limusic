@@ -320,6 +320,8 @@ export const ru: Translations = {
 			checking_updates: 'Проверка обновлений...',
 			up_to_date: 'У вас установлена последняя версия.',
 			update_available: 'Доступна версия {version}!',
+			update_available_pkg:
+				'Доступна версия {version}! Эта сборка была установлена через менеджер пакетов, обновите её тем же способом.',
 			install_update: 'Установить и перезапустить',
 			download_page: 'Открыть страницу загрузки',
 			changelog: 'Список изменений',

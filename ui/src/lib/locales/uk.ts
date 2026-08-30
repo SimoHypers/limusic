@@ -320,6 +320,8 @@ export const uk: Translations = {
 			checking_updates: 'Перевірка оновлень...',
 			up_to_date: 'У вас встановлена остання версія.',
 			update_available: 'Доступна версія {version}!',
+			update_available_pkg:
+				'Доступна версія {version}! Ця збірка була встановлена через менеджер пакетів, оновіть її так само.',
 			install_update: 'Встановити та перезапустити',
 			download_page: 'Відкрити сторінку завантаження',
 			changelog: 'Список змін та релізи',
