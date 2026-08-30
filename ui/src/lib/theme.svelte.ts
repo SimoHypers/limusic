@@ -328,11 +328,17 @@ export function fontAvailable(name: string): boolean {
 // Two things come out of one colour: the accent quartet (inline vars, as everywhere else) and
 // --art-h, the hue every surface in the `.art-tint` rules is derived from (layout.css).
 //
-// The crossfade between tracks is CSS, not JS: `--art-h`, `--primary` and `--accent` are registered
-// with @property in layout.css, so setting them once starts an interpolation the engine owns. This
-// used to be a requestAnimationFrame loop, which meant ~36 style invalidations of the whole
-// document, driven from the main thread, landing exactly on the frames the track change was
-// already paying for. All that is left here is picking the target and keeping the hue continuous.
+// The crossfade between tracks is CSS, not JS: `--primary` and `--accent` are registered with
+// @property in layout.css, so setting them once starts an interpolation the engine owns. This used
+// to be a requestAnimationFrame loop, which meant ~36 style invalidations of the whole document,
+// driven from the main thread, landing exactly on the frames the track change was already paying
+// for. All that is left here is picking the target and keeping the hue continuous.
+//
+// --art-h is set the same way but is NOT transitioned: every surface is derived from it, so
+// animating it restyled the whole document once a frame and WebKitGTK kept ~26 MB of that per
+// track change, permanently. The numbers are in the `html.art-tint` comment in layout.css.
+// `nearestHue` stays because the value written here is unwrapped either way, and a future
+// crossfade would need it again.
 
 let art: { h: number; hex: string } | null = null;
 let wanted = '';

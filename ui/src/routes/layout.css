@@ -472,12 +472,25 @@
 
    Chroma is what makes it visible: the default palette's neutrals sit at 0.003–0.034, which reads
    as grey. Turn the numbers here down together if a saturated cover is too much. */
-/* One duration for the whole palette: the accent and every derived surface land together. Sits on
-   the class itself so dragging the accent picker (which writes --primary directly) stays instant
-   when the tint is off. The reduced-motion block at the bottom of this file flattens it to 0. */
+/* The accent quartet crossfades; the surfaces below do not. Sits on the class itself so dragging
+   the accent picker (which writes --primary directly) stays instant when the tint is off. The
+   reduced-motion block at the bottom of this file flattens it to 0.
+
+   --art-h is deliberately NOT in this list. Every custom property in the two blocks below is
+   derived from it, so animating it restyles the whole document once a frame for the length of the
+   transition, and WebKitGTK keeps ~26 MB of that per track change and never gives it back: a
+   two-hour session reached 1.5 GB in the web process. Measured 2026-08-30 on Fedora 44 by driving
+   track changes over MPRIS and sampling the web process RSS, 16 changes a run:
+
+       --art-h + --primary + --accent    +35 to +44 MB per track change
+       --art-h alone                     +26 MB
+       --primary + --accent alone        +8 to +11 MB
+       no transition at all              +6 to +8 MB
+
+   So the tint lands on the frame the cover does, and only the accent fades. Do not put --art-h
+   back without re-running that measurement. */
 html.art-tint {
 	transition:
-		--art-h 600ms cubic-bezier(0.4, 0, 0.2, 1),
 		--primary 600ms cubic-bezier(0.4, 0, 0.2, 1),
 		--accent 600ms cubic-bezier(0.4, 0, 0.2, 1);
 }
