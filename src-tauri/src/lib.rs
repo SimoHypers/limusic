@@ -168,29 +168,48 @@ pub fn run() {
         if std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {
             std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
         }
-        // NVIDIA + WebKitGTK: the DMABUF renderer does not work on this driver, on either
-        // display backend. Measured 2026-08-30 on a GTX 1060 (driver 580.173.02, Fedora 44,
-        // WebKitGTK 2.52.5), with the explicit-sync fix above set in every case:
+        // NVIDIA + WebKitGTK: the DMABUF renderer wedges the web process, and nothing short of
+        // turning it off has held up. The window keeps its last frame while playback carries on,
+        // which is what #143 reported and what makes this look like a hang rather than a crash.
         //
-        //   native Wayland, DMABUF on    the window paints and then hangs
-        //   GDK_BACKEND=x11, DMABUF on   "Failed to create GBM buffer of size WxH: Invalid
-        //                                argument", no window ever appears
-        //   native Wayland, DMABUF off   works
+        // What is actually known, as of 2026-08-30 (GTX 1060, driver 580.173.02, Fedora 44,
+        // WebKitGTK 2.52.5, KDE, `__NV_DISABLE_EXPLICIT_SYNC=1` in every case):
         //
-        // ee48c55 dropped this on the theory that __NV_DISABLE_EXPLICIT_SYNC=1 had replaced it.
-        // It has not: that variable fixes the Gdk "Error 71 (Protocol error)" crash, which is a
-        // different failure, and the dev build froze without this one.
+        //   - On XWayland the renderer never works at all: "Failed to create GBM buffer of size
+        //     WxH: Invalid argument", zero frames, window never paints. This is not a corner case.
+        //     The AppImage runs there unconditionally, because linuxdeploy-plugin-gtk's AppRun hook
+        //     exports GDK_BACKEND=x11 and Tauri's bundler ships that hook. GDK_BACKEND is set
+        //     nowhere in this repo.
+        //   - On native Wayland it survives everything a harness can throw at it: 2.5 minutes and
+        //     eight track changes of real playback, and 30 seconds of scrolling a 400-layer page in
+        //     `ui/perf/renderprobe.py`, all at 62 fps. It still wedges within ~10 seconds of a
+        //     person actually using the app. Whatever the trigger is, it is in the interaction path
+        //     and no automated probe here has reached it.
+        //   - `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` keeps the renderer while bypassing GBM entirely.
+        //     It fixes XWayland and costs about half the CPU of software rendering (10% vs 18% on
+        //     one composited animation). It does *not* stop the freeze. So GBM allocation is not
+        //     the whole story, and the renderer has to come off, not just its buffer path.
+        //   - `WEBKIT_DMABUF_RENDERER_DISABLE_GBM=1` renders at 98% CPU. Not an option.
         //
-        // The cost is real, which is why it is gated rather than blanket-set: on WebKitGTK 2.46+
-        // this is CPU software rendering, not a second accelerated path, and it roughly doubles
-        // web process memory on a heavy page (135 MiB vs 245 MiB on 300 cards). AMD and Intel keep
-        // full GPU compositing. /dev/nvidiactl is the proprietary driver's control node, present
-        // whenever it is loaded and absent under nouveau, which does not have this bug.
+        // Upstream: tauri-apps/tauri#14924 pins this class of failure on `transparent: true`
+        // windows specifically, which this app's main and mini windows both are. That is the next
+        // thing to test and the only route seen so far to getting the GPU back. WebKit's own
+        // bug 262607, "[GTK] Disable DMABuf renderer for NVIDIA proprietary drivers", is WONTFIX.
         //
-        // Set the variable yourself to override in either direction: WebKit reads it, we only
-        // default it. ponytail: drop the whole block the day a driver release makes row one pass.
+        // One earlier claim here was wrong and is not repeated: software rendering does not double
+        // web-process memory. It uses *less* than the DMABUF renderer on this machine, 164 vs 196
+        // MiB on the probe and 325 vs 460 MiB baseline on `ui/perf/npleak.py` driving the real SPA.
+        // The cost of this workaround is CPU (18% vs 5%), not RSS.
+        //
+        // /dev/nvidiactl is the proprietary driver's control node, present whenever it is loaded
+        // and absent under nouveau, which does not have this bug. Both variables are only
+        // defaulted, so setting either by hand still wins; FORCE_SHM is checked so that anyone
+        // retesting it does not have to fight this gate.
+        //
+        // ponytail: drop the whole block the day a driver release makes the XWayland row pass.
         if std::path::Path::new("/dev/nvidiactl").exists()
             && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+            && std::env::var_os("WEBKIT_DMABUF_RENDERER_FORCE_SHM").is_none()
         {
             std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         }
