@@ -10,6 +10,7 @@
   <a href="https://github.com/SimoHypers/limusic/releases/latest"><img alt="GitHub Downloads" src="https://img.shields.io/github/downloads/SimoHypers/limusic/total?style=for-the-badge&label=DOWNLOADS&color=a4c400"></a>
   <a href="https://github.com/SimoHypers/limusic/releases/latest"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/SimoHypers/limusic?display_name=release&style=for-the-badge&color=a10935"></a>
   <img alt="License" src="https://img.shields.io/github/license/SimoHypers/limusic?style=for-the-badge&color=1881cc">
+  <a href="https://hosted.weblate.org/engage/limusic/"><img alt="Translation status" src="https://img.shields.io/weblate/progress/limusic?server=https%3A%2F%2Fhosted.weblate.org&style=for-the-badge&label=TRANSLATED&color=6a3fb5"></a>
   <br>
   <img src="https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black">
   <img src="https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logoColor=white">
@@ -132,6 +133,23 @@ Front it with something that terminates TLS (Tailscale Funnel, Cloudflare
 Tunnel), then paste the `wss://` URL into the Listen Together panel in the app.
 Rooms have join codes and the host approves every join and every track
 suggestion.
+
+---
+
+## Translations
+
+Limusic is translated on [Weblate](https://hosted.weblate.org/engage/limusic/),
+who host it free for libre projects.
+
+<a href="https://hosted.weblate.org/engage/limusic/">
+  <img src="https://hosted.weblate.org/widget/limusic/ui/multi-auto.svg" alt="Translation status">
+</a>
+
+English and Turkish ship today. To add a language or fix a string, use the
+Weblate link above rather than editing the JSON: it shows the English original
+beside each string, flags translations that went stale when the English changed,
+and opens the pull request for you. Anything untranslated falls back to English
+in the app, so partial work is safe to submit.
 
 ---
 
