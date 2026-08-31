@@ -158,7 +158,43 @@ fn init_logging(dir: &std::path::Path) {
         .init();
 }
 
+/// Raise the open-file soft limit to the hard limit, capped.
+///
+/// WebKitGTK's DMABUF renderer spends a file descriptor per buffer, so a busy page can hold
+/// hundreds. Against the 1024 soft limit a login shell often hands us, the web process runs out,
+/// and a web process that cannot open an fd cannot allocate a buffer or even create a GWakeup
+/// pipe: it stops painting and never recovers, while playback carries on in this process. That is
+/// the "window frozen, music still playing" report, and it is a resource limit, not a driver bug.
+///
+/// Browsers do exactly this at startup for the same reason. The cap keeps us clear of code that
+/// sizes arrays by the limit or loops over every possible fd; 64k is ~60x the headroom we need.
+#[cfg(unix)]
+fn raise_fd_limit() {
+    const WANT: libc::rlim_t = 65536;
+    let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: both calls take a pointer to a live, fully initialised `rlimit`.
+    unsafe {
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) != 0 {
+            return;
+        }
+        let want = WANT.min(lim.rlim_max);
+        if lim.rlim_cur >= want {
+            return;
+        }
+        let old = lim.rlim_cur;
+        lim.rlim_cur = want;
+        if libc::setrlimit(libc::RLIMIT_NOFILE, &lim) == 0 {
+            tracing::info!(from = old, to = want, "raised open-file limit");
+        }
+    }
+}
+
 pub fn run() {
+    // Must happen before any webview exists: the limit is inherited by the web processes WebKit
+    // forks, and cannot be raised for them afterwards.
+    #[cfg(unix)]
+    raise_fd_limit();
+
     // Two separate NVIDIA/WebKitGTK failures, two separate variables. Neither substitutes for
     // the other, which is the mistake ee48c55 made.
     #[cfg(target_os = "linux")]
@@ -168,31 +204,41 @@ pub fn run() {
         if std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {
             std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
         }
-        // NVIDIA + WebKitGTK: the DMABUF renderer does not work on this driver, on either
-        // display backend. Measured 2026-08-30 on a GTX 1060 (driver 580.173.02, Fedora 44,
-        // WebKitGTK 2.52.5), with the explicit-sync fix above set in every case:
+        // On XWayland the proprietary driver cannot back the DMABUF renderer at all: "Failed to
+        // create GBM buffer of size WxH: Invalid argument", zero frames, the window never paints.
+        // The AppImage always lands there, because linuxdeploy-plugin-gtk's AppRun hook exports
+        // GDK_BACKEND=x11 and Tauri's bundler ships that hook; GDK_BACKEND is set nowhere in this
+        // repo. `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` keeps the renderer, and the GPU, while
+        // bypassing GBM. It costs about half the CPU of software rendering: 10% vs 18% on one
+        // composited animation in `ui/perf/renderprobe.py`. A/B under `GDK_BACKEND=x11` on
+        // 2026-08-31 (GTX 1060, driver 580.173.02, WebKitGTK 2.52.5): without it, a black window
+        // and two GBM failures; with it, the app paints and keeps repainting across a track change.
         //
-        //   native Wayland, DMABUF on    the window paints and then hangs
-        //   GDK_BACKEND=x11, DMABUF on   "Failed to create GBM buffer of size WxH: Invalid
-        //                                argument", no window ever appears
-        //   native Wayland, DMABUF off   works
+        // Native Wayland needs none of this and does not get it. The full DMABUF path is the
+        // cheapest of the three (5% on that animation, 17% vs 23% scrolling 400 layered cards) and
+        // it is stable: the "window frozen, music still playing" freeze this gate used to work
+        // around was fd exhaustion, fixed by `raise_fd_limit` above. GPU compositing costs about
+        // 90 MiB of web-process RSS, which is the whole price.
         //
-        // ee48c55 dropped this on the theory that __NV_DISABLE_EXPLICIT_SYNC=1 had replaced it.
-        // It has not: that variable fixes the Gdk "Error 71 (Protocol error)" crash, which is a
-        // different failure, and the dev build froze without this one.
+        // /dev/nvidiactl is the proprietary driver's control node, present whenever it is loaded
+        // and absent under nouveau, which does not have this bug. The variable is only defaulted,
+        // and skipped if either WEBKIT_ knob is already set by hand, so retesting stays possible.
         //
-        // The cost is real, which is why it is gated rather than blanket-set: on WebKitGTK 2.46+
-        // this is CPU software rendering, not a second accelerated path, and it roughly doubles
-        // web process memory on a heavy page (135 MiB vs 245 MiB on 300 cards). AMD and Intel keep
-        // full GPU compositing. /dev/nvidiactl is the proprietary driver's control node, present
-        // whenever it is loaded and absent under nouveau, which does not have this bug.
+        // ponytail: delete this the day the AppImage stops forcing X11, which would put those
+        // users on native Wayland and the full path, or the day the driver learns GBM on XWayland.
         //
-        // Set the variable yourself to override in either direction: WebKit reads it, we only
-        // default it. ponytail: drop the whole block the day a driver release makes row one pass.
-        if std::path::Path::new("/dev/nvidiactl").exists()
+        // GDK picks its backend from GDK_BACKEND when set, else Wayland when WAYLAND_DISPLAY is,
+        // else X11.
+        let on_x11 = match std::env::var("GDK_BACKEND") {
+            Ok(b) => b.split(',').next() == Some("x11"),
+            Err(_) => std::env::var_os("WAYLAND_DISPLAY").is_none(),
+        };
+        if on_x11
+            && std::path::Path::new("/dev/nvidiactl").exists()
             && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+            && std::env::var_os("WEBKIT_DMABUF_RENDERER_FORCE_SHM").is_none()
         {
-            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+            std::env::set_var("WEBKIT_DMABUF_RENDERER_FORCE_SHM", "1");
         }
     }
 
