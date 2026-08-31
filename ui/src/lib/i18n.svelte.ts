@@ -26,8 +26,17 @@ function getInitialLocale(): LocaleId {
 	if (!browser) return 'en'; // prerender pass: no window, and nothing it renders is kept
 	const saved = localStorage.getItem(LOCALE_STORAGE_KEY);
 	if (saved && saved in translations) return saved as LocaleId;
-	const lang = navigator.language?.toLowerCase().split('-')[0];
-	return lang && lang in translations ? (lang as LocaleId) : 'en';
+	const raw = navigator.language?.toLowerCase();
+	if (!raw) return 'en';
+	// exact BCP-47 match case-insensitive: pt-br -> pt-BR
+	if (raw in translations) return raw as LocaleId;
+	const exact = Object.keys(translations).find((k) => k.toLowerCase() === raw);
+	if (exact) return exact as LocaleId;
+	const base = raw.split('-')[0];
+	if (base && base in translations) return base as LocaleId;
+	const baseExact = base && Object.keys(translations).find((k) => k.toLowerCase() === base);
+	if (baseExact) return baseExact as LocaleId;
+	return 'en';
 }
 
 let activeLocale = $state<LocaleId>(getInitialLocale());
