@@ -127,6 +127,21 @@ else
   bundle_deps_of "$JACK"
 fi
 
+# 1b0. Wrong-architecture gio modules. linuxdeploy copies whatever sits in the host's gio module
+#      directory, and on a multilib Fedora /usr/lib/gio/modules holds the *32-bit* build while the
+#      real one lives in /usr/lib64. GLib scans modules by basename, so the unloadable 32-bit copy
+#      shadows the good one, `g_tls_backend_get_default()` returns GDummyTlsBackend and the webview
+#      has no HTTPS at all: the app plays (Rust does its own TLS) but not one thumbnail loads.
+#      Defect 1 again, by another route. Checked with the ELF class byte rather than `file`, which
+#      is not on every build image.
+elf64() { [ "$(od -An -tu1 -j4 -N1 "$1" 2>/dev/null | tr -d ' ')" = 2 ]; }
+for m in "$APPDIR"/usr/lib/gio/modules/*.so "$APPDIR"/usr/lib64/gio/modules/*.so; do
+  [ -e "$m" ] || continue
+  elf64 "$m" && continue
+  rm -f "$m"
+  echo "==> removed ${m#$APPDIR/} — not x86-64"
+done
+
 # 1b. The gio TLS module. linuxdeploy's GTK plugin bundles it on Fedora but not on Ubuntu, so copy
 #     it in ourselves rather than depend on that. Only this one module: gvfs and libproxy are built
 #     against the host's GLib and blow up against the older one we bundle, which is exactly what

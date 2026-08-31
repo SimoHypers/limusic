@@ -618,6 +618,12 @@ export const getLyrics = (args: {
 	duration?: number;
 }) => invoke<Lyrics | null>('get_lyrics', args);
 
+// --- Window ------------------------------------------------------------------------------------
+/** Theater mode's fullscreen. Not `getCurrentWindow().setFullscreen` (#139): Windows needs the
+ *  maximized state undone first and the frame recalculated after, in that order, on the main
+ *  thread. Rust also puts the maximized state back when theater closes. */
+export const theaterFullscreen = (on: boolean) => invoke<void>('theater_fullscreen', { on });
+
 // --- Last.fm scrobbling ---------------------------------------------------------------------
 export interface LastfmState {
 	connected: boolean;
