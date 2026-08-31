@@ -158,7 +158,43 @@ fn init_logging(dir: &std::path::Path) {
         .init();
 }
 
+/// Raise the open-file soft limit to the hard limit, capped.
+///
+/// WebKitGTK's DMABUF renderer spends a file descriptor per buffer, so a busy page can hold
+/// hundreds. Against the 1024 soft limit a login shell often hands us, the web process runs out,
+/// and a web process that cannot open an fd cannot allocate a buffer or even create a GWakeup
+/// pipe: it stops painting and never recovers, while playback carries on in this process. That is
+/// the "window frozen, music still playing" report, and it is a resource limit, not a driver bug.
+///
+/// Browsers do exactly this at startup for the same reason. The cap keeps us clear of code that
+/// sizes arrays by the limit or loops over every possible fd; 64k is ~60x the headroom we need.
+#[cfg(unix)]
+fn raise_fd_limit() {
+    const WANT: libc::rlim_t = 65536;
+    let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: both calls take a pointer to a live, fully initialised `rlimit`.
+    unsafe {
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) != 0 {
+            return;
+        }
+        let want = WANT.min(lim.rlim_max);
+        if lim.rlim_cur >= want {
+            return;
+        }
+        let old = lim.rlim_cur;
+        lim.rlim_cur = want;
+        if libc::setrlimit(libc::RLIMIT_NOFILE, &lim) == 0 {
+            tracing::info!(from = old, to = want, "raised open-file limit");
+        }
+    }
+}
+
 pub fn run() {
+    // Must happen before any webview exists: the limit is inherited by the web processes WebKit
+    // forks, and cannot be raised for them afterwards.
+    #[cfg(unix)]
+    raise_fd_limit();
+
     // Two separate NVIDIA/WebKitGTK failures, two separate variables. Neither substitutes for
     // the other, which is the mistake ee48c55 made.
     #[cfg(target_os = "linux")]
