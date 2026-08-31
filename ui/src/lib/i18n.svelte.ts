@@ -25,24 +25,21 @@ const LOCALE_STORAGE_KEY = 'limusic_locale';
 function getInitialLocale(): LocaleId {
 	if (!browser) return 'en'; // prerender pass: no window, and nothing it renders is kept
 	const saved = localStorage.getItem(LOCALE_STORAGE_KEY);
-	if (saved && saved in translations) return saved as LocaleId;
+	if (saved && Object.hasOwn(translations, saved)) return saved as LocaleId;
 	const raw = navigator.language?.toLowerCase();
 	if (!raw) return 'en';
-	// exact BCP-47 match case-insensitive: pt-br -> pt-BR
-	if (raw in translations) return raw as LocaleId;
 	const exact = Object.keys(translations).find((k) => k.toLowerCase() === raw);
 	if (exact) return exact as LocaleId;
 	const base = raw.split('-')[0];
-	if (base && base in translations) return base as LocaleId;
-	const baseExact = base && Object.keys(translations).find((k) => k.toLowerCase() === base);
-	if (baseExact) return baseExact as LocaleId;
+	const baseMatch = Object.keys(translations).find((k) => k.toLowerCase() === base);
+	if (baseMatch) return baseMatch as LocaleId;
 	return 'en';
 }
 
 let activeLocale = $state<LocaleId>(getInitialLocale());
 
 export function setLocale(locale: LocaleId): void {
-	if (!(locale in translations)) return;
+	if (!Object.hasOwn(translations, locale)) return;
 	activeLocale = locale;
 	localStorage.setItem(LOCALE_STORAGE_KEY, locale);
 }
