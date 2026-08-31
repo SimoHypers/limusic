@@ -53,6 +53,28 @@ exactly like a track that simply has none.
 - Say what you tested. "Played five tracks, checked light and dark" is worth
   more than a description of the code.
 
+## Translations
+
+Translations live in `ui/src/lib/locales/` as nested JSON, one file per language,
+with `en.json` as the source of truth.
+
+**Use [Weblate](https://hosted.weblate.org/projects/limusic/) rather than editing
+the JSON by hand.** It shows you the English original beside each string, flags
+translations that went stale when the English changed, and opens the pull request
+for you. Hand-edited JSON tends to drift out of sync with `en.json` within a
+release or two.
+
+Two things to know:
+
+- Placeholders like `{count}` and `{playlist}` are substituted at runtime. Keep
+  them spelled exactly as they are in the English string; you can move them
+  around the sentence freely.
+- A missing key is not a bug. Anything a catalog does not have falls back to
+  English at runtime, so a partial translation is safe to ship.
+
+Adding a new language: Weblate creates the JSON file, then add the locale to
+`LocaleId` and `LOCALES` in `ui/src/lib/locales/index.ts` so the picker offers it.
+
 ## House conventions
 
 - **Icons: [HugeIcons](https://hugeicons.com) only** (`@hugeicons/svelte` plus
