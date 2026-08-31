@@ -25,7 +25,7 @@ use hyper::header;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioIo, TokioTimer};
 
 use crate::state::AppState;
 
@@ -84,6 +84,10 @@ pub fn start(state: Arc<AppState>) {
                 // semaphore is real book-keeping for a proxy that serves one <video> element.
                 // A dropped connection is what a seek looks like from here, so errors are expected.
                 let _ = http1::Builder::new()
+                    // hyper 1.x panics the moment it arms a timeout with no timer installed, so
+                    // without this every single connection to the proxy died on arrival and took a
+                    // tokio worker with it. That is why music videos never played.
+                    .timer(TokioTimer::new())
                     .header_read_timeout(std::time::Duration::from_secs(15))
                     .serve_connection(TokioIo::new(stream), svc)
                     .await;
