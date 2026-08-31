@@ -72,8 +72,9 @@ Two things to know:
 - A missing key is not a bug. Anything a catalog does not have falls back to
   English at runtime, so a partial translation is safe to ship.
 
-Adding a new language: Weblate creates the JSON file, then add the locale to
-`LocaleId` and `LOCALES` in `ui/src/lib/locales/index.ts` so the picker offers it.
+Adding a new language: Weblate creates the JSON file, then import it in
+`ui/src/lib/locales/index.ts` and add the locale to `LocaleId`, `LOCALES` and
+`translations` there so the picker offers it.
 
 ## House conventions
 

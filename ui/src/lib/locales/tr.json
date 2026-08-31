@@ -147,7 +147,7 @@
 		"show_section": "{title} bölümünü göster",
 		"hide_section": "{title} bölümünü gizle",
 		"feed_empty": "Ana sayfanız bu sefer boş döndü",
-		"signed_out_hint": "Giriş yapın ve ana sayfanız dinlediklerinizle oluşturulan miksler ve çalma sildeleriyle dolsun."
+		"signed_out_hint": "Giriş yapın ve ana sayfanız dinlediklerinizle oluşturulan miksler ve çalma listeleriyle dolsun."
 	},
 	"artist": {
 		"subscribe": "Abone ol",
@@ -176,7 +176,7 @@
 		"no_playlists_hint": "Şu an hiçbir çalma listesi yok. Sayfasında bir listeyi kaydedin veya kütüphanenizde bir liste oluşturun.",
 		"empty_playlist": "Bu çalma listesi boş.",
 		"collab": "İşbirliği",
-		"collab_tooltip": "Diğerler bu çalma listesine ekleyebilir",
+		"collab_tooltip": "Diğerleri bu çalma listesine ekleyebilir",
 		"delete_playlist_confirm": "Bu çalma listesini silmek istediğinizden emin misiniz?",
 		"remove_from_library": "Kitaplıktan çıkar",
 		"no_tracks_match_loading": "“{query}”{loading} ile eşleşen hiçbir parça bulunamadı.",
@@ -261,7 +261,7 @@
 			"custom_font": "Özel…",
 			"font_placeholder": "Bu bilgisayarda yüklü olan yazı tipi, örn. Inter",
 			"font_aria": "{label} aile adı",
-			"font_not_installed": "Yüklü değil. Önce yazı tipini yükeyip bu ayarları yeniden açın.",
+			"font_not_installed": "Yüklü değil. Önce yazı tipini yükleyip bu ayarları yeniden açın.",
 			"add_font": "Yazı tipi ekle",
 			"tint_palette_hint": "Yalnızca varsayılan paleti gölgeler, {theme} kendi renklerini getirir.",
 			"tint_hint": "Gri tonları gölgeler: yüzeyler, kenarlıklar ve ikincil metin.",
@@ -542,7 +542,7 @@
 		"synced_partial": "{total} parçadan {synced} tanesi senkronize edildi. {failed} hata oluştu, hâlâ burada duruyor.",
 		"synced_none": "Hiçbir parça senkronize edilmedi. {failed} hata oluştu, hâlâ burada duruyor.",
 		"synced_all": "{count} parça YouTube Music ile senkronize edildi",
-		"added_to_playlist_dupes": "{count} parça eklendi, {dupes} tanesi zaten vardı",
+		"added_to_playlist_dupes": "{playlist} çalma listesine {count} parça eklendi, {dupes} tanesi zaten vardı",
 		"partial_playlist_queued": "Bu çalma listesinin tamamı yüklenemedi, bu yüzden yalnızca yüklenenler sıraya eklendi.",
 		"partial_playlist_added": "Bu çalma listesinin tamamı yüklenemedi, bu yüzden yalnızca yüklenenler eklendi.",
 		"sort_not_saved": "Sıralandı, ancak YouTube'a kaydedilemedi: {error}",
