@@ -19,7 +19,6 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { fade, fly, scale } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
-	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		Cancel01Icon,
@@ -61,27 +60,14 @@
 	// rule the now-playing view and the expanded lyrics panel use: navigating anywhere closes this.
 	beforeNavigate(close);
 
-	// Going fullscreen straight from a maximized window is unreliable on Windows (issue #139): the
-	// window keeps its maximized frame, so it lands under the taskbar with a border around it. Drop
-	// the maximized state first there, and restore it on the way out so closing theater puts the
-	// window back the way the user left it. Windows only: on Linux the extra unmaximize is what
-	// breaks it, the compositor ends up with a screen-sized window that was never marked fullscreen
-	// and keeps the panel on top.
+	// Fullscreen goes through Rust, not `getCurrentWindow().setFullscreen`: on Windows the window
+	// has to be un-maximized first and its frame recalculated after, in that order and on the main
+	// thread, or it lands under the taskbar with a border around it (#139). Rust also puts the
+	// maximized state back when theater closes.
 	onMount(() => {
-		const w = getCurrentWindow();
-		const isWindows = navigator.platform.startsWith('Win');
-		let wasMaximized = false;
-		(async () => {
-			if (isWindows && (await w.isMaximized())) {
-				wasMaximized = true;
-				await w.unmaximize();
-			}
-			await w.setFullscreen(true);
-		})().catch((e) => console.error('theater fullscreen failed', e));
+		api.theaterFullscreen(true).catch((e) => console.error('theater fullscreen failed', e));
 		return () => {
-			w.setFullscreen(false)
-				.then(() => (wasMaximized ? w.maximize() : undefined))
-				.catch(() => {});
+			api.theaterFullscreen(false).catch(() => {});
 		};
 	});
 

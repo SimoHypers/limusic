@@ -1369,6 +1369,88 @@ pub async fn lastfm_status(state: St<'_>) -> Result<serde_json::Value, String> {
     Ok(crate::lastfm::status(&state))
 }
 
+/// Theater mode's fullscreen toggle (#139).
+///
+/// `setFullscreen` on its own is not enough on Windows. tao decides the client area in
+/// WM_NCCALCSIZE: while the real Win32 placement says maximized it clamps the client to the
+/// monitor's *work* area, so the "fullscreen" window sits under the taskbar with a frame-thick
+/// border around it, and while the window is undecorated-with-shadow it insets the client by the
+/// frame thickness. Both are decided before the fullscreen flag is, and tao's own `is_maximized`
+/// reads a cached flag that can disagree with the placement, which is why unmaximizing from the
+/// UI only fixed it some of the time.
+///
+/// So: restore from the real placement, go fullscreen, then put the window on the monitor rect
+/// with SWP_FRAMECHANGED to force one recalculation with the fullscreen flag set. On the main
+/// thread, where the window messages run inline and the order is guaranteed.
+#[tauri::command]
+pub fn theater_fullscreen(window: tauri::WebviewWindow, on: bool) -> Result<(), String> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        window.set_fullscreen(on).map_err(|e| e.to_string())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            IsZoomed, SetWindowPos, ShowWindow, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE,
+            SWP_NOZORDER, SW_MAXIMIZE, SW_RESTORE,
+        };
+
+        /// Restoring the window is what makes fullscreen work, so theater has to put the
+        /// maximized state back itself on the way out.
+        static WAS_MAXIMIZED: AtomicBool = AtomicBool::new(false);
+
+        let w = window.clone();
+        window
+            .run_on_main_thread(move || {
+                let Ok(hwnd) = w.hwnd() else { return };
+                if on {
+                    let zoomed = unsafe { IsZoomed(hwnd).as_bool() };
+                    WAS_MAXIMIZED.store(zoomed, Ordering::Relaxed);
+                    if zoomed {
+                        unsafe {
+                            let _ = ShowWindow(hwnd, SW_RESTORE);
+                        }
+                    }
+                    let _ = w.set_fullscreen(true);
+                    if let Ok(Some(m)) = w.current_monitor() {
+                        let (p, s) = (m.position(), m.size());
+                        unsafe {
+                            let _ = SetWindowPos(
+                                hwnd,
+                                None,
+                                p.x,
+                                p.y,
+                                s.width as i32,
+                                s.height as i32,
+                                SWP_FRAMECHANGED | SWP_NOZORDER,
+                            );
+                        }
+                    }
+                } else {
+                    let _ = w.set_fullscreen(false);
+                    if WAS_MAXIMIZED.swap(false, Ordering::Relaxed) {
+                        unsafe {
+                            let _ = ShowWindow(hwnd, SW_MAXIMIZE);
+                        }
+                    }
+                    unsafe {
+                        let _ = SetWindowPos(
+                            hwnd,
+                            None,
+                            0,
+                            0,
+                            0,
+                            0,
+                            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+                        );
+                    }
+                }
+            })
+            .map_err(|e| e.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

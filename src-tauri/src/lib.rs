@@ -568,6 +568,7 @@ pub fn run() {
             commands::lastfm_connect,
             commands::lastfm_disconnect,
             commands::lastfm_status,
+            commands::theater_fullscreen,
             commands::release_notes,
             commands::can_self_update,
             commands::open_external,

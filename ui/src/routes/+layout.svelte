@@ -132,9 +132,12 @@
 	<MiniPlayer />
 {:else}
 	<!-- The window itself is transparent; this root paints the background and, when not maximized,
-	     rounds the corners (the compositor can't round an undecorated window for us). -->
+	     rounds the corners (the compositor can't round an undecorated window for us). Theater mode
+	     counts as maximized here: it is fullscreen, and rounding it clips the corners of a view that
+	     is meant to reach every edge (#139). -->
 	<div
-		class="flex h-screen flex-col overflow-hidden bg-background text-foreground {win.maximized
+		class="flex h-screen flex-col overflow-hidden bg-background text-foreground {win.maximized ||
+		ui.theaterOpen
 			? ''
 			: 'rounded-lg'}"
 	>
