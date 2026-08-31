@@ -145,11 +145,11 @@ who host it free for libre projects.
   <img src="https://hosted.weblate.org/widget/limusic/ui/multi-auto.svg" alt="Translation status">
 </a>
 
-English and Turkish ship today. To add a language or fix a string, use the
-Weblate link above rather than editing the JSON: it shows the English original
-beside each string, flags translations that went stale when the English changed,
-and opens the pull request for you. Anything untranslated falls back to English
-in the app, so partial work is safe to submit.
+English, Turkish and Brazilian Portuguese ship today. To add a language or fix
+a string, use the Weblate link above rather than editing the JSON: it shows the
+English original beside each string, flags translations that went stale when the
+English changed, and opens the pull request for you. Anything untranslated falls
+back to English in the app, so partial work is safe to submit.
 
 ---
 
