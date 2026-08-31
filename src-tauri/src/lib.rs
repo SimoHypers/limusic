@@ -168,7 +168,7 @@ fn init_logging(dir: &std::path::Path) {
 ///
 /// Browsers do exactly this at startup for the same reason. The cap keeps us clear of code that
 /// sizes arrays by the limit or loops over every possible fd; 64k is ~60x the headroom we need.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn raise_fd_limit() {
     const WANT: libc::rlim_t = 65536;
     let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
@@ -192,7 +192,7 @@ fn raise_fd_limit() {
 pub fn run() {
     // Must happen before any webview exists: the limit is inherited by the web processes WebKit
     // forks, and cannot be raised for them afterwards.
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     raise_fd_limit();
 
     // Two separate NVIDIA/WebKitGTK failures, two separate variables. Neither substitutes for
