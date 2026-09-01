@@ -84,7 +84,7 @@
 		"next": "Berikutnya",
 		"previous": "Sebelumnya",
 		"shuffle": "Acak",
-		"repeat_off": "Ulangi Matikan",
+		"repeat_off": "Matikan pengulangan",
 		"repeat_all": "Ulangi Semua",
 		"repeat_one": "Ulangi Satu",
 		"mute": "Bisu",
@@ -150,8 +150,8 @@
 		"signed_out_hint": "Masuk dan beranda Anda akan terisi dengan campuran lagu dan daftar putar berdasarkan apa yang Anda dengarkan."
 	},
 	"artist": {
-		"subscribe": "Subscribe",
-		"subscribed": "Disubscribe",
+		"subscribe": "Berlangganan",
+		"subscribed": "Sudah berlangganan",
 		"top_songs": "Lagu teratas"
 	},
 	"library": {
@@ -271,7 +271,7 @@
 			"open_player": "Buka pemutar saat Anda menekan putar",
 			"open_player_hint": "Aktif: memutar lagu, album, atau daftar putar akan menampilkan pemutar penuh. Mati: lagu mulai diputar dan Anda tetap di halaman yang sedang dibuka.",
 			"tabbed_player": "Antrean dan lirik di tampilan pemutar",
-			"tabbed_player_hint": "Aktif: tampilan pemutar memuatnya sebagai tab dan dua tombol bilah beralih di antatanya. Mati: tombol tersebut hanya membuka panel samping yang tetap terbuka di atas pemutar.",
+			"tabbed_player_hint": "Aktif: tampilan pemutar memuatnya sebagai tab dan dua tombol bilah beralih di antaranya. Mati: tombol tersebut hanya membuka panel samping yang tetap terbuka di atas pemutar.",
 			"artwork_background": "Latar belakang sampul",
 			"artwork_background_hint": "Beri warna pada tampilan pemutar dengan sampul trek yang sedang diputar (diburamkan). Mati: membiarkannya polos.",
 			"artwork_accent": "Sesuaikan warna dengan sampul",
@@ -287,7 +287,7 @@
 		},
 		"playback": {
 			"audio_quality": "Kualitas audio",
-			"audio_quality_hint": "Kualitas yang lebih tinggi menggunakan lebih banyak bandwith.",
+			"audio_quality_hint": "Kualitas yang lebih tinggi menggunakan lebih banyak bandwidth.",
 			"quality_low": "Rendah",
 			"quality_auto": "Otomatis",
 			"quality_high": "Tinggi",
@@ -307,7 +307,7 @@
 		},
 		"data": {
 			"clear_cache": "Hapus cache gambar dan stream",
-			"clear_cache_hint": "Mebebaskan ruang penyimpanan dengan menghapus gambar mini dan bagian audio yang tersimpan di cache.",
+			"clear_cache_hint": "Membebaskan ruang penyimpanan dengan menghapus gambar mini dan bagian audio yang tersimpan di cache.",
 			"clear_cache_button": "Hapus cache sekarang"
 		},
 		"about": {
@@ -317,7 +317,7 @@
 			"checking_updates": "Memeriksa pembaruan...",
 			"up_to_date": "Anda menggunakan versi terbaru.",
 			"update_available": "Versi {version} tersedia!",
-			"install_update": "Instal dan Muat Ulang",
+			"install_update": "Instal dan Muat Ulang aplikasi",
 			"download_page": "Buka halaman unduhan",
 			"changelog": "Catatan Perubahan & Rilis",
 			"copy": "Salin",
@@ -393,7 +393,7 @@
 			"title": "Dengar Bersama",
 			"desc": "Sesi mendengarkan tersinkronisasi",
 			"connecting": "Menghubungkan…",
-			"waiting_for_host": "Menunggu penjelajah/host mengizinkan Anda masuk…",
+			"waiting_for_host": "Menunggu host mengizinkan Anda masuk…",
 			"join_tab": "Gabung",
 			"host_tab": "Host",
 			"invite_code": "Kode undangan",
@@ -453,7 +453,7 @@
 		"play_pause": "Putar/jeda",
 		"previous": "Sebelumnya",
 		"next": "Berikutnya",
-		"seek": "Cari durasi",
+		"seek": "Cari",
 		"volume": "Volume",
 		"track_options": "Opsi trek",
 		"playlist_options": "Opsi daftar putar",
