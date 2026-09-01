@@ -556,6 +556,9 @@ export interface QueueAppended {
 
 export const onQueueAppended = (cb: (q: QueueAppended) => void): Promise<UnlistenFn> =>
 	listen<QueueAppended>('queue-appended', (e) => cb(e.payload));
+/** Main window shown/hidden (close-to-tray, the mini player). WebKitGTK never tells the page. */
+export const onUiVisible = (cb: (v: boolean) => void): Promise<UnlistenFn> =>
+	listen<boolean>('ui-visible', (e) => cb(e.payload));
 export const onPosition = (cb: (p: number) => void): Promise<UnlistenFn> =>
 	listen<{ position: number }>('position', (e) => cb(e.payload.position));
 export const onDuration = (cb: (d: number) => void): Promise<UnlistenFn> =>

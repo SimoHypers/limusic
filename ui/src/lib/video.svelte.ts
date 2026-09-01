@@ -11,6 +11,9 @@ import { playback, prefs } from './player.svelte';
  *  certainly on the next video too, but a permanent no is what the setting is for. */
 export const video = $state({
 	want: true,
+	/** Whether the player view is holding the element, i.e. someone can actually see the picture.
+	 *  VideoSurface releases the stream when nobody can and the music is not moving. */
+	shown: false,
 	/** The loopback proxy URL for the current track, or null. Owned by VideoSurface's fetch. */
 	url: null as string | null
 });
@@ -36,9 +39,11 @@ export function registerVideo(v: HTMLVideoElement, park: HTMLElement) {
  *  desync this whole thing exists to avoid. */
 export function claimVideo(box: HTMLElement) {
 	if (node) box.appendChild(node);
+	video.shown = true;
 }
 
 /** Send it back to the parking container. Same rule: synchronous, never from an effect. */
 export function parkVideo() {
 	if (node && parking) parking.appendChild(node);
+	video.shown = false;
 }

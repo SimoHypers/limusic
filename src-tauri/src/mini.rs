@@ -70,6 +70,7 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
     // no window at all, reachable only from the tray.
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.hide();
+        crate::tray::set_main_visible(app, false);
     }
     Ok(())
 }

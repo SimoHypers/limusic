@@ -5,6 +5,10 @@
 //! with the document — see `webview::HARNESS_HTML`). Every public method degrades
 //! gracefully: a webview or extraction failure yields `None` / the original URL, and the
 //! orchestrator falls through to the non-cipher fallback clients (context/06 §5).
+//!
+//! The webview is built on demand and torn down when idle (`teardown_if_idle`), never held for the
+//! life of the process: it is a second `WebKitWebProcess`, and STS — the one thing every /player
+//! request needs — comes from analysis alone.
 
 mod config;
 mod extractor;
@@ -14,7 +18,7 @@ pub use config::PlayerConfigStore;
 
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use tauri::AppHandle;
@@ -53,11 +57,41 @@ struct Inner {
     /// Whether an `_cipherSigFunc` export exists (i.e. a sig function name was found). When false,
     /// deciphering is impossible on this player regardless of freshness — so we skip refetch/retry.
     sig_available: bool,
-    /// Analysis (player.js fetch + name resolution + discovery) has run for `built_epoch`.
-    /// Separate from `bridge`: when discovery proves the player undecipherable we drop the
-    /// webview (~142 MiB) but keep the analysis so STS stays available. Invalidation
+    /// player.js has been fetched and its config/STS resolved for `built_epoch`. This alone
+    /// answers `signature_timestamp`, which is why it is separate from `discovered`: the /player
+    /// request needs an STS on every resolve, and paying a whole web process for that would keep
+    /// the cipher webview resident on a machine that never plays anything. Invalidation
     /// (self-heal) clears this to force a re-fetch + re-analysis.
     analyzed: bool,
+    /// Discovery has run for `built_epoch`, so `sig_available`/`n_available` mean something.
+    /// False after an analysis-only pass; the first decipher call builds the webview and probes.
+    discovered: bool,
+    /// When the webview last did work, for the idle teardown. `Some` whenever `bridge` is.
+    last_used: Option<Instant>,
+}
+
+impl Inner {
+    /// Whether [`CipherDeobfuscator::ensure_analyzed`] still owes work for `epoch`. `bridge_ok` is
+    /// whether the webview window is actually still up, which only the caller can ask Tauri.
+    fn owes_work(&self, epoch: u64, want_bridge: bool, bridge_ok: bool) -> bool {
+        if !self.analyzed || self.built_epoch != epoch {
+            return true;
+        }
+        if !want_bridge {
+            return false; // STS is already in hand; no web process needed to hand it over
+        }
+        if !self.discovered {
+            return true; // an analysis-only pass got us here — the webview was never built
+        }
+        // An undecipherable player owes no webview: discovery already proved there is nothing to
+        // call, and a rebuild would find the same thing.
+        keep_bridge(self.sig_available, self.n_available) && !bridge_ok
+    }
+
+    /// Whether the webview has gone unused for `idle` (never-used counts as idle).
+    fn idle_for(&self, idle: Duration) -> bool {
+        !self.last_used.is_some_and(|t| t.elapsed() < idle)
+    }
 }
 
 pub struct CipherDeobfuscator {
@@ -79,7 +113,7 @@ impl CipherDeobfuscator {
 
     /// STS of the player.js we decipher with (preferred over any other source). context/05.
     pub async fn signature_timestamp(&self) -> Option<i32> {
-        if self.ensure_analyzed().await.is_err() {
+        if self.ensure_analyzed(false).await.is_err() {
             return None;
         }
         self.inner.lock().await.sts
@@ -87,7 +121,7 @@ impl CipherDeobfuscator {
 
     /// `signatureCipher` string → a full, signed stream URL. `None` on any failure. context/05.
     pub async fn deobfuscate_stream_url(&self, cipher: &str, video_id: &str) -> Option<String> {
-        if self.ensure_analyzed().await.is_err() {
+        if self.ensure_analyzed(true).await.is_err() {
             return None;
         }
         // No sig function on this player (obfuscation defeated extraction) → deciphering is
@@ -105,6 +139,7 @@ impl CipherDeobfuscator {
         {
             let mut inner = self.inner.lock().await;
             inner.analyzed = false; // force re-fetch + re-analysis
+            inner.discovered = false;
             if let Some(b) = inner.bridge.take() {
                 let _ = b.destroy();
             }
@@ -113,9 +148,13 @@ impl CipherDeobfuscator {
     }
 
     async fn try_deobfuscate(&self, cipher: &str) -> Option<String> {
-        self.ensure_analyzed().await.ok()?;
+        self.ensure_analyzed(true).await.ok()?;
         let (s, sp, base) = parse_cipher(cipher)?;
-        let bridge = self.inner.lock().await.bridge.clone()?;
+        let bridge = {
+            let mut inner = self.inner.lock().await;
+            inner.last_used = Some(Instant::now());
+            inner.bridge.clone()?
+        };
         let js = format!(
             "(function(){{try{{return String(window._cipherSigFunc({}));}}catch(e){{return null;}}}})()",
             js_string(&s)
@@ -138,11 +177,12 @@ impl CipherDeobfuscator {
     }
 
     async fn try_transform_n(&self, url: &str) -> Option<String> {
-        self.ensure_analyzed().await.ok()?;
-        let inner = self.inner.lock().await;
+        self.ensure_analyzed(true).await.ok()?;
+        let mut inner = self.inner.lock().await;
         if !inner.n_available {
             return None;
         }
+        inner.last_used = Some(Instant::now());
         let bridge = inner.bridge.clone()?;
         drop(inner);
 
@@ -171,6 +211,7 @@ impl CipherDeobfuscator {
         {
             let mut inner = self.inner.lock().await;
             inner.analyzed = false; // next ensure_analyzed rebuilds
+            inner.discovered = false;
             if let Some(b) = inner.bridge.take() {
                 let _ = b.destroy();
             }
@@ -178,27 +219,52 @@ impl CipherDeobfuscator {
         table_changed
     }
 
-    /// Warm the player.js disk cache + analysis off the first-play path (context/04 §startup); the
-    /// cipher webview is only built when the player turns out to be decipherable. Non-fatal.
+    /// Warm the player.js cache + analysis off the first-play path (context/04 §startup).
+    ///
+    /// Analysis ONLY: it deliberately does not build the webview. That used to happen here, which
+    /// meant an app that was merely open (never played a note) carried a second
+    /// `WebKitWebProcess` for the whole session — measured at 91 MiB PSS / 234 MiB RSS on Fedora.
+    /// STS is what the /player request actually needs at startup, and analysis alone produces it;
+    /// the webview is built by the first call that has a signature to decipher.
     pub async fn prewarm(&self) {
-        if let Err(e) = self.ensure_analyzed().await {
+        if let Err(e) = self.ensure_analyzed(false).await {
             tracing::warn!(error = %e, "cipher prewarm failed (will retry on demand)");
         }
     }
 
-    /// Ensure player.js analysis (STS + sig/n names + discovery) is fresh for the current config
-    /// epoch, building (or rebuilding) the cipher webview only when the player is decipherable —
-    /// otherwise the webview is destroyed/never built and analysis alone satisfies `signature_timestamp`.
-    async fn ensure_analyzed(&self) -> Result<(), String> {
+    /// Drop the webview if sig/n haven't been needed for `idle` — the same mint-and-drop policy
+    /// the BotGuard isolate uses (Phase-0 hybrid decision), now that the webview is built on
+    /// demand rather than held for the life of the process. The analysis survives, so a rebuild is
+    /// a disk-cached player.js plus one injection (~400ms), and STS keeps answering meanwhile.
+    ///
+    /// The idle window has to outlast a track: sig/n run once per resolve, so a shorter one would
+    /// tear down and rebuild once per song, with the rebuild landing on the play path.
+    // ponytail: called from the periodic task in lib.rs that already ticks for PoToken.
+    pub async fn teardown_if_idle(&self, idle: Duration) {
+        let mut inner = self.inner.lock().await;
+        if !inner.idle_for(idle) {
+            return;
+        }
+        if let Some(b) = inner.bridge.take() {
+            let _ = b.destroy();
+            inner.last_used = None;
+            tracing::debug!("cipher webview torn down (idle)");
+        }
+    }
+
+    /// Ensure player.js analysis (STS + config lookup) is fresh for the current config epoch.
+    ///
+    /// With `want_bridge`, also ensure the cipher webview exists and discovery has run — but only
+    /// when the player is decipherable at all; otherwise the webview is destroyed/never built and
+    /// the analysis alone satisfies `signature_timestamp`. Callers that only need STS pass `false`
+    /// and never pay for a web process (see [`Self::prewarm`]).
+    async fn ensure_analyzed(&self, want_bridge: bool) -> Result<(), String> {
         let epoch = self.config.config_epoch();
         {
             let inner = self.inner.lock().await;
-            if inner.analyzed && inner.built_epoch == epoch {
-                let bridge_ok = inner.bridge.as_ref().is_some_and(|b| b.exists());
-                let usable = keep_bridge(inner.sig_available, inner.n_available);
-                if bridge_ok || !usable {
-                    return Ok(());
-                }
+            let bridge_ok = inner.bridge.as_ref().is_some_and(|b| b.exists());
+            if !inner.owes_work(epoch, want_bridge, bridge_ok) {
+                return Ok(());
             }
         }
         // Fetch player.js and look up its config — the only way in on the 2025+ players.
@@ -231,6 +297,8 @@ impl CipherDeobfuscator {
             inner.n_available = false;
             inner.sig_available = false;
             inner.analyzed = true;
+            inner.discovered = true; // nothing to discover: no config means no exports to probe
+            inner.last_used = None;
             tracing::info!(
                 hash = player.hash,
                 ?sts,
@@ -238,6 +306,22 @@ impl CipherDeobfuscator {
             );
             return Ok(());
         }
+        // Analysis-only caller: record what we learned and stop short of the web process.
+        // Discovery stays unset, so the first decipher call falls through to the build below.
+        if !want_bridge {
+            let mut inner = self.inner.lock().await;
+            if let Some(b) = inner.bridge.take() {
+                let _ = b.destroy(); // player.js rotated or the config epoch moved — it's stale
+                inner.last_used = None;
+            }
+            inner.sts = sts;
+            inner.built_epoch = epoch;
+            inner.analyzed = true;
+            inner.discovered = false;
+            tracing::info!(hash = player.hash, ?sts, "cipher: analysis complete (no webview)");
+            return Ok(());
+        }
+
         tracing::info!(hash = player.hash, ?sts, "cipher: building webview");
         let injected = extractor::build_injection(&player.js, cfg.as_ref());
 
@@ -265,6 +349,7 @@ impl CipherDeobfuscator {
         let mut inner = self.inner.lock().await;
         if keep_bridge(sig_available, n_available) {
             inner.bridge = Some(bridge);
+            inner.last_used = Some(Instant::now());
         } else {
             tracing::info!(
                 "cipher: discovery found no usable sig/n on this player — dropping the webview \
@@ -272,12 +357,14 @@ impl CipherDeobfuscator {
             );
             let _ = bridge.destroy();
             inner.bridge = None;
+            inner.last_used = None;
         }
         inner.sts = sts;
         inner.built_epoch = epoch;
         inner.n_available = n_available;
         inner.sig_available = sig_available;
         inner.analyzed = true;
+        inner.discovered = true;
         tracing::info!(sig_available, n_available, "cipher analysis complete");
         Ok(())
     }
@@ -352,6 +439,42 @@ mod tests {
     #[test]
     fn js_string_escapes() {
         assert_eq!(js_string(r#"a"b\c"#), r#""a\"b\\c""#);
+    }
+
+    /// The state machine the memory win rests on: an analysis-only pass must satisfy an STS
+    /// caller without a webview, and must still leave the first decipher call to build one.
+    #[test]
+    fn analysis_only_pass_owes_a_bridge_to_the_first_decipher() {
+        let analysed = Inner { analyzed: true, built_epoch: 7, ..Inner::default() };
+        assert!(!analysed.owes_work(7, false, false), "STS needs no webview");
+        assert!(analysed.owes_work(7, true, false), "decipher must build one");
+        assert!(analysed.owes_work(8, false, false), "a new config epoch re-analyses");
+    }
+
+    #[test]
+    fn a_discovered_player_owes_a_bridge_only_when_its_window_is_gone() {
+        let discovered = Inner {
+            analyzed: true,
+            discovered: true,
+            sig_available: true,
+            built_epoch: 7,
+            ..Inner::default()
+        };
+        assert!(!discovered.owes_work(7, true, true), "webview is up — nothing owed");
+        assert!(discovered.owes_work(7, true, false), "torn down while idle — rebuild it");
+
+        // Discovery proved there is nothing callable, so a missing webview is not a debt.
+        let undecipherable = Inner { sig_available: false, ..discovered };
+        assert!(!undecipherable.owes_work(7, true, false));
+    }
+
+    #[test]
+    fn idle_teardown_waits_for_the_window() {
+        let fresh = Inner { last_used: Some(Instant::now()), ..Inner::default() };
+        assert!(!fresh.idle_for(Duration::from_secs(600)));
+        assert!(fresh.idle_for(Duration::ZERO));
+        // Built but never used (or already torn down) counts as idle.
+        assert!(Inner::default().idle_for(Duration::from_secs(600)));
     }
 
     #[test]

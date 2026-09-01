@@ -1,7 +1,7 @@
 <script lang="ts">
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
-	import { ModeWatcher } from 'mode-watcher';
+	import { ModeWatcher, mode } from 'mode-watcher';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		CheckmarkCircle02Icon,
@@ -13,7 +13,13 @@
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
-	import { appearance, applyArtworkAccent, prewarmArtworkAccent, initTheme } from '$lib/theme.svelte';
+	import {
+		appearance,
+		applyArtworkAccent,
+		prewarmArtworkAccent,
+		refreshArtworkAccent,
+		initTheme
+	} from '$lib/theme.svelte';
 	import { thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
 	import { blockForeignDrag, dragScroll } from '$lib/dnd';
@@ -72,6 +78,12 @@
 		applyArtworkAccent(
 			appearance.artworkAccent ? thumb(playback.now?.thumbnail, 120) : null
 		);
+	});
+	// The accent is banded against the active theme (a cover's colour that reads on a light page is
+	// mud on a dark one, #137), so flipping light/dark has to re-derive it from the same cover.
+	$effect(() => {
+		mode.current;
+		refreshArtworkAccent();
 	});
 	// Same colour, one track early. Reading it off the queue instead of the track change means the
 	// palette starts moving on the frame the artwork swaps, not after a fetch and a decode.

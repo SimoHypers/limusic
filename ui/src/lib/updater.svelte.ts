@@ -6,7 +6,8 @@ import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { toast } from './player.svelte';
 import { t } from './i18n.svelte';
-import { canSelfUpdate, getSettings, openExternal } from './api';
+import { canSelfUpdate, getSettings, openExternal, releaseNotes } from './api';
+import { getVersion } from '@tauri-apps/api/app';
 
 const RELEASES_URL = 'https://github.com/SimoHypers/limusic/releases/latest';
 
@@ -23,8 +24,38 @@ export const updateState = $state({
 // The resolved handle to download; kept out of reactive state (it's not serializable/renderable).
 let pending: Update | null = null;
 
+/** `a` is a later release than `b`. Both are plain `x.y.z` from our own releases; anything that
+ *  doesn't parse compares as not-newer, so a weird tag can never invent an update. */
+function isNewer(a: string, b: string): boolean {
+	const pa = a.split('.').map(Number);
+	const pb = b.split('.').map(Number);
+	for (let i = 0; i < 3; i++) {
+		const [x, y] = [pa[i] ?? 0, pb[i] ?? 0];
+		if (x !== y) return x > y;
+	}
+	return false;
+}
+
 async function look(): Promise<boolean> {
-	const u = await check();
+	let u: Update | null;
+	try {
+		u = await check();
+	} catch (e) {
+		// The plugin resolves this platform's entry in latest.json BEFORE it compares versions, so a
+		// release whose manifest is missing the entry (a CI leg failed, or is still running) makes
+		// every check throw. The quiet check swallows that, which silently leaves the whole platform
+		// with no update prompt until some later release fixes the manifest. v0.6.6 shipped without
+		// `darwin-aarch64` and did exactly that to every Mac. So ask the releases API instead: it
+		// doesn't read the manifest. Nothing signed is reachable for us to install, so the banner
+		// can only offer the download page. If that call fails too (offline, rate-limited), its
+		// error propagates and the check reports as failed, which it did.
+		console.error('update manifest unusable, falling back to the releases API', e);
+		const latest = (await releaseNotes())[0]?.version;
+		if (!latest || !isNewer(latest, await getVersion())) return false;
+		updateState.canInstall = false;
+		updateState.available = { version: latest };
+		return true;
+	}
 	if (u) {
 		pending = u;
 		// Before `available`, so the banner never renders with the wrong button for a frame. On the

@@ -1,6 +1,8 @@
 // Shared window-maximized state: the resize borders hide when maximized, and the root container
 // drops its rounded corners. One listener, initialized once by the root layout.
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { onUiVisible } from '$lib/api';
+import { setUiVisible } from '$lib/theme.svelte';
 
 export const win = $state({ maximized: false });
 
@@ -26,5 +28,12 @@ export function initWin(): () => void {
 			.catch(() => {});
 	sync();
 	const un = w.onResized(sync);
-	return () => un.then((u) => u());
+	// Hidden to the tray is not a state the page can see for itself (WebKitGTK keeps reporting the
+	// document as visible), and work done for a hidden window is memory the web process keeps until
+	// it is shown again. See `theme.svelte.ts`.
+	const unVis = onUiVisible(setUiVisible);
+	return () => {
+		un.then((u) => u());
+		unVis.then((u) => u());
+	};
 }
