@@ -458,12 +458,18 @@ pub fn run() {
             // cold bootstrap (~0.8-2.3s) landed on the critical path whenever a track started from
             // a stop. 10 minutes covers any normal song, so continuous playback keeps one isolate,
             // and the memory still comes back ten minutes after the user stops listening.
+            //
+            // The cipher webview rides the same tick, for the same reason: it is a whole
+            // `WebKitWebProcess` (91 MiB PSS / 234 MiB RSS measured on Fedora) held for two
+            // functions that run once per track resolve.
             {
                 let potoken = potoken.clone();
+                let cipher = cipher.clone();
                 tauri::async_runtime::spawn(async move {
                     loop {
                         tokio::time::sleep(Duration::from_secs(30)).await;
                         potoken.teardown_if_idle(Duration::from_secs(600)).await;
+                        cipher.teardown_if_idle(Duration::from_secs(600)).await;
                     }
                 });
             }

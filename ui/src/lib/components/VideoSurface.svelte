@@ -57,16 +57,21 @@
 	 *  picture at completely the wrong place and then fight itself on the steady-state cooldown. */
 	const SYNC_SEEKS = 3;
 	const SYNC_WAIT = 4000;
-	/** How long the picture keeps running after the window goes away. Opening the mini player hides
-	 *  the main window (src-tauri/src/mini.rs), and coming back from it is the same expensive
-	 *  mid-track seek that reopening this view used to be. Pausing on the spot buys a little CPU and
-	 *  costs that seek every single time. `dormant` is where it lands once the grace has run out,
-	 *  and it is the only thing that stops the picture other than the music itself stopping.
-	 *  ponytail: one flat timer. Nobody has measured how long a mini-player session usually is, so
-	 *  raise it if coming back still resyncs, lower it if idle CPU ever becomes a complaint. */
-	const HIDDEN_GRACE = 60000;
-	let hiddenTimer: ReturnType<typeof setTimeout> | undefined;
-	let dormant = false;
+	/** How long the picture keeps running once nobody can use it: the window is hidden (opening the
+	 *  mini player hides the main window, src-tauri/src/mini.rs), or the music is paused with the
+	 *  player view shut. Coming back from either is the same expensive mid-track seek that reopening
+	 *  the view used to be, so it is worth holding through a short absence rather than stopping on
+	 *  the spot. Past the grace the element goes `dormant`: paused *and* released, src off, because
+	 *  a parked pipeline is not free. Measured on Fedora/NVIDIA with a restored music-video track
+	 *  nobody had even played: 385 MiB of GPU memory and 154 MiB of PSS, held for the session.
+	 *  It starts dormant for that reason, so a restored queue costs nothing until someone presses
+	 *  play or opens the view.
+	 *  ponytail: one flat timer for both triggers. Raise it if coming back still resyncs, lower it
+	 *  if idle memory matters more than that resync. */
+	const IDLE_GRACE = 60000;
+	let idleTimer: ReturnType<typeof setTimeout> | undefined;
+	let hidden = $state(false);
+	let dormant = $state(true);
 	let synced = false;
 	let syncSeeks = 0;
 	let syncStart = 0;
@@ -106,7 +111,10 @@
 		const id = playback.now?.videoId;
 		// video.want is a dependency so turning video on mid-track starts the fetch; fetchedId is
 		// what stops turning it off and on again from refetching what we already have.
-		if (!id || !canVideo() || !video.want || fetchedId === id) return;
+		// `dormant` means nobody can see the picture and the music is not moving, so resolving a
+		// URL here would only feed a pipeline we are deliberately not holding. It is state, so
+		// waking re-runs this and the fetch happens then.
+		if (!id || !canVideo() || !video.want || dormant || fetchedId === id) return;
 		fetchedId = id;
 		let cancelled = false;
 		// Usually already resolved (the store warms it when the track starts, and keeps it across
@@ -247,51 +255,59 @@
 			el.pause();
 			return;
 		}
-		// `dormant`, not `document.hidden`: a hidden window keeps the picture for HIDDEN_GRACE, so a
+		// `dormant`, not `document.hidden`: a hidden window keeps the picture for IDLE_GRACE, so a
 		// mini-player round trip comes back with nothing to re-sync. Past that it stops, and
 		// unpausing from the mini player must not start a dormant window decoding again.
-		// `synced` and `dormant` are plain lets, so this effect does not re-run when they flip;
-		// `syncVideo` and the visibility handler call `resumeVideo` themselves at those moments.
+		// `synced` is a plain let, so this effect does not re-run when it flips; `syncVideo` and
+		// the idle rule call `resumeVideo` themselves at those moments.
 		if (paused || dormant || !synced) el.pause();
 		else resumeVideo();
 	});
 
-	// Hidden away, the window still decodes video unless we stop it, so eventually we do. Nothing
-	// here touches mpv, so the audio carries on either way. The tray and the mini player both arrive
-	// here: mini.rs hides the main window rather than doing anything the webview could tell apart.
+	// A hidden window is one of the two ways the picture stops mattering; the player view not
+	// holding the element (`video.shown`) is the other. Kept as state so the rule below is one
+	// effect. The tray and the mini player both arrive here: mini.rs hides the main window rather
+	// than doing anything the webview could tell apart.
 	$effect(() => {
-		const onVisibility = () => {
-			if (!el) return;
-			clearTimeout(hiddenTimer);
-			if (document.hidden) {
-				// Not on the spot: see HIDDEN_GRACE.
-				hiddenTimer = setTimeout(() => {
+		const onVisibility = () => (hidden = document.hidden);
+		document.addEventListener('visibilitychange', onVisibility);
+		onVisibility();
+		return () => document.removeEventListener('visibilitychange', onVisibility);
+	});
+
+	// Nobody watching and nothing moving: the window still decodes video unless we stop it, so
+	// eventually we do. Nothing here touches mpv, so the audio carries on either way.
+	$effect(() => {
+		// `!playback.now` is the cold start: `paused` reads false until the backend's restore lands
+		// (player.svelte.ts), and waking on that would preroll a stream for a queue nobody has
+		// touched, which is the whole thing this rule exists to stop.
+		const idle = hidden || ((playback.paused || !playback.now) && !video.shown);
+		clearTimeout(idleTimer);
+		if (idle) {
+			// Not on the spot: see IDLE_GRACE.
+			if (!dormant) {
+				idleTimer = setTimeout(() => {
 					dormant = true;
 					el?.pause();
-				}, HIDDEN_GRACE);
-				return;
+				}, IDLE_GRACE);
 			}
-			// Back inside the grace, so the picture never stopped and never lost step. That is the
-			// whole point of the grace: there is nothing to do.
-			if (!dormant) return;
-			// It sat out the grace and stopped, so it is seconds out by definition: the picture stood
-			// still while the music carried on. Run the whole converge phase again rather than
-			// sitting out the cooldown and then trimming, and keep the picture still until it lands.
-			dormant = false;
-			synced = false;
-			syncSeeks = 0;
-			syncStart = 0;
-			lastSeek = 0;
-			el.pause();
-			// The picture restarts from inside resumeVideo, which is also where the "only if mpv is
-			// still going" check now lives.
-			syncVideo();
-		};
-		document.addEventListener('visibilitychange', onVisibility);
-		return () => {
-			clearTimeout(hiddenTimer);
-			document.removeEventListener('visibilitychange', onVisibility);
-		};
+			return;
+		}
+		// Inside the grace, so the picture never stopped and never lost step. That is the whole
+		// point of the grace: there is nothing to do.
+		if (!dormant) return;
+		// It sat out the grace and was released, so it has no stream at all and is seconds out by
+		// definition. Run the whole converge phase again rather than sitting out the cooldown and
+		// then trimming, and keep the picture still until it lands.
+		dormant = false;
+		synced = false;
+		syncSeeks = 0;
+		syncStart = 0;
+		lastSeek = 0;
+		el?.pause();
+		// The picture restarts from inside resumeVideo, which is also where the "only if mpv is
+		// still going" check now lives.
+		syncVideo();
 	});
 
 	// The element is built by hand, not by an {#if}, because it has to move between DOM parents and
@@ -319,7 +335,9 @@
 	// from markup that no longer owns the node.
 	$effect(() => {
 		if (!el) return;
-		const u = hasVideo() ? video.url : null;
+		// `dormant` releases it: see IDLE_GRACE. `video.url` is kept, so waking re-attaches the
+		// same stream without another resolve.
+		const u = hasVideo() && !dormant ? video.url : null;
 		// Setting src to the same string would still reload the element, so only write a change.
 		if (u && el.getAttribute('src') !== u) el.setAttribute('src', u);
 		else if (!u && el.hasAttribute('src')) {
@@ -329,7 +347,8 @@
 			// its buffers and its connection to the proxy for the rest of the session. `load()` is
 			// the only thing that runs the release steps. Never on a src *swap*: that path already
 			// reloads, and resetting readyState mid-swap is what the converge phase is written
-			// around.
+			// around. This is also what makes dormancy worth anything: the pipeline, the decoder
+			// and (on NVIDIA) a few hundred MiB of GPU memory only come back on `load()`.
 			el.load();
 		}
 	});
@@ -350,10 +369,9 @@
 
 <!-- Where the picture waits while nothing is showing it: in the document, so the spec's
      "removed from a Document" steps never pause it, but zero-sized and unpaintable.
-     ponytail: this is one muted decode that runs whenever a music-video track plays with the
-     setting on, view open or not. It is what buys a reopen with nothing to re-sync. Bound it by
-     pausing after the view has been shut for a while only if the owner ever reports the cost, and
-     accept that the first reopen after that pause resyncs. -->
+     This is one muted decode, and it runs only while the music is actually playing: paused with
+     the view shut, or hidden, it is released after IDLE_GRACE. Playing with the view shut still
+     costs it, and that is what buys a reopen with nothing to re-sync. -->
 <div
 	bind:this={parking}
 	aria-hidden="true"
