@@ -43,14 +43,20 @@ export function hsvToHex({ h, s, v }: Hsv): string {
 }
 
 /**
- * Should text on this colour be dark? Uses perceived brightness (HSP), not WCAG relative luminance:
- * luminance puts the crossover so low that mid-blues get black text, which nobody ships.
+ * Perceived brightness (HSP), 0–1. Not WCAG relative luminance: luminance puts the light/dark
+ * crossover so low that mid-blues get black text, which nobody ships. Unlike HSV's value it is
+ * hue-aware, so a yellow and a blue that read as equally bright score the same.
  */
-export function isLight(hex: string): boolean {
+export function brightness(hex: string): number {
 	const rgb = hexToRgb(hex);
-	if (!rgb) return false;
+	if (!rgb) return 0;
 	const [r, g, b] = rgb;
-	return Math.sqrt(0.299 * r * r + 0.587 * g * g + 0.114 * b * b) > 0.6;
+	return Math.sqrt(0.299 * r * r + 0.587 * g * g + 0.114 * b * b);
+}
+
+/** Should text on this colour be dark? */
+export function isLight(hex: string): boolean {
+	return brightness(hex) > 0.6;
 }
 
 /**

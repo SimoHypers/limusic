@@ -4,8 +4,8 @@
 //     node --experimental-strip-types ui/src/lib/artcolor.check.ts
 //
 // Prints "ok" and exits 0, or throws on the first broken invariant.
-import { pickAccent } from './artcolor.ts';
-import { hexToHsv, nearestHue } from './color.ts';
+import { pickAccent, toAccent } from './artcolor.ts';
+import { brightness, hexToHsv, hsvToHex, nearestHue } from './color.ts';
 
 /** An RGBA buffer: `n` pixels of each colour, in order. */
 const buf = (...runs: [[number, number, number], number][]) =>
@@ -18,9 +18,25 @@ const hue = (hex: string) => Math.round(hexToHsv(hex)!.h);
 const red = pickAccent(buf([[8, 8, 8], 900], [[200, 30, 30], 124]))!;
 if (Math.abs(hue(red) - 0) > 20 && Math.abs(hue(red) - 360) > 20) throw new Error(`hue: ${red}`);
 
-// Whatever comes back is usable as an accent: saturated and mid-light in both themes.
-const hsv = hexToHsv(red)!;
-if (hsv.s < 0.5 || hsv.v < 0.62 || hsv.v > 0.9) throw new Error(`out of band: ${JSON.stringify(hsv)}`);
+// Banding lands on the brightness the theme asked for, and the two themes disagree: a dark theme's
+// accent has to be brighter than the surfaces under it, a light theme's darker (#137). Every hue,
+// including the two that HSV value gets wrong (blue is dark at v=1, yellow is bright at v=0.5).
+for (const h of [0, 45, 60, 120, 180, 240, 280, 330]) {
+	const src = hsvToHex({ h, s: 0.9, v: 0.5 });
+	const dark = brightness(toAccent(src, true));
+	const light = brightness(toAccent(src, false));
+	if (Math.abs(dark - 0.65) > 0.02) throw new Error(`dark band at ${h}: ${dark}`);
+	if (Math.abs(light - 0.39) > 0.02) throw new Error(`light band at ${h}: ${light}`);
+	// Still a colour, not a wash: hue survives and something of the saturation does too.
+	for (const out of [toAccent(src, true), toAccent(src, false)]) {
+		const hsv = hexToHsv(out)!;
+		if (hsv.s < 0.3) throw new Error(`washed out at ${h}: ${out}`);
+		if (Math.min(Math.abs(hsv.h - h), 360 - Math.abs(hsv.h - h)) > 3) throw new Error(`hue drift: ${out}`);
+	}
+}
+
+// The picked colour comes back raw, so the cache stays valid across a light/dark flip.
+if (toAccent(red, true) === toAccent(red, false)) throw new Error('band ignores the theme');
 
 // Greyscale artwork keeps the user's theme instead of inventing a hue out of noise.
 if (pickAccent(buf([[20, 20, 20], 512], [[210, 210, 212], 512])) !== null) throw new Error('grey');

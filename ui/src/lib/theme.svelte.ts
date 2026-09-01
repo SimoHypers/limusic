@@ -12,7 +12,7 @@
 
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { hexToHsv, isLight, nearestHue } from './color';
-import { artworkAccent, warmAccent } from './artcolor';
+import { artworkAccent, toAccent, warmAccent } from './artcolor';
 import { allowFontFile } from './api';
 
 export type ThemeId = 'rose' | 'blue' | 'lime' | 'purple' | 'teal' | 'catppuccin' | 'caffeine' | 'neon' | 'breeze';
@@ -368,9 +368,13 @@ export function setUiVisible(visible: boolean): void {
 	}
 }
 
-/** Push the current artwork colour into the accent vars and the tint hue. */
+/**
+ * Push the current artwork colour into the accent vars and the tint hue. The cover's colour is
+ * stored raw and banded here, so the light/dark decision is re-made on every apply instead of being
+ * frozen into the cache at decode time (#137).
+ */
 function setArtVars(c: { h: number; hex: string }): void {
-	setAccentVars(c.hex);
+	setAccentVars(toAccent(c.hex, document.documentElement.classList.contains('dark')));
 	document.documentElement.style.setProperty('--art-h', c.h.toFixed(1));
 	document.documentElement.classList.add(TINT_CLASS);
 }
@@ -403,6 +407,11 @@ export function applyArtworkAccent(url: string | undefined | null): void {
 		art = { h: nearestHue(from, hsv.h), hex };
 		restyle(); // through the normal path, so `effective` and the pickers agree
 	});
+}
+
+/** Re-band the artwork accent after a light/dark flip. No-op when the setting is off. */
+export function refreshArtworkAccent(): void {
+	if (art) restyle();
 }
 
 /** Decode a cover the user is about to hear, so its colour is ready the instant the track flips. */

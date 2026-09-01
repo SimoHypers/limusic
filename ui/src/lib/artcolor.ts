@@ -6,18 +6,60 @@
 // (k-means, palette libraries) is a dependency and a frame budget for a result nobody can tell
 // apart at accent size.
 
-import { hexToHsv, hsvToHex } from './color.ts';
+import { brightness, hexToHsv, hsvToHex } from './color.ts';
 
 const SIZE = 32;
 
 /** Cover URL -> accent (or `null` for "this cover has no colour"). */
 const cache = new Map<string, string | null>();
 
+// How bright an accent has to be, per theme mode, as perceived brightness (`color.ts`). One band
+// cannot serve both: what reads on a light page is mud on a dark one, which is what #137 reported.
+// Brightness, not HSV value, because value is hue-blind: v=0.9 yellow and v=0.9 blue are nowhere
+// near each other on screen, and the accent is text (`text-primary`) as often as it is a fill.
+const TARGET_DARK = 0.65;
+const TARGET_LIGHT = 0.39;
+// Saturation still has to read as a colour without turning neon. Only a floor and a ceiling: what
+// the colour actually needs is decided against the brightness target below.
+const S_MIN = 0.45;
+const S_MAX = 0.85;
+
 /**
- * Winning colour of an RGBA buffer, normalized into the band an accent has to live in (saturated
- * enough to read as a colour, mid-light so black or white text can sit on it). `null` when the
- * artwork has no colour worth taking — a greyscale cover would otherwise have a hue invented for
- * it out of JPEG noise.
+ * The cover's colour pulled to the brightness the current theme needs. Value alone gets there for
+ * most hues; when it can't (a deep blue is dark even at full value, a yellow is bright even at low
+ * one) saturation gives up exactly as much as it takes and no more.
+ *
+ * Also decides the text that sits ON the accent, for free: `isLight` uses the same brightness, so a
+ * dark-theme accent lands above its threshold and a light-theme one below it.
+ */
+export function toAccent(hex: string, dark: boolean): string {
+	const hsv = hexToHsv(hex);
+	if (!hsv) return hex;
+	const target = dark ? TARGET_DARK : TARGET_LIGHT;
+	const at = (s: number, v: number) => brightness(hsvToHex({ h: hsv.h, s, v }));
+	let s = Math.min(S_MAX, Math.max(S_MIN, hsv.s));
+	if (at(s, 1) < target) {
+		// Too dark to reach even at full value. s=0 is white, which is always bright enough, so the
+		// answer is somewhere below the current saturation: bisect for the most colour we can keep.
+		let lo = 0;
+		let hi = s;
+		for (let i = 0; i < 12; i++) {
+			const mid = (lo + hi) / 2;
+			if (at(mid, 1) < target) hi = mid;
+			else lo = mid;
+		}
+		s = lo;
+	}
+	// Brightness is linear in value at a fixed hue and saturation, so the rest is one division.
+	const full = at(s, 1);
+	return hsvToHex({ h: hsv.h, s, v: full ? Math.min(1, target / full) : 1 });
+}
+
+/**
+ * Winning colour of an RGBA buffer, or `null` when the artwork has no colour worth taking (a
+ * greyscale cover would otherwise have a hue invented for it out of JPEG noise). Returned raw:
+ * `toAccent` does the theme-dependent part, so a cover decoded in dark mode is still right after
+ * the user flips to light.
  */
 export function pickAccent(data: Uint8ClampedArray): string | null {
 	// key = 3 bits per channel. score favours saturated, mid-value pixels: the near-black and
@@ -51,7 +93,7 @@ export function pickAccent(data: Uint8ClampedArray): string | null {
 			.join('');
 	const hsv = hexToHsv(hex);
 	if (!hsv || hsv.s < 0.15) return null; // greyscale cover: leave the user's theme alone
-	return hsvToHex({ h: hsv.h, s: Math.min(0.85, Math.max(0.5, hsv.s)), v: Math.min(0.9, Math.max(0.62, hsv.v)) });
+	return hex;
 }
 
 /**
