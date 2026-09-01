@@ -145,12 +145,20 @@ who host it free for libre projects.
   <img src="https://hosted.weblate.org/widget/limusic/ui/multi-auto.svg" alt="Translation status">
 </a>
 
-English, Turkish, Brazilian Portuguese and Indonesian ship today. To add a
-language or fix a string, use the Weblate link above rather than editing the
-JSON: it shows the English original beside each string, flags translations that
-went stale when the English changed, and opens the pull request for you.
-Anything untranslated falls back to English in the app, so partial work is safe
-to submit.
+English, Turkish, Brazilian Portuguese and Indonesian ship in the app today.
+The badge above shows everything else in flight.
+
+**Translate on Weblate, not in a pull request.** Weblate keeps its own copy of
+the catalogs, so a hand-edited `fr.json` merged here puts the two out of sync
+and the next batch of real translations arrives as a merge conflict. Weblate
+also shows you the English original beside each string, flags translations that
+went stale when the English changed, checks that placeholders like `{count}`
+survived, and opens the pull request for you. Anything untranslated falls back
+to English in the app, so partial work is safe to submit.
+
+`en.json` is the exception: it changes by hand, in whichever pull request
+changes the UI. Switching a finished language on in the picker takes a small
+code change too, see [CONTRIBUTING.md](CONTRIBUTING.md#translations).
 
 ---
 
