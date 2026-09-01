@@ -598,6 +598,7 @@ pub fn run() {
                         if hide {
                             api.prevent_close();
                             let _ = window.hide();
+                            tray::set_main_visible(window.app_handle(), false);
                         }
                     }
                     // Nothing in the widget closes it, but a WM shortcut still can. Turn that into

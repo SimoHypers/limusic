@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::state::AppState;
 
@@ -29,7 +29,20 @@ pub fn show_main(app: &AppHandle) {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
+        set_main_visible(app, true);
     }
+}
+
+/// Tell the main window's SPA whether anyone can see it.
+///
+/// WebKitGTK does not pass a GTK hide down to the page: `document.visibilityState` stays
+/// `"visible"` for a window that is closed to the tray, so the SPA cannot work this out on its own
+/// and keeps restyling for nobody. That is worse than wasted work. While the window is unmapped
+/// the web process never gives any of it back: measured over 20 track changes with the window
+/// hidden, it grew 137 MB and held it, then dropped the whole lot within two seconds of the window
+/// being shown again. A night in the tray is thousands of those. See `theme.svelte.ts`.
+pub fn set_main_visible(app: &AppHandle, visible: bool) {
+    let _ = app.emit_to("main", "ui-visible", visible);
 }
 
 /// Shared by both backends: menu ids are the contract between them.
