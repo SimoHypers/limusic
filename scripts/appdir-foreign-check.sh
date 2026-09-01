@@ -128,6 +128,7 @@ PROBE
   python3 /tmp/gstprobe.py
 ) || bad "the bundled GStreamer cannot build a video pipeline, so the webview aborts on a music video"
 
+WEBVIEW_OK='webview bridge OK|webview Mozilla/5\.0'
 step "launching the app under Xvfb"
 export HOME=/tmp/apphome
 mkdir -p "$HOME"
@@ -138,7 +139,7 @@ RUNPID=$!
 # Stop as soon as a webview works (about three seconds) or the app dies. The app never exits on its
 # own, so without this the step would always burn the full timeout.
 for _ in $(seq 90); do
-  grep -q 'webview bridge OK' /tmp/run.log && break
+  grep -qE "$WEBVIEW_OK" /tmp/run.log && break
   kill -0 "$RUNPID" 2>/dev/null || break
   sleep 1
 done
@@ -149,9 +150,12 @@ grep -viE 'dbind|StatusNotifier|libEGL warning|DRI3' /tmp/run.log | head -40 | s
 if grep -qE 'Could not create .*EGL display|undefined symbol|cannot open shared object file|Failed to load module|webview never became ready|symbol lookup error|core dumped' /tmp/run.log; then
   bad "startup log contains a loader or webview failure (see above)"
 fi
-# "webview bridge OK" means a WebKit web process came up and round-tripped JS. It is the one line
-# that separated a working AppImage from the v0.2.14 one, which logged everything else identically.
-grep -q 'webview bridge OK' /tmp/run.log || bad "no webview ever became usable"
+# Either line means a WebKit web process came up and round-tripped JS, which is what separated a
+# working AppImage from the v0.2.14 one that logged everything else identically. "webview bridge OK"
+# is a hidden harness webview; the UA line is the main window's SPA reporting navigator.userAgent
+# back over IPC, so it proves the same thing about the window a user actually sees. Both are needed:
+# since 0.6.7 the cipher webview is built on demand, so a startup that plays nothing never has one.
+grep -qE "$WEBVIEW_OK" /tmp/run.log || bad "no webview ever became usable"
 
 printf '\n'
 [ "$FAIL" = 0 ] && { echo "PASS: $(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-unknown}")"; exit 0; }
