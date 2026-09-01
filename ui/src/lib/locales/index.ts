@@ -2,9 +2,9 @@
 // English is the source of truth and the only complete one: `t()` falls back to it per key, so a
 // half-finished catalog renders English for what it is missing rather than a raw key.
 import en from './en.json';
+import id from './id.json';
 import ptBR from './pt_BR.json';
 import tr from './tr.json';
-import id from './id.json'
 
 export type Translations = typeof en;
 
@@ -14,16 +14,16 @@ type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]>
 export type LocaleId = 'en' | 'tr' | 'pt-BR' | 'id';
 
 export interface LocaleInfo {
-  id: LocaleId;
-  /** Shown in the language picker, in the language itself. */
-  nativeLabel: string;
+	id: LocaleId;
+	/** Shown in the language picker, in the language itself. */
+	nativeLabel: string;
 }
 
 export const LOCALES: LocaleInfo[] = [
-  { id: 'en', nativeLabel: 'English' },
-  { id: 'pt-BR', nativeLabel: 'Português (Brasil)' },
-  { id: 'tr', nativeLabel: 'Türkçe' },
-  { id: 'id', nativeLabel: 'Bahasa Indonesia' }
+	{ id: 'en', nativeLabel: 'English' },
+	{ id: 'id', nativeLabel: 'Bahasa Indonesia' },
+	{ id: 'pt-BR', nativeLabel: 'Português (Brasil)' },
+	{ id: 'tr', nativeLabel: 'Türkçe' }
 ];
 
 // Filenames are Weblate's language codes (pt_BR), the ids here are BCP-47 (pt-BR) because that is

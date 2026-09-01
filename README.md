@@ -57,7 +57,7 @@ YouTube Music client, and grew from there.
 </p>
 
 | Platform | File | Notes |
-| --- | --- | --- |
+|---|---|---|
 | Linux | `.AppImage` | Self-updating, libmpv bundled. Needs glibc 2.39+ (Ubuntu 24.04+, Debian 13+, Fedora 40+) |
 | Linux (Ubuntu/Debian) | `.deb` | No self-update. Needs Ubuntu 24.04+ / Debian 13+; apt pulls libmpv and webkit2gtk in for you |
 | Linux (Fedora/RHEL) | `.rpm` | Needs `mpv-libs` installed (`sudo dnf install mpv-libs`). Updates through dnf, not in-app |
@@ -145,11 +145,12 @@ who host it free for libre projects.
   <img src="https://hosted.weblate.org/widget/limusic/ui/multi-auto.svg" alt="Translation status">
 </a>
 
-English, Turkish, Brazilian Portuguese, and Indonesian ship today. To add a language or fix
-a string, use the Weblate link above rather than editing the JSON: it shows the
-English original beside each string, flags translations that went stale when the
-English changed, and opens the pull request for you. Anything untranslated falls
-back to English in the app, so partial work is safe to submit.
+English, Turkish, Brazilian Portuguese and Indonesian ship today. To add a
+language or fix a string, use the Weblate link above rather than editing the
+JSON: it shows the English original beside each string, flags translations that
+went stale when the English changed, and opens the pull request for you.
+Anything untranslated falls back to English in the app, so partial work is safe
+to submit.
 
 ---
 
