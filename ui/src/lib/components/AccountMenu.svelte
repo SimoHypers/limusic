@@ -18,14 +18,17 @@
 	let accounts = $state<api.SavedAccount[]>([]);
 	let switching = $state<string | null>(null);
 
-	// Right-anchored under the trigger, like the Last.fm menu next to it. The saved-account list
-	// is refetched on every open so it can't go stale while the menu was closed.
+	/**
+	 * Right-anchored under the trigger, like the Last.fm menu next to it. The saved-account list
+	 * is refetched on every open so it can't go stale while the menu was closed.
+	 */
 	async function openMenu(e: MouseEvent) {
 		anchor = anchorMenu(e, { align: 'right' });
 		menuOpen = !menuOpen;
 		if (menuOpen) await loadAccounts();
 	}
 
+	/** Fetch the saved accounts for the menu; on failure show a toast and an empty list. */
 	async function loadAccounts() {
 		try {
 			accounts = await api.getGoogleAccounts();
@@ -47,6 +50,7 @@
 		menuOpen = false;
 	}
 
+	/** Open the sign-in webview on Google's AddSession flow so a second account can be added. */
 	function addAccount() {
 		api.loginWebview(true); // Google's AddSession flow, so a second account can be added
 		menuOpen = false;
@@ -57,6 +61,7 @@
 		openChannelPicker();
 	}
 
+	/** Activate a saved account. `auth-changed` fires on success and the library reload follows. */
 	async function chooseAccount(account: api.SavedAccount) {
 		if (switching || account.active) return;
 		switching = account.id;
@@ -70,6 +75,7 @@
 		}
 	}
 
+	/** Delete a saved account; the menu list updates in place (the active one can't be removed). */
 	async function removeAccount(account: api.SavedAccount) {
 		if (switching) return;
 		switching = account.id;

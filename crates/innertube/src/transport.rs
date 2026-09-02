@@ -223,14 +223,7 @@ impl InnerTube {
         // `path` may already carry query params (e.g. browse continuations); chain accordingly.
         let sep = if path.contains('?') { '&' } else { '?' };
         let url = format!("{BASE_URL}{path}{sep}prettyPrint=false");
-        let headers = self.headers(client, set_login);
-        // Capture the jar identity this request is dispatched under, so its `Set-Cookie` pairs
-        // merge only if the session still belongs to the same account when the response lands.
-        let dispatched_sapisid = if set_login && client.login_supported {
-            self.session.read().unwrap().sapisid()
-        } else {
-            None
-        };
+        let (headers, dispatched_sapisid) = self.headers(client, set_login);
         let body = serde_json::to_vec(body)?;
 
         let mut delay = Duration::from_millis(500);
@@ -299,7 +292,7 @@ impl InnerTube {
         extra: &[(&'static str, String)],
         body: Vec<u8>,
     ) -> Result<(HeaderMap, Vec<u8>), Error> {
-        let mut headers = self.headers(client, true);
+        let mut headers = self.headers(client, true).0;
         for (name, value) in extra {
             if let Ok(v) = HeaderValue::from_str(value) {
                 headers.insert(HeaderName::from_static(name), v);
@@ -323,9 +316,15 @@ impl InnerTube {
         Ok((headers, resp.bytes().await?.to_vec()))
     }
 
-    /// Per-request headers. context/01 §ytClient. Note `X-YouTube-Client-Name` carries the
-    /// numeric client **id**, not the name string — intentional and required.
-    fn headers(&self, client: &YouTubeClient, set_login: bool) -> HeaderMap {
+    /// Per-request headers plus the authenticated identity snapshot they were built from.
+    /// context/01 §ytClient. Note `X-YouTube-Client-Name` carries the numeric client **id**, not
+    /// the name string — intentional and required.
+    ///
+    /// Both values come out of one session read: the cookie sent on the wire and the SAPISID that
+    /// gates merging the response's `Set-Cookie` pairs must describe the same jar, or an account
+    /// switch between two reads could pair one account's cookie with another account's merge gate
+    /// (`None` = no authenticated identity on this request).
+    fn headers(&self, client: &YouTubeClient, set_login: bool) -> (HeaderMap, Option<String>) {
         let mut h = HeaderMap::new();
         let set = |h: &mut HeaderMap, k: &'static str, v: &str| {
             if let Ok(val) = HeaderValue::from_str(v) {
@@ -348,17 +347,19 @@ impl InnerTube {
         }
 
         // SAPISIDHASH cookie auth — only when logged in AND the client supports it (Phase 3).
+        let sapisid = s.sapisid();
         if set_login && client.login_supported {
             if let Some(cookie) = &s.cookie {
                 set(&mut h, "cookie", cookie);
-                if let Some(sapisid) = s.sapisid() {
-                    if let Ok(val) = HeaderValue::from_str(&sapisid_hash(&sapisid, ORIGIN)) {
+                if let Some(sapisid) = &sapisid {
+                    if let Ok(val) = HeaderValue::from_str(&sapisid_hash(sapisid, ORIGIN)) {
                         h.insert(HeaderName::from_static("authorization"), val);
                     }
                 }
             }
         }
-        h
+        let dispatched = if set_login && client.login_supported { sapisid } else { None };
+        (h, dispatched)
     }
 
     /// Bootstrap `visitorData` anonymously by scraping `sw.js_data`. context/04 §A.
@@ -379,7 +380,7 @@ impl InnerTube {
         playlist_id: Option<&str>,
     ) -> Result<(), Error> {
         let url = build_playback_url(base_url, &client.client_name, cpn, playlist_id);
-        let headers = self.headers(client, true);
+        let headers = self.headers(client, true).0;
         self.http.get(&url).headers(headers).send().await?.error_for_status()?;
         Ok(())
     }
@@ -620,5 +621,48 @@ mod tests {
         anonymous.set_cookie(Some("SAPISID=new".into()));
         anonymous.merge_set_cookies(&["SAPISID=anon; Path=/".into()], None);
         assert_eq!(anonymous.cookie().unwrap(), "SAPISID=new");
+    }
+
+    /// The cookie sent on the wire and the identity gating the response merge come from one
+    /// session snapshot: an account switch between two separate reads (the pre-snapshot shape)
+    /// could send one account's cookie while checking another account's identity. The dispatch
+    /// snapshot must always report the same SAPISID it sent, and the merge gate must reject any
+    /// jar that no longer matches.
+    #[test]
+    fn dispatch_snapshot_keeps_cookie_and_identity_consistent() {
+        let clients = crate::clients::Clients::bundled();
+        let web = clients.get(crate::clients::METADATA_CLIENT).unwrap();
+        let it = InnerTube::new(
+            Session {
+                cookie: Some("SAPISID=aaa; __Secure-3PSIDTS=t1".into()),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+
+        let (headers, dispatched) = it.headers(web, true);
+        assert_eq!(
+            headers.get("cookie").and_then(|v| v.to_str().ok()),
+            Some("SAPISID=aaa; __Secure-3PSIDTS=t1"),
+            "the cookie on the wire is the snapshot's jar"
+        );
+        assert_eq!(
+            dispatched.as_deref(),
+            Some("aaa"),
+            "the merge gate carries the same identity the cookie carries"
+        );
+        assert!(headers.get("authorization").is_some(), "SAPISIDHASH derives from the same snapshot");
+
+        // An account switch between dispatch and response: the dispatched identity no longer
+        // matches the jar, so the response's pairs must not be merged into it.
+        it.set_cookie(Some("SAPISID=bbb".into()));
+        it.merge_set_cookies(&["__Secure-3PSIDTS=rotated; Path=/".into()], dispatched.as_deref());
+        assert_eq!(it.cookie().unwrap(), "SAPISID=bbb");
+
+        // Anonymous dispatch: no cookie on the wire and no identity to gate a merge.
+        let (headers, dispatched) = it.headers(web, false);
+        assert!(headers.get("cookie").is_none());
+        assert_eq!(dispatched, None);
     }
 }

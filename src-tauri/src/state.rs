@@ -671,6 +671,8 @@ impl AppState {
         self.persist_selected_identity(selected, visitor_data.as_deref())
     }
 
+    /// Persist a freshly picked channel: the canonical selected identity, its projections, and the
+    /// visitorData, then refresh the saved account row and the transport to match. context/15.
     fn persist_selected_identity(
         &self,
         selected: SelectedIdentity,
@@ -726,6 +728,9 @@ impl AppState {
         }
     }
 
+    /// "Sign out" removes the active account from the saved list (drops to guest); the other
+    /// saved accounts stay in the menu for a one-click switch back. A transport that is already
+    /// signed out (no live cookie, no `active_account` setting) just clears its session state.
     pub async fn sign_out(&self) {
         // Live cookie identity first, like `remove_google_account` below; the setting is only
         // the fallback for a transport that is already signed out.

@@ -366,6 +366,8 @@ pub async fn sign_out(state: St<'_>) -> Result<(), String> {
 
 // --- saved Google accounts (multi-account, context/15) ---------------------------------------
 
+/// Saved Google accounts for the account menu. Display fields only — cookies, delegated ids and
+/// visitorData never cross the Tauri boundary.
 #[tauri::command]
 pub async fn get_google_accounts(state: St<'_>) -> Result<Vec<serde_json::Value>, String> {
     Ok(state.google_accounts())

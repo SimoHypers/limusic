@@ -189,6 +189,9 @@ fn raise_fd_limit() {
     }
 }
 
+/// Tauri entry point. Applies the platform boot fixes (open-fd limit, NVIDIA/WebKit env), restores
+/// the persisted session, wires every command and plugin, and runs the event loop. context/01
+/// §startup.
 pub fn run() {
     // Must happen before any webview exists: the limit is inherited by the web processes WebKit
     // forks, and cannot be raised for them afterwards.

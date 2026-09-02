@@ -378,6 +378,7 @@ impl Db {
         out
     }
 
+    /// One saved account by id, or `None` when it isn't saved.
     pub fn get_account(&self, id: &str) -> Option<StoredAccount> {
         let conn = self.0.lock().unwrap();
         conn.query_row(
@@ -399,6 +400,8 @@ impl Db {
         .ok()
     }
 
+    /// Delete a saved account row. Whether removing it signs the app out is the caller's decision
+    /// (see `AppState::remove_google_account`), not this row's.
     pub fn remove_account(&self, id: &str) {
         let conn = self.0.lock().unwrap();
         let _ = conn.execute("DELETE FROM accounts WHERE id = ?1", [id]);
