@@ -186,6 +186,7 @@
 		"every_song_saved": "Every song you’ve saved, in one list",
 		"every_upload": "Every track you’ve uploaded to YouTube Music",
 		"no_uploads": "Nothing uploaded yet. Songs you upload at music.youtube.com show up here.",
+		"no_upload_albums": "No uploaded albums yet. Albums you upload at music.youtube.com show up here.",
 		"uploads_signed_out": "Sign in to see the music you’ve uploaded to YouTube Music."
 	},
 	"local": {

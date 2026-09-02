@@ -359,6 +359,13 @@ impl InnerTube {
         self.library_grid(client, "FEmusic_liked_albums").await
     }
 
+    /// The albums the signed-in user uploaded themselves
+    /// (`FEmusic_library_privately_owned_releases`). Cards come back as ordinary `MPREb_…` album
+    /// browseIds, so they open on the album page like any other. context/08. Needs login.
+    pub async fn upload_albums(&self, client: &YouTubeClient) -> Result<Vec<BrowseItem>, Error> {
+        self.library_grid(client, "FEmusic_library_privately_owned_releases").await
+    }
+
     /// Library artists (`FEmusic_library_corpus_track_artists`) — the artists behind the songs and
     /// albums in your library, which is what YouTube Music's own Artists tab shows (subscriptions
     /// live under `FEmusic_library_corpus_artists`). context/08. Needs login.

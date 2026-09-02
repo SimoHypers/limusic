@@ -129,7 +129,12 @@ export const library = $state({
 	artists: [] as BrowseItem[],
 	extrasLoaded: false,
 	extrasLoading: false,
-	extrasError: null as string | null
+	extrasError: null as string | null,
+	// Uploads ▸ Albums. Loaded only when that tab is opened, since most accounts have none.
+	uploadAlbums: [] as BrowseItem[],
+	uploadAlbumsLoaded: false,
+	uploadAlbumsLoading: false,
+	uploadAlbumsError: null as string | null
 });
 
 // Account switches can happen while a library request is still in flight. A generation lets the
@@ -148,6 +153,10 @@ function resetLibraryForAccount() {
 	library.extrasLoaded = false;
 	library.extrasLoading = false;
 	library.extrasError = null;
+	library.uploadAlbums = [];
+	library.uploadAlbumsLoaded = false;
+	library.uploadAlbumsLoading = false;
+	library.uploadAlbumsError = null;
 }
 
 /** Fetch the library once (or force a refresh). No-op while a load is in flight. */
@@ -187,6 +196,24 @@ export async function loadLibraryExtras(force = false) {
 		if (generation === libraryGeneration) library.extrasError = String(e);
 	} finally {
 		if (generation === libraryGeneration) library.extrasLoading = false;
+	}
+}
+
+/** The user's own uploaded albums, same caching rules as `loadLibrary`. */
+export async function loadUploadAlbums(force = false) {
+	if (library.uploadAlbumsLoading || (library.uploadAlbumsLoaded && !force)) return;
+	const generation = libraryGeneration;
+	library.uploadAlbumsLoading = true;
+	library.uploadAlbumsError = null;
+	try {
+		const albums = await api.getUploadAlbums();
+		if (generation !== libraryGeneration) return;
+		library.uploadAlbums = albums;
+		library.uploadAlbumsLoaded = true;
+	} catch (e) {
+		if (generation === libraryGeneration) library.uploadAlbumsError = String(e);
+	} finally {
+		if (generation === libraryGeneration) library.uploadAlbumsLoading = false;
 	}
 }
 

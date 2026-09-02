@@ -35,7 +35,13 @@
 	// The same tab, pointed at a different browse id: Library ▸ Songs by default, or the tracks the
 	// user uploaded to YouTube Music themselves. Both browse like a headerless playlist and page the
 	// same way, so the only differences are the id and the words around it.
-	let { uploads = false }: { uploads?: boolean } = $props();
+	// `limit` turns this into a preview (the Uploads ▸ All tab): the first few rows and a See all,
+	// with no paging, so what sits below it on that page stays reachable.
+	let {
+		uploads = false,
+		limit,
+		onSeeAll
+	}: { uploads?: boolean; limit?: number; onSeeAll?: () => void } = $props();
 	const BROWSE_ID = $derived(uploads ? api.LIBRARY_UPLOADS_ID : api.LIBRARY_SONGS_ID);
 
 	// Cached like every other browse page, so switching tabs (or leaving the Library and coming
@@ -283,7 +289,7 @@
 		<div class="content-in">
 			<!-- Keyed on the id *and* the position: nothing stops the same song sitting in a library
 			     twice, and a repeated key is a crash. -->
-			{#each shownSongs.slice(0, shown) as song, i (song.video_id + i)}
+			{#each shownSongs.slice(0, limit ?? shown) as song, i (song.video_id + i)}
 				<TrackRow
 					{song}
 					index={i}
@@ -308,7 +314,13 @@
 		</p>
 	{/if}
 
-	{#if moreError}
+	{#if limit}
+		{#if shownSongs.length > limit}
+			<Button variant="outline" size="sm" class="mt-2 rounded-full" onclick={onSeeAll}>
+				{t('common.see_all')}
+			</Button>
+		{/if}
+	{:else if moreError}
 		<div class="p-3 text-center">
 			<Button variant="outline" size="sm" onclick={() => ((moreError = false), loadMore())}>
 				{loadingMore ? t('common.loading') : t('common.try_again')}

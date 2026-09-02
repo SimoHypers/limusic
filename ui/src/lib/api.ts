@@ -412,6 +412,7 @@ export const getHomeMore = (token: string) => invoke<HomePage>('get_home_more', 
 export const getLibrary = () => invoke<BrowseItem[]>('get_library');
 export const getLibraryAlbums = () => invoke<BrowseItem[]>('get_library_albums');
 export const getLibraryArtists = () => invoke<BrowseItem[]>('get_library_artists');
+export const getUploadAlbums = () => invoke<BrowseItem[]>('get_upload_albums');
 /**
  * `sort` asks YouTube to order the tracks; omit it to get whatever order the account already has
  * the list in, which is the one a fresh visit wants (it is what YouTube Music would show).

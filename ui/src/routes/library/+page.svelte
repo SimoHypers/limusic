@@ -5,7 +5,7 @@
 </script>
 
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { page } from '$app/state';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
@@ -37,6 +37,7 @@
 		library,
 		loadLibrary,
 		loadLibraryExtras,
+		loadUploadAlbums,
 		createLibraryPlaylist,
 		syncSavedToYouTube
 	} from '$lib/player.svelte';
@@ -53,6 +54,9 @@
 	$effect(() => {
 		lastTab = tab;
 	});
+	// Uploads splits three ways (all / songs / albums): YouTube Music takes uploaded albums too, and
+	// they are a card grid rather than rows, so they can't just join the track list.
+	let uploadTab = $state('all');
 
 	// Everything here lives in the shared `library` store, so a revisit renders the cached grid
 	// immediately and the forced refresh below swaps in fresh data behind it. What was saved on this
@@ -69,6 +73,8 @@
 	const rvPlaylists = reveal();
 	const rvAlbums = reveal();
 	const rvArtists = reveal();
+	const rvUploadsAll = reveal();
+	const rvUploadAlbums = reveal();
 	const loading = $derived((library.loading || library.extrasLoading) && !all.length);
 	const error = $derived(library.error ?? library.extrasError);
 	// Only the empty states differ: signed out there is no account library to be missing yet.
@@ -78,6 +84,13 @@
 	const toSync = $derived(unsynced(personal));
 
 	onMount(load);
+
+	// Only when the tab is opened: most accounts have no uploads at all, so this stays off the
+	// Library's own load. `untrack` because the loader writes the very state it reads to decide
+	// whether to run, which would otherwise re-trigger this effect forever.
+	$effect(() => {
+		if (tab === 'uploads') untrack(() => loadUploadAlbums());
+	});
 
 	function load() {
 		loadLibrary(true);
@@ -261,7 +274,55 @@
 				{#if signedOut}
 					<p class="text-sm text-muted-foreground">{t('library.uploads_signed_out')}</p>
 				{:else}
-					<LibrarySongs uploads />
+					<!-- `line` rather than the pill row above it: two identical pill rows stacked read as
+					     one control drawn twice. -->
+					<Tabs.Root bind:value={uploadTab}>
+						<Tabs.List variant="line" class="mb-4">
+							<Tabs.Trigger value="all">
+								<HugeiconsIcon icon={SquareStackIcon} class="h-4 w-4" /> {t('common.all')}
+							</Tabs.Trigger>
+							<Tabs.Trigger value="songs">
+								<HugeiconsIcon icon={MusicNote01Icon} class="h-4 w-4" /> {t('common.songs')}
+							</Tabs.Trigger>
+							<Tabs.Trigger value="albums">
+								<HugeiconsIcon icon={MusicNoteSquare02Icon} class="h-4 w-4" /> {t('common.albums')}
+							</Tabs.Trigger>
+						</Tabs.List>
+						<Tabs.Content value="all">
+							{#if uploadTab === 'all'}
+								<LibrarySongs uploads limit={20} onSeeAll={() => (uploadTab = 'songs')} />
+								{#if library.uploadAlbums.length}
+									<h2 class="mb-3 mt-8 font-heading text-lg font-semibold">{t('common.albums')}</h2>
+									{@render grid(library.uploadAlbums, '', rvUploadsAll)}
+								{/if}
+							{/if}
+						</Tabs.Content>
+						<Tabs.Content value="songs">
+							{#if uploadTab === 'songs'}<LibrarySongs uploads />{/if}
+						</Tabs.Content>
+						<Tabs.Content value="albums">
+							{#if uploadTab === 'albums'}
+								{#if library.uploadAlbumsLoading && !library.uploadAlbums.length}
+									<div class="card-grid">
+										{#each Array(6) as _, i (i)}
+											<MediaCardSkeleton />
+										{/each}
+									</div>
+								{:else if library.uploadAlbumsError && !library.uploadAlbums.length}
+									<ErrorState
+										message={library.uploadAlbumsError}
+										onRetry={() => loadUploadAlbums(true)}
+									/>
+								{:else}
+									{@render grid(
+										library.uploadAlbums,
+										t('library.no_upload_albums'),
+										rvUploadAlbums
+									)}
+								{/if}
+							{/if}
+						</Tabs.Content>
+					</Tabs.Root>
 				{/if}
 			{/if}
 		</Tabs.Content>
