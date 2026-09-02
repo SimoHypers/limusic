@@ -15,7 +15,7 @@ use player::Player;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
-use crate::db::{now_secs, Db};
+use crate::db::{now_secs, Db, StoredAccount};
 use crate::discord::DiscordHandle;
 use crate::listentogether::{LtSession, SyncCommand};
 use crate::media::MediaHandle;
@@ -584,6 +584,7 @@ impl AppState {
                 error.to_string()
             })?;
             self.persist_visitor_data(active_visitor_data.as_deref());
+            self.sync_active_account();
             let _ = self.app.emit("account-selection-required", ());
             return Ok(SignInOutcome::SelectionRequired);
         }
@@ -691,6 +692,7 @@ impl AppState {
             )
             .map_err(|e| format!("Couldn't save the selected YouTube channel: {e}"))?;
         self.persist_visitor_data(visitor_data);
+        self.sync_active_account();
         self.forget_playlist_index();
         self.it.set_data_sync_id(selected.data_sync_id.clone());
         let _ = self.app.emit("auth-changed", &account);
@@ -725,12 +727,181 @@ impl AppState {
     }
 
     pub async fn sign_out(&self) {
-        self.it.set_cookie(None);
-        self.it.set_data_sync_id(None);
-        self.db.delete_setting("session_cookie");
+        let active = self
+            .db
+            .get_setting("active_account")
+            .or_else(|| self.it.cookie().map(|c| crate::db::account_key(&c)));
+        match active {
+            // "Sign out" removes the active account from the saved list (drops to guest); the
+            // other saved accounts stay available in the menu for a one-click switch back.
+            Some(id) => self.remove_google_account(&id),
+            None => {
+                self.it.set_cookie(None);
+                self.it.set_data_sync_id(None);
+                self.db.delete_setting("session_cookie");
+                self.forget_playlist_index();
+                let _ = self.db.clear_auth_identity();
+                let _ = self.app.emit("auth-changed", serde_json::json!({ "signedIn": false }));
+            }
+        }
+    }
+
+    /// True when `cookie` authenticates as an account we already have saved. The add-account
+    /// login flow uses this to detect that Google auto-continued its redirect into an existing
+    /// session (the default `authuser=0`) instead of the account the user just added, and bounces
+    /// the webview through the account chooser so the right session becomes active.
+    pub fn matches_saved_account(&self, cookie: &str) -> bool {
+        let Some(sapisid) = innertube::cookie_sapisid(cookie) else { return false };
+        self.db
+            .list_accounts()
+            .iter()
+            .any(|account| innertube::cookie_sapisid(&account.session_cookie) == Some(sapisid))
+    }
+
+    /// Saved Google accounts for the account menu. Display fields only — cookies, delegated ids
+    /// and visitorData never cross the Tauri boundary (context/15).
+    pub fn google_accounts(&self) -> Vec<serde_json::Value> {
+        let active = self.db.get_setting("active_account");
+        self.db
+            .list_accounts()
+            .into_iter()
+            .map(|account| {
+                let info = account
+                    .account_json
+                    .as_deref()
+                    .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+                    .unwrap_or_else(|| serde_json::json!({}));
+                serde_json::json!({
+                    "id": account.id,
+                    "name": info.get("name").cloned(),
+                    "handle": info.get("handle").cloned(),
+                    "email": info.get("email").cloned(),
+                    "thumbnail": info.get("thumbnail").cloned(),
+                    "active": active.as_deref() == Some(account.id.as_str()),
+                })
+            })
+            .collect()
+    }
+
+    /// Activate a saved Google account without a webview round trip. The stored cookie is
+    /// validated with `account_menu` first — Google rotates its short-lived cookies, and
+    /// activating a dead session would leave the app half-logged-in. On success the transport,
+    /// the projections and the UI all move together; on failure the previous session is restored
+    /// untouched.
+    pub async fn switch_google_account(&self, id: &str) -> Result<serde_json::Value, String> {
+        let account = self.db.get_account(id).ok_or("That account is no longer saved.")?;
+        let previous_cookie = self.it.cookie();
+        let previous_data_sync_id = self.it.data_sync_id();
+        let previous_visitor = self.it.visitor_data();
+
+        self.it.set_cookie(Some(account.session_cookie.clone()));
+        self.it.set_data_sync_id(account.data_sync_id.clone());
+        if let Some(visitor_data) = &account.visitor_data {
+            self.it.set_visitor_data(Some(visitor_data.clone()));
+        }
+
+        // An account saved mid multi-channel sign-in (cookie authenticated, no channel picked
+        // yet) returns to the required picker instead of silently acting as YouTube's default.
+        if account.selected_identity_json.is_none() {
+            self.db
+                .set_pending_auth_selection(&account.session_cookie)
+                .map_err(|e| format!("Couldn't activate the account: {e}"))?;
+            if let Some(visitor_data) = &account.visitor_data {
+                self.db.set_setting("visitor_data", visitor_data);
+            }
+            self.db.set_setting("active_account", id);
+            let snapshot = self.account_snapshot();
+            let _ = self.app.emit("account-selection-required", ());
+            let _ = self.app.emit("auth-changed", &snapshot);
+            return Ok(snapshot);
+        }
+
+        let client =
+            self.clients.get(innertube::METADATA_CLIENT).ok_or("metadata client missing")?;
+        let refreshed_visitor = match self.it.account_menu(client).await {
+            Ok(info) if info.name.is_some() => info.visitor_data.clone(),
+            Ok(_) => {
+                self.it.set_cookie(previous_cookie);
+                self.it.set_data_sync_id(previous_data_sync_id);
+                self.it.set_visitor_data(previous_visitor);
+                return Err("That account's session is no longer valid — sign in again.".into());
+            }
+            Err(error) => {
+                self.it.set_cookie(previous_cookie);
+                self.it.set_data_sync_id(previous_data_sync_id);
+                self.it.set_visitor_data(previous_visitor);
+                return Err(format!("Couldn't switch accounts: {error}"));
+            }
+        };
+
+        self.db
+            .restore_account(&account)
+            .map_err(|e| format!("Couldn't switch accounts: {e}"))?;
+        // A valid login-bound visitorData refreshes the stored one, like sign_in does. Runs after
+        // `restore_account` so it wins over the stored value, and syncs it back into the row.
+        if let Some(visitor_data) = &refreshed_visitor {
+            self.it.set_visitor_data(Some(visitor_data.clone()));
+            self.db.set_setting("visitor_data", visitor_data);
+            self.sync_active_account();
+        }
+        self.db.set_setting("active_account", id);
         self.forget_playlist_index();
-        let _ = self.db.clear_auth_identity();
-        let _ = self.app.emit("auth-changed", serde_json::json!({ "signedIn": false }));
+        let snapshot = self.account_snapshot();
+        let _ = self.app.emit("auth-changed", &snapshot);
+        Ok(snapshot)
+    }
+
+    /// Remove a saved Google account. Removing the active one signs out (drops to guest);
+    /// removing another just deletes its row.
+    pub fn remove_google_account(&self, id: &str) {
+        let is_active = self.db.get_setting("active_account").as_deref() == Some(id);
+        self.db.remove_account(id);
+        if is_active {
+            self.it.set_cookie(None);
+            self.it.set_data_sync_id(None);
+            self.db.delete_setting("session_cookie");
+            self.db.delete_setting("active_account");
+            self.forget_playlist_index();
+            let _ = self.db.clear_auth_identity();
+            let _ = self.app.emit("auth-changed", serde_json::json!({ "signedIn": false }));
+        }
+    }
+
+    /// Mirror the live session + identity projections into the `accounts` table. Called at the end
+    /// of every persist path (single-channel sign-in, channel pick, pending multi-channel
+    /// sign-in), so the saved row for the active session is always current. Best-effort: a
+    /// failure leaves the projections consistent with the transport and the next persist retries.
+    fn sync_active_account(&self) {
+        let Some(cookie) = self.it.cookie() else { return };
+        let account = StoredAccount {
+            id: crate::db::account_key(&cookie),
+            session_cookie: cookie.clone(),
+            data_sync_id: self.db.get_setting("data_sync_id").filter(|id| !id.is_empty()),
+            selected_identity_json: self.db.get_setting("selected_identity_json"),
+            account_json: self.db.get_setting("account_json"),
+            visitor_data: self.db.get_setting("visitor_data"),
+            added_at: now_secs(),
+        };
+        if let Err(error) = self.db.upsert_account(&account) {
+            tracing::warn!(%error, "could not persist the signed-in account row");
+            return;
+        }
+        self.db.set_setting("active_account", &account.id);
+        // The startup bootstrap reads this projection; keep it in step with the rotated jar.
+        self.db.set_setting("session_cookie", &cookie);
+    }
+
+    /// Persist the transport's current cookie jar for the active account if it has rotated.
+    /// Called on a timer: Google refreshes its short-lived tokens on authenticated responses, the
+    /// innertube transport merges them into its jar, and this writes them back to the saved
+    /// account row so a switch away and back (or a restart) never picks up a dead cookie.
+    pub(crate) fn refresh_active_account_cookie(&self) {
+        let Some(cookie) = self.it.cookie() else { return };
+        let Some(active) = self.db.get_setting("active_account") else { return };
+        if self.db.get_account(&active).map(|a| a.session_cookie == cookie) == Some(true) {
+            return;
+        }
+        self.sync_active_account();
     }
 
     /// Current account for the UI. New installs derive it from the canonical selected identity;

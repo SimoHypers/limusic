@@ -1,0 +1,5 @@
+# Local Windows build config — points the MSVC linker at the libmpv import library this
+# machine generated from shinchiro's mpv-dev package (docs/BUILD-PLATFORMS.md §Windows).
+# Machine-specific (C:\libmpv does not exist elsewhere): keep uncommitted.
+[build]
+rustflags = ["-L", "C:\\libmpv"]

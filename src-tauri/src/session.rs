@@ -40,9 +40,25 @@ const LOGIN_UA: Option<&str> = None;
 const LOGIN_URL: &str =
     "https://accounts.google.com/ServiceLogin?service=youtube&continue=https://music.youtube.com/";
 
+/// Google's own "Add account" entry point (the one their account picker's "Add account" links
+/// to). Unlike ServiceLogin it presents the fresh sign-in screen even when the webview already
+/// holds a Google session, which is what lets a second account be added without signing the
+/// first one out of the webview. Verified: it renders the identifier screen with no session.
+const ADD_ACCOUNT_URL: &str =
+    "https://accounts.google.com/AddSession?service=youtube&continue=https://music.youtube.com/";
+
+/// The account chooser, used as a bounce target in the add-account flow. After AddSession, Google
+/// auto-continues its redirect into the webview's *default* session (`authuser=0`) — usually the
+/// account that was already signed in — so the cookies captured on music.youtube.com would belong
+/// to the wrong Google account. Picking the new session here is what makes Google swap the jar's
+/// active-session cookies before the final redirect back.
+const ACCOUNT_CHOOSER_URL: &str =
+    "https://accounts.google.com/AccountChooser?service=youtube&continue=https://music.youtube.com/";
+
 /// Open the login webview. Returns immediately; sign-in completes asynchronously (the UI learns via
-/// the `auth-changed` event, or `login-error` on failure).
-pub fn open_login(app: AppHandle, state: Arc<AppState>) {
+/// the `auth-changed` event, or `login-error` on failure). `add_account` picks the AddSession
+/// flow so an additional Google account can be added while another is signed in.
+pub fn open_login(app: AppHandle, state: Arc<AppState>, add_account: bool) {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
 
     // When the webview lands on music.youtube.com, capture cookies + sign in. Runs off the
@@ -51,28 +67,60 @@ pub fn open_login(app: AppHandle, state: Arc<AppState>) {
     {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
+            // Add-account flow: Google can auto-continue its redirect into an already-saved
+            // session (the default `authuser=0`) instead of the account the user just added. One
+            // bounce through the account chooser fixes the active-session cookies; the guard
+            // makes it once per login window so re-picking the same account can't loop.
+            let mut chooser_shown = false;
             while rx.recv().await.is_some() {
                 // The redirect that lands us here sets the youtube cookies; they may appear a beat
-                // after the page finishes, so poll briefly.
-                for _ in 0..6 {
+                // after the page finishes, and the YTM app the window loads keeps setting more of
+                // them (Google's rotating `__Secure-*SIDTS` tokens arrive via its first requests).
+                // Poll for a few seconds and sign in with the *latest* jar, not the first one
+                // that has a SAPISID — a jar captured too early is missing the rotation tokens
+                // and goes stale almost immediately.
+                let mut latest: Option<String> = None;
+                let mut bounced = false;
+                for _ in 0..8 {
                     let cookie = read_login_cookies(&app).await;
                     if innertube::cookie_sapisid(&cookie).is_some() {
-                        match state.sign_in(cookie).await {
-                            Ok(SignInOutcome::Complete) => {
-                                let _ = app.emit("login-done", ());
-                            }
-                            // The authenticated cookie is saved, but the account remains
-                            // deliberately unfinished until the main-window picker selects a
-                            // server-issued delegated identity.
-                            Ok(SignInOutcome::SelectionRequired) => {}
-                            Err(e) => {
-                                let _ = app.emit("login-error", e);
-                            }
+                        if add_account && !chooser_shown && state.matches_saved_account(&cookie) {
+                            chooser_shown = true;
+                            let app2 = app.clone();
+                            let _ = app.run_on_main_thread(move || {
+                                if let Some(w) = app2.get_webview_window(LOGIN_LABEL) {
+                                    if let Ok(url) = tauri::Url::parse(ACCOUNT_CHOOSER_URL) {
+                                        let _ = w.navigate(url);
+                                    }
+                                }
+                            });
+                            // Re-arm the page-load watch: picking an account reloads YTM with
+                            // that session's cookies as the active set.
+                            bounced = true;
+                            break;
                         }
-                        close_login(&app);
-                        return;
+                        latest = Some(cookie);
                     }
                     tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+                if bounced {
+                    continue;
+                }
+                if let Some(cookie) = latest {
+                    match state.sign_in(cookie).await {
+                        Ok(SignInOutcome::Complete) => {
+                            let _ = app.emit("login-done", ());
+                        }
+                        // The authenticated cookie is saved, but the account remains
+                        // deliberately unfinished until the main-window picker selects a
+                        // server-issued delegated identity.
+                        Ok(SignInOutcome::SelectionRequired) => {}
+                        Err(e) => {
+                            let _ = app.emit("login-error", e);
+                        }
+                    }
+                    close_login(&app);
+                    return;
                 }
                 // Landed on music.youtube.com but not authenticated yet — keep watching.
             }
@@ -86,7 +134,15 @@ pub fn open_login(app: AppHandle, state: Arc<AppState>) {
         if let Some(w) = app2.get_webview_window(LOGIN_LABEL) {
             let _ = w.destroy();
         }
-        let Ok(url) = tauri::Url::parse(LOGIN_URL) else { return };
+        // Add-account flow: sign the *webview* out of Google first, so the fresh sign-in is the
+        // webview's only session and music.youtube.com lands on the new account instead of
+        // auto-continuing into whichever one it was already holding. The app's own saved sessions
+        // live in SQLite (`accounts`), not in this cookie store — they are never touched here.
+        if add_account {
+            clear_google_webview_cookies(&app2);
+        }
+        let url = if add_account { ADD_ACCOUNT_URL } else { LOGIN_URL };
+        let Ok(url) = tauri::Url::parse(url) else { return };
         let builder = WebviewWindowBuilder::new(&app2, LOGIN_LABEL, WebviewUrl::External(url))
             .title("Sign in to YouTube Music")
             .inner_size(480.0, 720.0)
@@ -109,6 +165,29 @@ pub fn open_login(app: AppHandle, state: Arc<AppState>) {
     if let Err(e) = dispatched {
         let _ = app.emit("login-error", format!("Couldn't open the sign-in window: {e}"));
     }
+}
+
+/// Delete every google.com / youtube.com cookie from the webview's cookie store (one shared store
+/// for all of the app's webviews). Only the webview-side Google session is lost: the app's saved
+/// accounts are SQLite rows in `Db`, and the main window never sends YouTube cookies itself.
+/// Reads through the main window's webview — always alive, and the store is profile-wide.
+fn clear_google_webview_cookies(app: &AppHandle) {
+    let Some(wv) = app.get_webview_window("main") else { return };
+    let Ok(cookies) = wv.cookies() else { return };
+    let mut cleared = 0;
+    for cookie in cookies {
+        let domain = cookie.domain().unwrap_or_default();
+        if domain == "google.com"
+            || domain.ends_with(".google.com")
+            || domain == "youtube.com"
+            || domain.ends_with(".youtube.com")
+        {
+            if wv.delete_cookie(cookie).is_ok() {
+                cleared += 1;
+            }
+        }
+    }
+    tracing::info!(cleared, "cleared the webview's Google session for add-account sign-in");
 }
 
 /// Merge the youtube-domain cookies into a `Cookie` header string. Reads the platform cookie store

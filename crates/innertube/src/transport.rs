@@ -137,6 +137,51 @@ impl InnerTube {
         self.session.write().unwrap().visitor_data = vd;
     }
 
+    /// Apply `Set-Cookie` pairs to the session jar (name → value, `Max-Age=0` deletes). Values
+    /// come from authenticated responses only, so every pair belongs to this session.
+    fn merge_set_cookies(&self, set_cookies: &[String]) {
+        let mut s = self.session.write().unwrap();
+        let Some(mut jar) = s.cookie.clone() else { return };
+        let mut changed = false;
+        for raw in set_cookies {
+            let mut parts = raw.split(';');
+            let Some(pair) = parts.next() else { continue };
+            let Some((name, value)) = pair.trim().split_once('=') else { continue };
+            let name = name.trim();
+            if name.is_empty() || name.contains(' ') {
+                continue;
+            }
+            let deleted = parts.any(|attr| {
+                attr.trim()
+                    .split_once('=')
+                    .map(|(k, v)| k.trim().eq_ignore_ascii_case("max-age") && v.trim() == "0")
+                    .unwrap_or(false)
+            });
+            let mut entries: Vec<(String, String)> = jar
+                .split(';')
+                .filter_map(|kv| {
+                    let (k, v) = kv.trim().split_once('=')?;
+                    Some((k.trim().to_owned(), v.trim().to_owned()))
+                })
+                .collect();
+            if deleted {
+                let before = entries.len();
+                entries.retain(|(k, _)| k != name);
+                changed |= entries.len() != before;
+            } else if let Some(entry) = entries.iter_mut().find(|(k, _)| k == name) {
+                changed |= entry.1 != value;
+                entry.1 = value.to_owned();
+            } else {
+                entries.push((name.to_owned(), value.to_owned()));
+                changed = true;
+            }
+            jar = entries.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("; ");
+        }
+        if changed {
+            s.cookie = Some(jar);
+        }
+    }
+
     /// Build the request `context` for a client from the current session. Crate-internal — the
     /// endpoints facade calls it. Reads and drops the lock synchronously (no `.await` inside).
     pub(crate) fn context_for(&self, client: &YouTubeClient) -> crate::models::context::Context {
@@ -188,7 +233,23 @@ impl InnerTube {
                 .await
                 .and_then(|r| r.error_for_status());
             match res {
-                Ok(resp) => return Ok(resp.json().await?),
+                Ok(resp) => {
+                    // Google rotates its short-lived tokens (`__Secure-*SIDTS` and friends) on
+                    // authenticated responses; a statically captured cookie eventually stops
+                    // authenticating (KI-2). Merge every `Set-Cookie` pair into the session jar
+                    // the way a browser's cookie store would, so a session that is actually used
+                    // keeps itself alive across switches and restarts.
+                    if self.is_logged_in() {
+                        let set_cookies = resp
+                            .headers()
+                            .get_all(reqwest::header::SET_COOKIE)
+                            .iter()
+                            .filter_map(|v| v.to_str().ok().map(str::to_owned))
+                            .collect::<Vec<_>>();
+                        self.merge_set_cookies(&set_cookies);
+                    }
+                    return Ok(resp.json().await?);
+                }
                 // Retry only on connect/timeout (transient), matching Metrolist's IOException filter.
                 Err(e) if attempt < 3 && (e.is_timeout() || e.is_connect() || e.is_request()) => {
                     tracing::warn!(attempt, error = %e, "retrying InnerTube POST {path}");
@@ -487,5 +548,32 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(s.sapisid().as_deref(), Some("secret123"));
+    }
+
+    /// Google rotates its short-lived tokens on authenticated responses; the transport must
+    /// merge them into the jar (add, replace, `Max-Age=0` delete) so a used session stays alive.
+    #[test]
+    fn set_cookie_pairs_merge_into_the_session_jar() {
+        let session = Session { cookie: Some("SAPISID=aaa; __Secure-3PSIDTS=old".into()), ..Default::default() };
+        let it = InnerTube::new(session, None).unwrap();
+
+        it.merge_set_cookies(&[
+            "__Secure-3PSIDTS=new; Path=/; Domain=.youtube.com; HttpOnly; Secure".into(),
+            "NEWCOOKIE=fresh; Path=/; Max-Age=3600".into(),
+        ]);
+        let jar = it.cookie().unwrap();
+        assert_eq!(
+            jar,
+            "SAPISID=aaa; __Secure-3PSIDTS=new; NEWCOOKIE=fresh",
+            "rotated tokens replace, new cookies append"
+        );
+
+        it.merge_set_cookies(&["__Secure-3PSIDTS=x; Path=/; Max-Age=0".into()]);
+        assert_eq!(it.cookie().unwrap(), "SAPISID=aaa; NEWCOOKIE=fresh", "Max-Age=0 deletes");
+
+        // Not logged in → nothing to merge into, stays None.
+        let guest = InnerTube::new(Session::default(), None).unwrap();
+        guest.merge_set_cookies(&["SAPISID=ignored".into()]);
+        assert_eq!(guest.cookie(), None);
     }
 }

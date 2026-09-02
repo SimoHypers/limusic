@@ -77,6 +77,10 @@
 		"choose_channel_desc": "Library, likes and playlists will use this channel. You can switch again later.",
 		"cancel_sign_in": "Cancel sign in",
 		"sign_in_hint": "Sign in with your Google account to reach your YouTube Music library and playlists.",
+		"add_account": "Add account",
+		"active": "Active",
+		"remove_account": "Remove account",
+		"saved_accounts_hint": "Pick a saved account to switch to it.",
 		"history": "History"
 	},
 	"player": {

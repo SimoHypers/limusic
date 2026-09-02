@@ -429,7 +429,21 @@ pub fn run() {
             }
 
             // Pump mpv events → UI events + queue advance. context/11 events, context/14 §TrackEnded.
-            spawn_event_pump(app_state, handle, events);
+            spawn_event_pump(app_state.clone(), handle, events);
+
+            // Google rotates its short-lived cookie tokens on authenticated responses; the
+            // innertube transport merges them into its jar as requests happen. Persist the
+            // rotated jar for the active account on a timer so switching away and back (or a
+            // restart) never revives a dead cookie.
+            {
+                let st = app_state.clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        tokio::time::sleep(Duration::from_secs(60)).await;
+                        st.refresh_active_account_cookie();
+                    }
+                });
+            }
 
             // Prewarm the webviews off the first-play path (context/04 §startup). The delays let
             // the event loop come up first (run_on_main_thread needs it pumping).
@@ -525,6 +539,9 @@ pub fn run() {
             commands::switch_account,
             commands::sign_out,
             commands::login_webview,
+            commands::get_google_accounts,
+            commands::switch_google_account,
+            commands::remove_google_account,
             commands::open_mini,
             commands::close_mini,
             commands::get_home,
