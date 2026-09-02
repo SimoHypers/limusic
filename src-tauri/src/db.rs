@@ -404,9 +404,10 @@ impl Db {
         let _ = conn.execute("DELETE FROM accounts WHERE id = ?1", [id]);
     }
 
-    /// Write a saved account's fields into the active-account `settings` projections, atomically
-    /// (used when switching to a saved account). Clears `account_selection_pending`: a completed
-    /// account needs no channel pick.
+    /// Write a saved account's fields into the active-account `settings` projections and flip the
+    /// `active_account` pointer, atomically (used when switching to a saved account), so a crash
+    /// mid-switch can't restart into projections for one account and a pointer for another.
+    /// Clears `account_selection_pending`: a completed account needs no channel pick.
     pub fn restore_account(&self, account: &StoredAccount) -> rusqlite::Result<()> {
         let mut conn = self.0.lock().unwrap();
         let tx = conn.transaction()?;
@@ -434,6 +435,11 @@ impl Db {
                 }
             }
         }
+        tx.execute(
+            "INSERT INTO settings(key, value) VALUES('active_account', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [&account.id],
+        )?;
         tx.execute("DELETE FROM settings WHERE key = 'account_selection_pending'", [])?;
         tx.commit()
     }
@@ -1047,6 +1053,41 @@ mod tests {
         d.remove_account(&a.id);
         assert!(d.get_account(&a.id).is_none());
         assert_eq!(d.list_accounts().len(), 1);
+    }
+
+    /// Switching to a saved account flips the `active_account` pointer in the same transaction as
+    /// the restored projections, so a crash between them can't leave the pointer disagreeing with
+    /// the projections a restart will actually use.
+    #[test]
+    fn restore_account_moves_the_active_pointer_with_the_projections() {
+        let d = db();
+        let account = StoredAccount {
+            id: account_key("SAPISID=bbb"),
+            session_cookie: "SAPISID=bbb".into(),
+            data_sync_id: Some("channel-b".into()),
+            selected_identity_json: Some(r#"{"data_sync_id":"channel-b"}"#.into()),
+            account_json: Some(r#"{"name":"B"}"#.into()),
+            visitor_data: Some("vd-b".into()),
+            added_at: 200,
+        };
+        d.upsert_account(&account).unwrap();
+        d.set_setting("active_account", &account_key("SAPISID=aaa"));
+
+        d.restore_account(&account).unwrap();
+        assert_eq!(
+            d.get_setting("active_account").as_deref(),
+            Some(account.id.as_str()),
+            "the pointer flips alongside the restored projections"
+        );
+        assert_eq!(d.get_setting("session_cookie").as_deref(), Some("SAPISID=bbb"));
+        assert_eq!(d.get_setting("data_sync_id").as_deref(), Some("channel-b"));
+        assert_eq!(
+            d.get_setting("selected_identity_json").as_deref(),
+            Some(r#"{"data_sync_id":"channel-b"}"#)
+        );
+        assert_eq!(d.get_setting("account_json").as_deref(), Some(r#"{"name":"B"}"#));
+        assert_eq!(d.get_setting("visitor_data").as_deref(), Some("vd-b"));
+        assert_eq!(d.get_setting("account_selection_pending"), None);
     }
 
     /// Databases written before multi-account migrate their single session into `accounts` once.

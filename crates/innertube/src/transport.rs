@@ -138,10 +138,16 @@ impl InnerTube {
     }
 
     /// Apply `Set-Cookie` pairs to the session jar (name → value, `Max-Age=0` deletes). Values
-    /// come from authenticated responses only, so every pair belongs to this session.
-    fn merge_set_cookies(&self, set_cookies: &[String]) {
+    /// come from authenticated responses only, so every pair belongs to the session that made the
+    /// request. `dispatched_sapisid` is that session's identity at dispatch: if the jar was
+    /// switched (account switch, sign-out) while the request was in flight, these pairs are stale
+    /// and must not be merged into the now-current jar.
+    fn merge_set_cookies(&self, set_cookies: &[String], dispatched_sapisid: Option<&str>) {
         let mut s = self.session.write().unwrap();
         let Some(mut jar) = s.cookie.clone() else { return };
+        if s.sapisid().as_deref() != dispatched_sapisid {
+            return;
+        }
         let mut changed = false;
         for raw in set_cookies {
             let mut parts = raw.split(';');
@@ -218,6 +224,13 @@ impl InnerTube {
         let sep = if path.contains('?') { '&' } else { '?' };
         let url = format!("{BASE_URL}{path}{sep}prettyPrint=false");
         let headers = self.headers(client, set_login);
+        // Capture the jar identity this request is dispatched under, so its `Set-Cookie` pairs
+        // merge only if the session still belongs to the same account when the response lands.
+        let dispatched_sapisid = if set_login && client.login_supported {
+            self.session.read().unwrap().sapisid()
+        } else {
+            None
+        };
         let body = serde_json::to_vec(body)?;
 
         let mut delay = Duration::from_millis(500);
@@ -241,14 +254,14 @@ impl InnerTube {
                     // keeps itself alive across switches and restarts. Gated on the same
                     // condition that put the cookie on the request: an anonymous response must
                     // not touch the logged-in jar.
-                    if set_login && client.login_supported && self.is_logged_in() {
+                    if set_login && client.login_supported {
                         let set_cookies = resp
                             .headers()
                             .get_all(reqwest::header::SET_COOKIE)
                             .iter()
                             .filter_map(|v| v.to_str().ok().map(str::to_owned))
                             .collect::<Vec<_>>();
-                        self.merge_set_cookies(&set_cookies);
+                        self.merge_set_cookies(&set_cookies, dispatched_sapisid.as_deref());
                     }
                     return Ok(resp.json().await?);
                 }
@@ -559,10 +572,13 @@ mod tests {
         let session = Session { cookie: Some("SAPISID=aaa; __Secure-3PSIDTS=old".into()), ..Default::default() };
         let it = InnerTube::new(session, None).unwrap();
 
-        it.merge_set_cookies(&[
-            "__Secure-3PSIDTS=new; Path=/; Domain=.youtube.com; HttpOnly; Secure".into(),
-            "NEWCOOKIE=fresh; Path=/; Max-Age=3600".into(),
-        ]);
+        it.merge_set_cookies(
+            &[
+                "__Secure-3PSIDTS=new; Path=/; Domain=.youtube.com; HttpOnly; Secure".into(),
+                "NEWCOOKIE=fresh; Path=/; Max-Age=3600".into(),
+            ],
+            Some("aaa"),
+        );
         let jar = it.cookie().unwrap();
         assert_eq!(
             jar,
@@ -570,12 +586,39 @@ mod tests {
             "rotated tokens replace, new cookies append"
         );
 
-        it.merge_set_cookies(&["__Secure-3PSIDTS=x; Path=/; Max-Age=0".into()]);
+        it.merge_set_cookies(&["__Secure-3PSIDTS=x; Path=/; Max-Age=0".into()], Some("aaa"));
         assert_eq!(it.cookie().unwrap(), "SAPISID=aaa; NEWCOOKIE=fresh", "Max-Age=0 deletes");
 
         // Not logged in → nothing to merge into, stays None.
         let guest = InnerTube::new(Session::default(), None).unwrap();
-        guest.merge_set_cookies(&["SAPISID=ignored".into()]);
+        guest.merge_set_cookies(&["SAPISID=ignored".into()], None);
         assert_eq!(guest.cookie(), None);
+    }
+
+    /// A response whose request was dispatched under one session must not be merged after the
+    /// session switched (or signed out): its `Set-Cookie` pairs belong to the account that made
+    /// the request, not the one now in the jar.
+    #[test]
+    fn set_cookies_from_a_switched_session_are_not_merged() {
+        let it = InnerTube::new(
+            Session { cookie: Some("SAPISID=old; __Secure-3PSIDTS=stale".into()), ..Default::default() },
+            None,
+        )
+        .unwrap();
+
+        // The request went out as "old"; the user switched accounts before the response landed.
+        it.set_cookie(Some("SAPISID=new; __Secure-3PSIDTS=fresh".into()));
+        it.merge_set_cookies(&["__Secure-3PSIDTS=rotated; Path=/".into()], Some("old"));
+        assert_eq!(
+            it.cookie().unwrap(),
+            "SAPISID=new; __Secure-3PSIDTS=fresh",
+            "the stale response's pairs must not touch the new account's jar"
+        );
+
+        // And an anonymous request's response must not seed a jar the user logged into meanwhile.
+        let anonymous = InnerTube::new(Session::default(), None).unwrap();
+        anonymous.set_cookie(Some("SAPISID=new".into()));
+        anonymous.merge_set_cookies(&["SAPISID=anon; Path=/".into()], None);
+        assert_eq!(anonymous.cookie().unwrap(), "SAPISID=new");
     }
 }
