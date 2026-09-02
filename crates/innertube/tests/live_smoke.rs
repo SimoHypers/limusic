@@ -331,6 +331,12 @@ async fn radio_seeds_resolve() {
     let album_id =
         song.items.iter().find_map(|i| i.album_id.clone()).expect("a radio row with an album");
     let album = it.album(&client, &album_id).await.expect("album page");
+    // Issue #105: the rows themselves never carry it, so `album()` stamps its own id on them.
+    // Without that, a track played off a release page has no "Go to album" in its menu.
+    assert!(
+        album.items.iter().all(|i| i.album_id.as_deref() == Some(album_id.as_str())),
+        "album rows reached the queue without the album's id"
+    );
     let pl = album.playlist_id.expect("album has no audio playlist");
     let album_radio =
         it.next(&client, None, Some(&format!("RDAMPL{pl}"))).await.expect("album radio /next");

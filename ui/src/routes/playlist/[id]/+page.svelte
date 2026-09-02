@@ -82,7 +82,7 @@
 	let moreError = $state(false);
 	let inflight: Promise<void> | null = null;
 	let confirmingDelete = $state(false);
-	// A random song's cover, used as a blurred hero backdrop (like the artist/album pages).
+	// A random song's cover, the hero backdrop when the playlist has no cover of its own.
 	let bgImage = $state<string | null>(null);
 
 	// ⋯ options menu, positioned `fixed` at the button so it isn't clipped (matches TrackRow).
@@ -99,6 +99,17 @@
 	const longDescription = $derived((pl?.description?.length ?? 0) > 120);
 	// The artwork on the page: whatever the user picked on this machine, else YouTube's own.
 	const art = $derived(thumb(pl?.cover ?? pl?.thumbnail, 400));
+
+	// YouTube's auto-built 2x2 collage of the first four tracks. It comes off yt3 with an `=s<size>`
+	// suffix; every cover somebody actually chose (uploaded here, in YTM, or in Studio) arrives as
+	// `=w<n>-h<n>-...` or straight off i.ytimg. Checked against live browse responses, 2026-09-02.
+	const COLLAGE = /yt3\.(ggpht|googleusercontent)\.com\/.*=s\d+/;
+	// The backdrop: a cover the playlist really has, else a random song's art. The collage isn't a
+	// cover anyone picked, and blown up behind the header it just repeats the rows below it.
+	const backdrop = $derived(
+		thumb(pl?.cover ?? (pl?.thumbnail && !COLLAGE.test(pl.thumbnail) ? pl.thumbnail : null), 1200) ??
+			bgImage
+	);
 
 	// Header filter box: matches title / artist / album over the rows loaded so far.
 	//
@@ -752,9 +763,9 @@
 		     album page. -->
 		<div class="content-in min-h-0 flex-1 overflow-y-auto" {@attach sc.attach}>
 			<div class="relative flex min-h-[38vh] shrink-0 items-end gap-6 overflow-hidden border-b p-6">
-				{#if bgImage}
+				{#if backdrop}
 					<img
-						src={bgImage}
+						src={backdrop}
 						alt=""
 						class="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
 					/>

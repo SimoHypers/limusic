@@ -4,8 +4,8 @@ use serde::Serialize;
 
 use crate::clients::YouTubeClient;
 use crate::models::browse::{
-    self, AlbumPage, ArtistPage, BrowseItem, HomePage, PlaylistContinuation, PlaylistPage,
-    PlaylistSort, SearchResults,
+    self, AlbumPage, ArtistPage, BrowseItem, HistoryGroup, HomePage, PlaylistContinuation,
+    PlaylistPage, PlaylistSort, SearchResults,
 };
 use crate::models::context::Context;
 use crate::models::lyrics::{self, PlainLyrics, TimedLyricLine};
@@ -346,6 +346,18 @@ impl InnerTube {
         Ok(page)
     }
 
+    /// Play history (`FEmusic_history`), in YouTube's own date buckets (Today, Yesterday, …).
+    /// context/08. Needs login: signed out, YouTube has nothing to return.
+    pub async fn history(&self, client: &YouTubeClient) -> Result<Vec<HistoryGroup>, Error> {
+        let value = self.browse(client, Some("FEmusic_history"), None).await?;
+        let mut groups = browse::parse_history(&value);
+        for g in &mut groups {
+            self.drop_video_songs(&mut g.items);
+        }
+        groups.retain(|g| !g.items.is_empty()); // a bucket the filter emptied is a bare heading
+        Ok(groups)
+    }
+
     /// Library playlists grid (`FEmusic_liked_playlists`). context/08. Needs login.
     pub async fn library_playlists(
         &self,
@@ -357,6 +369,13 @@ impl InnerTube {
     /// Saved albums grid (`FEmusic_liked_albums`). context/08. Needs login.
     pub async fn library_albums(&self, client: &YouTubeClient) -> Result<Vec<BrowseItem>, Error> {
         self.library_grid(client, "FEmusic_liked_albums").await
+    }
+
+    /// The albums the signed-in user uploaded themselves
+    /// (`FEmusic_library_privately_owned_releases`). Cards come back as ordinary `MPREb_…` album
+    /// browseIds, so they open on the album page like any other. context/08. Needs login.
+    pub async fn upload_albums(&self, client: &YouTubeClient) -> Result<Vec<BrowseItem>, Error> {
+        self.library_grid(client, "FEmusic_library_privately_owned_releases").await
     }
 
     /// Library artists (`FEmusic_library_corpus_track_artists`) — the artists behind the songs and
@@ -391,6 +410,12 @@ impl InnerTube {
     pub async fn album(&self, client: &YouTubeClient, browse_id: &str) -> Result<AlbumPage, Error> {
         let value = self.browse(client, Some(browse_id), None).await?;
         let mut page = browse::parse_album(&value);
+        // Album track rows never carry the album's own browseId (live-checked 2026-09-02, every
+        // release type), so without this every track played off a release page reaches the queue
+        // with no `album_id` and the ⋮ menu offers no "Go to album". We are holding the id.
+        for item in &mut page.items {
+            item.album_id.get_or_insert_with(|| browse_id.to_owned());
+        }
         let video = browse::album_video_flags(&value);
         if video.contains(&true) {
             if let Some(pl) = &page.playlist_id {

@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use innertube::{
-    AlbumPage, ArtistPage, BrowseItem, HomePage, PlaylistContinuation, PlaylistPage, PlaylistSort,
-    Rating, SearchResults, SongItem,
+    AlbumPage, ArtistPage, BrowseItem, HistoryGroup, HomePage, PlaylistContinuation, PlaylistPage,
+    PlaylistSort, Rating, SearchResults, SongItem,
 };
 use tauri::{Emitter, State};
 
@@ -473,6 +473,27 @@ pub async fn get_library_albums(state: St<'_>) -> Result<Vec<BrowseItem>, String
     }
     let client = metadata_client(&state)?;
     state.it.library_albums(client).await.map_err(|e| e.to_string())
+}
+
+/// The user's own uploaded albums (Library ▸ Uploads ▸ Albums).
+#[tauri::command]
+pub async fn get_upload_albums(state: St<'_>) -> Result<Vec<BrowseItem>, String> {
+    if !state.it.is_logged_in() {
+        return Ok(Vec::new());
+    }
+    let client = metadata_client(&state)?;
+    state.it.upload_albums(client).await.map_err(|e| e.to_string())
+}
+
+/// The account's YouTube Music play history, grouped by day. Empty when signed out, same as the
+/// library grids: history lives on the account, and there is nothing to fail about not having one.
+#[tauri::command]
+pub async fn get_history(state: St<'_>) -> Result<Vec<HistoryGroup>, String> {
+    if !state.it.is_logged_in() {
+        return Ok(Vec::new());
+    }
+    let client = metadata_client(&state)?;
+    state.it.history(client).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

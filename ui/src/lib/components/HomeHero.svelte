@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { Search01Icon, UserGroup02Icon } from '@hugeicons/core-free-icons';
+	import { HistoryIcon, Search01Icon } from '@hugeicons/core-free-icons';
 	import SearchSuggest from '$lib/components/SearchSuggest.svelte';
-	import { auth, playback, ui } from '$lib/player.svelte';
-	import { lt } from '$lib/lt.svelte';
+	import { auth, playback } from '$lib/player.svelte';
 	import { thumb } from '$lib/thumb';
 	import { t, type TranslationKey } from '$lib/i18n.svelte';
 
@@ -85,21 +84,15 @@
 				</h1>
 			</div>
 			<div class="flex shrink-0 items-center gap-2">
+				<!-- Listen Together moved out of here and lives on the titlebar alone: history is the thing
+				     you reach for from the home page. -->
 				<button
-					onclick={() => (ui.ltOpen = true)}
-					title={t('a11y.listen_together')}
-					aria-label={t('a11y.listen_together')}
-					class="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors {lt.role !==
-					'none'
-						? 'border-primary text-primary hover:bg-primary/10'
-						: 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'}"
+					onclick={() => goto('/history')}
+					title={t('nav.history')}
+					aria-label={t('nav.history')}
+					class="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 				>
-					<HugeiconsIcon icon={UserGroup02Icon} class="h-5 w-5" />
-					{#if lt.role !== 'none'}
-						<span
-							class="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-background"
-						></span>
-					{/if}
+					<HugeiconsIcon icon={HistoryIcon} class="h-5 w-5" />
 				</button>
 				<form class="relative w-full max-w-xs" onsubmit={(e) => { e.preventDefault(); goSearch(); }}>
 					<HugeiconsIcon

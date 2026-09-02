@@ -218,6 +218,12 @@ export interface SortMenu {
 	editable: boolean;
 }
 
+/** One day bucket of the play history: YouTube's own heading plus that day's rows. */
+export interface HistoryGroup {
+	title: string;
+	items: SongItem[];
+}
+
 export interface PlaylistPage {
 	title?: string;
 	subtitle?: string;
@@ -412,6 +418,12 @@ export const getHomeMore = (token: string) => invoke<HomePage>('get_home_more', 
 export const getLibrary = () => invoke<BrowseItem[]>('get_library');
 export const getLibraryAlbums = () => invoke<BrowseItem[]>('get_library_albums');
 export const getLibraryArtists = () => invoke<BrowseItem[]>('get_library_artists');
+export const getUploadAlbums = () => invoke<BrowseItem[]>('get_upload_albums');
+/**
+ * The account's YouTube Music play history, in YouTube's own day buckets (Today, Yesterday, …).
+ * Empty when signed out.
+ */
+export const getHistory = () => invoke<HistoryGroup[]>('get_history');
 /**
  * `sort` asks YouTube to order the tracks; omit it to get whatever order the account already has
  * the list in, which is the one a fresh visit wants (it is what YouTube Music would show).
