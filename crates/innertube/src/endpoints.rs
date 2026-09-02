@@ -410,6 +410,12 @@ impl InnerTube {
     pub async fn album(&self, client: &YouTubeClient, browse_id: &str) -> Result<AlbumPage, Error> {
         let value = self.browse(client, Some(browse_id), None).await?;
         let mut page = browse::parse_album(&value);
+        // Album track rows never carry the album's own browseId (live-checked 2026-09-02, every
+        // release type), so without this every track played off a release page reaches the queue
+        // with no `album_id` and the ⋮ menu offers no "Go to album". We are holding the id.
+        for item in &mut page.items {
+            item.album_id.get_or_insert_with(|| browse_id.to_owned());
+        }
         let video = browse::album_video_flags(&value);
         if video.contains(&true) {
             if let Some(pl) = &page.playlist_id {
