@@ -134,7 +134,7 @@
 	},
 	"home": {
 		"good_morning": "Bonne matinée",
-		"good_afternoon": "Bonne après-midi",
+		"good_afternoon": "Bonjour",
 		"good_evening": "Bonne soirée",
 		"good_night": "Bonne nuit",
 		"forgotten_favourites": "Favoris oubliées",
@@ -203,7 +203,7 @@
 	"settings": {
 		"title": "Paramètres",
 		"tabs": {
-			"general": "Générale",
+			"general": "Général",
 			"general_hint": "Historique, intégrations et comment l'application se lance.",
 			"themes": "Apparence",
 			"themes_hint": "Couleurs, polices et vue sur le lecteur.",
