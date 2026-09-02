@@ -17,7 +17,7 @@ The canonical store of your saved Google accounts and the active session. Schema
 
 | Column | Contents |
 |---|---|
-| `id` | Opaque account key: `ga-<hash>` over the cookie's long-lived `SAPISID` value (`db::account_key`). One row per Google account. |
+| `id` | Opaque account key: `ga-<sha1>` (versioned SHA-1, hex-encoded) over the cookie's long-lived `SAPISID` value (`db::account_key`). One row per Google account. The digest is deliberately not `DefaultHasher`, whose output Rust does not guarantee across releases. |
 | `session_cookie` | The full `Cookie:` header captured at sign-in (SAPISID, SID, `__Secure-*`, …) — the actual login credential. |
 | `data_sync_id` | Server-issued delegated identity of the selected YouTube channel within this Google account. |
 | `selected_identity_json` | Canonical account model: name, handle, email, thumbnail, channelId, data_sync_id. `NULL` = login authenticated but a multi-channel pick is still pending. |
@@ -40,7 +40,8 @@ The active account is projected into these keys so the startup bootstrap in `lib
 | `visitor_data` | Active session's visitorData (anonymous bootstrap id until first login). |
 
 Databases from before multi-account are migrated once on open (`Db::open`): the legacy
-`session_cookie` row becomes an `accounts` row and `active_account` is set.
+`session_cookie` row becomes an `accounts` row and `active_account` is set. Rows still carrying a
+pre-sha1 account key are rekeyed on open too, with `active_account` following the move.
 
 ## 2. Webview cookie store — the login window's own Google session
 

@@ -238,8 +238,10 @@ impl InnerTube {
                     // authenticated responses; a statically captured cookie eventually stops
                     // authenticating (KI-2). Merge every `Set-Cookie` pair into the session jar
                     // the way a browser's cookie store would, so a session that is actually used
-                    // keeps itself alive across switches and restarts.
-                    if self.is_logged_in() {
+                    // keeps itself alive across switches and restarts. Gated on the same
+                    // condition that put the cookie on the request: an anonymous response must
+                    // not touch the logged-in jar.
+                    if set_login && client.login_supported && self.is_logged_in() {
                         let set_cookies = resp
                             .headers()
                             .get_all(reqwest::header::SET_COOKIE)

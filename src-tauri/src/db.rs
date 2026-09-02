@@ -1,21 +1,23 @@
 //! Local SQLite state. context/11 §state. `rusqlite` (bundled) behind a Mutex — one file, low
 //! write volume, no async pool needed (plan decision).
 
-use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 
 use rusqlite::Connection;
+use sha1::{Digest, Sha1};
 
 pub struct Db(Mutex<Connection>);
 
 /// The stored-account key (multi-account support): a stable per-Google-account identifier derived
 /// from the long-lived `SAPISID` cookie value — the one piece of the jar Google does not rotate.
-/// Hashed so the raw auth material never appears in a key the UI gets to see.
+/// Versioned SHA-1, hex-encoded — deliberately not `DefaultHasher`, whose output Rust does not
+/// guarantee to stay stable across releases (a persisted key must survive toolchain upgrades).
+/// The SAPISID itself never appears in the key the UI gets to see.
 pub fn account_key(session_cookie: &str) -> String {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    "limusic-google-account-v1".hash(&mut hasher);
-    innertube::cookie_sapisid(session_cookie).unwrap_or_default().hash(&mut hasher);
-    format!("ga-{:016x}", hasher.finish())
+    let mut digest = Sha1::new();
+    digest.update(b"limusic-google-account-v1");
+    digest.update(innertube::cookie_sapisid(session_cookie).unwrap_or_default().as_bytes());
+    format!("ga-{}", hex::encode(digest.finalize()))
 }
 
 /// One saved Google account. Canonical multi-account state; the `settings` rows `session_cookie`,
@@ -191,6 +193,36 @@ impl Db {
                     "INSERT INTO settings(key, value) VALUES('active_account', ?1) \
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                     [id],
+                );
+            }
+        }
+        // Rekey rows still carrying pre-sha1 (DefaultHasher) account ids: recompute the stable
+        // key from each row's own cookie and move both the row and `active_account` onto it.
+        // Idempotent — a row already on its stable key is left alone. The statement must be
+        // dropped before the updates (rusqlite borrows the connection through it).
+        let stale_rows: Vec<(String, String)> = {
+            let mut stmt = conn.prepare("SELECT id, session_cookie FROM accounts").ok();
+            let mut rows = Vec::new();
+            if let Some(stmt) = stmt.as_mut() {
+                if let Ok(found) = stmt.query_map([], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                }) {
+                    rows.extend(found.flatten());
+                }
+            }
+            rows
+        };
+        for (old_id, cookie) in stale_rows {
+            let new_id = account_key(&cookie);
+            if new_id != old_id {
+                let _ = conn.execute(
+                    "UPDATE accounts SET id = ?1 WHERE id = ?2",
+                    [&new_id, &old_id],
+                );
+                let _ = conn.execute(
+                    "UPDATE settings SET value = ?1 \
+                     WHERE key = 'active_account' AND value = ?2",
+                    [&new_id, &old_id],
                 );
             }
         }
@@ -1040,6 +1072,39 @@ mod tests {
                 Some(accounts[0].id.as_str()),
                 "the migrated session is the active account"
             );
+        }
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// Rows saved under the old DefaultHasher-based keys are rekeyed onto the stable sha1 keys
+    /// when the db opens, and `active_account` follows the move.
+    #[test]
+    fn opening_the_db_rekeys_accounts_onto_stable_keys() {
+        let path = std::env::temp_dir().join("limusic-accounts-rekey-test.sqlite");
+        std::fs::remove_file(&path).ok();
+        {
+            let d = Db::open(&path).unwrap();
+            let conn = d.0.lock().unwrap();
+            conn.execute(
+                "INSERT INTO accounts(id, session_cookie, data_sync_id, selected_identity_json, \
+                 account_json, visitor_data, added_at) \
+                 VALUES('ga-olddefault123', 'SAPISID=legacy2', NULL, NULL, NULL, NULL, 1)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO settings(key, value) VALUES('active_account', 'ga-olddefault123')",
+                [],
+            )
+            .unwrap();
+        }
+        {
+            let d = Db::open(&path).unwrap();
+            let accounts = d.list_accounts();
+            assert_eq!(accounts.len(), 1);
+            let stable = account_key("SAPISID=legacy2");
+            assert_eq!(accounts[0].id, stable, "stale keys are recomputed from the cookie");
+            assert_eq!(d.get_setting("active_account").as_deref(), Some(stable.as_str()));
         }
         std::fs::remove_file(&path).ok();
     }

@@ -727,10 +727,13 @@ impl AppState {
     }
 
     pub async fn sign_out(&self) {
+        // Live cookie identity first, like `remove_google_account` below; the setting is only
+        // the fallback for a transport that is already signed out.
         let active = self
-            .db
-            .get_setting("active_account")
-            .or_else(|| self.it.cookie().map(|c| crate::db::account_key(&c)));
+            .it
+            .cookie()
+            .map(|c| crate::db::account_key(&c))
+            .or_else(|| self.db.get_setting("active_account"));
         match active {
             // "Sign out" removes the active account from the saved list (drops to guest); the
             // other saved accounts stay available in the menu for a one-click switch back.
@@ -852,9 +855,16 @@ impl AppState {
     }
 
     /// Remove a saved Google account. Removing the active one signs out (drops to guest);
-    /// removing another just deletes its row.
+    /// removing another just deletes its row. Active-ness comes from the live session cookie
+    /// identity first, with the `active_account` setting as the fallback for a signed-out
+    /// transport, so a removed account can never leave the transport holding its credentials.
     pub fn remove_google_account(&self, id: &str) {
-        let is_active = self.db.get_setting("active_account").as_deref() == Some(id);
+        let live_active = self
+            .it
+            .cookie()
+            .map(|cookie| crate::db::account_key(&cookie) == id)
+            .unwrap_or(false);
+        let is_active = live_active || self.db.get_setting("active_account").as_deref() == Some(id);
         self.db.remove_account(id);
         if is_active {
             self.it.set_cookie(None);
