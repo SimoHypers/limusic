@@ -4,8 +4,8 @@ use serde::Serialize;
 
 use crate::clients::YouTubeClient;
 use crate::models::browse::{
-    self, AlbumPage, ArtistPage, BrowseItem, HomePage, PlaylistContinuation, PlaylistPage,
-    PlaylistSort, SearchResults,
+    self, AlbumPage, ArtistPage, BrowseItem, HistoryGroup, HomePage, PlaylistContinuation,
+    PlaylistPage, PlaylistSort, SearchResults,
 };
 use crate::models::context::Context;
 use crate::models::lyrics::{self, PlainLyrics, TimedLyricLine};
@@ -344,6 +344,18 @@ impl InnerTube {
         }
         page.sections.retain(|s| !s.items.is_empty());
         Ok(page)
+    }
+
+    /// Play history (`FEmusic_history`), in YouTube's own date buckets (Today, Yesterday, …).
+    /// context/08. Needs login: signed out, YouTube has nothing to return.
+    pub async fn history(&self, client: &YouTubeClient) -> Result<Vec<HistoryGroup>, Error> {
+        let value = self.browse(client, Some("FEmusic_history"), None).await?;
+        let mut groups = browse::parse_history(&value);
+        for g in &mut groups {
+            self.drop_video_songs(&mut g.items);
+        }
+        groups.retain(|g| !g.items.is_empty()); // a bucket the filter emptied is a bare heading
+        Ok(groups)
     }
 
     /// Library playlists grid (`FEmusic_liked_playlists`). context/08. Needs login.

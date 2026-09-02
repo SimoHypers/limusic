@@ -338,6 +338,30 @@ pub fn parse_home(root: &Value) -> HomePage {
     HomePage { chips, sections, continuation: continuation_token(root) }
 }
 
+/// One date bucket of the play history ("Today", "Yesterday", "This week"). context/08.
+#[derive(Debug, Clone, Serialize)]
+pub struct HistoryGroup {
+    pub title: String,
+    pub items: Vec<SongItem>,
+}
+
+/// Parse a `FEmusic_history` response: one `musicShelfRenderer` per date bucket, each holding that
+/// day's track rows in most-recent-first order. context/08.
+pub fn parse_history(root: &Value) -> Vec<HistoryGroup> {
+    find_all(root, "musicShelfRenderer")
+        .into_iter()
+        .filter_map(|shelf| {
+            let title = runs_text(shelf.get("title"))?;
+            let items: Vec<SongItem> =
+                find_all_shallow(shelf.get("contents")?, "musicResponsiveListItemRenderer")
+                    .into_iter()
+                    .filter_map(parse_list_item)
+                    .collect();
+            (!items.is_empty()).then_some(HistoryGroup { title, items })
+        })
+        .collect()
+}
+
 /// Parse a `FEmusic_liked_*` response into a flat grid of cards. context/08. Playlists and albums
 /// come back as a grid of two-row cards; library artists come back as a shelf of list rows
 /// instead, so fall back to those when the grid is empty.
@@ -1051,6 +1075,48 @@ mod tests {
             "title": { "runs": [{ "text": "An Artist" }] }
         } } });
         assert_eq!(parse_artist(&bare, "UCx").radio_playlist_id, None);
+    }
+
+    // History comes back as one `musicShelfRenderer` per day, not one shelf of rows: the day title
+    // is the grouping, and a shelf with nothing playable in it must not become a bare heading.
+    #[test]
+    fn parses_history_day_buckets() {
+        let row = |id: &str, title: &str| {
+            json!({ "musicResponsiveListItemRenderer": {
+                "playlistItemData": { "videoId": id },
+                "flexColumns": [
+                    { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{
+                        "text": title
+                    }] } } },
+                    { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [
+                        { "text": "An Artist" }, { "text": " \u{2022} " }, { "text": "3:12" }
+                    ] } } }
+                ]
+            } })
+        };
+        let root = json!({ "contents": { "sectionListRenderer": { "contents": [
+            { "musicShelfRenderer": {
+                "title": { "runs": [{ "text": "Today" }] },
+                "contents": [row("aaaaaaaaaaa", "First"), row("bbbbbbbbbbb", "Second")]
+            } },
+            { "musicShelfRenderer": {
+                "title": { "runs": [{ "text": "Yesterday" }] },
+                "contents": [row("ccccccccccc", "Third")]
+            } },
+            // Nothing playable in it (no videoId anywhere) — dropped rather than shown empty.
+            { "musicShelfRenderer": {
+                "title": { "runs": [{ "text": "Last week" }] },
+                "contents": [json!({ "musicResponsiveListItemRenderer": {} })]
+            } }
+        ] } } });
+        let groups = parse_history(&root);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].title, "Today");
+        assert_eq!(groups[0].items.len(), 2);
+        assert_eq!(groups[0].items[0].video_id, "aaaaaaaaaaa");
+        assert_eq!(groups[0].items[1].title, "Second");
+        assert_eq!(groups[1].title, "Yesterday");
+        assert_eq!(groups[1].items.len(), 1);
     }
 
     #[test]

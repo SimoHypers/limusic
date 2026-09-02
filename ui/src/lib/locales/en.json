@@ -76,7 +76,8 @@
 		"choose_channel": "Choose a YouTube channel",
 		"choose_channel_desc": "Library, likes and playlists will use this channel. You can switch again later.",
 		"cancel_sign_in": "Cancel sign in",
-		"sign_in_hint": "Sign in with your Google account to reach your YouTube Music library and playlists."
+		"sign_in_hint": "Sign in with your Google account to reach your YouTube Music library and playlists.",
+		"history": "History"
 	},
 	"player": {
 		"play": "Play",
@@ -148,6 +149,15 @@
 		"hide_section": "Hide {title} from home",
 		"feed_empty": "Your home feed came back empty this time.",
 		"signed_out_hint": "Sign in and home fills up with mixes and playlists built from what you listen to."
+	},
+	"history": {
+		"title": "History",
+		"subtitle": "Everything you've played on YouTube Music, newest first.",
+		"search": "Search your history",
+		"matching": "{count} matching",
+		"songs_count": "{count} songs",
+		"empty": "Nothing here yet. Anything you play while signed in shows up on this page.",
+		"signed_out": "Sign in to see your YouTube Music listening history."
 	},
 	"artist": {
 		"subscribe": "Subscribe",

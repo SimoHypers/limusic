@@ -533,6 +533,7 @@ pub fn run() {
             commands::get_library_albums,
             commands::get_library_artists,
             commands::get_upload_albums,
+            commands::get_history,
             commands::get_playlist,
             commands::get_playlist_more,
             commands::playlist_index,
