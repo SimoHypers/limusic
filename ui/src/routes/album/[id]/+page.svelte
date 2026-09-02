@@ -47,7 +47,6 @@
     import { t } from "$lib/i18n.svelte";
 
     let album = $state<AlbumPage | null>(null);
-    let artistHero = $state<string | null>(null);
     let loading = $state(true);
     let error = $state<string | null>(null);
     let expanded = $state(false);
@@ -65,18 +64,16 @@
     const id = $derived(page.params.id ?? "");
     // The rows actually on screen. Identical to `album.items` with no query typed.
     const shown = $derived(filterTracks(album?.items ?? [], query));
-    // A local album has no YouTube playlist behind it: nothing to save, add to a playlist, or
-    // fetch an artist hero for. Playing, shuffling and Shortcuts all work exactly the same.
+    // A local album has no YouTube playlist behind it: nothing to save or add to a playlist.
+    // Playing, shuffling and Shortcuts all work exactly the same.
     const isLocal = $derived(api.isLocalId(id));
     const nowId = $derived(playback.now?.videoId);
 
     async function load(aid: string) {
         const key = `album:${aid}`;
         const hit = getCached<AlbumPage>(key);
-        artistHero = null;
         if (hit) {
             album = hit;
-            loadHero(aid, hit);
             loading = false;
         } else {
             loading = true;
@@ -90,26 +87,12 @@
             if (aid !== id) return; // superseded by navigation — drop the stale response
             album = fresh;
             putCached(key, fresh);
-            loadHero(aid, fresh);
         } catch (e) {
             if (aid !== id) return;
             if (!hit) error = String(e);
         } finally {
             if (aid === id) loading = false;
         }
-    }
-
-    // The album's artist image becomes the hero backdrop (like the artist page). Non-blocking —
-    // the page already shows; the backdrop fades in when it arrives. Guarded against navigation.
-    // ponytail: reuses the full artist browse just for its hero image; `album.artistThumbnail`
-    // already carries a straplineThumbnail — swap to it to drop this second fetch if it ever matters.
-    function loadHero(aid: string, a: AlbumPage) {
-        if (!a.artistId) return;
-        api.getArtist(a.artistId)
-            .then((art) => {
-                if (aid === id) artistHero = art.thumbnail ?? null;
-            })
-            .catch(() => {});
     }
 
     $effect(() => {
@@ -250,15 +233,9 @@
 {:else if error}
     <div class="p-6"><ErrorState message={error} onRetry={() => load(id)} /></div>
 {:else if album}
-    <!-- Header with the artist image as a hero backdrop -->
+    <!-- Header with the blurred album cover as a hero backdrop -->
     <div class="content-in relative overflow-hidden">
-        {#if artistHero}
-            <img
-                src={artistHero}
-                alt=""
-                class="absolute inset-0 h-full w-full object-cover object-top"
-            />
-        {:else if album.thumbnail}
+        {#if album.thumbnail}
             <!-- Blurred backdrop: blur-2xl destroys any detail a bigger source would carry, so
                  ask for the smallest thing that still reads as the cover's colours. -->
             <img
