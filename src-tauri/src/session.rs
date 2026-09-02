@@ -18,11 +18,22 @@ use crate::state::{AppState, SignInOutcome};
 
 const LOGIN_LABEL: &str = "login";
 
-/// WebKitGTK is a WebKit engine, so a macOS Safari UA is the most internally-consistent spoof and
-/// the least likely to trip Google's "this browser may not be secure" block. **Tune here** if
-/// Google rejects it — this is the fragile part (context/15 Path A).
-const LOGIN_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 \
-                        (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15";
+/// WebKitGTK and WKWebView are WebKit engines, so a macOS Safari UA is the most
+/// internally-consistent spoof and the least likely to trip Google's "this browser may not be
+/// secure" block. **Tune here** if Google rejects it — this is the fragile part (context/15 Path A).
+#[cfg(not(target_os = "windows"))]
+const LOGIN_UA: Option<&str> = Some(
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 \
+     (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
+);
+
+/// Windows is WebView2, a Chromium engine, and overriding its UA does not touch the client hints it
+/// sends: `Sec-CH-UA` still announces Edge and `Sec-CH-UA-Platform` still says Windows. A macOS
+/// Safari UA therefore contradicts the request it rides on, and Google answers the login with
+/// "This browser or app may not be secure" (#152). WebView2's own default UA is Edge's, which
+/// agrees with those hints, so there is nothing to spoof here.
+#[cfg(target_os = "windows")]
+const LOGIN_UA: Option<&str> = None;
 
 /// Google sign-in with `continue` back to YTM, so a successful login redirects to music.youtube.com
 /// (our completion signal).
@@ -76,18 +87,21 @@ pub fn open_login(app: AppHandle, state: Arc<AppState>) {
             let _ = w.destroy();
         }
         let Ok(url) = tauri::Url::parse(LOGIN_URL) else { return };
-        let res = WebviewWindowBuilder::new(&app2, LOGIN_LABEL, WebviewUrl::External(url))
+        let builder = WebviewWindowBuilder::new(&app2, LOGIN_LABEL, WebviewUrl::External(url))
             .title("Sign in to YouTube Music")
             .inner_size(480.0, 720.0)
-            .user_agent(LOGIN_UA)
             .on_page_load(move |_w, payload| {
                 if matches!(payload.event(), PageLoadEvent::Finished)
                     && payload.url().host_str() == Some("music.youtube.com")
                 {
                     let _ = tx.send(());
                 }
-            })
-            .build();
+            });
+        let builder = match LOGIN_UA {
+            Some(ua) => builder.user_agent(ua),
+            None => builder,
+        };
+        let res = builder.build();
         if let Err(e) = res {
             let _ = app2.emit("login-error", format!("Couldn't open the sign-in window: {e}"));
         }
