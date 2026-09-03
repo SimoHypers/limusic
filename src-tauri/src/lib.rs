@@ -437,13 +437,26 @@ pub fn run() {
             // Google rotates its short-lived cookie tokens on authenticated responses; the
             // innertube transport merges them into its jar as requests happen. Persist the
             // rotated jar for the active account on a timer so switching away and back (or a
-            // restart) never revives a dead cookie.
+            // restart) never revives a dead cookie. Every half hour, also make one authenticated
+            // request (`account_menu`): it rolls the tokens while the app idles and refreshes the
+            // stored visitorData, so a session used every day survives the app being closed
+            // overnight (KI-2).
             {
                 let st = app_state.clone();
                 tauri::async_runtime::spawn(async move {
+                    // A jar that slept overnight still carries yesterday's SIDTS tokens; roll
+                    // them once the app is up, before the user browses.
+                    tokio::time::sleep(Duration::from_secs(15)).await;
+                    st.keep_session_alive().await;
+                    let mut tick: u32 = 0;
                     loop {
                         tokio::time::sleep(Duration::from_secs(60)).await;
-                        st.refresh_active_account_cookie();
+                        tick += 1;
+                        if tick % 30 == 0 {
+                            st.keep_session_alive().await;
+                        } else {
+                            st.refresh_active_account_cookie();
+                        }
                     }
                 });
             }

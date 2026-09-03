@@ -3,21 +3,24 @@
 
 use std::sync::Mutex;
 
+use md5::{Digest, Md5};
 use rusqlite::Connection;
-use sha1::{Digest, Sha1};
 
 pub struct Db(Mutex<Connection>);
 
 /// The stored-account key (multi-account support): a stable per-Google-account identifier derived
 /// from the long-lived `SAPISID` cookie value — the one piece of the jar Google does not rotate.
-/// Versioned SHA-1, hex-encoded — deliberately not `DefaultHasher`, whose output Rust does not
+/// Salted MD-5, hex-encoded — deliberately not `DefaultHasher`, whose output Rust does not
 /// guarantee to stay stable across releases (a persisted key must survive toolchain upgrades).
-/// The SAPISID itself never appears in the key the UI gets to see.
-pub fn account_key(session_cookie: &str) -> String {
-    let mut digest = Sha1::new();
+/// The SAPISID itself never appears in the key the UI gets to see. `None` when the jar carries no
+/// SAPISID: such a jar cannot be tied to a Google account, and keying it would collapse every
+/// unauthenticated jar onto one shared row.
+pub fn account_key(session_cookie: &str) -> Option<String> {
+    let sapisid = innertube::cookie_sapisid(session_cookie)?;
+    let mut digest = Md5::new();
     digest.update(b"limusic-google-account-v1");
-    digest.update(innertube::cookie_sapisid(session_cookie).unwrap_or_default().as_bytes());
-    format!("ga-{}", hex::encode(digest.finalize()))
+    digest.update(sapisid.as_bytes());
+    Some(format!("ga-{:x}", digest.finalize()))
 }
 
 /// One saved Google account. Canonical multi-account state; the `settings` rows `session_cookie`,
@@ -167,39 +170,41 @@ impl Db {
         if let Some(cookie) = legacy_cookie {
             let existing: i64 =
                 conn.query_row("SELECT COUNT(*) FROM accounts", [], |r| r.get(0)).unwrap_or(0);
-            if existing == 0 && innertube::cookie_sapisid(&cookie).is_some() {
-                let get = |key: &str| -> Option<String> {
-                    conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| {
-                        r.get(0)
-                    })
-                    .ok()
-                };
-                let id = account_key(&cookie);
-                let _ = conn.execute(
-                    "INSERT OR IGNORE INTO accounts(id, session_cookie, data_sync_id, \
-                     selected_identity_json, account_json, visitor_data, added_at) \
-                     VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                    rusqlite::params![
-                        id,
-                        cookie,
-                        get("data_sync_id"),
-                        get("selected_identity_json"),
-                        get("account_json"),
-                        get("visitor_data"),
-                        now_secs()
-                    ],
-                );
-                let _ = conn.execute(
-                    "INSERT INTO settings(key, value) VALUES('active_account', ?1) \
-                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                    [id],
-                );
+            if existing == 0 {
+                if let Some(id) = account_key(&cookie) {
+                    let get = |key: &str| -> Option<String> {
+                        conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| {
+                            r.get(0)
+                        })
+                        .ok()
+                    };
+                    let _ = conn.execute(
+                        "INSERT OR IGNORE INTO accounts(id, session_cookie, data_sync_id, \
+                         selected_identity_json, account_json, visitor_data, added_at) \
+                         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                        rusqlite::params![
+                            id,
+                            cookie,
+                            get("data_sync_id"),
+                            get("selected_identity_json"),
+                            get("account_json"),
+                            get("visitor_data"),
+                            now_secs()
+                        ],
+                    );
+                    let _ = conn.execute(
+                        "INSERT INTO settings(key, value) VALUES('active_account', ?1) \
+                         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                        [id],
+                    );
+                }
             }
         }
-        // Rekey rows still carrying pre-sha1 (DefaultHasher) account ids: recompute the stable
-        // key from each row's own cookie and move both the row and `active_account` onto it.
-        // Idempotent — a row already on its stable key is left alone. The statement must be
-        // dropped before the updates (rusqlite borrows the connection through it).
+        // Rekey rows carrying an old account-key scheme (DefaultHasher, or the earlier sha1
+        // attempt): recompute the stable key from each row's own cookie and move both the row and
+        // `active_account` onto it. Idempotent — a row already on its stable key is left alone.
+        // The statement must be dropped before the updates (rusqlite borrows the connection
+        // through it).
         let stale_rows: Vec<(String, String)> = {
             let mut stmt = conn.prepare("SELECT id, session_cookie FROM accounts").ok();
             let mut rows = Vec::new();
@@ -213,7 +218,8 @@ impl Db {
             rows
         };
         for (old_id, cookie) in stale_rows {
-            let new_id = account_key(&cookie);
+            // A row whose cookie carries no SAPISID cannot be keyed at all; leave it untouched.
+            let Some(new_id) = account_key(&cookie) else { continue };
             if new_id != old_id {
                 let _ = conn.execute(
                     "UPDATE accounts SET id = ?1 WHERE id = ?2",
@@ -1011,7 +1017,7 @@ mod tests {
     fn accounts_round_trip_refresh_and_remove() {
         let d = db();
         let a = StoredAccount {
-            id: account_key("SAPISID=aaa"),
+            id: account_key("SAPISID=aaa").unwrap(),
             session_cookie: "SAPISID=aaa".into(),
             data_sync_id: Some("channel-a".into()),
             selected_identity_json: Some(r#"{"data_sync_id":"channel-a"}"#.into()),
@@ -1020,10 +1026,10 @@ mod tests {
             added_at: 100,
         };
         d.upsert_account(&a).unwrap();
-        assert_ne!(a.id, account_key("SAPISID=bbb"), "keys follow the Google account");
+        assert_ne!(a.id, account_key("SAPISID=bbb").unwrap(), "keys follow the Google account");
 
         d.upsert_account(&StoredAccount {
-            id: account_key("SAPISID=bbb"),
+            id: account_key("SAPISID=bbb").unwrap(),
             session_cookie: "SAPISID=bbb".into(),
             data_sync_id: Some("channel-b".into()),
             selected_identity_json: Some(r#"{"data_sync_id":"channel-b"}"#.into()),
@@ -1065,7 +1071,7 @@ mod tests {
     fn restore_account_moves_the_active_pointer_with_the_projections() {
         let d = db();
         let account = StoredAccount {
-            id: account_key("SAPISID=bbb"),
+            id: account_key("SAPISID=bbb").unwrap(),
             session_cookie: "SAPISID=bbb".into(),
             data_sync_id: Some("channel-b".into()),
             selected_identity_json: Some(r#"{"data_sync_id":"channel-b"}"#.into()),
@@ -1074,7 +1080,7 @@ mod tests {
             added_at: 200,
         };
         d.upsert_account(&account).unwrap();
-        d.set_setting("active_account", &account_key("SAPISID=aaa"));
+        d.set_setting("active_account", &account_key("SAPISID=aaa").unwrap());
 
         d.restore_account(&account).unwrap();
         assert_eq!(
@@ -1120,8 +1126,8 @@ mod tests {
         std::fs::remove_file(&path).ok();
     }
 
-    /// Rows saved under the old DefaultHasher-based keys are rekeyed onto the stable sha1 keys
-    /// when the db opens, and `active_account` follows the move.
+    /// Rows saved under an old key scheme (DefaultHasher, or the earlier sha1 attempt) are
+    /// rekeyed onto the stable keys when the db opens, and `active_account` follows the move.
     #[test]
     fn opening_the_db_rekeys_accounts_onto_stable_keys() {
         let path = std::env::temp_dir().join("limusic-accounts-rekey-test.sqlite");
@@ -1146,11 +1152,24 @@ mod tests {
             let d = Db::open(&path).unwrap();
             let accounts = d.list_accounts();
             assert_eq!(accounts.len(), 1);
-            let stable = account_key("SAPISID=legacy2");
+            let stable = account_key("SAPISID=legacy2").unwrap();
             assert_eq!(accounts[0].id, stable, "stale keys are recomputed from the cookie");
             assert_eq!(d.get_setting("active_account").as_deref(), Some(stable.as_str()));
         }
         std::fs::remove_file(&path).ok();
+    }
+
+    /// A jar without a SAPISID has no stable account identity — `account_key` refuses it so
+    /// unauthenticated jars can't collapse onto one shared row. The modern `__Secure-3PAPISID`
+    /// alias resolves to the same key as `SAPISID` itself.
+    #[test]
+    fn account_key_needs_a_sapisid() {
+        assert!(account_key("SID=foo; HSID=bar").is_none());
+        assert_eq!(
+            account_key("SAPISID=aaa").unwrap(),
+            account_key("__Secure-3PAPISID=aaa").unwrap()
+        );
+        assert_ne!(account_key("SAPISID=aaa").unwrap(), account_key("SAPISID=bbb").unwrap());
     }
 
     #[test]

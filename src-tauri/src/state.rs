@@ -737,7 +737,7 @@ impl AppState {
         let active = self
             .it
             .cookie()
-            .map(|c| crate::db::account_key(&c))
+            .and_then(|c| crate::db::account_key(&c))
             .or_else(|| self.db.get_setting("active_account"));
         match active {
             // "Sign out" removes the active account from the saved list (drops to guest); the
@@ -752,18 +752,6 @@ impl AppState {
                 let _ = self.app.emit("auth-changed", serde_json::json!({ "signedIn": false }));
             }
         }
-    }
-
-    /// True when `cookie` authenticates as an account we already have saved. The add-account
-    /// login flow uses this to detect that Google auto-continued its redirect into an existing
-    /// session (the default `authuser=0`) instead of the account the user just added, and bounces
-    /// the webview through the account chooser so the right session becomes active.
-    pub fn matches_saved_account(&self, cookie: &str) -> bool {
-        let Some(sapisid) = innertube::cookie_sapisid(cookie) else { return false };
-        self.db
-            .list_accounts()
-            .iter()
-            .any(|account| innertube::cookie_sapisid(&account.session_cookie) == Some(sapisid))
     }
 
     /// Saved Google accounts for the account menu. Display fields only — cookies, delegated ids
@@ -804,9 +792,10 @@ impl AppState {
 
         self.it.set_cookie(Some(account.session_cookie.clone()));
         self.it.set_data_sync_id(account.data_sync_id.clone());
-        if let Some(visitor_data) = &account.visitor_data {
-            self.it.set_visitor_data(Some(visitor_data.clone()));
-        }
+        // Unconditional: a row with no stored visitorData must clear the previous account's id
+        // from the transport, or `account_menu` validates the new cookie carrying a foreign
+        // visitorData — exactly the pairing that gets `accounts_list` rejected.
+        self.it.set_visitor_data(account.visitor_data.clone());
 
         // An account saved mid multi-channel sign-in (cookie authenticated, no channel picked
         // yet) returns to the required picker instead of silently acting as YouTube's default.
@@ -847,12 +836,12 @@ impl AppState {
             .map_err(|e| format!("Couldn't switch accounts: {e}"))?;
         // A valid login-bound visitorData refreshes the stored one, like sign_in does. Runs after
         // `restore_account` so it wins over the stored value, and syncs it back into the row.
+        // (`restore_account` already flipped `active_account` in its transaction.)
         if let Some(visitor_data) = &refreshed_visitor {
             self.it.set_visitor_data(Some(visitor_data.clone()));
             self.db.set_setting("visitor_data", visitor_data);
             self.sync_active_account();
         }
-        self.db.set_setting("active_account", id);
         self.forget_playlist_index();
         let snapshot = self.account_snapshot();
         let _ = self.app.emit("auth-changed", &snapshot);
@@ -867,7 +856,7 @@ impl AppState {
         let live_active = self
             .it
             .cookie()
-            .map(|cookie| crate::db::account_key(&cookie) == id)
+            .map(|cookie| crate::db::account_key(&cookie).as_deref() == Some(id))
             .unwrap_or(false);
         let is_active = live_active || self.db.get_setting("active_account").as_deref() == Some(id);
         self.db.remove_account(id);
@@ -888,8 +877,9 @@ impl AppState {
     /// failure leaves the projections consistent with the transport and the next persist retries.
     fn sync_active_account(&self) {
         let Some(cookie) = self.it.cookie() else { return };
+        let Some(id) = crate::db::account_key(&cookie) else { return };
         let account = StoredAccount {
-            id: crate::db::account_key(&cookie),
+            id,
             session_cookie: cookie.clone(),
             data_sync_id: self.db.get_setting("data_sync_id").filter(|id| !id.is_empty()),
             selected_identity_json: self.db.get_setting("selected_identity_json"),
@@ -910,13 +900,65 @@ impl AppState {
     /// Called on a timer: Google refreshes its short-lived tokens on authenticated responses, the
     /// innertube transport merges them into its jar, and this writes them back to the saved
     /// account row so a switch away and back (or a restart) never picks up a dead cookie.
+    ///
+    /// Only the `session_cookie` column is touched, and only when the live cookie is still the
+    /// active account's: mid sign-in / mid-switch the transport already holds the new jar while
+    /// the projections still describe the old account, and that transition's row is not this
+    /// timer's to write.
     pub(crate) fn refresh_active_account_cookie(&self) {
         let Some(cookie) = self.it.cookie() else { return };
         let Some(active) = self.db.get_setting("active_account") else { return };
-        if self.db.get_account(&active).map(|a| a.session_cookie == cookie) == Some(true) {
+        if crate::db::account_key(&cookie).as_deref() != Some(active.as_str()) {
             return;
         }
-        self.sync_active_account();
+        let Some(mut row) = self.db.get_account(&active) else { return };
+        if row.session_cookie == cookie {
+            return;
+        }
+        row.session_cookie = cookie.clone();
+        let _ = self.db.upsert_account(&row);
+        self.db.set_setting("session_cookie", &cookie);
+    }
+
+    /// One authenticated `account_menu` call to roll Google's short-lived session tokens and
+    /// refresh the stored visitorData, then persist the rotated jar. Runs shortly after startup
+    /// and every half hour after: a jar that slept overnight still carries yesterday's `SIDTS`
+    /// tokens, and the refresh is what keeps a session that is actually used alive across
+    /// restarts (KI-2).
+    ///
+    /// Gated exactly like `refresh_active_account_cookie`: mid sign-in / mid-switch the live
+    /// cookie is not the active account's, and a re-check after the await keeps the write off an
+    /// account that replaced the dispatched one while the request was in flight.
+    pub(crate) async fn keep_session_alive(&self) {
+        let Some(dispatched) = self.it.cookie() else { return };
+        let Some(active) = self.db.get_setting("active_account") else { return };
+        if crate::db::account_key(&dispatched).as_deref() != Some(active.as_str()) {
+            return;
+        }
+        let Some(client) = self.clients.get(innertube::METADATA_CLIENT) else { return };
+        match self.it.account_menu(client).await {
+            Ok(info) if info.name.is_some() => {
+                // The session may have switched while the request was in flight; the refresh must
+                // not land on the account that replaced it.
+                let still_same = self.it.cookie().is_some_and(|now| {
+                    innertube::cookie_sapisid(&now) == innertube::cookie_sapisid(&dispatched)
+                });
+                if !still_same {
+                    return;
+                }
+                if let Some(visitor_data) = &info.visitor_data {
+                    self.it.set_visitor_data(Some(visitor_data.clone()));
+                    self.db.set_setting("visitor_data", visitor_data);
+                    // Safe here: the gate above proved the live cookie is the active account's,
+                    // so the projections describe it and the whole row can be refreshed.
+                    self.sync_active_account();
+                } else {
+                    self.refresh_active_account_cookie();
+                }
+            }
+            Ok(_) => tracing::warn!("keep-alive: the stored session did not authenticate"),
+            Err(error) => tracing::debug!(%error, "session keep-alive failed"),
+        }
     }
 
     /// Current account for the UI. New installs derive it from the canonical selected identity;
