@@ -6,7 +6,6 @@
 	// ponytail: drag is the only way to reorder, matching the Shortcuts grid. Hiding works from the
 	// keyboard; wire arrow-key moves onto the rows if anyone asks.
 	import { untrack } from 'svelte';
-	import { flip } from 'svelte/animate';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		Cancel02Icon,
@@ -17,6 +16,7 @@
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
+	import { dragScroll, SECTION_ROW_MIME } from '$lib/dnd';
 	import { personal, saveHomeLayout } from '$lib/player.svelte';
 	import { hiddenSections } from '$lib/personal';
 	import { t } from '$lib/i18n.svelte';
@@ -44,7 +44,14 @@
 		});
 	});
 
-	/** Live reorder while dragging: the row moves as you pass over its neighbours, no drop marker. */
+	/**
+	 * Live reorder while dragging: the row moves as you pass over its neighbours, no drop marker.
+	 *
+	 * Only once the pointer is past the *middle* of the row it is over, not the moment it touches its
+	 * edge. Swapping on contact leaves the pointer sitting on the boundary it just crossed, so a
+	 * pixel of jitter (or the row heights differing by one) bounces the list between two orders for
+	 * as long as you hold still. Half a row of hysteresis is what stops that.
+	 */
 	function moveTo(to: number) {
 		if (dragging === null || dragging === to) return;
 		const next = rows.slice();
@@ -71,23 +78,43 @@
 			</Dialog.Description>
 		</div>
 
-		<div role="list" class="max-h-[24rem] min-h-[12rem] overflow-y-auto p-2">
+		<!-- dragScroll: the list is taller than the modal once home has remembered a dozen shelves, and
+		     without an edge pull you can only drop a section somewhere already on screen. -->
+		<div
+			role="list"
+			class="max-h-[24rem] min-h-[12rem] overflow-y-auto p-2"
+			{@attach (node) => dragScroll(node, SECTION_ROW_MIME)}
+		>
 			{#each rows as row, i (row.key)}
 				<!-- The whole row is the drag source, not just the grip: aiming at a 1rem handle inside a
-				     scrolling list is a chore, and the grip still says which part of it to grab. -->
+				     scrolling list is a chore, and the grip still says which part of it to grab.
+
+				     No `animate:flip`. A flip animates with a transform, and a transform moves the row's
+				     hit box: for the 180ms after a swap, the element under the cursor is whichever row is
+				     mid-flight over that point, and it reports the index it will have when it lands. So
+				     the dragover that arrives during the glide asks to swap straight back, and the list
+				     ping-pongs for as long as you keep moving. Reordering under the cursor has to be
+				     instant, the same way the windowed queue turns its flip off. -->
 				<div
 					role="listitem"
 					draggable="true"
-					animate:flip={{ duration: 180 }}
 					ondragstart={(e) => {
 						dragging = i;
-						e.dataTransfer?.setData('text/plain', row.key); // some engines refuse a payload-less drag
-						if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+						if (!e.dataTransfer) return;
+						// Our own type, not `text/plain`: it doubles as the payload some engines demand, it
+						// keeps `blockForeignDrag` from treating our own drag as a stray file, and it is what
+						// `dragScroll` above watches for.
+						e.dataTransfer.setData(SECTION_ROW_MIME, row.key);
+						e.dataTransfer.effectAllowed = 'move';
 					}}
 					ondragover={(e) => {
-						if (dragging === null) return; // a file or a card from the page behind
+						// A file, or a card dragged in from the page behind the modal.
+						if (dragging === null || !e.dataTransfer?.types.includes(SECTION_ROW_MIME)) return;
 						e.preventDefault();
-						moveTo(i);
+						e.dataTransfer.dropEffect = 'move';
+						const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+						const past = e.clientY > r.top + r.height / 2;
+						if (i > dragging ? past : !past) moveTo(i);
 					}}
 					ondragend={() => (dragging = null)}
 					class="flex cursor-grab items-center gap-2 rounded-lg py-2 pl-3 pr-2 transition-colors hover:bg-muted/50 {dragging ===
