@@ -272,8 +272,10 @@ jobs:
           done | sort -u > /tmp/needed.txt
           # `find`, not `ls dirA dirB`: ls exits nonzero if either path is missing, and an Ubuntu
           # AppDir has no usr/lib64 — under pipefail that fails the step for no reason.
-          find "$APPDIR/usr/lib" "$APPDIR/usr/lib64" -maxdepth 1 -printf '%f\n' 2>/dev/null \
-            | sort -u > /tmp/have.txt || true
+          # gnutls-fallback/ counts as bundled: fix-appdir-tls.sh keeps the gnutls stack there so
+          # the loader only sees it on a host that cannot serve the whole chain itself (defect 6).
+          find "$APPDIR/usr/lib" "$APPDIR/usr/lib64" "$APPDIR/usr/lib/gnutls-fallback" \
+            -maxdepth 1 -printf '%f\n' 2>/dev/null | sort -u > /tmp/have.txt || true
           MISSING=""
           while read -r lib; do
             [ -n "$lib" ] || continue
@@ -291,12 +293,15 @@ jobs:
       # The static guards above only see this runner. Every failure in this family (v0.2.10's
       # undefined symbol, v0.2.11's missing libnettle.so.8 on Arch, v0.2.14's dead webviews on
       # Mesa) looked fine on Ubuntu and only appeared on someone else's distro. So run the app on
-      # two of them: Debian sid for the newest GLib and Mesa, Arch because its sonames differ from
-      # everyone else's. The script resolves every symbol, checks that the AppDir doesn't break the
-      # host libraries the app dlopens, and then actually starts the thing under Xvfb — v0.2.14
-      # passed both static checks and still could not open a single webview.
+      # three of them: Debian sid for the newest GLib and Mesa, Arch because its sonames differ from
+      # everyone else's, openSUSE Tumbleweed because it is the one mainstream family that does not
+      # keep its CA bundle at /etc/ssl/certs/ca-certificates.crt — which is what shipped 0.6.8 with
+      # a webview that trusted no certificate at all (#164). The script resolves every symbol, counts
+      # the trust anchors the bundled TLS stack can actually reach, checks that the AppDir doesn't
+      # break the host libraries the app dlopens, and then actually starts the thing under Xvfb —
+      # v0.2.14 passed both static checks and still could not open a single webview.
       #
-      # Both containers run at once and their output is buffered to a file so the two logs don't
+      # All three containers run at once and their output is buffered to a file so the logs don't
       # interleave into something unreadable. Everything the script touches (/tmp, Xvfb, the
       # packages it installs) is inside its own container, so they cannot collide.
       - name: Verify it loads and runs on foreign distros
@@ -304,12 +309,14 @@ jobs:
           set -euo pipefail
           APPDIR="$PWD/target/release/bundle/appimage/limusic.AppDir"
           CHECK="$PWD/scripts/appdir-foreign-check.sh"
-          IMAGES="debian:sid archlinux:latest"
+          IMAGES="debian:sid archlinux:latest opensuse/tumbleweed"
 
           pids=""
           for image in $IMAGES; do
+            # Log name has to survive a slash: opensuse/tumbleweed has no tag to strip and
+            # ${image%%:*} would leave one, redirecting into a directory that does not exist.
             docker run --rm -v "$APPDIR:/app:ro" -v "$CHECK:/check.sh:ro" "$image" bash /check.sh \
-              > "/tmp/check-${image%%:*}.log" 2>&1 &
+              > "/tmp/check-$(echo "$image" | tr ':/' '--').log" 2>&1 &
             pids="$pids $!"
           done
 
@@ -319,7 +326,7 @@ jobs:
           # Print both logs whatever happened. On a failure this is the only evidence there is.
           for image in $IMAGES; do
             echo "── $image"
-            cat "/tmp/check-${image%%:*}.log"
+            cat "/tmp/check-$(echo "$image" | tr ':/' '--').log"
           done
 
           [ "$fail" = 0 ] || { echo "::error::the AppDir failed a foreign-distro check"; exit 1; }
