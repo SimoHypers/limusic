@@ -316,6 +316,7 @@
 			"check_updates": "Güncellemeleri denetle",
 			"checking_updates": "Güncellemeler denetleniyor...",
 			"up_to_date": "En güncel sürümü kullanıyorsunuz.",
+			"update_packaged": "Bu derleme paket yöneticisiyle kuruldu, aynı şekilde güncelleyin.",
 			"update_available": "{version} sürümü mevcut!",
 			"install_update": "Yükle ve Yeniden Başlat",
 			"download_page": "İndirme sayfasını aç",

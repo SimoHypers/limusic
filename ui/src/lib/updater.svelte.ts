@@ -89,10 +89,13 @@ export async function checkForUpdatesInteractive(): Promise<{ message: string; e
 	updateState.checking = true;
 	try {
 		if (await look())
-			return { message: `Update available: v${updateState.available!.version}`, error: false };
-		return { message: 'You are running the latest version', error: false };
+			return {
+				message: t('settings.about.update_available', { version: updateState.available!.version }),
+				error: false
+			};
+		return { message: t('settings.about.up_to_date'), error: false };
 	} catch (e) {
-		return { message: `Update check failed: ${e}`, error: true };
+		return { message: t('settings.about.update_check_failed', { error: String(e) }), error: true };
 	} finally {
 		updateState.checking = false;
 	}
