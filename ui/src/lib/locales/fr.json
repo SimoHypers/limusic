@@ -153,7 +153,9 @@
 	"artist": {
 		"subscribe": "S'abonner",
 		"subscribed": "Abonné",
-		"top_songs": "Top musiques"
+		"top_songs": "Top musiques",
+		"subscribe_to": "S'abonner à {name}",
+		"unsubscribe_from": "Se désabonner de {name}"
 	},
 	"library": {
 		"title": "Bibliothèque",
@@ -331,7 +333,9 @@
 			"diagnostics_saved": "Enregistré",
 			"report_issue": "Ouvrir le formulaire de rapport de bug",
 			"report_issue_hint": "Ouvre GitHub dans votre navigateur, avec la version et les informations système préremplies.",
-			"report_issue_button": "Signaler"
+			"report_issue_button": "Signaler",
+			"update_check_failed": "Échec de la vérification des mises à jour : {error}",
+			"update_packaged": "Cette version a été installée à l'aide d'un gestionnaire de paquets, mettez-la à jour de la même manière."
 		}
 	},
 	"dialogs": {
