@@ -76,7 +76,8 @@
 		"choose_channel": "Escolha um canal do YouTube",
 		"choose_channel_desc": "Biblioteca, curtidas e playlists usarão este canal. Você pode trocar novamente depois.",
 		"cancel_sign_in": "Cancelar login",
-		"sign_in_hint": "Entre com sua conta do Google para acessar sua biblioteca e playlists do YouTube Music."
+		"sign_in_hint": "Entre com sua conta do Google para acessar sua biblioteca e playlists do YouTube Music.",
+		"history": "Histórico"
 	},
 	"player": {
 		"play": "Tocar",
@@ -186,7 +187,8 @@
 		"every_song_saved": "Todas as músicas que você salvou, em uma lista só",
 		"every_upload": "Todas as faixas que você enviou para o YouTube Music",
 		"no_uploads": "Nada enviado ainda. Músicas que você envia em music.youtube.com aparecem aqui.",
-		"uploads_signed_out": "Entre para ver as músicas que você enviou para o YouTube Music."
+		"uploads_signed_out": "Entre para ver as músicas que você enviou para o YouTube Music.",
+		"no_upload_albums": "Nenhum álbum enviado ainda. Os álbuns que você enviar em music.youtube.com aparecerão aqui."
 	},
 	"local": {
 		"scanning": "Verificando pasta...",
@@ -551,5 +553,14 @@
 		"already_in": "Já está em {playlist}",
 		"added_songs": "Adicionadas {count} músicas a {playlist}",
 		"added_one": "Adicionado a {playlist}"
+	},
+	"history": {
+		"title": "Histórico",
+		"subtitle": "Tudo o que você ouviu no YouTube Music, do mais recente ao mais antigo.",
+		"search": "Pesquise no seu histórico",
+		"matching": "{count} correspondências",
+		"songs_count": "{count} músicas",
+		"empty": "Nada aqui ainda. Tudo o que você reproduzir enquanto estiver conectado à sua conta aparecerá nesta página.",
+		"signed_out": "Faça login para ver seu histórico de reprodução do YouTube Music."
 	}
 }

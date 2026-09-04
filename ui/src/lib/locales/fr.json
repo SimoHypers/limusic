@@ -76,7 +76,8 @@
 		"choose_channel": "Choisir une chaîne YouTube",
 		"choose_channel_desc": "Bibliothèque, J'aime et Playlist vont utiliser cette chaîne. Vous pourrez changer plus tard.",
 		"cancel_sign_in": "Annuler la connexion",
-		"sign_in_hint": "Se connecter avec votre compte Google pour récupérer votre Bibliothèque et vos Playlists de YouTube Music."
+		"sign_in_hint": "Se connecter avec votre compte Google pour récupérer votre Bibliothèque et vos Playlists de YouTube Music.",
+		"history": "Historique"
 	},
 	"player": {
 		"play": "Lancer",
@@ -133,7 +134,7 @@
 	},
 	"home": {
 		"good_morning": "Bonne matinée",
-		"good_afternoon": "Bonne après-midi",
+		"good_afternoon": "Bonjour",
 		"good_evening": "Bonne soirée",
 		"good_night": "Bonne nuit",
 		"forgotten_favourites": "Favoris oubliées",
@@ -186,7 +187,8 @@
 		"every_song_saved": "Chaque chanson que vous avez sauvegardé, dans une liste",
 		"every_upload": "Chaque piste que vous avez mise en ligne sur YouTube Music",
 		"no_uploads": "Rien n'a encore été mis en ligne. Les musiques que vous avez mises en ligne sur music.youtube.com apparaissent ici.",
-		"uploads_signed_out": "Connectez-vous pour voir la musique que vous avez mise en ligne sur YouTube Music."
+		"uploads_signed_out": "Connectez-vous pour voir la musique que vous avez mise en ligne sur YouTube Music.",
+		"no_upload_albums": "Aucun album n'a encore été mis en ligne. Les albums que vous mettez en ligne sur music.youtube.com s'affichent ici."
 	},
 	"local": {
 		"scanning": "Scan du dossier...",
@@ -201,7 +203,7 @@
 	"settings": {
 		"title": "Paramètres",
 		"tabs": {
-			"general": "Générale",
+			"general": "Général",
 			"general_hint": "Historique, intégrations et comment l'application se lance.",
 			"themes": "Apparence",
 			"themes_hint": "Couleurs, polices et vue sur le lecteur.",
@@ -551,5 +553,14 @@
 		"already_in": "Déjà dans {playlist}",
 		"added_songs": "{count} morceaux ajoutés à {playlist}",
 		"added_one": "Ajouté à {playlist}"
+	},
+	"history": {
+		"title": "Historique",
+		"subtitle": "Tout ce que vous avez écouté sur YouTube Music, les plus récents en premier.",
+		"search": "Rechercher dans votre historique",
+		"matching": "{count} résultats correspondants",
+		"songs_count": "{count} chansons",
+		"empty": "Rien pour l'instant. Tout ce que vous jouez lorsque vous êtes connecté s'affiche sur cette page.",
+		"signed_out": "Connectez-vous pour consulter votre historique d'écoute sur YouTube Music."
 	}
 }

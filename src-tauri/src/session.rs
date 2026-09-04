@@ -7,8 +7,8 @@
 //! Google's short-lived `__Secure-*SIDTS` cookies rotate and a pasted cookie eventually stops
 //! authenticating.
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use tauri::webview::cookie::Cookie;
 use tauri::webview::PageLoadEvent;
@@ -17,6 +17,17 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use crate::state::{AppState, SignInOutcome};
 
 const LOGIN_LABEL: &str = "login";
+/// The hidden twin of [`LOGIN_LABEL`], used by [`refresh_session`]. Its own label so a refresh can
+/// never collide with a sign-in window the user has open.
+const REFRESH_LABEL: &str = "login-refresh";
+/// Where the refresh webview goes. YTM itself, not the sign-in page: an already-signed-in jar
+/// needs rotating, not a login.
+const REFRESH_URL: &str = "https://music.youtube.com/";
+/// How long to wait for that page to load before giving up on this attempt.
+const REFRESH_TIMEOUT: Duration = Duration::from_secs(45);
+/// Google rotates roughly hourly, so anything under this is a burst of 401s from one dead cookie,
+/// not a second thing to fix.
+const REFRESH_COOLDOWN: Duration = Duration::from_secs(5 * 60);
 
 /// WebKitGTK and WKWebView are WebKit engines, so a macOS Safari UA is the most
 /// internally-consistent spoof and the least likely to trip Google's "this browser may not be
@@ -55,7 +66,7 @@ pub fn open_login(app: AppHandle, state: Arc<AppState>) {
                 // The redirect that lands us here sets the youtube cookies; they may appear a beat
                 // after the page finishes, so poll briefly.
                 for _ in 0..6 {
-                    let cookie = read_login_cookies(&app).await;
+                    let cookie = read_login_cookies(&app, LOGIN_LABEL).await;
                     if innertube::cookie_sapisid(&cookie).is_some() {
                         match state.sign_in(cookie).await {
                             Ok(SignInOutcome::Complete) => {
@@ -111,18 +122,120 @@ pub fn open_login(app: AppHandle, state: Arc<AppState>) {
     }
 }
 
+/// Re-mint the stored cookie from the login webview's own Google session, with no user
+/// interaction. Issue #165 / KI-2.
+///
+/// The exported `Cookie` header is a snapshot; Google rotates `__Secure-*SIDTS` out from under it
+/// and eventually rejects it, at which point every account-scoped call 401s and the UI's "Try
+/// again" can only repeat the same dead request. But the webview jar is *not* a snapshot: it is
+/// persistent and still holds the long-lived `__Secure-1PSID`, so loading music.youtube.com in it
+/// gets fresh rotated cookies exactly the way opening the site in a browser does. Then we export
+/// them again through the ordinary sign-in path.
+///
+/// Nothing is emitted on failure: the user is already looking at "sign in again", and a webview
+/// session that has genuinely expired leaves them exactly where they were.
+pub async fn refresh_session(app: AppHandle, state: Arc<AppState>) {
+    if !state.it.is_logged_in() || !claim_refresh() {
+        return;
+    }
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let app2 = app.clone();
+    let dispatched = app.run_on_main_thread(move || {
+        if let Some(w) = app2.get_webview_window(REFRESH_LABEL) {
+            let _ = w.destroy();
+        }
+        let Ok(url) = tauri::Url::parse(REFRESH_URL) else { return };
+        // Not 1x1 like the cipher harness: this is a real page, and YouTube's own startup is what
+        // makes Google hand out the rotated cookies.
+        let builder = WebviewWindowBuilder::new(&app2, REFRESH_LABEL, WebviewUrl::External(url))
+            .title("YouTube Music")
+            .visible(false)
+            .inner_size(1024.0, 768.0)
+            .skip_taskbar(true)
+            .decorations(false)
+            .focused(false);
+        let builder = match LOGIN_UA {
+            Some(ua) => builder.user_agent(ua),
+            None => builder,
+        };
+        let builder = builder.on_page_load(move |_w, payload| {
+            if matches!(payload.event(), PageLoadEvent::Finished)
+                && payload.url().host_str() == Some("music.youtube.com")
+            {
+                let _ = tx.send(());
+            }
+        });
+        if let Err(e) = builder.build() {
+            tracing::warn!(error = %e, "could not open the session-refresh webview");
+        }
+    });
+    if dispatched.is_err() {
+        return;
+    }
+
+    // `None` here is the build having failed (the sender was dropped), not a slow page.
+    if !matches!(tokio::time::timeout(REFRESH_TIMEOUT, rx.recv()).await, Ok(Some(()))) {
+        tracing::debug!("session refresh: the webview never reached music.youtube.com");
+        close(&app, REFRESH_LABEL);
+        return;
+    }
+
+    // Landing on the page and *having rotated* are not the same instant, so poll. Signing in with
+    // a jar identical to the one we already hold would only spend two requests to be told the same
+    // thing, so wait for a different one.
+    let current = state.it.cookie().unwrap_or_default();
+    for _ in 0..8 {
+        let cookie = read_login_cookies(&app, REFRESH_LABEL).await;
+        if innertube::cookie_sapisid(&cookie).is_some() && !same_jar(&cookie, &current) {
+            match state.sign_in(cookie).await {
+                Ok(_) => tracing::info!("re-minted the login session from the login webview"),
+                Err(error) => tracing::warn!(%error, "could not re-mint the login session"),
+            }
+            close(&app, REFRESH_LABEL);
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    tracing::debug!("session refresh: the login webview had nothing fresher to offer");
+    close(&app, REFRESH_LABEL);
+}
+
+/// Same cookies, whatever order they came out in. The stored header is rebuilt by two different
+/// paths (the webview export sorts, the transport's rotation merge appends), so comparing the
+/// strings would report a change on every launch.
+fn same_jar(a: &str, b: &str) -> bool {
+    let pairs = |s: &str| {
+        let mut v: Vec<String> = s.split(';').map(|kv| kv.trim().to_owned()).collect();
+        v.sort();
+        v
+    };
+    pairs(a) == pairs(b)
+}
+
+/// One refresh at a time, and not more than one per [`REFRESH_COOLDOWN`]: a stale session throws
+/// off a burst of 401s (nine of them in the report), and each is a signal to heal.
+fn claim_refresh() -> bool {
+    static LAST: Mutex<Option<Instant>> = Mutex::new(None);
+    let mut last = LAST.lock().unwrap();
+    if last.is_some_and(|t| t.elapsed() < REFRESH_COOLDOWN) {
+        return false;
+    }
+    *last = Some(Instant::now());
+    true
+}
+
 /// Merge the youtube-domain cookies into a `Cookie` header string. Reads the platform cookie store
 /// (HttpOnly + secure included), matching what a browser sends to music.youtube.com.
 ///
 /// Hops to the main thread: both backends drive their platform event loop while they wait for the
 /// store (`gtk::main_iteration` on WebKitGTK, `NSRunLoop::mainRunLoop` on WKWebView), so they are
 /// written to be called from the thread that owns it.
-async fn read_login_cookies(app: &AppHandle) -> String {
+async fn read_login_cookies(app: &AppHandle, label: &'static str) -> String {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let app2 = app.clone();
     if app
         .run_on_main_thread(move || {
-            let _ = tx.send(youtube_cookies(&app2));
+            let _ = tx.send(youtube_cookies(&app2, label));
         })
         .is_err()
     {
@@ -131,8 +244,8 @@ async fn read_login_cookies(app: &AppHandle) -> String {
     rx.await.unwrap_or_default()
 }
 
-fn youtube_cookies(app: &AppHandle) -> String {
-    let Some(wv) = app.get_webview_window(LOGIN_LABEL) else { return String::new() };
+fn youtube_cookies(app: &AppHandle, label: &str) -> String {
+    let Some(wv) = app.get_webview_window(label) else { return String::new() };
     let Ok(cookies) = wv.cookies() else { return String::new() };
     youtube_cookie_header(cookies)
 }
@@ -190,12 +303,25 @@ mod tests {
         ]);
         assert_eq!(header, "PREF=specific");
     }
+
+    #[test]
+    fn a_reordered_jar_is_not_a_fresher_one() {
+        // The webview export sorts and the transport's rotation merge appends, so the same
+        // cookies routinely arrive in a different order. Calling that "changed" would re-sign-in
+        // on every launch; missing a real rotation would leave the session dead.
+        assert!(same_jar("SAPISID=a; SID=b", "SID=b; SAPISID=a"));
+        assert!(!same_jar("SAPISID=a; __Secure-3PSIDTS=new", "SAPISID=a; __Secure-3PSIDTS=old"));
+    }
 }
 
 fn close_login(app: &AppHandle) {
+    close(app, LOGIN_LABEL)
+}
+
+fn close(app: &AppHandle, label: &'static str) {
     let app2 = app.clone();
     let _ = app.run_on_main_thread(move || {
-        if let Some(w) = app2.get_webview_window(LOGIN_LABEL) {
+        if let Some(w) = app2.get_webview_window(label) {
             let _ = w.destroy();
         }
     });

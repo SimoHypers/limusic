@@ -6,6 +6,8 @@ import type { BrowseItem } from './api';
 export const ITEM_MIME = 'application/x-limusic-item';
 /** A queue row being dragged to a new position (`QueueList`), carrying its queue index. */
 export const QUEUE_ROW_MIME = 'application/x-limusic-queue-row';
+/** A home section being reordered in the Arrange home modal (`HomeLayoutDialog`). */
+export const SECTION_ROW_MIME = 'application/x-limusic-section-row';
 
 export function setDragItem(e: DragEvent, item: BrowseItem): void {
 	e.dataTransfer?.setData(ITEM_MIME, JSON.stringify(item));

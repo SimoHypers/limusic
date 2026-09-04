@@ -60,7 +60,7 @@ function getNestedValue(obj: unknown, path: string): unknown {
 }
 
 /**
- * Translate a key, falling back to English for anything the active catalog is missing.
+ * Translate a key, falling back to English for anything the active catalog is missing or blank.
  *
  * `key` is typed against the English catalog, so a typo or a key that was never added is a build
  * error rather than a literal `home.remove_shortcut` rendered in the UI.
@@ -70,7 +70,9 @@ function getNestedValue(obj: unknown, path: string): unknown {
  */
 export function t(key: TranslationKey, params?: Record<string, string | number>): string {
 	let str = getNestedValue(translations[activeLocale], key);
-	if (typeof str !== 'string') str = getNestedValue(translations.en, key);
+	// Weblate writes an untranslated string as "", so empty counts as missing: a half-finished
+	// catalog must render English, not a blank label.
+	if (typeof str !== 'string' || str === '') str = getNestedValue(translations.en, key);
 	if (typeof str !== 'string') return key;
 	if (!params) return str;
 	return str.replace(/\{(\w+)\}/g, (_, k) => (params[k] !== undefined ? String(params[k]) : `{${k}}`));

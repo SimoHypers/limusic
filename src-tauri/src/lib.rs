@@ -428,6 +428,41 @@ pub fn run() {
                 });
             }
 
+            // Keep the login alive by itself (#165 / KI-2). Two signals from the transport:
+            // `cookie_changed` when a response rotated `__Secure-*SIDTS` (persist it, or the next
+            // launch starts from a dead snapshot again), and `session_rejected` when YouTube
+            // turned the session down (re-mint it from the login webview's own Google session,
+            // instead of leaving the user with a "sign in again" they have to act on).
+            {
+                let st = app_state.clone();
+                let app_handle = handle.clone();
+                let rejected = st.it.session_rejected();
+                let rotated = st.it.cookie_changed();
+                tauri::async_runtime::spawn(async move {
+                    // Ask once, up front, rather than waiting for whatever the UI happens to
+                    // request first: the app can start straight to the tray, with nothing on
+                    // screen to run into the dead session and report it. One request, and the
+                    // 401 it may come back with goes down the same healing path as any other.
+                    if st.it.is_logged_in() {
+                        if let Some(client) = st.clients.get(innertube::METADATA_CLIENT) {
+                            let _ = st.it.account_menu(client).await;
+                        }
+                    }
+                    loop {
+                        tokio::select! {
+                            _ = rejected.notified() => {
+                                session::refresh_session(app_handle.clone(), st.clone()).await;
+                            }
+                            _ = rotated.notified() => {
+                                if let Some(cookie) = st.it.cookie() {
+                                    st.db.set_setting("session_cookie", &cookie);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
             // Pump mpv events → UI events + queue advance. context/11 events, context/14 §TrackEnded.
             spawn_event_pump(app_state, handle, events);
 

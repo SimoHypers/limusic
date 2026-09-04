@@ -76,7 +76,8 @@
 		"choose_channel": "Bir YouTube kanalı seçin",
 		"choose_channel_desc": "Kitaplık, beğeniler ve çalma listeleri bu kanalı kullanacak. Daha sonra tekrar değiştirebilirsiniz.",
 		"cancel_sign_in": "Oturum açmayı iptal et",
-		"sign_in_hint": "Google hesabınızla giriş yaparak YouTube Music kitaplığınıza ve çalma listelerinize ulaşabilirsiniz."
+		"sign_in_hint": "Google hesabınızla giriş yaparak YouTube Music kitaplığınıza ve çalma listelerinize ulaşabilirsiniz.",
+		"history": "Geçmiş"
 	},
 	"player": {
 		"play": "Oynat",
@@ -186,7 +187,8 @@
 		"every_song_saved": "Kaydettiğin bütün şarkılar tek bir listede",
 		"every_upload": "YouTube Music’a yüklediğin bütün parçalar",
 		"no_uploads": "Henüz bir şey yüklemedin. music.youtube.com üzerinden yüklediğin şarkılar burada görünür.",
-		"uploads_signed_out": "YouTube Music’a yüklediğin müzikleri görmek için giriş yap."
+		"uploads_signed_out": "YouTube Music’a yüklediğin müzikleri görmek için giriş yap.",
+		"no_upload_albums": "Henüz yüklenmiş bir albüm yok. music.youtube.com üzerinde yüklediğiniz albümler burada belirecek."
 	},
 	"local": {
 		"scanning": "Klasör taranıyor...",
@@ -316,6 +318,7 @@
 			"check_updates": "Güncellemeleri denetle",
 			"checking_updates": "Güncellemeler denetleniyor...",
 			"up_to_date": "En güncel sürümü kullanıyorsunuz.",
+			"update_packaged": "Bu derleme paket yöneticisiyle kuruldu, aynı şekilde güncelleyin.",
 			"update_available": "{version} sürümü mevcut!",
 			"install_update": "Yükle ve Yeniden Başlat",
 			"download_page": "İndirme sayfasını aç",
@@ -551,5 +554,14 @@
 		"already_in": "{playlist} çalma listesinde zaten var",
 		"added_songs": "{playlist} çalma listesine {count} parça eklendi",
 		"added_one": "{playlist} çalma listesine eklendi"
+	},
+	"history": {
+		"title": "Geçmiş",
+		"subtitle": "YouTube Music'te çaldığınız her şey burada, önce en yenisi.",
+		"search": "Geçmişinizde arayın",
+		"matching": "{count} bulundu",
+		"songs_count": "{count} şarkı",
+		"empty": "Burada henüz bir şey yok. Giriş yaptıktan sonra dinledikleriniz bu sayfada belirecek.",
+		"signed_out": "YouTube Music dinleme geçmişinizi görmek için giriş yapın."
 	}
 }

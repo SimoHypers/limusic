@@ -13,8 +13,8 @@ use serde_json::Value;
 use super::metadata::{
     artist_runs, artists_from_runs, duration_from_runs, find_all, find_all_shallow, find_first_str,
     first_artist_id, flex_column_text, flex_runs, is_explicit, is_upload_endpoint, is_upload_row,
-    is_video_endpoint, is_video_row, last_thumbnail, list_item_video_id, parse_list_item,
-    play_count, runs_text, runs_text_opt, ArtistRun, SongItem,
+    is_video_endpoint, is_video_row, is_video_type, last_thumbnail, list_item_video_id,
+    parse_list_item, play_count, runs_text, runs_text_opt, ArtistRun, SongItem,
 };
 
 /// One clickable card in a home carousel or library grid. Flat + `kind`-tagged so the UI can
@@ -387,9 +387,25 @@ pub fn parse_playlist(root: &Value) -> PlaylistPage {
     let subtitle = header
         .and_then(|h| runs_text(h.get("secondSubtitle")).or_else(|| runs_text(h.get("subtitle"))));
     let thumbnail = header.and_then(last_thumbnail);
+    // An uploaded album opens on this route, not the album one: YouTube gives a privately-owned
+    // release a `FEmusic_library_privately_owned_release_detail…` browseId, which is not an
+    // `MPRE…`, so `browse_kind_from_id` calls it a playlist. Its rows carry no per-track art (the
+    // cover is shown once in the header), and a track played off the page reached the queue, the
+    // player bar and the OS widget with nothing to draw. Fill the gap from the cover, exactly as
+    // `parse_album` does. Scoped to the header's own thumbnail subtree for the same reason it is
+    // there, and with no fallback to the unscoped `thumbnail` above: that walk returns whatever
+    // thumbnails array it reaches first, so a header with only a `straplineThumbnail` would hand
+    // every row the artist avatar. Issue #160.
+    let cover = header.and_then(|h| h.get("thumbnail")).and_then(last_thumbnail);
     let items = find_all_shallow(root, "musicResponsiveListItemRenderer")
         .into_iter()
         .filter_map(parse_list_item)
+        .map(|mut it| {
+            if it.thumbnail.is_none() {
+                it.thumbnail = cover.clone();
+            }
+            it
+        })
         .collect();
     // Present only for playlists the signed-in user owns — the sole reliable ownership signal.
     let owned = !find_all(root, "musicEditablePlaylistDetailHeaderRenderer").is_empty();
@@ -718,15 +734,14 @@ fn library_toggle_playlist_id(header: Option<&Value>) -> Option<String> {
 
 /// Per-track "this row links the music video, not the album audio" flags, aligned with
 /// `parse_album().items` (same rows, same parse filter). A row is a video when its watch
-/// endpoint's `musicVideoType` is present and not `MUSIC_VIDEO_TYPE_ATV` (the audio track type) —
-/// absent means we can't tell, so we assume audio and leave it alone.
+/// endpoint's `musicVideoType` is present and is neither audio kind (a generated album track or
+/// one of the user's own uploads) — absent means we can't tell, so we assume audio and leave it
+/// alone.
 pub fn album_video_flags(root: &Value) -> Vec<bool> {
     find_all(root, "musicResponsiveListItemRenderer")
         .into_iter()
         .filter(|row| parse_list_item(row).is_some())
-        .map(|row| {
-            find_first_str(row, "musicVideoType").is_some_and(|t| t != "MUSIC_VIDEO_TYPE_ATV")
-        })
+        .map(|row| find_first_str(row, "musicVideoType").is_some_and(|t| is_video_type(&t)))
         .collect()
 }
 
@@ -1373,6 +1388,55 @@ mod tests {
         // A plain header (someone else's playlist) is not editable.
         assert!(!p.owned);
         assert!(!p.collaborative);
+    }
+
+    /// An uploaded album is a playlist as far as its browseId goes, and its rows carry no art of
+    /// their own. Without the cover filled in, playing one leaves the player bar blank (#160).
+    #[test]
+    fn playlist_rows_with_no_art_of_their_own_inherit_the_cover() {
+        let root = json!({
+            "header": { "musicDetailHeaderRenderer": {
+                "title": { "runs": [{ "text": "18 Months" }] },
+                "straplineThumbnail": { "musicThumbnailRenderer": { "thumbnail": { "thumbnails": [
+                    { "url": "artist_avatar.jpg" }
+                ] } } },
+                "thumbnail": { "croppedSquareThumbnailRenderer": { "thumbnail": { "thumbnails": [
+                    { "url": "cover.jpg" }
+                ] } } }
+            } },
+            "contents": { "singleColumnBrowseResultsRenderer": { "tabs": [{ "tabRenderer": { "content": {
+                "sectionListRenderer": { "contents": [{ "musicShelfRenderer": { "contents": [
+                    { "musicResponsiveListItemRenderer": {
+                        "playlistItemData": { "videoId": "up1" },
+                        "flexColumns": [
+                            { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Feel So Close" }] } } }
+                        ]
+                    } },
+                    { "musicResponsiveListItemRenderer": {
+                        "playlistItemData": { "videoId": "up2" },
+                        "thumbnail": { "musicThumbnailRenderer": { "thumbnail": { "thumbnails": [
+                            { "url": "row.jpg" }
+                        ] } } },
+                        "flexColumns": [
+                            { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Bounce" }] } } }
+                        ]
+                    } }
+                ] } }] }
+            } } }] } }
+        });
+        let p = parse_playlist(&root);
+        assert_eq!(p.items[0].thumbnail.as_deref(), Some("cover.jpg"), "no art of its own");
+        assert_eq!(p.items[1].thumbnail.as_deref(), Some("row.jpg"), "its own art wins");
+
+        // Drop the cover and the avatar is the only thumbnail left in the header. A row keeps
+        // nothing rather than inheriting a face.
+        let mut no_cover = root.clone();
+        no_cover["header"]["musicDetailHeaderRenderer"]
+            .as_object_mut()
+            .unwrap()
+            .remove("thumbnail");
+        let p = parse_playlist(&no_cover);
+        assert_eq!(p.items[0].thumbnail, None, "never the artist avatar");
     }
 
     /// Every playlist header has a facepile (the owner's avatar). Only a collaborative one makes it

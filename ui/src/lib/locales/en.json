@@ -162,6 +162,8 @@
 	"artist": {
 		"subscribe": "Subscribe",
 		"subscribed": "Subscribed",
+		"subscribe_to": "Subscribe to {name}",
+		"unsubscribe_from": "Unsubscribe from {name}",
 		"top_songs": "Top songs"
 	},
 	"library": {
@@ -327,6 +329,8 @@
 			"check_updates": "Check for updates",
 			"checking_updates": "Checking for updates...",
 			"up_to_date": "You are using the latest version.",
+			"update_check_failed": "Update check failed: {error}",
+			"update_packaged": "This build was installed with a package manager, update it the same way.",
 			"update_available": "Version {version} is available!",
 			"install_update": "Install and Restart",
 			"download_page": "Open download page",

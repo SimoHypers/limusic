@@ -251,7 +251,7 @@ impl InnerTube {
         // A stale cookie authenticates transport-wise but YouTube returns a logged-out "Sign in"
         // state for account-scoped browse. Surface it as a clear error, not a blank page.
         if self.is_logged_in() && browse::is_signed_out(&value) {
-            return Err(Error::SessionExpired);
+            return Err(self.reject_session());
         }
         Ok(value)
     }
