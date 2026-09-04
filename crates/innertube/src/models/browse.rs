@@ -393,11 +393,10 @@ pub fn parse_playlist(root: &Value) -> PlaylistPage {
     // cover is shown once in the header), and a track played off the page reached the queue, the
     // player bar and the OS widget with nothing to draw. Fill the gap from the cover, exactly as
     // `parse_album` does. Scoped to the header's own thumbnail subtree for the same reason it is
-    // there: a wider sweep can land on the artist avatar. Issue #160.
-    let cover = header
-        .and_then(|h| h.get("thumbnail"))
-        .and_then(last_thumbnail)
-        .or_else(|| thumbnail.clone());
+    // there, and with no fallback to the unscoped `thumbnail` above: that walk returns whatever
+    // thumbnails array it reaches first, so a header with only a `straplineThumbnail` would hand
+    // every row the artist avatar. Issue #160.
+    let cover = header.and_then(|h| h.get("thumbnail")).and_then(last_thumbnail);
     let items = find_all_shallow(root, "musicResponsiveListItemRenderer")
         .into_iter()
         .filter_map(parse_list_item)
@@ -1428,6 +1427,16 @@ mod tests {
         let p = parse_playlist(&root);
         assert_eq!(p.items[0].thumbnail.as_deref(), Some("cover.jpg"), "no art of its own");
         assert_eq!(p.items[1].thumbnail.as_deref(), Some("row.jpg"), "its own art wins");
+
+        // Drop the cover and the avatar is the only thumbnail left in the header. A row keeps
+        // nothing rather than inheriting a face.
+        let mut no_cover = root.clone();
+        no_cover["header"]["musicDetailHeaderRenderer"]
+            .as_object_mut()
+            .unwrap()
+            .remove("thumbnail");
+        let p = parse_playlist(&no_cover);
+        assert_eq!(p.items[0].thumbnail, None, "never the artist avatar");
     }
 
     /// Every playlist header has a facepile (the owner's avatar). Only a collaborative one makes it
