@@ -578,7 +578,7 @@ impl AppState {
             // mark the login unfinished, and remove stale projections. A restart will reopen the
             // required picker instead of silently acting as YouTube's default channel.
             self.it.set_data_sync_id(None);
-            self.db.set_pending_auth_selection(&cookie, None).map_err(|error| {
+            self.db.set_pending_auth_selection(&cookie).map_err(|error| {
                 self.restore_auth_transport(previous_cookie.clone(), previous_data_sync_id.clone());
                 self.restore_session_cookie_setting(previous_cookie.as_deref());
                 error.to_string()
@@ -785,7 +785,7 @@ impl AppState {
     /// the projections and the UI all move together; on failure the previous session is restored
     /// untouched.
     pub async fn switch_google_account(&self, id: &str) -> Result<serde_json::Value, String> {
-        let mut account = self.db.get_account(id).ok_or("That account is no longer saved.")?;
+        let account = self.db.get_account(id).ok_or("That account is no longer saved.")?;
         let previous_cookie = self.it.cookie();
         let previous_data_sync_id = self.it.data_sync_id();
         let previous_visitor = self.it.visitor_data();
@@ -801,11 +801,12 @@ impl AppState {
         // yet) returns to the required picker instead of silently acting as YouTube's default.
         if account.selected_identity_json.is_none() {
             self.db
-                .set_pending_auth_selection(&account.session_cookie, Some(id))
+                .set_pending_auth_selection(&account.session_cookie)
                 .map_err(|e| format!("Couldn't activate the account: {e}"))?;
             if let Some(visitor_data) = &account.visitor_data {
                 self.db.set_setting("visitor_data", visitor_data);
             }
+            self.db.set_setting("active_account", id);
             let snapshot = self.account_snapshot();
             let _ = self.app.emit("account-selection-required", ());
             let _ = self.app.emit("auth-changed", &snapshot);
@@ -814,28 +815,7 @@ impl AppState {
 
         let client =
             self.clients.get(innertube::METADATA_CLIENT).ok_or("metadata client missing")?;
-        let mut result = self.it.account_menu(client).await;
-        // A network change (VPN on/off) hits a stored session twice over: the handover can
-        // briefly drop requests, and the rotating `*SIDTS` tokens in a saved jar were minted for
-        // the network it was last used on — Google may reject them from the new one. Ride the
-        // handover out, then retry once. When the session was rejected, strip the rotating
-        // tokens first so the response re-issues them bound to the current network.
-        let session_rejected = result.as_ref().is_ok_and(|info| info.name.is_none())
-            || matches!(&result, Err(innertube::Error::SessionExpired));
-        let transient = matches!(&result, Err(innertube::Error::Http(_)));
-        if session_rejected || transient {
-            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-            if session_rejected {
-                // Rotating tokens and the stored visitorData were both minted for the network
-                // the account was saved on; retry with both dropped so the response re-issues
-                // them bound to the current network.
-                self.it
-                    .set_cookie(Some(innertube::strip_rotating_tokens(&account.session_cookie)));
-                self.it.set_visitor_data(None);
-            }
-            result = self.it.account_menu(client).await;
-        }
-        let refreshed_visitor = match result {
+        let refreshed_visitor = match self.it.account_menu(client).await {
             Ok(info) if info.name.is_some() => info.visitor_data.clone(),
             Ok(_) => {
                 self.it.set_cookie(previous_cookie);
@@ -851,13 +831,6 @@ impl AppState {
             }
         };
 
-        // The transport now holds the validated, potentially stripped-and-reissued cookie jar.
-        // Update the account object so `restore_account` writes the good jar to settings, not the
-        // stale one we started with.
-        if let Some(live_cookie) = self.it.cookie() {
-            account.session_cookie = live_cookie;
-        }
-
         self.db
             .restore_account(&account)
             .map_err(|e| format!("Couldn't switch accounts: {e}"))?;
@@ -867,10 +840,8 @@ impl AppState {
         if let Some(visitor_data) = &refreshed_visitor {
             self.it.set_visitor_data(Some(visitor_data.clone()));
             self.db.set_setting("visitor_data", visitor_data);
+            self.sync_active_account();
         }
-        // Always sync the active account row to capture the fresh cookie and visitorData.
-        self.sync_active_account();
-        
         self.forget_playlist_index();
         let snapshot = self.account_snapshot();
         let _ = self.app.emit("auth-changed", &snapshot);
@@ -987,58 +958,6 @@ impl AppState {
             }
             Ok(_) => tracing::warn!("keep-alive: the stored session did not authenticate"),
             Err(error) => tracing::debug!(%error, "session keep-alive failed"),
-        }
-    }
-
-    /// Warm the saved non-active accounts the way live requests warm the active one: one
-    /// `account_menu` per account against that account's own jar, so Google re-issues its
-    /// rotating tokens — and a login-bound visitorData — bound to the current network. A dormant
-    /// account that never gets requests would otherwise keep the tokens minted for whatever
-    /// network it was last used on, and switching to it after a VPN/IP change would then fail the
-    /// same way the active session would if it ever went cold.
-    ///
-    /// When the stored jar is rejected, one fallback attempt goes out with the rotating tokens
-    /// stripped and no visitorData — the response then re-mints both for the current network.
-    /// Best-effort: failures leave the row as-is for the next tick, and a row removed while the
-    /// request was in flight is not re-created.
-    pub(crate) async fn warm_saved_accounts(&self) {
-        let Some(client) = self.clients.get(innertube::METADATA_CLIENT) else { return };
-        let active = self.db.get_setting("active_account");
-        for account in self.db.list_accounts() {
-            if active.as_deref() == Some(account.id.as_str()) {
-                continue; // the active session warms itself via keep_session_alive
-            }
-            let mut current_cookie = account.session_cookie.clone();
-            let mut result = self
-                .it
-                .account_menu_for_jar(client, &current_cookie, account.visitor_data.as_deref())
-                .await;
-            let rejected =
-                result.as_ref().is_err() || result.as_ref().is_ok_and(|(info, _)| info.name.is_none());
-            if rejected {
-                let stripped = innertube::strip_rotating_tokens(&current_cookie);
-                if stripped != current_cookie {
-                    current_cookie = stripped;
-                    result = self.it.account_menu_for_jar(client, &current_cookie, None).await;
-                }
-            }
-            let Ok((info, merged)) = result else {
-                tracing::debug!(id = %account.id, "saved-account warm-up could not validate the stored jar");
-                continue;
-            };
-            if info.name.is_none() {
-                tracing::debug!(id = %account.id, "saved-account warm-up: the stored session is no longer valid");
-                continue;
-            }
-            if self.db.get_account(&account.id).is_none() {
-                continue; // removed while the request was in flight — do not resurrect the row
-            }
-            let mut row = account.clone();
-            row.session_cookie = merged.unwrap_or(current_cookie);
-            if let Some(visitor_data) = info.visitor_data {
-                row.visitor_data = Some(visitor_data);
-            }
-            let _ = self.db.upsert_account(&row);
         }
     }
 

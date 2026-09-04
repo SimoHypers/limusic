@@ -299,15 +299,7 @@ impl Db {
     /// Persist an authenticated cookie while deliberately leaving the account unfinished. Keeping
     /// the marker and removal of stale identity projections in the same transaction means a crash
     /// during the required picker cannot restart into YouTube's default channel silently.
-    /// `account_id` names the saved row this pending session belongs to when the caller already
-    /// knows it (an account switch); it is written into `active_account` in the same transaction.
-    /// `None` leaves the pointer alone — the sign-in path sets it right after via
-    /// `sync_active_account`.
-    pub fn set_pending_auth_selection(
-        &self,
-        session_cookie: &str,
-        account_id: Option<&str>,
-    ) -> rusqlite::Result<()> {
+    pub fn set_pending_auth_selection(&self, session_cookie: &str) -> rusqlite::Result<()> {
         let mut conn = self.0.lock().unwrap();
         let tx = conn.transaction()?;
         tx.execute(
@@ -317,13 +309,6 @@ impl Db {
         )?;
         for key in ["selected_identity_json", "data_sync_id", "account_json"] {
             tx.execute("DELETE FROM settings WHERE key = ?1", [key])?;
-        }
-        if let Some(id) = account_id {
-            tx.execute(
-                "INSERT INTO settings(key, value) VALUES('active_account', ?1)
-                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                [id],
-            )?;
         }
         tx.execute(
             "INSERT INTO settings(key, value) VALUES('account_selection_pending', 'true')
@@ -1205,21 +1190,12 @@ mod tests {
         assert_eq!(d.get_setting("account_json").as_deref(), Some(r#"{"name":"Channel A"}"#));
         assert_eq!(d.get_setting("session_cookie").as_deref(), Some("SAPISID=cookie-a"));
 
-        d.set_pending_auth_selection("SAPISID=cookie-b", None).unwrap();
+        d.set_pending_auth_selection("SAPISID=cookie-b").unwrap();
         assert_eq!(d.get_setting("session_cookie").as_deref(), Some("SAPISID=cookie-b"));
         assert_eq!(d.get_setting("selected_identity_json"), None);
         assert_eq!(d.get_setting("data_sync_id"), None);
         assert_eq!(d.get_setting("account_json"), None);
         assert_eq!(d.get_setting("account_selection_pending").as_deref(), Some("true"));
-        assert_eq!(d.get_setting("active_account"), None, "no account id ⇒ pointer untouched");
-
-        // An account id rides in the same transaction (the switch-to-pending path).
-        d.set_pending_auth_selection("SAPISID=cookie-b", Some("ga-b")).unwrap();
-        assert_eq!(
-            d.get_setting("active_account").as_deref(),
-            Some("ga-b"),
-            "the pointer commits with the pending marker"
-        );
 
         d.set_auth_identity(
             "SAPISID=cookie-b",

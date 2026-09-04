@@ -191,32 +191,6 @@ impl InnerTube {
         Ok(metadata::parse_account_menu(&value))
     }
 
-    /// `account_menu` against a saved account's own jar, without touching the shared session.
-    /// The background keep-alive uses it to warm dormant accounts the same way live requests warm
-    /// the active one: Google re-issues the rotating tokens — and a login-bound visitorData — for
-    /// the current network, which is what keeps a stored session alive across IP changes (VPN).
-    /// Returns the parsed account plus the jar with the response's `Set-Cookie` pairs merged in
-    /// (`None` when the response carried none).
-    pub async fn account_menu_for_jar(
-        &self,
-        client: &YouTubeClient,
-        cookie: &str,
-        visitor_data: Option<&str>,
-    ) -> Result<(AccountInfo, Option<String>), Error> {
-        #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct AccountMenuBody {
-            context: Context,
-        }
-        let body = AccountMenuBody { context: self.context_for_jar(client, visitor_data) };
-        let (value, set_cookies) =
-            self.post_jar("account/account_menu", client, &body, cookie, visitor_data).await?;
-        let account = metadata::parse_account_menu(&value);
-        let merged =
-            if set_cookies.is_empty() { None } else { InnerTube::merge_jar(cookie, &set_cookies) };
-        Ok((account, merged))
-    }
-
     /// Validate and refresh one delegated identity without mutating the transport's shared
     /// selection. This keeps unrelated in-flight requests on the previously committed channel.
     pub async fn account_menu_for_identity(
