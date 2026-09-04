@@ -284,7 +284,9 @@ pub fn parse_search(root: &Value) -> SearchResult {
 /// Parse a `next` response into the up-next queue + continuation token. context/08.
 pub fn parse_next(root: &Value) -> NextResult {
     let mut items = Vec::new();
-    for node in find_all(root, "playlistPanelVideoRenderer") {
+    let mut rows = Vec::new();
+    panel_rows(root, &mut rows);
+    for node in rows {
         if let Some(item) = parse_panel_video(node) {
             items.push(item);
         }
@@ -303,6 +305,28 @@ pub fn parse_next(root: &Value) -> NextResult {
         // Scoped to the overlay on purpose: a bare `find_first_str` over the whole response would
         // read whatever a future panel row starts carrying instead of the requested video's own.
         rating: root.get("playerOverlays").and_then(like_status),
+    }
+}
+
+/// Every panel row in order, ignoring the `counterpart` arm of a
+/// `playlistPanelVideoWrapperRenderer`. A signed-in radio wraps each track's audio row together
+/// with its music-video twin (what YouTube's own Song/Video toggle switches between), so a plain
+/// [`find_all`] takes both and the queue gets every song twice. Issue #170.
+fn panel_rows<'a>(node: &'a Value, out: &mut Vec<&'a Value>) {
+    match node {
+        Value::Object(map) => {
+            for (k, v) in map {
+                if k == "counterpart" {
+                    continue;
+                }
+                if k == "playlistPanelVideoRenderer" {
+                    out.push(v);
+                }
+                panel_rows(v, out);
+            }
+        }
+        Value::Array(arr) => arr.iter().for_each(|e| panel_rows(e, out)),
+        _ => {}
     }
 }
 
@@ -1150,6 +1174,34 @@ mod tests {
         let out = parse_next(&root);
         assert_eq!(out.items.len(), 1);
         assert_eq!(out.automix_playlist_id.as_deref(), Some("RDAMVMseed1"));
+    }
+
+    // Signed in, YouTube pairs a radio track's audio row with its music-video twin under one
+    // wrapper. Only the primary arm is the queue row; taking the counterpart too put every song
+    // in the radio twice, with two different durations. Issue #170.
+    #[test]
+    fn a_wrapped_row_contributes_only_its_primary() {
+        let renderer = |id: &str, len: &str| {
+            json!({ "playlistPanelVideoRenderer": {
+                "videoId": id,
+                "title": { "runs": [{ "text": "Sunflower" }] },
+                "longBylineText": { "runs": [{ "text": "Post Malone" }] },
+                "lengthText": { "runs": [{ "text": len }] },
+                "thumbnail": { "thumbnails": [{ "url": "https://t/1" }] }
+            } })
+        };
+        let root = json!({
+            "contents": { "playlistPanelRenderer": { "contents": [
+                { "playlistPanelVideoWrapperRenderer": {
+                    "primaryRenderer": renderer("audio1", "2:39"),
+                    "counterpart": [{ "counterpartRenderer": renderer("video1", "2:42") }]
+                } },
+                renderer("plain1", "3:00")
+            ] } }
+        });
+        let out = parse_next(&root);
+        let ids: Vec<&str> = out.items.iter().map(|i| i.video_id.as_str()).collect();
+        assert_eq!(ids, ["audio1", "plain1"]);
     }
 
     // A real radio page has no automix marker — nothing to escalate to, and nothing to mistake a
