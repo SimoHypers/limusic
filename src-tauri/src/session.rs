@@ -47,14 +47,6 @@ const LOGIN_URL: &str =
 const ADD_ACCOUNT_URL: &str =
     "https://accounts.google.com/AddSession?service=youtube&continue=https://music.youtube.com/";
 
-/// The account chooser, used as a bounce target in the add-account flow. After AddSession, Google
-/// auto-continues its redirect into the webview's *default* session (`authuser=0`) — usually the
-/// account that was already signed in — so the cookies captured on music.youtube.com would belong
-/// to the wrong Google account. Picking the new session here is what makes Google swap the jar's
-/// active-session cookies before the final redirect back.
-const ACCOUNT_CHOOSER_URL: &str =
-    "https://accounts.google.com/AccountChooser?service=youtube&continue=https://music.youtube.com/";
-
 /// Open the login webview. Returns immediately; sign-in completes asynchronously (the UI learns via
 /// the `auth-changed` event, or `login-error` on failure). `add_account` picks the AddSession
 /// flow so an additional Google account can be added while another is signed in.
@@ -67,11 +59,6 @@ pub fn open_login(app: AppHandle, state: Arc<AppState>, add_account: bool) {
     {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
-            // Add-account flow: Google can auto-continue its redirect into an already-saved
-            // session (the default `authuser=0`) instead of the account the user just added. One
-            // bounce through the account chooser fixes the active-session cookies; the guard
-            // makes it once per login window so re-picking the same account can't loop.
-            let mut chooser_shown = false;
             while rx.recv().await.is_some() {
                 // The redirect that lands us here sets the youtube cookies; they may appear a beat
                 // after the page finishes, and the YTM app the window loads keeps setting more of
@@ -80,31 +67,15 @@ pub fn open_login(app: AppHandle, state: Arc<AppState>, add_account: bool) {
                 // that has a SAPISID — a jar captured too early is missing the rotation tokens
                 // and goes stale almost immediately.
                 let mut latest: Option<String> = None;
-                let mut bounced = false;
                 for _ in 0..8 {
                     let cookie = read_login_cookies(&app).await;
                     if innertube::cookie_sapisid(&cookie).is_some() {
-                        if add_account && !chooser_shown && state.matches_saved_account(&cookie) {
-                            chooser_shown = true;
-                            let app2 = app.clone();
-                            let _ = app.run_on_main_thread(move || {
-                                if let Some(w) = app2.get_webview_window(LOGIN_LABEL) {
-                                    if let Ok(url) = tauri::Url::parse(ACCOUNT_CHOOSER_URL) {
-                                        let _ = w.navigate(url);
-                                    }
-                                }
-                            });
-                            // Re-arm the page-load watch: picking an account reloads YTM with
-                            // that session's cookies as the active set.
-                            bounced = true;
-                            break;
+                        if latest.as_deref() == Some(&cookie) {
+                            break; // jar has settled
                         }
                         latest = Some(cookie);
                     }
                     tokio::time::sleep(Duration::from_millis(500)).await;
-                }
-                if bounced {
-                    continue;
                 }
                 if let Some(cookie) = latest {
                     match state.sign_in(cookie).await {
@@ -139,7 +110,10 @@ pub fn open_login(app: AppHandle, state: Arc<AppState>, add_account: bool) {
         // auto-continuing into whichever one it was already holding. The app's own saved sessions
         // live in SQLite (`accounts`), not in this cookie store — they are never touched here.
         if add_account {
-            clear_google_webview_cookies(&app2);
+            if let Err(e) = clear_google_webview_cookies(&app2) {
+                let _ = app2.emit("login-error", format!("Couldn't clear the previous session: {e}"));
+                return;
+            }
         }
         let url = if add_account { ADD_ACCOUNT_URL } else { LOGIN_URL };
         let Ok(url) = tauri::Url::parse(url) else { return };
@@ -171,9 +145,12 @@ pub fn open_login(app: AppHandle, state: Arc<AppState>, add_account: bool) {
 /// for all of the app's webviews). Only the webview-side Google session is lost: the app's saved
 /// accounts are SQLite rows in `Db`, and the main window never sends YouTube cookies itself.
 /// Reads through the main window's webview — always alive, and the store is profile-wide.
-fn clear_google_webview_cookies(app: &AppHandle) {
-    let Some(wv) = app.get_webview_window("main") else { return };
-    let Ok(cookies) = wv.cookies() else { return };
+///
+/// Note: the profile-wide assumption is verified on WebView2 (Windows). If add-account ever
+/// misbehaves on WebKitGTK, check whether its cookie store is actually shared.
+fn clear_google_webview_cookies(app: &AppHandle) -> Result<(), String> {
+    let wv = app.get_webview_window("main").ok_or("main window missing")?;
+    let cookies = wv.cookies().map_err(|e| e.to_string())?;
     let mut cleared = 0;
     for cookie in cookies {
         let domain = cookie.domain().unwrap_or_default();
@@ -182,12 +159,12 @@ fn clear_google_webview_cookies(app: &AppHandle) {
             || domain == "youtube.com"
             || domain.ends_with(".youtube.com")
         {
-            if wv.delete_cookie(cookie).is_ok() {
-                cleared += 1;
-            }
+            wv.delete_cookie(cookie).map_err(|e| e.to_string())?;
+            cleared += 1;
         }
     }
     tracing::info!(cleared, "cleared the webview's Google session for add-account sign-in");
+    Ok(())
 }
 
 /// Merge the youtube-domain cookies into a `Cookie` header string. Reads the platform cookie store

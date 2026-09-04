@@ -448,6 +448,19 @@ pub fn run() {
                 });
             }
 
+            // Keep-alive ping: rolls a jar that slept overnight before the user browses, then
+            // every 30 minutes.
+            {
+                let st = app_state.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(Duration::from_secs(15)).await;
+                    loop {
+                        st.keep_session_alive().await;
+                        tokio::time::sleep(Duration::from_secs(30 * 60)).await;
+                    }
+                });
+            }
+
             // Prewarm the webviews off the first-play path (context/04 §startup). The delays let
             // the event loop come up first (run_on_main_thread needs it pumping).
             {

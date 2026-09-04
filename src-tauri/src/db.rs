@@ -3,21 +3,22 @@
 
 use std::sync::Mutex;
 
+use md5::{Digest, Md5};
 use rusqlite::Connection;
-use sha1::{Digest, Sha1};
 
 pub struct Db(Mutex<Connection>);
 
 /// The stored-account key (multi-account support): a stable per-Google-account identifier derived
 /// from the long-lived `SAPISID` cookie value — the one piece of the jar Google does not rotate.
-/// Versioned SHA-1, hex-encoded — deliberately not `DefaultHasher`, whose output Rust does not
+/// Versioned MD5, hex-encoded — deliberately not `DefaultHasher`, whose output Rust does not
 /// guarantee to stay stable across releases (a persisted key must survive toolchain upgrades).
 /// The SAPISID itself never appears in the key the UI gets to see.
-pub fn account_key(session_cookie: &str) -> String {
-    let mut digest = Sha1::new();
+pub fn account_key(session_cookie: &str) -> Option<String> {
+    let sapisid = innertube::cookie_sapisid(session_cookie)?;
+    let mut digest = Md5::new();
     digest.update(b"limusic-google-account-v1");
-    digest.update(innertube::cookie_sapisid(session_cookie).unwrap_or_default().as_bytes());
-    format!("ga-{}", hex::encode(digest.finalize()))
+    digest.update(sapisid.as_bytes());
+    Some(format!("ga-{:x}", digest.finalize()))
 }
 
 /// One saved Google account. Canonical multi-account state; the `settings` rows `session_cookie`,
@@ -167,33 +168,34 @@ impl Db {
         if let Some(cookie) = legacy_cookie {
             let existing: i64 =
                 conn.query_row("SELECT COUNT(*) FROM accounts", [], |r| r.get(0)).unwrap_or(0);
-            if existing == 0 && innertube::cookie_sapisid(&cookie).is_some() {
-                let get = |key: &str| -> Option<String> {
-                    conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| {
-                        r.get(0)
-                    })
-                    .ok()
-                };
-                let id = account_key(&cookie);
-                let _ = conn.execute(
-                    "INSERT OR IGNORE INTO accounts(id, session_cookie, data_sync_id, \
-                     selected_identity_json, account_json, visitor_data, added_at) \
-                     VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                    rusqlite::params![
-                        id,
-                        cookie,
-                        get("data_sync_id"),
-                        get("selected_identity_json"),
-                        get("account_json"),
-                        get("visitor_data"),
-                        now_secs()
-                    ],
-                );
-                let _ = conn.execute(
-                    "INSERT INTO settings(key, value) VALUES('active_account', ?1) \
-                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                    [id],
-                );
+            if existing == 0 {
+                if let Some(id) = account_key(&cookie) {
+                    let get = |key: &str| -> Option<String> {
+                        conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| {
+                            r.get(0)
+                        })
+                        .ok()
+                    };
+                    let _ = conn.execute(
+                        "INSERT OR IGNORE INTO accounts(id, session_cookie, data_sync_id, \
+                         selected_identity_json, account_json, visitor_data, added_at) \
+                         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                        rusqlite::params![
+                            id,
+                            cookie,
+                            get("data_sync_id"),
+                            get("selected_identity_json"),
+                            get("account_json"),
+                            get("visitor_data"),
+                            now_secs()
+                        ],
+                    );
+                    let _ = conn.execute(
+                        "INSERT INTO settings(key, value) VALUES('active_account', ?1) \
+                         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                        [id],
+                    );
+                }
             }
         }
         // Rekey rows still carrying pre-sha1 (DefaultHasher) account ids: recompute the stable
@@ -213,17 +215,18 @@ impl Db {
             rows
         };
         for (old_id, cookie) in stale_rows {
-            let new_id = account_key(&cookie);
-            if new_id != old_id {
-                let _ = conn.execute(
-                    "UPDATE accounts SET id = ?1 WHERE id = ?2",
-                    [&new_id, &old_id],
-                );
-                let _ = conn.execute(
-                    "UPDATE settings SET value = ?1 \
-                     WHERE key = 'active_account' AND value = ?2",
-                    [&new_id, &old_id],
-                );
+            if let Some(new_id) = account_key(&cookie) {
+                if new_id != old_id {
+                    let _ = conn.execute(
+                        "UPDATE accounts SET id = ?1 WHERE id = ?2",
+                        [&new_id, &old_id],
+                    );
+                    let _ = conn.execute(
+                        "UPDATE settings SET value = ?1 \
+                         WHERE key = 'active_account' AND value = ?2",
+                        [&new_id, &old_id],
+                    );
+                }
             }
         }
         Ok(Db(Mutex::new(conn)))
@@ -293,7 +296,11 @@ impl Db {
     /// Persist an authenticated cookie while deliberately leaving the account unfinished. Keeping
     /// the marker and removal of stale identity projections in the same transaction means a crash
     /// during the required picker cannot restart into YouTube's default channel silently.
-    pub fn set_pending_auth_selection(&self, session_cookie: &str) -> rusqlite::Result<()> {
+    pub fn set_pending_auth_selection(
+        &self,
+        session_cookie: &str,
+        account_id: Option<&str>,
+    ) -> rusqlite::Result<()> {
         let mut conn = self.0.lock().unwrap();
         let tx = conn.transaction()?;
         tx.execute(
@@ -309,6 +316,13 @@ impl Db {
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             [],
         )?;
+        if let Some(id) = account_id {
+            tx.execute(
+                "INSERT INTO settings(key, value) VALUES('active_account', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [id],
+            )?;
+        }
         tx.commit()
     }
 
@@ -1008,10 +1022,19 @@ mod tests {
     /// A re-login refreshes an account's row without resetting its place in the list, and a
     /// cookie from a different Google account lands in its own row keyed on its SAPISID.
     #[test]
+    fn account_key_needs_a_sapisid() {
+        assert_eq!(account_key("SID=abc; PREF=xyz"), None);
+        let sapisid = account_key("SAPISID=secret123; SID=abc").unwrap();
+        let secure = account_key("__Secure-3PAPISID=secret123; SID=abc").unwrap();
+        assert_eq!(sapisid, secure, "the alias resolves to the same key");
+        assert_ne!(sapisid, account_key("SAPISID=other").unwrap());
+    }
+
+    #[test]
     fn accounts_round_trip_refresh_and_remove() {
         let d = db();
         let a = StoredAccount {
-            id: account_key("SAPISID=aaa"),
+            id: account_key("SAPISID=aaa").unwrap(),
             session_cookie: "SAPISID=aaa".into(),
             data_sync_id: Some("channel-a".into()),
             selected_identity_json: Some(r#"{"data_sync_id":"channel-a"}"#.into()),
@@ -1020,10 +1043,10 @@ mod tests {
             added_at: 100,
         };
         d.upsert_account(&a).unwrap();
-        assert_ne!(a.id, account_key("SAPISID=bbb"), "keys follow the Google account");
+        assert_ne!(Some(a.id.clone()), account_key("SAPISID=bbb"), "keys follow the Google account");
 
         d.upsert_account(&StoredAccount {
-            id: account_key("SAPISID=bbb"),
+            id: account_key("SAPISID=bbb").unwrap(),
             session_cookie: "SAPISID=bbb".into(),
             data_sync_id: Some("channel-b".into()),
             selected_identity_json: Some(r#"{"data_sync_id":"channel-b"}"#.into()),
@@ -1065,7 +1088,7 @@ mod tests {
     fn restore_account_moves_the_active_pointer_with_the_projections() {
         let d = db();
         let account = StoredAccount {
-            id: account_key("SAPISID=bbb"),
+            id: account_key("SAPISID=bbb").unwrap(),
             session_cookie: "SAPISID=bbb".into(),
             data_sync_id: Some("channel-b".into()),
             selected_identity_json: Some(r#"{"data_sync_id":"channel-b"}"#.into()),
@@ -1074,7 +1097,7 @@ mod tests {
             added_at: 200,
         };
         d.upsert_account(&account).unwrap();
-        d.set_setting("active_account", &account_key("SAPISID=aaa"));
+        d.set_setting("active_account", &account_key("SAPISID=aaa").unwrap());
 
         d.restore_account(&account).unwrap();
         assert_eq!(
@@ -1146,7 +1169,7 @@ mod tests {
             let d = Db::open(&path).unwrap();
             let accounts = d.list_accounts();
             assert_eq!(accounts.len(), 1);
-            let stable = account_key("SAPISID=legacy2");
+            let stable = account_key("SAPISID=legacy2").unwrap();
             assert_eq!(accounts[0].id, stable, "stale keys are recomputed from the cookie");
             assert_eq!(d.get_setting("active_account").as_deref(), Some(stable.as_str()));
         }
@@ -1171,12 +1194,15 @@ mod tests {
         assert_eq!(d.get_setting("account_json").as_deref(), Some(r#"{"name":"Channel A"}"#));
         assert_eq!(d.get_setting("session_cookie").as_deref(), Some("SAPISID=cookie-a"));
 
-        d.set_pending_auth_selection("SAPISID=cookie-b").unwrap();
+        d.set_pending_auth_selection("SAPISID=cookie-b", None).unwrap();
         assert_eq!(d.get_setting("session_cookie").as_deref(), Some("SAPISID=cookie-b"));
         assert_eq!(d.get_setting("selected_identity_json"), None);
         assert_eq!(d.get_setting("data_sync_id"), None);
         assert_eq!(d.get_setting("account_json"), None);
         assert_eq!(d.get_setting("account_selection_pending").as_deref(), Some("true"));
+
+        d.set_pending_auth_selection("SAPISID=cookie-c", Some("ga-c")).unwrap();
+        assert_eq!(d.get_setting("active_account").as_deref(), Some("ga-c"));
 
         d.set_auth_identity(
             "SAPISID=cookie-b",

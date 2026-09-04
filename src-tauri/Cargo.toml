@@ -54,9 +54,6 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 discord-rich-presence = "1.1.0"
 # Last.fm API signature (api_sig is md5 of the sorted params + secret).
 md-5 = "0.10"
-# Stable account-key digest (db.rs::account_key): SHA-1 over the salted SAPISID, hex-encoded.
-sha1 = "0.10"
-hex = "0.4"
 lofty = "0.22.2"
 tauri-plugin-dialog = "2.7.2"
 tauri-plugin-window-state = "2.4.1"

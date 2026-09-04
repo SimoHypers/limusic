@@ -144,10 +144,17 @@ impl InnerTube {
     /// and must not be merged into the now-current jar.
     fn merge_set_cookies(&self, set_cookies: &[String], dispatched_sapisid: Option<&str>) {
         let mut s = self.session.write().unwrap();
-        let Some(mut jar) = s.cookie.clone() else { return };
+        let Some(jar) = s.cookie.clone() else { return };
         if s.sapisid().as_deref() != dispatched_sapisid {
             return;
         }
+        let mut entries: Vec<(String, String)> = jar
+            .split(';')
+            .filter_map(|kv| {
+                let (k, v) = kv.trim().split_once('=')?;
+                Some((k.trim().to_owned(), v.trim().to_owned()))
+            })
+            .collect();
         let mut changed = false;
         for raw in set_cookies {
             let mut parts = raw.split(';');
@@ -157,19 +164,41 @@ impl InnerTube {
             if name.is_empty() || name.contains(' ') {
                 continue;
             }
-            let deleted = parts.any(|attr| {
-                attr.trim()
-                    .split_once('=')
-                    .map(|(k, v)| k.trim().eq_ignore_ascii_case("max-age") && v.trim() == "0")
-                    .unwrap_or(false)
-            });
-            let mut entries: Vec<(String, String)> = jar
-                .split(';')
-                .filter_map(|kv| {
-                    let (k, v) = kv.trim().split_once('=')?;
-                    Some((k.trim().to_owned(), v.trim().to_owned()))
-                })
-                .collect();
+            let mut deleted = false;
+            let mut domain_ok = false;
+            for attr in parts {
+                let attr = attr.trim();
+                if let Some((k, v)) = attr.split_once('=') {
+                    let (k, v) = (k.trim(), v.trim());
+                    if k.eq_ignore_ascii_case("max-age") && v == "0" {
+                        deleted = true;
+                    } else if k.eq_ignore_ascii_case("expires") {
+                        // Extract the year: "Thu, 01 Jan 1970 00:00:00 GMT" or "09-Jun-2027 08:44:23 GMT"
+                        let year = v.split([' ', '-']).find_map(|p| {
+                            if p.len() == 4 {
+                                p.parse::<i32>().ok()
+                            } else {
+                                None
+                            }
+                        });
+                        if let Some(y) = year {
+                            deleted |= y <= 1970;
+                        }
+                    } else if k.eq_ignore_ascii_case("domain") {
+                        // Same policy as `youtube_cookie_header` in session.rs: drop anything
+                        // outside youtube.com / *.youtube.com (e.g. google.com).
+                        let d = v.strip_prefix('.').unwrap_or(v);
+                        domain_ok = d == "youtube.com" || d.ends_with(".youtube.com");
+                    }
+                } else if attr.eq_ignore_ascii_case("domain") {
+                    // Domain attribute with no value is malformed, but treat it as a failure.
+                    domain_ok = false;
+                }
+            }
+            // A missing Domain attribute means host-only (music.youtube.com), which is fine.
+            if !domain_ok && raw.to_ascii_lowercase().contains("domain=") {
+                continue;
+            }
             if deleted {
                 let before = entries.len();
                 entries.retain(|(k, _)| k != name);
@@ -181,10 +210,9 @@ impl InnerTube {
                 entries.push((name.to_owned(), value.to_owned()));
                 changed = true;
             }
-            jar = entries.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("; ");
         }
         if changed {
-            s.cookie = Some(jar);
+            s.cookie = Some(entries.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("; "));
         }
     }
 
@@ -589,6 +617,34 @@ mod tests {
 
         it.merge_set_cookies(&["__Secure-3PSIDTS=x; Path=/; Max-Age=0".into()], Some("aaa"));
         assert_eq!(it.cookie().unwrap(), "SAPISID=aaa; NEWCOOKIE=fresh", "Max-Age=0 deletes");
+
+        // Expires-past deletes (space-separated and dashed).
+        it.merge_set_cookies(&["NEWCOOKIE=x; Expires=Thu, 01 Jan 1970 00:00:00 GMT".into()], Some("aaa"));
+        assert_eq!(it.cookie().unwrap(), "SAPISID=aaa", "Expires-past deletes");
+        it.merge_set_cookies(&["SAPISID=x; Expires=01-Jan-1970 00:00:00 GMT".into()], Some("aaa"));
+        assert_eq!(it.cookie().unwrap(), "", "Dashed Expires-past deletes");
+
+        // Restore SAPISID for the next tests since the previous one deleted it.
+        it.set_cookie(Some("SAPISID=aaa".into()));
+
+        // Dashed future is not a delete.
+        it.merge_set_cookies(&["FUTURE=1; Expires=09-Jun-2027 08:44:23 GMT".into()], Some("aaa"));
+        assert_eq!(it.cookie().unwrap(), "SAPISID=aaa; FUTURE=1");
+
+        // Unparseable Expires is not a delete.
+        it.merge_set_cookies(&["NEWCOOKIE=fresh; Expires=never".into()], Some("aaa"));
+        assert_eq!(it.cookie().unwrap(), "SAPISID=aaa; FUTURE=1; NEWCOOKIE=fresh");
+
+        // Domain filter: drops google.com, keeps youtube.com and host-only.
+        it.merge_set_cookies(
+            &[
+                "GOOGLE=1; Domain=.google.com".into(),
+                "YT=1; Domain=.youtube.com".into(),
+                "HOST=1".into(),
+            ],
+            Some("aaa"),
+        );
+        assert_eq!(it.cookie().unwrap(), "SAPISID=aaa; FUTURE=1; NEWCOOKIE=fresh; YT=1; HOST=1");
 
         // Not logged in → nothing to merge into, stays None.
         let guest = InnerTube::new(Session::default(), None).unwrap();

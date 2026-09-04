@@ -77,14 +77,14 @@ display fields plus opaque selectors (`id`, `selectionKey`).
   authenticated responses. The innertube transport merges every `Set-Cookie` into its jar, and a
   60-second timer in the app writes the rotated jar back to the active account's row (and the
   `session_cookie` projection), so switching away and back or restarting never revives a dead
-  cookie. An account only needs a fresh sign-in again if it sat unused long enough for Google to
-  expire it entirely, or after sign-out/removal.
+  cookie. The half-hourly keep-alive and startup ping also ensure the session stays fresh. An
+  account only needs a fresh sign-in again if it sat unused long enough for Google to expire it
+  entirely, or after sign-out/removal.
 - **Add account** (`login_webview` with `add_account: true`): first the *webview* is signed out of
   Google — every google.com/youtube.com cookie is deleted from its shared cookie store, leaving the
   app's saved accounts in SQLite untouched. Then Google's `accounts.google.com/AddSession` screen
   opens, so the account the user signs in with becomes the webview's only session and the redirect
-  back to music.youtube.com lands on it. (As a fallback, if the captured cookie still matches a
-  saved account, the webview is bounced once through `accounts.google.com/AccountChooser`.)
+  back to music.youtube.com lands on it.
 - **Switch account** (`switch_google_account`): stored cookie validated with `account_menu`
   first, then projections + `active_account` swap atomically, playlist index forgotten,
   `auth-changed` emitted. A row saved mid multi-channel sign-in reopens the required channel picker.
