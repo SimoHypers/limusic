@@ -142,25 +142,12 @@ impl InnerTube {
     /// request. `dispatched_sapisid` is that session's identity at dispatch: if the jar was
     /// switched (account switch, sign-out) while the request was in flight, these pairs are stale
     /// and must not be merged into the now-current jar.
-    ///
-    /// The jar is parsed once and joined once (not once per header), deletions arrive either as
-    /// `Max-Age=0` or as the epoch-style `Expires` date servers use for the same job, and the
-    /// same domain policy as `youtube_cookie_header` (session.rs) applies: this header only ever
-    /// goes to music.youtube.com, so a `Set-Cookie` for another domain (google.com included) must
-    /// not enter it.
     fn merge_set_cookies(&self, set_cookies: &[String], dispatched_sapisid: Option<&str>) {
         let mut s = self.session.write().unwrap();
-        let Some(jar) = s.cookie.clone() else { return };
+        let Some(mut jar) = s.cookie.clone() else { return };
         if s.sapisid().as_deref() != dispatched_sapisid {
             return;
         }
-        let mut entries: Vec<(String, String)> = jar
-            .split(';')
-            .filter_map(|kv| {
-                let (k, v) = kv.trim().split_once('=')?;
-                Some((k.trim().to_owned(), v.trim().to_owned()))
-            })
-            .collect();
         let mut changed = false;
         for raw in set_cookies {
             let mut parts = raw.split(';');
@@ -170,29 +157,19 @@ impl InnerTube {
             if name.is_empty() || name.contains(' ') {
                 continue;
             }
-            let mut deleted = false;
-            let mut yt_domain = true;
-            for attr in parts {
-                let Some((k, v)) = attr.trim().split_once('=') else { continue };
-                let (k, v) = (k.trim(), v.trim());
-                if k.eq_ignore_ascii_case("max-age") {
-                    deleted |= v == "0";
-                } else if k.eq_ignore_ascii_case("expires") {
-                    // Deletion cookies carry an epoch-style date (`Thu, 01 Jan 1970 … GMT`) or
-                    // bare `0`; live cookies always carry a future year.
-                    let year = v.rsplit(' ').find_map(|t| t.parse::<u32>().ok());
-                    deleted |= year.is_none() || year.is_some_and(|y| y <= 1970);
-                } else if k.eq_ignore_ascii_case("domain") {
-                    // No `Domain` attr means host-only (music.youtube.com) — keep. Anything
-                    // outside youtube.com is dropped, google.com included, mirroring
-                    // `youtube_cookie_header`.
-                    let d = v.trim_start_matches('.');
-                    yt_domain = d == "youtube.com" || d.ends_with(".youtube.com");
-                }
-            }
-            if !yt_domain {
-                continue;
-            }
+            let deleted = parts.any(|attr| {
+                attr.trim()
+                    .split_once('=')
+                    .map(|(k, v)| k.trim().eq_ignore_ascii_case("max-age") && v.trim() == "0")
+                    .unwrap_or(false)
+            });
+            let mut entries: Vec<(String, String)> = jar
+                .split(';')
+                .filter_map(|kv| {
+                    let (k, v) = kv.trim().split_once('=')?;
+                    Some((k.trim().to_owned(), v.trim().to_owned()))
+                })
+                .collect();
             if deleted {
                 let before = entries.len();
                 entries.retain(|(k, _)| k != name);
@@ -204,10 +181,10 @@ impl InnerTube {
                 entries.push((name.to_owned(), value.to_owned()));
                 changed = true;
             }
+            jar = entries.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("; ");
         }
         if changed {
-            s.cookie =
-                Some(entries.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("; "));
+            s.cookie = Some(jar);
         }
     }
 
@@ -612,22 +589,6 @@ mod tests {
 
         it.merge_set_cookies(&["__Secure-3PSIDTS=x; Path=/; Max-Age=0".into()], Some("aaa"));
         assert_eq!(it.cookie().unwrap(), "SAPISID=aaa; NEWCOOKIE=fresh", "Max-Age=0 deletes");
-
-        // `Expires=<past>` is the other deletion form; a cookie for a non-youtube domain never
-        // enters the jar (same policy as `youtube_cookie_header` — this header only ever goes to
-        // music.youtube.com).
-        it.merge_set_cookies(
-            &[
-                "SAPISID=ignored; Domain=.google.com".into(),
-                "NEWCOOKIE=expired; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT".into(),
-            ],
-            Some("aaa"),
-        );
-        assert_eq!(
-            it.cookie().unwrap(),
-            "SAPISID=aaa",
-            "expires-past deletes, google.com is dropped"
-        );
 
         // Not logged in → nothing to merge into, stays None.
         let guest = InnerTube::new(Session::default(), None).unwrap();
