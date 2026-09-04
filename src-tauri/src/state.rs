@@ -101,6 +101,12 @@ pub struct AppState {
     /// `last_queue_fingerprint`, for the persistence side: an advance rewrites 40 bytes rather
     /// than the whole blob.
     last_persisted_fingerprint: AtomicU64,
+    /// One [`Self::sign_in`] at a time. It snapshots the cookie and identity, then mutates them
+    /// across two awaited round trips, and rolls the snapshot back if either fails. Two of them
+    /// overlapping (the login webview and the session heal both call it) lets the loser restore
+    /// its stale snapshot over the winner's fresh session. Async because it is held across those
+    /// awaits, which a std `Mutex` cannot be.
+    signing_in: tokio::sync::Mutex<()>,
 }
 
 /// Repeat mode for the queue. Serialized lowercase for the UI + `queue_json`.
@@ -369,6 +375,7 @@ impl AppState {
             discord,
             lastfm,
             queue: Mutex::new(QueueState::default()),
+            signing_in: tokio::sync::Mutex::default(),
             history_pinged: AtomicBool::new(false),
             is_playing: AtomicBool::new(false),
             generation: AtomicU64::new(0),
@@ -431,6 +438,7 @@ impl AppState {
     /// Google's current default; a new multi-channel login pauses before finalization and asks the
     /// UI to choose.
     pub async fn sign_in(&self, cookie: String) -> Result<SignInOutcome, String> {
+        let _turn = self.signing_in.lock().await;
         let cookie = cookie.trim().to_owned();
         if innertube::cookie_sapisid(&cookie).is_none() {
             return Err("Sign-in didn't complete — try signing in again.".into());
