@@ -189,6 +189,9 @@ fn raise_fd_limit() {
     }
 }
 
+/// Tauri entry point. Applies the platform boot fixes (open-fd limit, NVIDIA/WebKit env), restores
+/// the persisted session, wires every command and plugin, and runs the event loop. context/01
+/// §startup.
 pub fn run() {
     // Must happen before any webview exists: the limit is inherited by the web processes WebKit
     // forks, and cannot be raised for them afterwards.
@@ -453,11 +456,7 @@ pub fn run() {
                             _ = rejected.notified() => {
                                 session::refresh_session(app_handle.clone(), st.clone()).await;
                             }
-                            _ = rotated.notified() => {
-                                if let Some(cookie) = st.it.cookie() {
-                                    st.db.set_setting("session_cookie", &cookie);
-                                }
-                            }
+                            _ = rotated.notified() => st.persist_rotated_cookie(),
                         }
                     }
                 });
@@ -560,6 +559,9 @@ pub fn run() {
             commands::switch_account,
             commands::sign_out,
             commands::login_webview,
+            commands::get_google_accounts,
+            commands::switch_google_account,
+            commands::remove_google_account,
             commands::open_mini,
             commands::close_mini,
             commands::get_home,

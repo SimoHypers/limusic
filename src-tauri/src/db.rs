@@ -7,6 +7,34 @@ use rusqlite::Connection;
 
 pub struct Db(Mutex<Connection>);
 
+/// The stored-account key (multi-account support): a stable per-Google-account identifier derived
+/// from the long-lived `SAPISID` cookie value, the one piece of the jar Google does not rotate.
+/// Versioned SHA-1, hex-encoded, deliberately not `DefaultHasher`, whose output Rust does not
+/// guarantee to stay stable across releases (a persisted key must survive toolchain upgrades).
+/// The SAPISID itself never appears in the key the UI gets to see.
+///
+/// `None` for a jar with no SAPISID, which is not a signed-in session at all: every caller needs
+/// to skip such a cookie rather than file it under a key shared with every other broken jar.
+pub fn account_key(session_cookie: &str) -> Option<String> {
+    let sapisid = innertube::cookie_sapisid(session_cookie)?;
+    Some(format!("ga-{}", innertube::sha1_hex(&format!("limusic-google-account-v1 {sapisid}"))))
+}
+
+/// One saved Google account. Canonical multi-account state; the `settings` rows `session_cookie`,
+/// `selected_identity_json`, `data_sync_id`, `account_json` and `visitor_data` remain as
+/// projections of the *active* account, so everything that read them before (startup bootstrap in
+/// lib.rs, `account_snapshot`, the channel switcher, legacy fallbacks) keeps working unchanged.
+#[derive(Debug, Clone)]
+pub struct StoredAccount {
+    pub id: String,
+    pub session_cookie: String,
+    pub data_sync_id: Option<String>,
+    pub selected_identity_json: Option<String>,
+    pub account_json: Option<String>,
+    pub visitor_data: Option<String>,
+    pub added_at: i64,
+}
+
 /// Unix seconds. Lives here because every wall-clock value in the app is a column in this file
 /// (`expires_at`, `played_at`, `fetched_at`) or something stored alongside them.
 pub fn now_secs() -> i64 {
@@ -93,6 +121,15 @@ impl Db {
                 PRIMARY KEY (playlist_id, video_id)
             ) WITHOUT ROWID;
             CREATE INDEX IF NOT EXISTS playlist_track_video ON playlist_track(video_id);
+            CREATE TABLE IF NOT EXISTS accounts (
+                id                     TEXT PRIMARY KEY,
+                session_cookie         TEXT NOT NULL,
+                data_sync_id           TEXT,
+                selected_identity_json TEXT,
+                account_json           TEXT,
+                visitor_data           TEXT,
+                added_at               INTEGER NOT NULL
+            );
             "#,
         )?;
         // Migrate pre-Phase-4 DBs that predate the loudness_db column. Errors ("duplicate column")
@@ -120,6 +157,44 @@ impl Db {
         // built up before anything pruned at all (1803 rows, 1772 of them expired, on a real
         // install) would sit there until it happened to.
         let _ = conn.execute("DELETE FROM stream_url_cache WHERE expires_at <= ?1", [now_secs()]);
+        // One-time migration of the pre-multi-account single session into `accounts`. The legacy
+        // settings rows stay in place as projections of the active account (see `StoredAccount`).
+        let legacy_cookie = conn
+            .query_row("SELECT value FROM settings WHERE key = 'session_cookie'", [], |r| {
+                r.get::<_, String>(0)
+            })
+            .ok();
+        if let (Some(cookie), Some(id)) =
+            (legacy_cookie.as_deref(), legacy_cookie.as_deref().and_then(account_key))
+        {
+            let existing: i64 =
+                conn.query_row("SELECT COUNT(*) FROM accounts", [], |r| r.get(0)).unwrap_or(0);
+            if existing == 0 {
+                let get = |key: &str| -> Option<String> {
+                    conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0))
+                        .ok()
+                };
+                let _ = conn.execute(
+                    "INSERT OR IGNORE INTO accounts(id, session_cookie, data_sync_id, \
+                     selected_identity_json, account_json, visitor_data, added_at) \
+                     VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    rusqlite::params![
+                        id,
+                        cookie,
+                        get("data_sync_id"),
+                        get("selected_identity_json"),
+                        get("account_json"),
+                        get("visitor_data"),
+                        now_secs()
+                    ],
+                );
+                let _ = conn.execute(
+                    "INSERT INTO settings(key, value) VALUES('active_account', ?1) \
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    [id],
+                );
+            }
+        }
         Ok(Db(Mutex::new(conn)))
     }
 
@@ -214,6 +289,139 @@ impl Db {
         {
             tx.execute("DELETE FROM settings WHERE key = ?1", [key])?;
         }
+        tx.commit()
+    }
+
+    // --- saved Google accounts (multi-account) ------------------------------------------------
+
+    /// Insert or refresh a saved account. `added_at` is deliberately not updated on conflict: a
+    /// re-login refreshes the cookie and identity, not the account's place in the list order.
+    pub fn upsert_account(&self, account: &StoredAccount) -> rusqlite::Result<()> {
+        let conn = self.0.lock().unwrap();
+        conn.execute(
+            "INSERT INTO accounts(id, session_cookie, data_sync_id, selected_identity_json, \
+             account_json, visitor_data, added_at) \
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+             ON CONFLICT(id) DO UPDATE SET \
+                session_cookie = excluded.session_cookie, \
+                data_sync_id = excluded.data_sync_id, \
+                selected_identity_json = excluded.selected_identity_json, \
+                account_json = excluded.account_json, \
+                visitor_data = excluded.visitor_data",
+            rusqlite::params![
+                account.id,
+                account.session_cookie,
+                account.data_sync_id,
+                account.selected_identity_json,
+                account.account_json,
+                account.visitor_data,
+                account.added_at
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Saved accounts, oldest first. No raw auth material leaves this function's callers except
+    /// back into the transport; the UI only ever sees display fields plus the opaque id.
+    pub fn list_accounts(&self) -> Vec<StoredAccount> {
+        let conn = self.0.lock().unwrap();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT id, session_cookie, data_sync_id, selected_identity_json, account_json, \
+             visitor_data, added_at FROM accounts ORDER BY added_at, id",
+        ) {
+            if let Ok(rows) = stmt.query_map([], |r| {
+                Ok(StoredAccount {
+                    id: r.get(0)?,
+                    session_cookie: r.get(1)?,
+                    data_sync_id: r.get(2)?,
+                    selected_identity_json: r.get(3)?,
+                    account_json: r.get(4)?,
+                    visitor_data: r.get(5)?,
+                    added_at: r.get(6)?,
+                })
+            }) {
+                out.extend(rows.flatten());
+            }
+        }
+        out
+    }
+
+    /// One saved account by id, or `None` when it isn't saved.
+    pub fn get_account(&self, id: &str) -> Option<StoredAccount> {
+        let conn = self.0.lock().unwrap();
+        conn.query_row(
+            "SELECT id, session_cookie, data_sync_id, selected_identity_json, account_json, \
+             visitor_data, added_at FROM accounts WHERE id = ?1",
+            [id],
+            |r| {
+                Ok(StoredAccount {
+                    id: r.get(0)?,
+                    session_cookie: r.get(1)?,
+                    data_sync_id: r.get(2)?,
+                    selected_identity_json: r.get(3)?,
+                    account_json: r.get(4)?,
+                    visitor_data: r.get(5)?,
+                    added_at: r.get(6)?,
+                })
+            },
+        )
+        .ok()
+    }
+
+    /// Write a rotated cookie jar into one account's row, leaving its identity fields alone.
+    /// Nothing happens when the row is gone (the account was removed while a request was in
+    /// flight), which is what should happen.
+    pub fn update_account_cookie(&self, id: &str, session_cookie: &str) {
+        let conn = self.0.lock().unwrap();
+        let _ = conn
+            .execute("UPDATE accounts SET session_cookie = ?1 WHERE id = ?2", [session_cookie, id]);
+    }
+
+    /// Delete a saved account row. Whether removing it signs the app out is the caller's decision
+    /// (see `AppState::remove_google_account`), not this row's.
+    pub fn remove_account(&self, id: &str) {
+        let conn = self.0.lock().unwrap();
+        let _ = conn.execute("DELETE FROM accounts WHERE id = ?1", [id]);
+    }
+
+    /// Write a saved account's fields into the active-account `settings` projections and flip the
+    /// `active_account` pointer, atomically (used when switching to a saved account), so a crash
+    /// mid-switch can't restart into projections for one account and a pointer for another.
+    /// Clears `account_selection_pending`: a completed account needs no channel pick.
+    pub fn restore_account(&self, account: &StoredAccount) -> rusqlite::Result<()> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT INTO settings(key, value) VALUES('session_cookie', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [&account.session_cookie],
+        )?;
+        for (key, value) in [
+            ("data_sync_id", account.data_sync_id.as_deref()),
+            ("selected_identity_json", account.selected_identity_json.as_deref()),
+            ("account_json", account.account_json.as_deref()),
+            ("visitor_data", account.visitor_data.as_deref()),
+        ] {
+            match value {
+                Some(value) => {
+                    tx.execute(
+                        "INSERT INTO settings(key, value) VALUES(?1, ?2)
+                         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                        [key, value],
+                    )?;
+                }
+                None => {
+                    tx.execute("DELETE FROM settings WHERE key = ?1", [key])?;
+                }
+            }
+        }
+        tx.execute(
+            "INSERT INTO settings(key, value) VALUES('active_account', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [&account.id],
+        )?;
+        tx.execute("DELETE FROM settings WHERE key = 'account_selection_pending'", [])?;
         tx.commit()
     }
 
@@ -773,6 +981,128 @@ mod tests {
         d.record_play("stale", "{}", 1_000, 60);
         d.record_play("fresh", "{}", 5_000, 60); // prunes anything before 4_940
         assert_eq!(d.top_plays(0, 20), vec![("{}".to_string(), 1)]);
+    }
+
+    /// A re-login refreshes an account's row without resetting its place in the list, and a
+    /// cookie from a different Google account lands in its own row keyed on its SAPISID.
+    #[test]
+    fn accounts_round_trip_refresh_and_remove() {
+        let d = db();
+        let a = StoredAccount {
+            id: account_key("SAPISID=aaa").unwrap(),
+            session_cookie: "SAPISID=aaa".into(),
+            data_sync_id: Some("channel-a".into()),
+            selected_identity_json: Some(r#"{"data_sync_id":"channel-a"}"#.into()),
+            account_json: Some(r#"{"name":"A"}"#.into()),
+            visitor_data: Some("vd-a".into()),
+            added_at: 100,
+        };
+        d.upsert_account(&a).unwrap();
+        assert_ne!(a.id, account_key("SAPISID=bbb").unwrap(), "keys follow the Google account");
+        assert_eq!(account_key("PREF=x"), None, "a jar with no SAPISID is not an account");
+
+        d.upsert_account(&StoredAccount {
+            id: account_key("SAPISID=bbb").unwrap(),
+            session_cookie: "SAPISID=bbb".into(),
+            data_sync_id: Some("channel-b".into()),
+            selected_identity_json: Some(r#"{"data_sync_id":"channel-b"}"#.into()),
+            account_json: Some(r#"{"name":"B"}"#.into()),
+            visitor_data: None,
+            added_at: 200,
+        })
+        .unwrap();
+        assert_eq!(d.list_accounts().len(), 2);
+
+        // Same Google account re-login: refreshes the row, keeps its original `added_at`.
+        d.upsert_account(&StoredAccount {
+            id: a.id.clone(),
+            session_cookie: "SAPISID=aaa; __Secure-3PSID=new".into(),
+            data_sync_id: Some("channel-a".into()),
+            selected_identity_json: Some(r#"{"data_sync_id":"channel-a"}"#.into()),
+            account_json: Some(r#"{"name":"A renamed"}"#.into()),
+            visitor_data: Some("vd-a2".into()),
+            added_at: 999,
+        })
+        .unwrap();
+        let accounts = d.list_accounts();
+        assert_eq!(accounts.len(), 2);
+        let refreshed = accounts.iter().find(|acc| acc.id == a.id).unwrap();
+        assert_eq!(refreshed.session_cookie, "SAPISID=aaa; __Secure-3PSID=new");
+        assert_eq!(refreshed.account_json.as_deref(), Some(r#"{"name":"A renamed"}"#));
+        assert_eq!(refreshed.added_at, 100, "re-login must not reorder the list");
+        assert_eq!(d.get_account(&a.id).unwrap().visitor_data.as_deref(), Some("vd-a2"));
+
+        // Rotation writes the jar back without disturbing the identity fields.
+        d.update_account_cookie(&a.id, "SAPISID=aaa; __Secure-3PSIDTS=rotated");
+        let rotated = d.get_account(&a.id).unwrap();
+        assert_eq!(rotated.session_cookie, "SAPISID=aaa; __Secure-3PSIDTS=rotated");
+        assert_eq!(rotated.account_json.as_deref(), Some(r#"{"name":"A renamed"}"#));
+
+        d.remove_account(&a.id);
+        assert!(d.get_account(&a.id).is_none());
+        assert_eq!(d.list_accounts().len(), 1);
+    }
+
+    /// Switching to a saved account flips the `active_account` pointer in the same transaction as
+    /// the restored projections, so a crash between them can't leave the pointer disagreeing with
+    /// the projections a restart will actually use.
+    #[test]
+    fn restore_account_moves_the_active_pointer_with_the_projections() {
+        let d = db();
+        let account = StoredAccount {
+            id: account_key("SAPISID=bbb").unwrap(),
+            session_cookie: "SAPISID=bbb".into(),
+            data_sync_id: Some("channel-b".into()),
+            selected_identity_json: Some(r#"{"data_sync_id":"channel-b"}"#.into()),
+            account_json: Some(r#"{"name":"B"}"#.into()),
+            visitor_data: Some("vd-b".into()),
+            added_at: 200,
+        };
+        d.upsert_account(&account).unwrap();
+        d.set_setting("active_account", &account_key("SAPISID=aaa").unwrap());
+
+        d.restore_account(&account).unwrap();
+        assert_eq!(
+            d.get_setting("active_account").as_deref(),
+            Some(account.id.as_str()),
+            "the pointer flips alongside the restored projections"
+        );
+        assert_eq!(d.get_setting("session_cookie").as_deref(), Some("SAPISID=bbb"));
+        assert_eq!(d.get_setting("data_sync_id").as_deref(), Some("channel-b"));
+        assert_eq!(
+            d.get_setting("selected_identity_json").as_deref(),
+            Some(r#"{"data_sync_id":"channel-b"}"#)
+        );
+        assert_eq!(d.get_setting("account_json").as_deref(), Some(r#"{"name":"B"}"#));
+        assert_eq!(d.get_setting("visitor_data").as_deref(), Some("vd-b"));
+        assert_eq!(d.get_setting("account_selection_pending"), None);
+    }
+
+    /// Databases written before multi-account migrate their single session into `accounts` once.
+    #[test]
+    fn opening_the_db_migrates_the_legacy_session() {
+        let path = std::env::temp_dir().join("limusic-accounts-migration-test.sqlite");
+        std::fs::remove_file(&path).ok();
+        {
+            let d = Db::open(&path).unwrap();
+            d.set_setting("session_cookie", "SAPISID=legacy");
+            d.set_setting("data_sync_id", "channel-x");
+            d.set_setting("account_json", r#"{"name":"Legacy"}"#);
+            d.set_setting("visitor_data", "vd-x");
+        }
+        {
+            let d = Db::open(&path).unwrap();
+            let accounts = d.list_accounts();
+            assert_eq!(accounts.len(), 1);
+            assert_eq!(accounts[0].session_cookie, "SAPISID=legacy");
+            assert_eq!(accounts[0].data_sync_id.as_deref(), Some("channel-x"));
+            assert_eq!(
+                d.get_setting("active_account").as_deref(),
+                Some(accounts[0].id.as_str()),
+                "the migrated session is the active account"
+            );
+        }
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]

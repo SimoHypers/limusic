@@ -77,6 +77,11 @@
 		"choose_channel_desc": "Library, likes and playlists will use this channel. You can switch again later.",
 		"cancel_sign_in": "Cancel sign in",
 		"sign_in_hint": "Sign in with your Google account to reach your YouTube Music library and playlists.",
+		"add_account": "Add account",
+		"remove_account": "Remove account",
+		"remove_account_title": "Remove from Limusic?",
+		"remove_account_desc": "{name} is only removed from this list. The Google account itself is not affected, and you can sign in with it again whenever you like.",
+		"saved_accounts_hint": "Pick a saved account to switch to it.",
 		"history": "History"
 	},
 	"player": {
