@@ -95,10 +95,18 @@
 			userScrollUntil = 0;
 		}
 		if (i < 0 || !scroller || Date.now() < userScrollUntil) return;
-		scroller.querySelector(`[data-line="${i}"]`)?.scrollIntoView({
+		const line = scroller.querySelector(`[data-line="${i}"]`);
+		if (!line) return;
+		// Scroll the scroller itself, never `scrollIntoView`: that walks up and scrolls every
+		// scrollable ancestor too, including theater mode's `overflow-hidden` grid, which then has
+		// no scrollbar to put it back (issue #168).
+		const lineRect = line.getBoundingClientRect();
+		const boxRect = scroller.getBoundingClientRect();
+		scroller.scrollTo({
+			top:
+				scroller.scrollTop + (lineRect.top - boxRect.top) - (boxRect.height - lineRect.height) / 2,
 			// Opening mid-song jumps straight to the line; after that, glide.
-			behavior: hasScrolled ? 'smooth' : 'instant',
-			block: 'center'
+			behavior: hasScrolled ? 'smooth' : 'instant'
 		});
 		hasScrolled = true;
 	});
