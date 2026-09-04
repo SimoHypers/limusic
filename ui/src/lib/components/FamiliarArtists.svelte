@@ -142,8 +142,8 @@
 				: 'text-muted-foreground hover:text-foreground'}"
 		class:animate-pulse={subBusy === a.channelId}
 		aria-label={subs[a.channelId]
-			? `Unsubscribe from ${a.name ?? ''}`
-			: `Subscribe to ${a.name ?? ''}`}
+			? t('artist.unsubscribe_from', { name: a.name ?? '' })
+			: t('artist.subscribe_to', { name: a.name ?? '' })}
 		onclick={(e) => {
 			e.stopPropagation();
 			toggleSub(a);

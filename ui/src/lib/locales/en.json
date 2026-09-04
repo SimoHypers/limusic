@@ -162,6 +162,8 @@
 	"artist": {
 		"subscribe": "Subscribe",
 		"subscribed": "Subscribed",
+		"subscribe_to": "Subscribe to {name}",
+		"unsubscribe_from": "Unsubscribe from {name}",
 		"top_songs": "Top songs"
 	},
 	"library": {
