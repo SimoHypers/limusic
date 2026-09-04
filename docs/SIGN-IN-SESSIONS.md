@@ -88,7 +88,9 @@ display fields plus opaque selectors (`id`, `selectionKey`).
 - **Switch account** (`switch_google_account`): stored cookie validated with `account_menu`
   first, then projections + `active_account` swap atomically, playlist index forgotten,
   `auth-changed` emitted. A row saved mid multi-channel sign-in reopens the required channel picker.
-- **Sign out / remove** (`sign_out`, `remove_google_account`): deletes the account's row; if it
-  was active, drops to guest. Other saved accounts remain listed.
+- **Sign out** (`sign_out`): drops to guest (clears the active session and projections). The
+  account remains in the saved list.
+- **Remove account** (`remove_google_account`): deletes the account's row; if it was active,
+  drops to guest. Other saved accounts remain listed.
 - **Channel switch** (`switch_account`): unchanged — picks a YouTube channel *within* the active
   Google account.

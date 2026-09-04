@@ -732,26 +732,13 @@ impl AppState {
     /// saved accounts stay in the menu for a one-click switch back. A transport that is already
     /// signed out (no live cookie, no `active_account` setting) just clears its session state.
     pub async fn sign_out(&self) {
-        // Live cookie identity first, like `remove_google_account` below; the setting is only
-        // the fallback for a transport that is already signed out.
-        let active = self
-            .it
-            .cookie()
-            .and_then(|c| crate::db::account_key(&c))
-            .or_else(|| self.db.get_setting("active_account"));
-        match active {
-            // "Sign out" removes the active account from the saved list (drops to guest); the
-            // other saved accounts stay available in the menu for a one-click switch back.
-            Some(id) => self.remove_google_account(&id),
-            None => {
-                self.it.set_cookie(None);
-                self.it.set_data_sync_id(None);
-                self.db.delete_setting("session_cookie");
-                self.forget_playlist_index();
-                let _ = self.db.clear_auth_identity();
-                let _ = self.app.emit("auth-changed", serde_json::json!({ "signedIn": false }));
-            }
-        }
+        self.it.set_cookie(None);
+        self.it.set_data_sync_id(None);
+        self.db.delete_setting("session_cookie");
+        self.db.delete_setting("active_account");
+        self.forget_playlist_index();
+        let _ = self.db.clear_auth_identity();
+        let _ = self.app.emit("auth-changed", serde_json::json!({ "signedIn": false }));
     }
 
     /// Saved Google accounts for the account menu. Display fields only — cookies, delegated ids
