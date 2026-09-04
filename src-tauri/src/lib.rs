@@ -440,7 +440,9 @@ pub fn run() {
             // restart) never revives a dead cookie. Every half hour, also make one authenticated
             // request (`account_menu`): it rolls the tokens while the app idles and refreshes the
             // stored visitorData, so a session used every day survives the app being closed
-            // overnight (KI-2).
+            // overnight (KI-2). The same warm-up covers every *saved* account, active or not, so
+            // a dormant account's tokens are always minted for the current network — the reason
+            // the active session survives a VPN/IP change while an unwarmed one would not.
             {
                 let st = app_state.clone();
                 tauri::async_runtime::spawn(async move {
@@ -448,12 +450,14 @@ pub fn run() {
                     // them once the app is up, before the user browses.
                     tokio::time::sleep(Duration::from_secs(15)).await;
                     st.keep_session_alive().await;
+                    st.warm_saved_accounts().await;
                     let mut tick: u32 = 0;
                     loop {
                         tokio::time::sleep(Duration::from_secs(60)).await;
                         tick += 1;
                         if tick % 30 == 0 {
                             st.keep_session_alive().await;
+                            st.warm_saved_accounts().await;
                         } else {
                             st.refresh_active_account_cookie();
                         }

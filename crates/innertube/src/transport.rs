@@ -62,6 +62,25 @@ pub fn cookie_sapisid(cookie: &str) -> Option<&str> {
     })
 }
 
+/// The rotating `__Secure-*SIDTS` tokens in a saved jar were minted for the network it was last
+/// used on; Google can reject them from a new one (VPN on/off). Stripping them lets the next
+/// authenticated request re-issue fresh ones bound to the current network — the long-lived
+/// SID/HSID/SSID/SAPISID identity cookies are what authenticate, and they stay.
+pub fn strip_rotating_tokens(cookie: &str) -> String {
+    cookie
+        .split(';')
+        .filter_map(|kv| {
+            let (k, v) = kv.split_once('=')?;
+            let k = k.trim();
+            if k.ends_with("SIDTS") || k.ends_with("SIDCC") {
+                return None;
+            }
+            Some(format!("{k}={}", v.trim()))
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 /// The transport client. One shared `reqwest::Client`; proxy must be set before the
 /// first request or reqwest snapshots it as none (context/12, the App.kt gotcha).
 ///
@@ -154,6 +173,16 @@ impl InnerTube {
         if s.sapisid().as_deref() != dispatched_sapisid {
             return;
         }
+        if let Some(merged) = Self::merge_jar(&jar, set_cookies) {
+            s.cookie = Some(merged);
+        }
+    }
+
+    /// Pure jar merge: fold `Set-Cookie` pairs into `jar` (add, replace, `Max-Age=0`/epoch-`Expires`
+    /// delete, youtube-domain filter — see `merge_set_cookies`), parsed once and joined once.
+    /// Returns the updated jar, or `None` when nothing changed. Shared by the session merge and
+    /// the saved-account keep-alive, which merges a dormant account's jar off-session.
+    pub(crate) fn merge_jar(jar: &str, set_cookies: &[String]) -> Option<String> {
         let mut entries: Vec<(String, String)> = jar
             .split(';')
             .filter_map(|kv| {
@@ -178,10 +207,17 @@ impl InnerTube {
                 if k.eq_ignore_ascii_case("max-age") {
                     deleted |= v == "0";
                 } else if k.eq_ignore_ascii_case("expires") {
-                    // Deletion cookies carry an epoch-style date (`Thu, 01 Jan 1970 … GMT`) or
-                    // bare `0`; live cookies always carry a future year.
-                    let year = v.rsplit(' ').find_map(|t| t.parse::<u32>().ok());
-                    deleted |= year.is_none() || year.is_some_and(|y| y <= 1970);
+                    // A deletion is announced either as `Max-Age=0` (handled above) or as an
+                    // epoch-style `Expires` date (`Thu, 01 Jan 1970 … GMT`, `01-Jan-1970`, or
+                    // bare `0`). Pull the year out of whichever form the header uses — the last
+                    // space-separated number, or the year trailing a dashed token — and delete
+                    // only when it parses to 1970 or earlier. An unparseable value is not a
+                    // deletion: live cookies always carry a real future year.
+                    let year = v
+                        .rsplit(' ')
+                        .find_map(|t| t.parse::<u32>().ok())
+                        .or_else(|| v.rsplit(' ').find_map(|t| t.rsplit('-').next()?.parse::<u32>().ok()));
+                    deleted |= year.is_some_and(|y| y <= 1970);
                 } else if k.eq_ignore_ascii_case("domain") {
                     // No `Domain` attr means host-only (music.youtube.com) — keep. Anything
                     // outside youtube.com is dropped, google.com included, mirroring
@@ -205,10 +241,7 @@ impl InnerTube {
                 changed = true;
             }
         }
-        if changed {
-            s.cookie =
-                Some(entries.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("; "));
-        }
+        changed.then(|| entries.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("; "))
     }
 
     /// Build the request `context` for a client from the current session. Crate-internal — the
@@ -246,17 +279,20 @@ impl InnerTube {
         // `path` may already carry query params (e.g. browse continuations); chain accordingly.
         let sep = if path.contains('?') { '&' } else { '?' };
         let url = format!("{BASE_URL}{path}{sep}prettyPrint=false");
-        let (headers, dispatched_sapisid) = self.headers(client, set_login);
         let body = serde_json::to_vec(body)?;
 
         let mut delay = Duration::from_millis(500);
         let mut attempt = 0;
+        let mut stripped_retry = false;
         loop {
             attempt += 1;
+            // Snapshot per attempt: a retry after a network change must go out with the jar as it
+            // stands now, not the one the first attempt was built from.
+            let (headers, dispatched_sapisid) = self.headers(client, set_login);
             let res = self
                 .http
                 .post(&url)
-                .headers(headers.clone())
+                .headers(headers)
                 .body(body.clone())
                 .send()
                 .await
@@ -287,12 +323,31 @@ impl InnerTube {
                     tokio::time::sleep(delay).await;
                     delay *= 2;
                 }
-                // Signed in and Google says "no credential" (401) or "not for you" (403): the
-                // stored cookie has gone stale. Raw reqwest text here reads as a broken app and
+                // Signed in and Google says "no credential" (401) or "not for you" (403). Before
+                // declaring the session dead, retry once with the rotating `*SIDTS` tokens
+                // stripped: they were minted for the network this jar was last used on, and a
+                // VPN/network change makes Google reject them even though the long-lived
+                // identity cookies are still valid. The successful retry's response re-issues
+                // them for the current network. Raw reqwest text here reads as a broken app and
                 // hands the user a URL instead of the one thing that fixes it.
                 Err(e)
                     if self.is_logged_in() && e.status().is_some_and(|s| s == 401 || s == 403) =>
                 {
+                    if !stripped_retry {
+                        let jar = self.session.read().unwrap().cookie.clone();
+                        if let Some(stripped) = jar.as_deref().map(strip_rotating_tokens) {
+                            if stripped.as_str() != jar.as_deref().unwrap_or_default() {
+                                tracing::warn!(
+                                    status = ?e.status(),
+                                    "InnerTube {path} rejected the session — retrying once \
+                                     without the rotating tokens (network change?)"
+                                );
+                                self.set_cookie(Some(stripped));
+                                stripped_retry = true;
+                                continue;
+                            }
+                        }
+                    }
                     tracing::warn!(status = ?e.status(), "InnerTube {path} rejected the session");
                     return Err(Error::SessionExpired);
                 }
@@ -348,6 +403,18 @@ impl InnerTube {
     /// switch between two reads could pair one account's cookie with another account's merge gate
     /// (`None` = no authenticated identity on this request).
     fn headers(&self, client: &YouTubeClient, set_login: bool) -> (HeaderMap, Option<String>) {
+        let s = self.session.read().unwrap();
+        self.headers_from(&s, client, set_login)
+    }
+
+    /// Header build from an explicit session snapshot, so one-off requests (the saved-account
+    /// keep-alive) can carry a dormant account's jar without touching the shared session.
+    fn headers_from(
+        &self,
+        s: &Session,
+        client: &YouTubeClient,
+        set_login: bool,
+    ) -> (HeaderMap, Option<String>) {
         let mut h = HeaderMap::new();
         let set = |h: &mut HeaderMap, k: &'static str, v: &str| {
             if let Ok(val) = HeaderValue::from_str(v) {
@@ -364,7 +431,6 @@ impl InnerTube {
         set(&mut h, "referer", REFERER);
         set(&mut h, "user-agent", &client.user_agent);
 
-        let s = self.session.read().unwrap();
         if let Some(vd) = &s.visitor_data {
             set(&mut h, "x-goog-visitor-id", vd);
         }
@@ -383,6 +449,56 @@ impl InnerTube {
         }
         let dispatched = if set_login && client.login_supported { sapisid } else { None };
         (h, dispatched)
+    }
+
+    /// Context for a request carrying an explicit jar (the saved-account keep-alive): no
+    /// `onBehalfOfUser` (no committed channel to delegate), and the caller's visitorData — or
+    /// none at all, which is how a stored jar gets a fresh login-bound visitorData minted for
+    /// the current network.
+    pub(crate) fn context_for_jar(
+        &self,
+        client: &YouTubeClient,
+        visitor_data: Option<&str>,
+    ) -> crate::models::context::Context {
+        let s = self.session.read().unwrap();
+        client.to_context(&s.locale, visitor_data, None)
+    }
+
+    /// POST with headers built from an explicit jar, without reading or mutating the shared
+    /// session and without merging the response's `Set-Cookie` pairs — the caller owns them.
+    pub(crate) async fn post_jar<B: Serialize>(
+        &self,
+        path: &str,
+        client: &YouTubeClient,
+        body: &B,
+        cookie: &str,
+        visitor_data: Option<&str>,
+    ) -> Result<(serde_json::Value, Vec<String>), Error> {
+        let sep = if path.contains('?') { '&' } else { '?' };
+        let url = format!("{BASE_URL}{path}{sep}prettyPrint=false");
+        let one_off = Session {
+            cookie: Some(cookie.to_owned()),
+            visitor_data: visitor_data.map(str::to_owned),
+            data_sync_id: None,
+            locale: self.session.read().unwrap().locale.clone(),
+        };
+        let (headers, _) = self.headers_from(&one_off, client, true);
+        let body = serde_json::to_vec(body)?;
+        let resp = self
+            .http
+            .post(&url)
+            .headers(headers)
+            .body(body)
+            .send()
+            .await?
+            .error_for_status()?;
+        let set_cookies = resp
+            .headers()
+            .get_all(reqwest::header::SET_COOKIE)
+            .iter()
+            .filter_map(|v| v.to_str().ok().map(str::to_owned))
+            .collect::<Vec<_>>();
+        Ok((resp.json().await?, set_cookies))
     }
 
     /// Bootstrap `visitorData` anonymously by scraping `sw.js_data`. context/04 §A.
@@ -589,6 +705,19 @@ mod tests {
         assert_eq!(s.sapisid().as_deref(), Some("secret123"));
     }
 
+    /// Only the rotating `*SIDTS` tokens go when a stored jar is revived on a new network; the
+    /// long-lived identity cookies stay behind to re-authenticate.
+    #[test]
+    fn rotating_tokens_strip_keeps_the_identity_cookies() {
+        let jar = "SID=abc; HSID=def; SAPISID=ghi; __Secure-1PSIDTS=old1; \
+                   __Secure-3PSIDTS=old2; SIDCC=x; __Secure-1PSIDCC=y; __Secure-3PSIDCC=z";
+        assert_eq!(
+            strip_rotating_tokens(jar),
+            "SID=abc; HSID=def; SAPISID=ghi"
+        );
+        assert_eq!(strip_rotating_tokens("SID=abc"), "SID=abc", "no tokens, no change");
+    }
+
     /// Google rotates its short-lived tokens on authenticated responses; the transport must
     /// merge them into the jar (add, replace, `Max-Age=0` delete) so a used session stays alive.
     #[test]
@@ -627,6 +756,22 @@ mod tests {
             it.cookie().unwrap(),
             "SAPISID=aaa",
             "expires-past deletes, google.com is dropped"
+        );
+
+        // Dashed date formats parse too: a future year keeps the cookie alive, a dashed epoch
+        // deletes, and an unparseable `Expires` is not a deletion.
+        it.merge_set_cookies(
+            &[
+                "DASHED=future; Expires=09-Jun-2027".into(),
+                "DASHED2=gone; Expires=01-Jan-1970".into(),
+                "NOPARSE=kept; Expires=never".into(),
+            ],
+            Some("aaa"),
+        );
+        assert_eq!(
+            it.cookie().unwrap(),
+            "SAPISID=aaa; DASHED=future; NOPARSE=kept",
+            "dashed future survives, dashed epoch deletes, unparseable is not a delete"
         );
 
         // Not logged in → nothing to merge into, stays None.
