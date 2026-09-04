@@ -76,7 +76,8 @@
 		"choose_channel": "Pilih saluran YouTube",
 		"choose_channel_desc": "Perpustakaan, suka, dan daftar putar akan menggunakan saluran ini. Anda dapat menggantinya lagi nanti.",
 		"cancel_sign_in": "Batalkan masuk",
-		"sign_in_hint": "Masuk dengan akun Google Anda untuk mengakses perpustakaan dan daftar putar YouTube Music Anda."
+		"sign_in_hint": "Masuk dengan akun Google Anda untuk mengakses perpustakaan dan daftar putar YouTube Music Anda.",
+		"history": "Riwayat"
 	},
 	"player": {
 		"play": "Putar",
@@ -186,7 +187,8 @@
 		"every_song_saved": "Setiap lagu yang Anda simpan, dalam satu daftar",
 		"every_upload": "Setiap trek yang Anda unggah ke YouTube Music",
 		"no_uploads": "Belum ada yang diunggah. Lagu yang Anda unggah di music.youtube.com akan muncul di sini.",
-		"uploads_signed_out": "Masuk untuk melihat musik yang telah Anda unggah ke YouTube Music."
+		"uploads_signed_out": "Masuk untuk melihat musik yang telah Anda unggah ke YouTube Music.",
+		"no_upload_albums": "Belum ada album yang diunggah. Album yang kamu unggah di music.youtube.com akan muncul di sini."
 	},
 	"local": {
 		"scanning": "Memindai folder...",
@@ -551,5 +553,14 @@
 		"already_in": "Sudah ada di {playlist}",
 		"added_songs": "Menambahkan {count} lagu ke {playlist}",
 		"added_one": "Ditambahkan ke {playlist}"
+	},
+	"history": {
+		"title": "Riwayat",
+		"subtitle": "Semua yang pernah kamu putar di Youtube Music, dari yang terbaru.",
+		"search": "Cari riwayat kamu",
+		"matching": "{count} cocok",
+		"songs_count": "{count} lagu",
+		"empty": "Belum ada apa-apa di sini. Apa pun yang kamu putar saat masuk akan muncul di halaman ini.",
+		"signed_out": "Masuk untuk melihat riwayat mendengarkan YouTube Music kamu."
 	}
 }
