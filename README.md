@@ -4,21 +4,24 @@
 
 # Limusic
 
-**A native desktop YouTube Music client — Rust + Tauri, ad-free, no Electron.**
+**A native desktop YouTube Music client. Rust + Tauri, ad-free, no Electron.**
 
 <p align="center">
   <a href="https://github.com/SimoHypers/limusic/releases/latest"><img alt="GitHub Downloads" src="https://img.shields.io/github/downloads/SimoHypers/limusic/total?style=for-the-badge&label=DOWNLOADS&color=a4c400"></a>
   <a href="https://github.com/SimoHypers/limusic/releases/latest"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/SimoHypers/limusic?display_name=release&style=for-the-badge&color=a10935"></a>
   <img alt="License" src="https://img.shields.io/github/license/SimoHypers/limusic?style=for-the-badge&color=1881cc">
   <a href="https://hosted.weblate.org/engage/limusic/"><img alt="Translation status" src="https://img.shields.io/weblate/progress/limusic?server=https%3A%2F%2Fhosted.weblate.org&style=for-the-badge&label=TRANSLATED&color=6a3fb5"></a>
+  <a href="https://simohypers.github.io/limusic/"><img alt="Website" src="https://img.shields.io/badge/WEBSITE-limusic-e5486e?style=for-the-badge"></a>
+  <a href="https://ko-fi.com/simohypers"><img alt="Support on Ko-fi" src="https://img.shields.io/badge/KO--FI-support-ff5e5b?style=for-the-badge&logo=kofi&logoColor=white"></a>
   <br>
   <img src="https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black">
   <img src="https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logoColor=white">
+  <img src="https://img.shields.io/badge/macOS-000000?style=for-the-badge&logo=apple&logoColor=white">
   <img src="https://img.shields.io/badge/Tauri_2-24C8D8?style=for-the-badge&logo=tauri&logoColor=white">
   <img src="https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white">
 </p>
 
-**Limusic** talks directly to YouTube's internal API and plays audio through libmpv — no bundled
+**Limusic** talks directly to YouTube's internal API and plays audio through libmpv: no bundled
 browser runtime, no backend server, no ads in the audio. It started as a desktop rebuild of the
 playback engine behind [Metrolist](https://github.com/mostafaalagamy/Metrolist), an Android
 YouTube Music client, and grew from there.
@@ -29,22 +32,41 @@ YouTube Music client, and grew from there.
 
 ## Features
 
-- **Ad-free playback** — streams come straight from YouTube's API, ads never do
-- **Search & browse** — songs, albums, artists, playlists, and the YTM home feed
-- **Sign in** with your YouTube Music account: in-app Google login or cookie-paste
-- **Your library** — playlists, liked songs, and write actions (like, add to playlist, create/rename/delete playlists, subscribe)
+- **Ad-free playback**: streams come straight from YouTube's API, ads never do
+- **Search & browse**: songs, albums, artists, playlists and the YTM home feed, with results previewing as you type
+- **Sign in** with your YouTube Music account: in-app Google login or cookie-paste, several accounts at once with switching between them
+- **Your library**: playlists, liked songs, saved albums and artists, your uploads, and write actions (like, add to playlist, create/edit/delete playlists including cover art, subscribe, save to library)
+- **History**: everything you have played, in YouTube Music's own day buckets
 - **Gapless playback** with loudness normalization, powered by libmpv
-- **Queue** with radio/automix continuation, restored across restarts
-- **Synced lyrics** — line-by-line side panel with auto-scroll and click-to-jump
-- **Mini Player** — Minimize the player and keep enjoying your music
-- **Local Music** — ability to play your own local music, with all metadata still intact
-- **Last.fm scrobbling** — connect once from the title bar, every play is scrobbled
-- **Discord Rich Presence** — artwork, live progress bar, one click to toggle
-- **OS media keys** and now-playing integration (MPRIS on Linux, SMTC on Windows)
-- **System tray** — close the window, keep the music; play/pause and skip from the tray, optional start-on-login
-- **Listen Together** — synced listening rooms over a small self-hosted relay
-- **Self-updating builds** (AppImage on Linux, setup.exe on Windows)
-- **Customization via Themes and Fonts** — Customize your music player to your hearts content
+- **Queue** with radio/automix continuation, drag to reorder, restored across restarts
+- **Synced lyrics**: side panel with auto-scroll and click-to-jump, word by word where the source has the timings, with translations under each line
+- **Music videos**: optional, the video plays where the artwork sits, with the same gapless audio behind it
+- **Mini Player and theater mode**: shrink to a strip that keeps playing, or go fullscreen with cover and lyrics side by side
+- **Local Music**: play your own files, with all metadata still intact
+- **Last.fm scrobbling**: connect once from the title bar, every play is scrobbled
+- **Discord Rich Presence**: artwork, live progress bar, one click to toggle
+- **OS media keys** and now-playing integration (MPRIS on Linux, SMTC on Windows, plus playback buttons on the Windows taskbar preview)
+- **System tray**: close the window, keep the music; play/pause and skip from the tray, optional start-on-login
+- **Listen Together**: synced listening rooms over a small self-hosted relay
+- **Keyboard and mouse**: `Ctrl+K` searches from anywhere, `Ctrl+H` lists every shortcut, right-click menus throughout, `Ctrl` and the wheel zooms the interface
+- **Six languages**: English, Spanish, French, Turkish, Brazilian Portuguese and Indonesian, with more in progress
+- **Self-updating builds** (AppImage on Linux, setup.exe on Windows, .app on macOS)
+- **Make it yours**: accent palettes, custom colors, your own fonts, corner roundness, a custom app icon, and an adaptive theme that recolors the app from the playing cover
+
+---
+
+## Screenshots
+
+<table>
+  <tr>
+    <td><img src="website/src/assets/screen-playlist.webp" alt="A playlist in Limusic"></td>
+    <td><img src="website/src/assets/screen-lyrics.webp" alt="Word-by-word synced lyrics"></td>
+  </tr>
+  <tr>
+    <td><img src="website/src/assets/screen-album.webp" alt="An album page, colors adapted to the cover"></td>
+    <td><img src="website/src/assets/screen-video.webp" alt="A music video playing with lyrics alongside"></td>
+  </tr>
+</table>
 
 ---
 
@@ -64,7 +86,8 @@ YouTube Music client, and grew from there.
 | Linux (Arch) | [AUR](https://aur.archlinux.org/packages/limusic-bin) | `yay -S limusic-bin`. Community-maintained by [@xiryuudev](https://github.com/xiryuudev), updates through pacman |
 | Windows | `-setup.exe` | Self-updating |
 | Windows | `.msi` | Plain installer, no auto-update |
-| macOS | none yet | Build from source, see [docs/BUILD-PLATFORMS.md](docs/BUILD-PLATFORMS.md) |
+| macOS (Apple Silicon) | `.dmg` | Self-updating. Unsigned, so the first launch needs `xattr -dr com.apple.quarantine /Applications/limusic.app` |
+| macOS (Intel) | none | Build from source, see [docs/BUILD-PLATFORMS.md](docs/BUILD-PLATFORMS.md) |
 
 ---
 
@@ -72,16 +95,16 @@ YouTube Music client, and grew from there.
 
 Both live in the title bar, next to the window controls.
 
-- **Last.fm** — click the Last.fm mark, approve Limusic in the browser tab that
+- **Last.fm**: click the Last.fm mark, approve Limusic in the browser tab that
   opens, and you're connected for good. Tracks scrobble at the halfway point (or
   four minutes, whichever comes first), which is Last.fm's own rule. Click again
   to see the account or disconnect.
-- **Discord** — click the Discord mark to toggle Rich Presence. Green dot means
+- **Discord**: click the Discord mark to toggle Rich Presence. Green dot means
   it's live. The card shows the track, artist, album art, and a progress bar, and
   it disappears when you pause.
 
-Building from source? Last.fm needs your own API credentials — they're not in the
-repo. Get a key at [last.fm/api/account/create](https://www.last.fm/api/account/create)
+Building from source? Last.fm needs your own API credentials, and they are not in
+the repo. Get a key at [last.fm/api/account/create](https://www.last.fm/api/account/create)
 and put it in `src-tauri/lastfm.keys`:
 
 ```
@@ -115,7 +138,7 @@ line-by-line lyrics. Netease additionally supplies translations, shown under
 each line where it has them.
 
 Note that YouTube Music's lyrics are licensed per region and are missing
-entirely in some countries — where that's the case, LRCLIB does all the work.
+entirely in some countries. Where that's the case, LRCLIB does all the work.
 
 ---
 
@@ -145,7 +168,8 @@ who host it free for libre projects.
   <img src="https://hosted.weblate.org/widget/limusic/ui/multi-auto.svg" alt="Translation status">
 </a>
 
-English, Turkish, Brazilian Portuguese and Indonesian ship in the app today.
+English, Spanish, French, Turkish, Brazilian Portuguese and Indonesian ship in
+the app today.
 The badge above shows everything else in flight.
 
 **Translate on Weblate, not in a pull request.** Weblate keeps its own copy of
@@ -189,6 +213,13 @@ Windows and macOS instructions live in [docs/BUILD-PLATFORMS.md](docs/BUILD-PLAT
   loudness normalization from YouTube's own metadata.
 - The UI is a SvelteKit SPA that only ever talks to the Rust core. It never
   contacts YouTube itself.
+
+---
+
+## Support
+
+Limusic is free and stays free. If it earned a coffee,
+[ko-fi.com/simohypers](https://ko-fi.com/simohypers) is where to leave one.
 
 ---
 

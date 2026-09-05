@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import {
   MusicNote01Icon,
@@ -6,9 +7,17 @@ import {
   QuoteDownIcon,
   UserMultiple02Icon,
   LibraryIcon,
+  Folder01Icon,
+  PaintBoardIcon,
+  TranslateIcon,
   KeyboardIcon,
   LastFmIcon,
-  Moon02Icon,
+  DiscordIcon,
+  Video01Icon,
+  Minimize01Icon,
+  MaximizeScreenIcon,
+  ComputerIcon,
+  HistoryIcon,
   RefreshIcon,
   PackageIcon,
   WindowsOldIcon,
@@ -17,6 +26,7 @@ import {
   PlayIcon,
   StarIcon,
   SourceCodeIcon,
+  Coffee02Icon,
 } from '@hugeicons/core-free-icons'
 
 import Aurora from '@/components/Aurora'
@@ -29,10 +39,16 @@ import { useGitHub, detectOS, REPO_URL, RELEASES_URL } from '@/lib/github'
 import logo from '@/assets/logo.png'
 import screenPlaylist from '@/assets/screen-playlist.webp'
 import screenLyrics from '@/assets/screen-lyrics.webp'
-import screenArtist from '@/assets/screen-artist.webp'
+import screenAlbum from '@/assets/screen-album.webp'
+import screenVideo from '@/assets/screen-video.webp'
 import screenTogether from '@/assets/screen-listen-together.webp'
+import screenMini from '@/assets/screen-mini.webp'
 
 const SPOTLIGHT = 'rgba(229, 72, 110, 0.16)' as const
+const WEBLATE_URL = 'https://hosted.weblate.org/engage/limusic/'
+const AUR_URL = 'https://aur.archlinux.org/packages/limusic-bin'
+const KOFI_URL = 'https://ko-fi.com/simohypers'
+const BUILD_DOCS_URL = `${REPO_URL}/blob/master/docs/BUILD-PLATFORMS.md`
 
 const FEATURES = [
   {
@@ -48,12 +64,12 @@ const FEATURES = [
   {
     icon: AudioWave01Icon,
     title: 'Gapless, tuned sound',
-    body: 'mpv-powered audio with gapless playback, loudness normalization, and a built-in equalizer.',
+    body: 'mpv under the hood: gapless transitions, loudness normalization from YouTube’s own metadata, and a quality setting for when you want to spend less data.',
   },
   {
     icon: QuoteDownIcon,
     title: 'Lyrics that follow along',
-    body: 'Time-synced lyrics scroll with the song, line by line — perfect for singing along.',
+    body: 'Synced lyrics scroll with the song, and where the source has word timings the line lights up as it is sung. Translations sit under each line.',
   },
   {
     icon: UserMultiple02Icon,
@@ -63,14 +79,34 @@ const FEATURES = [
   {
     icon: LibraryIcon,
     title: 'Your library, intact',
-    body: 'Sign in once and your playlists, likes, albums and subscriptions are all there. Changes sync back to YouTube Music.',
+    body: 'Sign in and your playlists, likes, albums, uploads and history are all there. Every change writes back to YouTube Music.',
+  },
+  {
+    icon: Folder01Icon,
+    title: 'Your own files too',
+    body: 'Point Limusic at a folder and your local music sits beside the rest, artwork and tags intact, playable with no connection at all.',
+  },
+  {
+    icon: PaintBoardIcon,
+    title: 'Make it yours',
+    body: 'Accent palettes, custom colors, your own fonts, corner roundness, even the app icon. Or let all of it follow the album cover that is playing.',
+  },
+  {
+    icon: TranslateIcon,
+    title: 'Speaks your language',
+    body: 'English, Spanish, French, Turkish, Brazilian Portuguese and Indonesian ship today, with more in progress on Weblate.',
   },
 ]
 
 const EXTRAS = [
-  { icon: KeyboardIcon, label: 'Media keys' },
+  { icon: KeyboardIcon, label: 'Media keys & shortcuts' },
   { icon: LastFmIcon, label: 'Last.fm scrobbling' },
-  { icon: Moon02Icon, label: 'Themes' },
+  { icon: DiscordIcon, label: 'Discord Rich Presence' },
+  { icon: Video01Icon, label: 'Music videos' },
+  { icon: MaximizeScreenIcon, label: 'Theater mode' },
+  { icon: Minimize01Icon, label: 'Mini player' },
+  { icon: ComputerIcon, label: 'System tray' },
+  { icon: HistoryIcon, label: 'Play history' },
   { icon: RefreshIcon, label: 'Auto-updates' },
 ]
 
@@ -78,23 +114,38 @@ const SCREENS = [
   {
     eyebrow: 'Lyrics',
     title: 'Sing every word',
-    body: 'Synced lyrics stay locked to the music. The current line lights up and the rest fades back, so you never lose your place.',
+    body: 'Synced lyrics stay locked to the music, word by word where the source has the timings. Six providers are tried in order, so coming up empty is rare, and matching goes by the track’s exact length rather than its title.',
     img: screenLyrics,
-    alt: 'Limusic showing time-synced lyrics',
+    alt: 'Limusic showing word-by-word synced lyrics beside the album cover',
   },
   {
     eyebrow: 'Browse',
     title: 'Go down the rabbit hole',
-    body: 'Artists, albums, singles, moods and mixes — the full YouTube Music catalog in a fast native window, with search that feels instant.',
-    img: screenArtist,
-    alt: 'An artist page in Limusic with top songs and albums',
+    body: 'Albums, artists, singles, moods and mixes: the whole YouTube Music catalog in a native window. Results preview as you type, Ctrl+K searches from any page, and the colors follow whatever is playing.',
+    img: screenAlbum,
+    alt: 'An album page in Limusic with the track list and play counts',
+  },
+  {
+    eyebrow: 'Video',
+    title: 'Watch it when you feel like it',
+    body: 'Turn music videos on and the video plays where the artwork usually sits, with the same gapless audio leading. One click in the corner puts the cover back for the rest of the session.',
+    img: screenVideo,
+    alt: 'A music video playing in Limusic with lyrics alongside it',
   },
   {
     eyebrow: 'Together',
     title: 'Press play with friends',
-    body: 'Start a Listen Together session and send one invite code. Every play, skip and queue change stays in sync for everyone.',
+    body: 'Start a Listen Together session and send one invite code. Every play, skip and queue change stays in sync, and everyone streams their own audio, so the room only relays the controls.',
     img: screenTogether,
     alt: 'The Listen Together dialog in Limusic',
+  },
+  {
+    eyebrow: 'Mini player',
+    title: 'Out of the way, still there',
+    body: 'Shrink the window to a strip with the artwork, the transport and the lyrics, and keep it on top while you work. Or go the other way with theater mode, fullscreen cover on one side, lyrics on the other.',
+    img: screenMini,
+    alt: 'The Limusic mini player floating over a desktop, showing lyrics',
+    narrow: true,
   },
 ]
 
@@ -144,7 +195,7 @@ function Hero({ version, downloadHref, osLabel }: { version: string | null; down
       <div className="relative mx-auto max-w-6xl px-4 pt-36 pb-20 text-center sm:px-6 sm:pt-44">
         <FadeContent duration={800}>
           <p className="mx-auto mb-6 w-fit rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs tracking-widest text-muted-foreground uppercase">
-            Free · Open source · Linux &amp; Windows
+            Free · Open source · Linux, Windows &amp; macOS
           </p>
         </FadeContent>
 
@@ -159,8 +210,9 @@ function Hero({ version, downloadHref, osLabel }: { version: string | null; down
 
         <FadeContent duration={900} delay={400}>
           <p className="mx-auto mt-6 max-w-2xl text-base text-muted-foreground sm:text-lg">
-            Limusic is a lightweight desktop player for YouTube Music. Search any song, hit play, and
-            listen without ads — no browser, no premium, no bloat.
+            Limusic is a lightweight desktop player for YouTube Music. Search anything, hit play, and
+            listen without ads. Your playlists, your library, your own files, synced lyrics and
+            friends listening along, in a window that opens instantly.
           </p>
         </FadeContent>
 
@@ -184,7 +236,7 @@ function Hero({ version, downloadHref, osLabel }: { version: string | null; down
             </a>
           </div>
           <p className="mt-4 text-sm text-muted-foreground">
-            {version ? `Latest release ${version}` : 'Latest release'} · macOS not packaged yet
+            {version ? `Latest release ${version}` : 'Latest release'} · Linux, Windows and macOS
           </p>
         </FadeContent>
 
@@ -192,9 +244,9 @@ function Hero({ version, downloadHref, osLabel }: { version: string | null; down
           <div className="mt-16">
             <img
               src={screenPlaylist}
-              alt="Limusic playing a playlist, with the queue open"
+              alt="Limusic playing a playlist, with the sidebar and track list open"
               width={1920}
-              height={1043}
+              height={1036}
               className="w-full rounded-xl border border-white/10 shadow-[0_0_120px_-24px_var(--primary-bright)]"
             />
           </div>
@@ -264,10 +316,10 @@ function Screens() {
                 <img
                   src={s.img}
                   alt={s.alt}
-                  width={1920}
-                  height={1043}
                   loading="lazy"
-                  className="w-full rounded-xl border border-white/10 shadow-2xl shadow-black/50"
+                  className={`rounded-xl border border-white/10 shadow-2xl shadow-black/50 ${
+                    s.narrow ? 'mx-auto w-full max-w-md' : 'w-full'
+                  }`}
                 />
               </div>
             </div>
@@ -283,7 +335,7 @@ interface DownloadCard {
   icon: typeof PackageIcon
   detected: boolean
   links: { label: string; href: string | null }[]
-  note?: string
+  note?: ReactNode
 }
 
 function Download({ info, os }: { info: ReturnType<typeof useGitHub>; os: string }) {
@@ -293,11 +345,12 @@ function Download({ info, os }: { info: ReturnType<typeof useGitHub>; os: string
       icon: PackageIcon,
       detected: os === 'linux',
       links: [
-        { label: '.AppImage — any distro', href: info.appimage },
-        { label: '.deb — Ubuntu / Debian', href: info.deb },
-        { label: '.rpm — Fedora / RHEL', href: info.rpm },
+        { label: '.AppImage, any distro', href: info.appimage },
+        { label: '.deb, Ubuntu and Debian', href: info.deb },
+        { label: '.rpm, Fedora and RHEL', href: info.rpm },
+        { label: 'AUR, Arch Linux', href: AUR_URL },
       ],
-      note: 'The AppImage updates itself automatically.',
+      note: 'Only the AppImage updates itself. All builds need glibc 2.39 or newer (Ubuntu 24.04+, Debian 13+, Fedora 40+), and the rpm needs mpv-libs installed.',
     },
     {
       os: 'Windows',
@@ -307,13 +360,25 @@ function Download({ info, os }: { info: ReturnType<typeof useGitHub>; os: string
         { label: 'Installer (.exe)', href: info.exe },
         { label: 'MSI package', href: info.msi },
       ],
+      note: 'The installer updates itself. The MSI is a plain install with no auto-update.',
     },
     {
       os: 'macOS',
       icon: Apple01Icon,
       detected: os === 'mac',
-      links: [{ label: 'Build from source', href: REPO_URL }],
-      note: 'Not packaged yet — coming later.',
+      links: [
+        { label: '.dmg, Apple Silicon', href: info.dmg },
+        { label: 'Intel Mac: build from source', href: BUILD_DOCS_URL },
+      ],
+      note: (
+        <>
+          The app updates itself, but it is not signed with an Apple certificate, so the first launch
+          needs one Terminal command:{' '}
+          <code className="rounded bg-white/10 px-1 py-0.5 text-[11px] break-all">
+            xattr -dr com.apple.quarantine /Applications/limusic.app
+          </code>
+        </>
+      ),
     },
   ]
 
@@ -356,7 +421,7 @@ function Download({ info, os }: { info: ReturnType<typeof useGitHub>; os: string
                   </a>
                 ))}
               </div>
-              {c.note && <p className="mt-4 text-xs text-muted-foreground">{c.note}</p>}
+              {c.note && <p className="mt-4 text-xs leading-relaxed text-muted-foreground">{c.note}</p>}
             </div>
           </AnimatedContent>
         ))}
@@ -384,9 +449,15 @@ function Footer() {
           Limusic is an unofficial, open-source client and is not affiliated with or endorsed by
           YouTube or Google. YouTube Music is a trademark of Google LLC.
         </p>
-        <div className="flex items-center gap-5">
+        <div className="flex flex-wrap items-center justify-center gap-5">
           <a href={REPO_URL} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 transition-colors hover:text-foreground">
             <HugeiconsIcon icon={GithubIcon} size={15} strokeWidth={2} /> Source
+          </a>
+          <a href={WEBLATE_URL} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 transition-colors hover:text-foreground">
+            <HugeiconsIcon icon={TranslateIcon} size={15} strokeWidth={2} /> Translate
+          </a>
+          <a href={KOFI_URL} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 transition-colors hover:text-foreground">
+            <HugeiconsIcon icon={Coffee02Icon} size={15} strokeWidth={2} /> Buy me a coffee
           </a>
           <a href={`${REPO_URL}/blob/master/LICENSE`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 transition-colors hover:text-foreground">
             <HugeiconsIcon icon={SourceCodeIcon} size={15} strokeWidth={2} /> GPL-3.0
@@ -402,7 +473,7 @@ export default function App() {
   const os = detectOS()
   const osLabel = os === 'windows' ? 'Windows' : os === 'mac' ? 'macOS' : 'Linux'
   const downloadHref =
-    (os === 'windows' ? info.exe : os === 'linux' ? info.appimage : null) ?? '#download'
+    (os === 'windows' ? info.exe : os === 'mac' ? info.dmg : info.appimage) ?? '#download'
 
   return (
     <>

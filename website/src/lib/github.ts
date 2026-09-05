@@ -12,9 +12,10 @@ export interface RepoInfo {
   appimage: string | null
   exe: string | null
   msi: string | null
+  dmg: string | null
 }
 
-const empty: RepoInfo = { version: null, stars: null, deb: null, rpm: null, appimage: null, exe: null, msi: null }
+const empty: RepoInfo = { version: null, stars: null, deb: null, rpm: null, appimage: null, exe: null, msi: null, dmg: null }
 
 /* Fetches the latest release + star count once on mount. Everything degrades to the
    GitHub releases page if the API is unreachable or rate-limited. */
@@ -36,6 +37,7 @@ export function useGitHub(): RepoInfo {
           appimage: find(d.assets, n => n.endsWith('.AppImage')),
           exe: find(d.assets, n => n.endsWith('.exe')),
           msi: find(d.assets, n => n.endsWith('.msi')),
+          dmg: find(d.assets, n => n.endsWith('.dmg')),
         })),
       )
       .catch(() => {})
