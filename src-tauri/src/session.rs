@@ -209,13 +209,14 @@ pub async fn refresh_session(app: AppHandle, state: Arc<AppState>) {
     // account it is a *different* account's session sitting there; signing in with it would move
     // the app to that account behind the user's back. That account is then simply not refreshable
     // from here, and the user signs in with it again.
-    let current = state.it.cookie().unwrap_or_default();
-    let Some(account) = innertube::cookie_sapisid(&current).map(str::to_owned) else { return };
+    // Re-read the live jar every pass rather than snapshotting it: a switch or a sign-out landing
+    // mid-poll would otherwise leave the loop still hunting for the account it started on and
+    // sign back into it behind the user.
     for _ in 0..8 {
+        let current = state.it.cookie().unwrap_or_default();
+        let Some(account) = innertube::cookie_sapisid(&current) else { return };
         let cookie = read_login_cookies(&app, REFRESH_LABEL).await;
-        if innertube::cookie_sapisid(&cookie) == Some(account.as_str())
-            && !same_jar(&cookie, &current)
-        {
+        if innertube::cookie_sapisid(&cookie) == Some(account) && !same_jar(&cookie, &current) {
             match state.sign_in(cookie).await {
                 Ok(_) => tracing::info!("re-minted the login session from the login webview"),
                 Err(error) => tracing::warn!(%error, "could not re-mint the login session"),

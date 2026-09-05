@@ -790,9 +790,14 @@ impl AppState {
         // An account saved mid multi-channel sign-in (cookie authenticated, no channel picked
         // yet) returns to the required picker instead of silently acting as YouTube's default.
         if account.selected_identity_json.is_none() {
-            self.db
-                .set_pending_auth_selection(&account.session_cookie, Some(id))
-                .map_err(|e| format!("Couldn't activate the account: {e}"))?;
+            // Same rollback as the `account_menu` failure below: the transport already carries the
+            // selected account, so returning without undoing it would leave the app requesting as
+            // one account while the database and the UI still describe the other.
+            if let Err(e) = self.db.set_pending_auth_selection(&account.session_cookie, Some(id)) {
+                self.restore_auth_transport(previous_cookie, previous_data_sync_id);
+                self.it.set_visitor_data(previous_visitor);
+                return Err(format!("Couldn't activate the account: {e}"));
+            }
             self.persist_visitor_data(account.visitor_data.as_deref());
             self.forget_playlist_index();
             let snapshot = self.account_snapshot();

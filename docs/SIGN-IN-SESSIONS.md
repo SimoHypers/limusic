@@ -19,7 +19,7 @@ One row per saved Google account.
 
 | Column | Contents |
 |---|---|
-| `id` | Opaque account key: `ga-<sha1>` over the cookie's long-lived `SAPISID` value (`db::account_key`). Stable across Rust releases, and the SAPISID itself is not recoverable from it. |
+| `id` | Opaque account key: `ga-<md5>` over the cookie's long-lived `SAPISID` value (`db::account_key`). Stable across Rust releases, and the SAPISID itself is not recoverable from it. |
 | `session_cookie` | The full `Cookie:` header captured at sign-in (SAPISID, SID, `__Secure-*`, ...): the actual login credential. |
 | `data_sync_id` | Server-issued delegated identity of the selected YouTube channel within this Google account. |
 | `selected_identity_json` | Canonical account model: name, handle, email, thumbnail, channelId, data_sync_id. `NULL` means the login authenticated but a multi-channel pick is still pending. |
@@ -60,8 +60,9 @@ copy in SQLite.
 It holds **one** Google session at a time, and **Add account** replaces it: that flow deletes every
 google.com/youtube.com cookie from the store first (webview-side only, the SQLite rows are
 untouched) so the fresh sign-in lands on the account the user actually entered. Two consequences:
-a later plain "Sign in with Google" asks for a password again, and the automatic session healing
-below can only re-mint whichever account the webview currently holds.
+a later plain "Sign in with Google" returns to whichever account the store now holds (the one
+just added), so use Add account when you want a different one, and the automatic session healing
+below can only re-mint that same account.
 
 ## 3. What never leaves Rust
 

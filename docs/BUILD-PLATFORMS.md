@@ -115,7 +115,7 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
    Apple Silicon `/opt/homebrew`):
    ```bash
    export LIBRARY_PATH="$(brew --prefix)/lib:$LIBRARY_PATH"
-   # or ~/.cargo/config.toml → [build] rustflags = ["-L", "/opt/homebrew/lib"]
+   # or ~/.cargo/config.toml → [build] rustflags = ["-L", "<brew --prefix>/lib"]
    ```
 4. **Build:**
    ```bash

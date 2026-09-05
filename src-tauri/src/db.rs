@@ -222,6 +222,10 @@ impl Db {
             if new_id == old_id {
                 continue;
             }
+            // The row's new key and the `active_account` pointer at it have to land together: a
+            // crash between them leaves the pointer at an id nothing computes any more, and the
+            // next launch sees the ids already agreeing and re-scans nothing.
+            let tx = conn.unchecked_transaction();
             let taken: i64 = conn
                 .query_row("SELECT COUNT(*) FROM accounts WHERE id = ?1", [&new_id], |r| r.get(0))
                 .unwrap_or(0);
@@ -242,6 +246,9 @@ impl Db {
                 "UPDATE settings SET value = ?1 WHERE key = 'active_account' AND value = ?2",
                 [&new_id, &old_id],
             );
+            if let Ok(tx) = tx {
+                let _ = tx.commit();
+            }
         }
         Ok(Db(Mutex::new(conn)))
     }

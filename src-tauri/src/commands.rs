@@ -340,26 +340,38 @@ pub async fn set_app_icon(app: tauri::AppHandle, path: Option<String>) -> Result
     let dest = crate::appicon::path(&app).ok_or("no app data directory")?;
     match path {
         Some(src) => {
-            // `from_path` reads and decodes the whole file, so bound it first: the dimension
-            // check below only runs once a 500 MB PNG has already been unpacked into memory.
+            // `from_path` reads and decodes the whole file, so bound it first: a compressed
+            // 16 MB of uniform 8192x8192 still unpacks into 256 MB before anything can reject it.
+            // The signature and IHDR are the first 24 bytes of any PNG.
             let len =
                 std::fs::metadata(&src).map_err(|e| format!("couldn't read that PNG: {e}"))?.len();
             if len > 16 * 1024 * 1024 {
                 return Err("that file is too big; use a PNG under 16 MB".into());
             }
-            // Decoding it here is the validation. Storing a file the icon loader can't read would
-            // fail silently at every launch instead, with the old icon still showing.
-            let img = tauri::image::Image::from_path(&src)
-                .map_err(|e| format!("couldn't read that PNG: {e}"))?;
+            let mut head = [0u8; 24];
+            {
+                use std::io::Read;
+                std::fs::File::open(&src)
+                    .and_then(|mut f| f.read_exact(&mut head))
+                    .map_err(|e| format!("couldn't read that PNG: {e}"))?;
+            }
+            if head[..8] != *b"\x89PNG\r\n\x1a\n" {
+                return Err("that file isn't a PNG".into());
+            }
+            let width = u32::from_be_bytes([head[16], head[17], head[18], head[19]]);
+            let height = u32::from_be_bytes([head[20], head[21], head[22], head[23]]);
             // Nothing draws an icon above 256px, and every launch would pay to decode whatever
             // was picked: a 5000px photo is a 100 MB buffer for a 16px titlebar logo.
-            if img.width() > 1024 || img.height() > 1024 {
+            if width > 1024 || height > 1024 {
                 return Err(format!(
-                    "that image is {}x{}; use one no larger than 1024x1024",
-                    img.width(),
-                    img.height()
+                    "that image is {width}x{height}; use one no larger than 1024x1024"
                 ));
             }
+            // Decoding it here is the validation, now bounded to 1024x1024. Storing a file the
+            // icon loader can't read would fail silently at every launch instead, with the old
+            // icon still showing.
+            tauri::image::Image::from_path(&src)
+                .map_err(|e| format!("couldn't read that PNG: {e}"))?;
             if let Some(dir) = dest.parent() {
                 std::fs::create_dir_all(dir).map_err(|e| format!("couldn't save the icon: {e}"))?;
             }
