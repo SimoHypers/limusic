@@ -2927,6 +2927,16 @@ impl AppState {
         // After the purge, so the skip cannot land on another blocked track.
         if playing_blocked && !self.player.is_idle() {
             self.next_in_queue().await;
+            // The purge can empty the tail: with repeat off and autoplay dead there is nothing to
+            // advance into, and `next_in_queue` leaves the blocked track playing. Pausing is the
+            // honest end of a queue that now holds nobody the user still wants to hear.
+            let stuck = {
+                let q = self.queue.lock().await;
+                q.items.get(q.current).is_some_and(|i| bl.blocks_song(i))
+            };
+            if stuck {
+                let _ = self.player.pause();
+            }
         }
         if !upcoming.is_empty() || playing_blocked {
             tracing::info!(

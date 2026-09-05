@@ -213,9 +213,16 @@ mod tests {
             "Some track",
             vec![run("Foo", Some("UCfoo"))]
         )));
-        // An album card by the blocked artist that links nothing survives: matching `subtitle`
-        // is what this deliberately does not do.
-        assert!(!bl.blocks_card(&card("album", "MPREx", "Foo", vec![])));
+        // An album card whose subtitle links the artist is blocked through that run.
+        assert!(bl.blocks_card(&card(
+            "album",
+            "MPREx",
+            "Some Album",
+            vec![run("Foo", Some("UCfoo"))]
+        )));
+        // One that links nobody survives: matching the composed `subtitle` text is what this
+        // deliberately does not do.
+        assert!(!bl.blocks_card(&card("album", "MPREy", "Foo", vec![])));
     }
 
     #[test]

@@ -42,21 +42,39 @@ pub fn block(db: &Db, entry: BlockedArtist) -> Vec<BlockedArtist> {
 
 pub fn unblock(db: &Db, key: &str) -> Vec<BlockedArtist> {
     let mut l = list(db);
-    l.retain(|b| b.key() != key);
+    // A name-only row is matched the way `BlockList` matches it, so the row a differently-cased
+    // key came from still comes out.
+    l.retain(|b| b.key() != key && !(b.id.is_none() && norm(&b.name) == norm(key)));
     save(db, &l);
     l
 }
 
-/// Add an artist. No-op when the same key is already blocked. An entry with a channel id
+/// How `innertube::BlockList` compares names, kept in step here so the stored list cannot hold two
+/// rows the filter treats as one.
+fn norm(s: &str) -> String {
+    s.trim().to_lowercase()
+}
+
+/// Add an artist. No-op when the same artist is already blocked. An entry with a channel id
 /// supersedes a name-only entry for the same name: the id is the stronger key and keeping both
 /// would leave a duplicate row in the settings list.
 fn add(l: &mut Vec<BlockedArtist>, entry: BlockedArtist) {
-    if l.iter().any(|b| b.key() == entry.key()) {
-        return;
-    }
-    if entry.id.is_some() {
-        let name = entry.name.trim().to_lowercase();
-        l.retain(|b| b.id.is_some() || b.name.trim().to_lowercase() != name);
+    let name = norm(&entry.name);
+    match &entry.id {
+        Some(id) => {
+            if l.iter().any(|b| b.id.as_deref() == Some(id.as_str())) {
+                return;
+            }
+            l.retain(|b| b.id.is_some() || norm(&b.name) != name);
+        }
+        // Nothing to add: `BlockList` blocks by name whatever the row's id, so a name already in
+        // the list is already blocked. Compared normalized, or "Foo" and "foo" become two rows
+        // and removing one leaves the artist blocked by the other.
+        None => {
+            if l.iter().any(|b| norm(&b.name) == name) {
+                return;
+            }
+        }
     }
     l.push(entry);
 }
@@ -106,6 +124,23 @@ mod tests {
         assert_eq!(list(&d)[0].key(), "Bar");
         assert!(unblock(&d, "Bar").is_empty());
         assert!(list(&d).is_empty());
+    }
+
+    #[test]
+    fn a_name_is_stored_once_however_it_is_typed() {
+        let d = db();
+        block(&d, entry(None, "Foo"));
+        let l = block(&d, entry(None, " FOO "));
+        assert_eq!(l.len(), 1);
+        // And the row comes out again whichever casing the caller hands back.
+        assert!(unblock(&d, "foo").is_empty());
+    }
+
+    #[test]
+    fn a_name_already_blocked_by_an_id_entry_is_not_stored_twice() {
+        let d = db();
+        block(&d, entry(Some("UCfoo"), "Foo"));
+        assert_eq!(block(&d, entry(None, "foo")).len(), 1);
     }
 
     #[test]
