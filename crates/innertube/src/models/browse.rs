@@ -36,9 +36,11 @@ pub struct BrowseItem {
     /// of `subtitle` so the queue and the scrobbler still get a clean artist string.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration: Option<String>,
-    /// Song cards only: the `subtitle` artist line run by run, each tagged with its channel id when
-    /// it links one. Carried so a card that gets played (search rows, home shelves) reaches the
-    /// player bar with the same navigable artists a track row has. Empty when nothing links.
+    /// The `subtitle` artist line run by run, each tagged with its channel id when it links one.
+    /// On a song card it is carried so a card that gets played (search rows, home shelves) reaches
+    /// the player bar with the same navigable artists a track row has; on an album or playlist card
+    /// it is the only structured artist identity there is, which is what the blocked-artist filter
+    /// matches. Empty when nothing in the line links a channel.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub artist_runs: Vec<ArtistRun>,
     /// Song rows only: the play count as YouTube abbreviates it ("2.5B"), from a search row's
@@ -990,6 +992,11 @@ fn parse_two_row_item(node: &Value) -> Option<BrowseItem> {
         .and_then(|b| b.get("browseId"))
         .and_then(Value::as_str)?;
     let (kind, id) = browse_target(browse_id);
+    // The subtitle's artist field, links only: `artist_runs` cuts at the "•" separators and drops
+    // the type label, so "Album • Foo • 2024" yields the linked "Foo" and a card that links nobody
+    // yields nothing. It is the only structured identity an album card carries, and without it a
+    // blocked artist's albums keep turning up in generated carousels (plan 046).
+    let runs = node.get("subtitle").and_then(|s| s.get("runs")).and_then(Value::as_array);
     Some(BrowseItem {
         kind,
         id,
@@ -997,7 +1004,7 @@ fn parse_two_row_item(node: &Value) -> Option<BrowseItem> {
         subtitle,
         thumbnail,
         duration: None,
-        artist_runs: Vec::new(),
+        artist_runs: runs.map(|r| artist_runs(r)).unwrap_or_default(),
         play_count: None,
         is_video: false,
         is_upload: false,
@@ -1166,7 +1173,11 @@ mod tests {
                         } },
                         { "musicTwoRowItemRenderer": {
                             "title": { "runs": [{ "text": "Some Album" }] },
-                            "subtitle": { "runs": [{ "text": "Album • Artist" }] },
+                            "subtitle": { "runs": [
+                                { "text": "Album" }, { "text": " • " },
+                                { "text": "Artist", "navigationEndpoint": { "browseEndpoint": { "browseId": "UCartist" } } },
+                                { "text": " • " }, { "text": "2024" }
+                            ] },
                             "navigationEndpoint": { "browseEndpoint": { "browseId": "MPREb_abc" } }
                         } }
                     ]
@@ -1217,6 +1228,18 @@ mod tests {
         assert_eq!(s.items[0].thumbnail.as_deref(), Some("b.jpg"));
         assert_eq!(s.items[1].kind, "album");
         assert_eq!(s.items[1].id, "MPREb_abc");
+        // An album card's only structured artist identity: the linked run, with the type label and
+        // the year dropped. What the blocked-artist filter matches (plan 046).
+        assert_eq!(
+            s.items[1]
+                .artist_runs
+                .iter()
+                .map(|x| (x.text.as_str(), x.id.as_deref()))
+                .collect::<Vec<_>>(),
+            [("Artist", Some("UCartist"))]
+        );
+        // The card an unlinked subtitle describes still carries none.
+        assert!(home.sections[1].items[0].artist_runs.is_empty());
         assert_eq!(s.more_browse_id.as_deref(), Some("FEmusic_moods_and_genres_category"));
         assert_eq!(s.more_params.as_deref(), Some("MOREPARAMS"));
         let s2 = &home.sections[1];
@@ -1651,7 +1674,8 @@ mod tests {
                 .collect::<Vec<_>>(),
             [("An Artist", Some("UCart")), (" & ", None), ("Another", Some("UCtwo"))]
         );
-        // A card that navigates carries none — its subtitle is a descriptor, not an artist line.
+        // Nothing in this album row's subtitle links a channel ("2026"), so it carries no artist
+        // runs: only a linked run ever becomes one.
         assert!(r.albums.is_empty() || r.albums[0].artist_runs.is_empty());
         assert_eq!(r.albums.len(), 1);
         assert_eq!(r.albums[0].kind, "album");

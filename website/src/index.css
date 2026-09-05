@@ -2,7 +2,7 @@
 @import '@fontsource-variable/oxanium';
 @import '@fontsource-variable/ibm-plex-sans';
 
-/* Limusic app theme (default, dark) — tokens copied from ui/src/routes/layout.css .dark block.
+/* Limusic app theme (default, dark), tokens copied from ui/src/routes/layout.css .dark block.
    The site is dark-only. */
 :root {
   --background: oklch(0.145 0.008 326);

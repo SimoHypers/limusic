@@ -51,9 +51,16 @@ const LOGIN_UA: Option<&str> = None;
 const LOGIN_URL: &str =
     "https://accounts.google.com/ServiceLogin?service=youtube&continue=https://music.youtube.com/";
 
+/// Google's own "Add account" entry point. Unlike ServiceLogin it presents the fresh sign-in
+/// screen rather than continuing straight through on an existing session, which is what lets a
+/// second account be added.
+const ADD_ACCOUNT_URL: &str =
+    "https://accounts.google.com/AddSession?service=youtube&continue=https://music.youtube.com/";
+
 /// Open the login webview. Returns immediately; sign-in completes asynchronously (the UI learns via
-/// the `auth-changed` event, or `login-error` on failure).
-pub fn open_login(app: AppHandle, state: Arc<AppState>) {
+/// the `auth-changed` event, or `login-error` on failure). `add_account` picks the AddSession
+/// flow so an additional Google account can be added while another is signed in.
+pub fn open_login(app: AppHandle, state: Arc<AppState>, add_account: bool) {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
 
     // When the webview lands on music.youtube.com, capture cookies + sign in. Runs off the
@@ -97,7 +104,19 @@ pub fn open_login(app: AppHandle, state: Arc<AppState>) {
         if let Some(w) = app2.get_webview_window(LOGIN_LABEL) {
             let _ = w.destroy();
         }
-        let Ok(url) = tauri::Url::parse(LOGIN_URL) else { return };
+        // Add-account flow: sign the *webview* out of Google first, so the fresh sign-in is the
+        // webview's only session and music.youtube.com lands on the new account instead of
+        // auto-continuing into whichever one it was already holding. The app's own saved sessions
+        // live in SQLite (`accounts`), not in this cookie store, so they are never touched here.
+        if add_account {
+            if let Err(e) = clear_google_webview_cookies(&app2) {
+                let _ =
+                    app2.emit("login-error", format!("Couldn't clear the previous session: {e}"));
+                return;
+            }
+        }
+        let url = if add_account { ADD_ACCOUNT_URL } else { LOGIN_URL };
+        let Ok(url) = tauri::Url::parse(url) else { return };
         let builder = WebviewWindowBuilder::new(&app2, LOGIN_LABEL, WebviewUrl::External(url))
             .title("Sign in to YouTube Music")
             .inner_size(480.0, 720.0)
@@ -183,10 +202,21 @@ pub async fn refresh_session(app: AppHandle, state: Arc<AppState>) {
     // Landing on the page and *having rotated* are not the same instant, so poll. Signing in with
     // a jar identical to the one we already hold would only spend two requests to be told the same
     // thing, so wait for a different one.
-    let current = state.it.cookie().unwrap_or_default();
+    //
+    //
+    // The jar must also still belong to the account being healed. The webview holds one Google
+    // session at a time and "Add account" replaces it, so after a switch back to an earlier saved
+    // account it is a *different* account's session sitting there; signing in with it would move
+    // the app to that account behind the user's back. That account is then simply not refreshable
+    // from here, and the user signs in with it again.
+    // Re-read the live jar every pass rather than snapshotting it: a switch or a sign-out landing
+    // mid-poll would otherwise leave the loop still hunting for the account it started on and
+    // sign back into it behind the user.
     for _ in 0..8 {
+        let current = state.it.cookie().unwrap_or_default();
+        let Some(account) = innertube::cookie_sapisid(&current) else { return };
         let cookie = read_login_cookies(&app, REFRESH_LABEL).await;
-        if innertube::cookie_sapisid(&cookie).is_some() && !same_jar(&cookie, &current) {
+        if innertube::cookie_sapisid(&cookie) == Some(account) && !same_jar(&cookie, &current) {
             match state.sign_in(cookie).await {
                 Ok(_) => tracing::info!("re-minted the login session from the login webview"),
                 Err(error) => tracing::warn!(%error, "could not re-mint the login session"),
@@ -222,6 +252,32 @@ fn claim_refresh() -> bool {
     }
     *last = Some(Instant::now());
     true
+}
+
+/// Delete every google.com / youtube.com cookie from the webview's cookie store (one shared store
+/// for all of the app's webviews). Only the webview-side Google session is lost: the app's saved
+/// accounts are SQLite rows in `Db`, and the main window never sends YouTube cookies itself.
+/// Reads through the main window's webview: it is always alive, and the store is profile-wide.
+/// Verified on WebView2; if add-account ever lands on the wrong account on WebKitGTK, check
+/// whether its cookie store is really shared.
+///
+/// Errors instead of carrying on: a half-cleared store leaves the old Google session in place and
+/// the sign-in lands on the wrong account, which is exactly what this exists to prevent.
+fn clear_google_webview_cookies(app: &AppHandle) -> Result<(), String> {
+    let wv = app.get_webview_window("main").ok_or("main window missing")?;
+    let cookies = wv.cookies().map_err(|e| e.to_string())?;
+    let mut cleared = 0;
+    for cookie in cookies {
+        let domain = cookie.domain().unwrap_or_default().trim_start_matches('.').to_owned();
+        let google = domain == "google.com" || domain.ends_with(".google.com");
+        let youtube = domain == "youtube.com" || domain.ends_with(".youtube.com");
+        if google || youtube {
+            wv.delete_cookie(cookie).map_err(|e| e.to_string())?;
+            cleared += 1;
+        }
+    }
+    tracing::info!(cleared, "cleared the webview's Google session for add-account sign-in");
+    Ok(())
 }
 
 /// Merge the youtube-domain cookies into a `Cookie` header string. Reads the platform cookie store

@@ -9,6 +9,7 @@ use innertube::{
 };
 use tauri::{Emitter, State};
 
+use crate::blocked::BlockedArtist;
 use crate::state::{AppState, ON_REPEAT_ID, ON_REPEAT_LIMIT, ON_REPEAT_WINDOW_SECS};
 
 type St<'a> = State<'a, Arc<AppState>>;
@@ -330,6 +331,86 @@ pub async fn allow_font_file(app: tauri::AppHandle, path: String) -> Result<(), 
     Ok(())
 }
 
+// --- app icon (#173) -------------------------------------------------------------------------
+
+/// Set the app icon to a PNG the user picked, or clear it back to the bundled one with `None`.
+/// The file is copied rather than referenced (see appicon.rs).
+#[tauri::command]
+pub async fn set_app_icon(app: tauri::AppHandle, path: Option<String>) -> Result<(), String> {
+    let dest = crate::appicon::path(&app).ok_or("no app data directory")?;
+    match path {
+        Some(src) => {
+            // `from_path` reads and decodes the whole file, so bound it first: a compressed
+            // 16 MB of uniform 8192x8192 still unpacks into 256 MB before anything can reject it.
+            // The signature and IHDR are the first 24 bytes of any PNG.
+            let len =
+                std::fs::metadata(&src).map_err(|e| format!("couldn't read that PNG: {e}"))?.len();
+            if len > 16 * 1024 * 1024 {
+                return Err("that file is too big; use a PNG under 16 MB".into());
+            }
+            let mut head = [0u8; 24];
+            {
+                use std::io::Read;
+                std::fs::File::open(&src)
+                    .and_then(|mut f| f.read_exact(&mut head))
+                    .map_err(|e| format!("couldn't read that PNG: {e}"))?;
+            }
+            if head[..8] != *b"\x89PNG\r\n\x1a\n" {
+                return Err("that file isn't a PNG".into());
+            }
+            let width = u32::from_be_bytes([head[16], head[17], head[18], head[19]]);
+            let height = u32::from_be_bytes([head[20], head[21], head[22], head[23]]);
+            // Nothing draws an icon above 256px, and every launch would pay to decode whatever
+            // was picked: a 5000px photo is a 100 MB buffer for a 16px titlebar logo.
+            if width > 1024 || height > 1024 {
+                return Err(format!(
+                    "that image is {width}x{height}; use one no larger than 1024x1024"
+                ));
+            }
+            // Decoding it here is the validation, now bounded to 1024x1024. Storing a file the
+            // icon loader can't read would fail silently at every launch instead, with the old
+            // icon still showing.
+            tauri::image::Image::from_path(&src)
+                .map_err(|e| format!("couldn't read that PNG: {e}"))?;
+            if let Some(dir) = dest.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| format!("couldn't save the icon: {e}"))?;
+            }
+            // Copy beside the destination and rename over it. `fs::copy` truncates the old file
+            // before writing, so a failure part way through would leave a half-written PNG that
+            // every later launch still treats as the custom icon.
+            let tmp = dest.with_extension("png.tmp");
+            std::fs::copy(&src, &tmp).and_then(|_| std::fs::rename(&tmp, &dest)).map_err(|e| {
+                let _ = std::fs::remove_file(&tmp);
+                format!("couldn't save the icon: {e}")
+            })?;
+        }
+        None => match std::fs::remove_file(&dest) {
+            Ok(()) => {}
+            // Already gone is the state the caller asked for; anything else means the custom icon
+            // is still on disk and `apply` below would just put it back.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("couldn't remove the icon: {e}")),
+        },
+    }
+    crate::appicon::apply(&app);
+    Ok(())
+}
+
+/// The custom icon's path, granted to the asset protocol so the in-app logo can render it. `None`
+/// when the bundled icon is in use.
+#[tauri::command]
+pub async fn app_icon_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri::Manager;
+    let Some(p) = crate::appicon::custom_path(&app) else { return Ok(None) };
+    let scope = app.asset_protocol_scope();
+    scope.allow_file(&p).map_err(|e| e.to_string())?;
+    // Same symlink dance as the font grant: the scope check canonicalizes what it is asked about.
+    if let Ok(real) = p.canonicalize() {
+        let _ = scope.allow_file(real);
+    }
+    Ok(Some(p.to_string_lossy().into_owned()))
+}
+
 /// Wipe both cache tiers (URL cache + mpv on-disk audio cache). context/14.
 #[tauri::command]
 pub async fn clear_caches(state: St<'_>) -> Result<(), String> {
@@ -364,13 +445,38 @@ pub async fn sign_out(state: St<'_>) -> Result<(), String> {
     Ok(())
 }
 
-/// Open the in-app Google sign-in webview (context/15 Path A). Completes asynchronously; the UI
-/// hears back via `auth-changed` (success) or `login-error`.
+// --- saved Google accounts (multi-account, context/15) ---------------------------------------
+
+/// Saved Google accounts for the account menu. Display fields only — cookies, delegated ids and
+/// visitorData never cross the Tauri boundary.
 #[tauri::command]
-pub async fn login_webview(state: St<'_>) -> Result<(), String> {
+pub async fn get_google_accounts(state: St<'_>) -> Result<Vec<serde_json::Value>, String> {
+    Ok(state.google_accounts())
+}
+
+/// Activate a saved Google account without a Google re-login. Fails if the stored cookie no
+/// longer authenticates, in which case the caller should re-sign-in with that account.
+#[tauri::command]
+pub async fn switch_google_account(state: St<'_>, id: String) -> Result<serde_json::Value, String> {
+    state.switch_google_account(&id).await
+}
+
+/// Delete a saved account. Removing the active one signs out; the others stay listed.
+#[tauri::command]
+pub async fn remove_google_account(state: St<'_>, id: String) -> Result<(), String> {
+    state.remove_google_account(&id).await;
+    Ok(())
+}
+
+/// Open the in-app Google sign-in webview (context/15 Path A). Completes asynchronously; the UI
+/// hears back via `auth-changed` (success) or `login-error`. With `add_account`, the webview
+/// opens Google's AddSession screen so a second account can be added even when the webview
+/// already holds a Google session.
+#[tauri::command]
+pub async fn login_webview(state: St<'_>, add_account: Option<bool>) -> Result<(), String> {
     let state = state.inner().clone();
     let app = state.app.clone();
-    crate::session::open_login(app, state);
+    crate::session::open_login(app, state, add_account.unwrap_or(false));
     Ok(())
 }
 
@@ -1085,6 +1191,44 @@ pub async fn delete_playlist(state: St<'_>, playlist_id: String) -> Result<(), S
 pub async fn subscribe(state: St<'_>, channel_id: String, subscribed: bool) -> Result<(), String> {
     let client = require_login(&state)?;
     state.it.subscribe(client, &channel_id, subscribed).await.map_err(|e| e.to_string())
+}
+
+// --- blocked artists (blocked.rs, plan 046) ----------------------------------------------------
+
+/// The blocked-artist list, for the settings pane.
+#[tauri::command]
+pub async fn get_blocked_artists(state: St<'_>) -> Result<Vec<BlockedArtist>, String> {
+    Ok(crate::blocked::list(&state.db))
+}
+
+/// Block an artist: persist, re-arm the fetch filter, and drop them out of the live queue. Returns
+/// the new list. `id` is the channel browseId when the caller has one (a track row often does not).
+#[tauri::command]
+pub async fn block_artist(
+    state: St<'_>,
+    id: Option<String>,
+    name: String,
+) -> Result<Vec<BlockedArtist>, String> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("an artist needs a name to be blocked".into());
+    }
+    let state = state.inner().clone();
+    let list =
+        crate::blocked::block(&state.db, BlockedArtist { id: id.filter(|i| !i.is_empty()), name });
+    let predicate = crate::blocked::block_list(&state.db);
+    state.it.set_blocked(predicate.clone());
+    // The fetch filter only covers what is fetched from here on, so the queue already on screen
+    // has to be cleaned out separately or the block reads as having done nothing.
+    state.purge_blocked(&predicate).await;
+    Ok(list)
+}
+
+#[tauri::command]
+pub async fn unblock_artist(state: St<'_>, key: String) -> Result<Vec<BlockedArtist>, String> {
+    let list = crate::blocked::unblock(&state.db, &key);
+    state.it.set_blocked(crate::blocked::block_list(&state.db));
+    Ok(list)
 }
 
 // --- local music (local.rs) ------------------------------------------------------------------

@@ -115,6 +115,18 @@ export interface AccountIdentity {
 	selected: boolean;
 }
 
+/** One saved Google account (multi-account). Display fields only — cookies stay in Rust. */
+export interface SavedAccount {
+	/** Opaque, process-local selector. */
+	id: string;
+	name?: string | null;
+	handle?: string | null;
+	email?: string | null;
+	thumbnail?: string | null;
+	/** The account whose session is currently driving requests. */
+	active: boolean;
+}
+
 export interface BrowseItem {
 	kind: 'song' | 'playlist' | 'album' | 'artist';
 	/** videoId (song) or browseId (playlist/album/artist). */
@@ -370,6 +382,11 @@ export const setSetting = (key: string, value: string) =>
 export const getStreamClients = () => invoke<string[]>('get_stream_clients');
 /** Wipe both cache tiers (URL cache + mpv on-disk audio cache). */
 export const clearCaches = () => invoke<void>('clear_caches');
+/** Set the app icon to a PNG the user picked, or restore the bundled one with `null` (#173). */
+export const setAppIcon = (path: string | null) => invoke<void>('set_app_icon', { path });
+/** Path to the custom app icon, granted to the asset protocol. `null` when the bundled one is in use. */
+export const appIconPath = () => invoke<string | null>('app_icon_path');
+
 /** Grant the webview a URL for one font file the user picked, so `@font-face` can load it. */
 export const allowFontFile = (path: string) => invoke<void>('allow_font_file', { path });
 
@@ -402,8 +419,19 @@ export const getAccountIdentities = () =>
 export const switchAccount = (selectionKey: string) =>
 	invoke<Account>('switch_account', { selectionKey });
 export const signOut = () => invoke<void>('sign_out');
-/** Open the in-app Google sign-in webview (context/15 Path A). Result arrives via onAuthChanged. */
-export const loginWebview = () => invoke<void>('login_webview');
+/**
+ * Open the in-app Google sign-in webview (context/15 Path A). Result arrives via onAuthChanged.
+ * With `addAccount`, Google's AddSession screen is used so a second account can be added even
+ * while the webview already holds a Google session.
+ */
+export const loginWebview = (addAccount = false) => invoke<void>('login_webview', { addAccount });
+/** Saved Google accounts for the account menu (display fields only). */
+export const getGoogleAccounts = () => invoke<SavedAccount[]>('get_google_accounts');
+/** Activate a saved account without a Google re-login. Fails if its stored session expired. */
+export const switchGoogleAccount = (id: string) =>
+	invoke<Account>('switch_google_account', { id });
+/** Delete a saved account; removing the active one signs out. */
+export const removeGoogleAccount = (id: string) => invoke<void>('remove_google_account', { id });
 
 // --- mini player (Rust mini.rs) ---------------------------------------------------------------
 /** Hide the app to the tray and open the floating widget (a second window running this same SPA). */
@@ -490,6 +518,19 @@ export const getLocalLibrary = () => invoke<LocalLibrary>('get_local_library');
 export const addLocalFolder = (path: string) => invoke<LocalLibrary>('add_local_folder', { path });
 export const removeLocalFolder = (path: string) =>
 	invoke<LocalLibrary>('remove_local_folder', { path });
+
+// --- blocked artists (blocked.rs, plan 046) ---------------------------------------------------
+/** One entry in the block list. `id` is the channel browseId when the blocked row linked one. */
+export interface BlockedArtist {
+	id?: string;
+	name: string;
+}
+export const getBlockedArtists = () => invoke<BlockedArtist[]>('get_blocked_artists');
+/** Blocks the artist and returns the new list. Rust also drops them out of the live queue. */
+export const blockArtist = (id: string | undefined, name: string) =>
+	invoke<BlockedArtist[]>('block_artist', { id, name });
+/** `key` is the entry's channel id when it has one, else its name. */
+export const unblockArtist = (key: string) => invoke<BlockedArtist[]>('unblock_artist', { key });
 
 // --- write actions (context/01 ✎) ----------------------------------------------------------
 /** Like, dislike, or clear the rating. YouTube's three states are mutually exclusive, so a dislike

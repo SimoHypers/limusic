@@ -9,6 +9,7 @@ use serde::Serialize;
 use sha1::{Digest, Sha1};
 use tokio::sync::Notify;
 
+use crate::blocklist::BlockList;
 use crate::clients::YouTubeClient;
 use crate::models::context::Locale;
 
@@ -115,6 +116,11 @@ pub struct InnerTube {
     /// generates. Shared like `session` so a settings toggle reaches every clone, and an atomic
     /// rather than part of `Session` because the endpoints read it on every parse.
     hide_videos: Arc<AtomicBool>,
+    /// Artists the user blocked: dropped from the surfaces YouTube generates (radio, autoplay,
+    /// home, carousels), never from a list the user opened. Shared like `session` so a settings
+    /// change reaches every clone. A `RwLock` rather than an atomic because it is a set, and the
+    /// same reasoning as `session` applies: reads are quick and never held across an `.await`.
+    blocked: Arc<RwLock<BlockList>>,
     /// Pinged whenever a signed-in request comes back rejected (401/403, or a 200 carrying the
     /// logged-out browse state). The app listens and re-mints the cookie; this crate stays pure,
     /// so it only raises the flag. `notify_one` stores a permit, so a single listener that is
@@ -139,6 +145,7 @@ impl InnerTube {
             http: builder.build()?,
             session: Arc::new(RwLock::new(session)),
             hide_videos: Arc::new(AtomicBool::new(false)),
+            blocked: Arc::new(RwLock::new(BlockList::default())),
             session_rejected: Arc::new(Notify::new()),
             cookie_changed: Arc::new(Notify::new()),
         })
@@ -201,6 +208,16 @@ impl InnerTube {
 
     pub(crate) fn hide_videos(&self) -> bool {
         self.hide_videos.load(Ordering::Relaxed)
+    }
+
+    /// Replace the blocked-artist list (the app rebuilds it from the stored settings row on every
+    /// change; there is no incremental update).
+    pub fn set_blocked(&self, list: BlockList) {
+        *self.blocked.write().unwrap() = list;
+    }
+
+    pub(crate) fn blocked(&self) -> std::sync::RwLockReadGuard<'_, BlockList> {
+        self.blocked.read().unwrap()
     }
 
     // --- session accessors (context/15) -----------------------------------------------------

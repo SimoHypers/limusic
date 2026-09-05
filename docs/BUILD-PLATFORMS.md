@@ -86,8 +86,10 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
    ```
    (The Rust side only emits `cargo:rustc-link-lib=mpv` — pregenerated bindings, so the headers
    aren't needed at build time.)
-4. **Point the linker at it:** `$env:RUSTFLAGS = "-L native=C:\path\to\libmpv"` (or
-   `src-tauri/.cargo/config.toml` → `[build] rustflags = ["-L", "C:\\path\\to\\libmpv"]`).
+4. **Point the linker at it:** `$env:RUSTFLAGS = "-L native=C:\path\to\libmpv"` (or, to keep it
+   set for every build, `%USERPROFILE%\.cargo\config.toml` →
+   `[build] rustflags = ["-L", "C:\\path\\to\\libmpv"]`). This config is machine-specific, so it
+   lives in the user-level Cargo config, never in the repo.
 5. **Bundle the DLL:** copy `libmpv-2.dll` into `src-tauri/` (it is listed under
    `tauri.windows.conf.json` → `bundle.resources`, so the installer places it next to the exe).
    It's ~117 MB — gitignored, never commit it.
@@ -113,7 +115,7 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
    Apple Silicon `/opt/homebrew`):
    ```bash
    export LIBRARY_PATH="$(brew --prefix)/lib:$LIBRARY_PATH"
-   # or src-tauri/.cargo/config.toml → [build] rustflags = ["-L", "/opt/homebrew/lib"]
+   # or ~/.cargo/config.toml → [build] rustflags = ["-L", "<brew --prefix>/lib"]
    ```
 4. **Build:**
    ```bash

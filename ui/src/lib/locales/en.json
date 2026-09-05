@@ -77,6 +77,11 @@
 		"choose_channel_desc": "Library, likes and playlists will use this channel. You can switch again later.",
 		"cancel_sign_in": "Cancel sign in",
 		"sign_in_hint": "Sign in with your Google account to reach your YouTube Music library and playlists.",
+		"add_account": "Add account",
+		"remove_account": "Remove account",
+		"remove_account_title": "Remove from Limusic?",
+		"remove_account_desc": "{name} is only removed from this list. The Google account itself is not affected, and you can sign in with it again whenever you like.",
+		"saved_accounts_hint": "Pick a saved account to switch to it.",
 		"history": "History"
 	},
 	"player": {
@@ -107,6 +112,7 @@
 		"save_to_playlist": "Save to playlist",
 		"remove_from_playlist": "Remove from playlist",
 		"go_to_artist": "Go to artist",
+		"block_artist": "Block artist",
 		"go_to_album": "Go to album",
 		"start_radio": "Start radio",
 		"share": "Share",
@@ -235,12 +241,14 @@
 			"audio": "Audio",
 			"video": "Video",
 			"lyrics": "Lyrics",
+			"blocked": "Blocked artists",
 			"advanced": "Advanced",
 			"network": "Network",
 			"storage": "Storage",
 			"updates": "Updates",
 			"report": "Report a problem",
-			"whats_new": "What's new"
+			"whats_new": "What's new",
+			"support": "Support"
 		},
 		"general": {
 			"language": "Interface language",
@@ -296,7 +304,12 @@
 			"heading_font_short_hint": "Page and section titles.",
 			"load_font_dialog": "Load a font",
 			"font_filter": "Fonts",
-			"experimental": "Experimental"
+			"experimental": "Experimental",
+			"app_icon": "App icon",
+			"app_icon_hint": "A PNG replaces the icon in the taskbar, the tray and this window. Shortcuts and the file manager keep the installed one.",
+			"app_icon_pick": "Choose…",
+			"app_icon_dialog": "Choose an app icon",
+			"app_icon_filter": "PNG image"
 		},
 		"playback": {
 			"audio_quality": "Audio quality",
@@ -315,6 +328,13 @@
 			"music_videos_hint": "Show video stream when available instead of audio only.",
 			"hide_videos": "Hide videos in search",
 			"hide_videos_hint": "Only show audio tracks and official releases in search results.",
+			"blocked_artists": "Blocked artists",
+			"blocked_artists_hint": "Blocked artists are left out of radio, autoplay and recommendations. Playlists and albums you open still play everything in them.",
+			"blocked_artists_empty": "Nobody blocked yet. Use \"Block artist\" from a track's ⋯ menu.",
+			"blocked_artists_remove": "Unblock {name}",
+			"blocked_artists_show_all": "Show all {count}",
+			"blocked_artists_show_less": "Show less",
+			"blocked_artists_copy": "Copy JSON",
 			"lyrics_provider": "Synchronized lyrics (Boidu/LRCLIB)",
 			"lyrics_provider_hint": "Fetch community-synced lyrics for active songs."
 		},
@@ -344,7 +364,10 @@
 			"diagnostics_saved": "Saved",
 			"report_issue": "Open the bug form",
 			"report_issue_hint": "Opens GitHub in your browser, with the version and system filled in.",
-			"report_issue_button": "Report"
+			"report_issue_button": "Report",
+			"kofi": "Buy me a coffee",
+			"kofi_hint": "Limusic is free and stays free. Ko-fi is there if you feel like chipping in.",
+			"kofi_button": "Open Ko-fi"
 		}
 	},
 	"dialogs": {
@@ -565,6 +588,10 @@
 		"already_in_all": "All {count} are already in {playlist}",
 		"already_in": "Already in {playlist}",
 		"added_songs": "Added {count} songs to {playlist}",
-		"added_one": "Added to {playlist}"
+		"added_one": "Added to {playlist}",
+		"app_icon_set": "App icon changed",
+		"blocked_copied": "Copied {count} blocked artists as JSON",
+		"blocked_artist": "Blocked {name}",
+		"unblocked_artist": "Unblocked {name}"
 	}
 }

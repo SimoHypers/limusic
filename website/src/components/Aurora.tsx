@@ -195,7 +195,7 @@ export default function Aurora(props: AuroraProps) {
       }
     };
 
-    // Only render while the hero is actually on screen — the shader is
+    // Only render while the hero is actually on screen, the shader is
     // expensive enough to starve scrolling on integrated GPUs.
     let running = false;
     const observer = new IntersectionObserver(([entry]) => {

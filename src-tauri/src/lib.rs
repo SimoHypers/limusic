@@ -1,5 +1,7 @@
 //! Limusic Tauri app. Wires transport + player + db + orchestrator behind the command boundary.
 
+mod appicon;
+mod blocked;
 mod cipher;
 mod commands;
 mod db;
@@ -189,6 +191,9 @@ fn raise_fd_limit() {
     }
 }
 
+/// Tauri entry point. Applies the platform boot fixes (open-fd limit, NVIDIA/WebKit env), restores
+/// the persisted session, wires every command and plugin, and runs the event loop. context/01
+/// §startup.
 pub fn run() {
     // Must happen before any webview exists: the limit is inherited by the web processes WebKit
     // forks, and cannot be raised for them afterwards.
@@ -317,6 +322,7 @@ pub fn run() {
             let session = Session { locale: Locale::default(), visitor_data, data_sync_id, cookie };
             let it = InnerTube::new(session, proxy.as_deref()).expect("build InnerTube");
             it.set_hide_videos(db.get_setting("hide_videos").as_deref() == Some("true"));
+            it.set_blocked(blocked::block_list(&db));
             let clients = Clients::bundled();
 
             let mut player = Player::new(cache_dir.to_str().unwrap()).expect("init libmpv");
@@ -388,6 +394,14 @@ pub fn run() {
                 tracing::warn!(error = %e, "tray init failed (continuing without tray)");
             }
 
+            // A custom app icon (#173) has to be pushed at each surface every launch, since only
+            // the .exe/.desktop icon is baked in and that one we can't touch. Guarded, rather than
+            // unconditional: with no custom icon there is nothing to restore, and on Windows
+            // `apply` would take over ICON_BIG from the .exe's own icon for no reason.
+            if appicon::custom_path(&handle).is_some() {
+                appicon::apply(&handle);
+            }
+
             // Bridge: apply Listen Together sync commands (guest playback / host seed) to AppState.
             {
                 let st = app_state.clone();
@@ -448,16 +462,18 @@ pub fn run() {
                             let _ = st.it.account_menu(client).await;
                         }
                     }
+                    // Google rolls its short-lived tokens on the requests the app makes, so an
+                    // idle night leaves the jar to expire on its own. Half-hourly is well inside
+                    // the window and costs one request.
+                    let mut keepalive = tokio::time::interval(Duration::from_secs(30 * 60));
+                    keepalive.tick().await; // the first tick is immediate; the ping above covered it
                     loop {
                         tokio::select! {
                             _ = rejected.notified() => {
                                 session::refresh_session(app_handle.clone(), st.clone()).await;
                             }
-                            _ = rotated.notified() => {
-                                if let Some(cookie) = st.it.cookie() {
-                                    st.db.set_setting("session_cookie", &cookie);
-                                }
-                            }
+                            _ = rotated.notified() => st.persist_rotated_cookie(),
+                            _ = keepalive.tick() => st.keep_session_alive().await,
                         }
                     }
                 });
@@ -555,11 +571,16 @@ pub fn run() {
             commands::set_setting,
             commands::get_stream_clients,
             commands::clear_caches,
+            commands::set_app_icon,
+            commands::app_icon_path,
             commands::get_account,
             commands::get_account_identities,
             commands::switch_account,
             commands::sign_out,
             commands::login_webview,
+            commands::get_google_accounts,
+            commands::switch_google_account,
+            commands::remove_google_account,
             commands::open_mini,
             commands::close_mini,
             commands::get_home,
@@ -575,6 +596,9 @@ pub fn run() {
             commands::sync_playlist_index,
             commands::play_counts,
             commands::get_album,
+            commands::get_blocked_artists,
+            commands::block_artist,
+            commands::unblock_artist,
             commands::get_local_library,
             commands::add_local_folder,
             commands::remove_local_folder,

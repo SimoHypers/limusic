@@ -18,7 +18,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::state::AppState;
 
-pub use imp::{init, set_playing};
+pub use imp::{init, set_icon, set_playing};
 
 /// Bring the main window back from close-to-tray, minimize, or the mini player. Every "come back"
 /// path — tray menu, tray click, second launch, the widget's restore button — goes through here so
@@ -147,8 +147,7 @@ mod imp {
     }
 
     /// Tauri hands us RGBA; StatusNotifierItem wants ARGB32 in network byte order.
-    fn icon_pixmap(app: &AppHandle) -> Vec<Icon> {
-        let Some(img) = app.default_window_icon() else { return Vec::new() };
+    fn icon_pixmap(img: &tauri::image::Image<'_>) -> Vec<Icon> {
         let mut data = img.rgba().to_vec();
         for px in data.chunks_exact_mut(4) {
             px.rotate_right(1); // [R,G,B,A] -> [A,R,G,B]
@@ -157,7 +156,8 @@ mod imp {
     }
 
     pub fn init(app: &AppHandle) -> tauri::Result<()> {
-        let tray = LimusicTray { app: app.clone(), playing: false, icon: icon_pixmap(app) };
+        let icon = crate::appicon::current(app).map(|i| icon_pixmap(&i)).unwrap_or_default();
+        let tray = LimusicTray { app: app.clone(), playing: false, icon };
         // Registering with the StatusNotifierWatcher is async and can outlive setup(); a failure
         // here costs the tray, not the app, so it's logged rather than propagated.
         tauri::async_runtime::spawn(async move {
@@ -175,6 +175,14 @@ mod imp {
         let Some(handle) = HANDLE.get() else { return };
         tauri::async_runtime::spawn(async move {
             handle.update(|t| t.playing = playing).await;
+        });
+    }
+
+    pub fn set_icon(_app: &AppHandle, icon: &tauri::image::Image<'_>) {
+        let Some(handle) = HANDLE.get() else { return };
+        let pixmap = icon_pixmap(icon);
+        tauri::async_runtime::spawn(async move {
+            handle.update(|t| t.icon = pixmap).await;
         });
     }
 }
@@ -225,8 +233,8 @@ mod imp {
                     show_main(tray.app_handle());
                 }
             });
-        if let Some(icon) = app.default_window_icon() {
-            builder = builder.icon(icon.clone());
+        if let Some(icon) = crate::appicon::current(app) {
+            builder = builder.icon(icon);
         }
         builder.build(app)?;
 
@@ -237,6 +245,12 @@ mod imp {
     pub fn set_playing(app: &AppHandle, playing: bool) {
         if let Some(t) = app.try_state::<TrayState>() {
             let _ = t.play_pause.set_text(if playing { "Pause" } else { "Play" });
+        }
+    }
+
+    pub fn set_icon(app: &AppHandle, icon: &tauri::image::Image<'_>) {
+        if let Some(tray) = app.tray_by_id("main") {
+            let _ = tray.set_icon(Some(icon.clone()));
         }
     }
 }
