@@ -247,7 +247,8 @@
 			"storage": "Storage",
 			"updates": "Updates",
 			"report": "Report a problem",
-			"whats_new": "What's new"
+			"whats_new": "What's new",
+			"support": "Support"
 		},
 		"general": {
 			"language": "Interface language",
@@ -363,7 +364,10 @@
 			"diagnostics_saved": "Saved",
 			"report_issue": "Open the bug form",
 			"report_issue_hint": "Opens GitHub in your browser, with the version and system filled in.",
-			"report_issue_button": "Report"
+			"report_issue_button": "Report",
+			"kofi": "Buy me a coffee",
+			"kofi_hint": "Limusic is free and stays free. Ko-fi is there if you feel like chipping in.",
+			"kofi_button": "Open Ko-fi"
 		}
 	},
 	"dialogs": {

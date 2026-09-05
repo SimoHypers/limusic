@@ -11,7 +11,8 @@
 		InformationCircleIcon,
 		KeyboardIcon,
 		Cancel01Icon as RemoveIcon,
-		Copy01Icon
+		Copy01Icon,
+		Coffee02Icon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -761,6 +762,18 @@
 						</div>
 
 						<section class={GROUP}>
+							<h3 class={LABEL}>{t('settings.sections.support')}</h3>
+							<div class={CARD}>
+								{@render row({
+									title: t('settings.about.kofi'),
+									desc: t('settings.about.kofi_hint'),
+									control: kofiButton,
+									tall: true
+								})}
+							</div>
+						</section>
+
+						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.updates')}</h3>
 							<div class={CARD}>
 								{@render row({
@@ -1170,6 +1183,13 @@
 
 {#snippet reportButton()}
 	<Button size="sm" onclick={openBugForm}>{t('settings.about.report_issue_button')}</Button>
+{/snippet}
+
+{#snippet kofiButton()}
+	<Button variant="secondary" size="sm" onclick={() => api.openExternal('https://ko-fi.com/simohypers')}>
+		<HugeiconsIcon icon={Coffee02Icon} size={15} strokeWidth={1.8} />
+		{t('settings.about.kofi_button')}
+	</Button>
 {/snippet}
 
 {#snippet diagAlert()}
