@@ -109,7 +109,11 @@ pub fn open_login(app: AppHandle, state: Arc<AppState>, add_account: bool) {
         // auto-continuing into whichever one it was already holding. The app's own saved sessions
         // live in SQLite (`accounts`), not in this cookie store, so they are never touched here.
         if add_account {
-            clear_google_webview_cookies(&app2);
+            if let Err(e) = clear_google_webview_cookies(&app2) {
+                let _ =
+                    app2.emit("login-error", format!("Couldn't clear the previous session: {e}"));
+                return;
+            }
         }
         let url = if add_account { ADD_ACCOUNT_URL } else { LOGIN_URL };
         let Ok(url) = tauri::Url::parse(url) else { return };
@@ -253,19 +257,26 @@ fn claim_refresh() -> bool {
 /// for all of the app's webviews). Only the webview-side Google session is lost: the app's saved
 /// accounts are SQLite rows in `Db`, and the main window never sends YouTube cookies itself.
 /// Reads through the main window's webview: it is always alive, and the store is profile-wide.
-fn clear_google_webview_cookies(app: &AppHandle) {
-    let Some(wv) = app.get_webview_window("main") else { return };
-    let Ok(cookies) = wv.cookies() else { return };
+/// Verified on WebView2; if add-account ever lands on the wrong account on WebKitGTK, check
+/// whether its cookie store is really shared.
+///
+/// Errors instead of carrying on: a half-cleared store leaves the old Google session in place and
+/// the sign-in lands on the wrong account, which is exactly what this exists to prevent.
+fn clear_google_webview_cookies(app: &AppHandle) -> Result<(), String> {
+    let wv = app.get_webview_window("main").ok_or("main window missing")?;
+    let cookies = wv.cookies().map_err(|e| e.to_string())?;
     let mut cleared = 0;
     for cookie in cookies {
         let domain = cookie.domain().unwrap_or_default().trim_start_matches('.').to_owned();
         let google = domain == "google.com" || domain.ends_with(".google.com");
         let youtube = domain == "youtube.com" || domain.ends_with(".youtube.com");
-        if (google || youtube) && wv.delete_cookie(cookie).is_ok() {
+        if google || youtube {
+            wv.delete_cookie(cookie).map_err(|e| e.to_string())?;
             cleared += 1;
         }
     }
     tracing::info!(cleared, "cleared the webview's Google session for add-account sign-in");
+    Ok(())
 }
 
 /// Merge the youtube-domain cookies into a `Cookie` header string. Reads the platform cookie store

@@ -451,12 +451,18 @@ pub fn run() {
                             let _ = st.it.account_menu(client).await;
                         }
                     }
+                    // Google rolls its short-lived tokens on the requests the app makes, so an
+                    // idle night leaves the jar to expire on its own. Half-hourly is well inside
+                    // the window and costs one request.
+                    let mut keepalive = tokio::time::interval(Duration::from_secs(30 * 60));
+                    keepalive.tick().await; // the first tick is immediate; the ping above covered it
                     loop {
                         tokio::select! {
                             _ = rejected.notified() => {
                                 session::refresh_session(app_handle.clone(), st.clone()).await;
                             }
                             _ = rotated.notified() => st.persist_rotated_cookie(),
+                            _ = keepalive.tick() => st.keep_session_alive().await,
                         }
                     }
                 });

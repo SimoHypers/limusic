@@ -587,7 +587,7 @@ impl AppState {
             // mark the login unfinished, and remove stale projections. A restart will reopen the
             // required picker instead of silently acting as YouTube's default channel.
             self.it.set_data_sync_id(None);
-            self.db.set_pending_auth_selection(&cookie).map_err(|error| {
+            self.db.set_pending_auth_selection(&cookie, None).map_err(|error| {
                 self.restore_auth_transport(previous_cookie.clone(), previous_data_sync_id.clone());
                 self.restore_session_cookie_setting(previous_cookie.as_deref());
                 error.to_string()
@@ -738,20 +738,12 @@ impl AppState {
         }
     }
 
-    /// Sign out of the active account. The saved row goes with it: leaving the cookies on disk
-    /// behind a one-click switch back is not what "sign out" means. The other saved accounts stay
-    /// listed. A transport that is already signed out just clears whatever session state is left.
+    /// Sign out: drop to guest. The saved row stays, so the account is still listed and one click
+    /// from coming back. Deleting the credentials is `remove_google_account`, which the menu offers
+    /// as its own action behind a confirm.
     pub async fn sign_out(&self) {
         let _turn = self.auth.lock().await;
-        let active = self
-            .it
-            .cookie()
-            .and_then(|cookie| crate::db::account_key(&cookie))
-            .or_else(|| self.db.get_setting("active_account"));
-        match active {
-            Some(id) => self.forget_account(&id),
-            None => self.clear_session(),
-        }
+        self.clear_session();
     }
 
     /// Saved Google accounts for the account menu. Display fields only: cookies, delegated ids and
@@ -792,18 +784,15 @@ impl AppState {
 
         self.it.set_cookie(Some(account.session_cookie.clone()));
         self.it.set_data_sync_id(account.data_sync_id.clone());
-        if account.visitor_data.is_some() {
-            self.it.set_visitor_data(account.visitor_data.clone());
-        }
+        self.it.set_visitor_data(account.visitor_data.clone());
 
         // An account saved mid multi-channel sign-in (cookie authenticated, no channel picked
         // yet) returns to the required picker instead of silently acting as YouTube's default.
         if account.selected_identity_json.is_none() {
             self.db
-                .set_pending_auth_selection(&account.session_cookie)
+                .set_pending_auth_selection(&account.session_cookie, Some(id))
                 .map_err(|e| format!("Couldn't activate the account: {e}"))?;
             self.persist_visitor_data(account.visitor_data.as_deref());
-            self.db.set_setting("active_account", id);
             self.forget_playlist_index();
             let snapshot = self.account_snapshot();
             let _ = self.app.emit("account-selection-required", ());
@@ -904,6 +893,37 @@ impl AppState {
         let Some(id) = crate::db::account_key(&cookie) else { return };
         self.db.set_setting("session_cookie", &cookie);
         self.db.update_account_cookie(&id, &cookie);
+    }
+
+    /// Keep-alive ping: rolls the session tokens and returns a fresh login-bound visitorData.
+    /// The transport's own rotation only fires on requests the app makes, so an idle night leaves
+    /// the jar to go stale, and `refresh_session` can only re-mint whichever account the login
+    /// webview happens to hold. This is what keeps a switched-to account alive.
+    ///
+    /// Gated on the live cookie still being the active account, and re-checked after the await so
+    /// a switch landing mid-request cannot be overwritten.
+    pub async fn keep_session_alive(&self) {
+        let Some(cookie) = self.it.cookie() else { return };
+        let Some(active) = self.db.get_setting("active_account") else { return };
+        if crate::db::account_key(&cookie).as_deref() != Some(active.as_str()) {
+            return;
+        }
+        let Some(client) = self.clients.get(innertube::METADATA_CLIENT) else { return };
+        match self.it.account_menu(client).await {
+            Ok(info) if info.name.is_some() => {
+                let live = self.it.cookie().and_then(|c| crate::db::account_key(&c));
+                if live.as_deref() != Some(active.as_str())
+                    || self.db.get_setting("active_account").as_deref() != Some(active.as_str())
+                {
+                    return;
+                }
+                self.persist_visitor_data(info.visitor_data.as_deref());
+                self.sync_active_account();
+                tracing::debug!("session keep-alive successful");
+            }
+            Ok(_) => tracing::warn!("session keep-alive: the session did not authenticate"),
+            Err(error) => tracing::warn!(%error, "session keep-alive failed"),
+        }
     }
 
     /// Current account for the UI. New installs derive it from the canonical selected identity;

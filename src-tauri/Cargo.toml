@@ -52,7 +52,8 @@ futures-util = { workspace = true }
 rand = { workspace = true }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 discord-rich-presence = "1.1.0"
-# Last.fm API signature (api_sig is md5 of the sorted params + secret).
+# Last.fm API signature (api_sig is md5 of the sorted params + secret), and the stable
+# saved-account key (db.rs::account_key).
 md-5 = "0.10"
 lofty = "0.22.2"
 tauri-plugin-dialog = "2.7.2"

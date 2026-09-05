@@ -80,15 +80,20 @@ ever sees display fields plus opaque selectors (`id`, `selectionKey`).
   (`__Secure-*SIDTS`) on authenticated responses. The innertube transport merges every
   `Set-Cookie` into its jar and raises `cookie_changed`; the app writes the rotated jar back to
   the `session_cookie` projection *and* the account's own row, so a switch away and back, or a
-  restart, never revives a dead cookie. If YouTube rejects the session outright, `refresh_session`
-  re-mints it from the login webview, but only when that webview still holds the same Google
-  account, so healing can never move the app to a different account behind the user's back.
+  restart, never revives a dead cookie. A half-hourly `account_menu` ping keeps the jar rolling
+  while the app is idle, since rotation only happens on requests the app actually makes. If
+  YouTube rejects the session outright, `refresh_session` re-mints it from the login webview, but
+  only when that webview still holds the same Google account, so healing can never move the app to
+  a different account behind the user's back.
 - **Add account** (`login_webview` with `add_account: true`): webview signed out of Google, then
-  Google's `accounts.google.com/AddSession` screen.
+  Google's `accounts.google.com/AddSession` screen. If the cookie store cannot be cleared the flow
+  stops with a `login-error` rather than signing in as the account already there.
 - **Switch account** (`switch_google_account`): stored cookie validated with `account_menu` first,
   then projections and `active_account` swap atomically, playlist index forgotten, `auth-changed`
   emitted. A row saved mid multi-channel sign-in reopens the required channel picker.
-- **Sign out / remove** (`sign_out`, `remove_google_account`): deletes the account's row, and drops
-  to guest if it was the active one. Other saved accounts stay listed and switchable.
+- **Sign out** (`sign_out`): drops to guest. The account stays in the saved list, one click from
+  coming back.
+- **Remove account** (`remove_google_account`): deletes the account's row, and drops to guest if it
+  was the active one. Other saved accounts stay listed and switchable.
 - **Channel switch** (`switch_account`): unchanged, picks a YouTube channel *within* the active
   Google account.

@@ -170,7 +170,7 @@
 		{#if others.length > 0}
 			<div class="mb-2 space-y-0.5">
 				{#each others as account (account.id)}
-					<div class="flex items-center gap-1 rounded-md py-0.5 pr-1 hover:bg-muted">
+					<div class="flex items-center gap-2 rounded-md px-3 py-1 hover:bg-muted">
 						<button
 							type="button"
 							onclick={() => chooseAccount(account)}
@@ -217,19 +217,22 @@
 		{/if}
 
 		{#if auth.account?.signedIn}
+			<!-- justify-start on all three: centred content puts each icon at a different x, because
+			     the labels are different widths. Left-aligned, the icons share a column and so do
+			     the labels, lining up with the saved-account rows above. -->
+			<Button variant="outline" size="sm" class="mb-2 w-full justify-start gap-2" onclick={addAccount}>
+				<HugeiconsIcon icon={Add01Icon} class="size-5 shrink-0" />
+				{t('nav.add_account')}
+			</Button>
 			<!-- Always offered, never gated on a stored "you have one channel": that answer comes from
 			     a single accounts_list call at sign-in, and when it fails the switcher used to vanish
 			     for good. The picker fetches the list live and shows its own error. -->
-			<Button variant="outline" size="sm" class="mb-2 w-full gap-2" onclick={addAccount}>
-				<HugeiconsIcon icon={Add01Icon} class="h-4 w-4" />
-				{t('nav.add_account')}
-			</Button>
-			<Button variant="outline" size="sm" class="mb-2 w-full gap-2" onclick={switchChannel}>
-				<HugeiconsIcon icon={UserCircleIcon} class="h-4 w-4" />
+			<Button variant="outline" size="sm" class="mb-2 w-full justify-start gap-2" onclick={switchChannel}>
+				<HugeiconsIcon icon={UserCircleIcon} class="size-5 shrink-0" />
 				{t('nav.switch_channel')}
 			</Button>
-			<Button variant="outline" size="sm" class="w-full gap-2" onclick={doSignOut}>
-				<HugeiconsIcon icon={Logout01Icon} class="h-4 w-4" />
+			<Button variant="outline" size="sm" class="w-full justify-start gap-2" onclick={doSignOut}>
+				<HugeiconsIcon icon={Logout01Icon} class="size-5 shrink-0" />
 				{t('nav.sign_out')}
 			</Button>
 		{:else}
@@ -247,8 +250,8 @@
 			     one. Both are offered rather than guessing which the user meant. -->
 			<Button class="mt-3 w-full" onclick={signInGoogle}>{t('common.sign_in_google')}</Button>
 			{#if others.length > 0}
-				<Button variant="outline" size="sm" class="mt-2 w-full gap-2" onclick={addAccount}>
-					<HugeiconsIcon icon={Add01Icon} class="h-4 w-4" />
+				<Button variant="outline" size="sm" class="mt-2 w-full justify-start gap-2" onclick={addAccount}>
+					<HugeiconsIcon icon={Add01Icon} class="size-5 shrink-0" />
 					{t('nav.add_account')}
 				</Button>
 			{/if}

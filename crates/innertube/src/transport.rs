@@ -476,9 +476,7 @@ pub fn sapisid_hash(sapisid: &str, origin: &str) -> String {
     format!("SAPISIDHASH {epoch}_{}", sha1_hex(&format!("{epoch} {sapisid} {origin}")))
 }
 
-/// SHA-1, hex. Public because the app derives its stable saved-account key with it (`db.rs`)
-/// and this crate already pulls sha1 in for `sapisid_hash`.
-pub fn sha1_hex(input: &str) -> String {
+fn sha1_hex(input: &str) -> String {
     let mut hasher = Sha1::new();
     hasher.update(input.as_bytes());
     hex::encode(hasher.finalize())

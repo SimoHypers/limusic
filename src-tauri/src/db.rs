@@ -3,21 +3,26 @@
 
 use std::sync::Mutex;
 
+use md5::{Digest, Md5};
 use rusqlite::Connection;
 
 pub struct Db(Mutex<Connection>);
 
 /// The stored-account key (multi-account support): a stable per-Google-account identifier derived
 /// from the long-lived `SAPISID` cookie value, the one piece of the jar Google does not rotate.
-/// Versioned SHA-1, hex-encoded, deliberately not `DefaultHasher`, whose output Rust does not
-/// guarantee to stay stable across releases (a persisted key must survive toolchain upgrades).
-/// The SAPISID itself never appears in the key the UI gets to see.
+/// Versioned MD5 (the `md-5` crate is already here for the Last.fm signature), hex-encoded,
+/// deliberately not `DefaultHasher`, whose output Rust does not guarantee to stay stable across
+/// releases: a persisted key must survive toolchain upgrades. Not a security digest, just a stable
+/// identifier, and the SAPISID itself never appears in the key the UI gets to see.
 ///
 /// `None` for a jar with no SAPISID, which is not a signed-in session at all: every caller needs
 /// to skip such a cookie rather than file it under a key shared with every other broken jar.
 pub fn account_key(session_cookie: &str) -> Option<String> {
     let sapisid = innertube::cookie_sapisid(session_cookie)?;
-    Some(format!("ga-{}", innertube::sha1_hex(&format!("limusic-google-account-v1 {sapisid}"))))
+    let mut digest = Md5::new();
+    digest.update(b"limusic-google-account-v1");
+    digest.update(sapisid.as_bytes());
+    Some(format!("ga-{:x}", digest.finalize()))
 }
 
 /// One saved Google account. Canonical multi-account state; the `settings` rows `session_cookie`,
@@ -195,6 +200,49 @@ impl Db {
                 );
             }
         }
+        // An account's id is derived from its own cookie, so any change to `account_key` (the
+        // pre-release SHA-1 scheme was one) strands rows under keys the app no longer computes and
+        // the same Google account turns up twice in the menu. Recompute every row's key from its
+        // own cookie and fold the row onto it. Idempotent: once the ids agree this is one scan.
+        // The statement must be dropped before the writes (rusqlite borrows the connection).
+        let rows: Vec<(String, String, i64)> = {
+            let mut found = Vec::new();
+            if let Ok(mut stmt) = conn.prepare("SELECT id, session_cookie, added_at FROM accounts")
+            {
+                if let Ok(rows) = stmt.query_map([], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
+                }) {
+                    found.extend(rows.flatten());
+                }
+            }
+            found
+        };
+        for (old_id, cookie, added_at) in rows {
+            let Some(new_id) = account_key(&cookie) else { continue };
+            if new_id == old_id {
+                continue;
+            }
+            let taken: i64 = conn
+                .query_row("SELECT COUNT(*) FROM accounts WHERE id = ?1", [&new_id], |r| r.get(0))
+                .unwrap_or(0);
+            if taken == 0 {
+                let _ =
+                    conn.execute("UPDATE accounts SET id = ?1 WHERE id = ?2", [&new_id, &old_id]);
+            } else {
+                // The canonical row is already there, written by the current build, so its cookie
+                // is the fresher one. Keep it, but inherit the older `added_at` so the menu order
+                // does not jump, and drop the stale copy.
+                let _ = conn.execute(
+                    "UPDATE accounts SET added_at = MIN(added_at, ?1) WHERE id = ?2",
+                    rusqlite::params![added_at, &new_id],
+                );
+                let _ = conn.execute("DELETE FROM accounts WHERE id = ?1", [&old_id]);
+            }
+            let _ = conn.execute(
+                "UPDATE settings SET value = ?1 WHERE key = 'active_account' AND value = ?2",
+                [&new_id, &old_id],
+            );
+        }
         Ok(Db(Mutex::new(conn)))
     }
 
@@ -262,7 +310,11 @@ impl Db {
     /// Persist an authenticated cookie while deliberately leaving the account unfinished. Keeping
     /// the marker and removal of stale identity projections in the same transaction means a crash
     /// during the required picker cannot restart into YouTube's default channel silently.
-    pub fn set_pending_auth_selection(&self, session_cookie: &str) -> rusqlite::Result<()> {
+    pub fn set_pending_auth_selection(
+        &self,
+        session_cookie: &str,
+        account_id: Option<&str>,
+    ) -> rusqlite::Result<()> {
         let mut conn = self.0.lock().unwrap();
         let tx = conn.transaction()?;
         tx.execute(
@@ -278,6 +330,13 @@ impl Db {
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             [],
         )?;
+        if let Some(id) = account_id {
+            tx.execute(
+                "INSERT INTO settings(key, value) VALUES('active_account', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [id],
+            )?;
+        }
         tx.commit()
     }
 
@@ -983,6 +1042,17 @@ mod tests {
         assert_eq!(d.top_plays(0, 20), vec![("{}".to_string(), 1)]);
     }
 
+    /// The key follows the Google account, not the jar: the `__Secure-3PAPISID` alias resolves to
+    /// the same one, and a jar with no SAPISID is not an account at all.
+    #[test]
+    fn account_key_needs_a_sapisid() {
+        assert_eq!(account_key("SID=abc; PREF=xyz"), None);
+        let sapisid = account_key("SAPISID=secret123; SID=abc").unwrap();
+        let secure = account_key("__Secure-3PAPISID=secret123; SID=abc").unwrap();
+        assert_eq!(sapisid, secure, "the alias resolves to the same key");
+        assert_ne!(sapisid, account_key("SAPISID=other").unwrap());
+    }
+
     /// A re-login refreshes an account's row without resetting its place in the list, and a
     /// cookie from a different Google account lands in its own row keyed on its SAPISID.
     #[test]
@@ -999,7 +1069,6 @@ mod tests {
         };
         d.upsert_account(&a).unwrap();
         assert_ne!(a.id, account_key("SAPISID=bbb").unwrap(), "keys follow the Google account");
-        assert_eq!(account_key("PREF=x"), None, "a jar with no SAPISID is not an account");
 
         d.upsert_account(&StoredAccount {
             id: account_key("SAPISID=bbb").unwrap(),
@@ -1078,6 +1147,54 @@ mod tests {
         assert_eq!(d.get_setting("account_selection_pending"), None);
     }
 
+    /// Rows filed under a key the current `account_key` no longer computes (the pre-release SHA-1
+    /// scheme) are folded onto their canonical id on open, and a duplicate of an account that is
+    /// already there is merged away rather than left to show up twice in the menu.
+    #[test]
+    fn opening_the_db_rekeys_and_dedupes_accounts() {
+        let path = std::env::temp_dir().join("limusic-accounts-rekey-test.sqlite");
+        std::fs::remove_file(&path).ok();
+        let canonical = account_key("SAPISID=aaa").unwrap();
+        {
+            let d = Db::open(&path).unwrap();
+            let conn = d.0.lock().unwrap();
+            // Two accounts under stale ids; only one of them also has a canonical row.
+            for (id, cookie, added_at) in [
+                ("ga-staleaaa", "SAPISID=aaa", 100),
+                (canonical.as_str(), "SAPISID=aaa", 500),
+                ("ga-stalebbb", "SAPISID=bbb", 200),
+            ] {
+                conn.execute(
+                    "INSERT INTO accounts(id, session_cookie, data_sync_id, \
+                     selected_identity_json, account_json, visitor_data, added_at) \
+                     VALUES(?1, ?2, NULL, NULL, NULL, NULL, ?3)",
+                    rusqlite::params![id, cookie, added_at],
+                )
+                .unwrap();
+            }
+            conn.execute(
+                "INSERT INTO settings(key, value) VALUES('active_account', 'ga-stalebbb')",
+                [],
+            )
+            .unwrap();
+        }
+        {
+            let d = Db::open(&path).unwrap();
+            let accounts = d.list_accounts();
+            assert_eq!(accounts.len(), 2, "the duplicate of SAPISID=aaa is merged away");
+            let a = d.get_account(&canonical).unwrap();
+            assert_eq!(a.added_at, 100, "the surviving row keeps the earlier place in the list");
+            let b = account_key("SAPISID=bbb").unwrap();
+            assert!(d.get_account(&b).is_some(), "a stale id with no canonical row is moved");
+            assert_eq!(
+                d.get_setting("active_account").as_deref(),
+                Some(b.as_str()),
+                "the active pointer follows the move"
+            );
+        }
+        std::fs::remove_file(&path).ok();
+    }
+
     /// Databases written before multi-account migrate their single session into `accounts` once.
     #[test]
     fn opening_the_db_migrates_the_legacy_session() {
@@ -1123,12 +1240,15 @@ mod tests {
         assert_eq!(d.get_setting("account_json").as_deref(), Some(r#"{"name":"Channel A"}"#));
         assert_eq!(d.get_setting("session_cookie").as_deref(), Some("SAPISID=cookie-a"));
 
-        d.set_pending_auth_selection("SAPISID=cookie-b").unwrap();
+        d.set_pending_auth_selection("SAPISID=cookie-b", None).unwrap();
         assert_eq!(d.get_setting("session_cookie").as_deref(), Some("SAPISID=cookie-b"));
         assert_eq!(d.get_setting("selected_identity_json"), None);
         assert_eq!(d.get_setting("data_sync_id"), None);
         assert_eq!(d.get_setting("account_json"), None);
         assert_eq!(d.get_setting("account_selection_pending").as_deref(), Some("true"));
+
+        d.set_pending_auth_selection("SAPISID=cookie-c", Some("ga-c")).unwrap();
+        assert_eq!(d.get_setting("active_account").as_deref(), Some("ga-c"));
 
         d.set_auth_identity(
             "SAPISID=cookie-b",
