@@ -120,14 +120,22 @@
 	}
 
 	async function pickAppIcon() {
-		const picked = await open({
-			title: t('settings.themes.app_icon_dialog'),
-			filters: [{ name: t('settings.themes.app_icon_filter'), extensions: ['png'] }]
-		});
-		if (typeof picked !== 'string') return;
 		try {
+			const picked = await open({
+				title: t('settings.themes.app_icon_dialog'),
+				filters: [{ name: t('settings.themes.app_icon_filter'), extensions: ['png'] }]
+			});
+			if (typeof picked !== 'string') return;
 			await chooseAppIcon(picked);
 			toast.success(t('toasts.app_icon_set'));
+		} catch (e) {
+			toast.error(String(e));
+		}
+	}
+
+	async function resetAppIcon() {
+		try {
+			await chooseAppIcon(null);
 		} catch (e) {
 			toast.error(String(e));
 		}
@@ -1008,7 +1016,7 @@
 	<div class="flex shrink-0 items-center gap-2">
 		<img src={appIcon.src} alt="" class="size-7 rounded" />
 		<Button variant="outline" size="sm" onclick={pickAppIcon}>{t('settings.themes.app_icon_pick')}</Button>
-		<Button variant="ghost" size="sm" onclick={() => chooseAppIcon(null)}>{t('common.reset')}</Button>
+		<Button variant="ghost" size="sm" onclick={resetAppIcon}>{t('common.reset')}</Button>
 	</div>
 {/snippet}
 

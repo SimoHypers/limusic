@@ -340,6 +340,14 @@ pub async fn set_app_icon(app: tauri::AppHandle, path: Option<String>) -> Result
     let dest = crate::appicon::path(&app).ok_or("no app data directory")?;
     match path {
         Some(src) => {
+            // `from_path` reads and decodes the whole file, so bound it first: the dimension
+            // check below only runs once a 500 MB PNG has already been unpacked into memory.
+            let len = std::fs::metadata(&src)
+                .map_err(|e| format!("couldn't read that PNG: {e}"))?
+                .len();
+            if len > 16 * 1024 * 1024 {
+                return Err("that file is too big; use a PNG under 16 MB".into());
+            }
             // Decoding it here is the validation. Storing a file the icon loader can't read would
             // fail silently at every launch instead, with the old icon still showing.
             let img = tauri::image::Image::from_path(&src)
@@ -356,11 +364,24 @@ pub async fn set_app_icon(app: tauri::AppHandle, path: Option<String>) -> Result
             if let Some(dir) = dest.parent() {
                 std::fs::create_dir_all(dir).map_err(|e| format!("couldn't save the icon: {e}"))?;
             }
-            std::fs::copy(&src, &dest).map_err(|e| format!("couldn't save the icon: {e}"))?;
+            // Copy beside the destination and rename over it. `fs::copy` truncates the old file
+            // before writing, so a failure part way through would leave a half-written PNG that
+            // every later launch still treats as the custom icon.
+            let tmp = dest.with_extension("png.tmp");
+            std::fs::copy(&src, &tmp)
+                .and_then(|_| std::fs::rename(&tmp, &dest))
+                .map_err(|e| {
+                    let _ = std::fs::remove_file(&tmp);
+                    format!("couldn't save the icon: {e}")
+                })?;
         }
-        None => {
-            let _ = std::fs::remove_file(&dest);
-        }
+        None => match std::fs::remove_file(&dest) {
+            Ok(()) => {}
+            // Already gone is the state the caller asked for; anything else means the custom icon
+            // is still on disk and `apply` below would just put it back.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("couldn't remove the icon: {e}")),
+        },
     }
     crate::appicon::apply(&app);
     Ok(())
