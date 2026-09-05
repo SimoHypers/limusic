@@ -45,6 +45,17 @@ offline. If you touch a lyrics provider, run the ignored ones: a provider whose
 endpoint has changed returns "no lyrics" rather than an error, so it looks
 exactly like a track that simply has none.
 
+On macOS the test binaries link libmpv just like the app does, so they need the
+same `LIBRARY_PATH` as the build or they fail to link with
+`ld: library 'mpv' not found`:
+
+```bash
+export LIBRARY_PATH="$(brew --prefix)/lib:$LIBRARY_PATH"
+```
+
+See [docs/BUILD-PLATFORMS.md](docs/BUILD-PLATFORMS.md) for the rest of the macOS
+setup.
+
 ## Pull requests
 
 - **Open from a branch, not your fork's `master`.** It keeps your default branch

@@ -242,8 +242,39 @@ jobs:
             -s "$BREW_PREFIX/lib" < /dev/null
           echo "bundled $(ls "$APP/Contents/Frameworks" | wc -l | tr -d ' ') libraries"
 
+      # dylibbundler rewrites EVERY LC_RPATH it finds to the same -p prefix, and Homebrew's libmpv
+      # ships two of them (the Xcode Swift toolchain and /usr/lib/swift). Both become
+      # "@executable_path/../Frameworks/", and dyld refuses to load a Mach-O that lists one rpath
+      # twice: `Library not loaded: ... Reason: duplicate LC_RPATH`. The app then dies the instant
+      # it launches, on every machine including this runner, while `otool -L` stays perfectly clean
+      # -- which is exactly why the Homebrew guard below cannot see it.
+      - name: Drop the duplicate rpaths dylibbundler leaves behind
+        run: |
+          set -euo pipefail
+          APP=target/release/bundle/macos/limusic.app
+          find "$APP" -type f -print0 | while IFS= read -r -d '' f; do
+            # `otool -l` on a non-Mach-O file just prints nothing useful, so no file-type test is
+            # needed; the awk below yields no rpaths and the inner loop does nothing.
+            #
+            # [[:space:]], not \s, for the same BSD-grep/awk reason as the guard further down.
+            otool -l "$f" 2>/dev/null \
+              | awk '/LC_RPATH/{g=1} g&&/^[[:space:]]*path /{print $2; g=0}' \
+              | sort | uniq -c | while read -r n rp; do
+                  [ "$n" -gt 1 ] || continue
+                  # -delete_rpath removes ONE matching entry per call, so repeat it n-1 times and
+                  # leave the last copy in place.
+                  echo "${f#$APP/}: dropping $((n - 1)) duplicate rpath(s) $rp"
+                  i=1
+                  while [ "$i" -lt "$n" ]; do
+                    install_name_tool -delete_rpath "$rp" "$f"
+                    i=$((i + 1))
+                  done
+                done
+          done
+          echo "rpath tables deduplicated"
+
       # Ad-hoc signature. Not an Apple Developer identity (see the header), but arm64 macOS will not
-      # execute a Mach-O with no valid signature at all, and every install-name rewrite above
+      # execute a Mach-O with no valid signature at all, and every install-name and rpath rewrite
       # invalidated the one the linker put there. This is the difference between an app that opens
       # and one that dies with "Killed: 9".
       - name: Re-sign the bundle
@@ -252,6 +283,29 @@ jobs:
           APP=target/release/bundle/macos/limusic.app
           codesign --force --deep --sign - "$APP"
           codesign --verify --deep --strict --verbose=2 "$APP"
+
+      # Regression guard for the dedupe step above, placed after the re-sign so it inspects the
+      # bundle in exactly the state that gets archived. A duplicate LC_RPATH is invisible to
+      # `otool -L` and to `codesign --verify`, so without this check the first symptom is the
+      # shipped .dmg refusing to start on every user's Mac.
+      - name: Check no Mach-O lists a duplicate rpath
+        run: |
+          set -euo pipefail
+          APP=target/release/bundle/macos/limusic.app
+          # `|| true` for the same reason as the Homebrew guard: uniq -d exits 0 but the awk
+          # pipeline must not be allowed to abort the command substitution on a clean file.
+          DUPES="$(find "$APP" -type f -print0 | while IFS= read -r -d '' f; do
+            otool -l "$f" 2>/dev/null \
+              | awk '/LC_RPATH/{g=1} g&&/^[[:space:]]*path /{print $2; g=0}' \
+              | sort | uniq -d | sed "s|^|${f#$APP/} <- |" || true
+          done)"
+          if [ -n "$DUPES" ]; then
+            echo "::error::these Mach-O files list the same rpath twice, so dyld refuses to load them:"
+            echo "$DUPES"
+            echo "The dedupe step above should have removed these. Did dylibbundler run after it?"
+            exit 1
+          fi
+          echo "every rpath table is free of duplicates"
 
       # The regression test for this workflow, and the only one available without a Mac in hand:
       # nothing in the bundle may still point at Homebrew. A single missed dependency is an app that
