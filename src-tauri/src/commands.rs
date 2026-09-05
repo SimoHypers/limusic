@@ -342,9 +342,8 @@ pub async fn set_app_icon(app: tauri::AppHandle, path: Option<String>) -> Result
         Some(src) => {
             // `from_path` reads and decodes the whole file, so bound it first: the dimension
             // check below only runs once a 500 MB PNG has already been unpacked into memory.
-            let len = std::fs::metadata(&src)
-                .map_err(|e| format!("couldn't read that PNG: {e}"))?
-                .len();
+            let len =
+                std::fs::metadata(&src).map_err(|e| format!("couldn't read that PNG: {e}"))?.len();
             if len > 16 * 1024 * 1024 {
                 return Err("that file is too big; use a PNG under 16 MB".into());
             }
@@ -368,12 +367,10 @@ pub async fn set_app_icon(app: tauri::AppHandle, path: Option<String>) -> Result
             // before writing, so a failure part way through would leave a half-written PNG that
             // every later launch still treats as the custom icon.
             let tmp = dest.with_extension("png.tmp");
-            std::fs::copy(&src, &tmp)
-                .and_then(|_| std::fs::rename(&tmp, &dest))
-                .map_err(|e| {
-                    let _ = std::fs::remove_file(&tmp);
-                    format!("couldn't save the icon: {e}")
-                })?;
+            std::fs::copy(&src, &tmp).and_then(|_| std::fs::rename(&tmp, &dest)).map_err(|e| {
+                let _ = std::fs::remove_file(&tmp);
+                format!("couldn't save the icon: {e}")
+            })?;
         }
         None => match std::fs::remove_file(&dest) {
             Ok(()) => {}
