@@ -433,13 +433,38 @@ pub async fn sign_out(state: St<'_>) -> Result<(), String> {
     Ok(())
 }
 
-/// Open the in-app Google sign-in webview (context/15 Path A). Completes asynchronously; the UI
-/// hears back via `auth-changed` (success) or `login-error`.
+// --- saved Google accounts (multi-account, context/15) ---------------------------------------
+
+/// Saved Google accounts for the account menu. Display fields only — cookies, delegated ids and
+/// visitorData never cross the Tauri boundary.
 #[tauri::command]
-pub async fn login_webview(state: St<'_>) -> Result<(), String> {
+pub async fn get_google_accounts(state: St<'_>) -> Result<Vec<serde_json::Value>, String> {
+    Ok(state.google_accounts())
+}
+
+/// Activate a saved Google account without a Google re-login. Fails if the stored cookie no
+/// longer authenticates, in which case the caller should re-sign-in with that account.
+#[tauri::command]
+pub async fn switch_google_account(state: St<'_>, id: String) -> Result<serde_json::Value, String> {
+    state.switch_google_account(&id).await
+}
+
+/// Delete a saved account. Removing the active one signs out; the others stay listed.
+#[tauri::command]
+pub async fn remove_google_account(state: St<'_>, id: String) -> Result<(), String> {
+    state.remove_google_account(&id).await;
+    Ok(())
+}
+
+/// Open the in-app Google sign-in webview (context/15 Path A). Completes asynchronously; the UI
+/// hears back via `auth-changed` (success) or `login-error`. With `add_account`, the webview
+/// opens Google's AddSession screen so a second account can be added even when the webview
+/// already holds a Google session.
+#[tauri::command]
+pub async fn login_webview(state: St<'_>, add_account: Option<bool>) -> Result<(), String> {
     let state = state.inner().clone();
     let app = state.app.clone();
-    crate::session::open_login(app, state);
+    crate::session::open_login(app, state, add_account.unwrap_or(false));
     Ok(())
 }
 

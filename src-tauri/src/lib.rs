@@ -191,6 +191,9 @@ fn raise_fd_limit() {
     }
 }
 
+/// Tauri entry point. Applies the platform boot fixes (open-fd limit, NVIDIA/WebKit env), restores
+/// the persisted session, wires every command and plugin, and runs the event loop. context/01
+/// §startup.
 pub fn run() {
     // Must happen before any webview exists: the limit is inherited by the web processes WebKit
     // forks, and cannot be raised for them afterwards.
@@ -459,16 +462,18 @@ pub fn run() {
                             let _ = st.it.account_menu(client).await;
                         }
                     }
+                    // Google rolls its short-lived tokens on the requests the app makes, so an
+                    // idle night leaves the jar to expire on its own. Half-hourly is well inside
+                    // the window and costs one request.
+                    let mut keepalive = tokio::time::interval(Duration::from_secs(30 * 60));
+                    keepalive.tick().await; // the first tick is immediate; the ping above covered it
                     loop {
                         tokio::select! {
                             _ = rejected.notified() => {
                                 session::refresh_session(app_handle.clone(), st.clone()).await;
                             }
-                            _ = rotated.notified() => {
-                                if let Some(cookie) = st.it.cookie() {
-                                    st.db.set_setting("session_cookie", &cookie);
-                                }
-                            }
+                            _ = rotated.notified() => st.persist_rotated_cookie(),
+                            _ = keepalive.tick() => st.keep_session_alive().await,
                         }
                     }
                 });
@@ -573,6 +578,9 @@ pub fn run() {
             commands::switch_account,
             commands::sign_out,
             commands::login_webview,
+            commands::get_google_accounts,
+            commands::switch_google_account,
+            commands::remove_google_account,
             commands::open_mini,
             commands::close_mini,
             commands::get_home,
