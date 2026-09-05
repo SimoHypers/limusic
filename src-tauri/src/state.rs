@@ -8,7 +8,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use innertube::{
-    AccountIdentity, AccountInfo, AudioQuality, Clients, InnerTube, SongItem, MAIN_CLIENT,
+    AccountIdentity, AccountInfo, AudioQuality, BlockList, Clients, InnerTube, SongItem,
+    MAIN_CLIENT,
 };
 use listen_protocol::{Playback, PlaybackKind, Track};
 use player::Player;
@@ -2122,12 +2123,45 @@ impl AppState {
                 return 0;
             }
         };
+        let added = self.absorb_radio(fresh, existing.clone(), gen, &seed, AUTOPLAY_BATCH).await;
+        if added > 0 {
+            return added;
+        }
+        // A radio window can come back entirely blocked. Re-requesting the same seed from the same
+        // anchor returns the same page, so escalate the way `start_radio` does: a song radio on the
+        // last track, which `fetch_radio` bounces through `automixPreviewVideoRenderer` into a
+        // different mix. Once, only when the user actually blocks anyone, so an install that has
+        // blocked nobody keeps today's exact behavior.
+        if self.generation.load(Ordering::SeqCst) != gen {
+            return 0; // user moved on; a second fetch would be thrown away too
+        }
+        if crate::blocked::list(&self.db).is_empty() {
+            return 0;
+        }
+        let song_seed = format!("RDAMVM{last_video}");
+        let Ok((fresh, seed)) = self.fetch_radio(Some(&last_video), &song_seed).await else {
+            return 0;
+        };
+        self.absorb_radio(fresh, existing, gen, &seed, AUTOPLAY_BATCH).await
+    }
+
+    /// Append a fetched radio page to the tail of the queue and run the bookkeeping that follows.
+    /// Returns how many tracks landed. The generation check lives here because every caller was on
+    /// the network right before it.
+    async fn absorb_radio(
+        self: &std::sync::Arc<Self>,
+        fresh: Vec<SongItem>,
+        existing: HashSet<String>,
+        gen: u64,
+        seed: &str,
+        cap: usize,
+    ) -> usize {
         if self.generation.load(Ordering::SeqCst) != gen {
             return 0; // user moved on while we fetched
         }
         let (added, trimmed) = {
             let mut q = self.queue.lock().await;
-            let added = merge_radio(&mut q.items, fresh, existing, AUTOPLAY_BATCH);
+            let added = merge_radio(&mut q.items, fresh, existing, cap);
             // Not while shuffle is on: `shuffle_orig` is a parallel clone of the list and rebasing
             // both consistently is a bigger change than this one. Deliberate, see plan 039.
             let trimmed = if added > 0 && q.shuffle_orig.is_none() {
@@ -2861,6 +2895,47 @@ impl AppState {
             self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
         }
         self.lt_broadcast_queue().await;
+    }
+
+    /// Drop a freshly blocked artist out of the live queue, and skip off them if they are what is
+    /// playing. Only upcoming tracks: history stays, because rewriting what you already heard is a
+    /// lie, and `remove_from_queue` refuses `current` anyway.
+    ///
+    /// ponytail: reuses `remove_from_queue` per index instead of one bulk retain, so it emits and
+    /// persists once per removed track. Blocking is a once-in-a-while click on a queue of tens, and
+    /// that function is the only place the index rebase (`current`, `played_from`,
+    /// `lookahead_loaded`, the mpv gapless entry, the LT broadcast) is written correctly. Write a
+    /// bulk version only if a real queue makes this visibly slow.
+    pub async fn purge_blocked(self: &std::sync::Arc<Self>, bl: &BlockList) -> usize {
+        if bl.is_empty() {
+            return 0;
+        }
+        let (upcoming, playing_blocked) = {
+            let q = self.queue.lock().await;
+            let upcoming: Vec<usize> = q.items[q.current.min(q.items.len())..]
+                .iter()
+                .enumerate()
+                .filter(|(off, item)| *off > 0 && bl.blocks_song(item))
+                .map(|(off, _)| q.current + off)
+                .collect();
+            (upcoming, q.items.get(q.current).is_some_and(|i| bl.blocks_song(i)))
+        };
+        // Descending: every removal shifts everything after it.
+        for i in upcoming.iter().rev() {
+            self.remove_from_queue(*i).await;
+        }
+        // After the purge, so the skip cannot land on another blocked track.
+        if playing_blocked && !self.player.is_idle() {
+            self.next_in_queue().await;
+        }
+        if !upcoming.is_empty() || playing_blocked {
+            tracing::info!(
+                removed = upcoming.len(),
+                skipped = playing_blocked,
+                "purged a blocked artist from the queue"
+            );
+        }
+        upcoming.len()
     }
 
     /// Drag-to-reorder in the queue panel: take the track at `from` and drop it at `to`. Only

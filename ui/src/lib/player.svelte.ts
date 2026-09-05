@@ -374,6 +374,37 @@ export const scanLocal = () =>
 export const addLocalFolder = (path: string) => runLocal(() => api.addLocalFolder(path));
 export const removeLocalFolder = (path: string) => runLocal(() => api.removeLocalFolder(path));
 
+// --- Blocked artists (Rust blocked.rs, plan 046) -----------------------------------------------
+// Rust owns the list: every mutator hands back the whole thing and we assign it, so there is no
+// second copy to keep in sync. Loaded at startup because the toast copy and the settings pane both
+// read it, not just whoever opens Settings.
+
+export const blocked = $state({ artists: [] as api.BlockedArtist[] });
+
+export const loadBlocked = () =>
+	api.getBlockedArtists()
+		.then((l) => (blocked.artists = l))
+		.catch(() => {});
+
+/** Block an artist. Rust also drops their upcoming tracks and skips off them if one is playing. */
+export async function blockArtist(id: string | undefined, name: string) {
+	try {
+		blocked.artists = await api.blockArtist(id, name);
+		toast(t('toasts.blocked_artist', { name }));
+	} catch (e) {
+		toast(String(e));
+	}
+}
+
+export async function unblockArtist(entry: api.BlockedArtist) {
+	try {
+		blocked.artists = await api.unblockArtist(entry.id ?? entry.name);
+		toast(t('toasts.unblocked_artist', { name: entry.name }));
+	} catch (e) {
+		toast(String(e));
+	}
+}
+
 // --- Personalization: the Shortcuts grid, sidebar pins, play recency (see personal.ts) ----------
 // The Shortcuts grid holds what the user puts in it, plus the one tile the app suggests (On
 // Repeat, via `seedOnRepeatPick`). See `personal.ts`.
@@ -1231,6 +1262,7 @@ export function initApp(mini = false): () => void {
 	// Scan the local folders once at startup: it seeds the Library's Local tab and, more to the
 	// point, prunes shortcuts for music that was deleted while the app was closed.
 	scanLocal();
+	loadBlocked();
 	// Seed the Listen Together state (server URL, any active room after a UI reload).
 	api.ltGetState().then(applyLtState).catch(() => {});
 	return teardown;

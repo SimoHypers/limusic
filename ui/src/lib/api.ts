@@ -496,6 +496,19 @@ export const addLocalFolder = (path: string) => invoke<LocalLibrary>('add_local_
 export const removeLocalFolder = (path: string) =>
 	invoke<LocalLibrary>('remove_local_folder', { path });
 
+// --- blocked artists (blocked.rs, plan 046) ---------------------------------------------------
+/** One entry in the block list. `id` is the channel browseId when the blocked row linked one. */
+export interface BlockedArtist {
+	id?: string;
+	name: string;
+}
+export const getBlockedArtists = () => invoke<BlockedArtist[]>('get_blocked_artists');
+/** Blocks the artist and returns the new list. Rust also drops them out of the live queue. */
+export const blockArtist = (id: string | undefined, name: string) =>
+	invoke<BlockedArtist[]>('block_artist', { id, name });
+/** `key` is the entry's channel id when it has one, else its name. */
+export const unblockArtist = (key: string) => invoke<BlockedArtist[]>('unblock_artist', { key });
+
 // --- write actions (context/01 ✎) ----------------------------------------------------------
 /** Like, dislike, or clear the rating. YouTube's three states are mutually exclusive, so a dislike
  *  un-likes in the same call. */

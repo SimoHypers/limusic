@@ -107,6 +107,7 @@
 		"save_to_playlist": "Save to playlist",
 		"remove_from_playlist": "Remove from playlist",
 		"go_to_artist": "Go to artist",
+		"block_artist": "Block artist",
 		"go_to_album": "Go to album",
 		"start_radio": "Start radio",
 		"share": "Share",
@@ -235,6 +236,7 @@
 			"audio": "Audio",
 			"video": "Video",
 			"lyrics": "Lyrics",
+			"blocked": "Blocked artists",
 			"advanced": "Advanced",
 			"network": "Network",
 			"storage": "Storage",
@@ -320,6 +322,13 @@
 			"music_videos_hint": "Show video stream when available instead of audio only.",
 			"hide_videos": "Hide videos in search",
 			"hide_videos_hint": "Only show audio tracks and official releases in search results.",
+			"blocked_artists": "Blocked artists",
+			"blocked_artists_hint": "Blocked artists are left out of radio, autoplay and recommendations. Playlists and albums you open still play everything in them.",
+			"blocked_artists_empty": "Nobody blocked yet. Use \"Block artist\" from a track's ⋯ menu.",
+			"blocked_artists_remove": "Unblock {name}",
+			"blocked_artists_show_all": "Show all {count}",
+			"blocked_artists_show_less": "Show less",
+			"blocked_artists_copy": "Copy JSON",
 			"lyrics_provider": "Synchronized lyrics (Boidu/LRCLIB)",
 			"lyrics_provider_hint": "Fetch community-synced lyrics for active songs."
 		},
@@ -571,6 +580,9 @@
 		"already_in": "Already in {playlist}",
 		"added_songs": "Added {count} songs to {playlist}",
 		"added_one": "Added to {playlist}",
-		"app_icon_set": "App icon changed"
+		"app_icon_set": "App icon changed",
+		"blocked_copied": "Copied {count} blocked artists as JSON",
+		"blocked_artist": "Blocked {name}",
+		"unblocked_artist": "Unblocked {name}"
 	}
 }

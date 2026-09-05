@@ -2,6 +2,7 @@
 
 use serde::Serialize;
 
+use crate::blocklist;
 use crate::clients::YouTubeClient;
 use crate::models::browse::{
     self, AlbumPage, ArtistPage, BrowseItem, HistoryGroup, HomePage, PlaylistContinuation,
@@ -100,6 +101,21 @@ impl InnerTube {
         }
     }
 
+    // --- blocked artists (user list, empty by default) -----------------------------------------
+    //
+    // Same boundary and the same reason as "hide music videos", but a narrower set of surfaces:
+    // only what YouTube generates. A playlist, an album, a search and the history are things the
+    // user asked for by name, and silently dropping rows out of them is a bug, not a feature.
+    // See plan 046.
+
+    fn drop_blocked_songs(&self, items: &mut Vec<SongItem>, keep: Option<&str>) {
+        blocklist::retain_songs(items, &self.blocked(), keep);
+    }
+
+    fn drop_blocked_cards(&self, items: &mut Vec<BrowseItem>) {
+        blocklist::retain_cards(items, &self.blocked());
+    }
+
     /// Search songs only (`FILTER_SONG`). context/08.
     pub async fn search_songs(
         &self,
@@ -175,6 +191,7 @@ impl InnerTube {
         if self.hide_videos() {
             next.items.retain(|i| !i.is_video || Some(i.video_id.as_str()) == video_id);
         }
+        self.drop_blocked_songs(&mut next.items, video_id);
         Ok(next)
     }
 
@@ -323,6 +340,7 @@ impl InnerTube {
         let mut page = browse::parse_home(&value);
         for s in &mut page.sections {
             self.drop_video_cards(&mut s.items);
+            self.drop_blocked_cards(&mut s.items);
         }
         // A shelf the filter emptied (an all-videos row) would render as a bare heading.
         page.sections.retain(|s| !s.items.is_empty());
@@ -341,6 +359,7 @@ impl InnerTube {
         let mut page = browse::parse_home(&value);
         for s in &mut page.sections {
             self.drop_video_cards(&mut s.items);
+            self.drop_blocked_cards(&mut s.items);
         }
         page.sections.retain(|s| !s.items.is_empty());
         Ok(page)
@@ -445,6 +464,7 @@ impl InnerTube {
         }
         for c in &mut page.sections {
             self.drop_video_cards(&mut c.items);
+            self.drop_blocked_cards(&mut c.items);
             // YouTube lists the album you are already on under "Other versions". A card that
             // reopens the current page is noise, so drop it.
             c.items.retain(|i| i.id != browse_id);
@@ -461,9 +481,12 @@ impl InnerTube {
     ) -> Result<ArtistPage, Error> {
         let value = self.browse(client, Some(browse_id), None).await?;
         let mut page = browse::parse_artist(&value, browse_id);
+        // `top_songs` deliberately keeps everything: filtering a blocked artist off their own
+        // page is absurd, and the page is where you go to unblock them.
         self.drop_video_songs(&mut page.top_songs);
         for c in &mut page.sections {
             self.drop_video_cards(&mut c.items);
+            self.drop_blocked_cards(&mut c.items);
         }
         page.sections.retain(|c| !c.items.is_empty()); // e.g. the artist's "Videos" carousel
         Ok(page)
@@ -480,6 +503,7 @@ impl InnerTube {
         let value = self.browse(client, Some(browse_id), params).await?;
         let mut items = browse::parse_library(&value);
         self.drop_video_cards(&mut items);
+        self.drop_blocked_cards(&mut items);
         Ok(items)
     }
 

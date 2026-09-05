@@ -20,6 +20,7 @@
 		ThumbsUpIcon,
 		ThumbsDownIcon,
 		UserListIcon,
+		UserBlock01Icon,
 		Vynil02Icon,
 		DashboardSquare02Icon,
 		Share08Icon,
@@ -30,6 +31,7 @@
 	import { anchorMenu, ctxHost, fitMenu, NO_ANCHOR, toBody } from '$lib/menu';
 	import {
 		addPick,
+		blockArtist,
 		enqueue,
 		inSongLibrary,
 		songLibraryToken,
@@ -223,6 +225,24 @@
 				onclick={(e) => run(e, () => goto(`/artist/${encodeURIComponent(song.artist_id!)}`))}
 			>
 				<HugeiconsIcon icon={UserListIcon} class="h-4 w-4" /> {t('player.go_to_artist')}
+			</button>
+		{/if}
+		<!-- Not gated on `artist_id`: a row whose byline links nothing is exactly the case this
+		     exists for, and the name is a key in its own right. -->
+		{#if !isLocal && song.artists?.trim()}
+			<button
+				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+				onclick={(e) =>
+					run(e, () => {
+						// The first run when the byline has any, id and text together: pairing run[0]'s
+						// text with `artist_id` would block the wrong channel on "Unlinked & Linked".
+						const first = song.artist_runs?.[0];
+						return first
+							? blockArtist(first.id, first.text)
+							: blockArtist(song.artist_id, song.artists);
+					})}
+			>
+				<HugeiconsIcon icon={UserBlock01Icon} class="h-4 w-4" /> {t('player.block_artist')}
 			</button>
 		{/if}
 		<!-- Local files carry no album_id (local.rs). Checked here too: a queue restored from before

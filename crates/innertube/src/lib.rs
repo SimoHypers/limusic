@@ -4,12 +4,14 @@
 //! OS. It is unit-testable against JSON fixtures with no network. Cipher/PoToken/WEB_REMIX
 //! streaming are Phase 2 and deliberately absent here.
 
+pub mod blocklist;
 pub mod clients;
 pub mod endpoints;
 pub mod models;
 pub mod rustypipe_fallback;
 pub mod transport;
 
+pub use blocklist::BlockList;
 pub use clients::{
     Clients, YouTubeClient, LYRICS_TIMED_CLIENT, MAIN_CLIENT, METADATA_CLIENT,
     STREAM_FALLBACK_ORDER, UPLOAD_FALLBACK_ORDER,

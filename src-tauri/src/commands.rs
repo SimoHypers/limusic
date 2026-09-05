@@ -9,6 +9,7 @@ use innertube::{
 };
 use tauri::{Emitter, State};
 
+use crate::blocked::BlockedArtist;
 use crate::state::{AppState, ON_REPEAT_ID, ON_REPEAT_LIMIT, ON_REPEAT_WINDOW_SECS};
 
 type St<'a> = State<'a, Arc<AppState>>;
@@ -1135,6 +1136,44 @@ pub async fn delete_playlist(state: St<'_>, playlist_id: String) -> Result<(), S
 pub async fn subscribe(state: St<'_>, channel_id: String, subscribed: bool) -> Result<(), String> {
     let client = require_login(&state)?;
     state.it.subscribe(client, &channel_id, subscribed).await.map_err(|e| e.to_string())
+}
+
+// --- blocked artists (blocked.rs, plan 046) ----------------------------------------------------
+
+/// The blocked-artist list, for the settings pane.
+#[tauri::command]
+pub async fn get_blocked_artists(state: St<'_>) -> Result<Vec<BlockedArtist>, String> {
+    Ok(crate::blocked::list(&state.db))
+}
+
+/// Block an artist: persist, re-arm the fetch filter, and drop them out of the live queue. Returns
+/// the new list. `id` is the channel browseId when the caller has one (a track row often does not).
+#[tauri::command]
+pub async fn block_artist(
+    state: St<'_>,
+    id: Option<String>,
+    name: String,
+) -> Result<Vec<BlockedArtist>, String> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("an artist needs a name to be blocked".into());
+    }
+    let state = state.inner().clone();
+    let list =
+        crate::blocked::block(&state.db, BlockedArtist { id: id.filter(|i| !i.is_empty()), name });
+    let predicate = crate::blocked::block_list(&state.db);
+    state.it.set_blocked(predicate.clone());
+    // The fetch filter only covers what is fetched from here on, so the queue already on screen
+    // has to be cleaned out separately or the block reads as having done nothing.
+    state.purge_blocked(&predicate).await;
+    Ok(list)
+}
+
+#[tauri::command]
+pub async fn unblock_artist(state: St<'_>, key: String) -> Result<Vec<BlockedArtist>, String> {
+    let list = crate::blocked::unblock(&state.db, &key);
+    state.it.set_blocked(crate::blocked::block_list(&state.db));
+    Ok(list)
 }
 
 // --- local music (local.rs) ------------------------------------------------------------------

@@ -1,6 +1,7 @@
 //! Limusic Tauri app. Wires transport + player + db + orchestrator behind the command boundary.
 
 mod appicon;
+mod blocked;
 mod cipher;
 mod commands;
 mod db;
@@ -318,6 +319,7 @@ pub fn run() {
             let session = Session { locale: Locale::default(), visitor_data, data_sync_id, cookie };
             let it = InnerTube::new(session, proxy.as_deref()).expect("build InnerTube");
             it.set_hide_videos(db.get_setting("hide_videos").as_deref() == Some("true"));
+            it.set_blocked(blocked::block_list(&db));
             let clients = Clients::bundled();
 
             let mut player = Player::new(cache_dir.to_str().unwrap()).expect("init libmpv");
@@ -586,6 +588,9 @@ pub fn run() {
             commands::sync_playlist_index,
             commands::play_counts,
             commands::get_album,
+            commands::get_blocked_artists,
+            commands::block_artist,
+            commands::unblock_artist,
             commands::get_local_library,
             commands::add_local_folder,
             commands::remove_local_folder,
