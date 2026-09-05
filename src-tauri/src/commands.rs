@@ -330,6 +330,56 @@ pub async fn allow_font_file(app: tauri::AppHandle, path: String) -> Result<(), 
     Ok(())
 }
 
+// --- app icon (#173) -------------------------------------------------------------------------
+
+/// Set the app icon to a PNG the user picked, or clear it back to the bundled one with `None`.
+/// The file is copied rather than referenced (see appicon.rs).
+#[tauri::command]
+pub async fn set_app_icon(app: tauri::AppHandle, path: Option<String>) -> Result<(), String> {
+    let dest = crate::appicon::path(&app).ok_or("no app data directory")?;
+    match path {
+        Some(src) => {
+            // Decoding it here is the validation. Storing a file the icon loader can't read would
+            // fail silently at every launch instead, with the old icon still showing.
+            let img = tauri::image::Image::from_path(&src)
+                .map_err(|e| format!("couldn't read that PNG: {e}"))?;
+            // Nothing draws an icon above 256px, and every launch would pay to decode whatever
+            // was picked: a 5000px photo is a 100 MB buffer for a 16px titlebar logo.
+            if img.width() > 1024 || img.height() > 1024 {
+                return Err(format!(
+                    "that image is {}x{}; use one no larger than 1024x1024",
+                    img.width(),
+                    img.height()
+                ));
+            }
+            if let Some(dir) = dest.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| format!("couldn't save the icon: {e}"))?;
+            }
+            std::fs::copy(&src, &dest).map_err(|e| format!("couldn't save the icon: {e}"))?;
+        }
+        None => {
+            let _ = std::fs::remove_file(&dest);
+        }
+    }
+    crate::appicon::apply(&app);
+    Ok(())
+}
+
+/// The custom icon's path, granted to the asset protocol so the in-app logo can render it. `None`
+/// when the bundled icon is in use.
+#[tauri::command]
+pub async fn app_icon_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri::Manager;
+    let Some(p) = crate::appicon::custom_path(&app) else { return Ok(None) };
+    let scope = app.asset_protocol_scope();
+    scope.allow_file(&p).map_err(|e| e.to_string())?;
+    // Same symlink dance as the font grant: the scope check canonicalizes what it is asked about.
+    if let Ok(real) = p.canonicalize() {
+        let _ = scope.allow_file(real);
+    }
+    Ok(Some(p.to_string_lossy().into_owned()))
+}
+
 /// Wipe both cache tiers (URL cache + mpv on-disk audio cache). context/14.
 #[tauri::command]
 pub async fn clear_caches(state: St<'_>) -> Result<(), String> {

@@ -20,6 +20,7 @@
 		refreshArtworkAccent,
 		initTheme
 	} from '$lib/theme.svelte';
+	import { loadAppIcon } from '$lib/appicon.svelte';
 	import { thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
 	import { blockForeignDrag, dragScroll } from '$lib/dnd';
@@ -100,6 +101,8 @@
 
 	// Apply the saved accent color before the first paint (ssr=false → nothing renders until now).
 	if (browser) initTheme();
+	// The custom app icon (#173) is a file on disk, so the titlebar has to ask Rust for it.
+	if (browser) loadAppIcon();
 
 	// Wire the Tauri event bridge once for the whole app; teardown on destroy. Check for an update
 	// on every app open (silent unless one exists).

@@ -11,7 +11,7 @@
 #![cfg(target_os = "windows")]
 
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
 
 use souvlaki::MediaControlEvent;
 use tauri::{AppHandle, Manager};
@@ -29,14 +29,17 @@ use windows::Win32::UI::Shell::{
     THB_FLAGS, THB_ICON, THB_TOOLTIP, THUMBBUTTON,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateIconIndirect, GetSystemMetrics, IsWindowVisible, RegisterWindowMessageW, HICON, ICONINFO,
-    SM_CXSMICON, SM_CYSMICON, WM_COMMAND,
+    CreateIconIndirect, DestroyIcon, GetSystemMetrics, IsWindowVisible, RegisterWindowMessageW,
+    SendMessageW, HICON, ICONINFO, ICON_BIG, SM_CXSMICON, SM_CYSMICON, WM_COMMAND, WM_SETICON,
 };
 
 const ID_PREV: u32 = 1;
 const ID_PLAY_PAUSE: u32 = 2;
 const ID_NEXT: u32 = 3;
 const SUBCLASS_ID: usize = 0x11_4d_05_1c;
+
+/// The `ICON_BIG` handle we last handed the window, so the next one can free it.
+static PREV_BIG: AtomicIsize = AtomicIsize::new(0);
 
 /// `RegisterWindowMessageW("TaskbarButtonCreated")`. The shell sends it once the taskbar button
 /// exists; `ThumbBarAddButtons` before that silently does nothing, and it comes again after an
@@ -269,6 +272,14 @@ fn make_icon(w: i32, h: i32, glyph: Glyph) -> Option<HICON> {
         }
     }
 
+    icon_from_bgra(&pixels, w, h)
+}
+
+/// Premultiplied BGRA (`0xAARRGGBB` per `u32`, little-endian, so B,G,R,A in memory) to an HICON.
+fn icon_from_bgra(pixels: &[u32], w: i32, h: i32) -> Option<HICON> {
+    if pixels.len() != (w as usize) * (h as usize) {
+        return None;
+    }
     let mut bmi = BITMAPINFO::default();
     bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
     bmi.bmiHeader.biWidth = w;
@@ -297,6 +308,31 @@ fn make_icon(w: i32, h: i32, glyph: Glyph) -> Option<HICON> {
         let _ = DeleteObject(HGDIOBJ(color.0));
         let _ = DeleteObject(HGDIOBJ(mask.0));
         icon
+    }
+}
+
+/// Push a custom app icon at the taskbar button (#173).
+///
+/// This exists because `WebviewWindow::set_icon` cannot reach it: Tauri routes that to tao's
+/// `set_window_icon`, which only ever sends `WM_SETICON`/`ICON_SMALL` (Alt-Tab and the small
+/// titlebar icon). `ICON_BIG` is what the taskbar reads, tao leaves it unset, and its window class
+/// registers a null `hIcon`, so Windows falls back to the icon compiled into the .exe. Nothing but
+/// this message changes the button.
+pub fn set_big_icon(window: &tauri::WebviewWindow, img: &tauri::image::Image<'_>) {
+    let Ok(hwnd) = window.hwnd() else { return };
+    let (w, h) = (img.width() as i32, img.height() as i32);
+    let pixels = crate::appicon::premultiplied_bgra(img.rgba());
+    let Some(icon) = icon_from_bgra(&pixels, w, h) else { return };
+    unsafe {
+        SendMessageW(hwnd, WM_SETICON, Some(WPARAM(ICON_BIG as _)), Some(LPARAM(icon.0 as _)));
+    }
+    // The window owns the handle until it is replaced. Freeing the one it just let go keeps a user
+    // who tries five icons in a row from leaking five of them.
+    let old = PREV_BIG.swap(icon.0 as isize, Ordering::Relaxed);
+    if old != 0 {
+        unsafe {
+            let _ = DestroyIcon(HICON(old as _));
+        }
     }
 }
 

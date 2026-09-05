@@ -25,7 +25,7 @@
 	import LastFmIcon from './LastFmIcon.svelte';
 	import DiscordIcon from './DiscordIcon.svelte';
 	import AccountMenu from './AccountMenu.svelte';
-	import logo from '$lib/assets/favicon.svg';
+	import { appIcon } from '$lib/appicon.svelte';
 	import * as api from '$lib/api';
 	import { openMiniPlayer, playback, toast, ui } from '$lib/player.svelte';
 	import { lt } from '$lib/lt.svelte';
@@ -148,7 +148,7 @@
 
 	<div class="flex h-full items-center">
 		<!-- pointer-events-none: the logo is decoration; clicks on it should drag the window. -->
-		<img src={logo} alt="" class="pointer-events-none ml-3 mr-1 h-4 w-4" />
+		<img src={appIcon.src} alt="" class="pointer-events-none ml-3 mr-1 h-4 w-4" />
 		<!-- Bigger and heavier than the icons on the right: these are navigation, and at their
 		     weight the arrow read as decoration and got missed. -->
 		<button

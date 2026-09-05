@@ -1,5 +1,6 @@
 //! Limusic Tauri app. Wires transport + player + db + orchestrator behind the command boundary.
 
+mod appicon;
 mod cipher;
 mod commands;
 mod db;
@@ -388,6 +389,14 @@ pub fn run() {
                 tracing::warn!(error = %e, "tray init failed (continuing without tray)");
             }
 
+            // A custom app icon (#173) has to be pushed at each surface every launch, since only
+            // the .exe/.desktop icon is baked in and that one we can't touch. Guarded, rather than
+            // unconditional: with no custom icon there is nothing to restore, and on Windows
+            // `apply` would take over ICON_BIG from the .exe's own icon for no reason.
+            if appicon::custom_path(&handle).is_some() {
+                appicon::apply(&handle);
+            }
+
             // Bridge: apply Listen Together sync commands (guest playback / host seed) to AppState.
             {
                 let st = app_state.clone();
@@ -555,6 +564,8 @@ pub fn run() {
             commands::set_setting,
             commands::get_stream_clients,
             commands::clear_caches,
+            commands::set_app_icon,
+            commands::app_icon_path,
             commands::get_account,
             commands::get_account_identities,
             commands::switch_account,

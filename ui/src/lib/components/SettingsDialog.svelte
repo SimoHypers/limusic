@@ -55,6 +55,7 @@
 	} from '$lib/updater.svelte';
 	import { getVersion } from '@tauri-apps/api/app';
 	import { t, setLocale, currentLocale, LOCALES, type LocaleId } from '$lib/i18n.svelte';
+	import { appIcon, chooseAppIcon } from '$lib/appicon.svelte';
 
 	type TabId = 'general' | 'themes' | 'playback' | 'data' | 'about';
 	const TABS = $derived<{ id: TabId; label: string; hint: string; icon: typeof Settings02Icon }[]>([
@@ -113,6 +114,20 @@
 			} catch (e) {
 				toast.error(String(e));
 			}
+		}
+	}
+
+	async function pickAppIcon() {
+		const picked = await open({
+			title: t('settings.themes.app_icon_dialog'),
+			filters: [{ name: t('settings.themes.app_icon_filter'), extensions: ['png'] }]
+		});
+		if (typeof picked !== 'string') return;
+		try {
+			await chooseAppIcon(picked);
+			toast.success(t('toasts.app_icon_set'));
+		} catch (e) {
+			toast.error(String(e));
 		}
 	}
 
@@ -542,6 +557,11 @@
 									desc: t('settings.themes.roundness_hint'),
 									control: radiusSlider
 								})}
+								{@render row({
+									title: t('settings.themes.app_icon'),
+									desc: t('settings.themes.app_icon_hint'),
+									control: appIconButtons
+								})}
 							</div>
 						</section>
 
@@ -956,6 +976,14 @@
 			{t('settings.themes.font_not_installed')}
 		</p>
 	{/if}
+{/snippet}
+
+{#snippet appIconButtons()}
+	<div class="flex shrink-0 items-center gap-2">
+		<img src={appIcon.src} alt="" class="size-7 rounded" />
+		<Button variant="outline" size="sm" onclick={pickAppIcon}>{t('settings.themes.app_icon_pick')}</Button>
+		<Button variant="ghost" size="sm" onclick={() => chooseAppIcon(null)}>{t('common.reset')}</Button>
+	</div>
 {/snippet}
 
 {#snippet addFontButton()}
