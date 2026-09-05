@@ -153,7 +153,9 @@
 	"artist": {
 		"subscribe": "Inscrever-se",
 		"subscribed": "Inscrito",
-		"top_songs": "Principais músicas"
+		"top_songs": "Principais músicas",
+		"subscribe_to": "Inscrever-se em {name}",
+		"unsubscribe_from": "Cancelar inscrição de {name}"
 	},
 	"library": {
 		"title": "Biblioteca",
@@ -331,7 +333,9 @@
 			"diagnostics_saved": "Salvo",
 			"report_issue": "Abrir formulário de bug",
 			"report_issue_hint": "Abre o GitHub no navegador, com versão e sistema já preenchidos.",
-			"report_issue_button": "Reportar"
+			"report_issue_button": "Reportar",
+			"update_check_failed": "Falha ao verificar atualização: {error}",
+			"update_packaged": "Esta versão foi instalada por um gerenciador de pacotes. Atualize-a da mesma forma."
 		}
 	},
 	"dialogs": {

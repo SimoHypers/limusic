@@ -153,7 +153,9 @@
 	"artist": {
 		"subscribe": "Abone ol",
 		"subscribed": "Abone olundu",
-		"top_songs": "En popüler şarkılar"
+		"top_songs": "En popüler şarkılar",
+		"subscribe_to": "{name} isimli sanatçıyı takip et",
+		"unsubscribe_from": "{name} isimli sanatçıyı takibi bırak"
 	},
 	"library": {
 		"title": "Kitaplık",
@@ -332,7 +334,8 @@
 			"diagnostics_saved": "Kaydedildi",
 			"report_issue": "Hata formunu aç",
 			"report_issue_hint": "GitHub tarayıcınızda açılır, sürüm ve sistem doldurulmuş olarak gelir.",
-			"report_issue_button": "Bildir"
+			"report_issue_button": "Bildir",
+			"update_check_failed": "Güncelleme denetimi başarısız oldu: {error}"
 		}
 	},
 	"dialogs": {

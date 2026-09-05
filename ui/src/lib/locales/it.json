@@ -153,7 +153,9 @@
 	"artist": {
 		"subscribe": "Iscriviti",
 		"subscribed": "Iscritto",
-		"top_songs": "Brani più ascoltati"
+		"top_songs": "Brani più ascoltati",
+		"subscribe_to": "Iscriviti a {name}",
+		"unsubscribe_from": "Disiscriviti da {name}"
 	},
 	"library": {
 		"title": "Libreria",
@@ -235,14 +237,14 @@
 			"language": "Lingua interfaccia",
 			"language_hint": "Seleziona la lingua di visualizzazione dell'interfaccia.",
 			"shortcuts_hint": "Apri le scorciatoie da tastiera con {key}",
-			"autostart": "",
-			"autostart_hint": "",
-			"close_to_tray": "",
-			"close_to_tray_hint": "",
-			"discord_rpc": "",
-			"discord_rpc_hint": "",
-			"update_banner": "",
-			"update_banner_hint": "",
+			"autostart": "Avvia all'avvio",
+			"autostart_hint": "Avvia automaticamente Limusic all'avvio del sistema.",
+			"close_to_tray": "Chiudi nel tray di sistema",
+			"close_to_tray_hint": "Mantieni Limusic in esecuzione in background quando chiudi la finestra.",
+			"discord_rpc": "Discord Rich Presence",
+			"discord_rpc_hint": "Mostra il brano attualmente in riproduzione sul tuo profilo Discord.",
+			"update_banner": "Notifiche degli aggiornamenti",
+			"update_banner_hint": "Mostra un banner quando è disponibile una nuova versione di Limusic.",
 			"proxy": "",
 			"proxy_hint": "",
 			"proxy_placeholder": "",
