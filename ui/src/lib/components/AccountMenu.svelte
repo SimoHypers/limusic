@@ -103,6 +103,9 @@
 	async function removeAccount() {
 		const account = removing;
 		if (!account) return;
+		// bits-ui's Action is a plain button (only Cancel closes the dialog), so close it here.
+		// Before the await, not after: the row disappears at once and a failure arrives as a toast.
+		confirmOpen = false;
 		busy = true;
 		try {
 			await api.removeGoogleAccount(account.id);
