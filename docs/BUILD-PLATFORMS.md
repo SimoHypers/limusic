@@ -128,7 +128,10 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
    ```bash
    brew install dylibbundler
    APP=target/release/bundle/macos/limusic.app
-   dylibbundler -cd -of -b -x "$APP/Contents/MacOS/limusic" \
+   # The executable is NOT named after the bundle: productName names the .app, the cargo package
+   # names the binary (limusic-app). Ask the bundle rather than guessing.
+   BIN="$APP/Contents/MacOS/$(plutil -extract CFBundleExecutable raw "$APP/Contents/Info.plist")"
+   dylibbundler -cd -of -b -x "$BIN" \
      -d "$APP/Contents/Frameworks" -p "@executable_path/../Frameworks" -s "$(brew --prefix)/lib"
    ```
    Check the result with `find "$APP" -type f -exec otool -L {} + | grep /opt/homebrew`. Anything
@@ -172,16 +175,17 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
    Finder (the icon bounces once and goes away), so run the binary in a terminal, where dyld says
    what it could not load:
    ```bash
-   "$APP/Contents/MacOS/limusic"
+   "$APP/Contents/MacOS/$(plutil -extract CFBundleExecutable raw "$APP/Contents/Info.plist")"
    ```
 - `bundle.macOS.minimumSystemVersion` is **14.0** because Homebrew bottles are built per macOS
   version, so whatever the CI runner ships is the floor. It tracks `runs-on` in the workflow.
 - Media keys use **MPNowPlayingInfoCenter / MPRemoteCommandCenter** (Control Center + the Now
   Playing widget). Works from the `.app` bundle; a bare binary run won't register.
-- **Login is currently broken on macOS.** `session.rs::read_login_cookies` uses `cookies_for_url`,
-  which on WKWebView matches the cookie's host exactly, so YouTube's `.youtube.com` cookies never
-  match `music.youtube.com` and the jar comes back empty. WebKitGTK does real domain matching, which
-  is why Linux is unaffected.
+- **Login works, but not via `cookies_for_url`.** WKWebView's implementation compares the cookie's
+  domain to the URL's host with `==`, so YouTube's `.youtube.com` cookies never match
+  `music.youtube.com` and the jar came back empty (no SAPISID, so sign-in gave up silently).
+  `session.rs::youtube_cookie_header` therefore domain-matches by hand. WebKitGTK matches properly,
+  which is why Linux never saw this. Fixed in d18ed4a; don't reintroduce `cookies_for_url` here.
 
 ---
 
