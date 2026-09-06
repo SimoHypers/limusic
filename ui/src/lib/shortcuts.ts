@@ -6,9 +6,20 @@ import { browser } from '$app/environment';
 import * as api from './api';
 import { cycleRepeat, np, nudgeVolume, playback, toggleMute, ui } from './player.svelte';
 
+const IS_MAC = browser && navigator.platform.startsWith('Mac');
+
 /** How this machine writes the modifier these shortcuts hang off, for anything that shows a key
  *  hint. Mac takes the bare glyph; everywhere else the `+` is part of the spelling. */
-export const MOD = browser && navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+';
+export const MOD = IS_MAC ? '⌘' : 'Ctrl+';
+
+/** macOS keeps ⌘H for the system "hide the window", so the shortcuts list answers to ⌘/ there. */
+export const HELP_KEY = IS_MAC ? '/' : 'H';
+
+/** The whole combo that opens the shortcuts list, spelled for this machine. */
+export const HELP_COMBO = `${MOD}${HELP_KEY}`;
+
+/** `HELP_KEY` as the event reports it. A letter arrives in either case; `/` only ever as itself. */
+const isHelpKey = (key: string) => key === HELP_KEY || key === HELP_KEY.toLowerCase();
 
 /** Percent per press, matching a step of the volume slider's arrow keys. */
 const VOLUME_STEP = 5;
@@ -31,16 +42,19 @@ export function initShortcuts(mini = false) {
 			e.preventDefault();
 			return;
 		}
-		if (mini && 'kKhHeE'.includes(e.key)) return;
+		if (mini && ('kKeE'.includes(e.key) || isHelpKey(e.key))) return;
+		// Out of the switch because the key is per-platform: on macOS ⌘H has to fall through
+		// untouched, so the window still hides.
+		if (isHelpKey(e.key)) {
+			ui.shortcutsOpen = !ui.shortcutsOpen;
+			e.preventDefault();
+			return;
+		}
 		switch (e.key) {
 			// Toggles, so the key that opened the palette also dismisses it.
 			case 'k':
 			case 'K':
 				ui.paletteOpen = !ui.paletteOpen;
-				break;
-			case 'h':
-			case 'H':
-				ui.shortcutsOpen = !ui.shortcutsOpen;
 				break;
 			case 'e':
 			case 'E':

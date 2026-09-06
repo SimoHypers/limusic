@@ -361,7 +361,7 @@
 		},
 		"shortcuts": {
 			"title": "Pintasan papan ketik",
-			"reopen_hint": "{mod}H menampilkan ini kembali kapan saja.",
+			"reopen_hint": "{key} menampilkan ini kembali kapan saja.",
 			"group_playback": "Pemutaran",
 			"group_general": "Umum",
 			"play_pause": "Putar atau jeda",

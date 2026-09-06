@@ -361,7 +361,7 @@
 		},
 		"shortcuts": {
 			"title": "Raccourcis clavier",
-			"reopen_hint": "{mod}H permet de rouvrir cette fenêtre à tout moment.",
+			"reopen_hint": "{key} permet de rouvrir cette fenêtre à tout moment.",
 			"group_playback": "Lecture",
 			"group_general": "Général",
 			"play_pause": "Lecture ou pause",

@@ -362,7 +362,7 @@
 		},
 		"shortcuts": {
 			"title": "Klavye Kısayolları",
-			"reopen_hint": "{mod}H ile bu pencereyi istediğiniz zaman açabilirsiniz.",
+			"reopen_hint": "{key} ile bu pencereyi istediğiniz zaman açabilirsiniz.",
 			"group_playback": "Oynatma",
 			"group_general": "Genel",
 			"play_pause": "Oynat veya duraklat",

@@ -397,7 +397,7 @@
 		},
 		"shortcuts": {
 			"title": "Keyboard shortcuts",
-			"reopen_hint": "{mod}H brings this back at any time.",
+			"reopen_hint": "{key} brings this back at any time.",
 			"group_playback": "Playback",
 			"group_general": "General",
 			"play_pause": "Play or pause",

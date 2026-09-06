@@ -1,9 +1,9 @@
 <script lang="ts">
-	// Ctrl+H: what the keyboard can do. Nothing in the chrome points at the shortcuts, so this is
+	// Ctrl+H, ⌘/ on macOS: what the keyboard can do. Nothing in the chrome points at the shortcuts, so this is
 	// where they are discoverable. It documents the zoom keys too (zoom.ts owns those) — from the
 	// outside they are the same feature, and a list that only covers half of them is worse than none.
 	import * as Dialog from '$lib/components/ui/dialog';
-	import { MOD } from '$lib/shortcuts';
+	import { HELP_COMBO, MOD } from '$lib/shortcuts';
 	import { ui } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
 
@@ -30,7 +30,7 @@
 				[t('dialogs.shortcuts.zoom_in'), `${MOD}+`],
 				[t('dialogs.shortcuts.zoom_out'), `${MOD}-`],
 				[t('dialogs.shortcuts.reset_zoom'), `${MOD}0`],
-				[t('dialogs.shortcuts.show_this_list'), `${MOD}H`]
+				[t('dialogs.shortcuts.show_this_list'), HELP_COMBO]
 			]
 		}
 	]);
@@ -40,7 +40,7 @@
 	<Dialog.Content class="sm:max-w-2xl">
 		<Dialog.Header>
 			<Dialog.Title>{t('dialogs.shortcuts.title')}</Dialog.Title>
-			<Dialog.Description>{t('dialogs.shortcuts.reopen_hint', { mod: MOD })}</Dialog.Description>
+			<Dialog.Description>{t('dialogs.shortcuts.reopen_hint', { key: HELP_COMBO })}</Dialog.Description>
 		</Dialog.Header>
 		<!-- Two columns that flow, so adding a row never means rebalancing the layout by hand. -->
 		<div class="gap-x-10 sm:columns-2">

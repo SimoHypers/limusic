@@ -21,7 +21,7 @@
 	import { Alert, AlertDescription } from '$lib/components/ui/alert';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Select from '$lib/components/ui/select';
-	import { MOD } from '$lib/shortcuts';
+	import { HELP_COMBO } from '$lib/shortcuts';
 	import { copyText } from '$lib/clipboard';
 	import * as api from '$lib/api';
 	import { blocked, prefs, ui, toast, unblockArtist } from '$lib/player.svelte';
@@ -510,7 +510,7 @@
 						>
 							<HugeiconsIcon icon={KeyboardIcon} class="h-3.5 w-3.5" />
 							<span
-								>{shortcutsHint[0]}<kbd class="font-mono font-medium">{MOD}H</kbd>{shortcutsHint[1] ??
+								>{shortcutsHint[0]}<kbd class="font-mono font-medium">{HELP_COMBO}</kbd>{shortcutsHint[1] ??
 									''}</span
 							>
 						</button>

@@ -361,7 +361,7 @@
 		},
 		"shortcuts": {
 			"title": "Atajos de teclado",
-			"reopen_hint": "{mod}H abre esto en cualquier momento.",
+			"reopen_hint": "{key} abre esto en cualquier momento.",
 			"group_playback": "Reproducción",
 			"group_general": "General",
 			"play_pause": "Reproducir o pausar",
