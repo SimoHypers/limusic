@@ -156,7 +156,7 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
    ```bash
    find "$APP" -type f -print0 | while IFS= read -r -d '' f; do
      otool -l "$f" 2>/dev/null \
-       | awk '/LC_RPATH/{g=1} g&&/^[[:space:]]*path /{print $2; g=0}' \
+       | awk '/LC_RPATH/{g=1} g&&/^[[:space:]]*path /{sub(/^[[:space:]]*path /, ""); sub(/ \(offset [0-9]+\)$/, ""); print; g=0}' \
        | sort | uniq -d | sed "s|^|${f#$APP/} <- |"
    done
    ```

@@ -257,8 +257,15 @@ jobs:
             # needed; the awk below yields no rpaths and the inner loop does nothing.
             #
             # [[:space:]], not \s, for the same BSD-grep/awk reason as the guard further down.
+            # Strip the `path ` prefix and the ` (offset N)` suffix rather than taking $2, so an
+            # rpath containing a space is not silently truncated to its first word.
+            #
+            # `otool -l` prints the load commands of every slice, so on a universal binary one
+            # legitimate rpath per architecture would count as a duplicate and -delete_rpath would
+            # then strip it from all of them. Thin arm64 only here; count per `-arch` if the Intel
+            # leg in the header ever becomes a fat build instead of a second job.
             otool -l "$f" 2>/dev/null \
-              | awk '/LC_RPATH/{g=1} g&&/^[[:space:]]*path /{print $2; g=0}' \
+              | awk '/LC_RPATH/{g=1} g&&/^[[:space:]]*path /{sub(/^[[:space:]]*path /, ""); sub(/ \(offset [0-9]+\)$/, ""); print; g=0}' \
               | sort | uniq -c | while read -r n rp; do
                   [ "$n" -gt 1 ] || continue
                   # -delete_rpath removes ONE matching entry per call, so repeat it n-1 times and
@@ -292,12 +299,14 @@ jobs:
         run: |
           set -euo pipefail
           APP=target/release/bundle/macos/limusic.app
-          # `|| true` for the same reason as the Homebrew guard: uniq -d exits 0 but the awk
-          # pipeline must not be allowed to abort the command substitution on a clean file.
+          # No `|| true` here, unlike the Homebrew guard: that one needs it because grep exits 1
+          # on every clean file, whereas uniq -d exits 0. Letting the pipeline fail is the point.
+          # A swallowed failure (otool unresolvable on some future runner image) would leave DUPES
+          # empty and pass this step over a bundle it never actually inspected.
           DUPES="$(find "$APP" -type f -print0 | while IFS= read -r -d '' f; do
             otool -l "$f" 2>/dev/null \
-              | awk '/LC_RPATH/{g=1} g&&/^[[:space:]]*path /{print $2; g=0}' \
-              | sort | uniq -d | sed "s|^|${f#$APP/} <- |" || true
+              | awk '/LC_RPATH/{g=1} g&&/^[[:space:]]*path /{sub(/^[[:space:]]*path /, ""); sub(/ \(offset [0-9]+\)$/, ""); print; g=0}' \
+              | sort | uniq -d | sed "s|^|${f#$APP/} <- |"
           done)"
           if [ -n "$DUPES" ]; then
             echo "::error::these Mach-O files list the same rpath twice, so dyld refuses to load them:"
