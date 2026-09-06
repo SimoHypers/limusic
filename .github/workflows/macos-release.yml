@@ -299,6 +299,10 @@ jobs:
         run: |
           set -euo pipefail
           APP=target/release/bundle/macos/limusic.app
+          # errexit does not reach inside a command substitution unless this is on, so without it
+          # a file whose inspection failed is skipped and the loop still reports success as long as
+          # a later file succeeds.
+          shopt -s inherit_errexit
           # No `|| true` here, unlike the Homebrew guard: that one needs it because grep exits 1
           # on every clean file, whereas uniq -d exits 0. Letting the pipeline fail is the point.
           # A swallowed failure (otool unresolvable on some future runner image) would leave DUPES
