@@ -77,7 +77,12 @@
 		"choose_channel_desc": "La biblioteca, los me gusta y las listas de reproducción usarán este canal. Puedes cambiarlo más tarde.",
 		"cancel_sign_in": "Cancelar inicio de sesión",
 		"sign_in_hint": "Inicia sesión con tu cuenta de Google para acceder a tu biblioteca y listas de reproducción de YouTube Music.",
-		"history": "Historial"
+		"history": "Historial",
+		"add_account": "Agregar cuenta",
+		"remove_account": "Quitar cuenta",
+		"remove_account_title": "¿Quitar de Limusic?",
+		"remove_account_desc": "{name} solo se quita de la lista. La cuenta de Google en sí no se ve afectada y puedes iniciar sesión con esta cuando quieras.",
+		"saved_accounts_hint": "Elige una cuenta guardada para cambiar a esta."
 	},
 	"player": {
 		"play": "Reproducir",
@@ -130,7 +135,8 @@
 		"remove_dislike": "Quitar no me gusta",
 		"add_to_playlist": "Agregar a lista de reproducción",
 		"pin_to_top": "Fijar arriba",
-		"unpin": "Desfijar"
+		"unpin": "Desfijar",
+		"block_artist": "Bloquear artista"
 	},
 	"home": {
 		"good_morning": "Buenos días",
@@ -153,7 +159,9 @@
 	"artist": {
 		"subscribe": "Suscribirse",
 		"subscribed": "Suscrito",
-		"top_songs": "Canciones principales"
+		"top_songs": "Canciones principales",
+		"subscribe_to": "Suscribirse a {name}",
+		"unsubscribe_from": "Desuscribirse de {name}"
 	},
 	"library": {
 		"title": "Biblioteca",
@@ -229,7 +237,9 @@
 			"storage": "Almacenamiento",
 			"updates": "Actualizaciones",
 			"report": "Reportar un problema",
-			"whats_new": "Novedades"
+			"whats_new": "Novedades",
+			"blocked": "Artistas bloqueados",
+			"support": "Soporte"
 		},
 		"general": {
 			"language": "Idioma de la interfaz",
@@ -247,7 +257,9 @@
 			"proxy_hint": "Enrutar todas las solicitudes de red a través de un servidor proxy personalizado.",
 			"proxy_placeholder": "http://host:puerto (vacío = ninguno)",
 			"stream_clients": "Clientes de streaming",
-			"stream_clients_hint": "Desactiva un cliente para omitirlo al resolver streams. Se sobreescribe con la variable de entorno {var}."
+			"stream_clients_hint": "Desactiva un cliente para omitirlo al resolver streams. Se sobreescribe con la variable de entorno {var}.",
+			"system_titlebar": "Usar la barra de título del sistema",
+			"system_titlebar_hint": "Deja que el sistema gestione el borde de la ventana y sus botones. Limusic mantendrá su propia barra de herramientas debajo."
 		},
 		"themes": {
 			"accent_themes": "Temas de acento",
@@ -285,7 +297,12 @@
 			"heading_font_short_hint": "Títulos de páginas y secciones.",
 			"load_font_dialog": "Cargar una fuente",
 			"font_filter": "Fuentes",
-			"experimental": "Experimental"
+			"experimental": "Experimental",
+			"app_icon": "Icono de la aplicación",
+			"app_icon_hint": "Un PNG reemplaza el icono en la barra de tareas, la bandeja y esta ventana. Los accesos directos y el administrador de archivos mantienen el icono instalado.",
+			"app_icon_pick": "Elegir…",
+			"app_icon_dialog": "Elegir un icono para la aplicación",
+			"app_icon_filter": "Imagen PNG"
 		},
 		"playback": {
 			"audio_quality": "Calidad de audio",
@@ -305,7 +322,14 @@
 			"hide_videos": "Ocultar videos en la búsqueda",
 			"hide_videos_hint": "Mostrar solo pistas de audio y lanzamientos oficiales en los resultados de búsqueda.",
 			"lyrics_provider": "Letra sincronizada (Boidu/LRCLIB)",
-			"lyrics_provider_hint": "Obtener letra sincronizada por la comunidad para las canciones activas."
+			"lyrics_provider_hint": "Obtener letra sincronizada por la comunidad para las canciones activas.",
+			"blocked_artists_empty": "Nadie bloqueado aún. Usa \"Bloquear artista\" desde el menú ⋯ de la pista.",
+			"blocked_artists_remove": "Desbloquear {name}",
+			"blocked_artists_show_all": "Mostrar los {count}",
+			"blocked_artists_show_less": "Mostrar menos",
+			"blocked_artists_copy": "Copiar JSON",
+			"blocked_artists": "Artistas bloqueados",
+			"blocked_artists_hint": "Los artistas bloqueados se excluyen de la radio, la reproducción automática y recomendaciones. Puedes seguir reproduciendo todo en las listas de reproducción y álbumes que abras."
 		},
 		"data": {
 			"clear_cache": "Limpiar caché de imágenes y streams",
@@ -331,7 +355,12 @@
 			"diagnostics_saved": "Guardado",
 			"report_issue": "Abrir el formulario de errores",
 			"report_issue_hint": "Abre GitHub en tu navegador, con la versión y el sistema rellenados.",
-			"report_issue_button": "Reportar"
+			"report_issue_button": "Reportar",
+			"update_check_failed": "Falló la búsqueda de actualizaciones: {error}",
+			"update_packaged": "Esta instalación se realizó con un gestor de paquetes. Actualízala del mismo modo.",
+			"kofi": "Cómprame un café",
+			"kofi_hint": "Limusic es gratis y seguirá siendo gratis. Ko-fi está ahí por si quieres apoyar.",
+			"kofi_button": "Abrir Ko-fi"
 		}
 	},
 	"dialogs": {
@@ -552,7 +581,11 @@
 		"already_in_all": "Los {count} ya están en {playlist}",
 		"already_in": "Ya está en {playlist}",
 		"added_songs": "Se agregaron {count} canciones a {playlist}",
-		"added_one": "Agregado a {playlist}"
+		"added_one": "Agregado a {playlist}",
+		"app_icon_set": "Icono de la aplicación actualizado",
+		"blocked_copied": "Se han copiado {count} artistas bloqueados como JSON",
+		"blocked_artist": "{name} bloqueado",
+		"unblocked_artist": "{name} desbloqueado"
 	},
 	"history": {
 		"title": "Historial",
