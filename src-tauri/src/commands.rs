@@ -1472,6 +1472,11 @@ pub fn theater_fullscreen(window: tauri::WebviewWindow, on: bool) -> Result<(), 
     }
 }
 
+#[tauri::command]
+pub fn set_mini_compact(app: tauri::AppHandle, compact: bool) -> Result<(), String> {
+    crate::mini::set_compact(&app, compact)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

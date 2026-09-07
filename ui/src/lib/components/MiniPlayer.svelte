@@ -21,7 +21,9 @@
 		MaximizeScreenIcon,
 		Mic01Icon,
 		VolumeHighIcon,
-		VolumeMute02Icon
+		VolumeMute02Icon,
+		CircleArrowExpand01Icon,
+		CircleArrowShrink01Icon
 	} from '@hugeicons/core-free-icons';
 	import { fade } from 'svelte/transition';
 	import * as api from '$lib/api';
@@ -38,12 +40,13 @@
 	import LyricsView from './LyricsView.svelte';
 	import Marquee from './Marquee.svelte';
 	import { t } from '$lib/i18n.svelte';
-
+	import { invoke } from "@tauri-apps/api/core";
 	// Which of the two the right column is showing. Local, and reset when the widget is destroyed:
 	// nothing here is worth persisting. The queue is the default because it is the cheaper view —
 	// lyrics only fetch (and run the karaoke clock) while this is 'lyrics'.
 	let tab = $state<'queue' | 'lyrics'>('queue');
 
+	let compact = $state(false);
 	const now = $derived(playback.now);
 	const shuffleOn = $derived(playback.queue.shuffle ?? false);
 	const repeat = $derived(playback.queue.repeat ?? 'off');
@@ -59,7 +62,14 @@
 			.slice(currentIndex + 1, currentIndex + 5)
 			.map((item, k) => ({ item, index: currentIndex + 1 + k }));
 	});
+	//Function to toggle miniplayer size.
+	async function toggleCompact() {
+    compact = !compact;
 
+    await invoke('set_mini_compact', {
+        compact
+    });
+}
 	// Every plain icon button. Fixed square boxes, flex-centred: left to inline layout, each glyph
 	// sits wherever its own baseline puts it and neighbours don't line up.
 	const artBtn =
@@ -107,6 +117,111 @@
 	data-tauri-drag-region="deep"
 	class="group relative flex h-screen w-screen select-none overflow-hidden rounded-2xl border border-border/60 bg-card text-foreground"
 >
+{#if compact}
+
+	<!-- Compact miniplayer -->
+	<div class="grid h-full w-full grid-cols-[80px_minmax(0,1fr)] overflow-hidden">
+
+		<!-- Album art -->
+		<div class="h-20 w-20 shrink-0 overflow-hidden">
+			{#if now?.thumbnail}
+				<img
+					src={thumb(now.thumbnail, 160)}
+					alt=""
+					class="h-full w-full object-cover"
+				/>
+			{:else}
+				<div class="flex h-full w-full items-center justify-center bg-muted">
+					<HugeiconsIcon
+						icon={MusicNote01Icon}
+						class="h-6 w-6 text-muted-foreground"
+					/>
+				</div>
+			{/if}
+		</div>
+
+		<!-- Content -->
+		<div class="relative flex min-w-0 flex-col justify-between px-3 py-2">
+
+			<!-- Track information -->
+			<div class="min-w-0 pr-6">
+				<div
+					class="truncate text-[13px] font-semibold leading-tight text-foreground"
+					title={now?.title ?? ''}
+				>
+					{now?.title ?? t('player.not_playing')}
+				</div>
+
+				<div
+					class="mt-0.5 truncate text-[11px] leading-tight text-muted-foreground"
+					title={now?.artists ?? ''}
+				>
+					{now?.artists ?? ''}
+				</div>
+			</div>
+
+			<!-- Expand / restore -->
+			<button
+				class="absolute right-2.5 top-2.5 flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+				onclick={toggleCompact}
+				aria-label="Expand mini player"
+				title="Expand mini player"
+			>
+				<HugeiconsIcon
+					icon={CircleArrowExpand01Icon}
+					class="h-3.5 w-3.5"
+				/>
+			</button>
+
+			<!-- Transport controls -->
+			<div class="flex items-center justify-center">
+				<div class="flex items-center">
+
+					<!-- Previous -->
+					<button
+						class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+						onclick={() => api.prevTrack()}
+						aria-label={t('a11y.previous')}
+					>
+						<HugeiconsIcon
+							icon={PreviousIcon}
+							class="h-4 w-4"
+						/>
+					</button>
+
+					<!-- Play / pause -->
+					<button
+						class="mx-1 flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/80"
+						onclick={() => api.togglePause()}
+						aria-label={playback.paused ? t('player.play') : t('player.pause')}
+					>
+						<HugeiconsIcon
+							icon={PauseIcon}
+							altIcon={PlayIcon}
+							showAlt={playback.paused}
+							class="h-3.5 w-3.5"
+						/>
+					</button>
+
+					<!-- Next -->
+					<button
+						class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+						onclick={() => api.nextTrack()}
+						aria-label={t('a11y.next')}
+					>
+						<HugeiconsIcon
+							icon={NextIcon}
+							class="h-4 w-4"
+						/>
+					</button>
+
+				</div>
+			</div>
+		</div>
+	</div>
+
+{:else}
+	<!--Large miniplayer-->
 	<!-- Cover art under the left half, masked so it dissolves into the card instead of ending on a
 	     seam. Keyed so a track change cross-fades. -->
 	{#key now?.videoId}
@@ -147,6 +262,15 @@
 			     heart never moves. In flow, and with no gap, so the wrapper's own box covers both —
 			     absolute-positioned with a margin, the pointer left the hover target on its way to
 			     the slider and the slider collapsed before it got there. -->
+			<button
+			class={artBtn}
+			onclick={toggleCompact}
+			aria-label="Compact mini player"
+		>
+			<HugeiconsIcon icon={CircleArrowShrink01Icon}
+				class="h-4 w-4"
+				/>
+			</button>
 			<div
 				class="flex items-center"
 				role="group"
@@ -329,4 +453,6 @@
 			</button>
 		</div>
 	</div>
-</div>
+
+{/if}
+	</div>
