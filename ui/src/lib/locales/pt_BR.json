@@ -257,7 +257,9 @@
 			"proxy_hint": "Encaminhar todas as requisições de rede por um servidor proxy personalizado.",
 			"proxy_placeholder": "http://host:porta (vazio = nenhum)",
 			"stream_clients": "Clientes de streaming",
-			"stream_clients_hint": "Desative um cliente para ignorá-lo ao resolver streams. Sobrescrito pela variável de ambiente {var}."
+			"stream_clients_hint": "Desative um cliente para ignorá-lo ao resolver streams. Sobrescrito pela variável de ambiente {var}.",
+			"system_titlebar": "Usar barra de título do sistema",
+			"system_titlebar_hint": "Deixe sua área de trabalho desenhar a moldura e os botões da janela. O Limusic mantém sua própria barra de ferramentas abaixo dela."
 		},
 		"themes": {
 			"accent_themes": "Temas de destaque",
