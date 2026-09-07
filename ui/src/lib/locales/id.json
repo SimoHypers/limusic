@@ -257,7 +257,9 @@
 			"proxy_hint": "Arahkan semua permintaan jaringan melalui server proksi kustom.",
 			"proxy_placeholder": "http://host:port (kosong = tidak ada)",
 			"stream_clients": "Klien streaming",
-			"stream_clients_hint": "Matikan klien untuk melewatinya saat memuat stream. Diabaikan jika variabel lingkungan {var} diatur."
+			"stream_clients_hint": "Matikan klien untuk melewatinya saat memuat stream. Diabaikan jika variabel lingkungan {var} diatur.",
+			"system_titlebar": "Gunakan bilah judul sistem",
+			"system_titlebar_hint": "Biarkan desktop Anda menampilkan bingkai jendela beserta tombol-tombolnya. Limusic tetap menggunakan bilah alatnya sendiri di bawahnya."
 		},
 		"themes": {
 			"accent_themes": "Tema Aksen",
