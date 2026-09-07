@@ -3,7 +3,7 @@
 	// where they are discoverable. It documents the zoom keys too (zoom.ts owns those) — from the
 	// outside they are the same feature, and a list that only covers half of them is worse than none.
 	import * as Dialog from '$lib/components/ui/dialog';
-	import { HELP_COMBO, MOD } from '$lib/shortcuts';
+	import { HELP_COMBO, MOD, MUTE_COMBO } from '$lib/shortcuts';
 	import { ui } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
 
@@ -17,7 +17,7 @@
 				[t('dialogs.shortcuts.previous_song'), `${MOD}D`],
 				[t('dialogs.shortcuts.shuffle_queue'), `${MOD}S`],
 				[t('dialogs.shortcuts.toggle_repeat'), `${MOD}R`],
-				[t('dialogs.shortcuts.mute_unmute'), `${MOD}M`],
+				[t('dialogs.shortcuts.mute_unmute'), MUTE_COMBO],
 				[t('dialogs.shortcuts.volume_up'), `${MOD}>`],
 				[t('dialogs.shortcuts.volume_down'), `${MOD}<`]
 			]

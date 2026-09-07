@@ -21,6 +21,12 @@ export const HELP_COMBO = `${MOD}${HELP_KEY}`;
 /** `HELP_KEY` as the event reports it. A letter arrives in either case; `/` only ever as itself. */
 const isHelpKey = (key: string) => key === HELP_KEY || key === HELP_KEY.toLowerCase();
 
+/** macOS keeps ⌘M for the system "minimize the window", so mute asks for ⇧ on top there. */
+export const MUTE_COMBO = IS_MAC ? `${MOD}⇧M` : `${MOD}M`;
+
+/** Mute's key, shift and all. Elsewhere ⇧ is ignored, the way it always was for these letters. */
+const isMuteKey = (e: KeyboardEvent) => (e.key === 'm' || e.key === 'M') && (!IS_MAC || e.shiftKey);
+
 /** Percent per press, matching a step of the volume slider's arrow keys. */
 const VOLUME_STEP = 5;
 
@@ -47,6 +53,13 @@ export function initShortcuts(mini = false) {
 		// untouched, so the window still hides.
 		if (isHelpKey(e.key)) {
 			ui.shortcutsOpen = !ui.shortcutsOpen;
+			e.preventDefault();
+			return;
+		}
+		// Out of the switch for the same reason, and it has to read the whole event: on macOS a
+		// bare ⌘M falls through so AppKit still minimizes, and only ⌘⇧M mutes.
+		if (isMuteKey(e)) {
+			toggleMute();
 			e.preventDefault();
 			return;
 		}
@@ -78,10 +91,6 @@ export function initShortcuts(mini = false) {
 			case 'r':
 			case 'R':
 				cycleRepeat();
-				break;
-			case 'm':
-			case 'M':
-				toggleMute();
 				break;
 			// Shift+. and Shift+, on a US layout. The unshifted keys are accepted too, so the
 			// shortcut still works on layouts that put > and < somewhere else.
