@@ -266,7 +266,9 @@
 			"proxy_hint": "Trece toate cererile de rețea printr-un server proxy personalizat.",
 			"proxy_placeholder": "http://host:port (blank = none)",
 			"stream_clients": "Client de streaming",
-			"stream_clients_hint": "Dezactivează un client pentru a-l omite la procesarea fluxurilor. Este suprascris de variabila de mediu {var}."
+			"stream_clients_hint": "Dezactivează un client pentru a-l omite la procesarea fluxurilor. Este suprascris de variabila de mediu {var}.",
+			"system_titlebar": "Folosește bara de titlu a sistemului",
+			"system_titlebar_hint": "Lăsă desktopul să păstreze cadrul ferestrei și butoanele acesteia. Limusic își păstrează propria bară de instrumente dedesubt."
 		},
 		"themes": {
 			"accent_themes": "Teme cu accent",
