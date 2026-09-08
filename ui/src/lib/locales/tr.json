@@ -77,7 +77,10 @@
 		"choose_channel_desc": "Kitaplık, beğeniler ve çalma listeleri bu kanalı kullanacak. Daha sonra tekrar değiştirebilirsiniz.",
 		"cancel_sign_in": "Oturum açmayı iptal et",
 		"sign_in_hint": "Google hesabınızla giriş yaparak YouTube Music kitaplığınıza ve çalma listelerinize ulaşabilirsiniz.",
-		"history": "Geçmiş"
+		"history": "Geçmiş",
+		"add_account": "Hesap ekle",
+		"remove_account": "Hesap sil",
+		"remove_account_title": "Limusic'ten sil?"
 	},
 	"player": {
 		"play": "Oynat",
