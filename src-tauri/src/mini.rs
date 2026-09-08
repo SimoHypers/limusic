@@ -23,9 +23,12 @@ use crate::state::AppState;
 
 pub const LABEL: &str = "mini";
 
-/// Logical size of the widget. Fixed: it's a pill, not a window you arrange.
-const W: f64 = 560.0;
-const H: f64 = 180.0;
+/// Two sizes for the widget for convenience
+const BIG_W: f64 = 560.0;
+const BIG_H: f64 = 180.0;
+
+const SMALL_W: f64 = 240.0;
+const SMALL_H: f64 = 80.0;
 /// Inset from the screen edge the first time it opens.
 const MARGIN: f64 = 24.0;
 /// Where the user last dragged it, as physical `"x,y"`. Physical because monitor geometry is, and
@@ -43,7 +46,7 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
     } else {
         let win = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
             .title("Limusic")
-            .inner_size(W, H)
+            .inner_size(BIG_W, BIG_H)
             .resizable(false)
             .decorations(false)
             .transparent(true)
@@ -134,8 +137,8 @@ fn bottom_right(app: &AppHandle, win: &WebviewWindow) -> Option<PhysicalPosition
     let area = m.work_area();
     let px = |logical: f64| (logical * m.scale_factor()).round() as i32;
     Some(PhysicalPosition::new(
-        area.position.x + area.size.width as i32 - px(W + MARGIN),
-        area.position.y + area.size.height as i32 - px(H + MARGIN),
+        area.position.x + area.size.width as i32 - px(BIG_W + MARGIN),
+        area.position.y + area.size.height as i32 - px(BIG_H + MARGIN),
     ))
 }
 
@@ -177,4 +180,14 @@ mod tests {
         assert!(!contains(primary.0, primary.1, PhysicalPosition::new(1920, 500)));
         assert!(!contains(primary.0, primary.1, PhysicalPosition::new(500, 1080)));
     }
+}
+
+//function to move between small and large window sizes
+pub fn set_compact(app: &AppHandle, compact: bool) -> Result<(), String> {
+    let win = app.get_webview_window(LABEL).ok_or_else(|| "mini player is not open".to_string())?;
+
+    let (width, height) = if compact { (SMALL_W, SMALL_H) } else { (BIG_W, BIG_H) };
+
+    win.set_size(tauri::Size::Logical(tauri::LogicalSize::new(width, height)))
+        .map_err(|e| format!("couldn't resize mini player: {e}"))
 }
