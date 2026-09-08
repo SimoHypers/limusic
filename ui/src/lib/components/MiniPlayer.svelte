@@ -64,12 +64,15 @@
 	});
 	//Function to toggle miniplayer size.
 	async function toggleCompact() {
-    compact = !compact;
+    const nextCompact = !compact;
 
     await invoke('set_mini_compact', {
-        compact
+        compact: nextCompact
     });
-}
+
+    compact = nextCompact;
+	}
+	
 	// Every plain icon button. Fixed square boxes, flex-centred: left to inline layout, each glyph
 	// sits wherever its own baseline puts it and neighbours don't line up.
 	const artBtn =
