@@ -25,6 +25,8 @@
 	import * as RadioGroup from '$lib/components/ui/radio-group';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import TrackRow from '$lib/components/TrackRow.svelte';
+	import TrackSelectionBar from '$lib/components/TrackSelectionBar.svelte';
+	import { trackSelection } from '$lib/selection.svelte';
 	import EditPlaylistDialog from '$lib/components/EditPlaylistDialog.svelte';
 	import TrackFilter, { filterTracks } from '$lib/components/TrackFilter.svelte';
 	import TrackRowSkeleton from '$lib/components/TrackRowSkeleton.svelte';
@@ -211,6 +213,8 @@
 	// The rows actually on screen: the sorted list, narrowed by the header's filter box. Identical
 	// to `sortedItems` with no query typed.
 	const shown = $derived(filterTracks(sortedItems, applied));
+	const selection = trackSelection(() => sortedItems, () => shown,
+		() => `${auth.epoch}:${id}`, () => !pl?.continuation);
 	const filtering = $derived(!!applied.trim());
 
 	// A sort has to cover the whole playlist, not the pages scrolled so far, so pull the rest in.
@@ -544,7 +548,8 @@
 	// own marker, never a fresher walk's.
 	let walkingFor: string | null = null;
 	$effect(() => {
-		if (!filtering || !pl?.continuation || walkingFor === id) return;
+		// Recover selected occurrences in the new server order before enabling bulk actions.
+		if ((!filtering && !selection.pending) || !pl?.continuation || walkingFor === id || moreError) return;
 		const pid = id;
 		walkingFor = pid;
 		loadAll().finally(() => {
@@ -879,17 +884,20 @@
 				class="p-4 transition-opacity {resorting ? 'opacity-50' : ''}"
 				aria-busy={resorting}
 			>
+				<TrackSelectionBar {selection} from={pl.title} />
 				{#if shown.length}
 					<!-- The padding stands in for the rows outside the window, so the scrollbar is the
 					     length of the whole playlist even though only ~30 rows exist.
 					     data-rows: what the scroller measures row 0's position from. -->
 					<div data-rows style="padding-top:{win.padTop}px;padding-bottom:{win.padBottom}px">
-						{#each shown.slice(win.start, win.end) as item, i (item.video_id + (win.start + i))}
+						{#each shown.slice(win.start, win.end) as item, i (JSON.stringify([item.video_id, win.start + i]))}
 							{@const n = win.start + i}
 							<!-- data-row: what the scroller measures a row's real height from. -->
 							<div data-row>
 								<TrackRow
 									song={item}
+									{selection}
+									selectionKey={selection.visibleKeys[n]}
 									index={n}
 									showPlayCount
 									active={item.video_id === nowId}

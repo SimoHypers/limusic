@@ -16,6 +16,8 @@
         BookmarkCheck02Icon,
     } from "@hugeicons/core-free-icons";
     import TrackRow from "$lib/components/TrackRow.svelte";
+    import TrackSelectionBar from "$lib/components/TrackSelectionBar.svelte";
+    import { trackSelection } from "$lib/selection.svelte";
     import TrackFilter, {
         filterTracks,
     } from "$lib/components/TrackFilter.svelte";
@@ -64,6 +66,7 @@
     const id = $derived(page.params.id ?? "");
     // The rows actually on screen. Identical to `album.items` with no query typed.
     const shown = $derived(filterTracks(album?.items ?? [], query));
+    const selection = trackSelection(() => album?.items ?? [], () => shown, () => `${auth.epoch}:${id}`);
     // A local album has no YouTube playlist behind it: nothing to save or add to a playlist.
     // Playing, shuffling and Shortcuts all work exactly the same.
     const isLocal = $derived(api.isLocalId(id));
@@ -468,9 +471,12 @@
 
     <!-- Numbered track list -->
     <div class="content-in p-6 pt-2">
-        {#each shown as item, i (item.video_id + i)}
+        <TrackSelectionBar {selection} from={album.title} />
+        {#each shown as item, i (JSON.stringify([item.video_id, i]))}
             <TrackRow
                 song={item}
+                {selection}
+                selectionKey={selection.visibleKeys[i]}
                 index={i}
                 hideThumb
                 showPlayCount

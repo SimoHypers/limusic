@@ -1,4 +1,20 @@
 {
+	"selection": {
+		"actions": "Selected track actions",
+		"count": "{count} selected",
+		"hidden": "{count} hidden by the filter",
+		"hint": "Select tracks with the checkboxes or Ctrl/Cmd-click. Shift-click selects a range.",
+		"select_all": "Select all loaded matches ({count})",
+		"clear": "Clear selection",
+		"track": "{title}. Space to select, Enter to play.",
+		"track_guest": "{title}. Space to select, Enter to add to the session queue.",
+		"select_track": "Select {title}",
+		"lost": "{count} selections were cleared because those entries were removed or could not be matched after refresh.",
+		"pending": "Waiting for the remaining playlist pages to find {count} selected tracks. Retry loading the playlist if a page fails.",
+		"local_playlist": "Local files cannot be added to a YouTube playlist.",
+		"account_changed": "Stopped adding songs because the account changed.",
+		"playlist_partial": "Added {added} to {playlist}; {duplicates} already there; {remaining} unconfirmed. {error}"
+	},
 	"common": {
 		"loading": "Loading...",
 		"retry": "Retry",
