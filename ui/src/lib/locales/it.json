@@ -77,7 +77,12 @@
 		"choose_channel_desc": "La libreria, i Mi piace e le playlist utilizzeranno questo canale. Puoi cambiarlo di nuovo in seguito.",
 		"cancel_sign_in": "Annulla accesso",
 		"sign_in_hint": "Accedi con il tuo account Google per accedere alla tua libreria e alle tue playlist di YouTube Music.",
-		"history": "Cronologia"
+		"history": "Cronologia",
+		"add_account": "Aggiungi account",
+		"remove_account": "Rimuovi account",
+		"remove_account_title": "Rimuovi da Limusic?",
+		"remove_account_desc": "{name} verrà rimosso solo da questo elenco. L'account Google non subirà modifiche e potrai accedere di nuovo con lo stesso account in qualsiasi momento.",
+		"saved_accounts_hint": "Seleziona un account salvato per cambiare account."
 	},
 	"player": {
 		"play": "Riproduci",
@@ -130,7 +135,8 @@
 		"remove_dislike": "Rimuovi non mi piace",
 		"add_to_playlist": "Aggiungi alla playlist",
 		"pin_to_top": "Fissa in alto",
-		"unpin": "Rimuovi fissato"
+		"unpin": "Rimuovi fissato",
+		"block_artist": "Blocca l'artista"
 	},
 	"home": {
 		"good_morning": "Buon giorno",
@@ -231,7 +237,8 @@
 			"storage": "Memoria",
 			"updates": "Aggiornamenti",
 			"report": "Segnala un problema",
-			"whats_new": "Novità"
+			"whats_new": "Novità",
+			"blocked": "Artisti bloccati"
 		},
 		"general": {
 			"language": "Lingua interfaccia",
