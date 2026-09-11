@@ -8,6 +8,7 @@
 	import { t } from '$lib/i18n.svelte';
 	import {
 		ui,
+		auth,
 		toast,
 		bumpLibraryTrackCount,
 		notePlaylistAdd,
@@ -55,27 +56,53 @@
 	}
 
 	async function pick(pl: BrowseItem) {
+		if (ui.addPending) return;
 		const songs = ui.addSongs;
 		close();
 		if (!songs?.length) return;
+		if (songs.some((s) => api.isLocalId(s.video_id))) {
+			toast.error(t('selection.local_playlist'));
+			return;
+		}
+		const epoch = auth.epoch;
+		ui.addPending = true;
+		const added: typeof songs = [];
+		const confirmed: typeof songs = [];
+		let failure: string | null = null;
 		try {
-			// Sequential — a whole album is a handful of requests; don't hammer the API in parallel.
+			// Sequential — bulk selection can contain thousands of rows; avoid concurrent writes.
 			// YouTube refuses a track the playlist already holds, so only the ones it accepted get
 			// counted and drawn: an optimistic row for a refused add is a row that can never be
 			// removed (no setVideoId behind it) until the app restarts.
-			const added: typeof songs = [];
 			for (const song of songs) {
-				if (await api.addToPlaylist(pl.id, song.video_id)) added.push(song);
+				if (epoch !== auth.epoch) break;
+				try {
+					if (await api.addToPlaylist(pl.id, song.video_id)) added.push(song);
+					confirmed.push(song);
+				} catch (e) {
+					failure = String(e);
+					break;
+				}
 			}
-			const dupes = songs.length - added.length;
+			// A switched account owns different caches. Stop the batch and never patch those caches.
+			if (epoch !== auth.epoch) {
+				toast.error(t('selection.account_changed'));
+				return;
+			}
+			const dupes = confirmed.length - added.length;
 			// Every song, not just the accepted ones: a refusal means the playlist already holds it,
 			// so its "saved" mark is right either way.
-			noteSavedIn(pl.id, songs.map((s) => s.video_id));
+			noteSavedIn(pl.id, confirmed.map((s) => s.video_id));
 			if (added.length) {
 				bumpLibraryTrackCount(pl.id, added.length);
 				notePlaylistAdd(pl.id, added);
 			}
-			if (!added.length) {
+			if (failure !== null) {
+				toast.error(t('selection.playlist_partial', {
+					added: added.length, playlist: pl.title, duplicates: dupes,
+					remaining: songs.length - confirmed.length, error: failure
+				}));
+			} else if (!added.length) {
 				toast(
 					dupes > 1
 						? t('toasts.already_in_all', { count: dupes, playlist: pl.title })
@@ -94,6 +121,8 @@
 			}
 		} catch (e) {
 			toast.error(String(e));
+		} finally {
+			ui.addPending = false;
 		}
 	}
 </script>

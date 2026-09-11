@@ -33,6 +33,8 @@ const typing = (t: EventTarget | null) =>
  *  chrome that window doesn't render (palette, shortcut list, now-playing view). */
 export function initShortcuts(mini = false) {
 	const onKey = (e: KeyboardEvent) => {
+		// Focused controls (including track selection) have already handled this key.
+		if (e.defaultPrevented) return;
 		if (!e.ctrlKey && !e.metaKey) {
 			// Space also activates a focused button and scrolls the page, so it is swallowed either
 			// way once we know it isn't being typed.

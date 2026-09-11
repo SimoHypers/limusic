@@ -1025,6 +1025,7 @@ export async function startRadio(
 // Transient UI state for write actions.
 export const ui = $state({
 	addSongs: null as SongItem[] | null, // add-to-playlist picker target(s), full items for optimistic appends
+	addPending: false, // one playlist batch at a time, even after the picker closes
 	share: null as BrowseItem | null, // the share modal's target
 	toast: null as Toast | null,
 	settingsOpen: false, // the settings modal
@@ -1079,11 +1080,12 @@ export function openShare(item: BrowseItem) {
 }
 
 export function openAddToPlaylist(song: SongItem) {
-	ui.addSongs = [song];
+	openAddManyToPlaylist([song]);
 }
 
 /** Open the picker to add several tracks at once (e.g. a whole album). */
 export function openAddManyToPlaylist(songs: SongItem[]) {
+	if (ui.addPending) return;
 	ui.addSongs = songs.length ? songs : null;
 }
 

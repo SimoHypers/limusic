@@ -18,6 +18,7 @@
 	import ArtistLine from './ArtistLine.svelte';
 	import ExplicitIcon from './ExplicitIcon.svelte';
 	import { t } from '$lib/i18n.svelte';
+	import type { TrackSelection } from '$lib/selection.svelte';
 
 	let {
 		song,
@@ -31,7 +32,9 @@
 		onAdd,
 		onRemove,
 		removeLabel = t('player.remove_from_playlist'),
-		inLibraryList = false
+		inLibraryList = false,
+		selection,
+		selectionKey
 	}: {
 		song: SongItem;
 		/** Position badge when set (playlist/queue); omitted for flat search results. */
@@ -64,11 +67,30 @@
 		/** Adds a remove menu item (label via `removeLabel`). */
 		onRemove?: () => void;
 		removeLabel?: string;
+		/** Optional list-owned selection; the key identifies this occurrence, not the song. */
+		selection?: TrackSelection;
+		selectionKey?: string;
 	} = $props();
 
 	// In a session as guest, clicking a song adds it to the shared queue instead of playing it —
 	// reflect that in the hover icon + label so the row doesn't lie.
 	const guestAdd = $derived(lt.role === 'guest');
+	const selectable = $derived(!!selection && selectionKey !== undefined);
+	const selected = $derived(selection?.has(selectionKey) ?? false);
+	const selecting = $derived(selectable && (selection?.count ?? 0) > 0);
+
+	function select(range = false) {
+		if (selection && selectionKey !== undefined) selection.toggle(selectionKey, range);
+	}
+
+	function clickRow(e: MouseEvent) {
+		if (selectable && (e.ctrlKey || e.metaKey || e.shiftKey || selecting)) {
+			e.preventDefault();
+			select(e.shiftKey);
+			return;
+		}
+		onplay();
+	}
 
 	// Digits and colons, nothing else. A queue saved before the parser stopped reading a name with a
 	// colon in it ("Cast of EPIC: The Musical") as a length still holds those strings, and printing
@@ -89,7 +111,27 @@
 	// Only when the key lands on the row itself — keydowns bubble up from nested interactive
 	// elements (⋯ menu, artist link), and hijacking those would play the row instead.
 	function onKey(e: KeyboardEvent) {
-		if (e.target !== e.currentTarget) return;
+		if (e.target !== e.currentTarget) {
+			if (e.key === ' ') e.stopPropagation();
+			return;
+		}
+		if (selection && selectable) {
+			if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+				e.preventDefault();
+				e.stopPropagation();
+				selection.selectAll();
+				return;
+			}
+			if (e.key === 'Escape' || e.key === ' ') {
+				e.preventDefault();
+				e.stopPropagation();
+				if (!e.repeat) {
+					if (e.key === 'Escape') selection.clear();
+					else select(e.shiftKey);
+				}
+				return;
+			}
+		}
 		if (e.key === 'Enter' || e.key === ' ') {
 			e.preventDefault();
 			onplay();
@@ -128,13 +170,38 @@
 	role="button"
 	tabindex="0"
 	data-ctx
-	onclick={onplay}
+	onclick={clickRow}
 	onkeydown={onKey}
-	aria-label={guestAdd ? `Add ${song.title} to the session queue` : `Play ${song.title}`}
-	class="group flex w-full cursor-pointer items-center gap-3 rounded-lg p-2 transition-colors hover:bg-accent/10 {active
+	data-selection-key={selectionKey}
+	data-selected={selectable ? selected : undefined}
+	aria-label={selectable ? t(guestAdd ? 'selection.track_guest' : 'selection.track', { title: song.title }) : guestAdd ? `Add ${song.title} to the session queue` : `Play ${song.title}`}
+	class="group flex w-full cursor-pointer items-center gap-3 rounded-lg p-2 transition-colors hover:bg-accent/10 {selected
+		? 'bg-primary/10 ring-1 ring-inset ring-primary/40'
+		: active
 		? 'bg-accent/10'
 		: ''} {compact ? '' : '[content-visibility:auto] [contain-intrinsic-size:auto_3.5rem]'}"
 >
+	{#if selectable}
+		<input
+			type="checkbox"
+			checked={selected}
+			aria-label={t('selection.select_track', { title: song.title })}
+			class="h-4 w-4 shrink-0 cursor-pointer accent-primary"
+			onclick={(e) => {
+				e.stopPropagation();
+				select(e.shiftKey);
+				// Shift can keep an already selected endpoint selected. Its derived boolean then
+				// stays unchanged, so restore the checkbox the browser just toggled off.
+				e.currentTarget.checked = selection!.has(selectionKey);
+			}}
+			onkeydown={(e) => {
+				if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); selection!.clear(); }
+				if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+					e.preventDefault(); e.stopPropagation(); selection!.selectAll();
+				}
+			}}
+		/>
+	{/if}
 	<div class="flex min-w-0 flex-1 items-center gap-3">
 		<div class="flex min-w-0 shrink-0 items-center gap-3">
 			{#if index !== undefined}
@@ -143,10 +210,10 @@
 						? 'text-primary'
 						: 'text-muted-foreground'}"
 				>
-					<span class="group-hover:opacity-0">{index + 1}</span>
+					<span class={selecting ? '' : 'group-hover:opacity-0'}>{index + 1}</span>
 					<HugeiconsIcon
 						icon={guestAdd ? PlayListAddIcon : PlayIcon}
-						class="absolute inset-0 m-auto h-3.5 w-3.5 opacity-0 group-hover:opacity-100"
+						class="absolute inset-0 m-auto h-3.5 w-3.5 opacity-0 {selecting ? '' : 'group-hover:opacity-100'}"
 					/>
 				</span>
 			{/if}
