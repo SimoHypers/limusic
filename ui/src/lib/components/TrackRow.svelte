@@ -19,6 +19,7 @@
 	import ExplicitIcon from './ExplicitIcon.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import type { TrackSelection } from '$lib/selection.svelte';
+	import { Checkbox } from './ui/checkbox';
 
 	let {
 		song,
@@ -182,19 +183,21 @@
 		: ''} {compact ? '' : '[content-visibility:auto] [contain-intrinsic-size:auto_3.5rem]'}"
 >
 	{#if selectable}
-		<input
-			type="checkbox"
+		<Checkbox
 			checked={selected}
 			aria-label={t('selection.select_track', { title: song.title })}
-			class="h-4 w-4 shrink-0 cursor-pointer accent-primary"
+			class="cursor-pointer"
 			onclick={(e) => {
+				// The list owns checked state, including Shift ranges whose endpoint stays selected.
+				e.preventDefault();
 				e.stopPropagation();
 				select(e.shiftKey);
-				// Shift can keep an already selected endpoint selected. Its derived boolean then
-				// stays unchanged, so restore the checkbox the browser just toggled off.
-				e.currentTarget.checked = selection!.has(selectionKey);
 			}}
 			onkeydown={(e) => {
+				if (e.key === ' ') {
+					e.preventDefault(); e.stopPropagation();
+					if (!e.repeat) select(e.shiftKey);
+				}
 				if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); selection!.clear(); }
 				if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
 					e.preventDefault(); e.stopPropagation(); selection!.selectAll();
