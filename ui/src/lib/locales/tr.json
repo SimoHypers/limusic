@@ -77,7 +77,12 @@
 		"choose_channel_desc": "Kitaplık, beğeniler ve çalma listeleri bu kanalı kullanacak. Daha sonra tekrar değiştirebilirsiniz.",
 		"cancel_sign_in": "Oturum açmayı iptal et",
 		"sign_in_hint": "Google hesabınızla giriş yaparak YouTube Music kitaplığınıza ve çalma listelerinize ulaşabilirsiniz.",
-		"history": "Geçmiş"
+		"history": "Geçmiş",
+		"add_account": "Hesap ekle",
+		"remove_account": "Hesap sil",
+		"remove_account_title": "Limusic'ten sil?",
+		"remove_account_desc": "{name} yalnızca bu listeden kaldırıldı. Google hesabınız bu eylemden etkilenmedi ve istediğiniz zaman onunla giriş yapabilirsiniz.",
+		"saved_accounts_hint": "Geçmek için kaydedilmiş bir hesabı seçin."
 	},
 	"player": {
 		"play": "Oynat",
@@ -130,7 +135,8 @@
 		"remove_dislike": "Beğenmeyi kaldır",
 		"add_to_playlist": "Çalma listesine ekle",
 		"pin_to_top": "En üste sabitle",
-		"unpin": "Sabitlemeyi kaldır"
+		"unpin": "Sabitlemeyi kaldır",
+		"block_artist": "Sanatçıyı engelle"
 	},
 	"home": {
 		"good_morning": "Günaydın",
@@ -147,7 +153,7 @@
 		"jump_back_in": "Yeniden dinleyin",
 		"show_section": "{title} bölümünü göster",
 		"hide_section": "{title} bölümünü gizle",
-		"feed_empty": "Ana sayfanız bu sefer boş döndü",
+		"feed_empty": "Ana sayfanız bu sefer boş döndü.",
 		"signed_out_hint": "Giriş yapın ve ana sayfanız dinlediklerinizle oluşturulan miksler ve çalma listeleriyle dolsun."
 	},
 	"artist": {
@@ -231,7 +237,9 @@
 			"storage": "Depolama",
 			"updates": "Güncellemeler",
 			"report": "Sorun bildir",
-			"whats_new": "Yenilikler"
+			"whats_new": "Yenilikler",
+			"blocked": "Engelli sanatçılar",
+			"support": "Destek"
 		},
 		"general": {
 			"language": "Arayüz dili",
@@ -241,7 +249,7 @@
 			"autostart_hint": "Sistem açıldığında Limusic uygulamasını otomatik başlatın.",
 			"close_to_tray": "Sistem tepsisine küçült",
 			"close_to_tray_hint": "Pencere kapatıldığında arka planda çalışmaya devam etsin.",
-			"discord_rpc": "Discord Rich Presence",
+			"discord_rpc": "Discord Zengin Varlık",
 			"discord_rpc_hint": "Çalan şarkıyı Discord profilinizde gösterin.",
 			"update_banner": "Güncelleme bildirimleri",
 			"update_banner_hint": "Yeni bir Limusic sürümü çıktığında bildirim çubuğu gösterilsin.",
@@ -249,7 +257,9 @@
 			"proxy_hint": "Ağ isteklerini özel bir vekil sunucu üzerinden yönlendirin.",
 			"proxy_placeholder": "örn. http://127.0.0.1:7890",
 			"stream_clients": "Akış istemcileri",
-			"stream_clients_hint": "Bir istemciyi kapatarak akış çözümlemesinde atlanmasını sağlayın. {var} ortam değişkeni bu ayarı geçersiz kılar."
+			"stream_clients_hint": "Bir istemciyi kapatarak akış çözümlemesinde atlanmasını sağlayın. {var} ortam değişkeni bu ayarı geçersiz kılar.",
+			"system_titlebar": "Sistem başlık çubuğunu kullanın",
+			"system_titlebar_hint": "Masaüstünüz pencere çerçevesini ve butonları çizsin. Limusic kendi araç çubuğunu onun altında saklar."
 		},
 		"themes": {
 			"accent_themes": "Vurgu Temaları",
@@ -266,7 +276,7 @@
 			"font_placeholder": "Bu bilgisayarda yüklü olan yazı tipi, örn. Inter",
 			"font_aria": "{label} aile adı",
 			"font_not_installed": "Yüklü değil. Önce yazı tipini yükleyip bu ayarları yeniden açın.",
-			"add_font": "Yazı tipi ekle",
+			"add_font": "Yazı tipi ekle…",
 			"tint_palette_hint": "Yalnızca varsayılan paleti gölgeler, {theme} kendi renklerini getirir.",
 			"tint_hint": "Gri tonları gölgeler: yüzeyler, kenarlıklar ve ikincil metin.",
 			"roundness": "Yuvarlaklık",
@@ -287,7 +297,12 @@
 			"heading_font_short_hint": "Sayfa ve bölüm başlıkları.",
 			"load_font_dialog": "Bir yazı tipi yükle",
 			"font_filter": "Yazı Tipleri",
-			"experimental": "Deneysel"
+			"experimental": "Deneysel",
+			"app_icon": "Uygulama simgesi",
+			"app_icon_hint": "Bir PNG görev çubuğu, sistem tepsisi ve bu penceredeki simgenin yerini alır. Kısayollar ve dosya yöneticisi yüklü olanı kullanır.",
+			"app_icon_pick": "Seçin…",
+			"app_icon_dialog": "Bir uygulama simgesi seçin",
+			"app_icon_filter": "PNG görsel"
 		},
 		"playback": {
 			"audio_quality": "Ses kalitesi",
@@ -307,7 +322,14 @@
 			"hide_videos": "Aramada videoları gizle",
 			"hide_videos_hint": "Arama sonuçlarında yalnızca şarkıları ve resmi albümleri gösterir.",
 			"lyrics_provider": "Senkronize şarkı sözleri (Boidu/LRCLIB)",
-			"lyrics_provider_hint": "Çalan şarkı için topluluk destekli senkronize sözleri çeker."
+			"lyrics_provider_hint": "Çalan şarkı için topluluk destekli senkronize sözleri çeker.",
+			"blocked_artists": "Engelli sanatçılar",
+			"blocked_artists_hint": "Engelli sanatçılar, radiodan, otomatik çalmadan ve önerilerden çıkarılır. Açtığınız çalma listeleri ile albümlerse içlerindeki her şeyi çalmayı sürdürür.",
+			"blocked_artists_empty": "Henüz kimse engellenmedi. Parçanın ··· menüsünden \"Sanatçıyı engelle\" seçeneğini kullanın.",
+			"blocked_artists_remove": "{name} isimli sanatçının engelini kaldır",
+			"blocked_artists_show_all": "Engelli {count} sanatçıyı göster",
+			"blocked_artists_show_less": "Daha az göster",
+			"blocked_artists_copy": "JSON dosyasını kopyala"
 		},
 		"data": {
 			"clear_cache": "Görsel ve akış önbelleğini temizle",
@@ -335,7 +357,10 @@
 			"report_issue": "Hata formunu aç",
 			"report_issue_hint": "GitHub tarayıcınızda açılır, sürüm ve sistem doldurulmuş olarak gelir.",
 			"report_issue_button": "Bildir",
-			"update_check_failed": "Güncelleme denetimi başarısız oldu: {error}"
+			"update_check_failed": "Güncelleme denetimi başarısız oldu: {error}",
+			"kofi": "Bana bir kahve ısmarla",
+			"kofi_hint": "Limusic ücretsiz ve ücretsiz kalacak. Bağışta bulunmak isteyenler Ko-fi'den yapabilirler.",
+			"kofi_button": "Ko-fi'yi aç"
 		}
 	},
 	"dialogs": {
@@ -409,7 +434,7 @@
 			"your_name_placeholder": "Adınız",
 			"join_button": "Oturuma katıl",
 			"sync_server": "Senkronizasyon sunucusu",
-			"sync_server_placeholder": "wss://your-machine.ts.net/ws",
+			"sync_server_placeholder": "wss://makineniz.ts.net/ws",
 			"sync_server_hint": "Kendi sunucunuz (örn. Tailscale Funnel adresi). Sonrası için kaydedilir.",
 			"start_button": "Oturum başlat",
 			"hosting": "Sunucu",
@@ -556,7 +581,11 @@
 		"already_in_all": "Tüm {count} parça zaten {playlist} çalma listesinde",
 		"already_in": "{playlist} çalma listesinde zaten var",
 		"added_songs": "{playlist} çalma listesine {count} parça eklendi",
-		"added_one": "{playlist} çalma listesine eklendi"
+		"added_one": "{playlist} çalma listesine eklendi",
+		"app_icon_set": "Uygulama simgesi değişti",
+		"blocked_copied": "{count} sayıda engellenmiş sanatçı JSON olarak kopyalandı",
+		"blocked_artist": "{name} engellendi",
+		"unblocked_artist": "{name} isimli sanatçının engeli kaldırıldı"
 	},
 	"history": {
 		"title": "Geçmiş",
