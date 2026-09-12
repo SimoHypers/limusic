@@ -72,6 +72,7 @@
 		selection?: TrackSelection;
 		selectionKey?: string;
 	} = $props();
+	const selectionDescriptionId = $props.id();
 
 	// In a session as guest, clicking a song adds it to the shared queue instead of playing it —
 	// reflect that in the hover icon + label so the row doesn't lie.
@@ -175,6 +176,7 @@
 	onkeydown={onKey}
 	data-selection-key={selectionKey}
 	data-selected={selectable ? selected : undefined}
+	aria-describedby={selectable ? selectionDescriptionId : undefined}
 	aria-label={selectable ? t(guestAdd ? 'selection.track_guest' : 'selection.track', { title: song.title }) : guestAdd ? `Add ${song.title} to the session queue` : `Play ${song.title}`}
 	class="group flex w-full cursor-pointer items-center gap-3 rounded-lg p-2 transition-colors hover:bg-accent/10 {selected
 		? 'bg-primary/10 ring-1 ring-inset ring-primary/40'
@@ -183,6 +185,9 @@
 		: ''} {compact ? '' : '[content-visibility:auto] [contain-intrinsic-size:auto_3.5rem]'}"
 >
 	{#if selectable}
+		<span id={selectionDescriptionId} class="sr-only">
+			{t(selected ? 'selection.selected' : 'selection.not_selected')}
+		</span>
 		<Checkbox
 			checked={selected}
 			aria-label={t('selection.select_track', { title: song.title })}

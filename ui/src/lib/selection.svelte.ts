@@ -49,6 +49,10 @@ export function trackSelection(
 		toggle(key: string, range = false) {
 			selected = toggleTrack(selected, key, visibleKeys, range);
 		},
+		/**
+		 * Add visible loaded keys while preserving hidden selections; no pages are fetched.
+		 * The first visible key becomes the anchor, or the anchor clears if none are visible.
+		 */
 		selectAll() {
 			selected = { keys: new Set([...selected.keys, ...visibleKeys]), anchor: visibleKeys[0] ?? null };
 		},

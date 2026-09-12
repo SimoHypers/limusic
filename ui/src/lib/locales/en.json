@@ -2,6 +2,8 @@
 	"selection": {
 		"actions": "Selected track actions",
 		"count": "{count} selected",
+		"selected": "Selected",
+		"not_selected": "Not selected",
 		"hidden": "{count} hidden by the filter",
 		"hint": "Select tracks with the checkboxes or Ctrl/Cmd-click. Shift-click selects a range.",
 		"select_all": "Select all loaded matches ({count})",

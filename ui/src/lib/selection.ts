@@ -65,6 +65,11 @@ export interface SelectionState {
 
 export const emptySelection = (): SelectionState => ({ keys: new Set(), anchor: null });
 
+/**
+ * Toggles a visible occurrence, or adds the inclusive Shift range.
+ * A range preserves an existing visible anchor and keeps other selections.
+ * Without a visible anchor, Shift selects the target and makes it the anchor.
+ */
 export function toggleTrack(
 	state: SelectionState, key: string, visible: string[], range = false
 ): SelectionState {
@@ -80,6 +85,7 @@ export function toggleTrack(
 	return { keys, anchor: key };
 }
 
+/** Remove unavailable keys and clear the anchor if its occurrence is unavailable. */
 export function retainSelection(state: SelectionState, entries: TrackEntry[]): SelectionState {
 	const available = new Set(entries.map((e) => e.key));
 	return {
