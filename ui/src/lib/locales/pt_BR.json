@@ -595,5 +595,25 @@
 		"songs_count": "{count} músicas",
 		"empty": "Nada aqui ainda. Tudo o que você reproduzir enquanto estiver conectado à sua conta aparecerá nesta página.",
 		"signed_out": "Faça login para ver seu histórico de reprodução do YouTube Music."
+	},
+	"selection": {
+		"actions": "Ações da faixa selecionada",
+		"count": "{count} selecionado(s)",
+		"selected": "Selecionado",
+		"not_selected": "Não selecionado",
+		"hidden": "{count} oculto(s)",
+		"enter": "Selecionar faixas",
+		"exit": "Sair do modo de seleção",
+		"hint": "Escolha faixas para realizar ações",
+		"select_all": "Selecionar tudo ({count})",
+		"clear": "Limpar",
+		"track": "{title}. Espaço para selecionar, Enter para reproduzir.",
+		"track_guest": "{title}. Espaço para selecionar, Enter para adicionar à fila da sessão.",
+		"select_track": "Selecionar {title}",
+		"lost": "{count} faixas selecionadas não estão mais nesta lista.",
+		"pending": "Localizando {count} faixas selecionadas nas páginas ainda carregando.",
+		"local_playlist": "Arquivos locais não podem ser adicionados a uma playlist do YouTube.",
+		"account_changed": "Interrompida a adição de músicas porque a conta foi alterada.",
+		"playlist_partial": "Adicionado {added} a {playlist}; {duplicates} já estava(m) lá; {remaining} não confirmado(s). {error}"
 	}
 }
