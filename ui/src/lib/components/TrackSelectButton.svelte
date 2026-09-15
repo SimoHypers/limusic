@@ -16,8 +16,8 @@
 <button
 	class="{className} {selection.active ? 'text-primary' : 'text-muted-foreground'}"
 	aria-pressed={selection.active}
-	title={t('selection.enter')}
-	aria-label={t('selection.enter')}
+	title={selection.active ? t('selection.exit') : t('selection.enter')}
+	aria-label={selection.active ? t('selection.exit') : t('selection.enter')}
 	onclick={() => (selection.active ? selection.exit() : selection.enter())}
 >
 	<HugeiconsIcon icon={CursorMagicSelection04Icon} class="h-5 w-5" />

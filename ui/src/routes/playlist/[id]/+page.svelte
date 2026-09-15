@@ -548,12 +548,20 @@
 	// walk started for (`pid`) into its own `finally` means a stale walk can only ever clear its
 	// own marker, never a fresher walk's.
 	let walkingFor: string | null = null;
+	// The continuation a walk gave up on. `loadAll` stops when a page comes back on the same token,
+	// but the page it just appended re-runs this effect, and without this the walk would restart,
+	// re-fetch that page and append it again for as long as the filter or the pending selection
+	// holds. Tokens belong to one playlist, so navigating away needs no reset, and a successful
+	// Retry moves the token on and lets the walk continue.
+	let stalledAt: string | null = null;
 	$effect(() => {
 		// Recover selected occurrences in the new server order before enabling bulk actions.
 		if ((!filtering && !selection.pending) || !pl?.continuation || walkingFor === id || moreError) return;
+		if (stalledAt === pl.continuation) return;
 		const pid = id;
 		walkingFor = pid;
-		loadAll().finally(() => {
+		loadAll().then((done) => {
+			stalledAt = done ? null : (pl?.continuation ?? null);
 			if (walkingFor === pid) walkingFor = null;
 		});
 	});
