@@ -19,6 +19,10 @@ export function trackSelection(
 	// Off by default: checkboxes and the bulk bar only exist once the list is put in select mode.
 	let active = $state(false);
 	let selectingAll = $state(false);
+	// Bumped every time the selection is dropped out from under an in-flight selectAll: a walk that
+	// comes back to a cleared list, another playlist, or a list no longer in select mode has nothing
+	// left to select.
+	let dropped = 0;
 	let lastScope: string | undefined;
 	let nextKey = 0;
 	$effect(() => {
@@ -31,6 +35,7 @@ export function trackSelection(
 				selected = emptySelection();
 				lost = 0;
 				active = false;
+				dropped++;
 				lastScope = currentScope;
 			}
 			// A server sort or cached-page refresh may replace a long list with its first page.
@@ -56,7 +61,7 @@ export function trackSelection(
 	return {
 		get active() { return active; },
 		enter() { active = true; },
-		exit() { active = false; selected = emptySelection(); lost = 0; },
+		exit() { active = false; selected = emptySelection(); lost = 0; dropped++; },
 		get count() { return selected.keys.size; },
 		get songs() { return songs; },
 		get visibleKeys() { return visibleKeys; },
@@ -77,7 +82,7 @@ export function trackSelection(
 		 */
 		async selectAll() {
 			if (selectingAll) return;
-			const at = lastScope;
+			const at = dropped;
 			selectingAll = true;
 			try {
 				if (!complete()) {
@@ -86,14 +91,15 @@ export function trackSelection(
 					// in `visibleKeys` until it has run.
 					await tick();
 				}
-				// Navigated, switched account, or left select mode while the pages were in the air.
-				if (lastScope !== at || !active) return;
+				// Cleared, navigated, switched account, or left select mode while the pages were in
+				// the air. Whichever it was is the newer instruction, so it wins.
+				if (dropped !== at) return;
 				selected = { keys: new Set([...selected.keys, ...visibleKeys]), anchor: visibleKeys[0] ?? null };
 			} finally {
 				selectingAll = false;
 			}
 		},
-		clear() { selected = emptySelection(); lost = 0; }
+		clear() { selected = emptySelection(); lost = 0; dropped++; }
 	};
 }
 
