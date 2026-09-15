@@ -1,4 +1,4 @@
-import { untrack } from 'svelte';
+import { tick, untrack } from 'svelte';
 import type { SongItem } from './api';
 import { emptySelection, reconcileSelection, toggleTrack, visibleTrackKeys,
 	type TrackEntry } from './selection';
@@ -6,7 +6,11 @@ import { emptySelection, reconcileSelection, toggleTrack, visibleTrackKeys,
 /** One list owns selection. Rows may unmount freely; navigation/account changes reset the scope. */
 export function trackSelection(
 	items: () => SongItem[], visible: () => SongItem[], scope: () => string,
-	complete: () => boolean = () => true
+	complete: () => boolean = () => true,
+	/** The list's own length while pages are still missing, and the walk that fetches them. Only a
+	 *  playlist has either: everywhere else the rows on screen are all the rows there are. */
+	total: () => number | undefined = () => undefined,
+	loadRest: () => Promise<boolean> = async () => true
 ) {
 	let entries = $state.raw<TrackEntry[]>([]);
 	let loadedKeys = $state.raw<ReadonlySet<string>>(new Set());
@@ -14,6 +18,7 @@ export function trackSelection(
 	let lost = $state(0);
 	// Off by default: checkboxes and the bulk bar only exist once the list is put in select mode.
 	let active = $state(false);
+	let selectingAll = $state(false);
 	let lastScope: string | undefined;
 	let nextKey = 0;
 	$effect(() => {
@@ -41,6 +46,13 @@ export function trackSelection(
 	const songs = $derived(entries.filter((e) => selected.keys.has(e.key)).map((e) => e.song));
 	const pending = $derived(entries.filter((e) => selected.keys.has(e.key) && !loadedKeys.has(e.key)).length);
 	const hidden = $derived(selected.keys.size - pending - visibleKeys.filter((k) => selected.keys.has(k)).length);
+	// What Select all is offering. Until the last page is in, the rows on screen are not the count
+	// to put on the button, so the list's own total stands in.
+	const selectAllCount = $derived(complete() ? visibleKeys.length : (total() ?? visibleKeys.length));
+	// Never while pages are outstanding: every row on screen being ticked is not the whole list.
+	const allSelected = $derived(
+		complete() && visibleKeys.length > 0 && visibleKeys.every((k) => selected.keys.has(k))
+	);
 	return {
 		get active() { return active; },
 		enter() { active = true; },
@@ -55,12 +67,31 @@ export function trackSelection(
 		toggle(key: string, range = false) {
 			selected = toggleTrack(selected, key, visibleKeys, range);
 		},
+		get selectAllCount() { return selectAllCount; },
+		get allSelected() { return allSelected; },
+		get selectingAll() { return selectingAll; },
 		/**
-		 * Add visible loaded keys while preserving hidden selections; no pages are fetched.
-		 * The first visible key becomes the anchor, or the anchor clears if none are visible.
+		 * Select every row, pulling in the pages still missing first. Hidden selections survive it,
+		 * and the first visible key becomes the anchor (the anchor clears if none are visible).
+		 * A walk that gives up short selects what did arrive rather than nothing.
 		 */
-		selectAll() {
-			selected = { keys: new Set([...selected.keys, ...visibleKeys]), anchor: visibleKeys[0] ?? null };
+		async selectAll() {
+			if (selectingAll) return;
+			const at = lastScope;
+			selectingAll = true;
+			try {
+				if (!complete()) {
+					await loadRest();
+					// `entries` is written by the effect above, not derived, so the new pages are not
+					// in `visibleKeys` until it has run.
+					await tick();
+				}
+				// Navigated, switched account, or left select mode while the pages were in the air.
+				if (lastScope !== at || !active) return;
+				selected = { keys: new Set([...selected.keys, ...visibleKeys]), anchor: visibleKeys[0] ?? null };
+			} finally {
+				selectingAll = false;
+			}
 		},
 		clear() { selected = emptySelection(); lost = 0; }
 	};

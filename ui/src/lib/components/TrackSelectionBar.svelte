@@ -17,11 +17,7 @@
 	let { selection, from }: { selection: TrackSelection; from?: string } = $props();
 	let busy = $state(false);
 	const canAdd = $derived(selection.count > 0 && selection.songs.every((s) => !isLocalId(s.video_id)));
-	const blocked = $derived(busy || selection.pending > 0);
-	// One button, not a Select all beside a Clear: at a full list the only thing left to do is empty it.
-	const allSelected = $derived(
-		selection.visibleKeys.length > 0 && selection.visibleKeys.every((k) => selection.has(k))
-	);
+	const blocked = $derived(busy || selection.selectingAll || selection.pending > 0);
 
 	function onKey(e: KeyboardEvent) {
 		// Space activates these buttons, never the app-wide transport shortcut.
@@ -85,14 +81,18 @@
 			{/if}
 
 			<span class="mx-1 h-5 w-px shrink-0 bg-border"></span>
-			{#if allSelected}
+			{#if !selection.allSelected}
+				<Button variant="ghost" size="sm" disabled={!selection.selectAllCount || selection.selectingAll}
+					onkeydown={onKey}
+					onclick={() => selection.selectAll()}>
+					{selection.selectingAll
+						? t('common.loading')
+						: t('selection.select_all', { count: selection.selectAllCount })}
+				</Button>
+			{/if}
+			{#if selection.count}
 				<Button variant="ghost" size="sm" onkeydown={onKey} onclick={() => selection.clear()}>
 					{t('selection.clear')}
-				</Button>
-			{:else}
-				<Button variant="ghost" size="sm" disabled={!selection.visibleKeys.length} onkeydown={onKey}
-					onclick={() => selection.selectAll()}>
-					{t('selection.select_all', { count: selection.visibleKeys.length })}
 				</Button>
 			{/if}
 			<Button variant="ghost" size="icon" onkeydown={onKey}

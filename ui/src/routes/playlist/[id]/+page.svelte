@@ -215,8 +215,19 @@
 	// to `sortedItems` with no query typed.
 	const shown = $derived(filterTracks(sortedItems, applied));
 	const selection = trackSelection(() => sortedItems, () => shown,
-		() => `${auth.epoch}:${id}`, () => !pl?.continuation);
+		() => `${auth.epoch}:${id}`, () => !pl?.continuation,
+		// A filter's matches are only the loaded ones, and typing one walks the list anyway, so the
+		// header count would be the wrong number to offer there.
+		() => (filtering ? undefined : headerCount), loadAll);
 	const filtering = $derived(!!applied.trim());
+	// The leading number of YouTube's own "190 tracks - 9+ hours", which is what the subtitle under
+	// the title shows until every page is in. An upper bound, not a count: it includes rows that
+	// never arrive (unavailable, region-blocked). A locale that doesn't lead with the number gives
+	// nothing back, and Select all falls back to the rows it has.
+	const headerCount = $derived.by(() => {
+		const digits = (pl?.subtitle ?? '').match(/^[\d.,]+/)?.[0].replace(/\D/g, '');
+		return digits ? Number(digits) : undefined;
+	});
 
 	// A sort has to cover the whole playlist, not the pages scrolled so far, so pull the rest in.
 	// Stops on a failed page (`moreError`), on navigation, and on any pass that made no progress.
