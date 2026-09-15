@@ -14,7 +14,7 @@
 	function onKey(e: KeyboardEvent) {
 		// Space activates these buttons, never the app-wide transport shortcut.
 		if (e.key === ' ') e.stopPropagation();
-		if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); selection.clear(); }
+		if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); selection.exit(); }
 	}
 
 	async function queue(next: boolean) {
@@ -29,6 +29,8 @@
 	}
 </script>
 
+<!-- Only in select mode; the header button is what turns it on. -->
+{#if selection.active}
 <div class="sticky top-0 z-10 mb-2 rounded-lg border bg-background p-2" data-track-selection>
 	<div class="flex flex-wrap items-center gap-2" role="group" aria-label={t('selection.actions')}>
 		<span class="mr-auto text-sm text-muted-foreground" role="status">
@@ -60,6 +62,7 @@
 		{#if selection.count || selection.lost}
 			<Button variant="ghost" size="sm" onkeydown={onKey} onclick={() => selection.clear()}>{t('selection.clear')}</Button>
 		{/if}
+		<Button variant="ghost" size="sm" onkeydown={onKey} onclick={() => selection.exit()}>{t('selection.exit')}</Button>
 	</div>
 	{#if selection.pending}
 		<p class="mt-1 text-xs text-muted-foreground" role="status">
@@ -72,3 +75,4 @@
 		</p>
 	{/if}
 </div>
+{/if}

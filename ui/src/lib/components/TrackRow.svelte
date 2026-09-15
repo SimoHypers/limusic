@@ -77,16 +77,18 @@
 	// In a session as guest, clicking a song adds it to the shared queue instead of playing it —
 	// reflect that in the hover icon + label so the row doesn't lie.
 	const guestAdd = $derived(lt.role === 'guest');
-	const selectable = $derived(!!selection && selectionKey !== undefined);
+	// Only in select mode: at rest the row is a plain click-to-play row, with no checkbox and no
+	// Space/click rebinding.
+	const selectable = $derived(!!selection?.active && selectionKey !== undefined);
 	const selected = $derived(selection?.has(selectionKey) ?? false);
-	const selecting = $derived(selectable && (selection?.count ?? 0) > 0);
 
 	function select(range = false) {
 		if (selection && selectionKey !== undefined) selection.toggle(selectionKey, range);
 	}
 
 	function clickRow(e: MouseEvent) {
-		if (selectable && (e.ctrlKey || e.metaKey || e.shiftKey || selecting)) {
+		// In select mode the row selects; Enter (onKey) is what still plays it.
+		if (selectable) {
 			e.preventDefault();
 			select(e.shiftKey);
 			return;
@@ -128,7 +130,7 @@
 				e.preventDefault();
 				e.stopPropagation();
 				if (!e.repeat) {
-					if (e.key === 'Escape') selection.clear();
+					if (e.key === 'Escape') selection.exit();
 					else select(e.shiftKey);
 				}
 				return;
@@ -203,7 +205,7 @@
 					e.preventDefault(); e.stopPropagation();
 					if (!e.repeat) select(e.shiftKey);
 				}
-				if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); selection!.clear(); }
+				if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); selection!.exit(); }
 				if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
 					e.preventDefault(); e.stopPropagation(); selection!.selectAll();
 				}
@@ -218,10 +220,10 @@
 						? 'text-primary'
 						: 'text-muted-foreground'}"
 				>
-					<span class={selecting ? '' : 'group-hover:opacity-0'}>{index + 1}</span>
+					<span class={selectable ? '' : 'group-hover:opacity-0'}>{index + 1}</span>
 					<HugeiconsIcon
 						icon={guestAdd ? PlayListAddIcon : PlayIcon}
-						class="absolute inset-0 m-auto h-3.5 w-3.5 opacity-0 {selecting ? '' : 'group-hover:opacity-100'}"
+						class="absolute inset-0 m-auto h-3.5 w-3.5 opacity-0 {selectable ? '' : 'group-hover:opacity-100'}"
 					/>
 				</span>
 			{/if}

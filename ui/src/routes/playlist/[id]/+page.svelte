@@ -26,6 +26,7 @@
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import TrackRow from '$lib/components/TrackRow.svelte';
 	import TrackSelectionBar from '$lib/components/TrackSelectionBar.svelte';
+	import TrackSelectButton from '$lib/components/TrackSelectButton.svelte';
 	import { trackSelection } from '$lib/selection.svelte';
 	import EditPlaylistDialog from '$lib/components/EditPlaylistDialog.svelte';
 	import TrackFilter, { filterTracks } from '$lib/components/TrackFilter.svelte';
@@ -853,6 +854,7 @@
 						</div>
 						<!-- Pushed to the far end of the header, away from the play controls. -->
 						<div class="flex items-center gap-1">
+							<TrackSelectButton {selection} />
 							<Button
 								variant="ghost"
 								size="sm"

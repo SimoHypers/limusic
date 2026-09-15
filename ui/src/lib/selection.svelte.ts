@@ -12,6 +12,8 @@ export function trackSelection(
 	let loadedKeys = $state.raw<ReadonlySet<string>>(new Set());
 	let selected = $state.raw(emptySelection());
 	let lost = $state(0);
+	// Off by default: checkboxes and the bulk bar only exist once the list is put in select mode.
+	let active = $state(false);
 	let lastScope: string | undefined;
 	let nextKey = 0;
 	$effect(() => {
@@ -23,6 +25,7 @@ export function trackSelection(
 				entries = [];
 				selected = emptySelection();
 				lost = 0;
+				active = false;
 				lastScope = currentScope;
 			}
 			// A server sort or cached-page refresh may replace a long list with its first page.
@@ -39,6 +42,9 @@ export function trackSelection(
 	const pending = $derived(entries.filter((e) => selected.keys.has(e.key) && !loadedKeys.has(e.key)).length);
 	const hidden = $derived(selected.keys.size - pending - visibleKeys.filter((k) => selected.keys.has(k)).length);
 	return {
+		get active() { return active; },
+		enter() { active = true; },
+		exit() { active = false; selected = emptySelection(); lost = 0; },
 		get count() { return selected.keys.size; },
 		get songs() { return songs; },
 		get visibleKeys() { return visibleKeys; },

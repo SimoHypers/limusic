@@ -17,6 +17,7 @@
     } from "@hugeicons/core-free-icons";
     import TrackRow from "$lib/components/TrackRow.svelte";
     import TrackSelectionBar from "$lib/components/TrackSelectionBar.svelte";
+    import TrackSelectButton from "$lib/components/TrackSelectButton.svelte";
     import { trackSelection } from "$lib/selection.svelte";
     import TrackFilter, {
         filterTracks,
@@ -368,6 +369,10 @@
                         {inLibrary ? t("library.in_library") : t("library.save_to_library")}
                     </button>
                 {/if}
+                <TrackSelectButton
+                    {selection}
+                    class="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border transition hover:bg-accent/10 hover:text-foreground"
+                />
                 <button
                     class="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border text-muted-foreground transition hover:bg-accent/10 hover:text-foreground"
                     onclick={openMenu}

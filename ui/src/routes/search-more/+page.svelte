@@ -2,6 +2,7 @@
 	import { page } from '$app/state';
 	import TrackRow from '$lib/components/TrackRow.svelte';
 	import TrackSelectionBar from '$lib/components/TrackSelectionBar.svelte';
+	import TrackSelectButton from '$lib/components/TrackSelectButton.svelte';
 	import { trackSelection } from '$lib/selection.svelte';
 	import TrackRowSkeleton from '$lib/components/TrackRowSkeleton.svelte';
 	import MediaCard from '$lib/components/MediaCard.svelte';
@@ -73,8 +74,15 @@
 </script>
 
 <div class="p-6">
-	<h1 class="mb-1 font-heading text-2xl font-bold">{label}</h1>
-	<p class="mb-6 text-sm text-muted-foreground">{t('common.results_for', { query: q })}</p>
+	<div class="flex items-start justify-between gap-2">
+		<div>
+			<h1 class="mb-1 font-heading text-2xl font-bold">{label}</h1>
+			<p class="mb-6 text-sm text-muted-foreground">{t('common.results_for', { query: q })}</p>
+		</div>
+		{#if cat === 'songs'}
+			<TrackSelectButton {selection} />
+		{/if}
+	</div>
 
 	{#if loading}
 		{#if cat === 'songs'}

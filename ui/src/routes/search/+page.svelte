@@ -17,6 +17,7 @@
 	import SearchSuggest from '$lib/components/SearchSuggest.svelte';
 	import TrackRow from '$lib/components/TrackRow.svelte';
 	import TrackSelectionBar from '$lib/components/TrackSelectionBar.svelte';
+	import TrackSelectButton from '$lib/components/TrackSelectButton.svelte';
 	import { trackSelection } from '$lib/selection.svelte';
 	import TrackRowSkeleton from '$lib/components/TrackRowSkeleton.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
@@ -171,14 +172,19 @@
 					<section>
 						<div class="mb-3 flex items-center justify-between">
 							<h2 class="font-heading text-xl font-bold">{sec.label}</h2>
-							{#if sec.more}
-								<button
-									class="cursor-pointer text-xs font-semibold uppercase text-muted-foreground hover:text-foreground"
-									onclick={() => showMore(sec.key as 'songs' | 'albums' | 'artists' | 'playlists')}
-								>
-									{t('common.show_more')}
-								</button>
-							{/if}
+							<div class="flex items-center gap-1">
+								{#if sec.list}
+									<TrackSelectButton {selection} />
+								{/if}
+								{#if sec.more}
+									<button
+										class="cursor-pointer text-xs font-semibold uppercase text-muted-foreground hover:text-foreground"
+										onclick={() => showMore(sec.key as 'songs' | 'albums' | 'artists' | 'playlists')}
+									>
+										{t('common.show_more')}
+									</button>
+								{/if}
+							</div>
 						</div>
 						{#if sec.list}
 							<TrackSelectionBar {selection} />
