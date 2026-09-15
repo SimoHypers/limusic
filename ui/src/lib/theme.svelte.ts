@@ -98,7 +98,9 @@ export const appearance = $state({
 	/** Starting playback opens the now-playing view. Off, it plays and leaves you where you are (#64). */
 	openPlayerOnPlay: true,
 	/** Take the accent colour from the playing track's cover, crossfading on each change. */
-	artworkAccent: false
+	artworkAccent: false,
+	/** Remember the queue history toggle across views and restarts (#119). */
+	queueHistoryVisible: false
 });
 
 export function setAppearance(patch: Partial<typeof appearance>): void {
@@ -433,7 +435,7 @@ export function initTheme(): void {
 	}
 	try {
 		const saved = JSON.parse(localStorage.getItem(APPEARANCE_KEY) ?? '{}');
-		for (const k of ['artworkBackground', 'tabbedPlayer', 'openPlayerOnPlay', 'artworkAccent'] as const) {
+		for (const k of ['artworkBackground', 'tabbedPlayer', 'openPlayerOnPlay', 'artworkAccent', 'queueHistoryVisible'] as const) {
 			if (typeof saved?.[k] === 'boolean') appearance[k] = saved[k];
 		}
 	} catch {

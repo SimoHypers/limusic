@@ -1,18 +1,24 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import { flip } from 'svelte/animate';
 	import { cubicOut } from 'svelte/easing';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { HistoryIcon, InfinityIcon } from '@hugeicons/core-free-icons';
 	import TrackRow from '$lib/components/TrackRow.svelte';
+	import { Button } from '$lib/components/ui/button';
 	import * as api from '$lib/api';
 	import { queueBlocks, moveTarget, type QueueRow } from '$lib/queue';
 	import { blockWindows, fullWindow, type RowWindow } from '$lib/rows';
 	import { rowScroller } from '$lib/rows.svelte';
 	import { dragScroll, QUEUE_ROW_MIME } from '$lib/dnd';
-	import { playback, openAddToPlaylist } from '$lib/player.svelte';
+	import { playback, openAddToPlaylist, toast } from '$lib/player.svelte';
+	import { appearance, setAppearance } from '$lib/theme.svelte';
+	import { keepQueueAnchor, type QueueScrollMemory } from '$lib/queue-history';
 	import { lt } from '$lib/lt.svelte';
 	import { t } from '$lib/i18n.svelte';
+
+	let { scrollMemory }: { scrollMemory?: QueueScrollMemory } = $props();
+	const historyId = $props.id();
 
 	// Guests are add-only in a session — no removing (theirs or anyone's) and no reordering. The
 	// playing row can't be removed either (backend guards it too).
@@ -57,25 +63,45 @@
 	// them, and they sit above everything anyone opened the panel to look at. The untouched prefix
 	// above them (`view.earlier`) is not hidden: it is bounded by the playlist and shrinks every
 	// time you press previous, where history only grows.
-	let showPrev = $state(false);
+	const showPrev = $derived(appearance.queueHistoryVisible);
 	let el: HTMLElement;
 	let nowEl: HTMLElement | undefined = $state();
 
-	// Open on the playing track. Everything in front of it is drawn above, so a queue opened three
-	// thousand tracks into Liked Songs would otherwise open on track 1.
-	//
-	// Measured off the heading rather than computed from row heights, because the run above reserves
-	// `rows × rowPx` and `rowPx` starts at the assumed 56 before settling to the panel's real 72 a
-	// frame later (`rows.svelte.ts`), which moves the heading down by a quarter of the run. So land,
-	// then land again once it has settled.
+	// A tab switch recreates this list. The owner can retain its viewport for the same queue;
+	// otherwise a fresh queue opens on the current track, after virtual row heights settle.
 	onMount(() => {
-		const land = () => {
-			if (!nowEl) return;
-			el.scrollTop += nowEl.getBoundingClientRect().top - el.getBoundingClientRect().top;
+		const scroller = el;
+		const queue = playback.queue;
+		const currentIndex = queue.currentIndex;
+		const historyVisible = showPrev;
+		const saved = scrollMemory?.position;
+		const restore = saved?.queue === queue && saved.currentIndex === currentIndex
+			&& saved.historyVisible === historyVisible;
+		const remember = () => {
+			if (scrollMemory && scroller.isConnected) {
+				scrollMemory.position = {
+					scrollTop: scroller.scrollTop,
+					queue: playback.queue,
+					currentIndex: playback.queue.currentIndex,
+					historyVisible: showPrev
+				};
+			}
 		};
+		const land = () => {
+			if (!nowEl || playback.queue !== queue || queue.currentIndex !== currentIndex
+				|| showPrev !== historyVisible) return;
+			if (restore) scroller.scrollTop = saved.scrollTop;
+			else scroller.scrollTop += nowEl.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+			remember();
+		};
+		scroller.addEventListener('scroll', remember, { passive: true });
 		land();
 		let frame = requestAnimationFrame(() => (frame = requestAnimationFrame(land)));
-		return () => cancelAnimationFrame(frame);
+		return () => {
+			cancelAnimationFrame(frame);
+			remember();
+			scroller.removeEventListener('scroll', remember);
+		};
 	});
 
 	// Playing a playlist queues the whole playlist, so this panel can be handed five figures of
@@ -103,13 +129,33 @@
 			: counts.map(fullWindow)
 	);
 
-	async function togglePrev() {
-		const before = el.scrollHeight;
-		showPrev = !showPrev;
-		await tick();
-		// Rows appear (or vanish) above the viewport, and WebKit implements no scroll anchoring, so
-		// without this the panel jumps by the whole height of the history. Keeps Now playing still.
-		el.scrollTop += el.scrollHeight - before;
+	// Each mounted queue anchors its own viewport, even when another view changes the preference.
+	// Initial hydration is not a toggle: onMount above owns the first positioning.
+	let previousVisibility: boolean | undefined;
+	$effect.pre(() => {
+		const visible = showPrev;
+		const changed = previousVisibility !== undefined && previousVisibility !== visible;
+		previousVisibility = visible;
+		if (!changed) return;
+		// Queue updates and node bindings are not reasons to scroll. Snapshot them without making
+		// them effect dependencies, then reject a correction if either changes during the tick.
+		const heading = untrack(() => nowEl);
+		const queue = untrack(() => playback.queue);
+		const currentIndex = untrack(() => queue.currentIndex);
+		if (!el || !heading) return;
+		return keepQueueAnchor(el, heading, tick(), () =>
+			nowEl === heading && playback.queue === queue && queue.currentIndex === currentIndex
+		);
+	});
+
+	function togglePrev() {
+		try {
+			setAppearance({ queueHistoryVisible: !appearance.queueHistoryVisible });
+		} catch {
+			// setAppearance updates the shared state before writing. Keep that in-session choice;
+			// a later toggle retries persistence, and the anchoring effect still runs on failure.
+			toast.error(t('player.history_not_saved'));
+		}
 	}
 </script>
 
@@ -184,22 +230,40 @@
 			</h3>
 			{@render rows(view.earlier, wins[0])}
 		{/if}
-		{#if showPrev && view.prev.length}
-			<h3 class="px-2 pt-2 pb-1.5 text-sm font-semibold text-muted-foreground">
-				{t('player.history')}
-			</h3>
-			{@render rows(view.prev, wins[1])}
-		{/if}
+		<div id={historyId} hidden={!showPrev || !view.prev.length}>
+			{#if showPrev && view.prev.length}
+				<h3 class="px-2 pt-2 pb-1.5 text-sm font-semibold text-muted-foreground">
+					{t('player.history')}
+				</h3>
+				{@render rows(view.prev, wins[1])}
+			{/if}
+		</div>
 		<div bind:this={nowEl} class="flex items-center justify-between gap-2 px-2 pt-2 pb-1.5">
 			<h3 class="truncate text-sm font-semibold">{t('player.now_playing')}</h3>
 			{#if view.prev.length}
-				<button
-					class="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+				<Button
+					variant="ghost"
+					size="xs"
+					class="-mr-2 h-7 cursor-pointer gap-1.5 rounded-md px-2 text-muted-foreground transition-colors duration-150 hover:bg-transparent dark:hover:bg-transparent aria-expanded:bg-transparent focus-visible:ring-2 active:not-aria-[haspopup]:translate-y-0 motion-reduce:transition-none"
+					aria-expanded={showPrev}
+					aria-controls={historyId}
+					onkeydown={(event) => {
+						// Keep native Space activation on keyup; the window shortcut must not pause music.
+						if (event.key === ' ') event.stopPropagation();
+					}}
 					onclick={togglePrev}
 				>
-					<HugeiconsIcon icon={HistoryIcon} class="h-3.5 w-3.5" />
-					{showPrev ? t('player.hide_history') : t('player.show_history')}
-				</button>
+					<HugeiconsIcon icon={HistoryIcon} class="size-3.5" />
+					<!-- Reserve both labels' width so changing state never moves the icon or hit area. -->
+					<span class="grid">
+						<span class="col-start-1 row-start-1" class:invisible={showPrev} aria-hidden={showPrev}>
+							{t('player.show_history')}
+						</span>
+						<span class="col-start-1 row-start-1" class:invisible={!showPrev} aria-hidden={!showPrev}>
+							{t('player.hide_history')}
+						</span>
+					</span>
+				</Button>
 			{/if}
 		</div>
 		{@render rows([view.now], wins[2])}
