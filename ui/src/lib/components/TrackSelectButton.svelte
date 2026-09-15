@@ -20,5 +20,5 @@
 	aria-label={t('selection.enter')}
 	onclick={() => (selection.active ? selection.exit() : selection.enter())}
 >
-	<HugeiconsIcon icon={CursorMagicSelection04Icon} class="h-4 w-4" />
+	<HugeiconsIcon icon={CursorMagicSelection04Icon} class="h-5 w-5" />
 </button>

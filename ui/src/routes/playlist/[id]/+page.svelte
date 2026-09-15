@@ -851,10 +851,13 @@
 									<HugeiconsIcon icon={MoreVerticalIcon} class="h-5 w-5 text-muted-foreground" />
 								</Button>
 							{/if}
+							<TrackSelectButton
+								{selection}
+								class="-ml-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition hover:bg-muted hover:text-foreground"
+							/>
 						</div>
 						<!-- Pushed to the far end of the header, away from the play controls. -->
 						<div class="flex items-center gap-1">
-							<TrackSelectButton {selection} />
 							<Button
 								variant="ghost"
 								size="sm"
@@ -882,11 +885,11 @@
 					<TrackFilter bind:value={query} placeholder={t('common.search_this_playlist')} />
 				</div>
 			</div>
+			<TrackSelectionBar {selection} from={pl.title} />
 			<div
 				class="p-4 transition-opacity {resorting ? 'opacity-50' : ''}"
 				aria-busy={resorting}
 			>
-				<TrackSelectionBar {selection} from={pl.title} />
 				{#if shown.length}
 					<!-- The padding stands in for the rows outside the window, so the scrollbar is the
 					     length of the whole playlist even though only ~30 rows exist.

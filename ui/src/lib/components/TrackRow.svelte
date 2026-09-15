@@ -181,7 +181,7 @@
 	aria-describedby={selectable ? selectionDescriptionId : undefined}
 	aria-label={selectable ? t(guestAdd ? 'selection.track_guest' : 'selection.track', { title: song.title }) : guestAdd ? `Add ${song.title} to the session queue` : `Play ${song.title}`}
 	class="group flex w-full cursor-pointer items-center gap-3 rounded-lg p-2 transition-colors hover:bg-accent/10 {selected
-		? 'bg-primary/10 ring-1 ring-inset ring-primary/40'
+		? 'bg-primary/15'
 		: active
 		? 'bg-accent/10'
 		: ''} {compact ? '' : '[content-visibility:auto] [contain-intrinsic-size:auto_3.5rem]'}"
