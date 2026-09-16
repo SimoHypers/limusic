@@ -2,6 +2,7 @@
 	import { onMount, tick, untrack } from 'svelte';
 	import { flip } from 'svelte/animate';
 	import { cubicOut } from 'svelte/easing';
+	import { MediaQuery } from 'svelte/reactivity';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { HistoryIcon, InfinityIcon } from '@hugeicons/core-free-icons';
 	import TrackRow from '$lib/components/TrackRow.svelte';
@@ -19,6 +20,7 @@
 
 	let { scrollMemory }: { scrollMemory?: QueueScrollMemory } = $props();
 	const historyId = $props.id();
+	const reducedMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
 
 	// Guests are add-only in a session — no removing (theirs or anyone's) and no reordering. The
 	// playing row can't be removed either (backend guards it too).
@@ -64,8 +66,24 @@
 	// above them (`view.earlier`) is not hidden: it is bounded by the playlist and shrinks every
 	// time you press previous, where history only grows.
 	const showPrev = $derived(appearance.queueHistoryVisible);
+	// Keep outgoing rows mounted until the collapse finishes.
+	let renderHistory = $state(untrack(() => showPrev));
+	let historyEl: HTMLDivElement | undefined = $state();
+	let historyButton: HTMLButtonElement | null = $state(null);
+	let historyAnimating = $state(false);
 	let el: HTMLElement;
 	let nowEl: HTMLElement | undefined = $state();
+	function rememberScroll() {
+		if (scrollMemory && el?.isConnected) {
+			// A half-collapsed layout is not a viewport another mount can restore.
+			scrollMemory.position = historyAnimating ? undefined : {
+				scrollTop: el.scrollTop,
+				queue: playback.queue,
+				currentIndex: playback.queue.currentIndex,
+				historyVisible: showPrev
+			};
+		}
+	}
 
 	// A tab switch recreates this list. The owner can retain its viewport for the same queue;
 	// otherwise a fresh queue opens on the current track, after virtual row heights settle.
@@ -77,30 +95,20 @@
 		const saved = scrollMemory?.position;
 		const restore = saved?.queue === queue && saved.currentIndex === currentIndex
 			&& saved.historyVisible === historyVisible;
-		const remember = () => {
-			if (scrollMemory && scroller.isConnected) {
-				scrollMemory.position = {
-					scrollTop: scroller.scrollTop,
-					queue: playback.queue,
-					currentIndex: playback.queue.currentIndex,
-					historyVisible: showPrev
-				};
-			}
-		};
 		const land = () => {
 			if (!nowEl || playback.queue !== queue || queue.currentIndex !== currentIndex
 				|| showPrev !== historyVisible) return;
 			if (restore) scroller.scrollTop = saved.scrollTop;
 			else scroller.scrollTop += nowEl.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
-			remember();
+			rememberScroll();
 		};
-		scroller.addEventListener('scroll', remember, { passive: true });
+		scroller.addEventListener('scroll', rememberScroll, { passive: true });
 		land();
 		let frame = requestAnimationFrame(() => (frame = requestAnimationFrame(land)));
 		return () => {
 			cancelAnimationFrame(frame);
-			remember();
-			scroller.removeEventListener('scroll', remember);
+			rememberScroll();
+			scroller.removeEventListener('scroll', rememberScroll);
 		};
 	});
 
@@ -118,7 +126,7 @@
 	// their heights: the overscan swallows it (see HEADING_PX).
 	const counts = $derived([
 		view.earlier.length,
-		showPrev ? view.prev.length : 0,
+		renderHistory ? view.prev.length : 0,
 		view.now ? 1 : 0,
 		...view.blocks.map((b) => b.rows.length)
 	]);
@@ -134,18 +142,90 @@
 	let previousVisibility: boolean | undefined;
 	$effect.pre(() => {
 		const visible = showPrev;
+		const reduce = reducedMotion.current;
+		const queue = playback.queue;
+		const currentIndex = queue.currentIndex;
 		const changed = previousVisibility !== undefined && previousVisibility !== visible;
 		previousVisibility = visible;
-		if (!changed) return;
-		// Queue updates and node bindings are not reasons to scroll. Snapshot them without making
-		// them effect dependencies, then reject a correction if either changes during the tick.
 		const heading = untrack(() => nowEl);
-		const queue = untrack(() => playback.queue);
-		const currentIndex = untrack(() => queue.currentIndex);
-		if (!el || !heading) return;
-		return keepQueueAnchor(el, heading, tick(), () =>
-			nowEl === heading && playback.queue === queue && queue.currentIndex === currentIndex
-		);
+		const history = untrack(() => historyEl);
+		// Another queue view can hide this one while a history row has keyboard focus.
+		if (!visible && history?.contains(document.activeElement)) {
+			untrack(() => historyButton)?.focus({ preventScroll: true });
+		}
+		const clearHeight = () => {
+			history?.style.removeProperty('height');
+			history?.style.removeProperty('overflow');
+		};
+		if (!changed || !el || !heading || !history || !view.prev.length) {
+			// Queue/track or motion-setting changes cancel the previous animation. Settle the
+			// new layout without losing the heading's intermediate viewport position.
+			const scroller = el;
+			const cancel = scroller && heading && history && untrack(() => historyAnimating)
+				? keepQueueAnchor(scroller, heading, tick(), () => nowEl === heading
+					&& playback.queue === queue && queue.currentIndex === currentIndex
+					&& scroller.isConnected)
+				: undefined;
+			renderHistory = visible;
+			historyAnimating = false;
+			clearHeight();
+			return cancel;
+		}
+		const scroller = el;
+		const current = () => nowEl === heading && playback.queue === queue
+			&& queue.currentIndex === currentIndex && scroller.isConnected;
+		// Windowed queues already omit row motion: animating their reserved thousands of pixels
+		// would invalidate the window offsets. Reduced motion uses the same instant anchoring.
+		const animate = queue.items.length <= WINDOW_ABOVE && !reduce;
+		if (!animate) {
+			const cancel = keepQueueAnchor(scroller, heading, tick(), current);
+			renderHistory = visible;
+			historyAnimating = false;
+			clearHeight();
+			return cancel;
+		}
+		// Retain the actual intermediate height on reversal instead of restarting from an end.
+		const from = history.getBoundingClientRect().height;
+		history.style.height = `${from}px`;
+		history.style.overflow = 'hidden';
+		renderHistory = true;
+		historyAnimating = true;
+		let cancelled = false;
+		let frame = 0;
+		void tick().then(() => {
+			if (cancelled || !current()) return;
+			const to = visible ? history.scrollHeight : 0;
+			const start = performance.now();
+			let remainder = 0;
+			const step = (time: number) => {
+				if (cancelled || !current()) return;
+				const progress = Math.min(1, (time - start) / 200);
+				const before = heading.getBoundingClientRect().top;
+				history.style.height = `${from + (to - from) * cubicOut(progress)}px`;
+				// Correct only this frame's displacement. At scrollTop=0 the header can then
+				// glide upward naturally; deeper in the queue the playing row stays anchored.
+				const wanted = scroller.scrollTop + heading.getBoundingClientRect().top - before + remainder;
+				scroller.scrollTop = wanted;
+				// Chromium can round scrollTop to pixels. Carry the fraction, not a clamped
+				// distance, so several frames do not accumulate a visible drift.
+				remainder = wanted > 0 && wanted < scroller.scrollHeight - scroller.clientHeight
+					? wanted - scroller.scrollTop : 0;
+				if (progress < 1) frame = requestAnimationFrame(step);
+				else {
+					renderHistory = visible;
+					historyAnimating = false;
+					clearHeight();
+					void tick().then(() => {
+						if (!cancelled && current()) rememberScroll();
+					});
+				}
+			};
+			frame = requestAnimationFrame(step);
+		});
+		return () => {
+			cancelled = true;
+			cancelAnimationFrame(frame);
+		};
 	});
 
 	function togglePrev() {
@@ -169,7 +249,7 @@
 				data-row
 				role="listitem"
 				class="relative"
-				animate:flip={{ duration: windowed ? 0 : 200, easing: cubicOut }}
+				animate:flip={{ duration: windowed || historyAnimating || reducedMotion.current ? 0 : 200, easing: cubicOut }}
 				draggable={canDrag(i)}
 				ondragstart={(e) => onDragStart(e, i)}
 				ondragover={(e) => onDragOver(e, i)}
@@ -230,8 +310,15 @@
 			</h3>
 			{@render rows(view.earlier, wins[0])}
 		{/if}
-		<div id={historyId} hidden={!showPrev || !view.prev.length}>
-			{#if showPrev && view.prev.length}
+		<div
+			id={historyId}
+			bind:this={historyEl}
+			hidden={!renderHistory || !view.prev.length}
+			inert={!showPrev}
+			aria-hidden={!showPrev}
+			data-history-transitioning={historyAnimating ? '' : undefined}
+		>
+			{#if renderHistory && view.prev.length}
 				<h3 class="px-2 pt-2 pb-1.5 text-sm font-semibold text-muted-foreground">
 					{t('player.history')}
 				</h3>
@@ -242,6 +329,7 @@
 			<h3 class="truncate text-sm font-semibold">{t('player.now_playing')}</h3>
 			{#if view.prev.length}
 				<Button
+					bind:ref={historyButton}
 					variant="ghost"
 					size="xs"
 					class="-mr-2 h-7 cursor-pointer gap-1.5 rounded-md px-2 text-muted-foreground transition-colors duration-150 hover:bg-transparent dark:hover:bg-transparent aria-expanded:bg-transparent focus-visible:ring-2 active:not-aria-[haspopup]:translate-y-0 motion-reduce:transition-none"
