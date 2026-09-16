@@ -32,6 +32,10 @@ fixtures['App.svelte'] = fixtures['App.svelte'].replace('initTheme();',
 fixtures['player.svelte.ts'] += '\nexport const anySaved = () => false; export const isLiked = () => false; export const ratingOf = () => \'indifferent\'; export const savedPlaylists = () => []; export const toggleRating = () => {};';
 fixtures['environment.ts'] += '\nexport const goto = () => {};';
 fixtures['Menu.svelte'] = '<button style="width:28px;height:28px" aria-label="Track menu fixture"></button>';
+fixtures['App.svelte'] = fixtures['App.svelte']
+  .replace("import NowPlaying", "import QueuePanel from '../../src/lib/components/QueuePanel.svelte';\nimport NowPlaying")
+  .replace('<NowPlaying queueOpen={false} lyricsOpen={false} />',
+    '{#if location.search.includes(\'panel\')}<QueuePanel onClose={() => {}} />{:else}<NowPlaying queueOpen={false} lyricsOpen={false} />{/if}');
 mkdirSync(root, { recursive: true });
 for (const [name, source] of Object.entries(fixtures)) writeFileSync(resolve(root, name), source);
 const lib = resolve(root, '../../src/lib');
@@ -51,13 +55,14 @@ let browser;
 try {
  browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined});
  const page = await browser.newPage({viewport:{width:1100,height:800}});
- page.on('pageerror',e=>console.error('PAGEERROR',e));
+ const pageErrors=[];
+ page.on('pageerror',e=>pageErrors.push(e.message));
  await page.goto('http://127.0.0.1:5197');
  await page.getByRole('button',{name:'Show history'}).waitFor();
  const settled = () => page.waitForFunction(() => !document.querySelector('[data-history-transitioning]'));
  const state = async (label) => {
    await settled();
-   const data = await page.evaluate(() => { const btn=document.querySelector('button[aria-expanded]'); const heading=[...document.querySelectorAll('h3')].find(e=>e.textContent==='History'); const scroller=btn?.closest('.overflow-y-auto'); return {preference:document.querySelector('#preference').getAttribute('data-visible'),button:btn?.textContent.trim(),expanded:btn?.getAttribute('aria-expanded'),historyInDom:!!heading,historyTop:heading?.getBoundingClientRect().top,scrollTop:scroller?.scrollTop,scrollerTop:scroller?.getBoundingClientRect().top}; });
+   const data = await page.evaluate(() => { const btn=document.querySelector('button[aria-expanded]'); const heading=btn && document.getElementById(btn.getAttribute('aria-controls')); const scroller=document.getElementById(btn.getAttribute('aria-controls'))?.parentElement; return {preference:document.querySelector('#preference').getAttribute('data-visible'),button:btn?.textContent.trim(),expanded:btn?.getAttribute('aria-expanded'),historyInDom:!!heading && !heading.hidden,historyTop:heading?.getBoundingClientRect().top,scrollTop:scroller?.scrollTop,scrollerTop:scroller?.getBoundingClientRect().top}; });
    console.log(label,JSON.stringify(data)); return data;
  };
  await page.waitForTimeout(400);
@@ -110,7 +115,7 @@ try {
  await settled();
  const collapse = await toggle.evaluate(async btn => {
    const history = document.getElementById(btn.getAttribute('aria-controls'));
-   const scroller = btn.closest('.overflow-y-auto');
+   const scroller = document.getElementById(btn.getAttribute('aria-controls')).parentElement;
    scroller.scrollTop = 0;
    await new Promise(requestAnimationFrame);
    const initial = history.getBoundingClientRect().height;
@@ -119,7 +124,7 @@ try {
    const start = performance.now();
    do {
      await new Promise(requestAnimationFrame);
-     samples.push({height:history.getBoundingClientRect().height,top:btn.getBoundingClientRect().top});
+     samples.push({height:history.getBoundingClientRect().height,top:history.nextElementSibling.getBoundingClientRect().top});
    } while (performance.now() - start < 300);
    return {initial,samples,hidden:history.hidden};
  });
@@ -132,8 +137,8 @@ try {
  await page.evaluate(() => window.setHistoryVisible(true));
  await settled();
  const anchored = await toggle.evaluate(async btn => {
-   const scroller = btn.closest('.overflow-y-auto');
-   const header = btn.parentElement;
+   const scroller = document.getElementById(btn.getAttribute('aria-controls')).parentElement;
+   const header = document.getElementById(btn.getAttribute('aria-controls')).nextElementSibling;
    scroller.scrollTop += header.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
    const top = header.getBoundingClientRect().top;
    const samples = [];
@@ -171,7 +176,7 @@ try {
  await page.evaluate(() => window.setHistoryVisible(false));
  await page.waitForTimeout(30);
  assert(await page.locator(`[id="${disclosure}"]`).evaluate(el => el.hidden && !el.style.height));
- assert(await toggle.evaluate(btn => ![...btn.closest('.overflow-y-auto').querySelectorAll('[data-row]')]
+ assert(await toggle.evaluate(btn => ![...document.getElementById(btn.getAttribute('aria-controls')).parentElement.querySelectorAll('[data-row]')]
    .some(row => row.getAnimations().some(animation => animation.playState === 'running'))),
    'reduced motion also disables row FLIP animations');
  await page.emulateMedia({reducedMotion:'no-preference'});
@@ -179,19 +184,19 @@ try {
  // Unmounting mid-collapse must not restore a viewport from the expanded layout.
  await page.evaluate(() => window.setHistoryVisible(true));
  await settled();
- await toggle.evaluate(btn => {btn.closest('.overflow-y-auto').scrollTop=400;btn.click();});
+ await toggle.evaluate(btn => {document.getElementById(btn.getAttribute('aria-controls')).parentElement.scrollTop=400;btn.click();});
  await page.getByRole('tab',{name:'Lyrics',exact:true}).click();
  await page.getByRole('tab',{name:'Queue',exact:true}).click();
  await page.waitForTimeout(250);
  assert.equal(await toggle.getAttribute('aria-expanded'),'false');
- assert((await toggle.evaluate(btn=>btn.closest('.overflow-y-auto').scrollTop)) < 50);
+ assert((await toggle.evaluate(btn=>document.getElementById(btn.getAttribute('aria-controls')).parentElement.scrollTop)) < 50);
  interactionCases++;
  // A track change during the transition must clear old height/frame work.
  await page.evaluate(() => window.setHistoryVisible(true));
  await page.waitForTimeout(60);
  const interrupted = await toggle.evaluate(async btn => {
    const {playback}=await import('/player.svelte.ts');
-   const heading=btn.parentElement;
+   const heading=document.getElementById(btn.getAttribute('aria-controls')).nextElementSibling;
    const before=heading.getBoundingClientRect().top;
    playback.queue.currentIndex=2;
    await new Promise(requestAnimationFrame);
@@ -215,7 +220,7 @@ try {
  await settled();
  await page.getByRole('button',{name:'Hide history'}).waitFor();
  // Inspect history as a user would before leaving the queue.
- await page.getByRole('button',{name:'Hide history'}).evaluate(btn => { btn.closest('.overflow-y-auto').scrollTop=0; });
+ await page.getByRole('button',{name:'Hide history'}).evaluate(btn => { document.getElementById(btn.getAttribute('aria-controls')).parentElement.scrollTop=0; });
  await page.waitForTimeout(100);
  const before = await state('before switching');
  await page.getByRole('tab',{name:'Lyrics',exact:true}).click();
@@ -242,7 +247,7 @@ try {
      await page.locator('button[aria-expanded]').click();
    await page.waitForTimeout(100);
    for (const position of [0,180,650]) {
-     await page.locator('button[aria-expanded]').evaluate((btn,top)=>{btn.closest('.overflow-y-auto').scrollTop=top;},position);
+     await page.locator('button[aria-expanded]').evaluate((btn,top)=>{document.getElementById(btn.getAttribute('aria-controls')).parentElement.scrollTop=top;},position);
      await page.waitForTimeout(100);
      const expected = await state(`before ${shown}/${position}`);
      await tabs();
@@ -272,7 +277,7 @@ try {
  await page.locator('button[aria-expanded]').click();
  await page.waitForTimeout(150);
  for (const top of [0,720,14000]) {
-   await page.locator('button[aria-expanded]').evaluate((btn,top)=>{btn.closest('.overflow-y-auto').scrollTop=top;},top);
+   await page.locator('button[aria-expanded]').evaluate((btn,top)=>{document.getElementById(btn.getAttribute('aria-controls')).parentElement.scrollTop=top;},top);
    await page.waitForTimeout(100);
    const expected=await state(`large before ${top}`);
    await tabs();
@@ -292,7 +297,7 @@ try {
  cases++;
  // In-place index updates and changes from another queue view invalidate the stored viewport.
  for (const change of ['index','visibility']) {
-   await page.locator('button[aria-expanded]').evaluate(btn=>{btn.closest('.overflow-y-auto').scrollTop=650;});
+   await page.locator('button[aria-expanded]').evaluate(btn=>{document.getElementById(btn.getAttribute('aria-controls')).parentElement.scrollTop=650;});
    await page.waitForTimeout(100);
    await page.getByRole('tab',{name:'Lyrics',exact:true}).click();
    await page.evaluate(async(change)=>{
@@ -344,7 +349,7 @@ try {
      window.setHistoryVisible(true);
    },length);
    await page.waitForTimeout(150);
-   await toggle.evaluate(btn=>{btn.closest('.overflow-y-auto').scrollTop=650;});
+   await toggle.evaluate(btn=>{document.getElementById(btn.getAttribute('aria-controls')).parentElement.scrollTop=650;});
    await page.waitForTimeout(50);
    await page.evaluate(async () => {
      const {np}=await import('/player.svelte.ts');
@@ -355,7 +360,7 @@ try {
    await page.getByText('Lyrics fixture').waitFor();
    await page.getByRole('tab',{name:'Queue',exact:true}).click();
    await page.waitForTimeout(150);
-   assert((await toggle.evaluate(btn=>btn.closest('.overflow-y-auto').scrollTop)) < 50,
+   assert((await toggle.evaluate(btn=>document.getElementById(btn.getAttribute('aria-controls')).parentElement.scrollTop)) < 50,
      'unmount during instant correction must not restore an expanded-layout offset');
    cases++;
  }
@@ -410,8 +415,8 @@ try {
    },{length,index});
    await settled();
    await toggle.evaluate(btn=>{
-     const scroller=btn.closest('.overflow-y-auto');
-     scroller.scrollTop+=btn.parentElement.getBoundingClientRect().top-scroller.getBoundingClientRect().top;
+     const scroller=document.getElementById(btn.getAttribute('aria-controls')).parentElement;
+     scroller.scrollTop+=document.getElementById(btn.getAttribute('aria-controls')).nextElementSibling.getBoundingClientRect().top-scroller.getBoundingClientRect().top;
    });
    await page.waitForTimeout(100);
    await toggle.evaluate(btn=>{
@@ -419,7 +424,8 @@ try {
      window.revealFrames=[];
      const started=performance.now();
      const sample=()=>{
-       window.revealFrames.push({height:history.getBoundingClientRect().height,top:btn.parentElement.getBoundingClientRect().top,animating:history.hasAttribute('data-history-transitioning')});
+       if(!history.isConnected) return;
+       window.revealFrames.push({height:history.getBoundingClientRect().height,top:document.getElementById(btn.getAttribute('aria-controls')).nextElementSibling.getBoundingClientRect().top,animating:history.hasAttribute('data-history-transitioning')});
        if(performance.now()-started<350) requestAnimationFrame(sample);
      };
      requestAnimationFrame(sample);
@@ -435,17 +441,17 @@ try {
        `ending the reveal does not jump after estimated row heights settle: ${JSON.stringify(frames.slice(Math.max(0,end-2),end+2))}`);
    }
    const revealed = await toggle.evaluate(btn=>{
-     const scroller=btn.closest('.overflow-y-auto');
+     const scroller=document.getElementById(btn.getAttribute('aria-controls')).parentElement;
      const viewport=scroller.getBoundingClientRect();
      const history=document.getElementById(btn.getAttribute('aria-controls'));
      const bounds=history.getBoundingClientRect();
      const last=history.querySelector('[data-row]:last-child')?.getBoundingClientRect();
-     const playing=btn.parentElement.nextElementSibling.getBoundingClientRect();
+     const playing=document.getElementById(btn.getAttribute('aria-controls')).nextElementSibling.nextElementSibling.getBoundingClientRect();
      return {viewport:{top:viewport.top,bottom:viewport.bottom},history:{top:bounds.top,bottom:bounds.bottom},last: last && {top:last.top,bottom:last.bottom},playing:{top:playing.top,bottom:playing.bottom},toggleTop:btn.getBoundingClientRect().top};
    });
    assert(revealed.last && revealed.last.top>=revealed.viewport.top-1 && revealed.last.bottom<=revealed.viewport.bottom+1,
      `Show history exposes recent history without scrolling (${length}/${reduce}): ${JSON.stringify(revealed)}`);
-   assert(revealed.playing.bottom<=revealed.viewport.bottom+1 && revealed.toggleTop>=revealed.viewport.top,
+   assert(revealed.playing.bottom<=revealed.viewport.bottom+1 && revealed.toggleTop<revealed.viewport.top && revealed.toggleTop>=0,
      'revealing history keeps the current track and collapse control visible');
    if(index===5) assert(revealed.history.top>=revealed.viewport.top-1,'a five-track history is fully in view');
    if(length===30 && !reduce) await page.screenshot({path:resolve(root,'show-history-without-scrolling.png')});
@@ -456,6 +462,99 @@ try {
    assert(Math.abs(restored-revealed.history.bottom)<=1,'tab switch retains the revealed history viewport');
    interactionCases++;
  }
+ // The disclosure stays above the scroller at the same coordinates during animation,
+ // after scrolling either direction, and at a narrower player width.
+ for (const width of [1100,820]) {
+   await page.setViewportSize({width,height:800});
+   await page.emulateMedia({reducedMotion:'no-preference'});
+   await page.evaluate(()=>window.setHistoryVisible(false));
+   await settled();
+   const fixed = await toggle.boundingBox();
+   const stable = await toggle.evaluate(async btn => {
+     const history=document.getElementById(btn.getAttribute('aria-controls'));
+     const scroller=history.parentElement;
+     const before=btn.getBoundingClientRect();
+     const samples=[];
+     for (const shown of [true,false]) {
+       btn.click();
+       const start=performance.now();
+       do {
+         await new Promise(requestAnimationFrame);
+         const box=btn.getBoundingClientRect();
+         samples.push({x:box.x,y:box.y});
+       } while(performance.now()-start<260);
+       for (const top of [scroller.scrollHeight,0]) {
+         scroller.scrollTop=top;
+         await new Promise(requestAnimationFrame);
+         const box=btn.getBoundingClientRect();
+         samples.push({x:box.x,y:box.y});
+       }
+     }
+     const viewport=scroller.getBoundingClientRect();
+     return {samples,bottom:before.bottom,viewportTop:viewport.top};
+   });
+   assert(stable.bottom<=stable.viewportTop,'disclosure sits above the scrolling rows');
+   assert(stable.samples.every(b=>Math.abs(b.x-fixed.x)<=1 && Math.abs(b.y-fixed.y)<=1),
+     `disclosure remains fixed through show, hide and scrolling at width ${width}`);
+   await toggle.click();
+   await settled();
+   await page.screenshot({path:resolve(root,`fixed-toolbar-${width}.png`)});
+   interactionCases++;
+ }
+ // The other consumer uses the same fixed disclosure in its 320px overlay panel.
+ await page.goto('http://127.0.0.1:5197/?panel');
+ await toggle.waitFor();
+ await page.waitForTimeout(300);
+ const panelBox=await toggle.boundingBox();
+ await toggle.evaluate(btn=>{document.getElementById(btn.getAttribute('aria-controls')).parentElement.scrollTop=800;});
+ await page.waitForTimeout(100);
+ assert.deepEqual(await toggle.boundingBox(),panelBox,'overlay control stays fixed while scrolling');
+ await toggle.click();
+ await settled();
+ assert.deepEqual(await toggle.boundingBox(),panelBox,'overlay control stays fixed when hiding');
+ await toggle.click();
+ await settled();
+ assert.deepEqual(await toggle.boundingBox(),panelBox,'overlay control stays fixed when showing');
+ await page.screenshot({path:resolve(root,'fixed-toolbar-panel.png')});
+ interactionCases++;
+ // One aligned header, without a second History heading in the usual played-prefix case.
+ const headerGeometry=await toggle.evaluate(btn=>{
+   const history=document.getElementById(btn.getAttribute('aria-controls'));
+   const label=document.getElementById(history.getAttribute('aria-labelledby'));
+   const now=history.nextElementSibling.querySelector('h3');
+   const a=label.getBoundingClientRect(),b=btn.getBoundingClientRect(),c=now.getBoundingClientRect();
+   return {left:a.left+(parseFloat(getComputedStyle(label).paddingLeft)||0),nowLeft:c.left,labelMiddle:a.top+a.height/2,buttonMiddle:b.top+b.height/2,
+     nestedHeadings:history.querySelectorAll('h3').length,role:history.getAttribute('role')};
+ });
+ assert.equal(headerGeometry.left,headerGeometry.nowLeft,'History label aligns with queue headings');
+ assert(Math.abs(headerGeometry.labelMiddle-headerGeometry.buttonMiddle)<=1,'label and action share a row');
+ assert.equal(headerGeometry.nestedHeadings,0,'no duplicate History heading for the normal queue');
+ assert.equal(headerGeometry.role,'group','controlled history has an accessible group label');
+ interactionCases++;
+ // Unplayed earlier rows retain a distinct boundary from actually played history.
+ await page.evaluate(async()=>{const {playback}=await import('/player.svelte.ts');playback.queue.playedFrom=3;});
+ await settled();
+ assert(await toggle.evaluate(btn=>{
+   const history=document.getElementById(btn.getAttribute('aria-controls'));
+   return history.querySelector('h3')?.textContent.trim()==='History'
+     && history.previousElementSibling?.getAttribute('role')==='list'
+     && history.previousElementSibling.children.length===3;
+ }),'Earlier and History keep separate section boundaries');
+ interactionCases++;
+ // Exercise a longer installed translation in the real 320px panel.
+ await page.evaluate(async path=>{const {setLocale}=await import(path);setLocale('fr');},'/@fs/'+resolve(lib,'i18n.svelte.ts').replaceAll('\\','/'));
+ const localized=await toggle.evaluate(btn=>{
+   const history=document.getElementById(btn.getAttribute('aria-controls'));
+   const label=document.getElementById(history.getAttribute('aria-labelledby'));
+   const a=label.getBoundingClientRect(),b=btn.getBoundingClientRect(),panel=btn.closest('aside').getBoundingClientRect();
+   return {labelRight:a.right,buttonLeft:b.left,buttonRight:b.right,panelRight:panel.right,height:b.height};
+ });
+ assert(localized.labelRight<=localized.buttonLeft && localized.buttonRight<=localized.panelRight && localized.height===28,
+   'French label and action fit the narrow queue panel without overlap or wrapping');
+ await page.waitForTimeout(250); // Let row FLIP from the Earlier fixture change finish before visual QA.
+ await page.screenshot({path:resolve(root,'fixed-toolbar-panel-fr.png')});
+ interactionCases++;
+ assert.deepEqual(pageErrors,[],'no unexpected browser runtime errors');
  writeFileSync(resolve(root,'result.json'),JSON.stringify({before,after,cases,interactionCases},null,2));
  console.log(`History interaction checks: ${interactionCases} scenarios passed (real global shortcuts; mocked transport).`);
  console.log(`Queue/lyrics component checks: ${cases} scenarios passed (real components; mocked playback, track menus, lyrics).`);

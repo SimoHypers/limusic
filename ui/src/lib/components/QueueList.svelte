@@ -79,7 +79,7 @@
 		const padding = parseFloat(getComputedStyle(scroller).paddingTop) || 0;
 		const playingHeight = heading.nextElementSibling?.getBoundingClientRect().height ?? 0;
 		const available = Math.max(0, scroller.clientHeight - heading.offsetHeight - playingHeight - padding);
-		// Fit short histories in full; reserve space for Now Playing and its Hide button when long.
+		// Fit short histories in full; reserve space for Now Playing when long.
 		return Math.min(historyHeight + padding, scroller.clientHeight * 2 / 3, available);
 	}
 	function rememberScroll() {
@@ -135,8 +135,8 @@
 	const WINDOW_ABOVE = 200;
 	const sc = rowScroller();
 	// One entry per block, in render order. A collapsed history is 0 rows but still charged a
-	// heading it doesn't draw, which shifts every window's *choice* of slice by 40px and none of
-	// their heights: the overscan swallows it (see HEADING_PX).
+	// heading it doesn't draw. The usual history label is also outside the scroller. These shift
+	// the window's *choice* of slice, not its row heights: overscan absorbs it (see HEADING_PX).
 	const counts = $derived([
 		view.earlier.length,
 		renderHistory ? view.prev.length : 0,
@@ -320,8 +320,40 @@
 <!-- The list on its own, so the side panel and the now-playing view's Queue tab render the same
      one instead of drifting apart. dragScroll: reordering across a queue taller than the panel
      needs the edges to pull. -->
+<!-- Keep the disclosure outside the scroller so its hit target stays in place. -->
+{#if view.now && view.prev.length}
+	<div class="flex shrink-0 items-center justify-between gap-2 px-2 py-1">
+		<h3 id="{historyId}-label" class="min-w-0 flex-1 truncate px-2 text-sm font-semibold text-muted-foreground">
+			{t('player.history')}
+		</h3>
+		<Button
+			bind:ref={historyButton}
+			variant="ghost"
+			size="xs"
+			class="h-7 shrink-0 cursor-pointer gap-1.5 rounded-md px-2 text-muted-foreground transition-colors duration-150 hover:bg-transparent dark:hover:bg-transparent aria-expanded:bg-transparent focus-visible:ring-2 active:not-aria-[haspopup]:translate-y-0 motion-reduce:transition-none"
+			aria-expanded={showPrev}
+			aria-controls={historyId}
+			onkeydown={(event) => {
+				// Keep native Space activation on keyup; the window shortcut must not pause music.
+				if (event.key === ' ') event.stopPropagation();
+			}}
+			onclick={togglePrev}
+		>
+			<HugeiconsIcon icon={HistoryIcon} class="size-3.5" />
+			<!-- Reserve both labels' width so changing state never moves the icon or hit area. -->
+			<span class="grid">
+				<span class="col-start-1 row-start-1" class:invisible={showPrev} aria-hidden={showPrev}>
+					{t('player.show_history')}
+				</span>
+				<span class="col-start-1 row-start-1" class:invisible={!showPrev} aria-hidden={!showPrev}>
+					{t('player.hide_history')}
+				</span>
+			</span>
+		</Button>
+	</div>
+{/if}
 <div
-	class="min-h-0 flex-1 overflow-y-auto p-2"
+	class="min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-2"
 	bind:this={el}
 	{@attach sc.attach}
 	{@attach (node) => dragScroll(node, QUEUE_ROW_MIME)}
@@ -337,6 +369,8 @@
 		{/if}
 		<div
 			id={historyId}
+			role="group"
+			aria-labelledby="{historyId}-label"
 			bind:this={historyEl}
 			class:small-history={playback.queue.items.length <= WINDOW_ABOVE}
 			hidden={!renderHistory || !view.prev.length}
@@ -345,40 +379,17 @@
 			data-history-transitioning={historyAnimating ? '' : undefined}
 		>
 			{#if renderHistory && view.prev.length}
-				<h3 class="px-2 pt-2 pb-1.5 text-sm font-semibold text-muted-foreground">
-					{t('player.history')}
-				</h3>
+				<!-- Keep an in-list boundary when unplayed tracks precede the played history. -->
+				{#if view.earlier.length}
+					<h3 class="px-2 pt-2 pb-1.5 text-sm font-semibold text-muted-foreground">
+						{t('player.history')}
+					</h3>
+				{/if}
 				{@render rows(view.prev, wins[1])}
 			{/if}
 		</div>
 		<div bind:this={nowEl} class="flex items-center justify-between gap-2 px-2 pt-2 pb-1.5">
 			<h3 class="truncate text-sm font-semibold">{t('player.now_playing')}</h3>
-			{#if view.prev.length}
-				<Button
-					bind:ref={historyButton}
-					variant="ghost"
-					size="xs"
-					class="-mr-2 h-7 cursor-pointer gap-1.5 rounded-md px-2 text-muted-foreground transition-colors duration-150 hover:bg-transparent dark:hover:bg-transparent aria-expanded:bg-transparent focus-visible:ring-2 active:not-aria-[haspopup]:translate-y-0 motion-reduce:transition-none"
-					aria-expanded={showPrev}
-					aria-controls={historyId}
-					onkeydown={(event) => {
-						// Keep native Space activation on keyup; the window shortcut must not pause music.
-						if (event.key === ' ') event.stopPropagation();
-					}}
-					onclick={togglePrev}
-				>
-					<HugeiconsIcon icon={HistoryIcon} class="size-3.5" />
-					<!-- Reserve both labels' width so changing state never moves the icon or hit area. -->
-					<span class="grid">
-						<span class="col-start-1 row-start-1" class:invisible={showPrev} aria-hidden={showPrev}>
-							{t('player.show_history')}
-						</span>
-						<span class="col-start-1 row-start-1" class:invisible={!showPrev} aria-hidden={!showPrev}>
-							{t('player.hide_history')}
-						</span>
-					</span>
-				</Button>
-			{/if}
 		</div>
 		{@render rows([view.now], wins[2])}
 
