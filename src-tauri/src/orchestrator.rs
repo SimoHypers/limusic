@@ -514,7 +514,10 @@ impl Orchestrator {
     }
 
     /// [`stream_headers`] for a client registry key.
-    fn headers_for(&self, client: &str, is_upload: bool) -> HashMap<String, String> {
+    ///
+    /// `pub(crate)` so a stream-url-cache hit (`AppState::resolve`) can rebuild the same headers
+    /// the URL was issued and HEAD-validated with, instead of sending none. Issue #241.
+    pub(crate) fn headers_for(&self, client: &str, is_upload: bool) -> HashMap<String, String> {
         stream_headers(
             self.clients.get(client).map(|c| c.user_agent.clone()),
             self.it.cookie(),

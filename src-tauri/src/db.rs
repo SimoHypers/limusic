@@ -66,6 +66,10 @@ pub struct CachedStream {
     /// lookahead caches the next track and a non-gapless advance then re-resolves it. Issue #83.
     pub ping_url: Option<String>,
     pub ping_client: Option<String>,
+    /// Which client registry key resolved this URL (e.g. `"WEB_REMIX"`, `"VISIONOS"`), so a cache
+    /// hit can rebuild the same `User-Agent` the URL was issued and HEAD-validated with instead of
+    /// sending mpv none. `None` on rows written before the column existed. Issue #241.
+    pub client: Option<String>,
 }
 
 impl Db {
@@ -93,7 +97,8 @@ impl Db {
                 loudness_db REAL,
                 is_video    INTEGER,
                 ping_url    TEXT,
-                ping_client TEXT
+                ping_client TEXT,
+                client      TEXT
             );
             CREATE TABLE IF NOT EXISTS lyrics_cache (
                 video_id   TEXT PRIMARY KEY,
@@ -154,6 +159,12 @@ impl Db {
         // means that one replay goes unregistered, which is exactly what every row did before.
         let _ = conn.execute("ALTER TABLE stream_url_cache ADD COLUMN ping_url TEXT", []);
         let _ = conn.execute("ALTER TABLE stream_url_cache ADD COLUMN ping_client TEXT", []);
+        // The resolving client, added so a cache hit can rebuild the User-Agent the URL was
+        // issued and HEAD-validated with (see `AppState::resolve`) instead of sending mpv none —
+        // which the URL was never validated to accept. No wipe: a NULL `client` here just means
+        // that one cache hit falls back to the old headerless behavior, same as every row before
+        // this column existed. Issue #241.
+        let _ = conn.execute("ALTER TABLE stream_url_cache ADD COLUMN client TEXT", []);
         // Local files are no longer recorded as plays (see `AppState::on_position`), but 0.3.1
         // recorded them for a while, so clear out anything already sitting in On Repeat's table.
         let _ = conn.execute("DELETE FROM plays WHERE video_id LIKE 'LOCAL:%'", []);
@@ -513,7 +524,7 @@ impl Db {
     pub fn get_stream(&self, video_id: &str, now: i64) -> Option<CachedStream> {
         let conn = self.0.lock().unwrap();
         conn.query_row(
-            "SELECT url, itag, expires_at, loudness_db, is_video, ping_url, ping_client FROM stream_url_cache WHERE video_id = ?1 AND expires_at > ?2",
+            "SELECT url, itag, expires_at, loudness_db, is_video, ping_url, ping_client, client FROM stream_url_cache WHERE video_id = ?1 AND expires_at > ?2",
             rusqlite::params![video_id, now],
             |r| {
                 Ok(CachedStream {
@@ -524,6 +535,7 @@ impl Db {
                     is_video: r.get(4)?,
                     ping_url: r.get(5)?,
                     ping_client: r.get(6)?,
+                    client: r.get(7)?,
                 })
             },
         )
@@ -545,8 +557,8 @@ impl Db {
     pub fn put_stream(&self, video_id: &str, row: &CachedStream, now: i64) {
         let conn = self.0.lock().unwrap();
         let _ = conn.execute(
-            "INSERT INTO stream_url_cache(video_id, url, itag, expires_at, loudness_db, is_video, ping_url, ping_client) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-             ON CONFLICT(video_id) DO UPDATE SET url = excluded.url, itag = excluded.itag, expires_at = excluded.expires_at, loudness_db = excluded.loudness_db, is_video = excluded.is_video, ping_url = excluded.ping_url, ping_client = excluded.ping_client",
+            "INSERT INTO stream_url_cache(video_id, url, itag, expires_at, loudness_db, is_video, ping_url, ping_client, client) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(video_id) DO UPDATE SET url = excluded.url, itag = excluded.itag, expires_at = excluded.expires_at, loudness_db = excluded.loudness_db, is_video = excluded.is_video, ping_url = excluded.ping_url, ping_client = excluded.ping_client, client = excluded.client",
             rusqlite::params![
                 video_id,
                 row.url,
@@ -555,7 +567,8 @@ impl Db {
                 row.loudness_db,
                 row.is_video,
                 row.ping_url,
-                row.ping_client
+                row.ping_client,
+                row.client
             ],
         );
         let _ = conn.execute("DELETE FROM stream_url_cache WHERE expires_at <= ?1", [now]);
@@ -981,6 +994,7 @@ mod tests {
             is_video: None,
             ping_url: None,
             ping_client: None,
+            client: None,
         }
     }
 
@@ -1044,6 +1058,25 @@ mod tests {
 
         let none = d.get_stream("unpinged", 900).unwrap();
         assert!(none.ping_url.is_none() && none.ping_client.is_none());
+    }
+
+    /// The resolving client has to survive the cache too (issue #241): a hit skips `/player`,
+    /// and without it there's no way to rebuild the `User-Agent` the URL was issued and
+    /// HEAD-validated with, so mpv's real GET goes out headerless.
+    #[test]
+    fn put_stream_round_trips_the_resolving_client() {
+        let d = db();
+        d.put_stream(
+            "tagged",
+            &CachedStream { client: Some("VISIONOS".to_owned()), ..row("https://x/1", 9_000) },
+            900,
+        );
+        d.put_stream("untagged", &row("https://x/2", 9_000), 900);
+
+        assert_eq!(d.get_stream("tagged", 900).unwrap().client.as_deref(), Some("VISIONOS"));
+        // Rows written before this column existed (or with no client recorded) read back `None`,
+        // same as a fresh row that never set it — the fallback is headerless, not a panic.
+        assert_eq!(d.get_stream("untagged", 900).unwrap().client, None);
     }
 
     #[test]

@@ -1006,11 +1006,23 @@ impl AppState {
         if let Some(c) = self.db.get_stream(video_id, cache_horizon(now, duration_secs)) {
             tracing::debug!(video_id, "stream url cache hit");
             // Cached URL carries no fresh metadata; the UI already has it from the queue item.
+            //
+            // Headers rebuilt from the resolving client, not left empty: the URL was issued and
+            // HEAD-validated with a specific User-Agent (`orchestrator::stream_headers`), and
+            // googlevideo has no obligation to serve it to a request that doesn't send one.
+            // `client` is `None` on rows written before this column existed (or, in principle, on
+            // a row saved with no client key mpv still recognizes) — headerless in that case,
+            // same as every cache hit before this fix. Issue #241.
+            let headers = c
+                .client
+                .as_deref()
+                .map(|client| self.orchestrator.headers_for(client, false))
+                .unwrap_or_default();
             return Ok(PlaybackData {
                 video_id: video_id.to_owned(),
                 stream_url: c.url,
                 itag: c.itag,
-                headers: Default::default(),
+                headers,
                 expires_in_seconds: c.expires_at - now,
                 loudness_db: c.loudness_db,
                 // Cached alongside the URL: a hit skips `/player`, so without it a replay never
@@ -1053,6 +1065,7 @@ impl AppState {
                     is_video: data.is_video,
                     ping_url: data.playback_ping.as_ref().map(|p| p.url.clone()),
                     ping_client: data.playback_ping.as_ref().map(|p| p.client.clone()),
+                    client: Some(data.stream_client.clone()),
                 },
                 now,
             );
