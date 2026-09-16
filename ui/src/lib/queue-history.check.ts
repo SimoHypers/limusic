@@ -8,7 +8,7 @@ function ok(condition: boolean, message: string): void {
 	if (!condition) throw new Error(`FAIL: ${message}`);
 }
 
-function fixture(scrollTop = 120, contentTop = 120, viewportTop = 30) {
+function fixture(scrollTop = 120, contentTop = 120, viewportTop = 30, targetOffset?: () => number) {
 	let position = scrollTop;
 	let writes = 0;
 	let connected = true;
@@ -26,7 +26,7 @@ function fixture(scrollTop = 120, contentTop = 120, viewportTop = 30) {
 		get isConnected() { return headingConnected; },
 		getBoundingClientRect: () => ({ top: viewportTop + contentTop - position })
 	};
-	const cancel = keepQueueAnchor(scroller, heading, rendered, () => current);
+	const cancel = keepQueueAnchor(scroller, heading, rendered, () => current, targetOffset);
 	return {
 		scroller, heading, cancel,
 		get writes() { return writes; },
@@ -122,5 +122,22 @@ for (const rows of [1, 199, 200, 201, 5000]) {
 	await f.flush();
 	ok(f.scroller.scrollTop === 120 + rows * 72 + 40, `${rows} rows preserve heading position`);
 }
+
+// A clicked Show button can choose a revealed position after layout, while preserving guards.
+let target = 0;
+f = fixture(120, 120, 30, () => target);
+f.moveContent(720);
+target = 300;
+await f.flush();
+ok(f.heading.getBoundingClientRect().top - f.scroller.getBoundingClientRect().top === 300,
+	'the explicit offset reveals history instead of keeping it above the viewport');
+f = fixture(120, 120, 30, () => 0);
+f.moveContent(720);
+await f.flush();
+ok(f.scroller.scrollTop === 840, 'zero is a valid target offset');
+f = fixture(120, 120, 30, () => { throw new Error('cancelled target must not be read'); });
+f.cancel();
+await f.flush();
+ok(f.writes === 0, 'cancellation guards target-offset computation too');
 
 console.log(`queue history: ${assertions} assertions passed`);

@@ -398,6 +398,64 @@ try {
  await settled();
  assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('appearance')).queueHistoryVisible),true);
  interactionCases++;
+
+ // A click on Show history must reveal played tracks without an extra wheel/scroll action.
+ // Small histories fit entirely; long histories show recent rows with the current track.
+ for (const [length,index,reduce] of [[30,5,false],[80,40,false],[600,300,false],[30,5,true]]) {
+   await page.emulateMedia({reducedMotion:reduce?'reduce':'no-preference'});
+   await page.evaluate(async ({length,index}) => {
+     const {playback}=await import('/player.svelte.ts');
+     playback.queue={items:Array.from({length},(_,i)=>({video_id:`reveal-${i}`,title:`Reveal ${i+1}`,artists:'Fixture artist'})),currentIndex:index,playedFrom:0,sourceName:'Reveal queue'};
+     window.setHistoryVisible(false);
+   },{length,index});
+   await settled();
+   await toggle.evaluate(btn=>{
+     const scroller=btn.closest('.overflow-y-auto');
+     scroller.scrollTop+=btn.parentElement.getBoundingClientRect().top-scroller.getBoundingClientRect().top;
+   });
+   await page.waitForTimeout(100);
+   await toggle.evaluate(btn=>{
+     const history=document.getElementById(btn.getAttribute('aria-controls'));
+     window.revealFrames=[];
+     const started=performance.now();
+     const sample=()=>{
+       window.revealFrames.push({height:history.getBoundingClientRect().height,top:btn.parentElement.getBoundingClientRect().top,animating:history.hasAttribute('data-history-transitioning')});
+       if(performance.now()-started<350) requestAnimationFrame(sample);
+     };
+     requestAnimationFrame(sample);
+   });
+   await toggle.click();
+   await settled();
+   await page.waitForTimeout(100);
+   if(length<=200 && !reduce) {
+     const frames=await page.evaluate(()=>window.revealFrames);
+     assert(frames.filter(f=>f.animating && f.height>1).length>=2,'Show animates through rendered intermediate heights');
+     const end=frames.findIndex((f,i)=>i && !f.animating && frames[i-1].animating);
+     assert(end>0 && Math.abs(frames[end].top-frames[end-1].top)<=2,
+       `ending the reveal does not jump after estimated row heights settle: ${JSON.stringify(frames.slice(Math.max(0,end-2),end+2))}`);
+   }
+   const revealed = await toggle.evaluate(btn=>{
+     const scroller=btn.closest('.overflow-y-auto');
+     const viewport=scroller.getBoundingClientRect();
+     const history=document.getElementById(btn.getAttribute('aria-controls'));
+     const bounds=history.getBoundingClientRect();
+     const last=history.querySelector('[data-row]:last-child')?.getBoundingClientRect();
+     const playing=btn.parentElement.nextElementSibling.getBoundingClientRect();
+     return {viewport:{top:viewport.top,bottom:viewport.bottom},history:{top:bounds.top,bottom:bounds.bottom},last: last && {top:last.top,bottom:last.bottom},playing:{top:playing.top,bottom:playing.bottom},toggleTop:btn.getBoundingClientRect().top};
+   });
+   assert(revealed.last && revealed.last.top>=revealed.viewport.top-1 && revealed.last.bottom<=revealed.viewport.bottom+1,
+     `Show history exposes recent history without scrolling (${length}/${reduce}): ${JSON.stringify(revealed)}`);
+   assert(revealed.playing.bottom<=revealed.viewport.bottom+1 && revealed.toggleTop>=revealed.viewport.top,
+     'revealing history keeps the current track and collapse control visible');
+   if(index===5) assert(revealed.history.top>=revealed.viewport.top-1,'a five-track history is fully in view');
+   if(length===30 && !reduce) await page.screenshot({path:resolve(root,'show-history-without-scrolling.png')});
+   await page.getByRole('tab',{name:'Lyrics',exact:true}).click();
+   await page.getByRole('tab',{name:'Queue',exact:true}).click();
+   await page.waitForTimeout(150);
+   const restored=await toggle.evaluate(btn=>document.getElementById(btn.getAttribute('aria-controls')).getBoundingClientRect().bottom);
+   assert(Math.abs(restored-revealed.history.bottom)<=1,'tab switch retains the revealed history viewport');
+   interactionCases++;
+ }
  writeFileSync(resolve(root,'result.json'),JSON.stringify({before,after,cases,interactionCases},null,2));
  console.log(`History interaction checks: ${interactionCases} scenarios passed (real global shortcuts; mocked transport).`);
  console.log(`Queue/lyrics component checks: ${cases} scenarios passed (real components; mocked playback, track menus, lyrics).`);

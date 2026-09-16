@@ -73,6 +73,15 @@
 	let historyAnimating = $state(false);
 	let el: HTMLElement;
 	let nowEl: HTMLElement | undefined = $state();
+	// Only the view whose Show button was activated should move to reveal the history.
+	let revealRequested = false;
+	function revealedHeadingTop(scroller: HTMLElement, heading: HTMLElement, historyHeight: number) {
+		const padding = parseFloat(getComputedStyle(scroller).paddingTop) || 0;
+		const playingHeight = heading.nextElementSibling?.getBoundingClientRect().height ?? 0;
+		const available = Math.max(0, scroller.clientHeight - heading.offsetHeight - playingHeight - padding);
+		// Fit short histories in full; reserve space for Now Playing and its Hide button when long.
+		return Math.min(historyHeight + padding, scroller.clientHeight * 2 / 3, available);
+	}
 	function rememberScroll() {
 		if (scrollMemory && el?.isConnected) {
 			// A half-collapsed layout is not a viewport another mount can restore.
@@ -86,7 +95,7 @@
 	}
 
 	// A tab switch recreates this list. The owner can retain its viewport for the same queue;
-	// otherwise a fresh queue opens on the current track, after virtual row heights settle.
+	// otherwise a fresh queue reveals saved history alongside the current track after row heights settle.
 	onMount(() => {
 		const scroller = el;
 		const queue = playback.queue;
@@ -99,7 +108,11 @@
 			if (!nowEl || playback.queue !== queue || queue.currentIndex !== currentIndex
 				|| showPrev !== historyVisible) return;
 			if (restore) scroller.scrollTop = saved.scrollTop;
-			else scroller.scrollTop += nowEl.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+			else {
+				const offset = historyVisible && historyEl && view.prev.length
+					? revealedHeadingTop(scroller, nowEl, historyEl.getBoundingClientRect().height) : 0;
+				scroller.scrollTop += nowEl.getBoundingClientRect().top - scroller.getBoundingClientRect().top - offset;
+			}
 			rememberScroll();
 		};
 		scroller.addEventListener('scroll', rememberScroll, { passive: true });
@@ -147,6 +160,8 @@
 		const currentIndex = queue.currentIndex;
 		const changed = previousVisibility !== undefined && previousVisibility !== visible;
 		previousVisibility = visible;
+		const reveal = changed && visible && revealRequested;
+		revealRequested = false;
 		const heading = untrack(() => nowEl);
 		const history = untrack(() => historyEl);
 		// Another queue view can hide this one while a history row has keyboard focus.
@@ -178,7 +193,9 @@
 		// would invalidate the window offsets. Reduced motion uses the same instant anchoring.
 		const animate = queue.items.length <= WINDOW_ABOVE && !reduce;
 		if (!animate) {
-			const cancel = keepQueueAnchor(scroller, heading, tick(), current);
+			const cancel = keepQueueAnchor(scroller, heading, tick(), current, reveal
+				? () => revealedHeadingTop(scroller, heading, history.getBoundingClientRect().height)
+				: undefined);
 			renderHistory = visible;
 			historyAnimating = false;
 			clearHeight();
@@ -186,6 +203,7 @@
 		}
 		// Retain the actual intermediate height on reversal instead of restarting from an end.
 		const from = history.getBoundingClientRect().height;
+		const headingTop = heading.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
 		history.style.height = `${from}px`;
 		history.style.overflow = 'hidden';
 		renderHistory = true;
@@ -196,15 +214,21 @@
 			if (cancelled || !current()) return;
 			const to = visible ? history.scrollHeight : 0;
 			const start = performance.now();
+			const revealDistance = reveal ? revealedHeadingTop(scroller, heading, to) - headingTop : 0;
+			let previousProgress = 0;
 			let remainder = 0;
 			const step = (time: number) => {
 				if (cancelled || !current()) return;
 				const progress = Math.min(1, (time - start) / 200);
+				const eased = cubicOut(progress);
 				const before = heading.getBoundingClientRect().top;
-				history.style.height = `${from + (to - from) * cubicOut(progress)}px`;
-				// Correct only this frame's displacement. At scrollTop=0 the header can then
-				// glide upward naturally; deeper in the queue the playing row stays anchored.
-				const wanted = scroller.scrollTop + heading.getBoundingClientRect().top - before + remainder;
+				history.style.height = `${from + (to - from) * eased}px`;
+				// Reveal the requested history as it unfolds, instead of scrolling it offscreen.
+				// Other views and collapsing history retain their own anchor. Per-frame deltas
+				// also preserve any wheel movement the user makes during the transition.
+				const revealStep = revealDistance * (eased - previousProgress);
+				previousProgress = eased;
+				const wanted = scroller.scrollTop + heading.getBoundingClientRect().top - before - revealStep + remainder;
 				scroller.scrollTop = wanted;
 				// Chromium can round scrollTop to pixels. Carry the fraction, not a clamped
 				// distance, so several frames do not accumulate a visible drift.
@@ -229,6 +253,7 @@
 	});
 
 	function togglePrev() {
+		revealRequested = !appearance.queueHistoryVisible;
 		try {
 			setAppearance({ queueHistoryVisible: !appearance.queueHistoryVisible });
 		} catch {
@@ -313,6 +338,7 @@
 		<div
 			id={historyId}
 			bind:this={historyEl}
+			class:small-history={playback.queue.items.length <= WINDOW_ABOVE}
 			hidden={!renderHistory || !view.prev.length}
 			inert={!showPrev}
 			aria-hidden={!showPrev}
@@ -384,3 +410,11 @@
 		<p class="p-4 text-sm text-muted-foreground">{t('player.empty_queue')}</p>
 	{/if}
 </div>
+
+<style>
+	/* This history has at most 200 rows. Measure their real layout: content-visibility's
+	   estimated row heights otherwise change as the disclosure opens, leaving a jump at the end. */
+	.small-history :global([data-row] > [data-ctx]) {
+		content-visibility: visible;
+	}
+</style>
