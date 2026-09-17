@@ -12,7 +12,7 @@
 	import { blockWindows, fullWindow, type RowWindow } from '$lib/rows';
 	import { rowScroller } from '$lib/rows.svelte';
 	import { dragScroll, QUEUE_ROW_MIME } from '$lib/dnd';
-	import { playback, openAddToPlaylist, toast } from '$lib/player.svelte';
+	import { playback, openAddToPlaylist } from '$lib/player.svelte';
 	import { appearance, setAppearance } from '$lib/theme.svelte';
 	import { keepQueueAnchor, type QueueScrollMemory } from '$lib/queue-history';
 	import { lt } from '$lib/lt.svelte';
@@ -62,9 +62,9 @@
 	const lastIndex = $derived(view.blocks.at(-1)?.rows.at(-1)?.i ?? -1);
 
 	// The tracks already heard, hidden until asked for: a queue played deep into has hundreds of
-	// them, and they sit above everything anyone opened the panel to look at. The untouched prefix
-	// above them (`view.earlier`) is not hidden: it is bounded by the playlist and shrinks every
-	// time you press previous, where history only grows.
+	// them, and they sit above everything anyone opened the panel to look at. They are drawn above
+	// the untouched prefix (`view.earlier`), which is not hidden: that prefix is bounded by the
+	// playlist and shrinks every time you press previous, where history only grows.
 	const showPrev = $derived(appearance.queueHistoryVisible);
 	// Keep outgoing rows mounted until the collapse finishes.
 	let renderHistory = $state(untrack(() => showPrev));
@@ -75,12 +75,21 @@
 	let nowEl: HTMLElement | undefined = $state();
 	// Only the view whose Show button was activated should move to reveal the history.
 	let revealRequested = false;
-	function revealedHeadingTop(scroller: HTMLElement, heading: HTMLElement, historyHeight: number) {
+	function revealedHeadingTop(
+		scroller: HTMLElement,
+		heading: HTMLElement,
+		history: HTMLElement,
+		historyHeight: number
+	) {
 		const padding = parseFloat(getComputedStyle(scroller).paddingTop) || 0;
 		const playingHeight = heading.nextElementSibling?.getBoundingClientRect().height ?? 0;
 		const available = Math.max(0, scroller.clientHeight - heading.offsetHeight - playingHeight - padding);
+		// The unplayed prefix sits between the two and has to be scrolled past as well, or the
+		// reveal stops on it and the history it was asked for stays above the viewport. Constant
+		// while the history animates: both edges move together.
+		const between = Math.max(0, heading.getBoundingClientRect().top - history.getBoundingClientRect().bottom);
 		// Fit short histories in full; reserve space for Now Playing when long.
-		return Math.min(historyHeight + padding, scroller.clientHeight * 2 / 3, available);
+		return Math.min(historyHeight + between + padding, scroller.clientHeight * 2 / 3, available);
 	}
 	function rememberScroll() {
 		if (scrollMemory && el?.isConnected) {
@@ -110,7 +119,7 @@
 			if (restore) scroller.scrollTop = saved.scrollTop;
 			else {
 				const offset = historyVisible && historyEl && view.prev.length
-					? revealedHeadingTop(scroller, nowEl, historyEl.getBoundingClientRect().height) : 0;
+					? revealedHeadingTop(scroller, nowEl, historyEl, historyEl.getBoundingClientRect().height) : 0;
 				scroller.scrollTop += nowEl.getBoundingClientRect().top - scroller.getBoundingClientRect().top - offset;
 			}
 			rememberScroll();
@@ -138,8 +147,8 @@
 	// heading it doesn't draw. The usual history label is also outside the scroller. These shift
 	// the window's *choice* of slice, not its row heights: overscan absorbs it (see HEADING_PX).
 	const counts = $derived([
-		view.earlier.length,
 		renderHistory ? view.prev.length : 0,
+		view.earlier.length,
 		view.now ? 1 : 0,
 		...view.blocks.map((b) => b.rows.length)
 	]);
@@ -194,7 +203,7 @@
 		const animate = queue.items.length <= WINDOW_ABOVE && !reduce;
 		if (!animate) {
 			const cancel = keepQueueAnchor(scroller, heading, tick(), current, reveal
-				? () => revealedHeadingTop(scroller, heading, history.getBoundingClientRect().height)
+				? () => revealedHeadingTop(scroller, heading, history, history.getBoundingClientRect().height)
 				: undefined);
 			renderHistory = visible;
 			historyAnimating = false;
@@ -214,7 +223,7 @@
 			if (cancelled || !current()) return;
 			const to = visible ? history.scrollHeight : 0;
 			const start = performance.now();
-			const revealDistance = reveal ? revealedHeadingTop(scroller, heading, to) - headingTop : 0;
+			const revealDistance = reveal ? revealedHeadingTop(scroller, heading, history, to) - headingTop : 0;
 			let previousProgress = 0;
 			let remainder = 0;
 			const step = (time: number) => {
@@ -254,13 +263,7 @@
 
 	function togglePrev() {
 		revealRequested = !appearance.queueHistoryVisible;
-		try {
-			setAppearance({ queueHistoryVisible: !appearance.queueHistoryVisible });
-		} catch {
-			// setAppearance updates the shared state before writing. Keep that in-session choice;
-			// a later toggle retries persistence, and the anchoring effect still runs on failure.
-			toast.error(t('player.history_not_saved'));
-		}
+		setAppearance({ queueHistoryVisible: !appearance.queueHistoryVisible });
 	}
 </script>
 
@@ -320,12 +323,11 @@
 <!-- The list on its own, so the side panel and the now-playing view's Queue tab render the same
      one instead of drifting apart. dragScroll: reordering across a queue taller than the panel
      needs the edges to pull. -->
-<!-- Keep the disclosure outside the scroller so its hit target stays in place. -->
+<!-- Keep the disclosure outside the scroller so its hit target stays in place. The section's own
+     heading stays in the list with the rows it names: this bar sits above `Earlier` too, which is
+     not history, so a heading here would be labelling the wrong thing. -->
 {#if view.now && view.prev.length}
-	<div class="flex shrink-0 items-center justify-between gap-2 px-2 py-1">
-		<h3 id="{historyId}-label" class="min-w-0 flex-1 truncate px-2 text-sm font-semibold text-muted-foreground">
-			{t('player.history')}
-		</h3>
+	<div class="flex shrink-0 items-center justify-end gap-2 px-2 py-1">
 		<Button
 			bind:ref={historyButton}
 			variant="ghost"
@@ -361,16 +363,10 @@
 	{#if view.now}
 		<!-- The queue in front of the playing track that was never reached: start an album at track
 		     4 and the backend still queues 1-3. Always drawn: they are not history. -->
-		{#if view.earlier.length}
-			<h3 class="truncate px-2 pt-2 pb-1.5 text-sm font-semibold text-muted-foreground">
-				{view.earlierHeading}
-			</h3>
-			{@render rows(view.earlier, wins[0])}
-		{/if}
 		<div
 			id={historyId}
 			role="group"
-			aria-labelledby="{historyId}-label"
+			aria-label={t('player.history')}
 			bind:this={historyEl}
 			class:small-history={playback.queue.items.length <= WINDOW_ABOVE}
 			hidden={!renderHistory || !view.prev.length}
@@ -379,15 +375,18 @@
 			data-history-transitioning={historyAnimating ? '' : undefined}
 		>
 			{#if renderHistory && view.prev.length}
-				<!-- Keep an in-list boundary when unplayed tracks precede the played history. -->
-				{#if view.earlier.length}
-					<h3 class="px-2 pt-2 pb-1.5 text-sm font-semibold text-muted-foreground">
-						{t('player.history')}
-					</h3>
-				{/if}
-				{@render rows(view.prev, wins[1])}
+				<h3 class="px-2 pt-2 pb-1.5 text-sm font-semibold text-muted-foreground">
+					{t('player.history')}
+				</h3>
+				{@render rows(view.prev, wins[0])}
 			{/if}
 		</div>
+		{#if view.earlier.length}
+			<h3 class="truncate px-2 pt-2 pb-1.5 text-sm font-semibold text-muted-foreground">
+				{view.earlierHeading}
+			</h3>
+			{@render rows(view.earlier, wins[1])}
+		{/if}
 		<div bind:this={nowEl} class="flex items-center justify-between gap-2 px-2 pt-2 pb-1.5">
 			<h3 class="truncate text-sm font-semibold">{t('player.now_playing')}</h3>
 		</div>

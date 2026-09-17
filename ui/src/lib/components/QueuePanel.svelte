@@ -1,3 +1,11 @@
+<script module lang="ts">
+	import type { QueueScrollMemory } from '$lib/queue-history';
+	// Module scope on purpose: the panel is unmounted when it closes, so a component-local one
+	// would drop the viewport on every close. NowPlaying's copy survives in the component because
+	// that view stays mounted across its tab switches.
+	const scrollMemory: QueueScrollMemory = {};
+</script>
+
 <script lang="ts">
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
@@ -22,5 +30,5 @@
 	class="absolute inset-y-0 right-0 z-30 flex h-full w-80 max-w-[80vw] flex-col border-l bg-card shadow-2xl"
 >
 	<h2 class="border-b px-4 py-3 font-heading text-sm font-semibold">{t('queue.title')}</h2>
-	<QueueList />
+	<QueueList {scrollMemory} />
 </aside>

@@ -143,7 +143,6 @@
 		"history": "History",
 		"hide_history": "Hide history",
 		"show_history": "Show history",
-		"history_not_saved": "History visibility changed for this session, but could not be saved. Try toggling it again.",
 		"repeat_state": "Repeat: {state}",
 		"seek": "Seek",
 		"open_player": "Open player",
