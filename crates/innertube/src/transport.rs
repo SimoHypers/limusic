@@ -303,21 +303,26 @@ impl InnerTube {
         // `path` may already carry query params (e.g. browse continuations); chain accordingly.
         let sep = if path.contains('?') { '&' } else { '?' };
         let url = format!("{BASE_URL}{path}{sep}prettyPrint=false");
-        let headers = self.headers(client, set_login);
         let body = serde_json::to_vec(body)?;
 
         let mut delay = Duration::from_millis(500);
         let mut attempt = 0;
+        let mut session_healed = false;
+
         loop {
             attempt += 1;
+            // Rebuild headers on every iteration so retried requests use the updated session cookie.
+            let headers = self.headers(client, set_login);
+
             let res = self
                 .http
                 .post(&url)
-                .headers(headers.clone())
+                .headers(headers)
                 .body(body.clone())
                 .send()
                 .await
                 .and_then(|r| r.error_for_status());
+
             match res {
                 Ok(resp) => {
                     self.absorb_cookies(resp.headers());
@@ -335,8 +340,10 @@ impl InnerTube {
                     if set_login
                         && client.login_supported
                         && self.is_logged_in()
+                        && !session_healed
                         && e.status().is_some_and(|s| s == 401 || s == 403) =>
                 {
+                    session_healed = true;
                     tracing::warn!(status = ?e.status(), "InnerTube {path} rejected the session — healing");
                     self.wait_for_session_heal().await?;
                     tracing::info!("session healed, retrying {path}");
