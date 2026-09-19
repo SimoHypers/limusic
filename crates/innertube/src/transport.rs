@@ -126,6 +126,9 @@ pub struct InnerTube {
     /// so it only raises the flag. `notify_one` stores a permit, so a single listener that is
     /// busy healing still sees the next rejection.
     session_rejected: Arc<Notify>,
+    /// Pinged when a new cookie has been successfully applied, signalling that requests waiting
+    /// for a session heal can now retry.
+    session_updated: Arc<Notify>,
     /// Pinged when a response's `Set-Cookie` actually changed the stored jar, so the app can
     /// write the rotated cookie back to disk. See [`InnerTube::absorb_cookies`].
     cookie_changed: Arc<Notify>,
@@ -147,6 +150,7 @@ impl InnerTube {
             hide_videos: Arc::new(AtomicBool::new(false)),
             blocked: Arc::new(RwLock::new(BlockList::default())),
             session_rejected: Arc::new(Notify::new()),
+            session_updated: Arc::new(Notify::new()),
             cookie_changed: Arc::new(Notify::new()),
         })
     }
@@ -239,6 +243,7 @@ impl InnerTube {
 
     pub fn set_cookie(&self, cookie: Option<String>) {
         self.session.write().unwrap().cookie = cookie;
+        self.session_updated.notify_waiters();
     }
 
     pub fn set_data_sync_id(&self, id: Option<String>) {
@@ -325,21 +330,17 @@ impl InnerTube {
                     delay *= 2;
                 }
                 // Signed in and Google says "no credential" (401) or "not for you" (403): the
-                // stored cookie has gone stale. Raw reqwest text here reads as a broken app and
-                // hands the user a URL instead of the one thing that fixes it. Only for a request
-                // that actually carried the cookie: a deliberately anonymous one (a search
-                // preview) is refused for its own reasons and says nothing about the session, and
-                // `headers` sends the cookie only for a client that supports login, so every
-                // anonymous stream client in the fallback chain would otherwise sign the user out
-                // on the 403 that made the orchestrator move to the next one.
+                // stored cookie has gone stale. Trigger the healer and wait for a new session.
                 Err(e)
                     if set_login
                         && client.login_supported
                         && self.is_logged_in()
                         && e.status().is_some_and(|s| s == 401 || s == 403) =>
                 {
-                    tracing::warn!(status = ?e.status(), "InnerTube {path} rejected the session");
-                    return Err(self.reject_session());
+                    tracing::warn!(status = ?e.status(), "InnerTube {path} rejected the session — healing");
+                    self.wait_for_session_heal().await?;
+                    tracing::info!("session healed, retrying {path}");
+                    continue;
                 }
                 Err(e) => return Err(e.into()),
             }
@@ -451,6 +452,23 @@ impl InnerTube {
     pub fn http(&self) -> &reqwest::Client {
         &self.http
     }
+
+    pub(crate) async fn wait_for_session_heal(&self) -> Result<(), Error> {
+            // Реєструємо очікування ДО виклику notify_one,
+            // щоб не пропустити подію, якщо кука оновиться миттєво
+            let notified = self.session_updated.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+
+            self.session_rejected.notify_one();
+
+            tokio::select! {
+                _ = &mut notified => Ok(()),
+                _ = tokio::time::sleep(std::time::Duration::from_secs(45)) => {
+                    Err(self.reject_session())
+                }
+            }
+        }
 }
 
 /// Build the playback-tracking GET URL. context/01 §registerPlayback. Pure — unit-tested. The
