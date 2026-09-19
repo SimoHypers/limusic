@@ -469,11 +469,9 @@ impl InnerTube {
 
         self.session_rejected.notify_one();
 
-        tokio::select! {
-            _ = &mut notified => Ok(()),
-            _ = tokio::time::sleep(std::time::Duration::from_secs(45)) => {
-                Err(self.reject_session())
-            }
+        match tokio::time::timeout(std::time::Duration::from_secs(60), notified).await {
+            Ok(_) => Ok(()),
+            Err(_) => Err(Error::SessionExpired),
         }
     }
 }
