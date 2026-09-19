@@ -2,10 +2,16 @@
 	// Module scope, so returning to the library (back from an album you opened, or via the sidebar)
 	// keeps the tab you were on instead of snapping to All.
 	let lastTab = 'all';
+	// `<main>` is the shared page scroller (the layout owns it, not this page), and a route whose
+	// content is exactly viewport-tall — a playlist page — clamps `main.scrollTop` to 0 the moment
+	// it mounts, so a back from it lands this page at its top. The library's own position lives here
+	// (module scope, so it survives the remount each visit).
+	let savedScroll: number | null = null;
 </script>
 
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
+	import { beforeNavigate } from '$app/navigation';
 	import { page } from '$app/state';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
@@ -84,6 +90,28 @@
 	const toSync = $derived(unsynced(personal));
 
 	onMount(load);
+
+	// Save the scroller's position before the library unmounts. Guarded on the path we are leaving:
+	// `beforeNavigate` also fires for the navigation that arrives here, and the scroller below would
+	// be the page we came from then.
+	beforeNavigate(() => {
+		if (typeof window !== 'undefined' && window.location.pathname === '/library') {
+			const main = document.querySelector('main');
+			savedScroll = main && main.scrollTop ? main.scrollTop : null;
+		}
+	});
+	// And put it back on a return. The library grid paints from its cache, so the height is there
+	// at mount; the frame hand re-applies it in case anything landed late.
+	onMount(() => {
+		const top = savedScroll;
+		if (top !== null) {
+			const main = document.querySelector('main');
+			if (main) {
+				main.scrollTop = top;
+				requestAnimationFrame(() => (main.scrollTop = top));
+			}
+		}
+	});
 
 	// Only when the tab is opened: most accounts have no uploads at all, so this stays off the
 	// Library's own load. `untrack` because the loader writes the very state it reads to decide
