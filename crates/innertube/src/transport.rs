@@ -454,21 +454,21 @@ impl InnerTube {
     }
 
     pub(crate) async fn wait_for_session_heal(&self) -> Result<(), Error> {
-            // Реєструємо очікування ДО виклику notify_one,
-            // щоб не пропустити подію, якщо кука оновиться миттєво
-            let notified = self.session_updated.notified();
-            tokio::pin!(notified);
-            notified.as_mut().enable();
+        // Register the wait before calling notify_one,
+        // so as not to miss the event if the cookie is updated immediately
+        let notified = self.session_updated.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
 
-            self.session_rejected.notify_one();
+        self.session_rejected.notify_one();
 
-            tokio::select! {
-                _ = &mut notified => Ok(()),
-                _ = tokio::time::sleep(std::time::Duration::from_secs(45)) => {
-                    Err(self.reject_session())
-                }
+        tokio::select! {
+            _ = &mut notified => Ok(()),
+            _ = tokio::time::sleep(std::time::Duration::from_secs(45)) => {
+                Err(self.reject_session())
             }
         }
+    }
 }
 
 /// Build the playback-tracking GET URL. context/01 §registerPlayback. Pure — unit-tested. The
@@ -707,9 +707,7 @@ mod tests {
 
         // 1. Spawn `wait_for_session_heal` in a separate task so it starts waiting
         // in the background without blocking virtual time advancement.
-        let wait_handle = tokio::spawn(async move {
-            it_clone.wait_for_session_heal().await
-        });
+        let wait_handle = tokio::spawn(async move { it_clone.wait_for_session_heal().await });
 
         // 2. Yield execution to ensure `wait_for_session_heal` has entered `tokio::select!`
         // and registered its 45-second sleep timer.
