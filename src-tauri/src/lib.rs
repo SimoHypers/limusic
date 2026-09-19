@@ -489,12 +489,11 @@ pub fn run() {
                     // 401 it may come back with goes down the same healing path as any other.
                     if st.it.is_logged_in() {
                         if let Some(client) = st.clients.get(innertube::METADATA_CLIENT) {
-                            // Healing is suspended for it: this runs *before* the loop below, so
+                            // No heal-waiting for it: this runs *before* the loop below, so
                             // there is nobody to answer a wait yet, and a dead session would
                             // stall the healer's own startup for the whole timeout. Its 401
                             // raises the flag instead, and the loop picks that up on entry.
-                            let _guard = st.it.suspend_healing();
-                            let _ = st.it.account_menu(client).await;
+                            let _ = innertube::without_healing(st.it.account_menu(client)).await;
                         }
                     }
                     // Google rolls its short-lived tokens on the requests the app makes, so an
@@ -505,13 +504,16 @@ pub fn run() {
                     loop {
                         tokio::select! {
                             _ = rejected.notified() => {
-                                session::refresh_session(app_handle.clone(), st.clone()).await;
-                                // Every exit path, including the cooldown decline and the "nothing
-                                // fresher to offer" one. Requests parked on this heal want to know
-                                // the attempt is over, not that it worked: they retry either way,
-                                // and the ones that fail can finally say so instead of holding a
-                                // spinner until the timeout.
-                                st.it.session_heal_finished();
+                                // The guard is what parked requests are watching: while it lives
+                                // they keep waiting however long this takes, and dropping it
+                                // releases them whether or not anything was re-minted. They retry
+                                // either way, so the ones that really are dead can say so instead
+                                // of holding a spinner until the timeout.
+                                let _heal = st.it.begin_heal();
+                                innertube::without_healing(
+                                    session::refresh_session(app_handle.clone(), st.clone()),
+                                )
+                                .await;
                             }
                             _ = rotated.notified() => st.persist_rotated_cookie(),
                             _ = keepalive.tick() => st.keep_session_alive().await,

@@ -30,4 +30,6 @@ pub use models::player::{
     StreamingData,
 };
 pub use rustypipe_fallback::{FallbackError, StreamCandidate};
-pub use transport::{cookie_sapisid, generate_cpn, Error, InnerTube, Session};
+pub use transport::{
+    cookie_sapisid, generate_cpn, without_healing, Error, Healing, InnerTube, Session,
+};
