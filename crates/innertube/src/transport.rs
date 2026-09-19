@@ -664,6 +664,69 @@ mod tests {
         assert_eq!(s.sapisid().as_deref(), Some("secret123"));
     }
 
+    #[tokio::test]
+    async fn test_wait_for_session_heal_success() {
+        let it = InnerTube::new(Session::default(), None).unwrap();
+        let it_clone = it.clone();
+
+        // 1. Simulate the background healer process:
+        // Listen for the rejection trigger, simulate the token renewal delay,
+        // and update the cookie via `set_cookie`.
+        let healer_handle = tokio::spawn(async move {
+            it_clone.session_rejected.notified().await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            it_clone.set_cookie(Some("SAPISID=healed_cookie".into()));
+        });
+
+        // 2. Call the actual implementation under test.
+        // It must notify `session_rejected`, wait asynchronously for `session_updated`,
+        // and return `Ok(())` once the cookie is updated.
+        let result = it.wait_for_session_heal().await;
+
+        assert!(
+            result.is_ok(),
+            "Expected wait_for_session_heal to return Ok(()), but got: {:?}",
+            result.err()
+        );
+        assert_eq!(
+            it.cookie(),
+            Some("SAPISID=healed_cookie".into()),
+            "Stored cookie must be updated after successful heal"
+        );
+
+        healer_handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_session_heal_timeout() {
+        // Switch Tokio runtime to virtual/mock time to avoid waiting 45 real seconds.
+        tokio::time::pause();
+
+        let it = InnerTube::new(Session::default(), None).unwrap();
+        let it_clone = it.clone();
+
+        // 1. Spawn `wait_for_session_heal` in a separate task so it starts waiting
+        // in the background without blocking virtual time advancement.
+        let wait_handle = tokio::spawn(async move {
+            it_clone.wait_for_session_heal().await
+        });
+
+        // 2. Yield execution to ensure `wait_for_session_heal` has entered `tokio::select!`
+        // and registered its 45-second sleep timer.
+        tokio::task::yield_now().await;
+
+        // 3. Fast-forward virtual time past the 45-second deadline (runs in a fraction of a millisecond).
+        tokio::time::advance(Duration::from_secs(46)).await;
+
+        // 4. Await task completion and verify that timeout occurred and an error was returned.
+        let result = wait_handle.await.expect("Task panicked or was cancelled");
+
+        assert!(
+            result.is_err(),
+            "Expected wait_for_session_heal to fail with timeout/SessionExpired, but it succeeded"
+        );
+    }
+
     // The #165 regression: the rotated value has to land in the jar, in place, or the login dies
     // a few hours in.
     #[test]

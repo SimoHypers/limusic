@@ -17,7 +17,7 @@ urlencoding = "2"
 rustypipe = { version = "0.11", default-features = false, features = ["rustls-tls-webpki-roots"] }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
 
 [features]
 # Opt-in live-YouTube smoke tests — NOT in the default `cargo test` run.
