@@ -1,13 +1,13 @@
 //! HTTP transport. context/01. Pure — no Tauri/webview/mpv.
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, SET_COOKIE};
 use serde::Serialize;
 use sha1::{Digest, Sha1};
-use tokio::sync::Notify;
+use tokio::sync::{watch, Notify};
 
 use crate::blocklist::BlockList;
 use crate::clients::YouTubeClient;
@@ -133,6 +133,19 @@ pub(crate) fn merge_set_cookie(cookie: &str, set_cookie: &[&str]) -> Option<Stri
     changed.then(|| jar.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("; "))
 }
 
+/// What the app's session healer is doing, as one value so a waiter can never read half of it.
+///
+/// `active` alone cannot answer the question a waiter actually has, because it reads zero both
+/// before anything started and after everything finished. `completed` is what separates the two.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct HealState {
+    /// Heals running right now. More than one is not reachable through the app's single healing
+    /// task, but `begin_heal` is public and nothing here needs to assume that.
+    active: usize,
+    /// Heals that have finished, ever.
+    completed: u64,
+}
+
 /// The transport client. One shared `reqwest::Client`; proxy must be set before the
 /// first request or reqwest snapshots it as none (context/12, the App.kt gotcha).
 ///
@@ -157,15 +170,17 @@ pub struct InnerTube {
     /// so it only raises the flag. `notify_one` stores a permit, so a single listener that is
     /// busy healing still sees the next rejection.
     session_rejected: Arc<Notify>,
-    /// Pinged when the app's healer has *finished*, whether or not it managed to re-mint
-    /// anything. Deliberately not "a cookie was written": the healer declines most of a burst on
-    /// its own cooldown, and a sign-out or a rolled-back sign-in write a cookie without healing
-    /// anything. Waiters that treated either as success would retry into the same 401, or block
-    /// the full timeout waiting for a heal that already gave up.
-    heal_finished: Arc<Notify>,
-    /// Non-zero while the app's healer is actually working. It is what lets a waiter tell a slow
-    /// heal (keep waiting) from nothing listening at all (give up at [`HEAL_TIMEOUT`]).
-    healing: Arc<AtomicUsize>,
+    /// What the app's healer is doing. A `watch` rather than a flag plus a `Notify`, because a
+    /// waiter has to read the state and wait for the next change without a gap between the two:
+    /// `send_modify` publishes the new value and the wakeup together, and a change that lands
+    /// before the waiter gets back to `changed()` is still seen. Both halves of the answer are
+    /// carried here too, so a heal that starts, runs and finishes between two polls cannot be
+    /// mistaken for one that never ran.
+    ///
+    /// Deliberately not "a cookie was written": the healer declines most of a burst on its own
+    /// cooldown, and a sign-out or a rolled-back sign-in write a cookie without healing anything.
+    /// A waiter that treated either as success would retry straight into the same 401.
+    heal: Arc<watch::Sender<HealState>>,
     /// Pinged when a response's `Set-Cookie` actually changed the stored jar, so the app can
     /// write the rotated cookie back to disk. See [`InnerTube::absorb_cookies`].
     cookie_changed: Arc<Notify>,
@@ -187,8 +202,7 @@ impl InnerTube {
             hide_videos: Arc::new(AtomicBool::new(false)),
             blocked: Arc::new(RwLock::new(BlockList::default())),
             session_rejected: Arc::new(Notify::new()),
-            heal_finished: Arc::new(Notify::new()),
-            healing: Arc::new(AtomicUsize::new(0)),
+            heal: Arc::new(watch::Sender::new(HealState::default())),
             cookie_changed: Arc::new(Notify::new()),
         })
     }
@@ -523,48 +537,44 @@ impl InnerTube {
     /// Raise the rejection flag and wait for the app's healer to have its go, so the caller can
     /// retry once with whatever it managed to re-mint.
     ///
-    /// The wait is registered *before* the flag goes up: a healer that declines on its own
-    /// cooldown answers within microseconds, and a `notified()` created afterwards would miss it
-    /// and then sit out the whole timeout for nothing.
+    /// Returns as soon as a heal has run its course, whether or not it re-minted anything: the
+    /// caller retries either way, and one that really is dead can then say so instead of holding
+    /// a spinner. While a heal is still running the wait continues however long it takes, since
+    /// [`HEAL_TIMEOUT`] is our deadline and not evidence about the session. The timeout only
+    /// resolves the case where nothing ever started.
     pub(crate) async fn wait_for_session_heal(&self) -> Result<(), Error> {
-        let notified = self.heal_finished.notified();
-        tokio::pin!(notified);
-        notified.as_mut().enable();
+        let mut heals = self.heal.subscribe();
+        let start = *heals.borrow_and_update();
 
         self.session_rejected.notify_one();
 
         loop {
-            match tokio::time::timeout(HEAL_TIMEOUT, notified.as_mut()).await {
-                Ok(()) => return Ok(()),
-                // A heal is demonstrably still running, so the deadline was ours and says nothing
-                // about the session. Cutting it off here is exactly the false "session expired"
-                // for a user whose session is about to come back. `Healing`'s `Drop` ends it.
-                Err(_) if self.healing() => {
-                    tracing::debug!("heal still running past {HEAL_TIMEOUT:?}, keeping the wait");
-                }
-                // Nothing raised a heal and nothing answered. Not `reject_session`: the healer
-                // was already told, and telling it again for the same rejection only re-arms the
-                // attempt we just gave up waiting for.
-                Err(_) => {
-                    tracing::warn!("no answer from the session healer within {HEAL_TIMEOUT:?}");
-                    return Err(Error::SessionExpired);
-                }
+            let waited = tokio::time::timeout(HEAL_TIMEOUT, heals.changed()).await;
+            // The transport outlives every waiter in the app, so this is shutdown, not a heal.
+            if matches!(waited, Ok(Err(_))) {
+                return Err(Error::SessionExpired);
+            }
+            let now = *heals.borrow_and_update();
+
+            if now.active == 0 && now.completed > start.completed {
+                return Ok(());
+            }
+            if waited.is_err() && now.active == 0 {
+                tracing::warn!("no answer from the session healer within {HEAL_TIMEOUT:?}");
+                return Err(Error::SessionExpired);
+            }
+            if waited.is_err() {
+                tracing::debug!("heal still running past {HEAL_TIMEOUT:?}, keeping the wait");
             }
         }
     }
 
-    /// Mark a heal as under way. Dropping the guard releases every waiter, whether or not the
-    /// attempt re-minted anything: a waiter that learns it is over can retry, get its real answer
-    /// and report it, instead of holding a spinner until [`HEAL_TIMEOUT`]. `Drop` rather than an
-    /// explicit call because the app's healer returns from a dozen places, and the one path that
-    /// forgot to signal would be a hang.
+    /// Mark a heal as under way. Dropping the guard records it as finished, which is what
+    /// releases the waiters. `Drop` rather than an explicit call because the app's healer returns
+    /// from a dozen places, and the one path that forgot to signal would be a hang.
     pub fn begin_heal(&self) -> Healing {
-        self.healing.fetch_add(1, Ordering::SeqCst);
-        Healing { healing: self.healing.clone(), finished: self.heal_finished.clone() }
-    }
-
-    fn healing(&self) -> bool {
-        self.healing.load(Ordering::SeqCst) > 0
+        self.heal.send_modify(|s| s.active += 1);
+        Healing(self.heal.clone())
     }
 
     pub(crate) fn healing_suspended(&self) -> bool {
@@ -573,17 +583,17 @@ impl InnerTube {
 }
 
 /// A heal in progress. See [`InnerTube::begin_heal`].
-pub struct Healing {
-    healing: Arc<AtomicUsize>,
-    finished: Arc<Notify>,
-}
+pub struct Healing(Arc<watch::Sender<HealState>>);
 
 impl Drop for Healing {
     fn drop(&mut self) {
-        // Release the waiters before clearing the flag, so one that wakes on its own timeout and
-        // finds no heal running has certainly been notified rather than raced past its answer.
-        self.finished.notify_waiters();
-        self.healing.fetch_sub(1, Ordering::SeqCst);
+        // One `send_modify` for both halves: a waiter cannot see `active` reach zero without the
+        // matching `completed`, and cannot miss the wakeup that goes with them. Overlapping
+        // heals therefore release nobody until the last one ends.
+        self.0.send_modify(|s| {
+            s.active -= 1;
+            s.completed += 1;
+        });
     }
 }
 
@@ -802,6 +812,29 @@ mod tests {
         assert_eq!(it.cookie().as_deref(), Some("SAPISID=healed"));
     }
 
+    // Overlapping heals: `begin_heal` is public, so the last one out is what releases a waiter.
+    // Releasing on the first would send it back at a session the remaining heal has not fixed
+    // yet, and its second 401 is final.
+    #[tokio::test]
+    async fn overlapping_heals_release_the_waiter_only_once_the_last_one_ends() {
+        tokio::time::pause();
+        let it = InnerTube::new(Session::default(), None).unwrap();
+        let healer = it.clone();
+        let waiter = it.clone();
+
+        let waiting = tokio::spawn(async move { waiter.wait_for_session_heal().await });
+        it.session_rejected.notified().await;
+
+        let first = healer.begin_heal();
+        let second = healer.begin_heal();
+        drop(first);
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished(), "the second heal is still running");
+
+        drop(second);
+        assert!(waiting.await.unwrap().is_ok());
+    }
+
     // The burst case: the healer declines on its own cooldown and re-mints nothing, but it still
     // reports back. A waiter watching for a new cookie would hold the caller's spinner for the
     // full HEAL_TIMEOUT before returning the error it could have returned at once.
@@ -839,6 +872,22 @@ mod tests {
         assert!(!waiting.is_finished(), "a heal in flight outranks our own deadline");
 
         drop(heal);
+        assert!(waiting.await.unwrap().is_ok());
+    }
+
+    // A heal that begins and ends entirely between two polls of the waiter. `active` is back to
+    // zero by the time it looks, so only the completion count can tell this from "nothing ran".
+    #[tokio::test]
+    async fn a_heal_that_starts_and_ends_between_polls_still_releases_the_waiter() {
+        tokio::time::pause();
+        let it = InnerTube::new(Session::default(), None).unwrap();
+        let healer = it.clone();
+        let waiter = it.clone();
+
+        let waiting = tokio::spawn(async move { waiter.wait_for_session_heal().await });
+        it.session_rejected.notified().await;
+
+        drop(healer.begin_heal());
         assert!(waiting.await.unwrap().is_ok());
     }
 
