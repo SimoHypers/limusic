@@ -672,7 +672,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_wait_for_session_heal_success() {
+    async fn wait_for_session_heal_success() {
         let it = InnerTube::new(Session::default(), None).unwrap();
         let it_clone = it.clone();
 
@@ -705,7 +705,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_wait_for_session_heal_timeout() {
+    async fn wait_for_session_heal_timeout() {
         // Switch Tokio runtime to virtual/mock time to avoid waiting 45 real seconds.
         tokio::time::pause();
 
