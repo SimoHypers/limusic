@@ -455,6 +455,11 @@ impl AppState {
         expect_account: Option<&str>,
     ) -> Result<SignInOutcome, String> {
         let _turn = self.auth.lock().await;
+        // Every flow behind this lock validates a cookie it already holds, so a 401 in here is
+        // the answer, not something to wait on a heal for. One of them *is* the healer
+        // (`refresh_session` -> `sign_in` -> `account_menu`), and waiting there would park the
+        // healing task on itself, holding this lock for the whole timeout.
+        let _no_heal = self.it.suspend_healing();
         if let Some(expect) = expect_account {
             let live = self.it.cookie().unwrap_or_default();
             if innertube::cookie_sapisid(&live) != Some(expect) {
@@ -663,6 +668,7 @@ impl AppState {
     /// transport, persistence, or UI is updated.
     pub async fn switch_account(&self, selection_key: &str) -> Result<serde_json::Value, String> {
         let _turn = self.auth.lock().await;
+        let _no_heal = self.it.suspend_healing();
         if !self.it.is_logged_in() {
             return Err("Sign in before switching channels.".into());
         }
@@ -798,6 +804,7 @@ impl AppState {
     /// projections and the UI all move together; on failure the previous session is left untouched.
     pub async fn switch_google_account(&self, id: &str) -> Result<serde_json::Value, String> {
         let _turn = self.auth.lock().await;
+        let _no_heal = self.it.suspend_healing();
         let account = self.db.get_account(id).ok_or("That account is no longer saved.")?;
         let previous_cookie = self.it.cookie();
         let previous_data_sync_id = self.it.data_sync_id();

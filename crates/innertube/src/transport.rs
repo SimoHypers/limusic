@@ -1,6 +1,6 @@
 //! HTTP transport. context/01. Pure — no Tauri/webview/mpv.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -17,6 +17,14 @@ pub const BASE_URL: &str = "https://music.youtube.com/youtubei/v1/";
 pub const ORIGIN: &str = "https://music.youtube.com";
 pub const REFERER: &str = "https://music.youtube.com/";
 pub const SW_JS_DATA_URL: &str = "https://music.youtube.com/sw.js_data";
+
+/// How long a rejected request waits for the app's healer before giving up on it.
+///
+/// Must clear the healer's own worst case, or a heal that succeeds slowly still reports the
+/// false "session expired" this exists to prevent. `session::refresh_session` allows 45s for the
+/// refresh webview to reach music.youtube.com, then polls the jar for up to 4s, then spends two
+/// round trips signing back in. Raise this if that budget grows.
+pub const HEAL_TIMEOUT: Duration = Duration::from_secs(90);
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -126,9 +134,16 @@ pub struct InnerTube {
     /// so it only raises the flag. `notify_one` stores a permit, so a single listener that is
     /// busy healing still sees the next rejection.
     session_rejected: Arc<Notify>,
-    /// Pinged when a new cookie has been successfully applied, signalling that requests waiting
-    /// for a session heal can now retry.
-    session_updated: Arc<Notify>,
+    /// Pinged when the app's healer has *finished*, whether or not it managed to re-mint
+    /// anything. Deliberately not "a cookie was written": the healer declines most of a burst on
+    /// its own cooldown, and a sign-out or a rolled-back sign-in write a cookie without healing
+    /// anything. Waiters that treated either as success would retry into the same 401, or block
+    /// the full timeout waiting for a heal that already gave up.
+    heal_finished: Arc<Notify>,
+    /// Non-zero while an auth flow is validating a cookie it already holds. Those requests must
+    /// not wait on the healer: `refresh_session` reaches them through `sign_in`, so blocking
+    /// there stalls the one task that could ever wake them. See [`InnerTube::suspend_healing`].
+    healing_suspended: Arc<AtomicUsize>,
     /// Pinged when a response's `Set-Cookie` actually changed the stored jar, so the app can
     /// write the rotated cookie back to disk. See [`InnerTube::absorb_cookies`].
     cookie_changed: Arc<Notify>,
@@ -150,7 +165,8 @@ impl InnerTube {
             hide_videos: Arc::new(AtomicBool::new(false)),
             blocked: Arc::new(RwLock::new(BlockList::default())),
             session_rejected: Arc::new(Notify::new()),
-            session_updated: Arc::new(Notify::new()),
+            heal_finished: Arc::new(Notify::new()),
+            healing_suspended: Arc::new(AtomicUsize::new(0)),
             cookie_changed: Arc::new(Notify::new()),
         })
     }
@@ -243,7 +259,6 @@ impl InnerTube {
 
     pub fn set_cookie(&self, cookie: Option<String>) {
         self.session.write().unwrap().cookie = cookie;
-        self.session_updated.notify_waiters();
     }
 
     pub fn set_data_sync_id(&self, id: Option<String>) {
@@ -307,7 +322,7 @@ impl InnerTube {
 
         let mut delay = Duration::from_millis(500);
         let mut attempt = 0;
-        let mut session_healed = false;
+        let mut healed = false;
 
         loop {
             attempt += 1;
@@ -335,19 +350,42 @@ impl InnerTube {
                     delay *= 2;
                 }
                 // Signed in and Google says "no credential" (401) or "not for you" (403): the
-                // stored cookie has gone stale. Trigger the healer and wait for a new session.
+                // stored cookie has gone stale. Most of these are survivable: the healer
+                // re-mints from the login webview's own Google session, so wait for it and try
+                // once more rather than telling a user whose session is about to come back that
+                // it expired (#211). Only for a request that actually carried the cookie: a deliberately
+                // anonymous one (a search preview) is refused for its own reasons and says
+                // nothing about the session, and `headers` sends the cookie only for a client
+                // that supports login, so every anonymous stream client in the fallback chain
+                // would otherwise sign the user out on the 403 that made the orchestrator move to
+                // the next one. `healing_suspended` keeps the healer's own validation call from
+                // waiting on the healer that is making it.
                 Err(e)
                     if set_login
                         && client.login_supported
                         && self.is_logged_in()
-                        && !session_healed
+                        && !healed
+                        && !self.healing_suspended()
                         && e.status().is_some_and(|s| s == 401 || s == 403) =>
                 {
-                    session_healed = true;
-                    tracing::warn!(status = ?e.status(), "InnerTube {path} rejected the session — healing");
+                    healed = true;
+                    tracing::warn!(status = ?e.status(), "InnerTube {path} rejected the session, healing");
                     self.wait_for_session_heal().await?;
-                    tracing::info!("session healed, retrying {path}");
+                    tracing::info!("heal finished, retrying {path}");
                     continue;
+                }
+                // Rejected again with whatever the heal produced, or with healing unavailable:
+                // the session really is dead. Raw reqwest text here reads as a broken app and
+                // hands the user a URL instead of the one thing that fixes it, so this stays
+                // `SessionExpired`.
+                Err(e)
+                    if set_login
+                        && client.login_supported
+                        && self.is_logged_in()
+                        && e.status().is_some_and(|s| s == 401 || s == 403) =>
+                {
+                    tracing::warn!(status = ?e.status(), "InnerTube {path} rejected the session");
+                    return Err(self.reject_session());
                 }
                 Err(e) => return Err(e.into()),
             }
@@ -460,19 +498,63 @@ impl InnerTube {
         &self.http
     }
 
+    /// Raise the rejection flag and wait for the app's healer to finish, so the caller can retry
+    /// once with whatever it managed to re-mint.
+    ///
+    /// The wait is registered *before* the flag goes up: a healer that declines on its cooldown
+    /// answers within microseconds, and a `notified()` created afterwards would miss it and sit
+    /// out the whole timeout. [`HEAL_TIMEOUT`] is the net for an app that never answers, or for
+    /// no listener at all (this crate stays pure, so it cannot require one), not the usual path.
     pub(crate) async fn wait_for_session_heal(&self) -> Result<(), Error> {
-        // Register the wait before calling notify_one,
-        // so as not to miss the event if the cookie is updated immediately
-        let notified = self.session_updated.notified();
+        let notified = self.heal_finished.notified();
         tokio::pin!(notified);
         notified.as_mut().enable();
 
         self.session_rejected.notify_one();
 
-        match tokio::time::timeout(std::time::Duration::from_secs(60), notified).await {
-            Ok(_) => Ok(()),
-            Err(_) => Err(Error::SessionExpired),
+        match tokio::time::timeout(HEAL_TIMEOUT, notified).await {
+            Ok(()) => Ok(()),
+            // Nothing answered. Not `reject_session`: the healer was already told, and telling it
+            // again for the same rejection only re-arms the attempt we just gave up waiting for.
+            Err(_) => {
+                tracing::warn!("no answer from the session healer within {HEAL_TIMEOUT:?}");
+                Err(Error::SessionExpired)
+            }
         }
+    }
+
+    /// Tell every waiter that a heal attempt has run its course. The app calls this on *every*
+    /// exit path of its healer, including the ones that re-minted nothing: a waiter that learns
+    /// the attempt is over can retry, get its real answer and report it, instead of holding a
+    /// spinner until [`HEAL_TIMEOUT`].
+    pub fn session_heal_finished(&self) {
+        self.heal_finished.notify_waiters();
+    }
+
+    /// Suppress heal-waiting for as long as the returned guard lives.
+    ///
+    /// The healer validates the cookie it just exported by making an ordinary signed-in request
+    /// (`refresh_session` -> `sign_in` -> `account_menu` -> [`InnerTube::post`]). Without this,
+    /// a 401 there would wait for a heal to finish while sitting inside the very task that
+    /// finishes it, holding the auth lock for the whole timeout. A request validating a cookie
+    /// it already has in hand has nothing to gain from a heal anyway: it wants the real answer.
+    pub fn suspend_healing(&self) -> HealingSuspended {
+        self.healing_suspended.fetch_add(1, Ordering::SeqCst);
+        HealingSuspended(self.healing_suspended.clone())
+    }
+
+    pub(crate) fn healing_suspended(&self) -> bool {
+        self.healing_suspended.load(Ordering::SeqCst) > 0
+    }
+}
+
+/// Restores heal-waiting when dropped. RAII because the auth flows it wraps return early from a
+/// dozen places, and a flag left raised would silently disable healing for the rest of the run.
+pub struct HealingSuspended(Arc<AtomicUsize>);
+
+impl Drop for HealingSuspended {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -670,64 +752,71 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn wait_for_session_heal_success() {
+    async fn wait_for_session_heal_waits_for_the_healer_not_the_cookie() {
         let it = InnerTube::new(Session::default(), None).unwrap();
-        let it_clone = it.clone();
+        let healer = it.clone();
 
-        // 1. Simulate the background healer process:
-        // Listen for the rejection trigger, simulate the token renewal delay,
-        // and update the cookie via `set_cookie`.
-        let healer_handle = tokio::spawn(async move {
-            it_clone.session_rejected.notified().await;
+        // The app side: wake on the rejection, re-mint, then say the attempt is over. The cookie
+        // write alone must not release the waiter — sign-out and a rolled-back sign-in write one
+        // too, and neither healed anything.
+        let handle = tokio::spawn(async move {
+            healer.session_rejected.notified().await;
+            healer.set_cookie(Some("SAPISID=healed".into()));
             tokio::time::sleep(Duration::from_millis(50)).await;
-            it_clone.set_cookie(Some("SAPISID=healed_cookie".into()));
+            healer.session_heal_finished();
         });
 
-        // 2. Call the actual implementation under test.
-        // It must notify `session_rejected`, wait asynchronously for `session_updated`,
-        // and return `Ok(())` once the cookie is updated.
-        let result = it.wait_for_session_heal().await;
+        it.wait_for_session_heal().await.expect("the healer answered, so this must not time out");
+        assert_eq!(it.cookie().as_deref(), Some("SAPISID=healed"));
+        handle.await.unwrap();
+    }
 
-        assert!(
-            result.is_ok(),
-            "Expected wait_for_session_heal to return Ok(()), but got: {:?}",
-            result.err()
-        );
-        assert_eq!(
-            it.cookie(),
-            Some("SAPISID=healed_cookie".into()),
-            "Stored cookie must be updated after successful heal"
-        );
+    // The burst case: the healer declines on its own cooldown and re-mints nothing, but it still
+    // reports back. A waiter that only watched for a new cookie would hold the caller's spinner
+    // for the full HEAL_TIMEOUT before returning the same error it could have returned at once.
+    #[tokio::test]
+    async fn a_healer_that_re_minted_nothing_still_releases_the_waiter() {
+        tokio::time::pause();
+        let it = InnerTube::new(Session::default(), None).unwrap();
+        let healer = it.clone();
+        let handle = tokio::spawn(async move {
+            healer.session_rejected.notified().await;
+            healer.session_heal_finished();
+        });
 
-        healer_handle.await.unwrap();
+        let start = tokio::time::Instant::now();
+        assert!(it.wait_for_session_heal().await.is_ok());
+        assert!(start.elapsed() < HEAL_TIMEOUT, "released by the healer, not by the timeout");
+        handle.await.unwrap();
     }
 
     #[tokio::test]
-    async fn wait_for_session_heal_timeout() {
-        // Switch Tokio runtime to virtual/mock time to avoid waiting 45 real seconds.
+    async fn wait_for_session_heal_times_out_when_nothing_answers() {
+        // Virtual time: this asserts on HEAL_TIMEOUT without spending it.
         tokio::time::pause();
-
         let it = InnerTube::new(Session::default(), None).unwrap();
-        let it_clone = it.clone();
+        let waiter = it.clone();
 
-        // 1. Spawn `wait_for_session_heal` in a separate task so it starts waiting
-        // in the background without blocking virtual time advancement.
-        let wait_handle = tokio::spawn(async move { it_clone.wait_for_session_heal().await });
-
-        // 2. Yield execution to ensure `wait_for_session_heal` has entered `tokio::select!`
-        // and registered its 45-second sleep timer.
+        let handle = tokio::spawn(async move { waiter.wait_for_session_heal().await });
         tokio::task::yield_now().await;
+        tokio::time::advance(HEAL_TIMEOUT + Duration::from_secs(1)).await;
 
-        // 3. Fast-forward virtual time past the 45-second deadline (runs in a fraction of a millisecond).
-        tokio::time::advance(Duration::from_secs(46)).await;
+        assert!(matches!(handle.await.unwrap(), Err(Error::SessionExpired)));
+    }
 
-        // 4. Await task completion and verify that timeout occurred and an error was returned.
-        let result = wait_handle.await.expect("Task panicked or was cancelled");
-
-        assert!(
-            result.is_err(),
-            "Expected wait_for_session_heal to fail with timeout/SessionExpired, but it succeeded"
-        );
+    // A 401 inside the healer's own validation call must come straight back: waiting there parks
+    // the healing task on itself.
+    #[test]
+    fn suspending_healing_nests_and_lifts_on_drop() {
+        let it = InnerTube::new(Session::default(), None).unwrap();
+        assert!(!it.healing_suspended());
+        let outer = it.suspend_healing();
+        let inner = it.suspend_healing();
+        assert!(it.healing_suspended());
+        drop(inner);
+        assert!(it.healing_suspended(), "the outer guard still holds it");
+        drop(outer);
+        assert!(!it.healing_suspended());
     }
 
     // The #165 regression: the rotated value has to land in the jar, in place, or the login dies
