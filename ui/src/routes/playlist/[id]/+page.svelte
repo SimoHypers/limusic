@@ -39,7 +39,6 @@
 	import { getCached, putCached, invalidateCachedPrefix } from '$lib/pagecache';
 	import { thumb } from '$lib/thumb';
 	import { anchorMenu, fitMenu, NO_ANCHOR } from '$lib/menu';
-	import { rowWindow } from '$lib/rows';
 	import { rowScroller } from '$lib/rows.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import {
@@ -546,15 +545,39 @@
 		}
 	}
 
-	// Only the rows around the viewport are rendered; the rest are two padded boxes (`rows.ts`).
-	// A Liked Songs list runs to five figures, and `content-visibility` spares the layout and the
-	// paint but not the DOM node, the style or the component.
+	// Rows mount in bands from the top and are **only ever appended** — the prefix never unwinds,
+	// because unwinding the rows above the viewport is what makes WebView2 re-sync its scroll anchor
+	// on every scroll step and draw the stale band phantom (#87). With append-only bands the content
+	// above the viewport is frozen, so there is nothing above the anchor to re-measure; an ordinary
+	// playlist gets fully mounted and rides smoothly, and a Liked Songs list to five figures grows
+	// one band ahead of the viewport as it approaches the frontier, `loadMore` priming the next pages
+	// so they are usually there before the viewport reaches them.
 	const sc = rowScroller();
-	// The header scrolls away with the rows, so the window is measured from where row 0 sits
-	// rather than from the top of the scroller.
-	const win = $derived(
-		rowWindow(sc.scrollTop - sc.offsetPx, sc.viewportPx, shown.length, sc.rowPx)
-	);
+	const MOUNT_BAND = 30;
+	// How far past the frontier the viewport's bottom edge can get before the effect grows a band.
+	const LOOKAHEAD_ROWS = MOUNT_BAND;
+	// Rows mounted so far, as a monotone prefix from row 0. `$state`, not `$derived`: it only grows,
+	// driven by the effect below, and it resets when a playlist is replaced wholesale (see `load`).
+	let mounted = $state(MOUNT_BAND);
+	const win = $derived({
+		start: 0,
+		end: Math.min(mounted, shown.length),
+		padTop: 0,
+		padBottom: Math.max(0, shown.length - Math.min(mounted, shown.length)) * sc.rowPx
+	});
+
+	// Grow the band when the viewport's bottom edge gets within a lookahead band of the frontier,
+	// and prime the next page in the same breath — the observer's `rootMargin` already serves a
+	// Liked Songs walk; this does the bit *above* the real end, where the sentinel never fires.
+	$effect(() => {
+		const viewBottom = sc.scrollTop - sc.offsetPx + sc.viewportPx + LOOKAHEAD_ROWS * sc.rowPx;
+		const frontier = Math.min(mounted, shown.length) * sc.rowPx;
+		if (mounted >= shown.length) {
+			if (pl?.continuation && !loadingMore && !moreError && viewBottom >= frontier) loadMore();
+			return;
+		}
+		if (viewBottom >= frontier) mounted = Math.min(mounted + MOUNT_BAND, shown.length);
+	});
 
 	// One page per approach to the bottom: the observer only fires when the sentinel *enters* view,
 	// so an appended page that pushes it back out is required before the next fetch. rootMargin
