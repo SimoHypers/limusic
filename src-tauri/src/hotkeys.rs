@@ -413,11 +413,11 @@ pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
             }
             HotkeyAction::SeekForward => {
                 let pos = state.current_position();
-                let _ = state.player.seek((pos + 10.0).max(0.0));
+                let _ = state.user_seek((pos + 10.0).max(0.0)).await;
             }
             HotkeyAction::SeekBackward => {
                 let pos = state.current_position();
-                let _ = state.player.seek((pos - 10.0).max(0.0));
+                let _ = state.user_seek((pos - 10.0).max(0.0)).await;
             }
             HotkeyAction::ToggleShuffle => {
                 state.toggle_shuffle().await;
