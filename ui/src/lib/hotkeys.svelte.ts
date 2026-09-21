@@ -84,7 +84,7 @@ export const HOTKEY_ACTIONS: HotkeyActionDef[] = [
 class HotkeysStore {
 	loaded = $state(false);
 	saving = $state(false);
-	enabled = $state(true);
+	enabled = $state(false);
 	bindings = $state<Record<string, string>>({});
 	errors = $state<Record<string, string>>({});
 	recordingAction = $state<string | null>(null);

@@ -177,7 +177,7 @@
 						</div>
 					{:else}
 						<span class="text-xs italic text-muted-foreground/70">
-							{t('settings.discord.content_off')}
+							{t('settings.hotkeys.off')}
 						</span>
 					{/if}
 
@@ -210,7 +210,7 @@
 
 		{#if error}
 			<div class="mt-1.5 text-[11px] font-medium text-destructive">
-				{error}
+				{t('settings.hotkeys.failed_register')}
 			</div>
 		{/if}
 	</div>

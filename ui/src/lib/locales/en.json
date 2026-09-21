@@ -406,6 +406,7 @@
 			"description": "Control playback with customizable keyboard shortcuts even when Limusic is minimized or running in the background.",
 			"enable": "Enable global hotkeys",
 			"enable_hint": "Global hotkeys are disabled. Turn them on to listen for shortcuts system-wide.",
+			"off": "Off",
 			"rebind": "Rebind",
 			"recording": "Press keys...",
 			"clear": "Clear shortcut",
