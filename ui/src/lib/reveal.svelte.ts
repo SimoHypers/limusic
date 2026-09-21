@@ -1,4 +1,4 @@
-// Chunked reveal for open-ended card grids.
+﻿// Chunked reveal for open-ended card grids.
 //
 // `.card-grid` already sets `content-visibility: auto`, so a card the user has not scrolled to
 // costs no layout and no paint. What it still costs is the mount: a `MediaCard` carries a menu
@@ -39,7 +39,7 @@ export function reveal() {
 		 */
 		sentinel(node: HTMLElement) {
 			const io = new IntersectionObserver(([e]) => e.isIntersecting && (shown += CHUNK), {
-				rootMargin: '600px 0px'
+				rootMargin: '1800px 0px'
 			});
 			io.observe(node);
 			return () => io.disconnect();
