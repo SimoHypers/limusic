@@ -247,7 +247,9 @@ impl HotkeysManager {
 
         // Clear existing system registrations
         if let Err(e) = app.global_shortcut().unregister_all() {
-            tracing::warn!(error = ?e, "error unregistering previous global hotkeys");
+            tracing::error!(error = ?e, "failed to unregister existing global hotkeys");
+            let config = self.config.lock().unwrap().clone();
+            return HotkeyRegisterResult { success: false, config, errors: HashMap::new() };
         }
 
         if new_config.enabled {

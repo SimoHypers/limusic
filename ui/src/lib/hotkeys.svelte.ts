@@ -109,7 +109,11 @@ class HotkeysStore {
 			});
 			this.errors = res.errors || {};
 			if (!res.success) {
-				const errorCount = Object.keys(res.errors).length;
+				if (Object.keys(res.errors || {}).length === 0) {
+					this.enabled = res.config.enabled;
+					this.bindings = res.config.bindings || {};
+				}
+				const errorCount = Object.keys(res.errors || {}).length;
 				toast.error(
 					t('settings.hotkeys.failed_register') + (errorCount > 0 ? ` (${errorCount})` : '')
 				);

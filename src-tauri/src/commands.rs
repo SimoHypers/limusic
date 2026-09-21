@@ -374,7 +374,9 @@ pub async fn set_global_hotkeys(
     config: crate::hotkeys::HotkeysConfig,
 ) -> Result<crate::hotkeys::HotkeyRegisterResult, String> {
     let result = hotkeys.apply_config(&app, config);
-    crate::hotkeys::save_config(&state.db, &result.config);
+    if result.success {
+        crate::hotkeys::save_config(&state.db, &result.config);
+    }
     Ok(result)
 }
 
@@ -386,7 +388,9 @@ pub async fn reset_global_hotkeys(
 ) -> Result<crate::hotkeys::HotkeyRegisterResult, String> {
     let default_config = crate::hotkeys::HotkeysConfig::default();
     let result = hotkeys.apply_config(&app, default_config);
-    crate::hotkeys::save_config(&state.db, &result.config);
+    if result.success {
+        crate::hotkeys::save_config(&state.db, &result.config);
+    }
     Ok(result)
 }
 
