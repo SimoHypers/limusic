@@ -359,6 +359,37 @@ pub async fn set_setting(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn get_global_hotkeys(
+    hotkeys: State<'_, Arc<crate::hotkeys::HotkeysManager>>,
+) -> Result<crate::hotkeys::HotkeysConfig, String> {
+    Ok(hotkeys.get_config())
+}
+
+#[tauri::command]
+pub async fn set_global_hotkeys(
+    app: tauri::AppHandle,
+    state: St<'_>,
+    hotkeys: State<'_, Arc<crate::hotkeys::HotkeysManager>>,
+    config: crate::hotkeys::HotkeysConfig,
+) -> Result<crate::hotkeys::HotkeyRegisterResult, String> {
+    let result = hotkeys.apply_config(&app, config);
+    crate::hotkeys::save_config(&state.db, &result.config);
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn reset_global_hotkeys(
+    app: tauri::AppHandle,
+    state: St<'_>,
+    hotkeys: State<'_, Arc<crate::hotkeys::HotkeysManager>>,
+) -> Result<crate::hotkeys::HotkeyRegisterResult, String> {
+    let default_config = crate::hotkeys::HotkeysConfig::default();
+    let result = hotkeys.apply_config(&app, default_config);
+    crate::hotkeys::save_config(&state.db, &result.config);
+    Ok(result)
+}
+
 /// The streamable client keys the orchestrator tries, for the "disabled clients" setting. Names
 /// come from the innertube crate so the UI stays free of YouTube-shaped identity strings.
 #[tauri::command]

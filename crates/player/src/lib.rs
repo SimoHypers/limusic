@@ -471,6 +471,11 @@ impl Player {
         Ok(())
     }
 
+    /// Current volume level (0-100).
+    pub fn volume(&self) -> i64 {
+        self.decks.volume.load(Ordering::Relaxed)
+    }
+
     /// Route the audio bytes through a proxy (the app's `proxy` setting). Call before the first
     /// [`Self::load`].
     ///

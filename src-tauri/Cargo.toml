@@ -26,6 +26,7 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 # Phase 2 extraction stack (cipher + PoToken). context/04, 05, 13.
 # BotGuard runs under deno_core + JSDOM, NOT in a hidden webview. Every token a real browser engine

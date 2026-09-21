@@ -3015,6 +3015,19 @@ impl AppState {
         self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
     }
 
+    /// Advance repeat mode: Off -> All -> One -> Off
+    pub async fn cycle_repeat(self: &std::sync::Arc<Self>) {
+        let next = {
+            let q = self.queue.lock().await;
+            match q.repeat {
+                RepeatMode::Off => RepeatMode::All,
+                RepeatMode::All => RepeatMode::One,
+                RepeatMode::One => RepeatMode::Off,
+            }
+        };
+        self.set_repeat(next).await;
+    }
+
     /// "Play next" from a ⋯ menu: the tracks land at the "up next" boundary — right after the
     /// current song, behind any earlier manual adds (FIFO) — never buried at the end. `from` is
     /// the album/playlist they came from, for the queue panel's block heading.

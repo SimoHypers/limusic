@@ -401,6 +401,23 @@ export const appIconPath = () => invoke<string | null>('app_icon_path');
 /** Grant the webview a URL for one font file the user picked, so `@font-face` can load it. */
 export const allowFontFile = (path: string) => invoke<void>('allow_font_file', { path });
 
+// --- global hotkeys -------------------------------------------------------------------------
+export interface HotkeysConfig {
+	enabled: boolean;
+	bindings: Record<string, string>;
+}
+
+export interface HotkeyRegisterResult {
+	success: boolean;
+	config: HotkeysConfig;
+	errors: Record<string, string>;
+}
+
+export const getGlobalHotkeys = () => invoke<HotkeysConfig>('get_global_hotkeys');
+export const setGlobalHotkeys = (config: HotkeysConfig) =>
+	invoke<HotkeyRegisterResult>('set_global_hotkeys', { config });
+export const resetGlobalHotkeys = () => invoke<HotkeyRegisterResult>('reset_global_hotkeys');
+
 /** One published release: the GitHub release description, verbatim markdown. */
 export interface ReleaseNote {
 	version: string;
