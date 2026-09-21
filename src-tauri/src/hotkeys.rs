@@ -5,6 +5,7 @@
 //! Limusic is minimized to the system tray or running in the background.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -15,6 +16,8 @@ use crate::db::Db;
 use crate::state::AppState;
 
 pub const SETTINGS_KEY: &str = "global_hotkeys";
+
+static LAST_NONZERO_VOLUME: AtomicI64 = AtomicI64::new(100);
 
 /// Supported playback and application actions for global hotkeys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -396,20 +399,47 @@ pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
             HotkeyAction::VolumeUp => {
                 let cur = state.player.volume();
                 let next = (cur + 5).clamp(0, 100);
-                let _ = state.player.set_volume(next);
-                let _ = app.emit("volume", next);
+                if state.player.set_volume(next).is_ok() {
+                    if next > 0 {
+                        LAST_NONZERO_VOLUME.store(next, Ordering::Relaxed);
+                    }
+                    state.db.set_setting("volume", &next.to_string());
+                    let _ = app.emit("volume", next);
+                }
             }
             HotkeyAction::VolumeDown => {
                 let cur = state.player.volume();
                 let next = (cur - 5).clamp(0, 100);
-                let _ = state.player.set_volume(next);
-                let _ = app.emit("volume", next);
+                if state.player.set_volume(next).is_ok() {
+                    if next > 0 {
+                        LAST_NONZERO_VOLUME.store(next, Ordering::Relaxed);
+                    }
+                    state.db.set_setting("volume", &next.to_string());
+                    let _ = app.emit("volume", next);
+                }
             }
             HotkeyAction::MuteToggle => {
                 let cur = state.player.volume();
-                let next = if cur > 0 { 0 } else { 100 };
-                let _ = state.player.set_volume(next);
-                let _ = app.emit("volume", next);
+                let next = if cur > 0 {
+                    LAST_NONZERO_VOLUME.store(cur, Ordering::Relaxed);
+                    0
+                } else {
+                    let last = LAST_NONZERO_VOLUME.load(Ordering::Relaxed);
+                    if last > 0 {
+                        last
+                    } else {
+                        let saved = crate::state::saved_volume(&state.db);
+                        if saved > 0 {
+                            saved
+                        } else {
+                            100
+                        }
+                    }
+                };
+                if state.player.set_volume(next).is_ok() {
+                    state.db.set_setting("volume", &next.to_string());
+                    let _ = app.emit("volume", next);
+                }
             }
             HotkeyAction::SeekForward => {
                 let pos = state.current_position();
@@ -444,5 +474,31 @@ pub fn load_config(db: &Db) -> HotkeysConfig {
 pub fn save_config(db: &Db, config: &HotkeysConfig) {
     if let Ok(json) = serde_json::to_string(config) {
         db.set_setting(SETTINGS_KEY, &json);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_shortcut_valid() {
+        assert!(parse_shortcut("Ctrl+Alt+Space").is_ok());
+        assert!(parse_shortcut("Ctrl+Shift+F1").is_ok());
+        assert!(parse_shortcut("Alt+PageUp").is_ok());
+        assert!(parse_shortcut("Ctrl+Alt+M").is_ok());
+        assert!(parse_shortcut("Ctrl+Alt+Right").is_ok());
+        assert!(parse_shortcut("Ctrl+Alt+Down").is_ok());
+        assert!(parse_shortcut("Ctrl+Alt+Home").is_ok());
+        assert!(parse_shortcut("Ctrl+Shift+=").is_ok());
+        assert!(parse_shortcut("F12").is_ok());
+    }
+
+    #[test]
+    fn test_parse_shortcut_invalid() {
+        assert!(parse_shortcut("").is_err());
+        assert!(parse_shortcut("Ctrl+Alt").is_err());
+        assert!(parse_shortcut("Ctrl+F13").is_err());
+        assert!(parse_shortcut("NonexistentKey").is_err());
     }
 }

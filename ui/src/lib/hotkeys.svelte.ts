@@ -155,7 +155,14 @@ class HotkeysStore {
 			this.enabled = res.config.enabled;
 			this.bindings = res.config.bindings || {};
 			this.errors = res.errors || {};
-			toast.success(t('common.done'));
+			if (res.success) {
+				toast.success(t('common.done'));
+			} else {
+				const errorCount = Object.keys(res.errors || {}).length;
+				toast.error(
+					t('settings.hotkeys.failed_register') + (errorCount > 0 ? ` (${errorCount})` : '')
+				);
+			}
 		} catch (e) {
 			toast.error(String(e));
 		} finally {
@@ -167,12 +174,103 @@ class HotkeysStore {
 export const hotkeys = new HotkeysStore();
 
 /**
- * Format a keyboard event into a normalized shortcut string.
- * Returns null if only modifier keys are pressed.
+ * Maps physical KeyboardEvent.code to the canonical tokens accepted by parse_shortcut.
+ * Returns null for unmapped, non-Latin, or unsupported keys (e.g. F13+).
+ */
+function canonicalKeyFromCode(code: string): string | null {
+	// Function keys F1-F12
+	if (/^F([1-9]|1[0-2])$/.test(code)) {
+		return code.toUpperCase();
+	}
+	// Letters KeyA - KeyZ
+	if (/^Key[A-Z]$/.test(code)) {
+		return code.slice(3);
+	}
+	// Digits Digit0 - Digit9
+	if (/^Digit[0-9]$/.test(code)) {
+		return code.slice(5);
+	}
+	// Numpad0 - Numpad9
+	if (/^Numpad[0-9]$/.test(code)) {
+		return code;
+	}
+	// Navigation & editing keys
+	switch (code) {
+		case 'ArrowUp':
+		case 'ArrowDown':
+		case 'ArrowLeft':
+		case 'ArrowRight':
+		case 'PageUp':
+		case 'PageDown':
+		case 'Home':
+		case 'End':
+		case 'Insert':
+		case 'Delete':
+		case 'Space':
+		case 'Enter':
+		case 'Tab':
+		case 'Backspace':
+		case 'Escape':
+			return code;
+		// Punctuation / symbols matching backend parse_key_code
+		case 'Minus':
+			return '-';
+		case 'Equal':
+			return '=';
+		case 'BracketLeft':
+			return '[';
+		case 'BracketRight':
+			return ']';
+		case 'Backslash':
+			return '\\';
+		case 'Semicolon':
+			return ';';
+		case 'Quote':
+			return "'";
+		case 'Comma':
+			return ',';
+		case 'Period':
+			return '.';
+		case 'Slash':
+			return '/';
+		// Media keys
+		case 'MediaPlayPause':
+		case 'MediaTrackNext':
+		case 'MediaTrackPrevious':
+		case 'MediaStop':
+		case 'AudioVolumeUp':
+		case 'AudioVolumeDown':
+		case 'AudioVolumeMute':
+			return code;
+		default:
+			return null;
+	}
+}
+
+/**
+ * Format a keyboard event into a normalized shortcut string using canonical physical codes.
+ * Returns null if only modifier keys are pressed or if the primary key is unsupported.
  */
 export function eventToShortcut(e: KeyboardEvent): string | null {
 	// Modifiers only: ignore
-	if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
+	if (
+		['Control', 'Shift', 'Alt', 'Meta'].includes(e.key) ||
+		[
+			'ControlLeft',
+			'ControlRight',
+			'ShiftLeft',
+			'ShiftRight',
+			'AltLeft',
+			'AltRight',
+			'MetaLeft',
+			'MetaRight'
+		].includes(e.code)
+	) {
+		return null;
+	}
+
+	const primaryKey = canonicalKeyFromCode(e.code);
+	if (!primaryKey) {
 		return null;
 	}
 
@@ -182,49 +280,7 @@ export function eventToShortcut(e: KeyboardEvent): string | null {
 	if (e.shiftKey) parts.push('Shift');
 	if (e.metaKey) parts.push('Super');
 
-	let key = e.key;
-
-	// F-keys
-	if (/^F([1-9]|1[0-9]|2[0-4])$/i.test(key)) {
-		key = key.toUpperCase();
-	} else if (key === ' ') {
-		key = 'Space';
-	} else if (key === 'ArrowUp') {
-		key = 'ArrowUp';
-	} else if (key === 'ArrowDown') {
-		key = 'ArrowDown';
-	} else if (key === 'ArrowLeft') {
-		key = 'ArrowLeft';
-	} else if (key === 'ArrowRight') {
-		key = 'ArrowRight';
-	} else if (key === 'PageUp') {
-		key = 'PageUp';
-	} else if (key === 'PageDown') {
-		key = 'PageDown';
-	} else if (key === 'Home') {
-		key = 'Home';
-	} else if (key === 'End') {
-		key = 'End';
-	} else if (key === 'Insert') {
-		key = 'Insert';
-	} else if (key === 'Delete') {
-		key = 'Delete';
-	} else if (key === 'Escape') {
-		key = 'Escape';
-	} else if (key === 'Enter') {
-		key = 'Enter';
-	} else if (key === 'Tab') {
-		key = 'Tab';
-	} else if (key === 'Backspace') {
-		key = 'Backspace';
-	} else if (key.length === 1) {
-		key = key.toUpperCase();
-	} else {
-		// Capitalize first letter
-		key = key.charAt(0).toUpperCase() + key.slice(1);
-	}
-
-	parts.push(key);
+	parts.push(primaryKey);
 	return parts.join('+');
 }
 

@@ -2997,6 +2997,14 @@ impl AppState {
         self.lt_broadcast_queue().await;
     }
 
+    async fn apply_repeat_side_effects(self: &std::sync::Arc<Self>, mode: RepeatMode) {
+        let _ = self.player.set_loop_file(mode == RepeatMode::One);
+        self.emit_queue().await; // carries the new repeat state to the UI
+        self.persist_queue().await;
+        // Repeat-all newly on while playing the last track: the wrap target needs priming.
+        self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
+    }
+
     /// Set the repeat mode. Repeat-one is enforced by mpv's `loop-file` (seamless, no end-file
     /// event); all/off live in the queue-advance logic (`next_index`). Guests: host-only hint.
     pub async fn set_repeat(self: &std::sync::Arc<Self>, mode: RepeatMode) {
@@ -3008,24 +3016,26 @@ impl AppState {
             let mut q = self.queue.lock().await;
             q.repeat = mode;
         }
-        let _ = self.player.set_loop_file(mode == RepeatMode::One);
-        self.emit_queue().await; // carries the new repeat state to the UI
-        self.persist_queue().await;
-        // Repeat-all newly on while playing the last track: the wrap target needs priming.
-        self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
+        self.apply_repeat_side_effects(mode).await;
     }
 
     /// Advance repeat mode: Off -> All -> One -> Off
     pub async fn cycle_repeat(self: &std::sync::Arc<Self>) {
+        if self.lt.is_guest().await {
+            self.emit_guest_hint();
+            return;
+        }
         let next = {
-            let q = self.queue.lock().await;
-            match q.repeat {
+            let mut q = self.queue.lock().await;
+            let next = match q.repeat {
                 RepeatMode::Off => RepeatMode::All,
                 RepeatMode::All => RepeatMode::One,
                 RepeatMode::One => RepeatMode::Off,
-            }
+            };
+            q.repeat = next;
+            next
         };
-        self.set_repeat(next).await;
+        self.apply_repeat_side_effects(next).await;
     }
 
     /// "Play next" from a ⋯ menu: the tracks land at the "up next" boundary — right after the
