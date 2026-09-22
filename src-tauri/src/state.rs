@@ -3000,29 +3000,39 @@ impl AppState {
     /// Set the repeat mode. Repeat-one is enforced by mpv's `loop-file` (seamless, no end-file
     /// event); all/off live in the queue-advance logic (`next_index`). Guests: host-only hint.
     pub async fn set_repeat(self: &std::sync::Arc<Self>, mode: RepeatMode) {
+        self.update_repeat(|_| mode).await;
+    }
+
+    /// Advance repeat mode Off -> All -> One -> Off (the global hotkey; the UI cycles itself).
+    pub async fn cycle_repeat(self: &std::sync::Arc<Self>) {
+        self.update_repeat(|mode| match mode {
+            RepeatMode::Off => RepeatMode::All,
+            RepeatMode::All => RepeatMode::One,
+            RepeatMode::One => RepeatMode::Off,
+        })
+        .await;
+    }
+
+    /// The new mode and mpv's `loop-file` are written under one queue lock: a held hotkey fires
+    /// several of these at once, and splitting the read from the write lost presses or left mpv
+    /// looping a mode the queue no longer had.
+    async fn update_repeat(
+        self: &std::sync::Arc<Self>,
+        next: impl FnOnce(RepeatMode) -> RepeatMode,
+    ) {
         if self.lt.is_guest().await {
             self.emit_guest_hint();
             return;
         }
         {
             let mut q = self.queue.lock().await;
-            q.repeat = mode;
+            q.repeat = next(q.repeat);
+            let _ = self.player.set_loop_file(q.repeat == RepeatMode::One);
         }
-        let _ = self.player.set_loop_file(mode == RepeatMode::One);
         self.emit_queue().await; // carries the new repeat state to the UI
         self.persist_queue().await;
         // Repeat-all newly on while playing the last track: the wrap target needs priming.
         self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
-    }
-
-    /// Advance repeat mode Off -> All -> One -> Off (the global hotkey; the UI cycles itself).
-    pub async fn cycle_repeat(self: &std::sync::Arc<Self>) {
-        let next = match self.queue.lock().await.repeat {
-            RepeatMode::Off => RepeatMode::All,
-            RepeatMode::All => RepeatMode::One,
-            RepeatMode::One => RepeatMode::Off,
-        };
-        self.set_repeat(next).await;
     }
 
     /// "Play next" from a ⋯ menu: the tracks land at the "up next" boundary — right after the
