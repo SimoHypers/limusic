@@ -373,7 +373,12 @@ pub fn run() {
             }
             // Before anything can play: the first track of a restored queue has to come out at the
             // level the user left, not at 100.
-            let _ = player.set_volume(state::saved_volume(&db));
+            let volume = state::saved_volume(&db);
+            let _ = player.set_volume(volume);
+            if volume > 0 {
+                // The level a mute hotkey returns to, when the app muted before any change.
+                hotkeys::LAST_NONZERO_VOLUME.store(volume, std::sync::atomic::Ordering::Relaxed);
+            }
             player.set_crossfade(state::saved_crossfade(&db));
             let events = player.take_events().expect("player events");
 

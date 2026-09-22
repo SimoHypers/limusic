@@ -189,17 +189,16 @@ pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
             HotkeyAction::PrevTrack => {
                 state.prev_in_queue().await;
             }
-            HotkeyAction::VolumeUp => set_volume(&state, &app, state.player.volume() + 5),
-            HotkeyAction::VolumeDown => set_volume(&state, &app, state.player.volume() - 5),
-            HotkeyAction::MuteToggle => {
-                let cur = state.player.volume();
-                if cur > 0 {
-                    LAST_NONZERO_VOLUME.store(cur, Ordering::Relaxed);
-                    set_volume(&state, &app, 0);
+            HotkeyAction::VolumeUp => change_volume(&state, &app, |v| v + 5),
+            HotkeyAction::VolumeDown => change_volume(&state, &app, |v| v - 5),
+            HotkeyAction::MuteToggle => change_volume(&state, &app, |v| {
+                if v > 0 {
+                    LAST_NONZERO_VOLUME.store(v, Ordering::Relaxed);
+                    0
                 } else {
-                    set_volume(&state, &app, LAST_NONZERO_VOLUME.load(Ordering::Relaxed));
+                    LAST_NONZERO_VOLUME.load(Ordering::Relaxed)
                 }
-            }
+            }),
             HotkeyAction::SeekForward => {
                 let pos = state.current_position();
                 let _ = state.user_seek((pos + 10.0).max(0.0)).await;
@@ -221,9 +220,12 @@ pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
     });
 }
 
-/// Set, persist and echo a volume, the same as a slider commit.
-fn set_volume(state: &AppState, app: &AppHandle, volume: i64) {
-    let volume = volume.clamp(0, 100);
+/// Read, change, set, persist and echo the volume, the same as a slider commit. Serialized: each
+/// press is its own task, so a held key would otherwise lose steps and two mutes could both mute.
+fn change_volume(state: &AppState, app: &AppHandle, f: impl FnOnce(i64) -> i64) {
+    static LOCK: Mutex<()> = Mutex::new(());
+    let _guard = LOCK.lock().unwrap();
+    let volume = f(state.player.volume()).clamp(0, 100);
     if state.player.set_volume(volume).is_ok() {
         if volume > 0 {
             LAST_NONZERO_VOLUME.store(volume, Ordering::Relaxed);
