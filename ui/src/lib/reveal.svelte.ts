@@ -1,4 +1,4 @@
-﻿// Chunked reveal for open-ended card grids.
+// Chunked reveal for open-ended card grids.
 //
 // `.card-grid` already sets `content-visibility: auto`, so a card the user has not scrolled to
 // costs no layout and no paint. What it still costs is the mount: a `MediaCard` carries a menu

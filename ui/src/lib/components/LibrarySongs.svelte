@@ -1,9 +1,9 @@
-﻿<script lang="ts">
+<script lang="ts">
 	// The Library page's Songs tab (and, with `uploads`, its Uploads tab): one flat list with a
 	// Shuffle all over the whole thing (issue #73).
 	//
-	// `FEmusic_liked_videos` is YouTube's own Library â–¸ Songs despite the name, and
-	// `FEmusic_library_privately_owned_tracks` is Uploads â–¸ Songs. Both browse like any other
+	// `FEmusic_liked_videos` is YouTube's own Library ▸ Songs despite the name, and
+	// `FEmusic_library_privately_owned_tracks` is Uploads ▸ Songs. Both browse like any other
 	// playlist, so this reads them through `get_playlist` and the Rust side gains nothing.
 	// What pins that: `library_songs_browse_returns_tracks` in crates/innertube/tests/live_smoke.rs.
 	import { onMount } from 'svelte';
@@ -32,10 +32,10 @@
 	} from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
 
-	// The same tab, pointed at a different browse id: Library â–¸ Songs by default, or the tracks the
+	// The same tab, pointed at a different browse id: Library ▸ Songs by default, or the tracks the
 	// user uploaded to YouTube Music themselves. Both browse like a headerless playlist and page the
 	// same way, so the only differences are the id and the words around it.
-	// `limit` turns this into a preview (the Uploads â–¸ All tab): the first few rows and a See all,
+	// `limit` turns this into a preview (the Uploads ▸ All tab): the first few rows and a See all,
 	// with no paging, so what sits below it on that page stays reachable.
 	let {
 		uploads = false,
@@ -61,7 +61,7 @@
 	// A library runs to thousands of songs and WebKitGTK does not enjoy thousands of rows, so render
 	// a page at a time (same pager as the Local tab). Play all and Shuffle take every song either
 	// way, loaded or not.
-	// ponytail: a slice, not the windowing in `rows.ts` â€” that wants its own scroller and this tab
+	// ponytail: a slice, not the windowing in `rows.ts` — that wants its own scroller and this tab
 	// scrolls with the page. Swap it in if a big library drags on the way down.
 	const PAGE = 100;
 	let shown = $state(PAGE);
@@ -169,7 +169,7 @@
 
 	// A filter can only match rows that have arrived, and a narrowed list never pushes the sentinel
 	// back into view, so nothing else would ever fetch the rest: search has to cover the library,
-	// not the pages scrolled so far. One walk at a time (`walking` is deliberately not `$state` â€”
+	// not the pages scrolled so far. One walk at a time (`walking` is deliberately not `$state` —
 	// it guards the effect, it shouldn't re-run it).
 	let walking = false;
 	$effect(() => {

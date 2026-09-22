@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
 	// YouTube Music's play history (`FEmusic_history`), in its own day buckets.
 	//
 	// Deliberately not YouTube Music's flat table: the day is the thing you actually navigate by, so
@@ -40,7 +40,7 @@
 
 	// Rendered a slice at a time (WebKitGTK and hundreds of rows do not get along), counted across
 	// buckets so the budget is rows and not days.
-	// ponytail: a running count, not the windowing in `rows.ts` â€” this page scrolls with `main`.
+	// ponytail: a running count, not the windowing in `rows.ts` — this page scrolls with `main`.
 	const PAGE = 80;
 	let shown = $state(PAGE);
 	$effect(() => {
@@ -102,7 +102,7 @@
 	}
 
 	// The whole history in order, never the filtered view: a filter finds a song, it doesn't decide
-	// what plays after it. Not a `playFrom` either â€” there is no page behind "what you listened to",
+	// what plays after it. Not a `playFrom` either — there is no page behind "what you listened to",
 	// so it has no business landing in recents.
 	function play(start: number | null, shuffle = false) {
 		if (!flat.length) return;
@@ -120,7 +120,7 @@
 	{:else if error}
 		<ErrorState message={error} onRetry={load} />
 	{:else}
-		<!-- The same rounded band the Library â–¸ Songs tab wears, tinted by the last thing played. -->
+		<!-- The same rounded band the Library ▸ Songs tab wears, tinted by the last thing played. -->
 		<div class="relative mb-6 overflow-hidden rounded-2xl border">
 			{#if covers[0] && !artFailed}
 				<!-- 96px: blur-2xl throws away every detail bigger than a few pixels anyway (HomeHero). -->

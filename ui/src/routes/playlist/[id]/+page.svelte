@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
 	import { untrack } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -79,7 +79,7 @@
 	// create a signal, and this list runs to five figures. Measured at 5,000 rows, one filter pass
 	// is 0.6ms over a plain array and 6.4ms through the proxy, and both the filter box and a local
 	// sort do that pass on every keystroke and on every continuation page that lands. Raw is safe
-	// here because every write below reassigns the whole object (`pl = { ...pl, â€¦ }`); nothing
+	// here because every write below reassigns the whole object (`pl = { ...pl, … }`); nothing
 	// mutates `pl` in place. Keep it that way, or the page stops updating.
 	let pl = $state.raw<PlaylistPage | null>(null);
 	let loading = $state(true);
@@ -91,7 +91,7 @@
 	// A random song's cover, the hero backdrop when the playlist has no cover of its own.
 	let bgImage = $state<string | null>(null);
 
-	// â‹¯ options menu, positioned `fixed` at the button so it isn't clipped (matches TrackRow).
+	// ⋯ options menu, positioned `fixed` at the button so it isn't clipped (matches TrackRow).
 	let menuOpen = $state(false);
 	let anchor = $state(NO_ANCHOR);
 
@@ -131,7 +131,7 @@
 	$effect(() => {
 		const q = query;
 		// Clearing the box is instant: there is nothing to compute and nothing to fetch, and a
-		// list that stays narrowed for a third of a second after you hit the âœ• reads as broken.
+		// list that stays narrowed for a third of a second after you hit the ✕ reads as broken.
 		if (!q.trim()) {
 			clearTimeout(filterTimer);
 			applied = '';
@@ -143,7 +143,7 @@
 
 	const id = $derived(page.params.id ?? '');
 	const nowId = $derived(playback.now?.videoId);
-	// The liked-music auto-playlist isn't a user playlist â€” no rename/delete, but shuffle is fine.
+	// The liked-music auto-playlist isn't a user playlist — no rename/delete, but shuffle is fine.
 	const isLiked = $derived(id === api.LIKED_MUSIC_ID);
 	// On Repeat is built locally from play counts: no artwork, and no radio to seed autoplay from.
 	const isOnRepeat = $derived(id === ON_REPEAT_ID);
@@ -183,7 +183,7 @@
 	const sortLabel = $derived(
 		sort === 'default' ? t('sort.label') : t(`sort.${sort}`)
 	);
-	// The local listening history, fetched once and only if "Most played" is ever picked â€” it is a
+	// The local listening history, fetched once and only if "Most played" is ever picked — it is a
 	// SQLite read the other five sorts have no use for.
 	let plays = $state<Record<string, number>>({});
 	let playsInflight: Promise<void> | null = null;
@@ -196,10 +196,10 @@
 		return playsInflight;
 	}
 
-	// YouTube offers a sort menu for this list, so it does the ordering â€” all of it except "Most
+	// YouTube offers a sort menu for this list, so it does the ordering — all of it except "Most
 	// played", which is our own listening history and means nothing to YouTube.
 	const serverSorted = $derived(!!pl?.sortMenu && sort !== 'plays');
-	// â€¦and on a playlist we own the choice is a write, so every other client follows it.
+	// …and on a playlist we own the choice is a write, so every other client follows it.
 	const storable = $derived(pl?.sortMenu?.editable ?? false);
 	// Liked Music has no editable menu, but YouTube remembers whichever order it was last asked
 	// for anyway. Someone else's playlist remembers nothing, so that one falls to localStorage.
@@ -270,7 +270,7 @@
 	}
 
 	// Sorted, but a page never arrived. The queue is a snapshot, so the tracks that did not load
-	// are gone from it for good â€” play them anyway and say so, rather than refusing to play at all
+	// are gone from it for good — play them anyway and say so, rather than refusing to play at all
 	// over one failed request. The list's own "Try again" sits at the bottom of the page.
 	function warnPartial(what: 'queued' | 'added') {
 		toast.error(t(what === 'queued' ? 'toasts.partial_playlist_queued' : 'toasts.partial_playlist_added'));
@@ -376,7 +376,7 @@
 		}
 	}
 
-	// Right-anchored, unlike the â‹¯ menu: this button sits at the far end of the header, so a menu
+	// Right-anchored, unlike the ⋯ menu: this button sits at the far end of the header, so a menu
 	// wider than it would run off the page opening leftwards from its left edge.
 	function openSort(e: MouseEvent) {
 		sortAnchor = anchorMenu(e, { align: 'right' });
@@ -419,7 +419,7 @@
 			// account already has this list in, which is the one YouTube Music would show.
 			const fresh = await api.getPlaylist(pid, saved ? fetchSort(sort) : undefined, desc);
 			// Superseded by navigation, or by a sort picked off the cached rows while this was in
-			// the air â€” either way `fetchSorted` owns the page now, so drop this response.
+			// the air — either way `fetchSorted` owns the page now, so drop this response.
 			if (pid !== id || sort !== askedSort || desc !== askedDesc) return;
 			pl = fresh;
 			if (!saved) sort = fresh.sortMenu?.selected ?? 'default';
@@ -433,9 +433,9 @@
 		}
 	}
 
-	// Reload whenever the route param changes (playlist â†’ playlist navigation), and *only* then.
-	// untrack: `load` both reads and writes `sort`/`desc` â€” it adopts the order YouTube has the list
-	// in â€” so tracking them would make every finished load re-run this effect and fetch the playlist
+	// Reload whenever the route param changes (playlist → playlist navigation), and *only* then.
+	// untrack: `load` both reads and writes `sort`/`desc` — it adopts the order YouTube has the list
+	// in — so tracking them would make every finished load re-run this effect and fetch the playlist
 	// again, forever, on any list not sitting on Default.
 	$effect(() => {
 		const pid = id;
@@ -467,7 +467,7 @@
 	});
 
 	// Optimistic rows lack set_video_id, so "Remove from playlist" is hidden on them. Refetch and
-	// patch the real ids into place (merge, not replace â€” keeps loadMore pages and any row YouTube
+	// patch the real ids into place (merge, not replace — keeps loadMore pages and any row YouTube
 	// hasn't reflected yet). Retries because the add is eventually-consistent on YouTube's side.
 	async function fillSetVideoIds() {
 		if (isLiked) return;
@@ -533,19 +533,19 @@
 			pl = {
 				...pl,
 				items: [...pl.items, ...more.items],
-				// An empty page would leave the sentinel in view with nothing to show â€” that's the end.
+				// An empty page would leave the sentinel in view with nothing to show — that's the end.
 				continuation: more.items.length ? more.continuation : undefined
 			};
 			cacheCurrent();
 		} catch {
-			// Stop auto-loading and offer a retry â€” auto-retrying a visible sentinel would spin.
+			// Stop auto-loading and offer a retry — auto-retrying a visible sentinel would spin.
 			moreError = true;
 		} finally {
 			loadingMore = false;
 		}
 	}
 
-	// Rows mount in bands from the top and are **only ever appended** â€” the prefix never unwinds,
+	// Rows mount in bands from the top and are **only ever appended** — the prefix never unwinds,
 	// because unwinding the rows above the viewport is what makes WebView2 re-sync its scroll anchor
 	// on every scroll step and draw the stale band phantom (#87). With append-only bands the content
 	// above the viewport is frozen, so there is nothing above the anchor to re-measure; an ordinary
@@ -567,7 +567,7 @@
 	});
 
 	// Grow the band when the viewport's bottom edge gets within a lookahead band of the frontier,
-	// and prime the next page in the same breath â€” the observer's `rootMargin` already serves a
+	// and prime the next page in the same breath — the observer's `rootMargin` already serves a
 	// Liked Songs walk; this does the bit *above* the real end, where the sentinel never fires.
 	$effect(() => {
 		const viewBottom = sc.scrollTop - sc.offsetPx + sc.viewportPx + LOOKAHEAD_ROWS * sc.rowPx;
@@ -752,7 +752,7 @@
 	// so what order it was handed is irrelevant.
 	function shufflePlay() {
 		if (!pl?.items.length) return;
-		// Real order + shuffle flag â€” the backend owns shuffling, so the shuffle toggle can
+		// Real order + shuffle flag — the backend owns shuffling, so the shuffle toggle can
 		// restore the true playlist order and every re-shuffle is fresh. It also mixes each page
 		// it walks into the unplayed tail, so this stays a shuffle of the whole playlist rather
 		// than of the pages that happen to be loaded.
@@ -790,7 +790,7 @@
 		}
 	}
 
-	// The liked-music auto-playlist can't be edited like a normal one â€” removing = un-liking.
+	// The liked-music auto-playlist can't be edited like a normal one — removing = un-liking.
 	async function removeTrack(track: SongItem) {
 		if (!pl) return;
 		if (!isLiked && !track.set_video_id) return;
@@ -1153,7 +1153,7 @@
 		>
 			<HugeiconsIcon icon={ArrowDownWideNarrowIcon} class="h-4 w-4" /> {t('player.add_to_queue')}
 		</button>
-		<!-- On Repeat is built from local play counts â€” there is no YouTube playlist to seed a
+		<!-- On Repeat is built from local play counts — there is no YouTube playlist to seed a
 		     radio from. -->
 		{#if !isOnRepeat}
 			<button

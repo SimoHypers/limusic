@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
 	// The Library page's Local tab: music that lives on this machine. Works signed out and offline,
 	// because nothing here goes near YouTube (Rust `local.rs`). Albums open the normal album page
 	// and songs play through the normal queue, so everything past this component is shared.
@@ -41,14 +41,14 @@
 
 	let view = $state('albums');
 	// A local collection can be thousands of files, and WebKitGTK does not enjoy thousands of rows.
-	// Render a page at a time â€” Play all and Shuffle still take every song in the list.
+	// Render a page at a time — Play all and Shuffle still take every song in the list.
 	const PAGE = 100;
 	let shown = $state(PAGE);
 
 	// Filtering the collection. It is all in memory already, so this is a scan and not a request:
 	// no debounce, no loading state, the lists narrow as you type. The one cost worth dodging is
-	// Svelte's â€” `local` is `$state`, so reading `song.title` for thousands of songs on every
-	// keystroke goes through as many proxy traps â€” so `localsearch.ts` flattens the text into plain
+	// Svelte's — `local` is `$state`, so reading `song.title` for thousands of songs on every
+	// keystroke goes through as many proxy traps — so `localsearch.ts` flattens the text into plain
 	// strings once per library change and each keystroke scans those. Reading `ix` at all is behind
 	// the empty-query check below, so a library nobody searches never pays for the pass.
 	let query = $state('');
@@ -69,7 +69,7 @@
 
 	// Same shape as the playlist page and home: one page per approach to the bottom. Nothing is
 	// fetched here (the whole library is already in memory), so this only grows how much of it is
-	// rendered â€” no loading state, nothing that can fail.
+	// rendered — no loading state, nothing that can fail.
 	function sentinel(node: HTMLElement) {
 		const io = new IntersectionObserver(([e]) => e.isIntersecting && (shown += PAGE), {
 			rootMargin: '1800px 0px'
@@ -78,7 +78,7 @@
 		return () => io.disconnect();
 	}
 	const nowId = $derived(playback.now?.videoId);
-	// The song list as one queue â€” what the Play/Shuffle buttons above it do, and what the queue
+	// The song list as one queue — what the Play/Shuffle buttons above it do, and what the queue
 	// panel calls it. Not a `playFrom`: there's no page behind "the music on this disk", so it has
 	// no business landing in recents or the sidebar's last-played order.
 	const SOURCE = 'Local music';
