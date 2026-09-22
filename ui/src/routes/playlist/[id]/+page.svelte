@@ -402,6 +402,11 @@
 		// A page that failed on the last playlist would otherwise keep this one's retry state
 		// showing, and block the filter's own walk (`loadAll` bails while it's set).
 		moreError = false;
+		// New playlist, fresh band. `shown` is recomputed when `pl` lands below; leaving mounted at the
+		// previous list's (possibly tens-of-thousands) row count would make the new one render in full
+		// through Math.min(mounted, shown.length) instead of band-by-band. Reset before `pl` is
+		// replaced — after it, shown refers to the new list and this is a no-op that never runs again.
+		mounted = MOUNT_BAND;
 		if (hit) {
 			pl = hit;
 			if (!saved) sort = hit.sortMenu?.selected ?? 'default';
