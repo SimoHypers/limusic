@@ -418,6 +418,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn config_round_trips_through_settings_json() {
+        let json =
+            r#"{"enabled":true,"bindings":{"play_pause":"Ctrl+Alt+Space","show_app":"F12"}}"#;
+        let cfg: HotkeysConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.bindings[&HotkeyAction::ShowApp], "F12");
+        let back: HotkeysConfig =
+            serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(back.bindings, cfg.bindings);
+    }
+
+    #[test]
     fn test_parse_shortcut_valid() {
         assert!(parse_shortcut("Ctrl+Alt+Space").is_ok());
         assert!(parse_shortcut("Ctrl+Shift+F1").is_ok());

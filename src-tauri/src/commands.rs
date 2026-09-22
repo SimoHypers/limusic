@@ -374,9 +374,9 @@ pub async fn set_global_hotkeys(
     config: crate::hotkeys::HotkeysConfig,
 ) -> Result<crate::hotkeys::HotkeyRegisterResult, String> {
     let result = hotkeys.apply_config(&app, config);
-    if result.success {
-        crate::hotkeys::save_config(&state.db, &result.config);
-    }
+    // Saved even on partial failure: apply_config already made this the live config, and a
+    // combo another app holds shouldn't cost the user every other binding on the next launch.
+    crate::hotkeys::save_config(&state.db, &result.config);
     Ok(result)
 }
 
@@ -386,11 +386,13 @@ pub async fn reset_global_hotkeys(
     state: St<'_>,
     hotkeys: State<'_, Arc<crate::hotkeys::HotkeysManager>>,
 ) -> Result<crate::hotkeys::HotkeyRegisterResult, String> {
-    let default_config = crate::hotkeys::HotkeysConfig::default();
+    // Resets the bindings only: the default has hotkeys off, and the button is on the enabled page.
+    let default_config = crate::hotkeys::HotkeysConfig {
+        enabled: hotkeys.get_config().enabled,
+        ..Default::default()
+    };
     let result = hotkeys.apply_config(&app, default_config);
-    if result.success {
-        crate::hotkeys::save_config(&state.db, &result.config);
-    }
+    crate::hotkeys::save_config(&state.db, &result.config);
     Ok(result)
 }
 

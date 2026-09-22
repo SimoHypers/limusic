@@ -58,6 +58,9 @@ export function initShortcuts(mini = false) {
 			e.preventDefault();
 			return;
 		}
+		// Ctrl+Alt belongs to the global hotkeys (Ctrl+Alt+M would otherwise mute here too and the
+		// two toggles cancel out), and on Windows it is also how AltGr arrives, typing a character.
+		if (e.altKey) return;
 		if (mini && ('kKeE'.includes(e.key) || isHelpKey(e.key))) return;
 		// Out of the switch because the key is per-platform: on macOS ⌘H has to fall through
 		// untouched, so the window still hides.
