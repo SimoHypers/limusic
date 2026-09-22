@@ -369,6 +369,13 @@ pub async fn get_global_hotkeys(
     Ok(hotkeys.get_config())
 }
 
+/// A Wayland session, where the X11 grab the hotkeys use only fires if the compositor passes keys
+/// on to XWayland (KDE Plasma does, GNOME does not). The GDK backend doesn't matter, the session does.
+#[tauri::command]
+pub fn global_hotkeys_on_wayland() -> bool {
+    cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some()
+}
+
 #[tauri::command]
 pub async fn set_global_hotkeys(
     app: tauri::AppHandle,

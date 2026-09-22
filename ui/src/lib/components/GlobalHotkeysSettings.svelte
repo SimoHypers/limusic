@@ -74,6 +74,11 @@
 					<div class="text-xs text-muted-foreground leading-relaxed">
 						{t('settings.hotkeys.description')}
 					</div>
+					{#if hotkeys.wayland}
+						<div class="text-xs text-muted-foreground leading-relaxed">
+							{t('settings.hotkeys.wayland_hint')}
+						</div>
+					{/if}
 				</div>
 				<div class="shrink-0">
 					<Switch

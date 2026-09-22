@@ -414,6 +414,7 @@ export interface HotkeyRegisterResult {
 }
 
 export const getGlobalHotkeys = () => invoke<HotkeysConfig>('get_global_hotkeys');
+export const globalHotkeysOnWayland = () => invoke<boolean>('global_hotkeys_on_wayland');
 export const setGlobalHotkeys = (config: HotkeysConfig) =>
 	invoke<HotkeyRegisterResult>('set_global_hotkeys', { config });
 export const resetGlobalHotkeys = () => invoke<HotkeyRegisterResult>('reset_global_hotkeys');

@@ -658,6 +658,7 @@ pub fn run() {
             commands::get_settings,
             commands::set_setting,
             commands::get_global_hotkeys,
+            commands::global_hotkeys_on_wayland,
             commands::set_global_hotkeys,
             commands::reset_global_hotkeys,
             commands::get_stream_clients,

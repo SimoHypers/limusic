@@ -1,6 +1,7 @@
 import * as api from '$lib/api';
 import { toast } from '$lib/player.svelte';
 import { t, type TranslationKey } from '$lib/i18n.svelte';
+import { IS_MAC } from '$lib/shortcuts';
 
 export interface HotkeyActionDef {
 	id: string;
@@ -85,13 +86,18 @@ class HotkeysStore {
 	loaded = $state(false);
 	saving = $state(false);
 	enabled = $state(false);
+	wayland = $state(false);
 	bindings = $state<Record<string, string>>({});
 	errors = $state<Record<string, string>>({});
 	recordingAction = $state<string | null>(null);
 
 	async load() {
 		try {
-			const res = await api.getGlobalHotkeys();
+			const [res, wayland] = await Promise.all([
+				api.getGlobalHotkeys(),
+				api.globalHotkeysOnWayland()
+			]);
+			this.wayland = wayland;
 			this.enabled = res.enabled;
 			this.bindings = res.bindings || {};
 			this.loaded = true;
@@ -179,12 +185,13 @@ export const hotkeys = new HotkeysStore();
 
 /**
  * Maps physical KeyboardEvent.code to the canonical tokens accepted by parse_shortcut.
- * Returns null for unmapped, non-Latin, or unsupported keys (e.g. F13+).
+ * Returns null for unmapped or unsupported keys. No media keys: those already reach the app through
+ * the OS media controls, and a second grab on them would toggle twice.
  */
 function canonicalKeyFromCode(code: string): string | null {
-	// Function keys F1-F12
-	if (/^F([1-9]|1[0-2])$/.test(code)) {
-		return code.toUpperCase();
+	// Function keys F1-F24
+	if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) {
+		return code;
 	}
 	// Letters KeyA - KeyZ
 	if (/^Key[A-Z]$/.test(code)) {
@@ -237,15 +244,6 @@ function canonicalKeyFromCode(code: string): string | null {
 			return '.';
 		case 'Slash':
 			return '/';
-		// Media keys
-		case 'MediaPlayPause':
-		case 'MediaTrackNext':
-		case 'MediaTrackPrevious':
-		case 'MediaStop':
-		case 'AudioVolumeUp':
-		case 'AudioVolumeDown':
-		case 'AudioVolumeMute':
-			return code;
 		default:
 			return null;
 	}
@@ -253,7 +251,7 @@ function canonicalKeyFromCode(code: string): string | null {
 
 /**
  * Format a keyboard event into a normalized shortcut string using canonical physical codes.
- * Returns null if only modifier keys are pressed or if the primary key is unsupported.
+ * Returns null for modifiers alone, an unsupported key, or a key with no Ctrl, Alt or Super.
  */
 export function eventToShortcut(e: KeyboardEvent): string | null {
 	// Modifiers only: ignore
@@ -278,6 +276,11 @@ export function eventToShortcut(e: KeyboardEvent): string | null {
 		return null;
 	}
 
+	// A bare key (or Shift+key) would be grabbed from every app on the desktop. F-keys type nothing.
+	if (!e.ctrlKey && !e.altKey && !e.metaKey && !/^F\d/.test(primaryKey)) {
+		return null;
+	}
+
 	const parts: string[] = [];
 	if (e.ctrlKey) parts.push('Ctrl');
 	if (e.altKey) parts.push('Alt');
@@ -288,10 +291,13 @@ export function eventToShortcut(e: KeyboardEvent): string | null {
 	return parts.join('+');
 }
 
-/** Split shortcut string into individual badges */
+const MAC_KEYS: Record<string, string> = { Ctrl: '⌃', Alt: '⌥', Shift: '⇧', Super: '⌘' };
+
+/** Split shortcut string into individual badges, with macOS's modifier symbols there. */
 export function splitShortcut(combo: string): string[] {
 	return combo
 		.split('+')
 		.map((s) => s.trim())
-		.filter(Boolean);
+		.filter(Boolean)
+		.map((k) => (IS_MAC && MAC_KEYS[k]) || k);
 }
