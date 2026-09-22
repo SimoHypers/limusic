@@ -358,7 +358,8 @@
 		const hit = getCached<PlaylistPage>(key);
 		if (hit) {
 			loadedKey = key;
-			pl = hit;
+			// Wholesale swap → the band follows the list (see `setPlaylist`).
+			setPlaylist(hit);
 			return;
 		}
 		resorting = true;
@@ -367,7 +368,8 @@
 			putCached(key, fresh); // still the right rows for that order, superseded or not
 			if (!current()) return;
 			loadedKey = key;
-			pl = fresh;
+			// Wholesale swap → the band follows the list (see `setPlaylist`).
+			setPlaylist(fresh);
 		} catch (e) {
 			if (current()) toast.error(t('toasts.sort_failed', { error: String(e) }));
 		} finally {
@@ -376,11 +378,36 @@
 		}
 	}
 
+	// Replacing `pl` wholesale — a different list, or the same one re-arrived in a new order — must
+	// also drop the mount band down to the base size. Left alone, `mounted` keeps the previous list's
+	// (possibly tens-of-thousands) row count)Skip, and Math.min(mounted, shown.length) would render the
+	// incoming rows in one full pass instead of band-by-band. One setter, reset first (before `pl`
+	// lands, while `shown` still refers to the list being replaced), so no later `pl =` path can miss
+	// it. Deliberately NOT used by the in-place `pl = {...pl, items}` mutations below — those keep the
+	// band and must never reset it.
+	function setPlaylist(p: PlaylistPage) {
+		mounted = MOUNT_BAND;
+		pl = p;
+	}
+
 	// Right-anchored, unlike the ⋯ menu: this button sits at the far end of the header, so a menu
 	// wider than it would run off the page opening leftwards from its left edge.
 	function openSort(e: MouseEvent) {
 		sortAnchor = anchorMenu(e, { align: 'right' });
 		sortOpen = true;
+	}
+
+	// A playlist is replaced wholesale — a different list, or the same one re-arrived in a different
+	// order — whenever `pl` must point at a brand-new page. Replacing `pl` alone leaves `mounted` at the
+	// previous list's (possibly tens-of-thousands) row count, and Math.min(mounted, shown.length) would
+	// then render the incoming rows in one full pass instead of band-by-band. Every wholesale swap goes
+	// through this setter so a later `pl =` path can't forget the reset; the in-place `pl = {...pl,
+	// items}` mutations below are deliberately NOT routed here — they keep the band and must not drop it.
+	function setPlaylist(p: PlaylistPage) {
+		// Reset while `shown` still refers to the list being replaced — after `pl` lands below, it
+		// points at the new one and this would be a never-running no-op.
+		mounted = MOUNT_BAND;
+		pl = p;
 	}
 
 	async function load(pid: string) {
@@ -402,13 +429,8 @@
 		// A page that failed on the last playlist would otherwise keep this one's retry state
 		// showing, and block the filter's own walk (`loadAll` bails while it's set).
 		moreError = false;
-		// New playlist, fresh band. `shown` is recomputed when `pl` lands below; leaving mounted at the
-		// previous list's (possibly tens-of-thousands) row count would make the new one render in full
-		// through Math.min(mounted, shown.length) instead of band-by-band. Reset before `pl` is
-		// replaced — after it, shown refers to the new list and this is a no-op that never runs again.
-		mounted = MOUNT_BAND;
 		if (hit) {
-			pl = hit;
+			setPlaylist(hit);
 			if (!saved) sort = hit.sortMenu?.selected ?? 'default';
 			bgImage = pickCover(hit.items);
 			loading = false;
