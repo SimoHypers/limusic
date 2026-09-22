@@ -380,7 +380,7 @@
 
 	// Replacing `pl` wholesale — a different list, or the same one re-arrived in a new order — must
 	// also drop the mount band down to the base size. Left alone, `mounted` keeps the previous list's
-	// (possibly tens-of-thousands) row count)Skip, and Math.min(mounted, shown.length) would render the
+	// (possibly tens-of-thousands) row count, and Math.min(mounted, shown.length) would render the
 	// incoming rows in one full pass instead of band-by-band. One setter, reset first (before `pl`
 	// lands, while `shown` still refers to the list being replaced), so no later `pl =` path can miss
 	// it. Deliberately NOT used by the in-place `pl = {...pl, items}` mutations below — those keep the
@@ -397,18 +397,6 @@
 		sortOpen = true;
 	}
 
-	// A playlist is replaced wholesale — a different list, or the same one re-arrived in a different
-	// order — whenever `pl` must point at a brand-new page. Replacing `pl` alone leaves `mounted` at the
-	// previous list's (possibly tens-of-thousands) row count, and Math.min(mounted, shown.length) would
-	// then render the incoming rows in one full pass instead of band-by-band. Every wholesale swap goes
-	// through this setter so a later `pl =` path can't forget the reset; the in-place `pl = {...pl,
-	// items}` mutations below are deliberately NOT routed here — they keep the band and must not drop it.
-	function setPlaylist(p: PlaylistPage) {
-		// Reset while `shown` still refers to the list being replaced — after `pl` lands below, it
-		// points at the new one and this would be a never-running no-op.
-		mounted = MOUNT_BAND;
-		pl = p;
-	}
 
 	async function load(pid: string) {
 		// A sort YouTube keeps is read back off the response below; this store only holds the ones
