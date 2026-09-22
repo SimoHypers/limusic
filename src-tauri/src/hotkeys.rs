@@ -17,7 +17,9 @@ use crate::state::AppState;
 
 pub const SETTINGS_KEY: &str = "global_hotkeys";
 
-static LAST_NONZERO_VOLUME: AtomicI64 = AtomicI64::new(100);
+/// The level mute-toggle returns to. The UI's `set_volume` writes it too, so muting in the app and
+/// unmuting with the hotkey (or the reverse) lands on the same level.
+pub(crate) static LAST_NONZERO_VOLUME: AtomicI64 = AtomicI64::new(100);
 
 /// Supported playback and application actions for global hotkeys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -44,6 +46,8 @@ pub struct HotkeysConfig {
 }
 
 impl Default for HotkeysConfig {
+    // Mute, shuffle and repeat start unbound: Windows sends AltGr as Ctrl+Alt, so a Ctrl+Alt+letter
+    // default would take a character (Polish ś, German µ) from every app once hotkeys are on.
     fn default() -> Self {
         let mut bindings = HashMap::new();
         bindings.insert(HotkeyAction::PlayPause, "Ctrl+Alt+Space".into());
@@ -51,11 +55,8 @@ impl Default for HotkeysConfig {
         bindings.insert(HotkeyAction::PrevTrack, "Ctrl+Alt+Left".into());
         bindings.insert(HotkeyAction::VolumeUp, "Ctrl+Alt+Up".into());
         bindings.insert(HotkeyAction::VolumeDown, "Ctrl+Alt+Down".into());
-        bindings.insert(HotkeyAction::MuteToggle, "Ctrl+Alt+M".into());
         bindings.insert(HotkeyAction::SeekForward, "Ctrl+Alt+PageUp".into());
         bindings.insert(HotkeyAction::SeekBackward, "Ctrl+Alt+PageDown".into());
-        bindings.insert(HotkeyAction::ToggleShuffle, "Ctrl+Alt+S".into());
-        bindings.insert(HotkeyAction::ToggleRepeat, "Ctrl+Alt+R".into());
         bindings.insert(HotkeyAction::ShowApp, "Ctrl+Alt+Home".into());
         Self { enabled: false, bindings }
     }
@@ -69,164 +70,20 @@ pub struct HotkeyRegisterResult {
     pub errors: HashMap<HotkeyAction, String>,
 }
 
-/// Parse a user-provided shortcut string into a `Shortcut` struct.
-/// Supports F-keys (F1-F12), 2-key and 3-key combinations with Ctrl, Alt, Shift, Super.
-/// E.g. "Alt+PageUp", "Ctrl+Shift+F1", "Ctrl+Alt+Space".
+/// Parse a stored binding ("Ctrl+Alt+Space") with the plugin's own parser. A bare key is refused:
+/// a global grab on Space or a letter would take that key from every app on the desktop. F-keys
+/// are the exception, nothing types with them.
 pub fn parse_shortcut(input: &str) -> Result<Shortcut, String> {
-    let raw = input.trim();
-    if raw.is_empty() {
-        return Err("Shortcut string cannot be empty".into());
+    let shortcut: Shortcut = input.trim().parse().map_err(|e| format!("{e}"))?;
+    let modified = shortcut.mods.intersects(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SUPER);
+    use Code::*;
+    #[rustfmt::skip]
+    let fkey = matches!(shortcut.key, F1 | F2 | F3 | F4 | F5 | F6 | F7 | F8 | F9 | F10 | F11 | F12
+        | F13 | F14 | F15 | F16 | F17 | F18 | F19 | F20 | F21 | F22 | F23 | F24);
+    if !modified && !fkey {
+        return Err(format!("'{input}' needs Ctrl, Alt or Super"));
     }
-
-    let mut mods = Modifiers::empty();
-    let mut key_code: Option<Code> = None;
-
-    for part in raw.split('+') {
-        let token = part.trim();
-        if token.is_empty() {
-            continue;
-        }
-
-        match token.to_lowercase().as_str() {
-            "ctrl" | "control" => mods.insert(Modifiers::CONTROL),
-            "alt" | "option" => mods.insert(Modifiers::ALT),
-            "shift" => mods.insert(Modifiers::SHIFT),
-            "super" | "win" | "windows" | "meta" | "cmd" | "command" => {
-                mods.insert(Modifiers::SUPER)
-            }
-            other => {
-                if key_code.is_some() {
-                    return Err(format!(
-                        "Multiple primary keys specified in shortcut: '{}' and '{}'",
-                        token, raw
-                    ));
-                }
-                let code = parse_key_code(other)
-                    .ok_or_else(|| format!("Unknown key: '{}' in shortcut '{}'", token, raw))?;
-                key_code = Some(code);
-            }
-        }
-    }
-
-    let code = key_code
-        .ok_or_else(|| format!("No primary key found in shortcut '{}' (modifiers only)", raw))?;
-
-    let mod_opt = if mods.is_empty() { None } else { Some(mods) };
-    Ok(Shortcut::new(mod_opt, code))
-}
-
-fn parse_key_code(token: &str) -> Option<Code> {
-    match token {
-        // Function keys
-        "f1" => Some(Code::F1),
-        "f2" => Some(Code::F2),
-        "f3" => Some(Code::F3),
-        "f4" => Some(Code::F4),
-        "f5" => Some(Code::F5),
-        "f6" => Some(Code::F6),
-        "f7" => Some(Code::F7),
-        "f8" => Some(Code::F8),
-        "f9" => Some(Code::F9),
-        "f10" => Some(Code::F10),
-        "f11" => Some(Code::F11),
-        "f12" => Some(Code::F12),
-
-        // Navigation
-        "pageup" | "page_up" | "pgup" => Some(Code::PageUp),
-        "pagedown" | "page_down" | "pgdn" => Some(Code::PageDown),
-        "home" => Some(Code::Home),
-        "end" => Some(Code::End),
-        "insert" | "ins" => Some(Code::Insert),
-        "delete" | "del" => Some(Code::Delete),
-
-        // Arrows
-        "up" | "arrowup" | "arrow_up" => Some(Code::ArrowUp),
-        "down" | "arrowdown" | "arrow_down" => Some(Code::ArrowDown),
-        "left" | "arrowleft" | "arrow_left" => Some(Code::ArrowLeft),
-        "right" | "arrowright" | "arrow_right" => Some(Code::ArrowRight),
-
-        // Common keys
-        "space" | "spacebar" => Some(Code::Space),
-        "enter" | "return" => Some(Code::Enter),
-        "tab" => Some(Code::Tab),
-        "backspace" => Some(Code::Backspace),
-        "escape" | "esc" => Some(Code::Escape),
-
-        // Letters
-        "a" => Some(Code::KeyA),
-        "b" => Some(Code::KeyB),
-        "c" => Some(Code::KeyC),
-        "d" => Some(Code::KeyD),
-        "e" => Some(Code::KeyE),
-        "f" => Some(Code::KeyF),
-        "g" => Some(Code::KeyG),
-        "h" => Some(Code::KeyH),
-        "i" => Some(Code::KeyI),
-        "j" => Some(Code::KeyJ),
-        "k" => Some(Code::KeyK),
-        "l" => Some(Code::KeyL),
-        "m" => Some(Code::KeyM),
-        "n" => Some(Code::KeyN),
-        "o" => Some(Code::KeyO),
-        "p" => Some(Code::KeyP),
-        "q" => Some(Code::KeyQ),
-        "r" => Some(Code::KeyR),
-        "s" => Some(Code::KeyS),
-        "t" => Some(Code::KeyT),
-        "u" => Some(Code::KeyU),
-        "v" => Some(Code::KeyV),
-        "w" => Some(Code::KeyW),
-        "x" => Some(Code::KeyX),
-        "y" => Some(Code::KeyY),
-        "z" => Some(Code::KeyZ),
-
-        // Digits
-        "0" => Some(Code::Digit0),
-        "1" => Some(Code::Digit1),
-        "2" => Some(Code::Digit2),
-        "3" => Some(Code::Digit3),
-        "4" => Some(Code::Digit4),
-        "5" => Some(Code::Digit5),
-        "6" => Some(Code::Digit6),
-        "7" => Some(Code::Digit7),
-        "8" => Some(Code::Digit8),
-        "9" => Some(Code::Digit9),
-
-        // Numpad
-        "numpad0" | "num0" => Some(Code::Numpad0),
-        "numpad1" | "num1" => Some(Code::Numpad1),
-        "numpad2" | "num2" => Some(Code::Numpad2),
-        "numpad3" | "num3" => Some(Code::Numpad3),
-        "numpad4" | "num4" => Some(Code::Numpad4),
-        "numpad5" | "num5" => Some(Code::Numpad5),
-        "numpad6" | "num6" => Some(Code::Numpad6),
-        "numpad7" | "num7" => Some(Code::Numpad7),
-        "numpad8" | "num8" => Some(Code::Numpad8),
-        "numpad9" | "num9" => Some(Code::Numpad9),
-
-        // Media keys
-        "mediaplaypause" | "playpause" => Some(Code::MediaPlayPause),
-        "mediatracknext" | "nexttrack" | "medianext" => Some(Code::MediaTrackNext),
-        "mediatrackprevious" | "prevtrack" | "mediaprev" => Some(Code::MediaTrackPrevious),
-        "mediastop" | "stop" => Some(Code::MediaStop),
-        "audiovolumeup" | "volumeup" => Some(Code::AudioVolumeUp),
-        "audiovolumedown" | "volumedown" => Some(Code::AudioVolumeDown),
-        "audiovolumemute" | "volumemute" | "mute" => Some(Code::AudioVolumeMute),
-
-        // Symbols
-        "-" | "minus" => Some(Code::Minus),
-        "=" | "equal" => Some(Code::Equal),
-        "[" | "bracketleft" => Some(Code::BracketLeft),
-        "]" | "bracketright" => Some(Code::BracketRight),
-        "\\" | "backslash" => Some(Code::Backslash),
-        ";" | "semicolon" => Some(Code::Semicolon),
-        "'" | "quote" => Some(Code::Quote),
-        "," | "comma" => Some(Code::Comma),
-        "." | "period" => Some(Code::Period),
-        "/" | "slash" => Some(Code::Slash),
-
-        _ => None,
-    }
+    Ok(shortcut)
 }
 
 /// Manages hotkey registration state and event dispatching.
@@ -332,49 +189,15 @@ pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
             HotkeyAction::PrevTrack => {
                 state.prev_in_queue().await;
             }
-            HotkeyAction::VolumeUp => {
-                let cur = state.player.volume();
-                let next = (cur + 5).clamp(0, 100);
-                if state.player.set_volume(next).is_ok() {
-                    if next > 0 {
-                        LAST_NONZERO_VOLUME.store(next, Ordering::Relaxed);
-                    }
-                    state.db.set_setting("volume", &next.to_string());
-                    let _ = app.emit("volume", next);
-                }
-            }
-            HotkeyAction::VolumeDown => {
-                let cur = state.player.volume();
-                let next = (cur - 5).clamp(0, 100);
-                if state.player.set_volume(next).is_ok() {
-                    if next > 0 {
-                        LAST_NONZERO_VOLUME.store(next, Ordering::Relaxed);
-                    }
-                    state.db.set_setting("volume", &next.to_string());
-                    let _ = app.emit("volume", next);
-                }
-            }
+            HotkeyAction::VolumeUp => set_volume(&state, &app, state.player.volume() + 5),
+            HotkeyAction::VolumeDown => set_volume(&state, &app, state.player.volume() - 5),
             HotkeyAction::MuteToggle => {
                 let cur = state.player.volume();
-                let next = if cur > 0 {
+                if cur > 0 {
                     LAST_NONZERO_VOLUME.store(cur, Ordering::Relaxed);
-                    0
+                    set_volume(&state, &app, 0);
                 } else {
-                    let last = LAST_NONZERO_VOLUME.load(Ordering::Relaxed);
-                    if last > 0 {
-                        last
-                    } else {
-                        let saved = crate::state::saved_volume(&state.db);
-                        if saved > 0 {
-                            saved
-                        } else {
-                            100
-                        }
-                    }
-                };
-                if state.player.set_volume(next).is_ok() {
-                    state.db.set_setting("volume", &next.to_string());
-                    let _ = app.emit("volume", next);
+                    set_volume(&state, &app, LAST_NONZERO_VOLUME.load(Ordering::Relaxed));
                 }
             }
             HotkeyAction::SeekForward => {
@@ -396,6 +219,18 @@ pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
             }
         }
     });
+}
+
+/// Set, persist and echo a volume, the same as a slider commit.
+fn set_volume(state: &AppState, app: &AppHandle, volume: i64) {
+    let volume = volume.clamp(0, 100);
+    if state.player.set_volume(volume).is_ok() {
+        if volume > 0 {
+            LAST_NONZERO_VOLUME.store(volume, Ordering::Relaxed);
+        }
+        state.db.set_setting("volume", &volume.to_string());
+        let _ = app.emit("volume", volume);
+    }
 }
 
 pub fn load_config(db: &Db) -> HotkeysConfig {
@@ -434,18 +269,24 @@ mod tests {
         assert!(parse_shortcut("Ctrl+Shift+F1").is_ok());
         assert!(parse_shortcut("Alt+PageUp").is_ok());
         assert!(parse_shortcut("Ctrl+Alt+M").is_ok());
-        assert!(parse_shortcut("Ctrl+Alt+Right").is_ok());
-        assert!(parse_shortcut("Ctrl+Alt+Down").is_ok());
-        assert!(parse_shortcut("Ctrl+Alt+Home").is_ok());
         assert!(parse_shortcut("Ctrl+Shift+=").is_ok());
+        assert!(parse_shortcut("Super+Numpad5").is_ok());
         assert!(parse_shortcut("F12").is_ok());
+        assert!(parse_shortcut("F13").is_ok());
+        for combo in HotkeysConfig::default().bindings.values() {
+            assert!(parse_shortcut(combo).is_ok(), "{combo}");
+        }
     }
 
     #[test]
     fn test_parse_shortcut_invalid() {
         assert!(parse_shortcut("").is_err());
         assert!(parse_shortcut("Ctrl+Alt").is_err());
-        assert!(parse_shortcut("Ctrl+F13").is_err());
         assert!(parse_shortcut("NonexistentKey").is_err());
+        // Bare keys would be grabbed from every app on the desktop.
+        assert!(parse_shortcut("Space").is_err());
+        assert!(parse_shortcut("A").is_err());
+        assert!(parse_shortcut("Shift+Enter").is_err());
+        assert!(parse_shortcut("MediaPlayPause").is_err());
     }
 }
