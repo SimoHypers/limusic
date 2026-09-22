@@ -409,7 +409,7 @@
 			"off": "Off",
 			"rebind": "Rebind",
 			"recording": "Hold a modifier and press a key...",
-			"wayland_hint": "On Wayland these shortcuts only reach Limusic if your desktop passes keys to X11 apps. KDE Plasma does; on GNOME they may not fire.",
+			"wayland_hint": "May not work on GNOME (Wayland).",
 			"clear": "Clear shortcut",
 			"reset": "Reset to defaults",
 			"conflict": "This shortcut is already assigned to \"{action}\"",
