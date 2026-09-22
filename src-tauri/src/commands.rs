@@ -173,6 +173,9 @@ pub async fn seek(state: St<'_>, position: f64) -> Result<(), String> {
 #[tauri::command]
 pub async fn set_volume(state: St<'_>, volume: i64) -> Result<(), String> {
     state.player.set_volume(volume).map_err(|e| e.to_string())?;
+    if volume > 0 {
+        crate::hotkeys::LAST_NONZERO_VOLUME.store(volume, std::sync::atomic::Ordering::Relaxed);
+    }
     // There is one volume and there can be two windows (the mini player). Without this the one
     // that didn't move the slider keeps showing the old level and lies about what you're hearing.
     let _ = state.app.emit("volume", volume);

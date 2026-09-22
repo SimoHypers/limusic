@@ -1239,7 +1239,10 @@ export function initApp(mini = false): () => void {
 		api.onVolume((v) => {
 			// Not while our own drag is in flight: the echo is a value the pointer has already
 			// moved past, and applying it would yank the thumb backwards mid-drag.
-			if (volFrame === null) playback.volume = v;
+			if (volFrame !== null) return;
+			// Muted from elsewhere (the global hotkey): remember the level, so unmuting here restores it.
+			if (v === 0 && playback.volume > 0) preMute = playback.volume;
+			playback.volume = v;
 		}),
 		api.onPlaybackError((msg) => toast.error(msg)),
 		api.onPlaybackNotice((msg) => toast(msg)), // auto-skipped an unplayable track
