@@ -670,6 +670,10 @@ impl LtSession {
             "roomCode": inner.room_code,
             "myId": inner.my_id,
             "serverUrl": inner.server_url,
+            // Sent so the settings panel can show what "the default" actually is once the user
+            // opens it. `serverUrl` stays empty until they pick their own, which is what keeps the
+            // address off every other screen.
+            "defaultServerUrl": DEFAULT_SERVER,
             "users": inner.users,
             "currentTrack": inner.current_track,
             "queue": inner.queue,

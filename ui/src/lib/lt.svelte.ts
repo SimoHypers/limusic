@@ -9,6 +9,7 @@ export const lt = $state<LtState>({
 	roomCode: null,
 	myId: null,
 	serverUrl: '',
+	defaultServerUrl: '',
 	users: [],
 	currentTrack: null,
 	queue: [],

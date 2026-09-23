@@ -791,7 +791,10 @@ export interface LtState {
 	requesting: boolean;
 	roomCode: string | null;
 	myId: string | null;
+	/** Empty means the built-in default; the backend resolves it when it connects. */
 	serverUrl: string;
+	/** What that default is. Only ever rendered inside the "change server" panel. */
+	defaultServerUrl: string;
 	users: LtUser[];
 	currentTrack: LtTrack | null;
 	queue: LtTrack[];
