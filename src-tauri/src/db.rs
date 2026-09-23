@@ -1396,6 +1396,341 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    // --- upgrading a database an older release wrote ------------------------------------------
+    //
+    // Every other file-backed test here starts from `Db::open`, which means from the *current*
+    // schema, so none of them ever runs the ALTERs and one-shot migrations in `open` against a
+    // file that actually needs them. These do. Each constant is the `execute_batch` SQL one shipped
+    // release ran, copied verbatim from `git show <tag>:src-tauri/src/db.rs`. They are pinned as
+    // literals on purpose: a schema generated from the current code would drift along with it and
+    // stop being a record of what users' files really look like, which is the only thing that
+    // makes the test worth having. Never edit one to make a test pass; add a new tag instead.
+    //
+    // Why these three:
+    // - v0.4.11: `stream_url_cache` is five columns, `local_tracks` has no `album_artist`, no
+    //   `accounts`. Every ALTER in `open` has work to do and both cache wipes fire. The long tail:
+    //   .deb, .rpm and AUR installs never self-update, so some users really are on it.
+    // - v0.5.12: has `is_video` and the ping columns but still no `accounts`, so it isolates the
+    //   legacy single-session migration from most of the column work.
+    // - v0.8.1: the predecessor of 0.8.2, which is where most self-updating installs sit. It lacks
+    //   only `client`, so the one thing opening it does is the `client` wipe. The common path.
+
+    const SCHEMA_V0_4_11: &str = r#"
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS stream_url_cache (
+                video_id    TEXT PRIMARY KEY,
+                url         TEXT NOT NULL,
+                itag        INTEGER NOT NULL,
+                expires_at  INTEGER NOT NULL,
+                loudness_db REAL
+            );
+            CREATE TABLE IF NOT EXISTS lyrics_cache (
+                video_id   TEXT PRIMARY KEY,
+                lyrics     TEXT,
+                fetched_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS plays (
+                id        INTEGER PRIMARY KEY,
+                video_id  TEXT NOT NULL,
+                played_at INTEGER NOT NULL,
+                song_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS plays_played_at ON plays(played_at);
+            CREATE TABLE IF NOT EXISTS local_tracks (
+                path          TEXT PRIMARY KEY,
+                title         TEXT NOT NULL,
+                artist        TEXT NOT NULL,
+                album         TEXT NOT NULL,
+                album_key     TEXT NOT NULL,
+                track_no      INTEGER NOT NULL,
+                duration_secs INTEGER NOT NULL,
+                cover         TEXT,
+                mtime         INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS local_tracks_album ON local_tracks(album_key);
+            CREATE TABLE IF NOT EXISTS playlist_track (
+                playlist_id TEXT NOT NULL,
+                video_id    TEXT NOT NULL,
+                PRIMARY KEY (playlist_id, video_id)
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS playlist_track_video ON playlist_track(video_id);
+            "#;
+
+    const SCHEMA_V0_5_12: &str = r#"
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS stream_url_cache (
+                video_id    TEXT PRIMARY KEY,
+                url         TEXT NOT NULL,
+                itag        INTEGER NOT NULL,
+                expires_at  INTEGER NOT NULL,
+                loudness_db REAL,
+                is_video    INTEGER,
+                ping_url    TEXT,
+                ping_client TEXT
+            );
+            CREATE TABLE IF NOT EXISTS lyrics_cache (
+                video_id   TEXT PRIMARY KEY,
+                lyrics     TEXT,
+                fetched_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS plays (
+                id        INTEGER PRIMARY KEY,
+                video_id  TEXT NOT NULL,
+                played_at INTEGER NOT NULL,
+                song_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS plays_played_at ON plays(played_at);
+            CREATE TABLE IF NOT EXISTS local_tracks (
+                path          TEXT PRIMARY KEY,
+                title         TEXT NOT NULL,
+                artist        TEXT NOT NULL,
+                album         TEXT NOT NULL,
+                album_key     TEXT NOT NULL,
+                album_artist  TEXT,
+                track_no      INTEGER NOT NULL,
+                duration_secs INTEGER NOT NULL,
+                cover         TEXT,
+                mtime         INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS local_tracks_album ON local_tracks(album_key);
+            CREATE TABLE IF NOT EXISTS playlist_track (
+                playlist_id TEXT NOT NULL,
+                video_id    TEXT NOT NULL,
+                PRIMARY KEY (playlist_id, video_id)
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS playlist_track_video ON playlist_track(video_id);
+            "#;
+
+    const SCHEMA_V0_8_1: &str = r#"
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS stream_url_cache (
+                video_id    TEXT PRIMARY KEY,
+                url         TEXT NOT NULL,
+                itag        INTEGER NOT NULL,
+                expires_at  INTEGER NOT NULL,
+                loudness_db REAL,
+                is_video    INTEGER,
+                ping_url    TEXT,
+                ping_client TEXT
+            );
+            CREATE TABLE IF NOT EXISTS lyrics_cache (
+                video_id   TEXT PRIMARY KEY,
+                lyrics     TEXT,
+                fetched_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS plays (
+                id        INTEGER PRIMARY KEY,
+                video_id  TEXT NOT NULL,
+                played_at INTEGER NOT NULL,
+                song_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS plays_played_at ON plays(played_at);
+            CREATE TABLE IF NOT EXISTS local_tracks (
+                path          TEXT PRIMARY KEY,
+                title         TEXT NOT NULL,
+                artist        TEXT NOT NULL,
+                album         TEXT NOT NULL,
+                album_key     TEXT NOT NULL,
+                album_artist  TEXT,
+                track_no      INTEGER NOT NULL,
+                duration_secs INTEGER NOT NULL,
+                cover         TEXT,
+                mtime         INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS local_tracks_album ON local_tracks(album_key);
+            CREATE TABLE IF NOT EXISTS playlist_track (
+                playlist_id TEXT NOT NULL,
+                video_id    TEXT NOT NULL,
+                PRIMARY KEY (playlist_id, video_id)
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS playlist_track_video ON playlist_track(video_id);
+            CREATE TABLE IF NOT EXISTS accounts (
+                id                     TEXT PRIMARY KEY,
+                session_cookie         TEXT NOT NULL,
+                data_sync_id           TEXT,
+                selected_identity_json TEXT,
+                account_json           TEXT,
+                visitor_data           TEXT,
+                added_at               INTEGER NOT NULL
+            );
+            "#;
+
+    const LEGACY_COOKIE: &str = "SAPISID=legacy-sapisid; SID=legacy-sid";
+
+    /// Builds a database file the way the release behind `schema` left it, then runs everything a
+    /// user upgrading from it would need to be true, through `Db` itself.
+    ///
+    /// The old file is written with raw rusqlite, never `Db`, which would migrate it before the
+    /// test got a look. The seeded rows use only columns the oldest schema has, so the same seed
+    /// fits all three. `migrated_account` says whether that release had already moved the sign-in
+    /// into `accounts` (0.8.x did, on its own first launch); either way the legacy `settings` rows
+    /// are there, because every release keeps them as projections of the active account.
+    fn assert_upgrades_cleanly(tag: &str, schema: &str, migrated_account: bool) {
+        let dir = qtest_dir(&format!("upgrade-{tag}"));
+        let path = dir.join("limusic.sqlite");
+        let now = now_secs();
+        let later = now + 6 * 3600;
+        let id = account_key(LEGACY_COOKIE).unwrap();
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute_batch(schema).unwrap();
+            for (key, value) in [
+                ("volume", "0.42"),
+                ("session_cookie", LEGACY_COOKIE),
+                ("data_sync_id", "channel-legacy"),
+                ("selected_identity_json", r#"{"data_sync_id":"channel-legacy"}"#),
+                ("account_json", r#"{"name":"Legacy"}"#),
+                ("visitor_data", "vd-legacy"),
+            ] {
+                conn.execute("INSERT INTO settings(key, value) VALUES(?1, ?2)", [key, value])
+                    .unwrap();
+            }
+            if migrated_account {
+                conn.execute(
+                    "INSERT INTO accounts(id, session_cookie, data_sync_id, \
+                     selected_identity_json, account_json, visitor_data, added_at) \
+                     VALUES(?1, ?2, 'channel-legacy', '{\"data_sync_id\":\"channel-legacy\"}', \
+                     '{\"name\":\"Legacy\"}', 'vd-legacy', 100)",
+                    [&id, LEGACY_COOKIE],
+                )
+                .unwrap();
+                conn.execute(
+                    "INSERT INTO settings(key, value) VALUES('active_account', ?1)",
+                    [&id],
+                )
+                .unwrap();
+            }
+            // Unexpired, so if it disappears it was the migration's wipe and not the expiry sweep.
+            conn.execute(
+                "INSERT INTO stream_url_cache(video_id, url, itag, expires_at, loudness_db) \
+                 VALUES('old-row', 'https://x/old', 251, ?1, -3.5)",
+                [later],
+            )
+            .unwrap();
+            for (video_id, song_json) in
+                [("dQw4w9WgXcQ", r#"{"yt":1}"#), ("LOCAL:/music/a.mp3", r#"{"local":1}"#)]
+            {
+                conn.execute(
+                    "INSERT INTO plays(video_id, played_at, song_json) VALUES(?1, 1000, ?2)",
+                    [video_id, song_json],
+                )
+                .unwrap();
+            }
+            conn.execute(
+                "INSERT INTO local_tracks(path, title, artist, album, album_key, track_no, \
+                 duration_secs, cover, mtime) \
+                 VALUES('/music/a.mp3', 'A', 'Artist', 'Album', 'artist--album', 1, 200, NULL, 5)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO playlist_track(playlist_id, video_id) VALUES('VL1', 'dQw4w9WgXcQ')",
+                [],
+            )
+            .unwrap();
+        }
+
+        // Checkpoints 1 and 6 in one call: `open_or_quarantine` tries `Db::open` first and returns
+        // `None` only when that succeeded, so this is both "it opens" and "an old file is not
+        // mistaken for a damaged one and moved aside, taking the library with it".
+        let (d, aside) = Db::open_or_quarantine(&path).unwrap();
+        assert_eq!(aside, None, "{tag}: an old but healthy database was quarantined");
+
+        // Checkpoint 2, through the real accessors rather than `PRAGMA table_info`: `put_stream`
+        // and `get_stream` name every column the current code reads and writes, and both swallow
+        // errors, so a column the migration failed to add shows up here as a row that never
+        // comes back.
+        let fresh = CachedStream {
+            url: "https://x/fresh".into(),
+            itag: 251,
+            expires_at: later,
+            loudness_db: Some(-2.0),
+            is_video: Some(true),
+            ping_url: Some("https://s.youtube.com/api/stats/playback".into()),
+            ping_client: Some("WEB_REMIX".into()),
+            client: Some("VISIONOS".into()),
+        };
+        d.put_stream("fresh", &fresh, now);
+        let got = d.get_stream("fresh", now).unwrap_or_else(|| {
+            panic!("{tag}: the current cache query does not work on the upgraded file")
+        });
+        assert_eq!(
+            (got.url.as_str(), got.loudness_db, got.is_video, got.client.as_deref()),
+            ("https://x/fresh", Some(-2.0), Some(true), Some("VISIONOS")),
+            "{tag}"
+        );
+        assert_eq!(got.ping_client.as_deref(), Some("WEB_REMIX"), "{tag}");
+        // Every one of these releases predates `client`, so the pre-column row has to be gone:
+        // its headers cannot be rebuilt. Checked after the round trip above, which is what
+        // proves `None` here means "deleted" and not "the query failed".
+        assert!(d.get_stream("old-row", now).is_none(), "{tag}: the stale cache row survived");
+
+        // Checkpoint 3: the user's history and library come through untouched, except the local
+        // play, which `open` removes on purpose (On Repeat excludes local files since 0.3.1).
+        assert_eq!(d.get_setting("volume").as_deref(), Some("0.42"), "{tag}");
+        assert_eq!(d.top_plays(0, 20), vec![(r#"{"yt":1}"#.to_string(), 1)], "{tag}");
+        let tracks = d.local_tracks(None);
+        assert_eq!(tracks.len(), 1, "{tag}");
+        assert_eq!((tracks[0].path.as_str(), tracks[0].title.as_str()), ("/music/a.mp3", "A"));
+        assert_eq!(tracks[0].album_artist, None, "{tag}: a new column reads as unknown");
+        assert_eq!(d.playlist_memberships()["dQw4w9WgXcQ"], vec!["VL1"], "{tag}");
+
+        // Checkpoint 4: still signed in. One account, keyed the way this build computes it,
+        // carrying the identity the old release stored, and pointed at as the active one.
+        let accounts = d.list_accounts();
+        assert_eq!(accounts.len(), 1, "{tag}: expected exactly the one signed-in account");
+        let a = &accounts[0];
+        assert_eq!(a.id, id, "{tag}");
+        assert_eq!(a.session_cookie, LEGACY_COOKIE, "{tag}");
+        assert_eq!(a.data_sync_id.as_deref(), Some("channel-legacy"), "{tag}");
+        assert_eq!(
+            a.selected_identity_json.as_deref(),
+            Some(r#"{"data_sync_id":"channel-legacy"}"#),
+            "{tag}"
+        );
+        assert_eq!(a.account_json.as_deref(), Some(r#"{"name":"Legacy"}"#), "{tag}");
+        assert_eq!(a.visitor_data.as_deref(), Some("vd-legacy"), "{tag}");
+        if migrated_account {
+            assert_eq!(a.added_at, 100, "{tag}: an existing account row was rewritten");
+        }
+        assert_eq!(d.get_setting("active_account").as_deref(), Some(id.as_str()), "{tag}");
+        assert_eq!(d.get_setting("session_cookie").as_deref(), Some(LEGACY_COOKIE), "{tag}");
+        drop(d);
+
+        // Checkpoint 5: the wipes are one-shot. They key off an ALTER succeeding, so if one ever
+        // reported success on a file that already had the column, every launch would empty the
+        // cache and nothing else would notice. The row written above has to outlive a relaunch.
+        let d = Db::open(&path).unwrap();
+        assert!(d.get_stream("fresh", now).is_some(), "{tag}: the cache was wiped again");
+        assert_eq!(d.list_accounts().len(), 1, "{tag}: a relaunch duplicated the account");
+        drop(d);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_v0_4_11_database_upgrades_cleanly() {
+        assert_upgrades_cleanly("v0.4.11", SCHEMA_V0_4_11, false);
+    }
+
+    #[test]
+    fn a_v0_5_12_database_upgrades_cleanly() {
+        assert_upgrades_cleanly("v0.5.12", SCHEMA_V0_5_12, false);
+    }
+
+    #[test]
+    fn a_v0_8_1_database_upgrades_cleanly() {
+        assert_upgrades_cleanly("v0.8.1", SCHEMA_V0_8_1, true);
+    }
+
     #[test]
     fn auth_identity_projections_are_updated_and_cleared_together() {
         let d = db();
