@@ -256,13 +256,25 @@ pub fn run() {
         }
     }
 
-    tauri::Builder::default()
-        // Must be the first plugin registered (its documented requirement). A second launch —
-        // e.g. clicking the app icon while we're hidden in the tray — re-shows this instance
-        // instead of spawning a second one (which would fight over SQLite and mpv).
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    let mut builder = tauri::Builder::default();
+
+    // Must be the first plugin registered (its documented requirement). A second launch —
+    // e.g. clicking the app icon while we're hidden in the tray — re-shows this instance
+    // instead of spawning a second one (which would fight over SQLite and mpv).
+    //
+    // `LIMUSIC_MULTI=1` lifts the guard, because the guard is exactly what makes Listen Together
+    // impossible to test on one machine. Pair it with `XDG_DATA_HOME` (Linux) or `APPDATA`
+    // (Windows) pointing somewhere else, or the second copy opens the first one's SQLite file and
+    // the two fight over it, which is what the guard exists to prevent:
+    //
+    //     LIMUSIC_MULTI=1 XDG_DATA_HOME=/tmp/limusic-b ./target/debug/limusic-app
+    if std::env::var_os("LIMUSIC_MULTI").is_none() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             tray::show_main(app);
-        }))
+        }));
+    }
+
+    builder
         // The hidden cipher webview's document (webview.rs). A registered scheme, because a
         // `data:` URL is not a document WebView2 will navigate to.
         .register_uri_scheme_protocol(webview::SCHEME, |_ctx, _req| {
