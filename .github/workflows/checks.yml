@@ -11,9 +11,9 @@ name: Checks
 # WHY NOT ALSO BUILD AND TEST HERE: `limusic-app` links libmpv and webkit2gtk, so testing it needs
 # the full Tauri system-dependency install and a cold Rust compile. This job needs neither: rustfmt
 # parses the source and never builds it, so it finishes in seconds on a bare runner and stays cheap
-# enough to run on every push. If you do want tests in CI later, add a separate job rather than
-# weighing this one down, and note that `cargo test -p innertube -p player` covers the pure-Rust
-# crates without any of that system setup.
+# enough to run on every push. The tests live in the `test` job below for exactly that reason.
+# Note for anyone trimming that job: `crates/player` depends on libmpv2, so it is NOT free of the
+# system setup. `-p innertube -p listen-protocol` is the subset that builds on a bare runner.
 
 on:
   push:
@@ -51,3 +51,88 @@ jobs:
           echo "rustfmt.toml at the repo root matches the existing style, so this should only"
           echo "touch code you actually changed. If it wants to reformat files you never opened,"
           echo "please open an issue instead of committing the churn."
+
+  # The UI half of the gate. `svelte-check` is already a devDependency and `ui/package.json`
+  # already defines the script, it simply had no caller. Cheap: no Rust, no system libraries.
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm 10 because `ui/package.json` has no `packageManager` field to pin it. If one is ever
+      # added, this must match it or action-setup fails on the mismatch.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      # Node 22 is what the maintainers run locally, and `--experimental-strip-types` (which the
+      # self-checks below rely on) needs 22.6 or later.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      # --frozen-lockfile: a PR whose package.json and lockfile disagree fails here instead of
+      # quietly resolving something nobody reviewed.
+      - name: Install
+        working-directory: ui
+        run: pnpm install --frozen-lockfile
+
+      - name: svelte-check
+        working-directory: ui
+        run: pnpm check
+
+      # The hand-written invariant checks in `ui/src/lib/*.check.ts` (queue order, drag and drop,
+      # colour maths, link parsing and so on). `run-checks.mjs` finds them by glob, so a new one is
+      # picked up without touching this file.
+      - name: UI self-checks
+        working-directory: ui
+        run: pnpm test
+
+  # The Rust half. `limusic-app` links libmpv and webkit2gtk, so this job pays for an apt install
+  # and a cold compile that the rustfmt job deliberately avoids. That is why it is a separate job:
+  # rustfmt still answers in seconds while this one runs.
+  #
+  # `cargo test --all` and not a pure-Rust subset: `crates/player` depends on libmpv2, so it
+  # needs the same system libraries `limusic-app` does. The subset that builds bare is
+  # `-p innertube -p listen-protocol`, which is not worth a second job.
+  #
+  # This is also the only place `macos_window_config_mirrors_the_base_window` runs. Nobody here
+  # can build for macOS, so that test is the one guard on the macOS window config.
+  test:
+    # Pinned rather than ubuntu-latest, matching linux-release.yml, so a runner image bump cannot
+    # change the system libraries under this gate without a visible diff.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # dtolnay installs the minimal profile, which has no clippy. Ask for it explicitly.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # Caches ~/.cargo and target/ keyed on Cargo.lock, which is most of this job's cold time.
+      - uses: Swatinem/rust-cache@v2
+
+      # The build half of linux-release.yml's list. The gstreamer and jack packages there exist for
+      # the AppImage bundle, and patchelf/file/mold for bundling and linking speed; none of them is
+      # needed to compile and run the tests.
+      - name: Build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
+            libssl-dev libdbus-1-dev libmpv-dev
+
+      # Offline only. The live YouTube smoke test and the lyrics API tests are #[ignore]d and stay
+      # out of CI: they would fail on YouTube's schedule, not on the change under review.
+      - name: cargo test --all
+        run: cargo test --all
+
+      # Reporting only for now: the tree has 13 pre-existing warnings, and turning them into errors
+      # in the same change that introduces the gate would block every pull request on unrelated
+      # cleanup. Flip to `-- -D warnings` once the backlog is cleared.
+      - name: cargo clippy
+        run: cargo clippy --all-targets
+        continue-on-error: true
