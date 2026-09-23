@@ -345,6 +345,11 @@ impl Player {
         // in progress too: a skip during the last seconds of a track should not leave the old one
         // still fading under the new one.
         self.drop_preload(true);
+        // A paused outgoing file can blip if play() unpauses it before `loadfile replace` takes
+        // effect. Stop it first; leave playing-track changes alone.
+        if self.mpv().get_property::<bool>("pause").unwrap_or(false) {
+            self.mpv().command("stop", &[])?;
+        }
         self.apply_headers(headers)?;
         self.set_gain(gain_db)?;
         let args = loadfile_args(url, start);
