@@ -383,6 +383,7 @@
 			"autoplay_hint": "Continuously play recommended tracks when the queue finishes.",
 			"crossfade": "Crossfade",
 			"crossfade_hint": "Fade the end of each track into the start of the next one. Runs a second audio decoder while tracks overlap, so it uses a little more memory.",
+			"crossfade_lt_paused": "Paused while you are in a Listen Together room: an overlap of two tracks cannot be kept in sync with everyone else.",
 			"crossfade_duration": "Crossfade duration",
 			"crossfade_duration_hint": "How long the overlap lasts. Short tracks fade for less, so a fade never starts before the one before it has finished.",
 			"crossfade_seconds": "{secs}s",

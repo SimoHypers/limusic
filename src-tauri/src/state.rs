@@ -2833,9 +2833,18 @@ impl AppState {
     /// host seeding. See `crate::listentogether`.
     pub async fn apply_sync(self: &std::sync::Arc<Self>, cmd: SyncCommand) {
         match cmd {
-            SyncCommand::HostSeed => self.lt_host_seed().await,
-            SyncCommand::Release => {} // role already flipped; nothing to undo
-            SyncCommand::ApplyState(state) => self.lt_apply_state(state).await,
+            SyncCommand::HostSeed => {
+                self.apply_crossfade().await;
+                self.lt_host_seed().await
+            }
+            // Role already flipped; nothing to undo. Not always a *leave*: a promotion to host
+            // sends one too, which is why `apply_crossfade` re-reads the role instead of
+            // assuming this means the room is over.
+            SyncCommand::Release => self.apply_crossfade().await,
+            SyncCommand::ApplyState(state) => {
+                self.apply_crossfade().await;
+                self.lt_apply_state(state).await
+            }
             SyncCommand::ChangeTrack { track, position_ms, playing, queue } => {
                 self.lt_apply_change_track(track, position_ms, playing, queue).await
             }
@@ -3000,6 +3009,23 @@ impl AppState {
         p.playing = playing;
         p.queue = Some(queue);
         self.lt.broadcast_playback(p).await;
+    }
+
+    /// Put the user's crossfade setting on the player, unless we are in a Listen Together room.
+    ///
+    /// Crossfading is two decks overlapping; the sync protocol carries one track and one position,
+    /// so there is no way to tell a guest that a transition is under way. A host who fades sends
+    /// its `ChangeTrack` when the *overlap* starts (`crates/player`'s `start_crossfade`), which is
+    /// up to ten seconds before that track stops being audible here, so everyone else's song
+    /// changes while the host is still hearing the last one. Suspend it for the length of the room
+    /// and put the setting back on the way out; nothing in the database is touched.
+    ///
+    /// Every writer of the player's crossfade routes through here (startup is the exception: no
+    /// room can exist yet), or turning the setting on from Settings mid-room would put the fade
+    /// straight back. Per `Player::set_crossfade`, this takes effect from the next transition.
+    pub async fn apply_crossfade(&self) {
+        let secs = if self.lt.in_room().await { None } else { saved_crossfade(&self.db) };
+        self.player.set_crossfade(secs);
     }
 
     /// Host: seed a freshly-created room with whatever we're currently playing.

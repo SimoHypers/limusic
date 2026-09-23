@@ -28,6 +28,7 @@
 	import * as api from '$lib/api';
 	import { blocked, prefs, refreshView, ui, toast, unblockArtist } from '$lib/player.svelte';
 	import { win } from '$lib/win.svelte';
+	import { lt } from '$lib/lt.svelte';
 	import ColorPicker from '$lib/components/ColorPicker.svelte';
 	import Changelog from '$lib/components/Changelog.svelte';
 	import DiscordSettings from '$lib/components/DiscordSettings.svelte';
@@ -302,6 +303,10 @@
 	const normalizeOn = $derived(settings.normalize_volume !== 'false');
 	// Off by default: experimental, and it runs a second decoder while tracks overlap.
 	const crossfadeOn = $derived(settings.crossfade === 'true');
+	// A room carries one track and one position, so an overlap cannot be synced: the backend
+	// suspends the fade for as long as we are in one (`AppState::apply_crossfade`). Say so here,
+	// or it reads as crossfade quietly breaking.
+	const crossfadeSuspended = $derived(lt.role !== 'none');
 	// Clamped like the player clamps it (`set_crossfade`), so a stored value from anywhere but this
 	// slider cannot show a number the audio will not use.
 	const crossfadeSecs = $derived.by(() => {
@@ -750,7 +755,9 @@
 								{@render row({
 									title: t('settings.playback.crossfade'),
 									badge: t('settings.themes.experimental'),
-									desc: t('settings.playback.crossfade_hint'),
+									desc: crossfadeSuspended
+										? t('settings.playback.crossfade_lt_paused')
+										: t('settings.playback.crossfade_hint'),
 									control: crossfadeSwitch,
 									tall: true
 								})}

@@ -187,6 +187,11 @@ impl LtSession {
         self.emit_state().await;
     }
 
+    /// True when we're in a room in any role.
+    pub async fn in_room(&self) -> bool {
+        self.inner.lock().await.role != Role::None
+    }
+
     /// True when we're a guest in a room — the caller should block local playback control.
     pub async fn is_guest(&self) -> bool {
         self.inner.lock().await.role == Role::Guest

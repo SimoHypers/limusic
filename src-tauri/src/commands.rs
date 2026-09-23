@@ -324,7 +324,7 @@ pub async fn set_setting(
     // Both halves are one player setting. Applies from the next track change: the transition the
     // user is already hearing keeps the length it started with.
     if key == "crossfade" || key == "crossfade_secs" {
-        state.player.set_crossfade(crate::state::saved_crossfade(&state.db));
+        state.apply_crossfade().await;
     }
     // The language YouTube answers in (#274). The SPA writes it whenever the two disagree, which is
     // also how a fresh install's language gets here at all. It drops its own browse cache and

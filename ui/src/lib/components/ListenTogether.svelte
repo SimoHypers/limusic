@@ -172,7 +172,7 @@
 
 		{#if waiting}
 			<!-- Asked to join / creating — waiting on the room. -->
-			<div class="flex flex-col items-center gap-4 py-12">
+			<div class="flex min-w-0 flex-col items-center gap-4 py-12">
 				<div class="h-9 w-9 animate-spin rounded-full border-2 border-muted border-t-primary"></div>
 				<p class="text-center text-sm text-muted-foreground">
 					{lt.status === 'connecting'
@@ -183,7 +183,7 @@
 			</div>
 		{:else if !inRoom}
 			<!-- Setup: join with a code, or open a room of your own. -->
-			<div class="flex flex-col gap-5 pt-5">
+			<div class="flex min-w-0 flex-col gap-5 pt-5">
 				<div class="flex rounded-full bg-muted p-1 text-sm">
 					<button
 						class="flex-1 cursor-pointer rounded-full py-1.5 font-medium transition-colors {mode ===
@@ -295,7 +295,7 @@
 			</div>
 		{:else}
 			<!-- In a room. -->
-			<div class="flex flex-col gap-4 pt-5">
+			<div class="flex min-w-0 flex-col gap-4 pt-5">
 				<!-- The invite, which is the only thing a host has to act on. -->
 				<div class="rounded-2xl border bg-muted/40 p-4 text-center">
 					<div
@@ -356,7 +356,7 @@
 				{/if}
 
 				<!-- Everything that grows with the room scrolls; the invite and the footer do not. -->
-				<div class="-mx-1 flex max-h-[38vh] flex-col gap-5 overflow-y-auto px-1">
+				<div class="-mx-1 flex min-w-0 max-h-[38vh] flex-col gap-5 overflow-y-auto px-1">
 					<!-- Host: pending join requests -->
 					{#if isHost && lt.pendingJoins.length}
 						<div>
