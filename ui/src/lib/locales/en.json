@@ -463,6 +463,7 @@
 			"update_check_failed": "Update check failed: {error}",
 			"update_packaged": "This build was installed with a package manager, update it the same way.",
 			"update_available": "Version {version} is available!",
+			"rollback_available": "This version is being rolled back to {version}, the last known-good release.",
 			"install_update": "Install and Restart",
 			"download_page": "Open download page",
 			"changelog": "Changelog & Release Notes",

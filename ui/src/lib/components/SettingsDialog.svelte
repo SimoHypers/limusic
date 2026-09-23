@@ -57,6 +57,7 @@
 	} from '$lib/theme.svelte';
 	import {
 		updateState,
+		availableMessage,
 		checkForUpdatesInteractive,
 		installUpdate,
 		openDownloadPage
@@ -907,9 +908,9 @@
 								{@render row({
 									title: t('settings.about.check_updates'),
 									desc: updateState.available && !updateState.canInstall
-										? `${t('settings.about.update_available', { version: updateState.available.version })} ${t('settings.about.update_packaged')}`
+										? `${availableMessage(updateState.available)} ${t('settings.about.update_packaged')}`
 										: updateState.available
-											? t('settings.about.update_available', { version: updateState.available.version })
+											? availableMessage(updateState.available)
 											: t('settings.about.up_to_date'),
 									control: updateButton,
 									below: updateResult && !updateState.available ? updateAlert : undefined

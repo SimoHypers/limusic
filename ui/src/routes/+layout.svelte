@@ -51,6 +51,7 @@
 	import { initErrorLog } from '$lib/errlog';
 	import {
 		updateState,
+		availableMessage,
 		installUpdate,
 		openDownloadPage,
 		checkForUpdatesQuiet,
@@ -228,7 +229,7 @@
 			transition:fly={{ y: 16, duration: 220, easing: cubicOut }}
 			class="fixed bottom-24 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-3 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
 		>
-			<span>{t('settings.about.update_available', { version: updateState.available.version })}</span>
+			<span>{availableMessage(updateState.available)}</span>
 			{#if updateState.canInstall}
 				<Button size="sm" onclick={installUpdate} disabled={updateState.installing}>
 					{updateState.installing ? t('common.loading') : t('settings.about.install_update')}
