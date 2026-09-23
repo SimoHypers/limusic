@@ -528,3 +528,36 @@ jobs:
             [ "$attempt" -lt 5 ] || { echo "::error::darwin-aarch64 kept getting clobbered out of latest.json"; exit 1; }
             echo "another job clobbered the manifest, re-merging"
           done
+
+          # Promote to "Latest" only once every platform is in the manifest.
+          #
+          # The updater resolves through /releases/latest/download/latest.json, so whatever is
+          # Latest is what every installed client reads. This block runs identically at the end of
+          # all three release workflows, and only the leg that finds all three keys present flips
+          # the flag. Which leg that is depends on who finishes last, and it does not matter.
+          #
+          # Linux used to own this flip and checked only for its own key, which promoted incomplete
+          # manifests two ways: for a few minutes while Windows or macOS was still building, since
+          # Linux usually finishes first, and for good when one of them failed outright. v0.6.6 was
+          # the second: the macOS leg failed, Linux marked the release Latest anyway, and every
+          # Mac's update check read a manifest with no darwin-aarch64 entry.
+          #
+          # If a leg never finishes, nothing flips: /releases/latest/download/latest.json keeps
+          # resolving to the previous, complete release until someone re-dispatches the failed
+          # workflow. That is deliberate. It holds back the platforms that did build (v0.7.3's Linux
+          # stall looked exactly like this, and still would), but no installed client ever reads a
+          # manifest with no entry for its platform, and the release sitting un-Latest is visible.
+          #
+          # Duplicated verbatim in linux-release.yml, windows-release.yml and macos-release.yml on
+          # purpose: a dispatched run takes the workflow from master but checks out the tag, so a
+          # shared script or composite action would come from the tag and a re-dispatch against an
+          # older one would not pick this up. Keep the three copies byte-identical.
+          REQUIRED_PLATFORMS='["darwin-aarch64","linux-x86_64","windows-x86_64"]'
+          retry 3 fetch_manifest final
+          HAVE="$(jq -c '.platforms | keys' final/latest.json)"
+          if [ "$HAVE" = "$REQUIRED_PLATFORMS" ]; then
+            retry 3 gh release edit "$TAG" --latest --repo "$GITHUB_REPOSITORY"
+            echo "All three platforms present, marked $TAG as Latest: $HAVE"
+          else
+            echo "::notice::not flipping Latest yet, latest.json carries $HAVE and needs $REQUIRED_PLATFORMS"
+          fi
