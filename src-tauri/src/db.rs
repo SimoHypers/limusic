@@ -74,6 +74,53 @@ pub struct CachedStream {
 }
 
 impl Db {
+    /// [`Db::open`], but a database that cannot be opened is moved aside and a fresh one is
+    /// created in its place.
+    ///
+    /// The file holds a cache plus a little UI state (queue, settings, play counts). Losing it
+    /// costs the user their resume position and their On Repeat history. Failing to open it costs
+    /// them the whole app: `open` is called from Tauri's `setup`, before any window exists, so a
+    /// hard failure there is a process that starts and vanishes with nothing on screen. Between
+    /// those two, starting is worth more.
+    ///
+    /// The bad file is kept, never deleted, so a user who cares can be walked through recovering
+    /// rows from it. The name carries a timestamp so a repeated failure does not overwrite the
+    /// first (and most likely useful) copy.
+    ///
+    /// Returns the error from the *second* attempt if even a fresh file will not open, because at
+    /// that point the problem is the directory or the disk, not the data.
+    pub fn open_or_quarantine(
+        path: &std::path::Path,
+    ) -> rusqlite::Result<(Self, Option<std::path::PathBuf>)> {
+        match Self::open(path) {
+            Ok(db) => Ok((db, None)),
+            Err(first) => {
+                let stamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let aside = path.with_extension(format!("corrupt-{stamp}.sqlite"));
+                tracing::error!(
+                    "cannot open {}: {first}. Moving it to {}",
+                    path.display(),
+                    aside.display()
+                );
+                // WAL leaves -wal and -shm beside the database. Move them too, or the fresh file
+                // inherits a journal that does not belong to it. Suffixed on the OsStr, not via
+                // `display()`, which is lossy on a non-UTF-8 path and would rename nothing.
+                for suffix in ["", "-wal", "-shm"] {
+                    let with = |p: &std::path::Path| {
+                        let mut s = p.as_os_str().to_owned();
+                        s.push(suffix);
+                        std::path::PathBuf::from(s)
+                    };
+                    let _ = std::fs::rename(with(path), with(&aside));
+                }
+                Self::open(path).map(|db| (db, Some(aside)))
+            }
+        }
+    }
+
     pub fn open(path: &std::path::Path) -> rusqlite::Result<Self> {
         let conn = Connection::open(path)?;
         // This file is a cache plus a little UI state, and it is written on every volume nudge,
@@ -1258,6 +1305,72 @@ mod tests {
             );
         }
         std::fs::remove_file(&path).ok();
+    }
+
+    /// A fresh directory per test: these run in parallel and each one moves files around.
+    fn qtest_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("limusic-qtest-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn open_or_quarantine_moves_a_corrupt_file_aside() {
+        let dir = qtest_dir("corrupt");
+        let path = dir.join("limusic.sqlite");
+        std::fs::write(&path, b"this is not a sqlite file").unwrap();
+        {
+            let (d, aside) = Db::open_or_quarantine(&path).unwrap();
+            let aside = aside.expect("a corrupt file is moved aside");
+            assert_eq!(std::fs::read(&aside).unwrap(), b"this is not a sqlite file");
+            d.set_setting("k", "v");
+        }
+        let d = Db::open(&path).unwrap();
+        assert_eq!(d.get_setting("k").as_deref(), Some("v"), "the fresh file is a working db");
+        drop(d);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The recovery path must never fire on a healthy database: it would hand the user an empty
+    /// library for nothing.
+    #[test]
+    fn open_or_quarantine_leaves_a_healthy_file_alone() {
+        let dir = qtest_dir("healthy");
+        let path = dir.join("limusic.sqlite");
+        Db::open(&path).unwrap().set_setting("k", "v");
+        let (d, aside) = Db::open_or_quarantine(&path).unwrap();
+        assert_eq!(aside, None);
+        assert_eq!(d.get_setting("k").as_deref(), Some("v"));
+        let moved = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .any(|e| e.file_name().to_string_lossy().contains("corrupt"));
+        assert!(!moved, "nothing was moved aside");
+        drop(d);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// SQLite deletes stray -wal/-shm files itself while failing to open a corrupt main file, so
+    /// they are usually gone before the rename loop runs; the loop covers a file SQLite could not
+    /// open at all. Either way, the outcome that matters is that the fresh file does not inherit
+    /// them.
+    #[test]
+    fn open_or_quarantine_drops_the_stale_wal_sidecars() {
+        let dir = qtest_dir("sidecars");
+        let path = dir.join("limusic.sqlite");
+        std::fs::write(&path, b"this is not a sqlite file").unwrap();
+        std::fs::write(dir.join("limusic.sqlite-wal"), b"stale wal").unwrap();
+        std::fs::write(dir.join("limusic.sqlite-shm"), b"stale shm").unwrap();
+        let (d, aside) = Db::open_or_quarantine(&path).unwrap();
+        assert!(aside.is_some_and(|a| a.exists()), "the corrupt file is moved aside");
+        for suffix in ["-wal", "-shm"] {
+            let now =
+                std::fs::read(dir.join(format!("limusic.sqlite{suffix}"))).unwrap_or_default();
+            assert!(!now.starts_with(b"stale"), "the fresh db inherited the old {suffix}");
+        }
+        drop(d);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

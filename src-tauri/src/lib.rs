@@ -200,6 +200,25 @@ fn raise_fd_limit() {
     }
 }
 
+/// Log a startup failure and stop, instead of panicking.
+///
+/// Everything this is called for happens inside Tauri's `setup`, before any window exists.
+/// `main.rs` sets `windows_subsystem = "windows"` in release, so a panic here writes to a stderr
+/// that is not connected to anything: the user sees a process start and disappear, with no window,
+/// no console and no log line. `init_logging` has already run by the time any caller gets here, so
+/// this reaches limusic.log (the writer is unbuffered, so the line lands before the exit).
+///
+/// There is deliberately no dialog, although the dialog plugin is registered. `setup` runs on the
+/// main thread inside the event loop's `Ready` handler, and the plugin shows a message box by
+/// posting a task to that same thread. Blocking on it from here (directly, or by joining a thread
+/// that does) waits on a task that can never run, so the process hangs instead of exiting, and a
+/// hung instance keeps the single-instance name: every later launch hands off to it and silently
+/// does nothing. A dialog needs a path that does not go through the event loop.
+fn fatal(what: &str, detail: &str) -> ! {
+    tracing::error!("fatal at startup: {what}: {detail}");
+    std::process::exit(1)
+}
+
 /// Tauri entry point. Applies the platform boot fixes (open-fd limit, NVIDIA/WebKit env), restores
 /// the persisted session, wires every command and plugin, and runs the event loop. context/01
 /// §startup.
@@ -331,7 +350,22 @@ pub fn run() {
 
             // Shared: the PoToken generator persists its session token through the same file,
             // and it is built before AppState takes ownership of everything else.
-            let db = Arc::new(Db::open(&data_dir.join("limusic.sqlite")).expect("open sqlite"));
+            let (db, quarantined) = match Db::open_or_quarantine(&data_dir.join("limusic.sqlite")) {
+                Ok(v) => v,
+                Err(e) => fatal(
+                    "Limusic could not open or create its database",
+                    &format!("{}: {e}", data_dir.display()),
+                ),
+            };
+            // Log only: nothing tells the UI yet, so to the user this is an empty library. A
+            // notice needs a startup-event path to the SPA, and there is none to reuse.
+            if let Some(aside) = &quarantined {
+                tracing::warn!(
+                    "started with a fresh database; the previous one is at {}",
+                    aside.display()
+                );
+            }
+            let db = Arc::new(db);
 
             // Session bootstrap (context/15 startup ordering): load the persisted login session
             // (cookie/dataSyncId/visitorData) from settings; fetch visitorData anonymously
@@ -369,7 +403,10 @@ pub fn run() {
 
             let visitor_for_prewarm = visitor_data.clone();
             let session = Session { locale: Locale::default(), visitor_data, data_sync_id, cookie };
-            let it = InnerTube::new(session, proxy.as_deref()).expect("build InnerTube");
+            let it = match InnerTube::new(session, proxy.as_deref()) {
+                Ok(it) => it,
+                Err(e) => fatal("Limusic could not start its network client", &e.to_string()),
+            };
             // Shelf titles, mood chips and playlist subtitles are YouTube's text, so the UI's
             // language has to go out with the request (#274). Persisted rather than pushed from the
             // SPA at startup, because the first home fetch is already in flight by the time the
@@ -385,7 +422,16 @@ pub fn run() {
             it.set_blocked(blocked::block_list(&db));
             let clients = Clients::bundled();
 
-            let mut player = Player::new(cache_dir.to_str().unwrap()).expect("init libmpv");
+            let mut player = match Player::new(&cache_dir.to_string_lossy()) {
+                Ok(p) => p,
+                Err(e) => fatal(
+                    "Limusic could not load libmpv, which it uses to play audio",
+                    &format!(
+                        "{e}. On Linux, install your distribution's mpv library \
+                         (Fedora: mpv-libs, Debian/Ubuntu: libmpv2)."
+                    ),
+                ),
+            };
             // The audio bytes are the one request that never went through the proxy setting (#241).
             if let Err(e) = player.set_http_proxy(proxy.as_deref()) {
                 tracing::warn!("mpv refused the proxy setting: {e}");
@@ -399,7 +445,13 @@ pub fn run() {
                 hotkeys::LAST_NONZERO_VOLUME.store(volume, std::sync::atomic::Ordering::Relaxed);
             }
             player.set_crossfade(state::saved_crossfade(&db));
-            let events = player.take_events().expect("player events");
+            let events = match player.take_events() {
+                Some(ev) => ev,
+                None => fatal(
+                    "Limusic could not start its audio event loop",
+                    "the player's event channel was already taken, which is a bug",
+                ),
+            };
 
             // Phase 2 extraction stack: cipher + PoToken hidden webviews behind the orchestrator.
             let config = Arc::new(PlayerConfigStore::new(&data_dir));
