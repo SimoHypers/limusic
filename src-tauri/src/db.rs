@@ -87,13 +87,24 @@ impl Db {
     /// rows from it. The name carries a timestamp so a repeated failure does not overwrite the
     /// first (and most likely useful) copy.
     ///
+    /// Only SQLite's own verdict that the file is damaged (`NotADatabase`, `DatabaseCorrupt`) moves
+    /// it. Anything else (locked, permissions, a missing directory) says nothing about the data,
+    /// and moving a healthy library aside for it would hand the user an empty one for nothing, so
+    /// that error is returned as is.
+    ///
     /// Returns the error from the *second* attempt if even a fresh file will not open, because at
     /// that point the problem is the directory or the disk, not the data.
     pub fn open_or_quarantine(
         path: &std::path::Path,
     ) -> rusqlite::Result<(Self, Option<std::path::PathBuf>)> {
+        use rusqlite::ErrorCode::{DatabaseCorrupt, NotADatabase};
         match Self::open(path) {
             Ok(db) => Ok((db, None)),
+            Err(first)
+                if !matches!(first.sqlite_error_code(), Some(NotADatabase | DatabaseCorrupt)) =>
+            {
+                Err(first)
+            }
             Err(first) => {
                 let stamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -1351,10 +1362,22 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// Moving a healthy library aside because it could not be *opened* (locked, permissions) would
+    /// cost the user everything for nothing. A directory at the path is a portable stand-in for
+    /// "cannot open, but not corrupt".
+    #[test]
+    fn open_or_quarantine_leaves_an_unopenable_path_alone() {
+        let dir = qtest_dir("unopenable");
+        let path = dir.join("limusic.sqlite");
+        std::fs::create_dir(&path).unwrap();
+        assert!(Db::open_or_quarantine(&path).is_err());
+        assert!(path.is_dir(), "nothing was moved aside");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     /// SQLite deletes stray -wal/-shm files itself while failing to open a corrupt main file, so
-    /// they are usually gone before the rename loop runs; the loop covers a file SQLite could not
-    /// open at all. Either way, the outcome that matters is that the fresh file does not inherit
-    /// them.
+    /// they are usually gone before the rename loop runs; the loop is a backstop for any it
+    /// leaves. Either way, the outcome that matters is that the fresh file does not inherit them.
     #[test]
     fn open_or_quarantine_drops_the_stale_wal_sidecars() {
         let dir = qtest_dir("sidecars");
