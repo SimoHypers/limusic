@@ -55,7 +55,10 @@
 
 	// An invite bundles the server + code so a guest only pastes one thing: `<code>@<host>`.
 	// `wss://` and the `/ws` path are implied, so the usual invite stays short and typable.
+	// An empty server is the built-in default, which the backend fills in, so that invite is the
+	// bare code: a host on the default never shares a hostname, and a guest never types one.
 	function makeInvite(server: string, code: string): string {
+		if (!server) return code;
 		return code + '@' + server.replace(/^wss:\/\//, '').replace(/\/ws$/, '');
 	}
 	function parseInvite(raw: string): { server: string; code: string } | null {
@@ -80,8 +83,9 @@
 
 	async function host() {
 		if (!name.trim()) return toast.error(t('dialogs.listen_together.err_enter_name'));
+		// Empty is legal and means the default server; clearing the field is how a self-hoster
+		// goes back to it.
 		const u = serverUrl.trim();
-		if (!u) return toast.error(t('dialogs.listen_together.err_enter_server'));
 		busy = true;
 		try {
 			if (u !== lt.serverUrl) await api.ltSetServerUrl(u);
@@ -98,7 +102,6 @@
 		const parsed = parseInvite(inviteInput);
 		if (!parsed || !parsed.code) return toast.error(t('dialogs.listen_together.err_paste_code'));
 		const server = parsed.server || lt.serverUrl;
-		if (!server) return toast.error(t('dialogs.listen_together.err_paste_full_invite'));
 		busy = true;
 		try {
 			if (server !== lt.serverUrl) await api.ltSetServerUrl(server);

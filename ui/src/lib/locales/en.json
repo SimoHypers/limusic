@@ -601,13 +601,13 @@
 			"host_tab": "Host",
 			"invite_code": "Invite code",
 			"invite_placeholder": "Paste the invite your friend sent",
-			"invite_hint": "The invite carries the server address, nothing else to set up.",
+			"invite_hint": "The invite has everything needed, nothing else to set up.",
 			"your_name": "Your name",
 			"your_name_placeholder": "Your name",
 			"join_button": "Join session",
-			"sync_server": "Sync server",
-			"sync_server_placeholder": "wss://your-machine.ts.net/ws",
-			"sync_server_hint": "Your self-hosted server (e.g. the Tailscale Funnel URL). Saved for next time.",
+			"sync_server": "Sync server (optional)",
+			"sync_server_placeholder": "Leave empty for the default server",
+			"sync_server_hint": "Only fill this in if you run your own sync server. Saved for next time; clear it to go back to the default.",
 			"start_button": "Start a session",
 			"hosting": "Hosting",
 			"listening": "Listening",
@@ -629,9 +629,7 @@
 			"status_connected": "Connected",
 			"status_disconnected": "Disconnected",
 			"err_enter_name": "Enter a name first",
-			"err_enter_server": "Enter your sync server URL",
-			"err_paste_code": "Paste the invite code your friend sent",
-			"err_paste_full_invite": "Paste the full invite from the host, it carries the server address"
+			"err_paste_code": "Paste the invite code your friend sent"
 		}
 	},
 	"integrations": {

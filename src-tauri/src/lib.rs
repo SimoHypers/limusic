@@ -420,10 +420,9 @@ pub fn run() {
 
             // Listen Together session (context/19). Server URL is a DB setting so "home PC → VPS" is
             // config, not a rebuild. The sync channel feeds the guest-playback bridge below.
-            let lt_url = db
-                .get_setting("lt_server_url")
-                .filter(|u| !u.is_empty())
-                .unwrap_or_else(|| "wss://fedora-1.tail9c4985.ts.net/ws".into());
+            // Empty means the built-in default, which `LtSession` resolves when it connects. The
+            // URL does not live here so that nothing ever has to hand it to the UI.
+            let lt_url = db.get_setting("lt_server_url").unwrap_or_default();
             let (lt, lt_sync_rx) = listentogether::LtSession::new(handle.clone(), lt_url);
 
             let app_state = Arc::new(AppState::new(
