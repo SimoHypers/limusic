@@ -43,15 +43,46 @@ export function initZoom() {
 		else if (e.key === '=' || e.key === '+') step(1);
 		else if (e.key === '0') setZoom(1);
 	};
+	// The zoom wheel handler has to be non-passive, because `preventDefault` is what stops the
+	// webview doing its own ctrl+wheel zoom on top of ours. A non-passive `wheel` listener on the
+	// window tells Chromium (so WebView2, so Windows) that *any* wheel event might be cancelled,
+	// which takes every scroll in the app off the compositor thread and makes it wait for the main
+	// thread first. So it is bound only while a zoom gesture is actually in flight.
+	let bound = false;
+	const bindWheel = (on: boolean) => {
+		if (on === bound) return;
+		bound = on;
+		if (on) window.addEventListener('wheel', onWheel, { passive: false });
+		else window.removeEventListener('wheel', onWheel);
+	};
 	const onWheel = (e: WheelEvent) => {
-		if (!e.ctrlKey) return;
+		// Ctrl came up mid-gesture: unbind here rather than waiting for the keyup, so an ordinary
+		// scroll continued from the same gesture is back on the compositor immediately.
+		if (!e.ctrlKey) return bindWheel(false);
 		e.preventDefault();
 		step(e.deltaY < 0 ? 1 : -1);
 	};
+	// `e.ctrlKey`, not `e.key === 'Control'`: Ctrl can already be held when the window takes focus,
+	// and then the first key event we see is some other key.
+	const track = (e: KeyboardEvent) => bindWheel(e.ctrlKey);
+	const release = () => bindWheel(false);
+	// A macOS trackpad pinch arrives as ctrl+wheel with no key event at all, so arm off the wheel as
+	// well. Passive, so this one costs the compositor nothing; it means a pinch loses its first
+	// notch and zooms from the second.
+	const arm = (e: WheelEvent) => {
+		if (e.ctrlKey) bindWheel(true);
+	};
 	window.addEventListener('keydown', onKey);
-	window.addEventListener('wheel', onWheel, { passive: false });
+	window.addEventListener('keydown', track);
+	window.addEventListener('keyup', track);
+	window.addEventListener('blur', release);
+	window.addEventListener('wheel', arm, { passive: true });
 	return () => {
 		window.removeEventListener('keydown', onKey);
-		window.removeEventListener('wheel', onWheel);
+		window.removeEventListener('keydown', track);
+		window.removeEventListener('keyup', track);
+		window.removeEventListener('blur', release);
+		window.removeEventListener('wheel', arm);
+		bindWheel(false);
 	};
 }

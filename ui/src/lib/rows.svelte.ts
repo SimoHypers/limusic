@@ -6,10 +6,12 @@ import { ROW_PX } from './rows';
  * Watch a scrolling container: its scroll position, its height, and how tall one row actually is.
  *
  * Row height is measured rather than assumed, which `ROW_PX` alone got wrong. The same `TrackRow`
- * is 56px on a playlist page and 72px in the 320px-wide queue panel, and worse, `content-visibility`
- * makes a row report its `contain-intrinsic-size` (3.5rem) while it is skipped and its real height
- * once it has been rendered. Reserving 56px for rows that draw at 72px made the scroll height move
- * as you scrolled, which is exactly the thing that makes a windowed list feel broken.
+ * is 56px on a playlist page and 72px in the 320px-wide queue panel. It used to vary within one
+ * list as well, because `content-visibility` makes a row report its `contain-intrinsic-size`
+ * (3.5rem) while it is skipped and its real height once it has been rendered; reserving 56px for
+ * rows that draw at 72px made the scroll height move as you scrolled, which is exactly the thing
+ * that makes a windowed list feel broken. Neither list that windows asks for `content-visibility`
+ * any more (`TrackRow`'s `lazy`), so that half is gone, but the per-list difference remains.
  *
  * Rows opt in with `data-row`, so this measures a row and not whatever markup happens to be first.
  *

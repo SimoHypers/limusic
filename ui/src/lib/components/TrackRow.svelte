@@ -37,7 +37,8 @@
 		queueIndex,
 		inLibraryList = false,
 		selection,
-		selectionKey
+		selectionKey,
+		lazy = false
 	}: {
 		song: SongItem;
 		/** Position badge when set (playlist/queue); omitted for flat search results. */
@@ -77,6 +78,13 @@
 		/** Optional list-owned selection; the key identifies this occurrence, not the song. */
 		selection?: TrackSelection;
 		selectionKey?: string;
+		/**
+		 * For a list that mounts every row it has and grows without bound (Library ▸ Songs, Local
+		 * music, History, all three paginated by an IntersectionObserver): lets the browser skip the
+		 * rows that are off screen. Off by default because it is not free — see the comment on the
+		 * row below.
+		 */
+		lazy?: boolean;
 	} = $props();
 	const selectionDescriptionId = $props.id();
 
@@ -153,7 +161,7 @@
      reactive ternary, which is the only way HugeiconsIcon takes it (it freezes at mount). -->
 {#snippet rateButton(icon: IconSvgElement, want: 'like' | 'dislike', label: string)}
 	<button
-		class="cursor-pointer rounded-md p-1.5 text-muted-foreground transition hover:bg-accent/20 hover:text-foreground"
+		class="cursor-pointer rounded-md p-1.5 text-muted-foreground hover:bg-accent/20 hover:text-foreground"
 		aria-label={rated === want ? t('player.remove_rating') : label}
 		aria-pressed={rated === want}
 		onclick={(e) => {
@@ -171,11 +179,25 @@
 	</button>
 {/snippet}
 
-<!-- content-visibility: a liked-songs playlist runs to thousands of rows and WebKit keeps every one
-     in style, layout and paint. 3.5rem is a row (8px padding, 40px thumbnail, 8px); `auto` swaps in
-     the measured size after first paint. Not on the compact variant: that one is laid out in CSS
-     columns (ForgottenFavourites), where an unsized fragment would upset column balancing, and it
-     never has more than 15 rows to skip. -->
+<!-- content-visibility, and only where `lazy` asks for it: a liked-songs list runs to thousands of
+     rows and the browser keeps every one in style, layout and paint. 3.5rem is a row (8px padding,
+     40px thumbnail, 8px); `auto` swaps in the measured size after first paint.
+
+     It is not the free win it looks like, which is why it is opt-in now (issue #311). A row locking
+     or unlocking changes the paint artifact, so on a list where rows cross the boundary on every
+     frame the browser re-composites the whole region rather than sliding a layer. Measured in
+     Chromium at 6x CPU throttling (`ui/perf/scroll.mjs`), frames over 20 ms across a wheel gesture:
+     the queue panel pays 28% for it and 7% without, while Library ▸ Songs at 400 rows pays 8% with
+     it and 29% without. The queue and the playlist page window their rows themselves
+     (`rows.svelte.ts`), so they have nothing left for it to skip; the three paginated lists do.
+
+     No `transition-colors`, and the hover-only controls below hide with `invisible`, not `opacity-0`
+     (issue #311). Scrolling drags the whole list under a stationary pointer, so every row that goes
+     past takes :hover and drops it again — with a transition that is a 150 ms repaint per row with
+     several always in flight, and `opacity` below 1 puts an effect node in the paint property tree
+     for every row, which Chromium re-walks on every frame it composites. Measured in Chromium at 4x
+     CPU throttling (`ui/perf/scroll.mjs`), frames over 20 ms across a wheel gesture: queue panel
+     50% -> 6%, Library > Songs 14% -> 1%. Hover still lands, it just lands at once. -->
 <div
 	role="button"
 	tabindex="0"
@@ -186,11 +208,11 @@
 	data-selected={selectable ? selected : undefined}
 	aria-describedby={selectable ? selectionDescriptionId : undefined}
 	aria-label={selectable ? t(guestAdd ? 'selection.track_guest' : 'selection.track', { title: song.title }) : guestAdd ? `Add ${song.title} to the session queue` : `Play ${song.title}`}
-	class="group flex w-full cursor-pointer items-center gap-3 rounded-lg p-2 transition-colors hover:bg-accent/10 {selected
+	class="group flex w-full cursor-pointer items-center gap-3 rounded-lg p-2 hover:bg-accent/10 {selected
 		? 'bg-primary/15'
 		: active
 		? 'bg-accent/10'
-		: ''} {compact ? '' : '[content-visibility:auto] [contain-intrinsic-size:auto_3.5rem]'}"
+		: ''} {lazy && !compact ? '[content-visibility:auto] [contain-intrinsic-size:auto_3.5rem]' : ''}"
 >
 	{#if selectable}
 		<span id={selectionDescriptionId} class="sr-only">
@@ -226,10 +248,10 @@
 						? 'text-primary'
 						: 'text-muted-foreground'}"
 				>
-					<span class={selectable ? '' : 'group-hover:opacity-0'}>{index + 1}</span>
+					<span class={selectable ? '' : 'group-hover:invisible'}>{index + 1}</span>
 					<HugeiconsIcon
 						icon={guestAdd ? PlayListAddIcon : PlayIcon}
-						class="absolute inset-0 m-auto h-3.5 w-3.5 opacity-0 {selectable ? '' : 'group-hover:opacity-100'}"
+						class="invisible absolute inset-0 m-auto h-3.5 w-3.5 {selectable ? '' : 'group-hover:visible'}"
 					/>
 				</span>
 			{/if}
@@ -315,12 +337,13 @@
 		{/if}
 		{#if showRating}
 			<!-- Hover-revealed, except on a row that carries a rating: at rest that filled thumb is the
-			     only place the state shows at all. Faded rather than removed, so the duration and the ⋯
-			     don't shift sideways when the pointer arrives. -->
+			     only place the state shows at all. Hidden rather than removed, so the duration and the ⋯
+			     don't shift sideways when the pointer arrives. `group-focus-within`, not the button's own
+			     `focus-within`: a hidden element can't take focus, so the row (which is focusable) is
+			     what has to reveal it before Tab can reach it. -->
 			<div
-				class="flex items-center gap-0.5 transition-opacity focus-within:opacity-100 group-hover:opacity-100 {rated ===
-				'indifferent'
-					? 'opacity-0'
+				class="flex items-center gap-0.5 {rated === 'indifferent'
+					? 'invisible group-focus-within:visible group-hover:visible'
 					: ''}"
 			>
 				{@render rateButton(ThumbsUpIcon, 'like', t('common.like'))}
@@ -333,7 +356,7 @@
 		{#if compact}
 			<!-- Persistent, not hover-only: a filled heart is state the row has to keep showing. -->
 			<button
-				class="cursor-pointer rounded-md p-1.5 text-muted-foreground transition hover:bg-accent/20 hover:text-foreground"
+				class="cursor-pointer rounded-md p-1.5 text-muted-foreground hover:bg-accent/20 hover:text-foreground"
 				aria-label={isLiked(song) ? t('player.remove_from_liked') : t('player.save_to_liked')}
 				aria-pressed={isLiked(song)}
 				onclick={(e) => {
@@ -355,9 +378,9 @@
 			{playlistId}
 			{queueIndex}
 			{inLibraryList}
-			triggerClass="cursor-pointer rounded-md p-1.5 text-muted-foreground transition hover:bg-accent/20 hover:text-foreground focus-visible:opacity-100 {compact
+			triggerClass="cursor-pointer rounded-md p-1.5 text-muted-foreground hover:bg-accent/20 hover:text-foreground {compact
 				? ''
-				: 'opacity-0 group-hover:opacity-100'}"
+				: 'invisible group-focus-within:visible group-hover:visible'}"
 		/>
 	</div>
 </div>

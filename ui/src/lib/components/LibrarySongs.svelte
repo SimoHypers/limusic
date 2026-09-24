@@ -293,6 +293,7 @@
 				<TrackRow
 					{song}
 					index={i}
+					lazy
 					active={song.video_id === nowId}
 					inLibraryList={!uploads}
 					onplay={() => play(songs.indexOf(song))}

@@ -200,6 +200,7 @@
 					{#each group.items as song, i (song.video_id + i)}
 						<TrackRow
 							{song}
+							lazy
 							active={song.video_id === nowId}
 							onplay={() => play(flat.indexOf(song))}
 							onAdd={() => openAddToPlaylist(song)}

@@ -217,6 +217,7 @@
 							<TrackRow
 								{song}
 								index={i}
+								lazy
 								active={song.video_id === nowId}
 								onplay={() => {
 									openPlayer();

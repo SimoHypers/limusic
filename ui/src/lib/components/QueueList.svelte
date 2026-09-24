@@ -370,7 +370,6 @@
 			role="group"
 			aria-label={t('player.history')}
 			bind:this={historyEl}
-			class:small-history={playback.queue.items.length <= WINDOW_ABOVE}
 			hidden={!renderHistory || !view.prev.length}
 			inert={!showPrev}
 			aria-hidden={!showPrev}
@@ -422,11 +421,3 @@
 		<p class="p-4 text-sm text-muted-foreground">{t('player.empty_queue')}</p>
 	{/if}
 </div>
-
-<style>
-	/* This history has at most 200 rows. Measure their real layout: content-visibility's
-	   estimated row heights otherwise change as the disclosure opens, leaving a jump at the end. */
-	.small-history :global([data-row] > [data-ctx]) {
-		content-visibility: visible;
-	}
-</style>
