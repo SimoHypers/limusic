@@ -154,6 +154,7 @@
 		"history": "History",
 		"hide_history": "Hide history",
 		"show_history": "Show history",
+		"back_to": "Back to {title}",
 		"repeat_state": "Repeat: {state}",
 		"seek": "Seek",
 		"open_player": "Open player",

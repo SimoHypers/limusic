@@ -1215,7 +1215,8 @@ export function initApp(mini = false): () => void {
 				shuffle: q.shuffle,
 				repeat: q.repeat,
 				sourceName: q.sourceName,
-				sourceId: q.sourceId
+				sourceId: q.sourceId,
+				prevTrack: q.prevTrack
 			};
 		}),
 		api.onQueueAppended((q) => {

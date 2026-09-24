@@ -721,6 +721,7 @@ pub fn run() {
             commands::play_next,
             commands::next_track,
             commands::prev_track,
+            commands::back_to_previous,
             commands::toggle_shuffle,
             commands::set_repeat,
             commands::toggle_pause,

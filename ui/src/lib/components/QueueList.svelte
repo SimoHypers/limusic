@@ -4,7 +4,7 @@
 	import { cubicOut } from 'svelte/easing';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { HistoryIcon, InfinityIcon } from '@hugeicons/core-free-icons';
+	import { ArrowTurnBackwardIcon, HistoryIcon, InfinityIcon } from '@hugeicons/core-free-icons';
 	import TrackRow from '$lib/components/TrackRow.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as api from '$lib/api';
@@ -328,32 +328,49 @@
 <!-- Keep the disclosure outside the scroller so its hit target stays in place. The section's own
      heading stays in the list with the rows it names: this bar sits above `Earlier` too, which is
      not history, so a heading here would be labelling the wrong thing. -->
-{#if view.now && view.prev.length}
+{#if view.now && (view.prev.length || playback.queue.prevTrack)}
 	<div class="flex shrink-0 items-center justify-end gap-2 px-2 py-1">
-		<Button
-			bind:ref={historyButton}
-			variant="ghost"
-			size="xs"
-			class="h-7 shrink-0 cursor-pointer gap-1.5 rounded-md px-2 text-muted-foreground transition-colors duration-150 hover:bg-transparent dark:hover:bg-transparent aria-expanded:bg-transparent focus-visible:ring-2 active:not-aria-[haspopup]:translate-y-0 motion-reduce:transition-none"
-			aria-expanded={showPrev}
-			aria-controls={historyId}
-			onkeydown={(event) => {
-				// Keep native Space activation on keyup; the window shortcut must not pause music.
-				if (event.key === ' ') event.stopPropagation();
-			}}
-			onclick={togglePrev}
-		>
-			<HugeiconsIcon icon={HistoryIcon} class="size-3.5" />
-			<!-- Reserve both labels' width so changing state never moves the icon or hit area. -->
-			<span class="grid">
-				<span class="col-start-1 row-start-1" class:invisible={showPrev} aria-hidden={showPrev}>
-					{t('player.show_history')}
+		<!-- Clicking a song throws the queue away, so the history below is empty and the tracks that
+		     were actually just played are in the queue we kept. One line for the whole of it: these
+		     are not rows of this queue, and drawing them as if they were would make every index on
+		     screen a lie. The backend only sends a title while the restore is still reachable. -->
+		{#if playback.queue.prevTrack}
+			<Button
+				variant="ghost"
+				size="xs"
+				class="mr-auto h-7 min-w-0 shrink cursor-pointer gap-1.5 rounded-md px-2 text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:ring-2 motion-reduce:transition-none"
+				onclick={() => api.backToPrevious()}
+			>
+				<HugeiconsIcon icon={ArrowTurnBackwardIcon} class="size-3.5 shrink-0" />
+				<span class="truncate">{t('player.back_to', { title: playback.queue.prevTrack })}</span>
+			</Button>
+		{/if}
+		{#if view.prev.length}
+			<Button
+				bind:ref={historyButton}
+				variant="ghost"
+				size="xs"
+				class="h-7 shrink-0 cursor-pointer gap-1.5 rounded-md px-2 text-muted-foreground transition-colors duration-150 hover:bg-transparent dark:hover:bg-transparent aria-expanded:bg-transparent focus-visible:ring-2 active:not-aria-[haspopup]:translate-y-0 motion-reduce:transition-none"
+				aria-expanded={showPrev}
+				aria-controls={historyId}
+				onkeydown={(event) => {
+					// Keep native Space activation on keyup; the window shortcut must not pause music.
+					if (event.key === ' ') event.stopPropagation();
+				}}
+				onclick={togglePrev}
+			>
+				<HugeiconsIcon icon={HistoryIcon} class="size-3.5" />
+				<!-- Reserve both labels' width so changing state never moves the icon or hit area. -->
+				<span class="grid">
+					<span class="col-start-1 row-start-1" class:invisible={showPrev} aria-hidden={showPrev}>
+						{t('player.show_history')}
+					</span>
+					<span class="col-start-1 row-start-1" class:invisible={!showPrev} aria-hidden={!showPrev}>
+						{t('player.hide_history')}
+					</span>
 				</span>
-				<span class="col-start-1 row-start-1" class:invisible={!showPrev} aria-hidden={!showPrev}>
-					{t('player.hide_history')}
-				</span>
-			</span>
-		</Button>
+			</Button>
+		{/if}
 	</div>
 {/if}
 <div

@@ -2368,7 +2368,10 @@ impl AppState {
     ///
     /// Only from the head. Anywhere else Previous has a track of its own to step back to, and the
     /// queue panel shows that order, so stepping somewhere it doesn't show would be a surprise.
-    async fn restore_prev_context(self: &std::sync::Arc<Self>) -> bool {
+    ///
+    /// Also the queue panel's "Back to …" line (`prev_track_title`), which is why this is public:
+    /// that button isn't Previous, so it works however long the new track has been playing.
+    pub async fn restore_prev_context(self: &std::sync::Arc<Self>) -> bool {
         if self.lt.is_guest().await {
             return false; // host-driven; the fall-through hits `play_index`, which says so
         }
@@ -2418,6 +2421,7 @@ impl AppState {
                 "repeat": q.repeat,
                 "sourceName": &q.source_name,
                 "sourceId": &q.source_id,
+                "prevTrack": prev_track_title(&q),
                 // The playing row, so `start_current`'s duration/artists backfill still reaches
                 // the panel without shipping the other 4,999 rows to carry it.
                 "current": q.items.get(q.current),
@@ -2431,6 +2435,7 @@ impl AppState {
                 "repeat": q.repeat,
                 "sourceName": &q.source_name,
                 "sourceId": &q.source_id,
+                "prevTrack": prev_track_title(&q),
             })
         };
         let _ = self.app.emit(if unchanged { "queue-index" } else { "queue-changed" }, payload);
@@ -2501,6 +2506,7 @@ impl AppState {
             "repeat": q.repeat,
             "sourceName": &q.source_name,
             "sourceId": &q.source_id,
+            "prevTrack": prev_track_title(&q),
         })
     }
 
@@ -3804,6 +3810,18 @@ fn splice_radio_into(
 /// section shows and past any plausible scroll-back.
 const KEEP_PLAYED: usize = 200;
 
+/// The track the panel's "Back to …" offers, which is the one `restore_prev_context` would start.
+/// `None` unless the restore is actually reachable: a kept queue, and the pointer still at the head
+/// of the one that replaced it. So the line appears with the new queue and goes away by itself the
+/// moment playback moves on from it.
+fn prev_track_title(q: &QueueState) -> Option<&str> {
+    if q.current != 0 {
+        return None;
+    }
+    let prev = q.prev_context.as_ref()?;
+    Some(prev.items[prev.current].title.as_str())
+}
+
 /// Drop played rows beyond `keep` from the front, returning how many were removed so the caller can
 /// rebase every index that pointed into `items`.
 fn trim_played(items: &mut Vec<innertube::SongItem>, current: usize, keep: usize) -> usize {
@@ -4186,7 +4204,7 @@ mod tests {
     use super::{
         append_page, backfill_metadata, cache_horizon, drop_duplicates, enqueue_at,
         format_duration, get_url, guest_insert_index, history_threshold, is_mix, loudness_gain,
-        merge_radio, next_index, parse_duration_ms, persist_fingerprint, put_url,
+        merge_radio, next_index, parse_duration_ms, persist_fingerprint, prev_track_title, put_url,
         queue_fingerprint, radio_seed_for, shuffle_new_queue, shuffle_upcoming, splice_radio_into,
         trim_played, unshuffled, upcoming_queued, QueueState, RepeatMode, VideoUrls, KEEP_PLAYED,
         MAX_BOOST_DB,
@@ -4955,6 +4973,29 @@ mod tests {
         assert_eq!(q.radio_seed.as_deref(), Some("RDAMPLPL1"));
         assert!(q.shuffle_orig.is_some(), "shuffle came back with it");
         assert!(q.prev_context.is_none(), "one level deep: the restore is the end of it");
+    }
+
+    /// The panel's "Back to …" line is drawn from this, so it has to name the track Previous would
+    /// actually start, and it has to disappear once the restore is out of reach.
+    #[test]
+    fn the_back_line_lasts_as_long_as_the_restore_does() {
+        let mut q = QueueState {
+            items: vec![song("a", None), song("b", None)],
+            current: 1,
+            ..QueueState::default()
+        };
+        assert_eq!(prev_track_title(&q), None, "nothing was replaced");
+
+        q.keep_context(12.0);
+        q.items = vec![song("clicked", None)];
+        q.current = 0;
+        assert_eq!(prev_track_title(&q), Some("b"));
+
+        // The radio hydrated behind the clicked song and it played on: the kept queue is still
+        // there, but Previous has a track of its own to reach now, so the line goes.
+        q.items.push(song("radio", None));
+        q.current = 1;
+        assert_eq!(prev_track_title(&q), None);
     }
 
     /// An empty queue is not a context worth coming back to — Previous would land on nothing.

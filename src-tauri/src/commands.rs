@@ -138,6 +138,15 @@ pub async fn prev_track(state: St<'_>) -> Result<(), String> {
     Ok(())
 }
 
+/// The queue panel's "Back to …": put back the queue a click replaced, at the track and position
+/// it was left at. Previous does this too, but only from the top of a track; this one is the whole
+/// point of the line, so it doesn't rewind first.
+#[tauri::command]
+pub async fn back_to_previous(state: St<'_>) -> Result<(), String> {
+    state.inner().clone().restore_prev_context().await;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn toggle_shuffle(state: St<'_>) -> Result<(), String> {
     state.inner().clone().toggle_shuffle().await;

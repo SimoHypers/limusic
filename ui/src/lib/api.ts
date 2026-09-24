@@ -94,6 +94,10 @@ export interface QueueState {
 	/** The playlist the queue was started from, when it was one. What "Remove from this playlist"
 	 *  in the player's track menu writes to; absent for radios, single songs and guest queues. */
 	sourceId?: string | null;
+	/** Title of the track a click replaced this queue mid-play, for the panel's "Back to …" line.
+	 *  Set only while `backToPrevious` would actually do something: at the head of the queue, with
+	 *  a kept one behind it. */
+	prevTrack?: string | null;
 }
 
 export interface Account {
@@ -357,6 +361,9 @@ export const addToQueue = (items: SongItem[], from?: string, continuation?: stri
 export const clearQueued = () => invoke<void>('clear_queued');
 export const nextTrack = () => invoke<void>('next_track');
 export const prevTrack = () => invoke<void>('prev_track');
+/** Put back the queue a click replaced, at the track and position it was left at. Previous does
+ *  this too, but only from the top of a track. */
+export const backToPrevious = () => invoke<void>('back_to_previous');
 export const toggleShuffle = () => invoke<void>('toggle_shuffle');
 export const setRepeat = (mode: RepeatMode) => invoke<void>('set_repeat', { mode });
 export const togglePause = () => invoke<void>('toggle_pause');
@@ -652,6 +659,7 @@ export interface QueueIndex {
 	repeat?: RepeatMode;
 	sourceName?: string | null;
 	sourceId?: string | null;
+	prevTrack?: string | null;
 	current: SongItem | null;
 }
 
