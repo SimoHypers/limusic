@@ -13,7 +13,9 @@
 		Cancel01Icon as RemoveIcon,
 		Copy01Icon,
 		Coffee02Icon,
-		DiscordIcon
+		DiscordIcon,
+		Globe02Icon,
+		ArrowDown01Icon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -63,9 +65,10 @@
 		openDownloadPage
 	} from '$lib/updater.svelte';
 	import { getVersion } from '@tauri-apps/api/app';
-	import { t, setLocale, currentLocale, LOCALES, type LocaleId } from '$lib/i18n.svelte';
+	import { t, setLocale, currentLocale, LOCALES } from '$lib/i18n.svelte';
 	import { appIcon, chooseAppIcon } from '$lib/appicon.svelte';
 	import GlobalHotkeysSettings from '$lib/components/GlobalHotkeysSettings.svelte';
+	import LanguagePicker from '$lib/components/LanguagePicker.svelte';
 
 	type TabId = 'general' | 'themes' | 'playback' | 'hotkeys' | 'discord' | 'data' | 'about';
 	const TABS = $derived<{ id: TabId; label: string; hint: string; icon: typeof Settings02Icon }[]>([
@@ -181,6 +184,7 @@
 	const currentLocaleLabel = $derived(
 		LOCALES.find((l) => l.id === currentLocale.id)?.nativeLabel ?? currentLocale.id
 	);
+	let langOpen = $state(false);
 	let settings = $state<Record<string, string>>({});
 	let clients = $state<string[]>([]);
 	let proxyInput = $state('');
@@ -598,7 +602,8 @@
 								{@render row({
 									title: t('settings.general.language'),
 									desc: t('settings.general.language_hint'),
-									control: languagePicker
+									control: languageTrigger,
+									below: langOpen ? languageList : undefined
 								})}
 							</div>
 						</section>
@@ -966,25 +971,34 @@
 </Dialog.Root>
 
 <!-- Controls. Split out so the rows above read as a list of settings rather than a wall of markup. -->
-<!-- The picker refreshes the page behind the dialog once Rust has the new language: half of what is
-     on screen is YouTube's own text (#274), and that half only changes on the next fetch. -->
-{#snippet languagePicker()}
-	<Select.Root
-		type="single"
-		value={currentLocale.id}
-		onValueChange={(v) => setLocale(v as LocaleId).then(refreshView)}
+<!-- Picking refreshes the page behind the dialog once Rust has the new language: half of what is on
+     screen is YouTube's own text (#274), and that half only changes on the next fetch. -->
+{#snippet languageTrigger()}
+	<button
+		type="button"
+		onclick={() => (langOpen = !langOpen)}
+		aria-expanded={langOpen}
+		aria-label="{t('settings.general.language')}: {currentLocaleLabel}"
+		class="flex h-9 w-44 shrink-0 cursor-pointer items-center gap-2 rounded-4xl border border-input bg-input/30 px-3 text-sm transition-colors hover:bg-input/50"
 	>
-		<Select.Trigger class="w-44 shrink-0" aria-label={t('settings.general.language')}>
-			<span class="flex-1 truncate text-left">{currentLocaleLabel}</span>
-		</Select.Trigger>
-		<Select.Content>
-			{#each LOCALES as locale (locale.id)}
-				<Select.Item value={locale.id} label={locale.nativeLabel}>
-					{locale.nativeLabel}
-				</Select.Item>
-			{/each}
-		</Select.Content>
-	</Select.Root>
+		<HugeiconsIcon icon={Globe02Icon} strokeWidth={2} class="size-4 shrink-0 text-muted-foreground" />
+		<span class="flex-1 truncate text-left">{currentLocaleLabel}</span>
+		<HugeiconsIcon
+			icon={ArrowDown01Icon}
+			strokeWidth={2}
+			class="size-4 shrink-0 text-muted-foreground transition-transform {langOpen ? 'rotate-180' : ''}"
+		/>
+	</button>
+{/snippet}
+
+{#snippet languageList()}
+	<LanguagePicker
+		onclose={() => (langOpen = false)}
+		onpick={(id) => {
+			langOpen = false;
+			setLocale(id).then(refreshView);
+		}}
+	/>
 {/snippet}
 
 {#snippet historySwitch()}<Switch checked={historyOn} onCheckedChange={setHistory} />{/snippet}

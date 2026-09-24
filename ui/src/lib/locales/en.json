@@ -312,6 +312,8 @@
 		"general": {
 			"language": "Interface language",
 			"language_hint": "Select the interface display language.",
+			"language_search": "Search languages",
+			"language_contribute": "Help translate Limusic",
 			"shortcuts_hint": "Open the keyboard shortcuts with {key}",
 			"autostart": "Launch on startup",
 			"autostart_hint": "Automatically start Limusic when your system boots.",

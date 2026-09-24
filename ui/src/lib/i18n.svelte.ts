@@ -5,6 +5,7 @@
 import { browser } from '$app/environment';
 import { invoke } from '@tauri-apps/api/core';
 import { translations, LOCALES, type LocaleId, type Translations } from './locales';
+import { coverage, filledStrings } from './langlist';
 
 export type { LocaleId };
 
@@ -93,5 +94,19 @@ export function t(key: TranslationKey, params?: Record<string, string | number>)
 	if (!params) return str;
 	return str.replace(/\{(\w+)\}/g, (_, k) => (params[k] !== undefined ? String(params[k]) : `{${k}}`));
 }
+
+/**
+ * How much of each catalog Weblate has actually landed, 0..1, so the picker can say a language is
+ * half English before someone picks it and finds out the hard way.
+ *
+ * Counted once at module load: the catalogs are bundled and nothing here changes at runtime.
+ */
+export const COVERAGE: Record<LocaleId, number> = (() => {
+	const englishKeys = filledStrings(translations.en);
+	const ids = Object.keys(translations) as LocaleId[];
+	return Object.fromEntries(
+		ids.map((id) => [id, coverage(translations[id], englishKeys)])
+	) as Record<LocaleId, number>;
+})();
 
 export { LOCALES };

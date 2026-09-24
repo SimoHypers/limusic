@@ -37,21 +37,28 @@ export interface LocaleInfo {
 	id: LocaleId;
 	/** Shown in the language picker, in the language itself. */
 	nativeLabel: string;
+	/**
+	 * The same language named in English, shown under the native name and searchable.
+	 *
+	 * Deliberately not a translatable key: somebody who landed in a script they cannot read needs a
+	 * second name in Latin letters to find their way out, and translating it would take that away.
+	 */
+	englishLabel: string;
 }
 
 export const LOCALES: LocaleInfo[] = [
-	{ id: 'en', nativeLabel: 'English' },
-	{ id: 'es', nativeLabel: 'Español' },
-	{ id: 'fr', nativeLabel: 'Français' },
-	{ id: 'id', nativeLabel: 'Bahasa Indonesia' },
-	{ id: 'ko', nativeLabel: '한국어' },
-	{ id: 'pl', nativeLabel: 'Polski' },
-	{ id: 'pt-BR', nativeLabel: 'Português (Brasil)' },
-	{ id: 'ro', nativeLabel: 'Română' },
-	{ id: 'ru', nativeLabel: 'Русский' },
-	{ id: 'tr', nativeLabel: 'Türkçe' },
-	{ id: 'uk', nativeLabel: 'Українська' },
-	{ id: 'zh-Hant', nativeLabel: '繁體中文' }
+	{ id: 'en', nativeLabel: 'English', englishLabel: 'English' },
+	{ id: 'es', nativeLabel: 'Español', englishLabel: 'Spanish' },
+	{ id: 'fr', nativeLabel: 'Français', englishLabel: 'French' },
+	{ id: 'id', nativeLabel: 'Bahasa Indonesia', englishLabel: 'Indonesian' },
+	{ id: 'ko', nativeLabel: '한국어', englishLabel: 'Korean' },
+	{ id: 'pl', nativeLabel: 'Polski', englishLabel: 'Polish' },
+	{ id: 'pt-BR', nativeLabel: 'Português (Brasil)', englishLabel: 'Portuguese (Brazil)' },
+	{ id: 'ro', nativeLabel: 'Română', englishLabel: 'Romanian' },
+	{ id: 'ru', nativeLabel: 'Русский', englishLabel: 'Russian' },
+	{ id: 'tr', nativeLabel: 'Türkçe', englishLabel: 'Turkish' },
+	{ id: 'uk', nativeLabel: 'Українська', englishLabel: 'Ukrainian' },
+	{ id: 'zh-Hant', nativeLabel: '繁體中文', englishLabel: 'Chinese (Traditional)' }
 ];
 
 // Filenames are Weblate's language codes (pt_BR), the ids here are BCP-47 (pt-BR) because that is
