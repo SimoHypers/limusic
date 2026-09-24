@@ -345,6 +345,24 @@ impl Player {
         // in progress too: a skip during the last seconds of a track should not leave the old one
         // still fading under the new one.
         self.drop_preload(true);
+        // A paused outgoing file blips if the caller's play() unpauses it before mpv has unloaded
+        // it (issue #306). `loadfile replace` and `stop` only set a flag: mpv's core thread tears
+        // the file down later, and calls made back to back all run before it gets the chance, so
+        // `pause=false` used to land on the old file every time. Stop it and wait until mpv has
+        // really let go: `path` goes unavailable only after the teardown, which flushes the audio
+        // output. (`idle-active` can't say this, it flips the moment `stop` is issued.) Playing
+        // track changes are left alone, the old track is audible there anyway.
+        // ponytail: bounded poll, a few ms in practice; wait on the deck's EndFile event if 50 ms
+        // ever turns out too short.
+        if self.mpv().get_property::<bool>("pause").unwrap_or(false) {
+            self.mpv().command("stop", &[])?;
+            for _ in 0..50 {
+                if self.mpv().get_property::<String>("path").is_err() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
         self.apply_headers(headers)?;
         self.set_gain(gain_db)?;
         let args = loadfile_args(url, start);
@@ -1213,6 +1231,43 @@ mod tests {
         // 4. A boosted track: mpv (and its ffmpeg) must accept the limiter, or the gain is lost.
         p.set_gain(Some(6.0)).unwrap();
         assert!(af().contains("alimiter"), "boost went in without its limiter: {}", af());
+    }
+
+    /// Issue #306: loading over a paused track must not return while that track is still loaded,
+    /// because the caller's play() comes next and would unpause it for a moment. Without the wait
+    /// in `load` this failed on every run here: mpv applies back-to-back calls before its core
+    /// thread gets to unload anything.
+    #[test]
+    fn load_over_a_paused_track_unloads_it_first() {
+        use super::Player;
+        use std::collections::HashMap;
+        use std::time::{Duration, Instant};
+
+        let dir = std::env::temp_dir().join("limusic-load-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = Player::new(dir.to_str().unwrap()).expect("libmpv");
+        p.mpv().set_property("ao", "null").unwrap(); // no audio device needed
+        let path = || p.mpv().get_property::<String>("path").ok();
+        let old = "av://lavfi:sine=f=440:d=30";
+
+        p.load(old, &HashMap::new(), None, None).unwrap();
+        p.play().unwrap();
+        let t = Instant::now();
+        while path().as_deref() != Some(old) && t.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(path().as_deref(), Some(old), "the first track never loaded");
+        p.pause().unwrap();
+
+        for _ in 0..10 {
+            p.load("av://lavfi:sine=f=1000:d=30", &HashMap::new(), Some(-3.0), None).unwrap();
+            assert_ne!(path().as_deref(), Some(old), "load returned with the paused track loaded");
+            p.load(old, &HashMap::new(), None, None).unwrap();
+            let t = Instant::now();
+            while path().as_deref() != Some(old) && t.elapsed() < Duration::from_secs(5) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
     }
 
     #[test]
