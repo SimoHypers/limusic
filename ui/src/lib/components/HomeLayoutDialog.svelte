@@ -10,6 +10,7 @@
 	import {
 		Cancel02Icon,
 		DragDropHorizontalIcon,
+		RefreshIcon,
 		SaveIcon,
 		ViewIcon,
 		ViewOffSlashIcon
@@ -65,6 +66,20 @@
 			rows.map((r) => r.key),
 			rows.filter((r) => !r.shown).map((r) => r.key)
 		);
+		open = false;
+	}
+
+	const arranged = $derived(personal.home.order.length > 0 || personal.home.hidden.length > 0);
+
+	/**
+	 * Back to the feed as YouTube sends it: its own order, nothing hidden.
+	 *
+	 * Writes and closes rather than resetting the list in place, the one thing here that doesn't
+	 * wait for Save. The rows arrive already sorted by the saved order, so the modal has no way to
+	 * lay out the order being restored — only dropping the ranks and letting home re-derive does.
+	 */
+	function reset() {
+		saveHomeLayout([], []);
 		open = false;
 	}
 </script>
@@ -149,7 +164,18 @@
 			{/each}
 		</div>
 
-		<div class="flex justify-end gap-2 border-t px-5 py-3">
+		<div class="flex items-center justify-end gap-2 border-t px-5 py-3">
+			<!-- Left, away from Save: it throws the arrangement out. -->
+			<Button
+				variant="ghost"
+				size="sm"
+				class="mr-auto text-muted-foreground"
+				disabled={!arranged}
+				onclick={reset}
+			>
+				<HugeiconsIcon icon={RefreshIcon} class="h-4 w-4" />
+				{t('common.reset')}
+			</Button>
 			<Button variant="outline" size="sm" onclick={() => (open = false)}>
 				<HugeiconsIcon icon={Cancel02Icon} class="h-4 w-4" />
 				{t('common.cancel')}

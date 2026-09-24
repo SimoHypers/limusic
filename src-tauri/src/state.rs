@@ -328,6 +328,30 @@ struct QueueState {
     /// Last videoId we re-resolved after a playback failure — guards the one-shot retry in
     /// `on_track_failed` against a retry loop when the retried stream dies too.
     retried: Option<String>,
+    /// The queue this one replaced, for Previous at the head of a fresh queue.
+    prev_context: Option<PrevContext>,
+}
+
+/// What was playing before a click replaced the whole queue, so Previous can go back to it.
+///
+/// Clicking a song outside the queue (a search result, a card) throws the queue away and starts a
+/// one-track one, which left Previous with nothing behind it to reach: it restarted a track the
+/// user had been listening to for two seconds. Keeping the outgoing queue means that press goes
+/// where they expect, and the restored queue still has its own order, shuffle and radio behind it.
+///
+/// ponytail: one level deep. Two presses don't walk back two contexts; make it a bounded Vec if
+/// anyone asks, the snapshot is already the whole of what a restore needs.
+struct PrevContext {
+    items: Vec<SongItem>,
+    current: usize,
+    played_from: usize,
+    shuffle_orig: Option<Vec<SongItem>>,
+    radio_seed: Option<String>,
+    source_name: Option<String>,
+    source_id: Option<String>,
+    radio: bool,
+    /// Where mpv had got to, so the track resumes instead of starting over.
+    position: f64,
 }
 
 impl QueueState {
@@ -341,6 +365,49 @@ impl QueueState {
         // one-retry marker can go stale. Without this it is "retried once, ever": a track that
         // was retried in the morning gets no retry tonight.
         self.retried = None;
+    }
+
+    /// Set this queue aside so Previous can come back to it. `position` is mpv's.
+    ///
+    /// Takes `items` and `shuffle_orig` rather than cloning them, so this may only be called from
+    /// a caller that replaces both immediately afterwards — which is exactly what a queue
+    /// replacement is. Anything that reads either field (`shuffle_orig.is_some()` for sticky
+    /// shuffle, `upcoming_queued` for the carried manual adds) has to read it before this.
+    fn keep_context(&mut self, position: f64) {
+        if self.items.is_empty() {
+            return;
+        }
+        // Clamped, so `restore_context` can index with it: a queue whose tail was trimmed under a
+        // pointer sitting on it would otherwise be a panic hours later, in an unrelated press.
+        let current = self.current.min(self.items.len() - 1);
+        self.prev_context = Some(PrevContext {
+            items: std::mem::take(&mut self.items),
+            current,
+            played_from: self.played_from.min(current),
+            shuffle_orig: self.shuffle_orig.take(),
+            radio_seed: self.radio_seed.take(),
+            source_name: self.source_name.take(),
+            source_id: self.source_id.take(),
+            radio: self.radio,
+            position,
+        });
+    }
+
+    /// Put a kept queue back. Returns the track to start and where to resume it.
+    fn restore_context(&mut self, prev: PrevContext) -> (String, f64) {
+        let video_id = prev.items[prev.current].video_id.clone();
+        self.items = prev.items;
+        self.current = prev.current;
+        self.played_from = prev.played_from;
+        self.shuffle_orig = prev.shuffle_orig;
+        self.radio_seed = prev.radio_seed;
+        self.source_name = prev.source_name;
+        self.source_id = prev.source_id;
+        self.radio = prev.radio;
+        self.lookahead_loaded = None; // mpv's primed next belongs to the queue we just dropped
+        self.hydrating = None; // as does any radio still being fetched for it
+        self.retried = None;
+        (video_id, prev.position)
     }
 }
 
@@ -1124,12 +1191,16 @@ impl AppState {
         // Autoplay off means the song plays and the queue ends there (#238): the radio hydrated
         // below is exactly the "recommended tracks" that setting turns off.
         let no_radio = crate::local::is_local_song(&video_id) || !self.autoplay_enabled();
+        let position = self.current_position();
 
         {
             let mut q = self.queue.lock().await;
             // Unplayed manual adds survive a context switch (Spotify semantics): they follow the
             // new track, ahead of its radio (hydration appends behind them).
             let mut carried = upcoming_queued(&q.items, q.current);
+            // Both of these read what `keep_context` is about to take, so they go before it.
+            let shuffled = q.shuffle_orig.is_some();
+            q.keep_context(position);
             // No radio behind it, so don't promise one in the header.
             q.source_name = (!no_radio).then(|| format!("{} Radio", seed.title));
             q.items = vec![seed];
@@ -1145,7 +1216,7 @@ impl AppState {
             q.hydrating = (!no_radio).then_some(gen);
             // Shuffle carries into the new queue only when it's sticky (re-snapshotted after
             // radio hydration); otherwise a new context starts unshuffled.
-            q.shuffle_orig = (sticky && q.shuffle_orig.is_some()).then(|| q.items.clone());
+            q.shuffle_orig = (sticky && shuffled).then(|| q.items.clone());
         }
 
         if !self.start_current(gen).await {
@@ -1236,6 +1307,7 @@ impl AppState {
         // A mix has no "rest of the playlist" worth walking (see `is_mix`) — drop the token.
         let continuation = continuation.filter(|_| !is_mix(source_id.as_deref()));
         let sticky = self.sticky_shuffle();
+        let position = self.current_position();
         let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         {
             let mut q = self.queue.lock().await;
@@ -1253,6 +1325,8 @@ impl AppState {
             // Unplayed manual adds survive a context switch (Spotify semantics) — spliced back in
             // right after the new current track, ahead of the new context.
             let carried = upcoming_queued(&q.items, q.current);
+            // After `keep_shuffled` and `carried`, both of which read what this takes.
+            q.keep_context(position);
             q.items = items;
             q.current = start;
             q.lookahead_loaded = None;
@@ -2280,8 +2354,47 @@ impl AppState {
             let _ = self.user_seek(0.0).await;
             return;
         }
+        // Nothing in front of the head of the queue, so the last thing actually played is in
+        // whatever this queue replaced. Falls through to the restart below when there is none.
+        if self.restore_prev_context().await {
+            return;
+        }
         let i = self.queue.lock().await.current.saturating_sub(1);
         self.play_index(i).await;
+    }
+
+    /// Previous at the head of a queue that replaced another one: put that one back, at the track
+    /// and position it was left at. Returns whether it happened.
+    ///
+    /// Only from the head. Anywhere else Previous has a track of its own to step back to, and the
+    /// queue panel shows that order, so stepping somewhere it doesn't show would be a surprise.
+    async fn restore_prev_context(self: &std::sync::Arc<Self>) -> bool {
+        if self.lt.is_guest().await {
+            return false; // host-driven; the fall-through hits `play_index`, which says so
+        }
+        let prev = {
+            let mut q = self.queue.lock().await;
+            if q.current != 0 {
+                return false;
+            }
+            match q.prev_context.take() {
+                Some(prev) => prev,
+                None => return false,
+            }
+        };
+        let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let (video_id, position) = self.queue.lock().await.restore_context(prev);
+        // `start_current` consumes this, and only for this exact track.
+        if position > 1.0 {
+            *self.pending_seek.lock().unwrap() = Some((video_id, position));
+        }
+        // Same reason as `play_index`: until mpv ticks, `current_position` would still be
+        // reporting the track we just left.
+        self.latest_position.store(0f64.to_bits(), Ordering::SeqCst);
+        if self.start_current(gen).await {
+            self.prime_lookahead(gen).await;
+        }
+        true
     }
 
     /// Tell the UI the queue changed.
@@ -2913,6 +3026,8 @@ impl AppState {
             q.items = items;
             q.current = 0;
             q.played_from = 0; // the host's queue starts at the track it sent; no local history
+                               // Nor does Previous reach back past the session into a queue from before joining.
+            q.prev_context = None;
             q.lookahead_loaded = None;
             q.shuffle_orig = None; // host rebuilt the queue — local shuffle snapshot is stale
             q.radio_seed = None; // guests never autoplay — the host drives
@@ -4806,5 +4921,47 @@ mod tests {
         assert_eq!(loudness_gain(Some(40.0)), Some(-24.0));
         // No metadata → no filter.
         assert_eq!(loudness_gain(None), None);
+    }
+
+    /// Clicking a song outside the queue replaces it, and Previous then has to reach the track
+    /// that was playing, where it was left, with its own order and shuffle behind it.
+    #[test]
+    fn a_replaced_queue_comes_back_where_it_was_left() {
+        let mut q = QueueState {
+            items: vec![song("a", None), song("b", None), song("c", None)],
+            current: 1,
+            played_from: 1,
+            shuffle_orig: Some(vec![song("c", None), song("b", None), song("a", None)]),
+            source_name: Some("Deep cuts".into()),
+            source_id: Some("PL1".into()),
+            radio_seed: Some("RDAMPLPL1".into()),
+            ..QueueState::default()
+        };
+
+        q.keep_context(42.5);
+        q.items = vec![song("clicked", None)]; // what `play_song` does next
+        q.current = 0;
+        assert!(q.shuffle_orig.is_none(), "the new queue starts on its own terms");
+
+        let prev = q.prev_context.take().expect("the replaced queue is kept");
+        assert_eq!(q.restore_context(prev), ("b".into(), 42.5));
+        assert_eq!(
+            q.items.iter().map(|i| i.video_id.as_str()).collect::<Vec<_>>(),
+            ["a", "b", "c"]
+        );
+        assert_eq!(q.current, 1);
+        assert_eq!(q.played_from, 1);
+        assert_eq!(q.source_id.as_deref(), Some("PL1"));
+        assert_eq!(q.radio_seed.as_deref(), Some("RDAMPLPL1"));
+        assert!(q.shuffle_orig.is_some(), "shuffle came back with it");
+        assert!(q.prev_context.is_none(), "one level deep: the restore is the end of it");
+    }
+
+    /// An empty queue is not a context worth coming back to — Previous would land on nothing.
+    #[test]
+    fn nothing_is_kept_from_an_empty_queue() {
+        let mut q = QueueState::default();
+        q.keep_context(0.0);
+        assert!(q.prev_context.is_none());
     }
 }
