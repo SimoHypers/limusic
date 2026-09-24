@@ -244,7 +244,9 @@
 			"about": "Hakkında",
 			"about_hint": "Sürüm, güncellemeler ve değişiklikler.",
 			"discord": "Discord",
-			"discord_hint": "Rich Presence kartınızın nasıl görüneceği."
+			"discord_hint": "Rich Presence kartınızın nasıl görüneceği.",
+			"hotkeys": "Genel Klavye Kısayolları",
+			"hotkeys_hint": "Oynatmayı kontrol etmek için sistem geneli kısayollar."
 		},
 		"sections": {
 			"language": "Dil (Language)",
@@ -325,7 +327,7 @@
 			"font_filter": "Yazı Tipleri",
 			"experimental": "Deneysel",
 			"app_icon": "Uygulama simgesi",
-			"app_icon_hint": "Bir PNG görev çubuğu, sistem tepsisi ve bu penceredeki simgenin yerini alır. Kısayollar ve dosya yöneticisi yüklü olanı kullanır.",
+			"app_icon_hint": "Bir PNG, sistem tepsisindeki, bu penceredeki ve Alt-Tab'daki simgenin yerini alır. Kısayollar, dosya yöneticisi ve Windows görev çubuğu düğmesi ise yüklü simgeyi korur.",
 			"app_icon_pick": "Seçin…",
 			"app_icon_dialog": "Bir uygulama simgesi seçin",
 			"app_icon_filter": "PNG görsel",
@@ -366,7 +368,9 @@
 			"crossfade_hint": "Her parçanın sonunu bir sonrakinin başlangıcına kademeli olarak geçirir. Parçalar çakıştığı sürede ikinci bir ses kod çözücü çalıştırır, bu yüzden biraz daha fazla bellek kullanır.",
 			"crossfade_duration": "Çapraz geçiş süresi",
 			"crossfade_duration_hint": "Örtüşmenin ne kadar süreceği. Kısa parçalarda geçiş süresi kısalır, böylece bir geçiş bir öncekisi bitmeden asla başlamaz.",
-			"crossfade_seconds": "{secs}sn"
+			"crossfade_seconds": "{secs}sn",
+			"normalize_volume": "Ses düzeyini normalleştirme",
+			"normalize_volume_hint": "Parçaların ne kadar yüksek sesle çaldığını eşitler, böylece alçak seviyede mastering yapılmış bir parça, kendisinden sonra gelenin altında kalmaz. Her parçayı tam olarak mastering edildiği haliyle duymak için bunu kapat."
 		},
 		"data": {
 			"clear_cache": "Görsel ve akış önbelleğini temizle",
@@ -452,6 +456,45 @@
 			"preview_status": "Üye listesi",
 			"preview_you": "Siz",
 			"preview_card": "Profil kartı"
+		},
+		"hotkeys": {
+			"title": "Genel Klavye Kısayolları",
+			"description": "Limusic simge durumuna küçültülmüş veya arka planda çalışıyor olsa bile, özelleştirilebilir klavye kısayollarıyla oynatmayı kontrol et.",
+			"enable": "Sistem geneli kısayolları etkinleştir",
+			"enable_hint": "Genel klavye kısayolları devre dışı. Kısayolları sistem genelinde dinlemek için bunları aç.",
+			"off": "Kapalı",
+			"rebind": "Yeniden ata",
+			"recording": "Bir değiştirici tuşu basılı tut ve bir tuşa bas...",
+			"wayland_hint": "GNOME (Wayland) üzerinde çalışmayabilir.",
+			"clear": "Kısayolu temizle",
+			"reset": "Varsayılanlara geri dön",
+			"conflict": "Bu kısayol zaten \"{action}\" eylemine atanmış",
+			"failed_register": "Kısayol sisteme kaydedilemedi (başka bir uygulama tarafından kullanılıyor olabilir)",
+			"section_playback": "Oynatma",
+			"section_audio": "Ses",
+			"section_window": "Pencere",
+			"action_play_pause": "Oynat / Duraklat",
+			"action_play_pause_hint": "Çalma ve duraklatma arasında geçiş yapar.",
+			"action_next_track": "Sıradaki parça",
+			"action_next_track_hint": "Kuyruktaki bir sonraki şarkıya geçer.",
+			"action_prev_track": "Önceki parça",
+			"action_prev_track_hint": "Kuyruktaki bir önceki şarkıya geri döner.",
+			"action_volume_up": "Sesi yükselt",
+			"action_volume_up_hint": "Oynatma ses düzeyini %5 yükseltir.",
+			"action_volume_down": "Sesi kıs",
+			"action_volume_down_hint": "Oynatma ses düzetini %5 düşürür.",
+			"action_mute_toggle": "Sessize al / sesi aç",
+			"action_mute_toggle_hint": "Sessize alma ve önceki ses düzeyi arasında geçiş yapar.",
+			"action_seek_forward": "İleri sar",
+			"action_seek_forward_hint": "Şarkıda 10 saniye ileri atlar.",
+			"action_seek_backward": "Geri sar",
+			"action_seek_backward_hint": "Şarkıda 10 saniye geri atlar.",
+			"action_toggle_shuffle": "Karıştırmayı aç/kapat",
+			"action_toggle_shuffle_hint": "Kuyruk için karıştırmayı açar veya kapatır.",
+			"action_toggle_repeat": "Tekrarı aç/kapat",
+			"action_toggle_repeat_hint": "Tekrar modunu değiştirir: kapalı, tümü, tek.",
+			"action_show_app": "Uygulamayı göster",
+			"action_show_app_hint": "Limusic penceresini ön plana getirir."
 		}
 	},
 	"dialogs": {
@@ -577,7 +620,7 @@
 		"previous": "Önceki",
 		"next": "Sonraki",
 		"seek": "İlerle",
-		"volume": "Ses",
+		"volume": "Ses düzeyi",
 		"track_options": "Parça seçenekleri",
 		"playlist_options": "Çalma listesi seçenekleri",
 		"clear_search": "Aramayı temizle",
@@ -724,5 +767,11 @@
 		"playlist_partial": "{playlist} listesine {added} eklendi; {duplicates} zaten listede vardı; {remaining} onaylanmadı. {error}",
 		"remove": "Bu çalma listesinden kaldır",
 		"remove_confirm": "{count} kaldır?"
+	},
+	"errors": {
+		"unreachable": "YouTube Music'e erişilemedi. Bağlantınızı kontrol edin.",
+		"offline_title": "Bağlantı yok",
+		"offline_body": "Limusic, YouTube Music'e erişemiyor. İnternet bağlantınızı kontrol ederek tekrar deneyin.",
+		"generic_title": "Bir şeyler yanlış gitti"
 	}
 }
