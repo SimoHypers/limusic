@@ -542,13 +542,19 @@ export async function seedOnRepeatPick() {
 }
 
 /**
- * Home's arrangement, as set in the Edit modal. `order` is every section key the modal listed, in
- * display order, hidden ones included — a hidden section that keeps its slot comes back where it was.
+ * Edit home writes through this as you go: the page behind the panel is the preview. `order` is
+ * every section key the panel listed, in display order, hidden ones included, so a hidden section
+ * that keeps its slot comes back where it was.
  */
-export function saveHomeLayout(order: string[], hidden: string[]) {
-	// Spread, not a fresh object: `seen` is written by the feed, not by the modal, and rebuilding
-	// `home` from the two lists the modal owns used to drop it.
-	personal.home = { ...personal.home, order, hidden };
+export function saveHome(patch: Partial<pl.HomeLayout>) {
+	// Spread, not a fresh object: `seen` is written by the feed, not by the panel, and rebuilding
+	// `home` from the lists the panel owns used to drop it.
+	personal.home = { ...personal.home, ...patch };
+	savePersonal();
+}
+
+export function resetHome() {
+	pl.resetHome(personal);
 	savePersonal();
 }
 

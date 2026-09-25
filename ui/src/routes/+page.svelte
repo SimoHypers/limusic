@@ -3,7 +3,7 @@
 	import { fade } from 'svelte/transition';
 	import { goto } from '$app/navigation';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { ArrowUpBigIcon, MusicNote01Icon } from '@hugeicons/core-free-icons';
+	import { ArrowUpBigIcon, MusicNote01Icon, ViewOffSlashIcon } from '@hugeicons/core-free-icons';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { Button } from '$lib/components/ui/button';
 	import MediaCardSkeleton from '$lib/components/MediaCardSkeleton.svelte';
@@ -85,9 +85,10 @@
 	let seeking = $state(false); // walking continuations to find it — the slot shows a skeleton
 	const feed = $derived(home?.sections.filter((s) => !isForgotten(s)) ?? []);
 
-	// --- the arrangement the user set in the Edit modal (personal.ts) ---------------------------
-	// The two sections the app builds itself get reserved keys — a YouTube shelf title can't start
-	// with "@" — so they keep their slot even before (or without) any content to show.
+	// --- the arrangement the user set in Edit home (personal.ts) --------------------------------
+	// The sections the app builds itself get reserved keys (a YouTube shelf title can't start with
+	// "@"), so they keep their slot even before (or without) any content to show.
+	const SHORTCUTS = '@shortcuts';
 	const RECENT = '@recent';
 	const FAMILIAR = '@familiar';
 	const FORGOTTEN = '@forgotten';
@@ -96,46 +97,47 @@
 		| { id: string; key: string; title: string; shelf: HomeSection };
 	let editing = $state(false);
 	const hidden = $derived(hiddenSections(personal));
+	/** Ours, in the order they sit on a home nobody has arranged. */
+	const local = $derived<Block[]>([
+		{ id: SHORTCUTS, key: SHORTCUTS, title: t('home.shortcuts') },
+		{ id: RECENT, key: RECENT, title: t('home.jump_back_in') },
+		{ id: FAMILIAR, key: FAMILIAR, title: t('home.familiar_artists') },
+		{ id: FORGOTTEN, key: FORGOTTEN, title: t('home.forgotten_favourites') }
+	]);
 	/**
-	 * Every section home can show, in the user's order, hidden ones included — the modal lists those
-	 * to offer them back. Shelves are keyed on their title (all YouTube gives us that survives a
-	 * restart) but rendered under a positional id, because a feed walked far enough does repeat one.
+	 * Every section home can show, in the user's order, hidden ones included. Shelves are keyed on
+	 * their title (all YouTube gives us that survives a restart) but rendered under a positional id,
+	 * because a feed walked far enough does repeat one.
+	 *
+	 * A mood feed is the chip's: YouTube's order, none of ours, and none of home's arrangement.
 	 */
 	const blocks = $derived.by(() => {
-		const local: Block[] = selected
-			? [] // a mood feed is the chip's: neither of ours belongs in it
-			: [
-					{ id: RECENT, key: RECENT, title: t('home.jump_back_in') },
-					{ id: FAMILIAR, key: FAMILIAR, title: t('home.familiar_artists') },
-					{ id: FORGOTTEN, key: FORGOTTEN, title: t('home.forgotten_favourites') }
-				];
-		const shelves = feed.map((s, i) => ({
+		const shelves: Block[] = feed.map((s, i) => ({
 			id: `${i}:${s.title}`,
 			key: s.title,
 			title: s.title,
 			shelf: s
 		}));
-		return arrangeSections([...local, ...shelves], personal);
+		return selected ? shelves : arrangeSections([...local, ...shelves], personal);
 	});
-	const visible = $derived(blocks.filter((b) => !hidden.has(b.key)));
+	const visible = $derived(selected ? blocks : blocks.filter((b) => !hidden.has(b.key)));
 	/**
-	 * What the Edit modal lists. Not `blocks`: the feed arrives a page at a time, so `blocks` holds
-	 * only the shelves scrolled to so far, and the modal showed five rows before a scroll and
-	 * fifteen after one. Every shelf home has ever rendered is remembered (`noteSections`), and the
-	 * ones this visit hasn't fetched yet are listed alongside the loaded ones — a section can be
-	 * hidden or moved before the page has got to it, which is the whole point of the modal.
+	 * What Edit home lists. Not `blocks`: the feed arrives a page at a time, so `blocks` holds only
+	 * the shelves scrolled to so far, and the panel showed five rows before a scroll and fifteen
+	 * after one. Every shelf home has ever rendered is remembered (`noteSections`), and the ones this
+	 * visit hasn't fetched yet are listed alongside the loaded ones: a section can be hidden or moved
+	 * before the page has got to it, which is the whole point of the panel.
 	 *
 	 * Kept apart from `blocks` deliberately: these carry no shelf, so they must never reach the
-	 * feed's renderer. Unranked ones sort to the end, since where they belong is exactly what
-	 * hasn't loaded.
+	 * feed's renderer. One row per key, since a repeated shelf shares its setting anyway. Under a
+	 * mood chip it is still home's list: the loaded shelves are the chip's, so only ours and the
+	 * remembered ones go in.
 	 */
 	const known = $derived.by(() => {
-		if (selected) return blocks; // a mood feed is the chip's, and its shelves aren't home's
-		const have = new Set(blocks.map((b) => b.key));
-		const unloaded: Block[] = personal.home.seen
-			.filter((t) => !have.has(t))
-			.map((t) => ({ id: `seen:${t}`, key: t, title: t }));
-		return unloaded.length ? arrangeSections([...blocks, ...unloaded], personal) : blocks;
+		const rows = new Map<string, { key: string; title: string }>();
+		for (const b of selected ? local : blocks) if (!rows.has(b.key)) rows.set(b.key, b);
+		for (const k of personal.home.seen) if (!rows.has(k)) rows.set(k, { key: k, title: k });
+		return arrangeSections([...rows.values()], personal);
 	});
 
 	// Every page of the feed adds to that memory. Only the unfiltered feed: a mood chip's shelves
@@ -169,7 +171,7 @@
 		const order = personal.home.order;
 		if (!order.length) return false;
 		const rank = new Map(order.map((k, i) => [k, i]));
-		const here = new Set([RECENT, FAMILIAR, FORGOTTEN, ...feed.map((s) => s.title)]);
+		const here = new Set([SHORTCUTS, RECENT, FAMILIAR, FORGOTTEN, ...feed.map((s) => s.title)]);
 		let deepest = -1;
 		for (const [k, r] of rank) if (here.has(k) && r > deepest) deepest = r;
 		for (const [k, r] of rank) if (r < deepest && !here.has(k) && !hidden.has(k)) return true;
@@ -327,12 +329,13 @@
 </script>
 
 <div {@attach watchScroll}>
-	<HomeHero />
+	<HomeHero onEdit={() => (editing = true)} />
 	<!-- Mood chips filter the whole feed, so they're page-level controls: sticky, they stay reachable
 	     while the feed scrolls under them instead of leaving with the header they were pinned to.
 	     Opaque rather than blurred — a backdrop-filter repainting on every scroll frame is the one
 	     thing WebKitGTK reliably chokes on. -->
-	{#if chips.length}
+	<!-- Kept while a filter is on even when Edit home turned the row off: "All" is the way out. -->
+	{#if chips.length && (personal.home.chips || selected)}
 		<div class="sticky top-0 z-20 border-b bg-background px-6 pt-2.5">
 			<div class="flex gap-2 overflow-x-auto pb-2">
 				<!-- An explicit "All" is the way out of a filter. Clicking the active chip again also
@@ -348,7 +351,7 @@
 				{/each}
 			</div>
 		</div>
-	{:else if loading}
+	{:else if loading && personal.home.chips}
 		<!-- Hold the bar's height on a cold load: chips arrive with the feed, and popping them in
 		     afterwards shoves the whole page down under the cursor. -->
 		<div class="sticky top-0 z-20 border-b bg-background px-6 pt-2.5" aria-hidden="true">
@@ -360,14 +363,6 @@
 		</div>
 	{/if}
 	<div class="px-6 pb-6 pt-6">
-		<!-- Zone one: what's yours. The grid you arranged, above the rule that separates it from
-		     everything the app or YouTube chose. It steps aside entirely while a mood filter is
-		     active: none of it is filterable, and neither is the arrangement it edits. -->
-		{#if !selected}
-			<div class="mb-10 border-b pb-8">
-				<Shortcuts onEdit={() => (editing = true)} />
-			</div>
-		{/if}
 		{#snippet shelfSkeletons(n: number)}
 			{#each Array(n) as _, s (s)}
 				<section aria-hidden="true">
@@ -380,20 +375,26 @@
 				</section>
 			{/each}
 		{/snippet}
-		<!-- One ordered column, so the two sections the app builds itself sit among YouTube's shelves
-		     instead of above them, and a drag in the Edit modal can put any of them anywhere.
+		<!-- One ordered column, so the sections the app builds itself sit among YouTube's shelves
+		     instead of above them, and a drag in Edit home can put any of them anywhere.
 		     gap-10, not gap-8: with a heading, a row of cards and no rule between them, shelves any
 		     closer than this stop reading as separate sections. -->
 		<div class="content-in flex flex-col gap-10">
-			{#each visible as block (block.id)}
+			{#each visible as block, i (block.id)}
 				{#if block.shelf}
 					<Shelf
 						title={block.shelf.title}
 						items={block.shelf.items}
 						queueAll={false}
+						size={personal.home.cards}
 						community={/community/i.test(block.shelf.title)}
 						onMore={block.shelf.moreBrowseId ? () => showMore(block.shelf!) : undefined}
 					/>
+				{:else if block.key === SHORTCUTS}
+					<!-- Leading the page it is zone one: what's yours, above a rule that separates it from
+					     everything the app or YouTube chose. Moved further down it's a section like the
+					     rest, and a rule under one section in the middle would read as a divider. -->
+					<div class={i === 0 ? 'border-b pb-8' : ''}><Shortcuts /></div>
 				{:else if block.key === RECENT}
 					{#if recent.length}<RecentRail items={recent} />{/if}
 				{:else if block.key === FAMILIAR}
@@ -416,6 +417,17 @@
 					</div>
 				{/if}
 			{/each}
+			{#if !selected && !visible.length && home?.sections.length && !loading && !loadingMore && !seeking}
+				<!-- Everything switched off. Say so, and hand back the way in, rather than a blank page
+				     under the chips that looks like a feed that failed to load. -->
+				<div class="flex flex-col items-center gap-3 py-20 text-center">
+					<HugeiconsIcon icon={ViewOffSlashIcon} class="h-8 w-8 text-muted-foreground/40" />
+					<p class="max-w-sm text-sm text-muted-foreground">{t('home.all_hidden')}</p>
+					<Button variant="outline" size="sm" onclick={() => (editing = true)}>
+						{t('home.edit_home')}
+					</Button>
+				</div>
+			{/if}
 			{#if loading}
 				{@render shelfSkeletons(3)}
 			{:else if error}

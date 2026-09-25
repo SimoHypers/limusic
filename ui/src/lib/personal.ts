@@ -51,12 +51,43 @@ export type Personal = {
 	 * suggest this again": a hand-added tile is unaffected, since `addPick` ignores the list.
 	 */
 	dismissedSeeds: string[];
-	/**
-	 * How home is arranged: see `arrangeSections`. All three lists hold section keys. `seen` is
-	 * every shelf home has ever shown, so Edit home can list the ones the feed hasn't reached yet.
-	 */
-	home: { order: string[]; hidden: string[]; seen: string[] };
+	home: HomeLayout;
 };
+
+export type CardSize = 'small' | 'medium' | 'large';
+export const CARD_SIZES: CardSize[] = ['small', 'medium', 'large'];
+
+/** Everything Edit home sets. */
+export type HomeLayout = {
+	/**
+	 * Section keys, see `arrangeSections`. `seen` is every shelf home has ever shown, so Edit home
+	 * can list the ones the feed hasn't reached yet. It is the feed's, not the user's: Reset keeps it.
+	 */
+	order: string[];
+	hidden: string[];
+	seen: string[];
+	/**
+	 * A section missing from `order` arrived after the last arrangement. On, it lands hidden instead
+	 * of shown: hiding every shelf used to be undone by the next page of the feed (#317).
+	 */
+	hideNew: boolean;
+	/** The mood chip row. */
+	chips: boolean;
+	/** The playing track's artwork behind the greeting; off, the header keeps the accent wash. */
+	backdrop: boolean;
+	/** Width of the cards on home's shelves. Rows of songs don't change. */
+	cards: CardSize;
+};
+
+const defaultHome = (): HomeLayout => ({
+	order: [],
+	hidden: [],
+	seen: [],
+	hideNew: false,
+	chips: true,
+	backdrop: true,
+	cards: 'medium'
+});
 
 export function empty(): Personal {
 	return {
@@ -66,7 +97,7 @@ export function empty(): Personal {
 		recent: {},
 		artists: {},
 		dismissedSeeds: [],
-		home: { order: [], hidden: [], seen: [] }
+		home: defaultHome()
 	};
 }
 
@@ -95,16 +126,28 @@ export function hydrate(raw: unknown): Personal {
 		base.dismissedSeeds = o.dismissedSeeds.filter((id) => typeof id === 'string');
 	}
 	if (o.home && typeof o.home === 'object') {
-		const h = o.home as Partial<Personal['home']>;
+		const h = o.home as Partial<HomeLayout>;
 		const keys = (v: unknown) =>
 			Array.isArray(v) ? v.filter((k): k is string => typeof k === 'string') : [];
-		base.home = { order: keys(h.order), hidden: keys(h.hidden), seen: keys(h.seen) };
+		const flag = (v: unknown, fallback: boolean) => (typeof v === 'boolean' ? v : fallback);
+		base.home = {
+			order: keys(h.order),
+			hidden: keys(h.hidden),
+			seen: keys(h.seen),
+			hideNew: flag(h.hideNew, false),
+			chips: flag(h.chips, true),
+			backdrop: flag(h.backdrop, true),
+			cards: CARD_SIZES.includes(h.cards as CardSize) ? (h.cards as CardSize) : 'medium'
+		};
 		// '@familiar' shipped after some users had already saved an arrangement, and an unranked key
 		// sorts to the bottom of the feed. Slot it where the code puts it, once.
-		if (base.home.order.length && !base.home.order.includes('@familiar')) {
-			const at = base.home.order.indexOf('@recent');
-			base.home.order.splice(at < 0 ? base.home.order.length : at + 1, 0, '@familiar');
+		const order = base.home.order;
+		if (order.length && !order.includes('@familiar')) {
+			const at = order.indexOf('@recent');
+			order.splice(at < 0 ? order.length : at + 1, 0, '@familiar');
 		}
+		// Shortcuts sat above the arrangement until it became a section of its own; it stays on top.
+		if (order.length && !order.includes('@shortcuts')) order.unshift('@shortcuts');
 	}
 	return base;
 }
@@ -307,9 +350,9 @@ export function orderLibrary(items: BrowseItem[], p: Personal): BrowseItem[] {
 // --- Home arrangement ---------------------------------------------------------------------------
 
 /**
- * Home's sections in the order the user put them, hidden ones included (the Edit modal has to list
- * those to offer them back). A section YouTube only started sending after the last save has no rank
- * and sorts to the end, keeping the feed's own order among its peers.
+ * Home's sections in the order the user put them, hidden ones included (the Edit home panel has to
+ * list those to offer them back). A section YouTube only started sending after the last save has no
+ * rank and sorts to the end, keeping the feed's own order among its peers.
  *
  * Sorting only, never filtering: `hiddenSections` is the other half, and the two callers need the
  * unfiltered list and the visible one respectively.
@@ -326,11 +369,39 @@ export function arrangeSections<T extends { key: string }>(sections: T[], p: Per
 	return sections.slice().sort((a, b) => rank(a.key) - rank(b.key));
 }
 
-export const hiddenSections = (p: Personal): Set<string> => new Set(p.home.hidden);
+/**
+ * Which sections stay off the page: the ones switched off, plus, under `hideNew`, any the last
+ * arrangement didn't rank. Needs an arrangement to be new relative to, so an empty `order` hides
+ * nothing extra.
+ */
+export function hiddenSections(p: Personal): { has(key: string): boolean } {
+	const hidden = new Set(p.home.hidden);
+	const ranked = new Set(p.home.order);
+	const fresh = p.home.hideNew && ranked.size > 0;
+	return { has: (key) => hidden.has(key) || (fresh && !ranked.has(key)) };
+}
+
+/** Home as it ships. The feed's memory of shelves (`seen`) is not a setting, so it stays. */
+export function resetHome(p: Personal): void {
+	p.home = { ...defaultHome(), seen: p.home.seen };
+}
+
+export function homeIsDefault(p: Personal): boolean {
+	const d = defaultHome();
+	const h = p.home;
+	return (
+		!h.order.length &&
+		!h.hidden.length &&
+		h.hideNew === d.hideNew &&
+		h.chips === d.chips &&
+		h.backdrop === d.backdrop &&
+		h.cards === d.cards
+	);
+}
 
 /**
  * Home arrives a page at a time, so at any moment the feed holds only the shelves the reader has
- * scrolled to. Edit home lists sections, and listing only the loaded ones meant the modal showed
+ * scrolled to. Edit home lists sections, and listing only the loaded ones meant the list showed
  * five entries before a scroll and fifteen after one. Remember every shelf title the feed has ever
  * rendered and the modal can offer all of them, whether or not this visit has fetched them yet.
  *

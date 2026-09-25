@@ -16,7 +16,6 @@
 		onMore,
 		moreLabel = 'See all',
 		headingClass = 'font-heading text-lg font-semibold',
-		lead,
 		children
 	}: {
 		title: string;
@@ -27,8 +26,6 @@
 		moreLabel?: string;
 		/** Artist and album pages set their shelves a size larger. */
 		headingClass?: string;
-		/** Controls that belong to the title (Shortcuts' "Edit Home"), before the rule. */
-		lead?: Snippet;
 		/** Controls at the far end, before "See all". */
 		children?: Snippet;
 	} = $props();
@@ -49,7 +46,6 @@
 	{:else}
 		<h2 class="{headingClass} min-w-0 truncate">{title}</h2>
 	{/if}
-	{@render lead?.()}
 	<div class="h-px min-w-6 flex-1 bg-gradient-to-r from-border to-transparent"></div>
 	{@render children?.()}
 	{#if onMore}

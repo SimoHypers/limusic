@@ -1,11 +1,15 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { HistoryIcon, Search01Icon } from '@hugeicons/core-free-icons';
+	import { DashboardSquareEditIcon, HistoryIcon, Search01Icon } from '@hugeicons/core-free-icons';
 	import SearchSuggest from '$lib/components/SearchSuggest.svelte';
-	import { auth, playback } from '$lib/player.svelte';
+	import { auth, personal, playback } from '$lib/player.svelte';
 	import { thumb } from '$lib/thumb';
 	import { t, type TranslationKey } from '$lib/i18n.svelte';
+
+	// The page owns the Edit home panel. The button lives here because the header is the one part of
+	// home that can't be hidden; it used to sit on Shortcuts, which now can be.
+	let { onEdit }: { onEdit: () => void } = $props();
 
 	// Fixed at mount — a greeting that flips mid-session is uncanny.
 	const hour = new Date().getHours();
@@ -39,7 +43,7 @@
      but the search preview below has to hang out past the bottom edge. -->
 <div class="relative border-b">
 	<div class="pointer-events-none absolute inset-0 overflow-hidden">
-		{#if playback.now?.thumbnail && !artFailed}
+		{#if personal.home.backdrop && playback.now?.thumbnail && !artFailed}
 			<!-- 96px, not display size: blur-2xl is a 40px blur, so every detail above a handful of
 			     pixels is thrown away anyway. The old 1200px source decoded to 5.7 MiB for this, and
 			     re-decoded on every track change. -->
@@ -50,9 +54,10 @@
 				onerror={() => (artFailed = true)}
 			/>
 		{:else}
-			<!-- Nothing playing: without this the header is a bare strip with a greeting in it. An accent
-			     wash keeps it a header. Inline style so it can't be lost to a stale dev stylesheet, and it
-			     rides --primary so every preset theme gets its own. -->
+			<!-- Nothing playing, or the artwork switched off in Edit home: without this the header is a
+			     bare strip with a greeting in it. An accent wash keeps it a header. Inline style so it
+			     can't be lost to a stale dev stylesheet, and it rides --primary so every preset theme
+			     gets its own. -->
 			<div
 				class="pointer-events-none absolute inset-0 opacity-[0.18]"
 				style="background:radial-gradient(120% 130% at 12% 0%, var(--primary) 0%, transparent 58%)"
@@ -84,6 +89,15 @@
 				</h1>
 			</div>
 			<div class="flex shrink-0 items-center gap-2">
+				<!-- Labelled and outlined, not a bare glyph: this is the only way into arranging home, and
+				     as an icon on its own nobody found it. -->
+				<button
+					onclick={onEdit}
+					class="flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border px-3.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+				>
+					<HugeiconsIcon icon={DashboardSquareEditIcon} class="h-4 w-4" />
+					{t('home.edit_home')}
+				</button>
 				<!-- Listen Together moved out of here and lives on the titlebar alone: history is the thing
 				     you reach for from the home page. -->
 				<button

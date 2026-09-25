@@ -15,6 +15,7 @@ import {
 	forgetIds,
 	freshen,
 	hiddenSections,
+	homeIsDefault,
 	hydrate,
 	interleave,
 	isSaved,
@@ -27,6 +28,7 @@ import {
 	placePick,
 	recentItems,
 	removePick,
+	resetHome,
 	seedPick,
 	togglePin,
 	toggleSaved,
@@ -266,7 +268,7 @@ const range = (n: number, prefix: string) => Array.from({ length: n }, (_, i) =>
 
 	ok(keys(arrangeSections(secs('a', 'b', 'c'), p)) === 'a,b,c', 'no saved order leaves the feed alone');
 
-	p.home = { order: ['c', 'a'], hidden: ['a'], seen: [] };
+	p.home = { ...p.home, order: ['c', 'a'], hidden: ['a'] };
 	// Hidden sections still come back: the Edit modal lists them so they can be offered again.
 	ok(keys(arrangeSections(secs('a', 'b', 'c'), p)) === 'c,a,b', 'saved order first, the rest after');
 	ok(hiddenSections(p).has('a') && !hiddenSections(p).has('c'), 'hidden is read back as a set');
@@ -278,15 +280,19 @@ const range = (n: number, prefix: string) => Array.from({ length: n }, (_, i) =>
 // --- the arrangement survives a round trip, and a corrupt one degrades instead of throwing --------
 {
 	const p = empty();
-	p.home = { order: ['@recent', 'Listen again'], hidden: ['@forgotten'], seen: ['Listen again'] };
+	p.home = { ...p.home, order: ['@recent', 'Listen again'], hidden: ['@forgotten'], seen: ['Listen again'] };
 	const back = hydrate(JSON.parse(JSON.stringify(p)));
-	// '@familiar' is slotted into an order saved before it existed, so it doesn't sink to the bottom.
-	ok(back.home.order.join() === '@recent,@familiar,Listen again', 'order survives persistence');
+	// '@familiar' and '@shortcuts' are slotted into an order saved before they existed, so neither
+	// sinks to the bottom.
+	ok(
+		back.home.order.join() === '@shortcuts,@recent,@familiar,Listen again',
+		'order survives persistence'
+	);
 	ok(back.home.hidden.join() === '@forgotten', 'hidden survives persistence');
 	ok(back.home.seen.join() === 'Listen again', 'so does the list of shelves home has ever shown');
 	ok(
 		hydrate({ home: { order: ['Listen again'], hidden: [] } }).home.order.join() ===
-			'Listen again,@familiar',
+			'@shortcuts,Listen again,@familiar',
 		'no @recent to sit under: the new section goes last'
 	);
 	ok(
@@ -294,7 +300,39 @@ const range = (n: number, prefix: string) => Array.from({ length: n }, (_, i) =>
 		'the slotting happens once, not on every load'
 	);
 	ok(hydrate({}).home.order.length === 0, 'a blob from before the feature reads as unarranged');
-	ok(hydrate({ home: { order: [1, 'a'], hidden: 'nope' } }).home.order.join() === 'a,@familiar', 'junk is dropped');
+	ok(hydrate({ home: { order: [1, 'a'], hidden: 'nope' } }).home.order.join() === '@shortcuts,a,@familiar', 'junk is dropped');
+}
+
+// --- the rest of Edit home: new-section policy, look, reset --------------------------------------
+{
+	const p = empty();
+	ok(homeIsDefault(p), 'a fresh home is the default one');
+	ok(!hiddenSections(p).has('Anything'), 'nothing hidden by default');
+
+	// #317: hide every shelf, and the next page of the feed must not bring replacements.
+	p.home = { ...p.home, order: ['@shortcuts', 'Quick picks'], hidden: ['Quick picks'], hideNew: true };
+	const h = hiddenSections(p);
+	ok(h.has('Quick picks') && h.has('Mixed for you'), 'a section the arrangement never ranked is hidden');
+	ok(!h.has('@shortcuts'), 'a ranked, shown one is not');
+	p.home.hideNew = false;
+	ok(!hiddenSections(p).has('Mixed for you'), 'with the policy off it shows as before');
+	// Nothing ranked yet means nothing is new relative to anything: the policy can't blank home.
+	p.home = { ...p.home, order: [], hidden: [], hideNew: true };
+	ok(!hiddenSections(p).has('Mixed for you'), 'no arrangement, no new sections');
+
+	p.home = { ...p.home, order: ['a'], chips: false, backdrop: false, cards: 'large', seen: ['a', 'b'] };
+	ok(!homeIsDefault(p), 'any setting counts as arranged');
+	const back = hydrate(JSON.parse(JSON.stringify(p)));
+	ok(
+		back.home.hideNew && !back.home.chips && !back.home.backdrop && back.home.cards === 'large',
+		'the look survives persistence'
+	);
+	resetHome(p);
+	ok(homeIsDefault(p), 'reset is the default');
+	ok(p.home.seen.join() === 'a,b', 'but keeps the shelves home has seen, which are not a setting');
+
+	const junk = hydrate({ home: { hideNew: 'yes', chips: 0, cards: 'huge' } }).home;
+	ok(!junk.hideNew && junk.chips && junk.backdrop && junk.cards === 'medium', 'junk falls back');
 }
 
 // --- the saved library: local saves merge with YouTube's without duplicating anything ------------
