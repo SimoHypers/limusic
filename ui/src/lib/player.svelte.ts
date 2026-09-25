@@ -178,6 +178,9 @@ export async function loadLibrary(force = false) {
 		library.loaded = true;
 	} catch (e) {
 		if (generation === libraryGeneration) library.error = String(e);
+		// The account's half failed (offline, most likely), and the playlists on this machine need
+		// no network: show them anyway rather than an empty sidebar.
+		refreshLocalPlaylists();
 	} finally {
 		if (generation === libraryGeneration) library.loading = false;
 	}
@@ -223,16 +226,51 @@ export async function loadUploadAlbums(force = false) {
 	}
 }
 
-/** Create a playlist and optimistically prepend it so every view updates immediately. */
-export async function createLibraryPlaylist(title: string): Promise<void> {
-	const id = await api.createPlaylist(title);
+/**
+ * Create a playlist and put it in the library straight away, so every view has it. `local` keeps
+ * it on this machine (#251), which is the only kind there is while signed out. Answers the new
+ * library row, for a caller that goes on to add songs to it.
+ */
+export async function createLibraryPlaylist(title: string, local: boolean): Promise<BrowseItem> {
+	const id = await api.createPlaylist(title, local);
+	if (local) {
+		// SQLite already has it, so read the real row back rather than guessing at one.
+		await refreshLocalPlaylists();
+		return (
+			library.items.find((i) => i.id === id) ?? {
+				kind: 'playlist',
+				id,
+				title,
+				subtitle: t('library.local_playlist_subtitle', { count: 0 })
+			}
+		);
+	}
 	// YouTube's library browse is eventually-consistent and won't include a brand-new playlist for a
 	// few seconds, so surface it immediately instead of refetching.
 	const browseId = id.startsWith('VL') ? id : `VL${id}`;
 	// The owner line in YouTube's own format ("<owner> • N tracks"), because that is what
 	// `ownedByUser` reads to know this one is yours before the library reloads and says so itself.
 	const subtitle = auth.account?.name ? `${auth.account.name} \u2022 0 tracks` : undefined;
-	library.items = [{ kind: 'playlist', id: browseId, title, subtitle }, ...library.items];
+	const item: BrowseItem = { kind: 'playlist', id: browseId, title, subtitle };
+	library.items = [item, ...library.items];
+	return item;
+}
+
+/**
+ * Re-read the playlists on this machine into the library list, after anything that changed one
+ * (its count and its artwork follow the tracks). One SQLite read, so this is cheaper and more
+ * honest than patching a subtitle. They sit right after On Repeat, where `get_library` puts them.
+ */
+export async function refreshLocalPlaylists(): Promise<void> {
+	let local: BrowseItem[];
+	try {
+		local = await api.getLocalPlaylists();
+	} catch {
+		return;
+	}
+	const rest = library.items.filter((i) => !api.isLocalPlaylist(i.id));
+	const at = rest[0]?.id === api.ON_REPEAT_ID ? 1 : 0;
+	library.items = [...rest.slice(0, at), ...local, ...rest.slice(at)];
 }
 
 /** Optimistically apply an edit to a library playlist's row (sidebar + Library grid), so a rename
@@ -241,8 +279,26 @@ export function patchLibraryPlaylist(playlistId: string, patch: Partial<BrowseIt
 	library.items = library.items.map((it) => (it.id === playlistId ? { ...it, ...patch } : it));
 }
 
+/**
+ * A playlist was deleted: out of the library, the Shortcuts grid, the pins and the recents, and out
+ * of the saved-in index, so nothing is left pointing at a page that no longer opens.
+ */
+export function forgetPlaylist(playlistId: string) {
+	library.items = library.items.filter((i) => i.id !== playlistId);
+	for (const [videoId, ids] of Object.entries(savedIn.map)) {
+		if (ids.includes(playlistId)) savedIn.map[videoId] = ids.filter((id) => id !== playlistId);
+	}
+	pl.forgetIds(personal, [playlistId]);
+	savePersonal();
+}
+
 /** Optimistically bump the "N tracks" count in a library playlist's subtitle (sidebar + Library). */
 export function bumpLibraryTrackCount(playlistId: string, delta: number) {
+	// Ours to count exactly, in the UI's own words: re-read it rather than edit YouTube's text.
+	if (api.isLocalPlaylist(playlistId)) {
+		refreshLocalPlaylists();
+		return;
+	}
 	library.items = library.items.map((it) => {
 		if (it.id !== playlistId || !it.subtitle) return it;
 		const subtitle = it.subtitle.replace(/\d+\s+tracks?/, (m) => {
@@ -1052,6 +1108,7 @@ export async function startRadio(
 // Transient UI state for write actions.
 export const ui = $state({
 	addSongs: null as SongItem[] | null, // add-to-playlist picker target(s), full items for optimistic appends
+	newPlaylist: null as { songs: SongItem[] } | null, // the create-playlist dialog, and what to add to it
 	addPending: false, // one playlist batch at a time, even after the picker closes
 	share: null as BrowseItem | null, // the share modal's target
 	toast: null as Toast | null,
@@ -1127,6 +1184,97 @@ export function openShare(item: BrowseItem) {
 
 export function openAddToPlaylist(song: SongItem) {
 	openAddManyToPlaylist([song]);
+}
+
+/** The create-playlist dialog. `songs` go into the new playlist once it exists: the picker's
+ *  "New playlist" row hands over whatever it was opened for. */
+export function openNewPlaylist(songs: SongItem[] = []) {
+	ui.newPlaylist = { songs };
+}
+
+/**
+ * Add songs to a playlist, from the picker or the create dialog, and say what happened. One batch
+ * at a time (`ui.addPending`), even after the picker has closed.
+ *
+ * A playlist on this machine takes the lot in one write, local files included. A YouTube one is a
+ * request per song, sequential because a bulk selection can be thousands of rows.
+ */
+export async function addSongsToPlaylist(target: BrowseItem, songs: SongItem[]): Promise<void> {
+	if (ui.addPending || !songs.length) return;
+	const local = api.isLocalPlaylist(target.id);
+	if (!local && songs.some((s) => api.isLocalId(s.video_id))) {
+		toast.error(t('selection.local_playlist'));
+		return;
+	}
+	const epoch = auth.epoch;
+	ui.addPending = true;
+	let added: SongItem[] = [];
+	let confirmed: SongItem[] = [];
+	let failure: string | null = null;
+	try {
+		if (local) {
+			const went = await api.addToLocalPlaylist(target.id, songs);
+			added = songs.filter((_, i) => went[i]);
+			confirmed = songs;
+		} else {
+			// YouTube refuses a track the playlist already holds, so only the ones it accepted get
+			// counted and drawn: an optimistic row for a refused add is a row that can never be
+			// removed (no setVideoId behind it) until the app restarts.
+			for (const song of songs) {
+				if (epoch !== auth.epoch) break;
+				try {
+					if (await api.addToPlaylist(target.id, song.video_id)) added.push(song);
+					confirmed.push(song);
+				} catch (e) {
+					failure = String(e);
+					break;
+				}
+			}
+			// A switched account owns different caches. Stop the batch and never patch those.
+			if (epoch !== auth.epoch) {
+				toast.error(t('selection.account_changed'));
+				return;
+			}
+		}
+		const dupes = confirmed.length - added.length;
+		// Every song, not just the accepted ones: a refusal means the playlist already holds it,
+		// so its "saved" mark is right either way.
+		noteSavedIn(target.id, confirmed.map((s) => s.video_id));
+		if (added.length) {
+			bumpLibraryTrackCount(target.id, added.length);
+			notePlaylistAdd(target.id, added);
+		}
+		const playlist = target.title;
+		if (failure !== null) {
+			toast.error(
+				t('selection.playlist_partial', {
+					added: added.length,
+					playlist,
+					duplicates: dupes,
+					remaining: songs.length - confirmed.length,
+					error: failure
+				})
+			);
+		} else if (!added.length) {
+			toast(
+				dupes > 1
+					? t('toasts.already_in_all', { count: dupes, playlist })
+					: t('toasts.already_in', { playlist })
+			);
+		} else if (dupes) {
+			toast.success(t('toasts.added_to_playlist_dupes', { count: added.length, playlist, dupes }));
+		} else {
+			toast.success(
+				added.length > 1
+					? t('toasts.added_songs', { count: added.length, playlist })
+					: t('toasts.added_one', { playlist })
+			);
+		}
+	} catch (e) {
+		toast.error(String(e));
+	} finally {
+		ui.addPending = false;
+	}
 }
 
 /** Open the picker to add several tracks at once (e.g. a whole album). */
@@ -1325,12 +1473,11 @@ export function initApp(mini = false): () => void {
 				return;
 			}
 			loadLibrary();
-			if (a.signedIn) {
-				// The crawl behind this is the app's only bulk request, so it runs once here (and
-				// on a sign-in), never on navigation. It settles into the background while the
-				// first page paints from the stored index.
-				loadSavedIndex();
-			}
+			// The crawl behind this is the app's only bulk request, so it runs once here (and on a
+			// sign-in), never on navigation. It settles into the background while the first page
+			// paints from the stored index. Signed out there is no crawl, and the answer is the
+			// playlists on this machine.
+			loadSavedIndex();
 		})
 		.catch(() => {});
 	// Scan the local folders once at startup: it seeds the Library's Local tab and, more to the

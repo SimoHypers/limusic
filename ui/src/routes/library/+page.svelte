@@ -20,8 +20,6 @@
 		UserSharingIcon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
-	import { Input } from '$lib/components/ui/input';
-	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import LibrarySongs from '$lib/components/LibrarySongs.svelte';
@@ -38,16 +36,13 @@
 		loadLibrary,
 		loadLibraryExtras,
 		loadUploadAlbums,
-		createLibraryPlaylist,
+		openNewPlaylist,
 		syncSavedToYouTube
 	} from '$lib/player.svelte';
 	import { mergeSaved, unsynced } from '$lib/personal';
 	import { reveal } from '$lib/reveal.svelte';
 	import { t } from '$lib/i18n.svelte';
 
-	let dialogOpen = $state(false);
-	let newTitle = $state('');
-	let busy = $state(false);
 	// `?tab=local` so anything that sends you back here (an album whose files were deleted) lands
 	// on the tab you came from instead of a sign-in prompt.
 	let tab = $state(page.url.searchParams.get('tab') ?? lastTab);
@@ -113,22 +108,6 @@
 			syncing = false;
 		}
 	}
-
-	async function createNew() {
-		const title = newTitle.trim();
-		if (!title || busy) return;
-		busy = true;
-		try {
-			await createLibraryPlaylist(title);
-			toast.success(t('toasts.playlist_created', { title }));
-			newTitle = '';
-			dialogOpen = false;
-		} catch (e) {
-			toast.error(String(e));
-		} finally {
-			busy = false;
-		}
-	}
 </script>
 
 {#snippet grid(items: BrowseItem[], empty: string, rv: ReturnType<typeof reveal>)}
@@ -148,83 +127,57 @@
 <div class="p-6">
 	<div class="mb-6 flex items-center justify-between">
 		<h1 class="font-heading text-2xl font-bold">{t('library.title')}</h1>
-		{#if auth.account?.signedIn}
-			<div class="flex items-center gap-2">
-				<!-- Only with something to push: saves made before signing in, which live on this
-				     machine until this button puts them on the account. -->
-				{#if toSync.length}
-					<!-- A cloud glyph with a number on it says nothing about what pressing it does, and
-					     that's a write to someone's YouTube account. Hence a real tooltip rather than the
-					     `title` this app uses elsewhere: it has to be read before the click, not after a
-					     second of hovering. `child` keeps our own Button as the trigger element. -->
-					<Tooltip.Provider delayDuration={150}>
-						<Tooltip.Root>
-							<Tooltip.Trigger>
-								{#snippet child({ props })}
-									<Button
-										{...props}
-										variant="outline"
-										size="icon-sm"
-										onclick={sync}
-										disabled={syncing}
-										aria-label={t('a11y.sync_to_ytm', { count: toSync.length })}
-									>
-										<span class="relative">
-											<HugeiconsIcon
-												icon={CloudSyncIcon}
-												class="h-4 w-4 {syncing ? 'animate-pulse' : ''}"
-											/>
-											<!-- ring-background so the count reads over the icon's stroke (as in
-											     Titlebar). -->
-											<span
-												class="absolute -right-2 -top-1.5 min-w-3.5 rounded-full bg-accent px-[3px] text-[9px] font-semibold leading-[0.875rem] text-accent-foreground ring-[1.5px] ring-background"
-											>
-												{toSync.length}
-											</span>
+		<div class="flex items-center gap-2">
+			<!-- Only with something to push: saves made before signing in, which live on this
+			     machine until this button puts them on the account. -->
+			{#if auth.account?.signedIn && toSync.length}
+				<!-- A cloud glyph with a number on it says nothing about what pressing it does, and
+				     that's a write to someone's YouTube account. Hence a real tooltip rather than the
+				     `title` this app uses elsewhere: it has to be read before the click, not after a
+				     second of hovering. `child` keeps our own Button as the trigger element. -->
+				<Tooltip.Provider delayDuration={150}>
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props })}
+								<Button
+									{...props}
+									variant="outline"
+									size="icon-sm"
+									onclick={sync}
+									disabled={syncing}
+									aria-label={t('a11y.sync_to_ytm', { count: toSync.length })}
+								>
+									<span class="relative">
+										<HugeiconsIcon
+											icon={CloudSyncIcon}
+											class="h-4 w-4 {syncing ? 'animate-pulse' : ''}"
+										/>
+										<!-- ring-background so the count reads over the icon's stroke (as in
+										     Titlebar). -->
+										<span
+											class="absolute -right-2 -top-1.5 min-w-3.5 rounded-full bg-accent px-[3px] text-[9px] font-semibold leading-[0.875rem] text-accent-foreground ring-[1.5px] ring-background"
+										>
+											{toSync.length}
 										</span>
-									</Button>
-								{/snippet}
-							</Tooltip.Trigger>
-							<Tooltip.Content side="bottom">
-								{syncing
-									? t('common.loading')
-									: t('library.sync_idle_tooltip', { count: toSync.length })}
-							</Tooltip.Content>
-						</Tooltip.Root>
-					</Tooltip.Provider>
-				{/if}
-				<Button variant="outline" size="sm" class="gap-2" onclick={() => (dialogOpen = true)}>
-					<HugeiconsIcon icon={Add01Icon} class="h-4 w-4" /> {t('nav.new_playlist')}
-				</Button>
-			</div>
-		{/if}
+									</span>
+								</Button>
+							{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content side="bottom">
+							{syncing
+								? t('common.loading')
+								: t('library.sync_idle_tooltip', { count: toSync.length })}
+						</Tooltip.Content>
+					</Tooltip.Root>
+				</Tooltip.Provider>
+			{/if}
+			<!-- Signed out too: a playlist can live on this machine with no account (#251). -->
+			<Button variant="outline" size="sm" class="gap-2" onclick={() => openNewPlaylist()}>
+				<HugeiconsIcon icon={Add01Icon} class="h-4 w-4" /> {t('nav.new_playlist')}
+			</Button>
+		</div>
 	</div>
 
-	<Dialog.Root bind:open={dialogOpen}>
-		<Dialog.Content class="sm:max-w-md">
-			<Dialog.Header>
-				<Dialog.Title>{t('dialogs.edit_playlist.new_title')}</Dialog.Title>
-				<Dialog.Description>{t('dialogs.edit_playlist.new_desc')}</Dialog.Description>
-			</Dialog.Header>
-			<form
-				class="flex flex-col gap-4"
-				onsubmit={(e) => {
-					e.preventDefault();
-					createNew();
-				}}
-			>
-				<Input bind:value={newTitle} placeholder={t('dialogs.edit_playlist.name_placeholder')} autofocus />
-				<Dialog.Footer>
-					<Button type="button" variant="outline" onclick={() => (dialogOpen = false)}>
-						{t('common.cancel')}
-					</Button>
-					<Button type="submit" disabled={busy || !newTitle.trim()}>
-						{busy ? t('common.loading') : t('common.create')}
-					</Button>
-				</Dialog.Footer>
-			</form>
-		</Dialog.Content>
-	</Dialog.Root>
 
 	<!-- The tabs always render: Local music needs neither an account nor a connection. -->
 	<Tabs.Root bind:value={tab}>

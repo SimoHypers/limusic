@@ -133,8 +133,8 @@
 	// builds itself (local files, On Repeat, a mirrored guest queue) rather than dead.
 	const inLib = $derived(inSongLibrary(song));
 	const libraryToken = $derived(songLibraryToken(song));
-	// A local file has no YouTube identity: liking it or putting it in a YTM playlist is not a
-	// thing, so those items don't show. Queue, shortcuts and go-to-album work normally.
+	// A local file has no YouTube identity: liking it or sharing it is not a thing, so those items
+	// don't show. Queue, shortcuts, go-to-album and saving it to a playlist on this machine work.
 	const isLocal = $derived(api.isLocalId(song.video_id));
 	// "Remove from this playlist", for a row playing out of a playlist (issue #270). What the three
 	// conditions are and why is in `removableFromPlaylist` (queue.ts), where they are checkable.
@@ -357,7 +357,7 @@
 		{/if}
 		<!-- Always here, including the player bar at full width where the + button is right there:
 		     people look for this in the menu and miss the icon. -->
-		{#if onAdd && !isLocal}
+		{#if onAdd}
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={(e) => run(e, onAdd)}

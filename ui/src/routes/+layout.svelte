@@ -32,6 +32,7 @@
 	import QueuePanel from '$lib/components/QueuePanel.svelte';
 	import LyricsPanel from '$lib/components/LyricsPanel.svelte';
 	import AddToPlaylist from '$lib/components/AddToPlaylist.svelte';
+	import NewPlaylistDialog from '$lib/components/NewPlaylistDialog.svelte';
 	import SettingsDialog from '$lib/components/SettingsDialog.svelte';
 	import ShareDialog from '$lib/components/ShareDialog.svelte';
 	import ChannelPicker from '$lib/components/ChannelPicker.svelte';
@@ -216,6 +217,7 @@
 	<CommandPalette />
 	<KeyboardShortcuts />
 	<AddToPlaylist />
+	<NewPlaylistDialog />
 	<ShareDialog />
 	<SettingsDialog />
 	<ChannelPicker />

@@ -26,6 +26,7 @@
 	import {
 		addLocalFolder,
 		local,
+		openAddToPlaylist,
 		openPlayer,
 		playback,
 		removeLocalFolder,
@@ -223,6 +224,7 @@
 									openPlayer();
 									api.playPlaylist(songs, i, undefined, SOURCE);
 								}}
+								onAdd={() => openAddToPlaylist(song)}
 							/>
 						{/each}
 					</div>

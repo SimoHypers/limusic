@@ -431,17 +431,16 @@
                                 /> {t("player.start_radio")}
                             </button>
                         {/if}
-                        {#if !isLocal}
-                            <button
-                                class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
-                                onclick={saveToPlaylist}
-                            >
-                                <HugeiconsIcon
-                                    icon={PlayListAddIcon}
-                                    class="h-4 w-4"
-                                /> {t("player.save_to_playlist")}
-                            </button>
-                        {/if}
+                        <!-- A local album too: files can go in a playlist on this machine. -->
+                        <button
+                            class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+                            onclick={saveToPlaylist}
+                        >
+                            <HugeiconsIcon
+                                icon={PlayListAddIcon}
+                                class="h-4 w-4"
+                            /> {t("player.save_to_playlist")}
+                        </button>
                         <button
                             class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
                             onclick={() => {
@@ -487,7 +486,7 @@
                 showPlayCount
                 active={item.video_id === nowId}
                 onplay={() => playAll(i)}
-                onAdd={isLocal ? undefined : () => openAddManyToPlaylist([item])}
+                onAdd={() => openAddManyToPlaylist([item])}
             />
         {:else}
             <p class="p-4 text-sm text-muted-foreground">

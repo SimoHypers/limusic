@@ -58,6 +58,9 @@
 	});
 
 	const preview = $derived(thumb(cover ?? fallback, 400));
+	// Kept on this machine (#251): nobody else can see it, so there is no visibility to set, and the
+	// artwork has no account to upload to.
+	const local = $derived(api.isLocalPlaylist(id));
 
 	async function pickCover() {
 		// JPEG and PNG only, because that is what YouTube's uploader accepts (WebP comes back 415).
@@ -179,19 +182,23 @@
 					></textarea>
 				</div>
 			</div>
-			<div class="flex items-center justify-between gap-4 rounded-2xl border px-3 py-2.5">
-				<div class="min-w-0">
-					<div class="text-sm font-medium">{t('common.public')}</div>
-					<p class="text-xs text-muted-foreground">
-						{isPublic
-							? t('dialogs.edit_playlist.public_on')
-							: t('dialogs.edit_playlist.public_off')}
-					</p>
+			{#if !local}
+				<div class="flex items-center justify-between gap-4 rounded-2xl border px-3 py-2.5">
+					<div class="min-w-0">
+						<div class="text-sm font-medium">{t('common.public')}</div>
+						<p class="text-xs text-muted-foreground">
+							{isPublic
+								? t('dialogs.edit_playlist.public_on')
+								: t('dialogs.edit_playlist.public_off')}
+						</p>
+					</div>
+					<Switch bind:checked={isPublic} aria-label={t('a11y.public_playlist')} />
 				</div>
-				<Switch bind:checked={isPublic} aria-label={t('a11y.public_playlist')} />
-			</div>
+			{/if}
 			<p class="text-xs text-muted-foreground">
-				{t('dialogs.edit_playlist.artwork_note')}
+				{local
+					? t('dialogs.edit_playlist.local_artwork_note')
+					: t('dialogs.edit_playlist.artwork_note')}
 			</p>
 			<Dialog.Footer>
 				<Button type="button" variant="outline" onclick={() => (open = false)}>{t('common.cancel')}</Button>

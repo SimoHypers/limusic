@@ -20,10 +20,13 @@
 		BookmarkMinus02Icon,
 		ListRestartIcon,
 		Sorting01Icon,
-		ArrowUpDownIcon
+		ArrowUpDownIcon,
+		ComputerIcon,
+		Search01Icon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import * as RadioGroup from '$lib/components/ui/radio-group';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import TrackRow from '$lib/components/TrackRow.svelte';
 	import TrackSelectionBar from '$lib/components/TrackSelectionBar.svelte';
@@ -72,6 +75,7 @@
 		noteUnsavedFrom,
 		setRating,
 		patchLibraryPlaylist,
+		forgetPlaylist,
 		lastPlaylistAdd,
 		lastPlaylistRemove
 	} from '$lib/player.svelte';
@@ -88,7 +92,9 @@
 	let loadingMore = $state(false);
 	let moreError = $state(false);
 	let inflight: Promise<void> | null = null;
+	// The delete confirmation dialog, and the request it is waiting on.
 	let confirmingDelete = $state(false);
+	let deleting = $state(false);
 	// A random song's cover, the hero backdrop when the playlist has no cover of its own.
 	let bgImage = $state<string | null>(null);
 
@@ -106,17 +112,6 @@
 	const longDescription = $derived((pl?.description?.length ?? 0) > 120);
 	// The artwork on the page: whatever the user picked on this machine, else YouTube's own.
 	const art = $derived(thumb(pl?.cover ?? pl?.thumbnail, 400));
-
-	// YouTube's auto-built 2x2 collage of the first four tracks. It comes off yt3 with an `=s<size>`
-	// suffix; every cover somebody actually chose (uploaded here, in YTM, or in Studio) arrives as
-	// `=w<n>-h<n>-...` or straight off i.ytimg. Checked against live browse responses, 2026-09-02.
-	const COLLAGE = /yt3\.(ggpht|googleusercontent)\.com\/.*=s\d+/;
-	// The backdrop: a cover the playlist really has, else a random song's art. The collage isn't a
-	// cover anyone picked, and blown up behind the header it just repeats the rows below it.
-	const backdrop = $derived(
-		thumb(pl?.cover ?? (pl?.thumbnail && !COLLAGE.test(pl.thumbnail) ? pl.thumbnail : null), 1200) ??
-			bgImage
-	);
 
 	// Header filter box: matches title / artist / album over the rows loaded so far.
 	//
@@ -151,6 +146,23 @@
 	const isLiked = $derived(id === api.LIKED_MUSIC_ID);
 	// On Repeat is built locally from play counts: no artwork, and no radio to seed autoplay from.
 	const isOnRepeat = $derived(id === ON_REPEAT_ID);
+	// Kept on this machine (#251): no YouTube item behind it, so no radio and nothing to share, and
+	// every row is already here (no pages to walk).
+	const isLocalList = $derived(api.isLocalPlaylist(id));
+	// YouTube's auto-built 2x2 collage of the first four tracks. It comes off yt3 with an `=s<size>`
+	// suffix; every cover somebody actually chose (uploaded here, in YTM, or in Studio) arrives as
+	// `=w<n>-h<n>-...` or straight off i.ytimg. Checked against live browse responses, 2026-09-02.
+	const COLLAGE = /yt3\.(ggpht|googleusercontent)\.com\/.*=s\d+/;
+	// The backdrop: a cover the playlist really has, else a random song's art. The collage isn't a
+	// cover anyone picked, and blown up behind the header it just repeats the rows below it.
+	// A playlist on this machine has the same problem: its thumbnail is only its first track's art.
+	const backdrop = $derived(
+		thumb(
+			pl?.cover ??
+				(pl?.thumbnail && !COLLAGE.test(pl.thumbnail) && !isLocalList ? pl.thumbnail : null),
+			1200
+		) ?? bgImage
+	);
 	// Only offer rename/delete on playlists the signed-in user actually owns (backend `owned` flag).
 	// Liked Music reports owned but can't be renamed/deleted, so exclude it explicitly.
 	const editable = $derived((pl?.owned ?? false) && !isLiked);
@@ -169,10 +181,15 @@
 	// YouTube's header count includes rows that never make it into the list (unavailable or
 	// region-blocked tracks), so it reads high. Once every page is in, we know the real number, so
 	// swap it in. Until then the header's own count is the only estimate of the total there is.
+	// A playlist on this machine is always all here, so its count is just the rows, in the UI's words.
 	const subtitle = $derived(
-		pl && !pl.continuation && pl.items.length
-			? (pl.subtitle ?? '').replace(/^[\d,.]+ songs?/i, `${pl.items.length} songs`)
-			: pl?.subtitle
+		pl && isLocalList
+			? pl.items.length === 1
+				? t('library.songs_count_one')
+				: t('library.songs_count', { count: pl.items.length })
+			: pl && !pl.continuation && pl.items.length
+				? (pl.subtitle ?? '').replace(/^[\d,.]+ songs?/i, `${pl.items.length} songs`)
+				: pl?.subtitle
 	);
 	// --- sorting (`$lib/sort`) ---------------------------------------------------------------
 	let sort = $state<SortKey>('default');
@@ -862,14 +879,21 @@
 		}
 	}
 
+	// The dialog stays up until the delete lands: a YouTube playlist is a round trip, and the page
+	// should not look deleted while it might still come back with an error.
 	async function deleteThisPlaylist() {
+		if (deleting) return;
+		deleting = true;
 		try {
 			await api.deletePlaylist(id);
 			invalidateCachedPrefix(`playlist:${id}`);
+			forgetPlaylist(id);
 			toast.success(t('toasts.playlist_deleted'));
 			goto('/library');
 		} catch (e) {
 			toast.error(String(e));
+		} finally {
+			deleting = false;
 			confirmingDelete = false;
 		}
 	}
@@ -924,7 +948,16 @@
 				{/if}
 				<div class="relative min-w-0 flex-1">
 					<div class="flex items-center gap-2 text-xs font-medium uppercase text-muted-foreground">
-						Playlist
+						{t('common.playlist_singular')}
+						{#if isLocalList}
+							<span
+								class="flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary"
+								title={t('library.on_this_device_tooltip')}
+							>
+								<HugeiconsIcon icon={ComputerIcon} class="h-3 w-3" />
+								{t('library.on_this_device')}
+							</span>
+						{/if}
 						{#if pl.collaborative}
 							<span
 								class="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary"
@@ -962,24 +995,14 @@
 								<HugeiconsIcon icon={PlayIcon} class="h-4 w-4" />
 								{preparing || resorting ? t('common.sorting') : t('player.play')}
 							</Button>
-							{#if confirmingDelete}
-								<div class="flex items-center gap-2 rounded-lg border border-destructive/40 px-2 py-1">
-									<span class="text-xs text-muted-foreground">{t('library.delete_playlist_confirm')}</span>
-									<Button variant="destructive" size="sm" onclick={deleteThisPlaylist}>{t('common.delete')}</Button>
-									<Button variant="ghost" size="sm" onclick={() => (confirmingDelete = false)}>
-										Cancel
-									</Button>
-								</div>
-							{:else}
-								<Button
-									variant="ghost"
-									size="icon"
-									aria-label={t('a11y.playlist_options')}
-									onclick={openMenu}
-								>
-									<HugeiconsIcon icon={MoreVerticalIcon} class="h-5 w-5 text-muted-foreground" />
-								</Button>
-							{/if}
+							<Button
+								variant="ghost"
+								size="icon"
+								aria-label={t('a11y.playlist_options')}
+								onclick={openMenu}
+							>
+								<HugeiconsIcon icon={MoreVerticalIcon} class="h-5 w-5 text-muted-foreground" />
+							</Button>
 							<TrackSelectButton
 								{selection}
 								class="-ml-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition hover:bg-muted hover:text-foreground"
@@ -1061,6 +1084,16 @@
 					</p>
 				{:else}
 					<p class="p-4 text-sm text-muted-foreground">{t('library.empty_playlist')}</p>
+					<!-- One of yours, so say how to fill it: the add lives on every song's menu, which is
+					     nowhere near this page. -->
+					{#if editable}
+						<div class="flex flex-wrap items-center gap-3 px-4">
+							<p class="text-sm text-muted-foreground">{t('library.empty_playlist_hint')}</p>
+							<Button variant="outline" size="sm" class="gap-2" href="/search">
+								<HugeiconsIcon icon={Search01Icon} class="h-4 w-4" /> {t('nav.search')}
+							</Button>
+						</div>
+					{/if}
 				{/if}
 				{#if pl.continuation}
 					{#if moreError}
@@ -1151,9 +1184,9 @@
 		>
 			<HugeiconsIcon icon={ArrowDownWideNarrowIcon} class="h-4 w-4" /> {t('player.add_to_queue')}
 		</button>
-		<!-- On Repeat is built from local play counts — there is no YouTube playlist to seed a
-		     radio from. -->
-		{#if !isOnRepeat}
+		<!-- On Repeat is built from local play counts, and a playlist on this machine is no YouTube
+		     playlist either: neither has a radio to seed. -->
+		{#if !isOnRepeat && !isLocalList}
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={() => run(() => startRadio('playlist', id, pl?.title))}
@@ -1178,7 +1211,7 @@
 		>
 			<HugeiconsIcon icon={DashboardSquare02Icon} class="h-4 w-4" /> {t('player.add_to_shortcuts')}
 		</button>
-		{#if !isOnRepeat}
+		{#if !isOnRepeat && !isLocalList}
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={() => run(() => openShare(asItem()))}
@@ -1243,4 +1276,32 @@
 		fallback={pl?.thumbnail}
 		onchange={applyEdit}
 	/>
+{/if}
+
+{#if editable}
+	<!-- Closing it mid-request is refused: the delete is already on its way, and a dialog that
+	     vanished would leave its answer (an error toast, or the jump to Library) unexplained. -->
+	<AlertDialog.Root bind:open={() => confirmingDelete, (v) => !deleting && (confirmingDelete = v)}>
+		<AlertDialog.Content>
+			<AlertDialog.Header>
+				<AlertDialog.Media class="bg-destructive/10 text-destructive">
+					<HugeiconsIcon icon={Delete02Icon} />
+				</AlertDialog.Media>
+				<AlertDialog.Title>{t('library.delete_playlist_confirm')}</AlertDialog.Title>
+				<AlertDialog.Description>
+					{t(isLocalList ? 'library.delete_playlist_desc_local' : 'library.delete_playlist_desc', {
+						title: pl?.title ?? t('common.playlist_singular')
+					})}
+				</AlertDialog.Description>
+			</AlertDialog.Header>
+			<AlertDialog.Footer>
+				<AlertDialog.Cancel disabled={deleting}>{t('common.cancel')}</AlertDialog.Cancel>
+				<!-- bits-ui's Action is a plain button (only Cancel closes the dialog), which is what
+				     keeps it open until the request answers. -->
+				<AlertDialog.Action variant="destructive" onclick={deleteThisPlaylist} disabled={deleting}>
+					{deleting ? t('common.loading') : t('common.delete')}
+				</AlertDialog.Action>
+			</AlertDialog.Footer>
+		</AlertDialog.Content>
+	</AlertDialog.Root>
 {/if}

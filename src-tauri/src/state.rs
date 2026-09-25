@@ -32,6 +32,14 @@ pub const ON_REPEAT_WINDOW_SECS: i64 = 30 * 24 * 60 * 60;
 /// How many songs it holds.
 pub const ON_REPEAT_LIMIT: usize = 20;
 
+/// A playlist kept on this machine (issue #251) is the browseId `LOCALPLAYLIST:<row id>`. Like On
+/// Repeat, the playlist commands intercept it and answer from SQLite, and YouTube never sees one.
+pub const LOCAL_PLAYLIST_PREFIX: &str = "LOCALPLAYLIST:";
+
+pub fn is_local_playlist(id: &str) -> bool {
+    id.starts_with(LOCAL_PLAYLIST_PREFIX)
+}
+
 pub struct AppState {
     pub it: InnerTube,
     pub clients: Clients,
@@ -1400,6 +1408,7 @@ impl AppState {
             || id.starts_with(crate::local::ALBUM_PREFIX)
             || id.starts_with(crate::local::ARTIST_PREFIX)
             || id == ON_REPEAT_ID
+            || is_local_playlist(id)
         {
             return Err("This has no radio behind it.".into());
         }
@@ -3784,9 +3793,10 @@ fn guest_insert_index(items: &[SongItem], current: usize) -> usize {
 /// The autoplay radio seed for a queue source: playlist/album pages pass their playlist id
 /// (`VL…` browseId or bare `OLAK5uy_…`/`PL…`) → `RDAMPL<id>` playlist radio. `None` (single
 /// song / artist top-songs) → no pinned seed; autoplay seeds `RDAMVM<last video>` at extension
-/// time instead.
+/// time instead. A playlist on this machine has no YouTube radio, so it gets no seed either, while
+/// keeping its `source_id` (that is what the player's "Remove from this playlist" writes to).
 fn radio_seed_for(source_id: Option<String>) -> Option<String> {
-    source_id.map(|id| {
+    source_id.filter(|id| !is_local_playlist(id)).map(|id| {
         let id = id.strip_prefix("VL").unwrap_or(&id);
         // A mix id already *is* a radio playlist; wrapping it in another `RDAMPL` asks for a
         // playlist YouTube has never heard of. This is the seed that continues a mix past the page
@@ -4237,7 +4247,7 @@ mod tests {
         merge_radio, next_index, parse_duration_ms, persist_fingerprint, prev_track_title, put_url,
         queue_fingerprint, radio_seed_for, shuffle_new_queue, shuffle_upcoming, splice_radio_into,
         trim_played, unshuffled, upcoming_queued, QueueState, RepeatMode, VideoUrls, KEEP_PLAYED,
-        MAX_BOOST_DB,
+        LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -4928,6 +4938,8 @@ mod tests {
         assert_eq!(radio_seed_for(Some("OLAK5uy_x".into())).as_deref(), Some("RDAMPLOLAK5uy_x"));
         // No source (single song / artist top-songs) → no pinned seed.
         assert_eq!(radio_seed_for(None), None);
+        // A playlist on this machine has no YouTube radio: autoplay seeds off the last track.
+        assert_eq!(radio_seed_for(Some(format!("{LOCAL_PLAYLIST_PREFIX}7"))), None);
     }
 
     #[test]

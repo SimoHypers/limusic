@@ -225,13 +225,14 @@
 		"empty_album": "This album is empty.",
 		"play_count": "{count} plays",
 		"added_by": "Added by {user}",
-		"no_playlists_create": "No playlists yet, create one in your Library.",
 		"search_playlists": "Search your playlists…",
 		"no_playlists_hint": "No playlists yet. Save one from its page, or create one in your Library.",
 		"empty_playlist": "This playlist is empty.",
 		"collab": "Collab",
 		"collab_tooltip": "Others can add to this playlist",
 		"delete_playlist_confirm": "Delete this playlist?",
+		"delete_playlist_desc": "“{title}” will be deleted from your YouTube Music account. This can’t be undone.",
+		"delete_playlist_desc_local": "“{title}” will be deleted from this device. This can’t be undone.",
 		"remove_from_library": "Remove from library",
 		"no_tracks_match_loading": "No tracks match “{query}”{loading}.",
 		"still_loading": " yet, still loading",
@@ -252,7 +253,17 @@
 		"no_artists": "No artists yet. They show up once you save their songs or albums.",
 		"on_repeat": "On Repeat",
 		"on_repeat_subtitle": "{count} songs you've played most this month",
-		"songs_count": "{count} songs"
+		"songs_count": "{count} songs",
+		"songs_count_one": "1 song",
+		"on_this_device": "On this device",
+		"on_this_device_tooltip": "Saved on this computer, not on a YouTube Music account",
+		"local_playlist_subtitle": "On this device • {count} songs",
+		"local_playlist_subtitle_one": "On this device • 1 song",
+		"empty_playlist_hint": "Pick Save to playlist from any song’s ⋯ menu to add it here.",
+		"saved_in": "Saved in",
+		"saved_in_one": "Saved in {playlist}",
+		"saved_in_many": "Saved in {count} playlists",
+		"saved_in_more": "and {count} more"
 	},
 	"local": {
 		"scanning": "Scanning folder...",
@@ -555,7 +566,8 @@
 			"public_off": "Only you can see this playlist.",
 			"artwork_note": "Artwork applies here at once and uploads to YouTube Music in the background. Square JPEG or PNG works best.",
 			"pick_artwork": "Choose playlist artwork",
-			"image_filter": "Images"
+			"image_filter": "Images",
+			"local_artwork_note": "Artwork stays on this computer. Square JPEG or PNG works best."
 		},
 		"share": {
 			"title": "Share",
@@ -646,6 +658,15 @@
 			"alone_hint": "Nobody else yet. Share the code above to fill the room.",
 			"copy_code": "Copy code",
 			"copied": "Copied"
+		},
+		"new_playlist": {
+			"where": "Where to keep it",
+			"account": "YouTube Music",
+			"account_desc": "On your account, wherever you sign in",
+			"device": "This device",
+			"device_desc": "No account needed, it stays on this computer",
+			"device_only": "It stays on this computer, no account needed. Sign in to make playlists on YouTube Music instead.",
+			"local_files": "Songs from your computer can only go in a playlist on this device."
 		}
 	},
 	"integrations": {

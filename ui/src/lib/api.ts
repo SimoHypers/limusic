@@ -210,11 +210,21 @@ export const LOCAL_SONG_PREFIX = 'LOCAL:';
 export const LOCAL_ALBUM_PREFIX = 'LOCALALBUM:';
 /** An artist on this disk. Renders through the album route: same page, no YouTube channel. */
 export const LOCAL_ARTIST_PREFIX = 'LOCALARTIST:';
+/**
+ * A playlist kept on this machine, no account needed (#251; mirrors `LOCAL_PLAYLIST_PREFIX` in
+ * state.rs). The playlist commands answer it from SQLite, so it rides the same route and the same
+ * calls as a YouTube playlist, and can hold local files as well as YouTube tracks.
+ */
+export const LOCAL_PLAYLIST_PREFIX = 'LOCALPLAYLIST:';
+export const isLocalPlaylist = (id: string | undefined | null): boolean =>
+	!!id && id.startsWith(LOCAL_PLAYLIST_PREFIX);
+/** Anything with no YouTube item behind it: nothing to share, no radio, no account to save it to. */
 export const isLocalId = (id: string | undefined | null): boolean =>
 	!!id &&
 	(id.startsWith(LOCAL_SONG_PREFIX) ||
 		id.startsWith(LOCAL_ALBUM_PREFIX) ||
-		id.startsWith(LOCAL_ARTIST_PREFIX));
+		id.startsWith(LOCAL_ARTIST_PREFIX) ||
+		id.startsWith(LOCAL_PLAYLIST_PREFIX));
 
 export interface LocalLibrary {
 	/** Watched folders, as absolute paths. */
@@ -499,8 +509,26 @@ const relabelOnRepeat = (item: BrowseItem): BrowseItem =>
 					: t('library.songs_count', { count: parseInt(item.subtitle!, 10) })
 			};
 
+/** Same reason as On Repeat: Rust's "12 songs" on a playlist kept on this machine. */
+const relabelLocal = (item: BrowseItem): BrowseItem => {
+	if (!isLocalPlaylist(item.id)) return relabelOnRepeat(item);
+	const count = parseInt(item.subtitle ?? '', 10);
+	if (Number.isNaN(count)) return item;
+	return {
+		...item,
+		subtitle:
+			count === 1
+				? t('library.local_playlist_subtitle_one')
+				: t('library.local_playlist_subtitle', { count })
+	};
+};
+
+/** Every playlist in the library: On Repeat, the ones on this machine, then the account's. */
 export const getLibrary = () =>
-	invoke<BrowseItem[]>('get_library').then((items) => items.map(relabelOnRepeat));
+	invoke<BrowseItem[]>('get_library').then((items) => items.map(relabelLocal));
+/** Just the playlists on this machine. SQLite only, so it answers offline and signed out. */
+export const getLocalPlaylists = () =>
+	invoke<BrowseItem[]>('local_playlists').then((items) => items.map(relabelLocal));
 export const getLibraryAlbums = () => invoke<BrowseItem[]>('get_library_albums');
 export const getLibraryArtists = () => invoke<BrowseItem[]>('get_library_artists');
 export const getUploadAlbums = () => invoke<BrowseItem[]>('get_upload_albums');
@@ -610,7 +638,14 @@ export const removeFromPlaylist = (playlistId: string, videoId: string, setVideo
 /** Bulk removal: one request, all or nothing. `tracks` is [videoId, setVideoId] per row. */
 export const removeManyFromPlaylist = (playlistId: string, tracks: [string, string][]) =>
 	invoke<void>('remove_many_from_playlist', { playlistId, tracks });
-export const createPlaylist = (title: string) => invoke<string>('create_playlist', { title });
+/** `local` keeps it on this machine instead of the account, the only kind there is signed out.
+ *  Answers the new id: a `LOCALPLAYLIST:` browseId for a local one, YouTube's playlist id else. */
+export const createPlaylist = (title: string, local = false) =>
+	invoke<string>('create_playlist', { title, local });
+/** Add whole songs to a playlist on this machine, in one write. Answers per song whether it went
+ *  in: `false` means the playlist already had it. Local files are fine here. */
+export const addToLocalPlaylist = (playlistId: string, items: SongItem[]) =>
+	invoke<boolean[]>('add_to_local_playlist', { playlistId, items });
 /** Name / description / visibility, from the "Edit playlist" dialog. Leave a field out and
  *  YouTube is never told about it, so an untouched one can't be overwritten. */
 export const editPlaylistDetails = (

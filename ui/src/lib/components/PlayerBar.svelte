@@ -202,10 +202,11 @@
 		</div>
 		{#if playback.now}
 			<div class="flex items-center">
-				<!-- A local file has no YouTube identity (see api.isLocalId): nothing to like, and no
-				     YTM playlist to add it to. Below lg both drop and the ⋮ menu carries them instead:
-				     on a narrow window three buttons here leave the title almost no room. lg, not md:
-				     the window's minWidth is 900 (tauri.conf.json), so md never fires. -->
+				<!-- A local file has no YouTube identity (see api.isLocalId): nothing to like. It can
+				     still go in a playlist on this machine, so + stays. Below lg both drop and the ⋮
+				     menu carries them instead: on a narrow window three buttons here leave the title
+				     almost no room. lg, not md: the window's minWidth is 900 (tauri.conf.json), so md
+				     never fires. -->
 				{#if !api.isLocalId(playback.now.videoId)}
 					<Button
 						variant="ghost"
@@ -225,26 +226,30 @@
 							/>
 						</span>
 					</Button>
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						class="hidden lg:inline-flex"
-						onclick={() => {
-							const now = playback.now!;
-							openAddToPlaylist({
+				{/if}
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					class="hidden lg:inline-flex"
+					onclick={() => {
+						// The queue's row when it is there: it carries the album and the artist links
+						// that a playlist on this machine keeps, and the now-playing event does not.
+						const now = playback.now!;
+						openAddToPlaylist(
+							currentSong ?? {
 								video_id: now.videoId,
 								title: now.title,
 								artists: now.artists,
 								artist_id: now.artistId,
 								thumbnail: now.thumbnail,
 								duration: now.duration
-							});
-						}}
-						aria-label={t('player.save_to_playlist')}
-					>
-						<HugeiconsIcon icon={Add01Icon} class="h-4 w-4 text-muted-foreground" />
-					</Button>
-				{/if}
+							}
+						);
+					}}
+					aria-label={t('player.save_to_playlist')}
+				>
+					<HugeiconsIcon icon={Add01Icon} class="h-4 w-4 text-muted-foreground" />
+				</Button>
 				{#if currentSong}
 					<TrackMenu
 						song={currentSong}

@@ -77,8 +77,9 @@ impl Db {
     /// [`Db::open`], but a database that cannot be opened is moved aside and a fresh one is
     /// created in its place.
     ///
-    /// The file holds a cache plus a little UI state (queue, settings, play counts). Losing it
-    /// costs the user their resume position and their On Repeat history. Failing to open it costs
+    /// The file holds a cache plus a little UI state (queue, settings, play counts), and the
+    /// playlists kept on this machine. Losing it costs the user their resume position, their On
+    /// Repeat history and those playlists (still in the moved-aside copy). Failing to open it costs
     /// them the whole app: `open` is called from Tauri's `setup`, before any window exists, so a
     /// hard failure there is a process that starts and vanishes with nothing on screen. Between
     /// those two, starting is worth more.
@@ -199,6 +200,31 @@ impl Db {
                 visitor_data           TEXT,
                 added_at               INTEGER NOT NULL
             );
+            -- Playlists kept on this machine, no account needed (issue #251). Unlike everything
+            -- above except `accounts`, this is the user's own data and not a cache: nothing
+            -- rebuilds it. AUTOINCREMENT on both so an id is never handed out twice: a shortcut,
+            -- a pin or an open page left pointing at a deleted playlist (or a removed row) must
+            -- not quietly land on whatever took its number.
+            CREATE TABLE IF NOT EXISTS local_playlists (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                title       TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                created_at  INTEGER NOT NULL,
+                updated_at  INTEGER NOT NULL
+            );
+            -- One row per track, in the order added (`id`). The row id is the track's
+            -- `set_video_id`, the same handle a YouTube playlist row carries for its removal.
+            -- `song_json` is the whole `SongItem`, so the playlist opens with no network at all.
+            CREATE TABLE IF NOT EXISTS local_playlist_tracks (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                playlist_id INTEGER NOT NULL,
+                video_id    TEXT NOT NULL,
+                song_json   TEXT NOT NULL,
+                added_at    INTEGER NOT NULL,
+                UNIQUE (playlist_id, video_id)
+            );
+            CREATE INDEX IF NOT EXISTS local_playlist_tracks_video
+                ON local_playlist_tracks(video_id);
             "#,
         )?;
         // Migrate pre-Phase-4 DBs that predate the loudness_db column. Errors ("duplicate column")
@@ -790,14 +816,21 @@ impl Db {
         );
     }
 
-    /// videoId → the playlists holding it. ponytail: the whole table in one go, like
-    /// `local_tracks`, since an owned-playlist library is thousands of rows and the UI needs random
-    /// access to it on every row it draws.
+    /// videoId → the playlists holding it, the ones on this machine included (as their
+    /// `LOCALPLAYLIST:` browseIds), so the saved mark and "Remove from this playlist" treat both
+    /// kinds alike. ponytail: the whole table in one go, like `local_tracks`, since an
+    /// owned-playlist library is thousands of rows and the UI needs random access to it on every
+    /// row it draws.
     pub fn playlist_memberships(&self) -> std::collections::HashMap<String, Vec<String>> {
         let conn = self.0.lock().unwrap();
         let mut out: std::collections::HashMap<String, Vec<String>> =
             std::collections::HashMap::new();
-        if let Ok(mut stmt) = conn.prepare("SELECT video_id, playlist_id FROM playlist_track") {
+        let sql = format!(
+            "SELECT video_id, playlist_id FROM playlist_track UNION ALL \
+             SELECT video_id, '{}' || playlist_id FROM local_playlist_tracks",
+            crate::state::LOCAL_PLAYLIST_PREFIX
+        );
+        if let Ok(mut stmt) = conn.prepare(&sql) {
             if let Ok(rows) =
                 stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
             {
@@ -809,10 +842,163 @@ impl Db {
         out
     }
 
-    /// The index is per-account, so signing out or switching channel empties it.
+    /// The index is per-account, so signing out or switching channel empties it. The playlists on
+    /// this machine belong to no account and are not in that table.
     pub fn clear_playlist_index(&self) {
         let conn = self.0.lock().unwrap();
         let _ = conn.execute("DELETE FROM playlist_track", []);
+    }
+
+    // --- playlists on this machine (issue #251) -----------------------------------------------
+    // The user's own data, so unlike the cache writes above every write here answers whether it
+    // happened: a playlist edit that silently did nothing is a lost edit.
+
+    pub fn create_local_playlist(&self, title: &str, now: i64) -> rusqlite::Result<i64> {
+        let conn = self.0.lock().unwrap();
+        conn.execute(
+            "INSERT INTO local_playlists(title, created_at, updated_at) VALUES(?1, ?2, ?2)",
+            rusqlite::params![title, now],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Every playlist, the most recently changed first (YouTube's own library order).
+    pub fn local_playlists(&self) -> Vec<LocalPlaylist> {
+        self.query_local_playlists(None)
+    }
+
+    pub fn local_playlist(&self, id: i64) -> Option<LocalPlaylist> {
+        self.query_local_playlists(Some(id)).pop()
+    }
+
+    fn query_local_playlists(&self, id: Option<i64>) -> Vec<LocalPlaylist> {
+        let conn = self.0.lock().unwrap();
+        let sql = format!(
+            "SELECT p.id, p.title, p.description,
+                    (SELECT COUNT(*) FROM local_playlist_tracks t WHERE t.playlist_id = p.id),
+                    (SELECT song_json FROM local_playlist_tracks t WHERE t.playlist_id = p.id
+                     ORDER BY t.id LIMIT 1)
+             FROM local_playlists p {}
+             ORDER BY p.updated_at DESC, p.id DESC",
+            if id.is_some() { "WHERE p.id = ?1" } else { "" }
+        );
+        let row = |r: &rusqlite::Row| {
+            Ok(LocalPlaylist {
+                id: r.get(0)?,
+                title: r.get(1)?,
+                description: r.get(2)?,
+                count: r.get(3)?,
+                first_song: r.get(4)?,
+            })
+        };
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(&sql) {
+            let rows = match id {
+                Some(id) => stmt.query_map([id], row),
+                None => stmt.query_map([], row),
+            };
+            if let Ok(rows) = rows {
+                out.extend(rows.flatten());
+            }
+        }
+        out
+    }
+
+    /// One playlist's tracks in the order they were added, as `(row id, song_json)`.
+    pub fn local_playlist_tracks(&self, id: i64) -> Vec<(i64, String)> {
+        let conn = self.0.lock().unwrap();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT id, song_json FROM local_playlist_tracks WHERE playlist_id = ?1 ORDER BY id",
+        ) {
+            if let Ok(rows) = stmt.query_map([id], |r| Ok((r.get(0)?, r.get(1)?))) {
+                out.extend(rows.flatten());
+            }
+        }
+        out
+    }
+
+    /// Append `(video_id, song_json)` rows, answering per row whether it went in: `false` is a
+    /// track the playlist already holds, which is refused the way YouTube refuses one. One
+    /// transaction, so a bulk add of a whole album is one fsync and lands all or nothing.
+    pub fn add_local_playlist_tracks(
+        &self,
+        id: i64,
+        songs: &[(String, String)],
+        now: i64,
+    ) -> rusqlite::Result<Vec<bool>> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        let exists: bool =
+            tx.query_row("SELECT COUNT(*) FROM local_playlists WHERE id = ?1", [id], |r| {
+                r.get::<_, i64>(0).map(|n| n > 0)
+            })?;
+        if !exists {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        let mut added = Vec::with_capacity(songs.len());
+        for (video_id, json) in songs {
+            let n = tx.execute(
+                "INSERT OR IGNORE INTO local_playlist_tracks(playlist_id, video_id, song_json, \
+                 added_at) VALUES(?1, ?2, ?3, ?4)",
+                rusqlite::params![id, video_id, json, now],
+            )?;
+            added.push(n > 0);
+        }
+        if added.contains(&true) {
+            tx.execute("UPDATE local_playlists SET updated_at = ?1 WHERE id = ?2", [now, id])?;
+        }
+        tx.commit()?;
+        Ok(added)
+    }
+
+    /// Drop rows by their row id. Scoped to the playlist, so a stale id from another list can
+    /// never take out someone else's row.
+    pub fn remove_local_playlist_tracks(
+        &self,
+        id: i64,
+        rows: &[i64],
+        now: i64,
+    ) -> rusqlite::Result<()> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        for row in rows {
+            tx.execute(
+                "DELETE FROM local_playlist_tracks WHERE playlist_id = ?1 AND id = ?2",
+                [id, *row],
+            )?;
+        }
+        tx.execute("UPDATE local_playlists SET updated_at = ?1 WHERE id = ?2", [now, id])?;
+        tx.commit()
+    }
+
+    /// Rename and/or re-describe. `None` leaves that field as it is. Errors when there is no such
+    /// playlist, rather than reporting an edit nothing received.
+    pub fn edit_local_playlist(
+        &self,
+        id: i64,
+        title: Option<&str>,
+        description: Option<&str>,
+        now: i64,
+    ) -> rusqlite::Result<()> {
+        let conn = self.0.lock().unwrap();
+        let n = conn.execute(
+            "UPDATE local_playlists SET title = COALESCE(?1, title),
+                 description = COALESCE(?2, description), updated_at = ?3 WHERE id = ?4",
+            rusqlite::params![title, description, now, id],
+        )?;
+        if n == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        Ok(())
+    }
+
+    pub fn delete_local_playlist(&self, id: i64) -> rusqlite::Result<()> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM local_playlist_tracks WHERE playlist_id = ?1", [id])?;
+        tx.execute("DELETE FROM local_playlists WHERE id = ?1", [id])?;
+        tx.commit()
     }
 
     // --- local music library (local.rs) -------------------------------------------------------
@@ -946,6 +1132,17 @@ pub struct LocalTrack {
     pub mtime: i64,
 }
 
+/// A playlist kept on this machine, as the library grid and the playlist header need it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalPlaylist {
+    pub id: i64,
+    pub title: String,
+    pub description: String,
+    pub count: i64,
+    /// The first track's stored `SongItem`, whose artwork stands in for a cover nobody picked.
+    pub first_song: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1028,6 +1225,57 @@ mod tests {
         assert_eq!(d.playlist_memberships().keys().collect::<Vec<_>>(), vec!["c"]);
         d.retain_playlists(&[]);
         assert!(d.playlist_memberships().is_empty());
+    }
+
+    #[test]
+    fn local_playlists_hold_tracks_in_order_and_outlive_the_account_index() {
+        let d = db();
+        let song = |v: &str| (v.to_string(), format!(r#"{{"video_id":"{v}"}}"#));
+        let a = d.create_local_playlist("Road trip", 10).unwrap();
+        let b = d.create_local_playlist("Empty", 11).unwrap();
+        assert_ne!(a, b);
+
+        // A duplicate is refused per row, the rest of the batch still lands.
+        let added = d.add_local_playlist_tracks(a, &[song("x"), song("y"), song("x")], 20).unwrap();
+        assert_eq!(added, [true, true, false]);
+        assert!(d.add_local_playlist_tracks(999, &[song("z")], 20).is_err(), "no such playlist");
+
+        // Most recently changed first; the count and the first track come with the row.
+        let all = d.local_playlists();
+        assert_eq!(all.iter().map(|p| p.id).collect::<Vec<_>>(), [a, b]);
+        assert_eq!((all[0].count, all[1].count), (2, 0));
+        assert_eq!(all[0].first_song.as_deref(), Some(r#"{"video_id":"x"}"#));
+        assert_eq!(all[1].first_song, None);
+        let rows = d.local_playlist_tracks(a);
+        assert_eq!(rows.iter().map(|r| r.1.contains('x')).collect::<Vec<_>>(), [true, false]);
+
+        // The membership index names it by browseId, and the account-side prunes leave it alone.
+        let key = format!("{}{a}", crate::state::LOCAL_PLAYLIST_PREFIX);
+        d.set_playlist_tracks("VL1", &["x".into()]);
+        d.clear_playlist_index();
+        d.retain_playlists(&[]);
+        assert_eq!(d.playlist_memberships()["x"], vec![key.clone()]);
+
+        // A row id only removes inside its own playlist.
+        d.remove_local_playlist_tracks(b, &[rows[0].0], 30).unwrap();
+        assert_eq!(d.local_playlist_tracks(a).len(), 2);
+        d.remove_local_playlist_tracks(a, &[rows[0].0], 30).unwrap();
+        assert_eq!(d.local_playlist(a).unwrap().first_song.as_deref(), Some(r#"{"video_id":"y"}"#));
+        assert!(!d.playlist_memberships().contains_key("x"));
+
+        d.edit_local_playlist(a, Some("Renamed"), None, 40).unwrap();
+        d.edit_local_playlist(a, None, Some("notes"), 41).unwrap();
+        let p = d.local_playlist(a).unwrap();
+        assert_eq!((p.title.as_str(), p.description.as_str()), ("Renamed", "notes"));
+        assert!(d.edit_local_playlist(999, Some("x"), None, 42).is_err());
+
+        d.delete_local_playlist(a).unwrap();
+        assert!(d.local_playlist(a).is_none());
+        assert!(d.local_playlist_tracks(a).is_empty(), "its rows go with it");
+        // AUTOINCREMENT: a deleted playlist's number is never handed to the next one, not even
+        // once the table is empty (a plain rowid would start again from 1).
+        d.delete_local_playlist(b).unwrap();
+        assert!(d.create_local_playlist("New", 50).unwrap() > b);
     }
 
     #[test]
@@ -1699,6 +1947,12 @@ mod tests {
         assert_eq!((tracks[0].path.as_str(), tracks[0].title.as_str()), ("/music/a.mp3", "A"));
         assert_eq!(tracks[0].album_artist, None, "{tag}: a new column reads as unknown");
         assert_eq!(d.playlist_memberships()["dQw4w9WgXcQ"], vec!["VL1"], "{tag}");
+        // The playlists-on-this-device tables are new in 1.0.0, so every older file must get them.
+        let mine = d.create_local_playlist("Mine", now).unwrap();
+        assert_eq!(
+            d.add_local_playlist_tracks(mine, &[("v".into(), "{}".into())], now).unwrap(),
+            [true]
+        );
 
         // Checkpoint 4: still signed in. One account, keyed the way this build computes it,
         // carrying the identity the old release stored, and pointed at as the active one.

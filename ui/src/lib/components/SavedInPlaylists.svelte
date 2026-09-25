@@ -10,6 +10,8 @@
 	import type { BrowseItem } from '$lib/api';
 	import { hrefFor } from '$lib/browse';
 	import { anchorMenu, fitMenu, NO_ANCHOR, toBody } from '$lib/menu';
+	import { thumb } from '$lib/thumb';
+	import { t } from '$lib/i18n.svelte';
 
 	let { playlists }: { playlists: BrowseItem[] } = $props();
 
@@ -38,8 +40,8 @@
 
 	const label = $derived(
 		playlists.length === 1
-			? `Saved in ${playlists[0].title}`
-			: `Saved in ${playlists.length} playlists`
+			? t('library.saved_in_one', { playlist: playlists[0].title })
+			: t('library.saved_in_many', { count: playlists.length })
 	);
 </script>
 
@@ -70,7 +72,7 @@
 		{@attach toBody}
 	>
 		<p class="px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-			Saved in
+			{t('library.saved_in')}
 		</p>
 		{#each shown as pl (pl.id)}
 			<a
@@ -79,7 +81,8 @@
 				onclick={() => (open = false)}
 			>
 				{#if pl.thumbnail}
-					<img src={pl.thumbnail} alt="" class="h-7 w-7 shrink-0 rounded object-cover" />
+					<!-- thumb(): a playlist on this machine can wear a local file's art, a path. -->
+					<img src={thumb(pl.thumbnail, 96)} alt="" class="h-7 w-7 shrink-0 rounded object-cover" />
 				{:else}
 					<div class="h-7 w-7 shrink-0 rounded bg-muted"></div>
 				{/if}
@@ -87,7 +90,9 @@
 			</a>
 		{/each}
 		{#if extra > 0}
-			<p class="px-2 pb-1 pt-0.5 text-xs text-muted-foreground">and {extra} more</p>
+			<p class="px-2 pb-1 pt-0.5 text-xs text-muted-foreground">
+				{t('library.saved_in_more', { count: extra })}
+			</p>
 		{/if}
 	</div>
 {/if}

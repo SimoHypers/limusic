@@ -11,7 +11,7 @@
 	} from '@hugeicons/core-free-icons';
 	import { Button } from './ui/button';
 	import { enqueue, openAddManyToPlaylist, ui } from '$lib/player.svelte';
-	import { isLocalId, type SongItem } from '$lib/api';
+	import type { SongItem } from '$lib/api';
 	import { t } from '$lib/i18n.svelte';
 	import type { TrackSelection } from '$lib/selection.svelte';
 
@@ -35,7 +35,8 @@
 		selection.count;
 		confirmRemove = false;
 	});
-	const canAdd = $derived(selection.count > 0 && selection.songs.every((s) => !isLocalId(s.video_id)));
+	// Local files included: the picker narrows itself to the playlists on this machine for them.
+	const canAdd = $derived(selection.count > 0);
 	const blocked = $derived(busy || selection.selectingAll || selection.pending > 0);
 
 	function onKey(e: KeyboardEvent) {

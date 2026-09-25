@@ -13,25 +13,16 @@
 		PinIcon,
 		MusicNote01Icon,
 		ListRestartIcon,
+		ComputerIcon,
 		SquareArrowLeft01Icon,
 		SquareArrowRight01Icon
 	} from '@hugeicons/core-free-icons';
 	import { toggleMode } from 'mode-watcher';
 	import { Button } from '$lib/components/ui/button';
-	import { Input } from '$lib/components/ui/input';
-	import * as Dialog from '$lib/components/ui/dialog';
-	import { ON_REPEAT_ID, type BrowseItem } from '$lib/api';
+	import { ON_REPEAT_ID, isLocalPlaylist, type BrowseItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import PlaylistMenu from './PlaylistMenu.svelte';
-	import {
-		auth,
-		library,
-		personal,
-		ui,
-		createLibraryPlaylist,
-		toggleSidebar,
-		toast
-	} from '$lib/player.svelte';
+	import { library, personal, ui, openNewPlaylist, toggleSidebar } from '$lib/player.svelte';
 	import { mergeSaved, orderLibrary } from '$lib/personal';
 	import { t } from '$lib/i18n.svelte';
 
@@ -67,26 +58,6 @@
 			: item.kind === 'artist'
 				? `/artist/${encodeURIComponent(item.id)}`
 				: `/playlist/${encodeURIComponent(item.id)}`;
-
-	// New-playlist dialog (mirrors the Library page).
-	let dialogOpen = $state(false);
-	let newTitle = $state('');
-	let creating = $state(false);
-	async function createNew() {
-		const title = newTitle.trim();
-		if (!title || creating) return;
-		creating = true;
-		try {
-			await createLibraryPlaylist(title);
-			toast.success(t('toasts.playlist_created', { title }));
-			newTitle = '';
-			dialogOpen = false;
-		} catch (e) {
-			toast.error(String(e));
-		} finally {
-			creating = false;
-		}
-	}
 
 	// Account lives in the titlebar now — see AccountMenu.svelte.
 
@@ -176,110 +147,82 @@
 	</nav>
 
 	<!-- Playlists. Hidden on the icon rail (needs labels; matches YTM's collapsed rail). flex-1 lets
-	     the list fill the space and scroll. Signed out the section still appears once there is
-	     something in it: On Repeat, or a playlist saved on this machine. -->
-	{#if auth.account?.signedIn || playlists.length}
-		<div class="mt-3 hidden min-h-0 flex-1 flex-col border-t pt-3 {wide('lg:flex')}">
-			<!-- Creating one is a YouTube write action, so it needs an account. -->
-			{#if auth.account?.signedIn}
-				<Button
-					variant="outline"
-					size="sm"
-					class="mb-2 w-full gap-2"
-					onclick={() => (dialogOpen = true)}
-				>
-					<HugeiconsIcon icon={Add01Icon} class="h-4 w-4" /> {t('nav.new_playlist')}
-				</Button>
-			{/if}
-			<div class="min-h-0 flex-1 overflow-y-auto">
-				{#each playlists as pl, i (pl.id)}
-					<!-- The ⋯ is a sibling of the link, not a child: a <button> inside an <a> is invalid
-					     HTML. pr-9 keeps the title clear of the button that overlays the row on hover. -->
-					<div class="group/row relative" data-ctx>
-						<a
-							href={playlistHref(pl)}
-							title={pl.title}
-							class="flex items-center gap-2.5 rounded-lg py-1.5 pl-2 pr-9 transition-colors hover:bg-sidebar-accent/50"
+	     the list fill the space and scroll. Always there, signed out included: a playlist can be
+	     made on this machine without an account (#251). -->
+	<div class="mt-3 hidden min-h-0 flex-1 flex-col border-t pt-3 {wide('lg:flex')}">
+		<Button variant="outline" size="sm" class="mb-2 w-full gap-2" onclick={() => openNewPlaylist()}>
+			<HugeiconsIcon icon={Add01Icon} class="h-4 w-4" /> {t('nav.new_playlist')}
+		</Button>
+		<div class="min-h-0 flex-1 overflow-y-auto">
+			{#each playlists as pl, i (pl.id)}
+				<!-- The ⋯ is a sibling of the link, not a child: a <button> inside an <a> is invalid
+				     HTML. pr-9 keeps the title clear of the button that overlays the row on hover. -->
+				<div class="group/row relative" data-ctx>
+					<a
+						href={playlistHref(pl)}
+						title={pl.title}
+						class="flex items-center gap-2.5 rounded-lg py-1.5 pl-2 pr-9 transition-colors hover:bg-sidebar-accent/50"
+					>
+						<div
+							class="relative h-10 w-10 shrink-0 overflow-hidden bg-muted {pl.kind === 'artist'
+								? 'rounded-full'
+								: 'rounded-md'}"
 						>
-							<div
-								class="relative h-10 w-10 shrink-0 overflow-hidden bg-muted {pl.kind === 'artist'
-									? 'rounded-full'
-									: 'rounded-md'}"
-							>
-								{#if pl.thumbnail && pl.id !== ON_REPEAT_ID}
-									<img
-										src={thumb(pl.thumbnail, 96)}
-										alt=""
-										class="h-full w-full object-cover"
-										loading="lazy"
-									/>
-								{:else}
-									<!-- On Repeat has no artwork by nature: icon tile, same as its card. -->
-									<div
-										class="flex h-full w-full items-center justify-center {pl.id === ON_REPEAT_ID
-											? 'bg-primary/10 text-primary'
-											: 'text-muted-foreground/50'}"
-									>
-										<!-- altIcon/showAlt, not a ternary: `icon` is read once at mount. -->
-										<HugeiconsIcon
-											icon={MusicNote01Icon}
-											altIcon={ListRestartIcon}
-											showAlt={pl.id === ON_REPEAT_ID}
-											class={pl.id === ON_REPEAT_ID ? 'h-5 w-5' : 'h-4 w-4'}
-										/>
-									</div>
-								{/if}
-							</div>
-							{#if personal.pins.includes(pl.id)}
-								<span
-									class="absolute left-9 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground shadow"
+							{#if pl.thumbnail && pl.id !== ON_REPEAT_ID}
+								<img
+									src={thumb(pl.thumbnail, 96)}
+									alt=""
+									class="h-full w-full object-cover"
+									loading="lazy"
+								/>
+							{:else}
+								<!-- On Repeat has no artwork by nature: icon tile, same as its card. -->
+								<div
+									class="flex h-full w-full items-center justify-center {pl.id === ON_REPEAT_ID
+										? 'bg-primary/10 text-primary'
+										: 'text-muted-foreground/50'}"
 								>
-									<HugeiconsIcon icon={PinIcon} class="h-2.5 w-2.5" />
-								</span>
+									<!-- altIcon/showAlt, not a ternary: `icon` is read once at mount. -->
+									<HugeiconsIcon
+										icon={MusicNote01Icon}
+										altIcon={ListRestartIcon}
+										showAlt={pl.id === ON_REPEAT_ID}
+										class={pl.id === ON_REPEAT_ID ? 'h-5 w-5' : 'h-4 w-4'}
+									/>
+								</div>
 							{/if}
-							<div class="min-w-0 flex-1">
-								<div class="truncate text-[13px] font-medium">{pl.title}</div>
-								{#if pl.subtitle}
-									<div class="truncate text-xs text-muted-foreground">{rowSubtitle(pl.subtitle)}</div>
-								{/if}
-							</div>
-						</a>
-						<PlaylistMenu item={pl} />
-					</div>
-					{#if pinnedCount && i === pinnedCount - 1}
-						<div class="mx-3 my-1.5 h-px bg-border"></div>
-					{/if}
-				{:else}
-					{#if library.loading}
-						<p class="px-3 py-1.5 text-xs text-muted-foreground">{t('common.loading')}</p>
-					{/if}
-				{/each}
-			</div>
+						</div>
+						{#if personal.pins.includes(pl.id)}
+							<span
+								class="absolute left-9 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground shadow"
+							>
+								<HugeiconsIcon icon={PinIcon} class="h-2.5 w-2.5" />
+							</span>
+						{/if}
+						<div class="min-w-0 flex-1">
+							<div class="truncate text-[13px] font-medium">{pl.title}</div>
+							{#if pl.subtitle}
+								<!-- The rail keeps only the count, so a playlist on this machine says
+								     where it lives with an icon instead of the words. -->
+								<div class="flex items-center gap-1 text-xs text-muted-foreground">
+									{#if isLocalPlaylist(pl.id)}
+										<HugeiconsIcon icon={ComputerIcon} class="h-3 w-3 shrink-0" />
+									{/if}
+									<span class="truncate">{rowSubtitle(pl.subtitle)}</span>
+								</div>
+							{/if}
+						</div>
+					</a>
+					<PlaylistMenu item={pl} />
+				</div>
+				{#if pinnedCount && i === pinnedCount - 1}
+					<div class="mx-3 my-1.5 h-px bg-border"></div>
+				{/if}
+			{:else}
+				{#if library.loading}
+					<p class="px-3 py-1.5 text-xs text-muted-foreground">{t('common.loading')}</p>
+				{/if}
+			{/each}
 		</div>
-
-		<Dialog.Root bind:open={dialogOpen}>
-			<Dialog.Content class="sm:max-w-md">
-				<Dialog.Header>
-					<Dialog.Title>{t('dialogs.edit_playlist.new_title')}</Dialog.Title>
-					<Dialog.Description>{t('dialogs.edit_playlist.desc_placeholder')}</Dialog.Description>
-				</Dialog.Header>
-				<form
-					class="flex flex-col gap-4"
-					onsubmit={(e) => {
-						e.preventDefault();
-						createNew();
-					}}
-				>
-					<Input bind:value={newTitle} placeholder={t('dialogs.edit_playlist.name_placeholder')} autofocus />
-					<Dialog.Footer>
-						<Button type="button" variant="outline" onclick={() => (dialogOpen = false)}>{t('common.cancel')}</Button>
-						<Button type="submit" disabled={creating || !newTitle.trim()}>
-							{creating ? t('common.loading') : t('common.create')}
-						</Button>
-					</Dialog.Footer>
-				</form>
-			</Dialog.Content>
-		</Dialog.Root>
-	{/if}
-
+	</div>
 </aside>

@@ -781,6 +781,8 @@ pub fn run() {
             commands::set_song_saved,
             commands::set_album_saved,
             commands::add_to_playlist,
+            commands::add_to_local_playlist,
+            commands::local_playlists,
             commands::remove_from_playlist,
             commands::remove_many_from_playlist,
             commands::create_playlist,

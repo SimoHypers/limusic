@@ -278,9 +278,9 @@
 				<HugeiconsIcon icon={Radio02Icon} class="h-4 w-4" /> {t('player.start_radio')}
 			</button>
 		{/if}
-		<!-- Copies the tracks into one of your playlists. An artist has no track list to copy, and
-		     local folders have nothing YouTube would accept. -->
-		{#if onYouTube && (item.kind === 'album' || item.kind === 'playlist')}
+		<!-- Copies the tracks into one of your playlists. An artist has no track list to copy. Local
+		     albums and playlists on this machine count: the picker offers what can take them. -->
+		{#if item.id !== api.ON_REPEAT_ID && (item.kind === 'album' || item.kind === 'playlist')}
 			<button
 				class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10 disabled:opacity-50"
 				disabled={adding}

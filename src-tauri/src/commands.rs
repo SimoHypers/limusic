@@ -10,7 +10,10 @@ use innertube::{
 use tauri::{Emitter, State};
 
 use crate::blocked::BlockedArtist;
-use crate::state::{AppState, ON_REPEAT_ID, ON_REPEAT_LIMIT, ON_REPEAT_WINDOW_SECS};
+use crate::state::{
+    is_local_playlist, AppState, LOCAL_PLAYLIST_PREFIX, ON_REPEAT_ID, ON_REPEAT_LIMIT,
+    ON_REPEAT_WINDOW_SECS,
+};
 
 type St<'a> = State<'a, Arc<AppState>>;
 
@@ -692,6 +695,11 @@ pub async fn get_library(state: St<'_>) -> Result<Vec<BrowseItem>, String> {
             },
         );
     }
+    // The playlists on this machine next, signed in or not: they belong to no account.
+    let at = usize::from(items.first().is_some_and(|i| i.id == ON_REPEAT_ID));
+    let local: Vec<BrowseItem> =
+        state.db.local_playlists().iter().map(|p| local_playlist_card(&state, p)).collect();
+    items.splice(at..at, local);
     // A card has nowhere to put two images, so a custom cover simply is the artwork here.
     for item in &mut items {
         if let Some(cover) = custom_cover(&state, &item.id) {
@@ -769,6 +777,9 @@ pub async fn get_playlist(
             collaborative: false,
             sort_menu: None, // built from local history, so YouTube has no order to give
         });
+    }
+    if is_local_playlist(&id) {
+        return local_playlist_page(&state, &id);
     }
     let client = metadata_client(&state)?;
     let sort = sort.map(|s| (s, desc.unwrap_or(false)));
@@ -979,6 +990,11 @@ fn editable_playlist<'a>(
     if playlist_id == LIKED_MUSIC_ID {
         return Err("Liked Music follows your likes; like the song instead.".into());
     }
+    // The commands that edit one dispatch before they get here. This is the net for any that
+    // doesn't, so a playlist on this machine can never reach YouTube as an id it has never seen.
+    if is_local_playlist(playlist_id) {
+        return Err("This playlist is on this device, so that isn't available for it.".into());
+    }
     require_login(state)
 }
 
@@ -1014,8 +1030,9 @@ pub async fn sync_playlist_index(
     state: St<'_>,
 ) -> Result<std::collections::HashMap<String, Vec<String>>, String> {
     if !state.it.is_logged_in() {
+        // What is left is the playlists on this machine, which no account owns.
         state.db.clear_playlist_index();
-        return Ok(std::collections::HashMap::new());
+        return Ok(state.db.playlist_memberships());
     }
     let fresh_until = state
         .db
@@ -1094,6 +1111,10 @@ pub async fn remove_from_playlist(
     video_id: String,
     set_video_id: String,
 ) -> Result<(), String> {
+    if is_local_playlist(&playlist_id) {
+        let row = set_video_id.parse().map_err(|_| GONE.to_string())?;
+        return remove_local_rows(&state, &playlist_id, &[row]);
+    }
     let client = editable_playlist(&state, &playlist_id)?;
     state
         .it
@@ -1114,6 +1135,13 @@ pub async fn remove_many_from_playlist(
     playlist_id: String,
     tracks: Vec<(String, String)>,
 ) -> Result<(), String> {
+    if is_local_playlist(&playlist_id) {
+        let rows = tracks
+            .iter()
+            .map(|(_, row)| row.parse().map_err(|_| GONE.to_string()))
+            .collect::<Result<Vec<i64>, _>>()?;
+        return remove_local_rows(&state, &playlist_id, &rows);
+    }
     let client = editable_playlist(&state, &playlist_id)?;
     state
         .it
@@ -1126,8 +1154,22 @@ pub async fn remove_many_from_playlist(
     Ok(())
 }
 
+/// `local`: keep it on this machine instead of the account (issue #251), which is the only kind
+/// there is while signed out. Answers the new playlist's id, a `LOCALPLAYLIST:` browseId for that.
 #[tauri::command]
-pub async fn create_playlist(state: St<'_>, title: String) -> Result<String, String> {
+pub async fn create_playlist(
+    state: St<'_>,
+    title: String,
+    local: Option<bool>,
+) -> Result<String, String> {
+    if local.unwrap_or(false) {
+        let title = title.trim();
+        if title.is_empty() {
+            return Err("Give the playlist a name.".into());
+        }
+        let id = state.db.create_local_playlist(title, crate::db::now_secs()).map_err(db_err)?;
+        return Ok(format!("{LOCAL_PLAYLIST_PREFIX}{id}"));
+    }
     let client = require_login(&state)?;
     state.it.create_playlist(client, &title).await.map_err(|e| e.to_string())
 }
@@ -1144,6 +1186,18 @@ pub async fn edit_playlist_details(
     description: Option<String>,
     public: Option<bool>,
 ) -> Result<(), String> {
+    // Nobody else can see a playlist on this machine, so there is no visibility to set.
+    if is_local_playlist(&playlist_id) {
+        let name = name.as_deref().map(str::trim);
+        if name == Some("") {
+            return Err("Give the playlist a name.".into());
+        }
+        let key = local_key(&playlist_id)?;
+        return state
+            .db
+            .edit_local_playlist(key, name, description.as_deref(), crate::db::now_secs())
+            .map_err(db_err);
+    }
     let client = editable_playlist(&state, &playlist_id)?;
     // The switch is two-state; YouTube's third value (UNLISTED) is only ever left as it was.
     let privacy = public.map(|p| if p { "PUBLIC" } else { "PRIVATE" });
@@ -1269,7 +1323,7 @@ pub struct CoverResult {
 /// playlist's cover on this machine. Signed out (or On Repeat, which YouTube has never heard of),
 /// there is nothing to sync and local is all there ever was.
 fn sync_cover(state: &Arc<AppState>, playlist_id: &str, path: String) {
-    if playlist_id == ON_REPEAT_ID || !state.it.is_logged_in() {
+    if playlist_id == ON_REPEAT_ID || is_local_playlist(playlist_id) || !state.it.is_logged_in() {
         return;
     }
     let state = Arc::clone(state);
@@ -1307,7 +1361,7 @@ async fn clear_cover_on_youtube(
     state: &Arc<AppState>,
     playlist_id: &str,
 ) -> Result<Option<String>, String> {
-    if playlist_id == ON_REPEAT_ID || !state.it.is_logged_in() {
+    if playlist_id == ON_REPEAT_ID || is_local_playlist(playlist_id) || !state.it.is_logged_in() {
         return Ok(None);
     }
     let client = metadata_client(state)?;
@@ -1334,10 +1388,137 @@ fn custom_cover(state: &Arc<AppState>, playlist_id: &str) -> Option<String> {
 
 #[tauri::command]
 pub async fn delete_playlist(state: St<'_>, playlist_id: String) -> Result<(), String> {
+    if is_local_playlist(&playlist_id) {
+        state.db.delete_local_playlist(local_key(&playlist_id)?).map_err(db_err)?;
+        // Its artwork was a copy made for it, so it goes too.
+        if let Some(cover) = state.db.get_setting(&cover_key(&playlist_id)) {
+            let _ = std::fs::remove_file(cover);
+            state.db.delete_setting(&cover_key(&playlist_id));
+        }
+        return Ok(());
+    }
     let client = editable_playlist(&state, &playlist_id)?;
     state.it.delete_playlist(client, &playlist_id).await.map_err(|e| e.to_string())?;
     state.db.forget_playlist(&playlist_id);
     Ok(())
+}
+
+// --- playlists on this machine (issue #251) --------------------------------------------------
+// A `LOCALPLAYLIST:<n>` id reaches the same commands a YouTube playlist does (get, add, remove,
+// edit, cover, delete), and each one answers it from SQLite before any of the YouTube path runs.
+// That is what lets every playlist surface in the UI take both kinds without branching.
+
+const GONE: &str = "This playlist is no longer on this device.";
+
+/// `LOCALPLAYLIST:<n>` → n. An id with the prefix and no number is still not YouTube's, so it is
+/// an error rather than a fall-through to a browse YouTube would 400.
+fn local_key(id: &str) -> Result<i64, String> {
+    id.strip_prefix(LOCAL_PLAYLIST_PREFIX).and_then(|n| n.parse().ok()).ok_or_else(|| GONE.into())
+}
+
+fn db_err(e: rusqlite::Error) -> String {
+    match e {
+        rusqlite::Error::QueryReturnedNoRows => GONE.into(),
+        e => e.to_string(),
+    }
+}
+
+/// The library card. The subtitle is English on purpose: Rust never learns the UI language, so
+/// `api.ts` rewords it on the way in, the same as On Repeat's.
+fn local_playlist_card(state: &Arc<AppState>, p: &crate::db::LocalPlaylist) -> BrowseItem {
+    let id = format!("{LOCAL_PLAYLIST_PREFIX}{}", p.id);
+    // A cover the user picked, else the first track's art, which is what YouTube shows for a
+    // playlist too short for its four-track collage.
+    let thumbnail = custom_cover(state, &id).or_else(|| {
+        let first = p.first_song.as_deref()?;
+        serde_json::from_str::<SongItem>(first).ok()?.thumbnail
+    });
+    BrowseItem {
+        kind: "playlist",
+        id,
+        title: p.title.clone(),
+        subtitle: Some(format!("{} songs", p.count)),
+        thumbnail,
+        duration: None,
+        album_id: None,
+        artist_runs: Vec::new(),
+        play_count: None,
+        is_video: false,
+        is_upload: false,
+        explicit: false,
+    }
+}
+
+fn local_playlist_page(state: &Arc<AppState>, id: &str) -> Result<PlaylistPage, String> {
+    let key = local_key(id)?;
+    let p = state.db.local_playlist(key).ok_or(GONE)?;
+    // The row id rides as the `set_video_id`, the handle every removal path already sends back.
+    // A row whose JSON no longer parses (a `SongItem` shape change) is skipped, not fatal.
+    let items: Vec<SongItem> = state
+        .db
+        .local_playlist_tracks(key)
+        .into_iter()
+        .filter_map(|(row, json)| {
+            let song: SongItem = serde_json::from_str(&json).ok()?;
+            Some(SongItem { set_video_id: Some(row.to_string()), ..song })
+        })
+        .collect();
+    Ok(PlaylistPage {
+        title: Some(p.title),
+        subtitle: Some(format!("{} songs", items.len())), // the page words its own count
+        thumbnail: items.first().and_then(|s| s.thumbnail.clone()),
+        description: (!p.description.is_empty()).then_some(p.description),
+        privacy: None,
+        cover: custom_cover(state, id),
+        items,
+        continuation: None, // it is all here: nothing to page through
+        owned: true,
+        collaborative: false,
+        sort_menu: None, // no server to keep an order, so every sort is done on the page
+    })
+}
+
+/// What a track keeps once it is in a playlist: the song, none of the context it was added from
+/// (`shed_queue_context`), and no snapshot of account state that would go stale behind it. The
+/// rating is read live (the override map, the saved-in index), and Library ▸ Songs tokens are
+/// minted per row for one account while these playlists belong to none.
+fn playlist_row(s: SongItem) -> SongItem {
+    SongItem { rating: None, library: None, ..shed_queue_context(s) }
+}
+
+fn remove_local_rows(state: &Arc<AppState>, playlist_id: &str, rows: &[i64]) -> Result<(), String> {
+    let key = local_key(playlist_id)?;
+    state.db.remove_local_playlist_tracks(key, rows, crate::db::now_secs()).map_err(db_err)
+}
+
+/// Just the playlists on this machine, as library cards. The UI re-reads these after every edit
+/// (the count and the artwork follow the tracks), and falls back on them when the account's
+/// library can't be fetched, since these need no network.
+#[tauri::command]
+pub async fn local_playlists(state: St<'_>) -> Result<Vec<BrowseItem>, String> {
+    Ok(state.db.local_playlists().iter().map(|p| local_playlist_card(&state, p)).collect())
+}
+
+/// Add tracks to a playlist on this machine, answering per track whether it went in (`false`: it
+/// was there already, refused the way YouTube refuses one). Whole `SongItem`s rather than the
+/// videoIds `add_to_playlist` takes, because nothing will ever fill in a title or artwork later:
+/// there is no YouTube playlist to re-read. Files on disk are welcome, unlike in a YouTube one.
+#[tauri::command]
+pub async fn add_to_local_playlist(
+    state: St<'_>,
+    playlist_id: String,
+    items: Vec<SongItem>,
+) -> Result<Vec<bool>, String> {
+    let key = local_key(&playlist_id)?;
+    let rows = items
+        .into_iter()
+        .map(|song| {
+            let song = playlist_row(song);
+            let json = serde_json::to_string(&song).map_err(|e| e.to_string())?;
+            Ok((song.video_id, json))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    state.db.add_local_playlist_tracks(key, &rows, crate::db::now_secs()).map_err(db_err)
 }
 
 #[tauri::command]

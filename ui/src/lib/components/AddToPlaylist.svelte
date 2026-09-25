@@ -2,18 +2,12 @@
 	import { fade, scale } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { Cancel01Icon } from '@hugeicons/core-free-icons';
+	import { Add01Icon, Cancel01Icon, ComputerIcon } from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import type { BrowseItem } from '$lib/api';
+	import { thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
-	import {
-		ui,
-		auth,
-		toast,
-		bumpLibraryTrackCount,
-		notePlaylistAdd,
-		noteSavedIn
-	} from '$lib/player.svelte';
+	import { ui, toast, addSongsToPlaylist, openNewPlaylist } from '$lib/player.svelte';
 
 	let playlists = $state<BrowseItem[]>([]);
 	let loading = $state(false);
@@ -24,22 +18,32 @@
 	$effect(() => {
 		box?.focus();
 	});
+	// A file on disk has no YouTube identity, so only a playlist on this machine can hold one.
+	const hasLocalFiles = $derived(!!ui.addSongs?.some((s) => api.isLocalId(s.video_id)));
+	const targets = $derived(
+		hasLocalFiles ? playlists.filter((p) => api.isLocalPlaylist(p.id)) : playlists
+	);
 	// ponytail: plain substring, not fuzzy. A library is tens of playlists, and "rap" finding
 	// "Rap Caviar" is what issue #100 actually asked for.
 	const matches = $derived(
-		playlists.filter((p) => p.title.toLowerCase().includes(filter.trim().toLowerCase()))
+		targets.filter((p) => p.title.toLowerCase().includes(filter.trim().toLowerCase()))
 	);
 
 	// Fetch the library playlists fresh each time the picker opens (cheap; picks up new playlists).
 	// On Repeat and Liked Music are dropped: On Repeat is built from local play counts, and Liked
 	// Music takes likes rather than playlist edits (YouTube 400s the add). The command boundary
-	// refuses both too, but a target you can tap and can't use is the bug.
+	// refuses both too, but a target you can tap and can't use is the bug. When the account's half
+	// can't be fetched, the playlists on this machine still can: they need no network.
 	$effect(() => {
 		if (ui.addSongs) {
 			loading = true;
 			filter = '';
 			api
 				.getLibrary()
+				.catch((e) => {
+					toast.error(String(e));
+					return api.getLocalPlaylists();
+				})
 				.then(
 					(p) =>
 						(playlists = p.filter(
@@ -55,75 +59,18 @@
 		ui.addSongs = null;
 	}
 
-	async function pick(pl: BrowseItem) {
+	function pick(pl: BrowseItem) {
 		if (ui.addPending) return;
 		const songs = ui.addSongs;
 		close();
-		if (!songs?.length) return;
-		if (songs.some((s) => api.isLocalId(s.video_id))) {
-			toast.error(t('selection.local_playlist'));
-			return;
-		}
-		const epoch = auth.epoch;
-		ui.addPending = true;
-		const added: typeof songs = [];
-		const confirmed: typeof songs = [];
-		let failure: string | null = null;
-		try {
-			// Sequential — bulk selection can contain thousands of rows; avoid concurrent writes.
-			// YouTube refuses a track the playlist already holds, so only the ones it accepted get
-			// counted and drawn: an optimistic row for a refused add is a row that can never be
-			// removed (no setVideoId behind it) until the app restarts.
-			for (const song of songs) {
-				if (epoch !== auth.epoch) break;
-				try {
-					if (await api.addToPlaylist(pl.id, song.video_id)) added.push(song);
-					confirmed.push(song);
-				} catch (e) {
-					failure = String(e);
-					break;
-				}
-			}
-			// A switched account owns different caches. Stop the batch and never patch those caches.
-			if (epoch !== auth.epoch) {
-				toast.error(t('selection.account_changed'));
-				return;
-			}
-			const dupes = confirmed.length - added.length;
-			// Every song, not just the accepted ones: a refusal means the playlist already holds it,
-			// so its "saved" mark is right either way.
-			noteSavedIn(pl.id, confirmed.map((s) => s.video_id));
-			if (added.length) {
-				bumpLibraryTrackCount(pl.id, added.length);
-				notePlaylistAdd(pl.id, added);
-			}
-			if (failure !== null) {
-				toast.error(t('selection.playlist_partial', {
-					added: added.length, playlist: pl.title, duplicates: dupes,
-					remaining: songs.length - confirmed.length, error: failure
-				}));
-			} else if (!added.length) {
-				toast(
-					dupes > 1
-						? t('toasts.already_in_all', { count: dupes, playlist: pl.title })
-						: t('toasts.already_in', { playlist: pl.title })
-				);
-			} else if (dupes) {
-				toast.success(
-					t('toasts.added_to_playlist_dupes', { count: added.length, playlist: pl.title, dupes })
-				);
-			} else {
-				toast.success(
-					added.length > 1
-						? t('toasts.added_songs', { count: added.length, playlist: pl.title })
-						: t('toasts.added_one', { playlist: pl.title })
-				);
-			}
-		} catch (e) {
-			toast.error(String(e));
-		} finally {
-			ui.addPending = false;
-		}
+		if (songs?.length) addSongsToPlaylist(pl, songs);
+	}
+
+	// Hands the songs to the create dialog, which adds them once the playlist exists.
+	function createNew() {
+		const songs = ui.addSongs ?? [];
+		close();
+		openNewPlaylist(songs);
 	}
 </script>
 
@@ -156,7 +103,19 @@
 					<HugeiconsIcon icon={Cancel01Icon} class="h-4 w-4" />
 				</button>
 			</div>
-			{#if playlists.length > 1}
+			<button
+				class="mb-1 flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-accent/10"
+				onclick={createNew}
+			>
+				<div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+					<HugeiconsIcon icon={Add01Icon} class="h-5 w-5" />
+				</div>
+				<span class="text-sm font-medium">{t('nav.new_playlist')}</span>
+			</button>
+			{#if hasLocalFiles}
+				<p class="mb-2 px-2 text-xs text-muted-foreground">{t('dialogs.new_playlist.local_files')}</p>
+			{/if}
+			{#if targets.length > 1}
 				<input
 					bind:this={box}
 					bind:value={filter}
@@ -175,23 +134,28 @@
 							onclick={() => pick(pl)}
 						>
 							{#if pl.thumbnail}
-								<img src={pl.thumbnail} alt="" class="h-10 w-10 rounded-md object-cover" />
+								<!-- thumb(): a playlist on this machine can wear a local file's art, a path. -->
+								<img src={thumb(pl.thumbnail, 96)} alt="" class="h-10 w-10 rounded-md object-cover" />
 							{:else}
 								<div class="h-10 w-10 rounded-md bg-muted"></div>
 							{/if}
 							<div class="min-w-0">
 								<div class="truncate text-sm font-medium">{pl.title}</div>
 								{#if pl.subtitle}
-									<div class="truncate text-xs text-muted-foreground">{pl.subtitle}</div>
+									<div class="flex items-center gap-1 truncate text-xs text-muted-foreground">
+										{#if api.isLocalPlaylist(pl.id)}
+											<HugeiconsIcon icon={ComputerIcon} class="h-3 w-3 shrink-0" />
+										{/if}
+										<span class="truncate">{pl.subtitle}</span>
+									</div>
 								{/if}
 							</div>
 						</button>
 					{/each}
 				</div>
-			{:else}
-				<p class="p-2 text-sm text-muted-foreground">
-					{filter.trim() ? t('common.no_matches') : t('library.no_playlists_create')}
-				</p>
+			{:else if filter.trim()}
+				<!-- With no playlists at all there is nothing to say: the New playlist row is the way on. -->
+				<p class="p-2 text-sm text-muted-foreground">{t('common.no_matches')}</p>
 			{/if}
 		</div>
 	</div>
