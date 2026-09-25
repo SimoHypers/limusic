@@ -71,6 +71,9 @@
 	// a few thousand rows is well under a millisecond.
 	let query = $state('');
 	const filtering = $derived(!!query.trim());
+	// The walk below starts when the box takes focus, not on the first keystroke, so it runs while
+	// the query is still being typed (#316).
+	let searchOpened = $state(false);
 	const shownSongs = $derived(filterTracks(songs, query));
 	$effect(() => {
 		query; // a narrower list starts from the first page again
@@ -173,7 +176,7 @@
 	// it guards the effect, it shouldn't re-run it).
 	let walking = false;
 	$effect(() => {
-		if (!filtering || !token || moreError || walking) return;
+		if ((!filtering && !searchOpened) || !token || moreError || walking) return;
 		walking = true;
 		(async () => {
 			while (token && !moreError) {
@@ -281,7 +284,11 @@
 					</Button>
 				</div>
 			</div>
-			<TrackFilter bind:value={query} placeholder={t('common.search_your_songs')} />
+			<TrackFilter
+				bind:value={query}
+				placeholder={t('common.search_your_songs')}
+				onfocus={() => (searchOpened = true)}
+			/>
 		</div>
 	</div>
 

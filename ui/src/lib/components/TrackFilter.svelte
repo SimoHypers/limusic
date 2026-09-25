@@ -2,7 +2,8 @@
 	Filter box for a track list (playlist / album header).
 
 	Purely client-side, over the rows already loaded. A long playlist arrives a page at a time, so
-	the pages the sentinel hasn't fetched yet can't match; scrolling loads them as usual.
+	the pages the sentinel hasn't fetched yet can't match. A list that pages passes `onfocus` and
+	starts fetching the rest there, so the walk runs while the query is still being typed.
 -->
 <script module lang="ts">
 	import type { SongItem } from '$lib/api';
@@ -27,8 +28,9 @@
 
 	let {
 		value = $bindable(''),
-		placeholder = t('common.search_this_list')
-	}: { value?: string; placeholder?: string } = $props();
+		placeholder = t('common.search_this_list'),
+		onfocus
+	}: { value?: string; placeholder?: string; onfocus?: () => void } = $props();
 </script>
 
 <div
@@ -43,6 +45,7 @@
 		bind:value
 		{placeholder}
 		aria-label={placeholder}
+		{onfocus}
 		class="w-48 min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
 		onkeydown={(e) => e.key === 'Escape' && (value = '')}
 	/>

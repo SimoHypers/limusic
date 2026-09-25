@@ -129,6 +129,9 @@
 	let query = $state('');
 	let applied = $state('');
 	let filterTimer: ReturnType<typeof setTimeout> | undefined;
+	// Set when the box takes focus, so the walk below starts while the query is still being typed
+	// rather than after it: on a 4,000-track playlist that walk is 40 chained requests (#316).
+	let searchOpened = $state(false);
 	$effect(() => {
 		const q = query;
 		// Clearing the box is instant: there is nothing to compute and nothing to fetch, and a
@@ -384,6 +387,10 @@
 		sortOpen = true;
 	}
 
+	// Page 1 and the header agree, so the rows `a` walked in past page 1 are still the list's.
+	const sameRows = (a: PlaylistPage, b: PlaylistPage) =>
+		a.subtitle === b.subtitle && b.items.every((t, i) => a.items[i]?.video_id === t.video_id);
+
 	async function load(pid: string) {
 		// A sort YouTube keeps is read back off the response below; this store only holds the ones
 		// it cannot (see `rememberSort`), so an entry here means "ask for exactly this".
@@ -399,6 +406,7 @@
 		sortOpen = false;
 		query = '';
 		applied = '';
+		searchOpened = false;
 		clearTimeout(filterTimer);
 		// A page that failed on the last playlist would otherwise keep this one's retry state
 		// showing, and block the filter's own walk (`loadAll` bails while it's set).
@@ -422,10 +430,19 @@
 			// Superseded by navigation, or by a sort picked off the cached rows while this was in
 			// the air — either way `fetchSorted` owns the page now, so drop this response.
 			if (pid !== id || sort !== askedSort || desc !== askedDesc) return;
-			pl = fresh;
+			// This re-reads page 1 only. When it and the header ("4,012 tracks") still match the rows
+			// on screen, keep the pages walked in behind them: dropping those is what made every
+			// search on a long playlist walk the whole list again (#316).
+			// ponytail: an edit made elsewhere that leaves page 1 and the count alone (one track
+			// swapped for another deep in the list) shows only once the cache entry expires.
+			const next =
+				pl && sameRows(pl, fresh)
+					? { ...fresh, items: pl.items, continuation: pl.continuation }
+					: fresh;
+			pl = next;
 			if (!saved) sort = fresh.sortMenu?.selected ?? 'default';
 			bgImage = pickCover(fresh.items);
-			putCached(key, fresh);
+			putCached(key, next);
 		} catch (e) {
 			if (pid !== id) return;
 			if (!hit) error = String(e);
@@ -591,7 +608,7 @@
 	let stalledAt: string | null = null;
 	$effect(() => {
 		// Recover selected occurrences in the new server order before enabling bulk actions.
-		if ((!filtering && !selection.pending) || !pl?.continuation || walkingFor === id || moreError) return;
+		if ((!filtering && !searchOpened && !selection.pending) || !pl?.continuation || walkingFor === id || moreError) return;
 		if (stalledAt === pl.continuation) return;
 		const pid = id;
 		walkingFor = pid;
@@ -994,7 +1011,11 @@
 					</div>
 				</div>
 				<div class="absolute right-6 top-6">
-					<TrackFilter bind:value={query} placeholder={t('common.search_this_playlist')} />
+					<TrackFilter
+						bind:value={query}
+						placeholder={t('common.search_this_playlist')}
+						onfocus={() => (searchOpened = true)}
+					/>
 				</div>
 			</div>
 			<TrackSelectionBar
