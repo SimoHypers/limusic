@@ -28,7 +28,7 @@ const FOLDERS_SETTING: &str = "local_folders";
 /// Bumped whenever `read_track` starts producing different titles, artists or album keys. The scan
 /// normally trusts stored rows whose file hasn't changed; after a bump it re-reads everything once,
 /// so a library isn't left half-parsed by the old rules and half by the new ones.
-const SCAN_VERSION: &str = "6";
+const SCAN_VERSION: &str = "7";
 const SCAN_VERSION_SETTING: &str = "local_scan_version";
 
 /// Extensions we pick up. Playback itself is mpv, which decodes far more than this — the list is
@@ -265,11 +265,20 @@ fn read_track(file: &Path, path: &str, mtime: i64, covers_dir: &Path) -> LocalTr
         album,
         album_key,
         album_artist,
-        track_no: tag.and_then(|t| t.track()).unwrap_or(0) as i64,
+        track_no: number(tag, &ItemKey::TrackNumber),
+        disc_no: number(tag, &ItemKey::DiscNumber),
         duration_secs,
         cover,
         mtime,
     }
+}
+
+/// A track or disc number, 0 when there is none. Read by hand because lofty's `track()` and
+/// `disk()` parse the whole string, and a FLAC tag often holds "1/2", which they read as nothing.
+fn number(tag: Option<&lofty::tag::Tag>, key: &ItemKey) -> i64 {
+    tag.and_then(|t| t.get_string(key))
+        .and_then(|s| s.split('/').next()?.trim().parse().ok())
+        .unwrap_or(0)
 }
 
 /// "PARTYNEXTDOOR, Drake - CN TOWER" → (artist, title). Splits on the first " - " only, so
@@ -693,6 +702,7 @@ mod tests {
             album_key: key.into(),
             album_artist: None,
             track_no: 1,
+            disc_no: 0,
             duration_secs: 10,
             cover: None,
             mtime: 1,
@@ -915,6 +925,56 @@ mod tests {
         );
         assert!(db.local_tracks(None).is_empty(), "and both rows are gone");
         assert!(forget_missing(&db, "/m/a.mp3").len() == 1, "forgetting twice is harmless");
+    }
+
+    #[test]
+    fn a_two_disc_album_plays_disc_by_disc() {
+        // Issue #315: both discs number from 1, so sorting on the track alone interleaved them.
+        let t = |path: &str, title: &str, disc: i64, n: i64| LocalTrack {
+            title: title.into(),
+            disc_no: disc,
+            track_no: n,
+            ..track(path, "Various", "Expeditions", "sasha--expeditions")
+        };
+        let titles = |tracks: &[LocalTrack]| {
+            let db = Db::open(Path::new(":memory:")).unwrap();
+            db.put_local_tracks(tracks);
+            let page = album_page(&db, "sasha--expeditions");
+            page.items.into_iter().map(|s| s.title).collect::<Vec<_>>()
+        };
+
+        // Tagged discs, all in one folder.
+        assert_eq!(
+            titles(&[
+                t("/m/2-01.flac", "Waters of Jericho", 2, 1),
+                t("/m/1-02.flac", "Stage One", 1, 2),
+                t("/m/1-01.flac", "Tyrantanic", 1, 1),
+                t("/m/2-02.flac", "Sexual Movement", 2, 2),
+            ]),
+            ["Tyrantanic", "Stage One", "Waters of Jericho", "Sexual Movement"]
+        );
+        // No disc tag, but a folder per disc.
+        assert_eq!(
+            titles(&[
+                t("/m/CD2/01.flac", "Waters of Jericho", 0, 1),
+                t("/m/CD1/02.flac", "Stage One", 0, 2),
+                t("/m/CD1/01.flac", "Tyrantanic", 0, 1),
+                t("/m/CD2/02.flac", "Sexual Movement", 0, 2),
+            ]),
+            ["Tyrantanic", "Stage One", "Waters of Jericho", "Sexual Movement"]
+        );
+    }
+
+    #[test]
+    fn numbers_read_through_a_total() {
+        let mut tag = lofty::tag::Tag::new(lofty::tag::TagType::VorbisComments);
+        tag.insert_text(ItemKey::DiscNumber, "2/2".into());
+        tag.insert_text(ItemKey::TrackNumber, " 07 ".into());
+        assert_eq!(number(Some(&tag), &ItemKey::DiscNumber), 2);
+        assert_eq!(number(Some(&tag), &ItemKey::TrackNumber), 7);
+        tag.insert_text(ItemKey::DiscNumber, "A".into());
+        assert_eq!(number(Some(&tag), &ItemKey::DiscNumber), 0, "junk reads as no disc");
+        assert_eq!(number(None, &ItemKey::DiscNumber), 0);
     }
 
     #[test]
