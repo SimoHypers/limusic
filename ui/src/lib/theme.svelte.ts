@@ -115,7 +115,10 @@ export const appearance = $state({
 	/** Take the accent colour from the playing track's cover, crossfading on each change. */
 	artworkAccent: false,
 	/** Remember the queue history toggle across views and restarts (#119). */
-	queueHistoryVisible: false
+	queueHistoryVisible: false,
+	/** Theater mode's second and third columns (#297). Sticky, like every view toggle. */
+	theaterLyrics: true,
+	theaterQueue: false
 });
 
 export function setAppearance(patch: Partial<typeof appearance>): void {
@@ -450,7 +453,15 @@ export function initTheme(): void {
 	}
 	try {
 		const saved = JSON.parse(localStorage.getItem(APPEARANCE_KEY) ?? '{}');
-		for (const k of ['artworkBackground', 'tabbedPlayer', 'openPlayerOnPlay', 'artworkAccent', 'queueHistoryVisible'] as const) {
+		for (const k of [
+			'artworkBackground',
+			'tabbedPlayer',
+			'openPlayerOnPlay',
+			'artworkAccent',
+			'queueHistoryVisible',
+			'theaterLyrics',
+			'theaterQueue'
+		] as const) {
 			if (typeof saved?.[k] === 'boolean') appearance[k] = saved[k];
 		}
 	} catch {

@@ -1059,7 +1059,7 @@ export const ui = $state({
 	ltOpen: false, // the Listen Together modal
 	linkOpen: false, // the "open a pasted link" modal
 	paletteOpen: false, // the Ctrl+K search palette
-	theaterOpen: false, // fullscreen theater view (artwork + lyrics)
+	theaterOpen: false, // fullscreen theater view (artwork + lyrics and/or queue)
 	shortcutsOpen: false, // the Ctrl+H (⌘/ on macOS) keyboard-shortcuts list
 	channelPickerOpen: false,
 	channelPickerRequired: false, // true while a multi-channel login is not finalized yet

@@ -1,7 +1,7 @@
 <script lang="ts">
-	// Theater mode: the window goes fullscreen and the app is replaced by one thing — the cover and
-	// the controls on the left, the lyrics on the right. Mounted by +layout behind `ui.theaterOpen`,
-	// so mounting is what turns fullscreen on and unmounting is what turns it back off. That keeps
+	// Theater mode: the window goes fullscreen and the app is replaced by one thing: the cover and
+	// the controls on the left, the lyrics and/or the queue on the right (#297). Mounted by +layout
+	// behind `ui.theaterOpen`, so mounting is what turns fullscreen on and unmounting is what turns it back off. That keeps
 	// the flag the only switch: nothing else has to remember to undo the window state.
 	//
 	// PERFORMANCE, read before adding anything pretty. WebKitGTK re-runs a filter for the *damaged*
@@ -16,6 +16,7 @@
 	//     every frame and drags every other repaint with it.
 	// Depth comes from radial gradients, which are painted fills and cost nothing.
 	import { onMount } from 'svelte';
+	import { MediaQuery } from 'svelte/reactivity';
 	import { beforeNavigate } from '$app/navigation';
 	import { fade, fly, scale } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
@@ -29,6 +30,7 @@
 		PauseIcon,
 		PlayIcon,
 		PreviousIcon,
+		Queue01Icon,
 		RepeatIcon,
 		RepeatOne01Icon,
 		ShuffleIcon,
@@ -48,11 +50,13 @@
 	} from '$lib/player.svelte';
 	import { artworkAccent } from '$lib/artcolor';
 	import { hexToHsv } from '$lib/color';
-	import { appearance } from '$lib/theme.svelte';
+	import { appearance, setAppearance } from '$lib/theme.svelte';
 	import { thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
 	import ArtistLine from './ArtistLine.svelte';
 	import LyricsView from './LyricsView.svelte';
+	import QueueList from './QueueList.svelte';
+	import type { QueueScrollMemory } from '$lib/queue-history';
 
 	const close = () => (ui.theaterOpen = false);
 
@@ -255,10 +259,35 @@
 	let volDragging = $state(false);
 	const volOpen = $derived(volHover || volDragging);
 
-	// Lyrics on or off. On by default, and local to the view: turning them off is "I want to look at
-	// the cover for this song", not a setting. Off, the player is the only thing on screen and
-	// centres itself.
-	let showLyrics = $state(true);
+	// Lyrics and queue, each a sticky switch (lyrics on by default). Both fit beside the player only
+	// from 90rem: below that the lyrics column would be ~20 characters wide at theater size, so the
+	// two share one column and turning one on turns the other off. A pair saved on a wider screen
+	// shows the queue here, the one that had to be asked for. Neither on, the player centres itself.
+	const roomy = new MediaQuery('(min-width: 90rem)');
+	const queueShown = $derived(appearance.theaterQueue);
+	const lyricsShown = $derived(appearance.theaterLyrics && (!queueShown || roomy.current));
+	const both = $derived(lyricsShown && queueShown);
+	function toggleLyrics() {
+		const on = !lyricsShown;
+		setAppearance({ theaterLyrics: on, ...(on && !roomy.current && { theaterQueue: false }) });
+	}
+	function toggleQueue() {
+		const on = !queueShown;
+		setAppearance({ theaterQueue: on, ...(on && !roomy.current && { theaterLyrics: false }) });
+	}
+	// The queue hugs the player rather than taking the elastic half: a track row has nothing to do
+	// with 60rem of width. Three columns tighten the gap so the lyrics keep what they can.
+	const band = $derived(
+		both
+			? 'gap-12 grid-cols-[minmax(18rem,0.8fr)_minmax(0,1.2fr)_minmax(0,22rem)]'
+			: lyricsShown
+				? 'gap-10 xl:gap-20 lg:grid-cols-[minmax(20rem,0.85fr)_minmax(0,1.15fr)]'
+				: queueShown
+					? 'gap-10 xl:gap-20 lg:grid-cols-[minmax(20rem,32rem)_minmax(0,36rem)] lg:justify-center'
+					: 'gap-10 xl:gap-20'
+	);
+	// Survives the queue being toggled off and on; the view itself starts fresh each time it opens.
+	const queueScrollMemory: QueueScrollMemory = {};
 
 	let justLiked = $state(false);
 	function toggleLike() {
@@ -335,19 +364,17 @@
 		</button>
 	</header>
 
-	<!-- === The band. Two tracks, both vertically centred against the same height, so neither column
-	     dangles. Lyrics take the elastic half: they are the thing you read. Below lg there is no
-	     room for two and the player wins. === -->
+	<!-- === The band. Up to three tracks, all vertically centred against the same height, so no
+	     column dangles. Lyrics take the elastic share: they are the thing you read. Below lg there
+	     is no room for two and the player wins. === -->
 	<div
-		class="relative z-10 mx-auto grid min-h-0 w-full max-w-[104rem] flex-1 grid-rows-[minmax(0,1fr)] gap-10 px-8 pb-10 xl:gap-20 xl:px-14 {showLyrics
-			? 'lg:grid-cols-[minmax(20rem,0.85fr)_minmax(0,1.15fr)]'
-			: ''}"
+		class="relative z-10 mx-auto grid min-h-0 w-full max-w-[104rem] flex-1 grid-rows-[minmax(0,1fr)] px-8 pb-10 xl:px-14 {band}"
 	>
 		<!-- --art: the cover's side, whichever is smaller of the column and the height left once the
 		     top strip, the meta and the controls have taken theirs.
 		     ponytail: 25rem is those measured, not computed; raise it if the controls block grows. -->
 		<div
-			class="mx-auto w-full self-center {showLyrics ? 'max-w-[30rem]' : 'max-w-[34rem]'}"
+			class="mx-auto w-full self-center {lyricsShown || queueShown ? 'max-w-[30rem]' : 'max-w-[34rem]'}"
 			style="--art:min(100%, 100vh - 25rem)"
 		>
 			<div class="relative mx-auto" style="width:var(--art);max-width:100%">
@@ -448,18 +475,12 @@
 					{/if}
 				</div>
 				<div class="flex shrink-0 items-center gap-1 pt-1.5">
-					<!-- Hidden below lg, where there is no second column for the lyrics to be in. -->
-					<button
-						onclick={() => (showLyrics = !showLyrics)}
-						class="hidden h-10 w-10 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-foreground/10 lg:flex {showLyrics
-							? 'text-primary'
-							: 'text-muted-foreground hover:text-foreground'}"
-						aria-label={t('player.lyrics')}
-						aria-pressed={showLyrics}
-						title={t('player.lyrics')}
-					>
-						<HugeiconsIcon icon={Mic01Icon} class="h-[18px] w-[18px]" />
-					</button>
+					<!-- What sits beside the player, as one pill so it reads as a view switch rather than
+					     two more actions next to like. Hidden below lg, where there is no second column. -->
+					<div class="mr-1 hidden items-center gap-0.5 rounded-full bg-foreground/[0.06] p-1 lg:flex">
+						{@render column(Mic01Icon, t('player.lyrics'), lyricsShown, toggleLyrics)}
+						{@render column(Queue01Icon, t('player.queue'), queueShown, toggleQueue)}
+					</div>
 					{#if playback.now && !local}
 						<button
 							onclick={toggleLike}
@@ -581,7 +602,7 @@
 		     Never give this a `mask-image` for the end fades, however tempting: it buffers the whole
 		     scroller offscreen on every scroll frame. Same for `backdrop-filter` (see the header).
 		     The scrollbar is hidden from out here, since the child owns the scroller. === -->
-		{#if showLyrics}
+		{#if lyricsShown}
 			<!-- `in:` only, never `transition:`. An out transition keeps this in the DOM after the grid
 			     has already dropped to one column, so it lands as a second *row* and the player
 			     centres itself in two visible steps: sideways now, downwards 400ms later. -->
@@ -592,5 +613,32 @@
 				<LyricsView expanded />
 			</div>
 		{/if}
+		<!-- === The queue, on the backdrop like the lyrics and for the same reason. It keeps its
+		     scrollbar: a playlist queue runs to thousands of rows, and it is the only thing here you
+		     scroll by hand. So the wheel is the list's, not the volume's (stopped before it reaches
+		     the section). === -->
+		{#if queueShown}
+			<div
+				in:fly={{ y: 24, duration: 400, easing: cubicOut }}
+				onwheel={(e) => e.stopPropagation()}
+				class="hidden h-full min-h-0 flex-col overflow-hidden lg:flex"
+			>
+				<QueueList scrollMemory={queueScrollMemory} />
+			</div>
+		{/if}
 	</div>
 </section>
+
+{#snippet column(icon: typeof Mic01Icon, label: string, on: boolean, toggle: () => void)}
+	<button
+		onclick={toggle}
+		class="flex size-8 cursor-pointer items-center justify-center rounded-full transition-colors {on
+			? 'bg-foreground/10 text-primary'
+			: 'text-muted-foreground hover:bg-foreground/10 hover:text-foreground'}"
+		aria-label={label}
+		aria-pressed={on}
+		title={label}
+	>
+		<HugeiconsIcon {icon} class="h-4 w-4" />
+	</button>
+{/snippet}
