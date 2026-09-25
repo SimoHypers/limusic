@@ -144,11 +144,14 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
         }
     };
     let browse_id = next.as_ref().and_then(|n| n.lyrics_browse_id.clone());
+    let seed = next.as_ref().and_then(|n| n.items.iter().find(|i| i.video_id == req.video_id));
     if req.duration.is_none() {
-        req.duration = next.as_ref().and_then(|n| {
-            let item = n.items.iter().find(|i| i.video_id == req.video_id)?;
-            duration_str_secs(item.duration.as_deref()?)
-        });
+        req.duration = seed.and_then(|i| duration_str_secs(i.duration.as_deref()?));
+    }
+    // Same for the album: a play from search has none on its queue item, and Boidu's cache and
+    // LRCLIB's exact match both key on it.
+    if req.album.is_none() {
+        req.album = seed.and_then(|i| i.album.clone());
     }
     let req = &req;
 
@@ -496,37 +499,56 @@ fn now_secs() -> i64 {
 // --- Additional Providers (minilyricsv2 & LyricsPlus) --------------------------------------
 
 /// Boidu provider (boidu.dev / Better Lyrics API)
+///
+/// Without an API key (none are being issued) Boidu answers only from its cache and 401s a miss.
+/// The cache key is title, artist, album and duration: with no duration it never hits, and a track
+/// may be cached with its album or without one ("Spring Day" only with, NewJeans' "Ditto" only
+/// without). So the album form first, then the bare one, the second only after a 401.
 async fn boidu_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Error> {
-    let mut q: Vec<(&str, String)> = vec![("s", req.title.clone()), ("a", req.artists.clone())];
-    if let Some(album) = &req.album {
-        q.push(("al", album.clone()));
-    }
-    if let Some(d) = req.duration.filter(|d| *d > 0.0) {
-        q.push(("d", format!("{}", d.round() as i64)));
-    }
+    let Some(d) = req.duration.filter(|d| *d > 0.0) else {
+        return Ok(None);
+    };
+    let base: Vec<(&str, String)> = vec![
+        ("s", req.title.clone()),
+        ("a", req.artists.clone()),
+        ("d", format!("{}", d.round() as i64)),
+    ];
+    let forms = if req.album.is_some() { 2 } else { 1 };
 
     let url = "https://lyrics-api.boidu.dev/getLyrics";
     tracing::debug!(title = %req.title, artist = %req.artists, "lyrics: querying Boidu provider");
-    let resp: serde_json::Value = match crate::http::client()
-        .get(url)
-        .query(&q)
-        .header("User-Agent", LRCLIB_UA)
-        .timeout(Duration::from_secs(8))
-        .send()
-        .await
-    {
-        Ok(r) => match r.json().await {
+    let mut resp = serde_json::Value::Null;
+    for album in [req.album.as_ref(), None].into_iter().take(forms) {
+        let mut q = base.clone();
+        if let Some(al) = album {
+            q.push(("al", al.clone()));
+        }
+        let r = match crate::http::client()
+            .get(url)
+            .query(&q)
+            .header("User-Agent", LRCLIB_UA)
+            .timeout(Duration::from_secs(8))
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::debug!(error = %e, "lyrics: Boidu request failed");
+                return Ok(None);
+            }
+        };
+        if r.status() == reqwest::StatusCode::UNAUTHORIZED {
+            continue; // not cached under this key
+        }
+        resp = match r.json().await {
             Ok(j) => j,
             Err(e) => {
                 tracing::debug!(error = %e, "lyrics: Boidu json parse failed");
                 return Ok(None);
             }
-        },
-        Err(e) => {
-            tracing::debug!(error = %e, "lyrics: Boidu request failed");
-            return Ok(None);
-        }
-    };
+        };
+        break;
+    }
 
     let lrc_str = resp
         .get("ttml")
