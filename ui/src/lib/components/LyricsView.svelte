@@ -1,28 +1,26 @@
 <script module lang="ts">
-	// Romanization (#202) is remembered per script, not as one switch: someone who reads Korean but
-	// not Japanese turns it on for a Japanese song once and never sees it under a K-pop one. Shared
-	// by every lyrics view, and the `storage` event carries a change over to the mini player window.
+	// Romanization (#202) is one switch: on stays on across every song until it is turned off.
+	// Shared by every lyrics view, and the `storage` event carries a change over to the mini player
+	// window.
 	const ROMANIZED_KEY = 'lyrics_romanized';
 
-	function loadRomanized(): string[] {
+	function loadRomanized(): boolean {
 		try {
-			return JSON.parse(localStorage.getItem(ROMANIZED_KEY) ?? '[]');
+			return localStorage.getItem(ROMANIZED_KEY) === '1';
 		} catch {
-			return [];
+			return false;
 		}
 	}
 
-	const romanized = $state({ scripts: loadRomanized() });
+	const romanized = $state({ on: loadRomanized() });
 	window.addEventListener('storage', (e) => {
-		if (e.key === ROMANIZED_KEY) romanized.scripts = loadRomanized();
+		if (e.key === ROMANIZED_KEY) romanized.on = loadRomanized();
 	});
 
-	function toggleRomanized(script: string) {
-		romanized.scripts = romanized.scripts.includes(script)
-			? romanized.scripts.filter((s) => s !== script)
-			: [...romanized.scripts, script];
+	function toggleRomanized() {
+		romanized.on = !romanized.on;
 		try {
-			localStorage.setItem(ROMANIZED_KEY, JSON.stringify(romanized.scripts));
+			localStorage.setItem(ROMANIZED_KEY, romanized.on ? '1' : '0');
 		} catch {
 			// Private storage: the toggle still works for this session.
 		}
@@ -56,10 +54,8 @@
 	let loading = $state(true);
 	let scroller: HTMLElement | undefined = $state();
 
-	const canRomanize = $derived(!!lyrics?.script && lyrics.lines.some((l) => l.romanized));
-	const showRomanized = $derived(
-		canRomanize && romanized.scripts.includes(lyrics?.script ?? '')
-	);
+	const canRomanize = $derived(!!lyrics?.lines.some((l) => l.romanized));
+	const showRomanized = $derived(canRomanize && romanized.on);
 
 	// videoId of the fetch whose result is (or will be) shown — guards stale responses.
 	let requested = '';
@@ -311,10 +307,9 @@
 		</p>
 		<!-- Only on lyrics that have something to romanize, so it never sits there dead on an
 		     English song. The mini player has no footer and follows whatever was chosen here. -->
-		{#if canRomanize && lyrics.script}
-			{@const script = lyrics.script}
+		{#if canRomanize}
 			<button
-				onclick={() => toggleRomanized(script)}
+				onclick={toggleRomanized}
 				class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2 py-0.5 transition-colors hover:bg-foreground/10 {showRomanized
 					? 'text-primary'
 					: 'hover:text-foreground'}"

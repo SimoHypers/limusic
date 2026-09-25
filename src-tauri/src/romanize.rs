@@ -30,29 +30,37 @@ use wana_kana::ConvertJapanese;
 
 use crate::lyrics::Lyrics;
 
-/// Fill `romanized` on every line that needs one and set `lyrics.script`, the key the UI remembers
-/// the toggle under. Lines already in Latin script get nothing, so an English chorus in a K-pop
-/// song is not printed twice.
+/// Fill `romanized` on every line that needs one. Lines already in Latin script get nothing, so an
+/// English chorus in a K-pop song is not printed twice.
 pub fn fill(lyrics: &mut Lyrics) {
-    let all: String = lyrics.lines.iter().map(|l| l.text.as_str()).collect();
-    let Some(script) = dominant_script(&all) else {
-        return;
-    };
-    lyrics.script = Some(script.into());
     // Apple's reading or ours, never both in one song: they spell differently, and the mix reads
     // as a bug. Apple leaves its Latin lines out, which is also what this does.
     if lyrics.lines.iter().any(|l| l.romanized.is_some()) {
         return;
     }
+    let all: String = lyrics.lines.iter().map(|l| l.text.as_str()).collect();
+    let song_japanese = is_japanese(&all);
     for line in &mut lyrics.lines {
         // A Japanese line in a mostly Korean song (a J-version verse) is still Japanese.
-        let japanese =
-            script == "ja" || line.text.chars().any(|c| matches!(c, '\u{3040}'..='\u{30FF}'));
+        let japanese = song_japanese || line.text.chars().any(is_kana);
         let r = romanize_line(&line.text, japanese);
         if r != line.text {
             line.romanized = Some(r);
         }
     }
+}
+
+fn is_kana(c: char) -> bool {
+    matches!(c, '\u{3040}'..='\u{30FF}' | '\u{31F0}'..='\u{31FF}')
+}
+
+/// Kanji alone cannot tell Japanese from Chinese, kana can, so the whole song decides and a
+/// kanji-only line in a Japanese song stays Japanese. Japanese prose runs well over half kana, so a
+/// tenth is a safe floor, and it keeps a Chinese song with one stylised の Chinese.
+fn is_japanese(text: &str) -> bool {
+    let kana = text.chars().filter(|&c| is_kana(c)).count();
+    let han = text.chars().filter(|&c| class(c) == Class::Cjk && !is_kana(c)).count();
+    kana > 0 && kana * 10 >= han
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -80,48 +88,6 @@ fn class(c: char) -> Class {
         0x3000..=0x303F | 0x30FB | 0xFF00..=0xFFEF => Class::Punct,
         _ => Class::Keep,
     }
-}
-
-/// The script the song is mostly written in, as the key the UI stores its toggle under. `None`
-/// when there is nothing to romanize.
-fn dominant_script(text: &str) -> Option<&'static str> {
-    let (mut kana, mut han, mut hangul) = (0usize, 0usize, 0usize);
-    let mut other: Vec<(&'static str, usize)> = Vec::new();
-    for c in text.chars() {
-        let key = match c as u32 {
-            0x3040..=0x30FF | 0x31F0..=0x31FF => {
-                kana += 1;
-                continue;
-            }
-            0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF => {
-                han += 1;
-                continue;
-            }
-            0xAC00..=0xD7A3 => {
-                hangul += 1;
-                continue;
-            }
-            0x0370..=0x03FF | 0x1F00..=0x1FFF => "grek",
-            0x0400..=0x052F => "cyrl",
-            0x0530..=0x058F => "armn",
-            0x10A0..=0x10FF => "geor",
-            _ => continue,
-        };
-        match other.iter_mut().find(|(k, _)| *k == key) {
-            Some((_, n)) => *n += 1,
-            None => other.push((key, 1)),
-        }
-    }
-    // Kanji alone cannot tell Japanese from Chinese, kana can. Japanese prose runs well over half
-    // kana, so a tenth is a safe floor, and it keeps a Chinese song with one stylised の Chinese.
-    let japanese = kana > 0 && kana * 10 >= han;
-    let cjk = if japanese { ("ja", kana + han) } else { ("zh", han) };
-    [cjk, ("ko", hangul)]
-        .into_iter()
-        .chain(other)
-        .filter(|(_, n)| *n > 0)
-        .max_by_key(|(_, n)| *n)
-        .map(|(k, _)| k)
 }
 
 fn romanize_line(line: &str, japanese: bool) -> String {
@@ -462,14 +428,10 @@ mod tests {
     }
 
     #[test]
-    fn picks_the_song_language_from_all_the_lines() {
-        // A kanji-only line in a Japanese song is still Japanese.
-        assert_eq!(dominant_script("東京の空\n東京"), Some("ja"));
-        assert_eq!(dominant_script("还记得你说家是唯一的城堡の"), Some("zh"));
-        assert_eq!(dominant_script("보고 싶다 Baby"), Some("ko"));
-        assert_eq!(dominant_script("Я тебя люблю"), Some("cyrl"));
-        assert_eq!(dominant_script("Only English here"), None);
-        assert_eq!(dominant_script("तुम ही हो"), None);
+    fn the_whole_song_decides_japanese_or_chinese() {
+        assert!(is_japanese("東京の空\n東京"));
+        assert!(!is_japanese("还记得你说家是唯一的城堡の"));
+        assert!(!is_japanese("보고 싶다 Baby"));
     }
 
     #[test]
@@ -479,14 +441,12 @@ mod tests {
             source: "t".into(),
             synced: false,
             instrumental: false,
-            script: None,
             lines: vec![
                 LyricLine::simple(None, "Я тебя люблю".into()),
                 LyricLine::simple(None, "Hey".into()),
             ],
         };
         fill(&mut l);
-        assert_eq!(l.script.as_deref(), Some("cyrl"));
         assert_eq!(l.lines[0].romanized.as_deref(), Some("Ya tebya lyublyu"));
         assert_eq!(l.lines[1].romanized, None);
 

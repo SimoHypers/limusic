@@ -70,10 +70,6 @@ pub struct Lyrics {
     #[serde(default)]
     pub instrumental: bool,
     pub lines: Vec<LyricLine>,
-    /// The script the romanization toggle is remembered under ("ja", "ko", "zh", "cyrl", …).
-    /// `None` when there is nothing to romanize. Set by `romanize::fill`, never cached.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub script: Option<String>,
 }
 
 pub struct LyricsRequest {
@@ -213,7 +209,6 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
                         source: "YouTube Music".into(),
                         synced: true,
                         instrumental: false,
-                        script: None,
                         lines: lines
                             .into_iter()
                             .map(|l| LyricLine::simple(Some(l.time_ms), l.text))
@@ -377,7 +372,6 @@ fn lrclib_to_lyrics(t: &LrclibTrack) -> Option<Lyrics> {
             source: "LRCLIB".into(),
             synced: false,
             instrumental: true,
-            script: None,
             lines: Vec::new(),
         });
     }
@@ -388,7 +382,6 @@ fn lrclib_to_lyrics(t: &LrclibTrack) -> Option<Lyrics> {
                 source: "LRCLIB".into(),
                 synced: true,
                 instrumental: false,
-                script: None,
                 lines,
             });
         }
@@ -406,7 +399,6 @@ fn plain_from_text(text: Option<&str>, source: &str) -> Option<Lyrics> {
         source: source.to_owned(),
         synced: false,
         instrumental: false,
-        script: None,
         lines: text.lines().map(|l| LyricLine::simple(None, l.trim_end().to_owned())).collect(),
     })
 }
@@ -427,7 +419,6 @@ fn from_parsed(source: &str, lines: Vec<LyricLine>) -> Option<Lyrics> {
         // Any cue at all: an LRC with untimed credit or stanza lines is still a synced lyric.
         synced: lines.iter().any(|l| l.time_ms.is_some()),
         instrumental: false,
-        script: None,
         lines,
     })
 }

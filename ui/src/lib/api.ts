@@ -738,8 +738,6 @@ export interface Lyrics {
 	synced: boolean;
 	instrumental: boolean;
 	lines: LyricLine[];
-	/** The script the romanization toggle is remembered under ("ja", "ko", "zh", "cyrl", …). */
-	script?: string;
 }
 /** Cached on the Rust side (provider chain: LRCLIB → YT Music). `null` = none found. */
 export const getLyrics = (args: {
