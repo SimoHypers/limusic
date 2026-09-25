@@ -728,6 +728,9 @@ export interface LyricLine {
 	text: string;
 	words?: LyricWord[];
 	translation?: string;
+	/** Latin-script reading of `text` (#202). Word-timed only when Apple Music wrote it. */
+	romanized?: string;
+	romanized_words?: LyricWord[];
 }
 export interface Lyrics {
 	/** Attribution for the panel footer ("LRCLIB", "Source: Musixmatch", …). */
@@ -735,6 +738,8 @@ export interface Lyrics {
 	synced: boolean;
 	instrumental: boolean;
 	lines: LyricLine[];
+	/** The script the romanization toggle is remembered under ("ja", "ko", "zh", "cyrl", …). */
+	script?: string;
 }
 /** Cached on the Rust side (provider chain: LRCLIB → YT Music). `null` = none found. */
 export const getLyrics = (args: {

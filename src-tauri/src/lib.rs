@@ -18,6 +18,7 @@ mod media;
 mod mini;
 mod orchestrator;
 mod potoken;
+mod romanize;
 mod session;
 mod state;
 #[cfg(target_os = "windows")]

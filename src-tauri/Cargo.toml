@@ -60,6 +60,15 @@ lofty = "0.22.2"
 tauri-plugin-dialog = "2.7.2"
 tauri-plugin-window-state = "2.4.1"
 tauri-plugin-clipboard-manager = "2.3.2"
+# Romanized lyrics (#202, romanize.rs). lindera's build script downloads IPADIC (~12 MB, from
+# GitHub) once and embeds it uncompressed (~45 MB in the binary, borrowed in place, never copied to
+# the heap); rust-cache keeps it across CI runs. Held at 0.30: every lindera from 0.35 on needs
+# encoding_rs >= 0.8.35, and rustypipe-botguard's deno_web pins =0.8.33. 0.31 to 0.34 fetch
+# IPADIC from hosts that are gone. Move up when botguard does.
+lindera = { version = "=0.30.0", default-features = false, features = ["ipadic"] }
+wana_kana = { version = "5", default-features = false }
+pinyin = { version = "0.11", default-features = false, features = ["with_tone"] }
+any_ascii = "0.3"
 
 # Taskbar thumbnail toolbar (#47). Same `windows` version tauri-runtime-wry already pulls in, so
 # `Window::hwnd()` hands us a matching HWND.

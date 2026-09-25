@@ -35,7 +35,7 @@ pub struct LyricWord {
 }
 
 /// One display line. `time_ms` present ⇔ the line is synced (a plain-lyrics response has none).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LyricLine {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub time_ms: Option<u64>,
@@ -46,11 +46,18 @@ pub struct LyricLine {
     pub words: Option<Vec<LyricWord>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub translation: Option<String>,
+    /// Latin-script reading of `text` (#202). Apple's arrives with the lyrics and is cached with
+    /// them; the local engine's is filled on every answer by `romanize::fill`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub romanized: Option<String>,
+    /// Apple's reading is word-timed like the line, so it can sweep with it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub romanized_words: Option<Vec<LyricWord>>,
 }
 
 impl LyricLine {
     pub fn simple(time_ms: Option<u64>, text: String) -> Self {
-        Self { time_ms, end_time_ms: None, text, words: None, translation: None }
+        Self { time_ms, text, ..Default::default() }
     }
 }
 
@@ -63,6 +70,10 @@ pub struct Lyrics {
     #[serde(default)]
     pub instrumental: bool,
     pub lines: Vec<LyricLine>,
+    /// The script the romanization toggle is remembered under ("ja", "ko", "zh", "cyrl", …).
+    /// `None` when there is nothing to romanize. Set by `romanize::fill`, never cached.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub script: Option<String>,
 }
 
 pub struct LyricsRequest {
@@ -83,8 +94,14 @@ fn forced_provider() -> Option<String> {
     std::env::var("LIMUSIC_LYRICS_ONLY").ok().filter(|s| !s.is_empty())
 }
 
-/// Cache-through entry point for the `get_lyrics` command.
+/// Entry point for the `get_lyrics` command: the cached or fetched lyrics, romanized.
 pub async fn get_lyrics(state: &AppState, req: LyricsRequest) -> Option<Lyrics> {
+    let mut lyrics = cached_or_fetched(state, req).await?;
+    crate::romanize::fill(&mut lyrics);
+    Some(lyrics)
+}
+
+async fn cached_or_fetched(state: &AppState, req: LyricsRequest) -> Option<Lyrics> {
     let now = now_secs();
     let video_id = req.video_id.clone();
     let forced = forced_provider();
@@ -196,6 +213,7 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
                         source: "YouTube Music".into(),
                         synced: true,
                         instrumental: false,
+                        script: None,
                         lines: lines
                             .into_iter()
                             .map(|l| LyricLine::simple(Some(l.time_ms), l.text))
@@ -359,6 +377,7 @@ fn lrclib_to_lyrics(t: &LrclibTrack) -> Option<Lyrics> {
             source: "LRCLIB".into(),
             synced: false,
             instrumental: true,
+            script: None,
             lines: Vec::new(),
         });
     }
@@ -369,6 +388,7 @@ fn lrclib_to_lyrics(t: &LrclibTrack) -> Option<Lyrics> {
                 source: "LRCLIB".into(),
                 synced: true,
                 instrumental: false,
+                script: None,
                 lines,
             });
         }
@@ -386,6 +406,7 @@ fn plain_from_text(text: Option<&str>, source: &str) -> Option<Lyrics> {
         source: source.to_owned(),
         synced: false,
         instrumental: false,
+        script: None,
         lines: text.lines().map(|l| LyricLine::simple(None, l.trim_end().to_owned())).collect(),
     })
 }
@@ -406,6 +427,7 @@ fn from_parsed(source: &str, lines: Vec<LyricLine>) -> Option<Lyrics> {
         // Any cue at all: an LRC with untimed credit or stanza lines is still a synced lyric.
         synced: lines.iter().any(|l| l.time_ms.is_some()),
         instrumental: false,
+        script: None,
         lines,
     })
 }
@@ -878,7 +900,7 @@ fn parse_lrc_or_ttml(text: &str) -> Vec<LyricLine> {
                             end_time_ms: None,
                             text: line_text,
                             words: if !words.is_empty() { Some(words) } else { None },
-                            translation: None,
+                            ..Default::default()
                         });
                     }
                 }
@@ -904,6 +926,7 @@ fn parse_lrc_or_ttml(text: &str) -> Vec<LyricLine> {
 
 /// TTML and Apple Music AAML XML parser
 fn parse_ttml_aaml(xml: &str) -> Vec<LyricLine> {
+    let readings = ttml_transliterations(xml);
     let mut lines = Vec::new();
     let mut pos = 0;
     while let Some(p_start) = xml[pos..].find("<p") {
@@ -924,65 +947,108 @@ fn parse_ttml_aaml(xml: &str) -> Vec<LyricLine> {
 
         let line_begin = parse_xml_attr(p_tag_str, "begin").and_then(|s| parse_ttml_time(&s));
         let line_end = parse_xml_attr(p_tag_str, "end").and_then(|s| parse_ttml_time(&s));
+        let (full_text, words) = parse_ttml_spans(inner_str, line_begin, line_end);
 
-        let mut words: Vec<LyricWord> = Vec::new();
-        let mut span_pos = 0;
-        let mut plain_text_buf = String::new();
-
-        while let Some(s_start) = inner_str[span_pos..].find("<span") {
-            let abs_s_start = span_pos + s_start;
-            let Some(s_tag_end) = inner_str[abs_s_start..].find('>') else {
-                break;
-            };
-            let abs_s_tag_end = abs_s_start + s_tag_end;
-            let s_tag_str = &inner_str[abs_s_start..abs_s_tag_end + 1];
-
-            let before = strip_xml_tags(&inner_str[span_pos..abs_s_start]);
-            if !before.is_empty() {
-                plain_text_buf.push_str(&before);
-                if let Some(last_w) = words.last_mut() {
-                    last_w.text.push_str(&before);
-                }
-            }
-
-            let Some(s_close) = inner_str[abs_s_tag_end..].find("</span>") else {
-                break;
-            };
-            let abs_s_close = abs_s_tag_end + s_close;
-            let w_text = strip_xml_tags(&inner_str[abs_s_tag_end + 1..abs_s_close]);
-
-            let w_begin =
-                parse_xml_attr(s_tag_str, "begin").and_then(|s| parse_ttml_time(&s)).or(line_begin);
-            let w_end =
-                parse_xml_attr(s_tag_str, "end").and_then(|s| parse_ttml_time(&s)).or(line_end);
-
-            if let (Some(b), Some(e)) = (w_begin, w_end) {
-                if !w_text.is_empty() {
-                    words.push(LyricWord { text: w_text.clone(), start_ms: b, end_ms: e });
-                }
-            }
-            plain_text_buf.push_str(&w_text);
-            span_pos = abs_s_close + 7;
-        }
-
-        if span_pos < inner_str.len() {
-            plain_text_buf.push_str(&strip_xml_tags(&inner_str[span_pos..]));
-        }
-
-        let words_opt = if !words.is_empty() { Some(words) } else { None };
-        let full_text = plain_text_buf.trim().to_string();
         if !full_text.is_empty() || line_begin.is_some() {
+            let reading = parse_xml_attr(p_tag_str, "itunes:key")
+                .and_then(|k| readings.iter().find(|(key, ..)| *key == k))
+                // Apple repeats a Latin line verbatim as its own reading.
+                .filter(|(_, text, _)| *text != full_text);
             lines.push(LyricLine {
                 time_ms: line_begin,
                 end_time_ms: line_end,
                 text: full_text,
-                words: words_opt,
-                translation: None,
+                words,
+                romanized: reading.map(|(_, text, _)| text.clone()),
+                romanized_words: reading.and_then(|(.., w)| w.clone()),
+                ..Default::default()
             });
         }
     }
     lines.sort_by_key(|l| l.time_ms);
     lines
+}
+
+/// The text of one `<p>` (or `<text>`) and its timed `<span>`s. Text between spans, the spaces
+/// that separate words, is appended to the word before it.
+fn parse_ttml_spans(
+    inner_str: &str,
+    line_begin: Option<u64>,
+    line_end: Option<u64>,
+) -> (String, Option<Vec<LyricWord>>) {
+    let mut words: Vec<LyricWord> = Vec::new();
+    let mut span_pos = 0;
+    let mut plain_text_buf = String::new();
+
+    while let Some(s_start) = inner_str[span_pos..].find("<span") {
+        let abs_s_start = span_pos + s_start;
+        let Some(s_tag_end) = inner_str[abs_s_start..].find('>') else {
+            break;
+        };
+        let abs_s_tag_end = abs_s_start + s_tag_end;
+        let s_tag_str = &inner_str[abs_s_start..abs_s_tag_end + 1];
+
+        let before = strip_xml_tags(&inner_str[span_pos..abs_s_start]);
+        if !before.is_empty() {
+            plain_text_buf.push_str(&before);
+            if let Some(last_w) = words.last_mut() {
+                last_w.text.push_str(&before);
+            }
+        }
+
+        let Some(s_close) = inner_str[abs_s_tag_end..].find("</span>") else {
+            break;
+        };
+        let abs_s_close = abs_s_tag_end + s_close;
+        let w_text = strip_xml_tags(&inner_str[abs_s_tag_end + 1..abs_s_close]);
+
+        let w_begin =
+            parse_xml_attr(s_tag_str, "begin").and_then(|s| parse_ttml_time(&s)).or(line_begin);
+        let w_end = parse_xml_attr(s_tag_str, "end").and_then(|s| parse_ttml_time(&s)).or(line_end);
+
+        if let (Some(b), Some(e)) = (w_begin, w_end) {
+            if !w_text.is_empty() {
+                words.push(LyricWord { text: w_text.clone(), start_ms: b, end_ms: e });
+            }
+        }
+        plain_text_buf.push_str(&w_text);
+        span_pos = abs_s_close + 7;
+    }
+
+    if span_pos < inner_str.len() {
+        plain_text_buf.push_str(&strip_xml_tags(&inner_str[span_pos..]));
+    }
+
+    (plain_text_buf.trim().to_string(), (!words.is_empty()).then_some(words))
+}
+
+/// Apple's pronunciation lines (#202), keyed by the `itunes:key` of the line they read:
+/// `<transliteration xml:lang="ja-Latn"><text for="L1"><span begin=…>yume</span> …</text>`.
+/// Human-written and timed to the same syllables as the original, so they beat anything
+/// `romanize` can produce. Empty when the TTML has none, which is most of them.
+fn ttml_transliterations(xml: &str) -> Vec<(String, String, Option<Vec<LyricWord>>)> {
+    let Some(start) = xml.find("<transliteration ") else {
+        return Vec::new();
+    };
+    let block = &xml[start..];
+    let block = &block[..block.find("</transliteration>").unwrap_or(block.len())];
+    let mut out = Vec::new();
+    let mut pos = 0;
+    while let Some(t) = block[pos..].find("<text ") {
+        let tag_start = pos + t;
+        let Some(tag_len) = block[tag_start..].find('>') else { break };
+        let tag_end = tag_start + tag_len;
+        let Some(close) = block[tag_end..].find("</text>") else { break };
+        let inner = &block[tag_end + 1..tag_end + close];
+        pos = tag_end + close;
+        if let Some(key) = parse_xml_attr(&block[tag_start..=tag_end], "for") {
+            let (text, words) = parse_ttml_spans(inner, None, None);
+            if !text.is_empty() {
+                out.push((key, text, words));
+            }
+        }
+    }
+    out
 }
 
 /// Enhanced LRC parser (line timestamps + word inline timestamp tags)
@@ -1182,6 +1248,20 @@ mod tests {
         assert_eq!(words[0].end_ms, 11200);
     }
 
+    /// Apple's TTML as Boidu serves it (trimmed from "Lemon"): the reading sits in the head,
+    /// keyed to the line by `itunes:key`, and a Latin line is repeated verbatim.
+    #[test]
+    fn keeps_apple_transliterations() {
+        let xml = r#"<tt xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xml:lang="ja"><head><metadata><iTunesMetadata><transliterations><transliteration xml:lang="ja-Latn"><text for="L1"><span begin="1.241" end="1.635" xmlns="http://www.w3.org/ns/ttml">yume</span> <span begin="1.635" end="2.152" xmlns="http://www.w3.org/ns/ttml">nara</span></text><text for="L2"><span begin="3.0" end="4.0">Hey</span></text></transliteration></transliterations></iTunesMetadata></metadata></head><body><div><p begin="1.241" end="2.152" itunes:key="L1"><span begin="1.241" end="1.635">夢</span><span begin="1.635" end="2.152">なら</span></p><p begin="3.0" end="4.0" itunes:key="L2"><span begin="3.0" end="4.0">Hey</span></p></div></body></tt>"#;
+        let lines = parse_ttml_aaml(xml);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].text, "夢なら");
+        assert_eq!(lines[0].romanized.as_deref(), Some("yume nara"));
+        let words = lines[0].romanized_words.as_ref().unwrap();
+        assert_eq!((words[0].text.as_str(), words[0].start_ms), ("yume ", 1241));
+        assert_eq!(lines[1].romanized, None);
+    }
+
     #[test]
     fn parses_elrc_inline_word_timestamps() {
         let lrc = "[00:10.50]<00:10.50>Hello <00:11.20>world";
@@ -1256,6 +1336,7 @@ mod tests {
             text: "Hello world".into(),
             words: Some(vec![LyricWord { text: "Hello ".into(), start_ms: 10100, end_ms: 12000 }]),
             translation: Some("Halo dunia".into()),
+            ..Default::default()
         }];
         let muxed = lrc_mux(primary, word_source);
         assert_eq!(muxed.len(), 1);

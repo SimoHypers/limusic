@@ -1,4 +1,37 @@
+<script module lang="ts">
+	// Romanization (#202) is remembered per script, not as one switch: someone who reads Korean but
+	// not Japanese turns it on for a Japanese song once and never sees it under a K-pop one. Shared
+	// by every lyrics view, and the `storage` event carries a change over to the mini player window.
+	const ROMANIZED_KEY = 'lyrics_romanized';
+
+	function loadRomanized(): string[] {
+		try {
+			return JSON.parse(localStorage.getItem(ROMANIZED_KEY) ?? '[]');
+		} catch {
+			return [];
+		}
+	}
+
+	const romanized = $state({ scripts: loadRomanized() });
+	window.addEventListener('storage', (e) => {
+		if (e.key === ROMANIZED_KEY) romanized.scripts = loadRomanized();
+	});
+
+	function toggleRomanized(script: string) {
+		romanized.scripts = romanized.scripts.includes(script)
+			? romanized.scripts.filter((s) => s !== script)
+			: [...romanized.scripts, script];
+		try {
+			localStorage.setItem(ROMANIZED_KEY, JSON.stringify(romanized.scripts));
+		} catch {
+			// Private storage: the toggle still works for this session.
+		}
+	}
+</script>
+
 <script lang="ts">
+	import { HugeiconsIcon } from '@hugeicons/svelte';
+	import { CharacterPhoneticIcon } from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import { playback } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
@@ -22,6 +55,11 @@
 	let lyrics = $state<api.Lyrics | null>(null);
 	let loading = $state(true);
 	let scroller: HTMLElement | undefined = $state();
+
+	const canRomanize = $derived(!!lyrics?.script && lyrics.lines.some((l) => l.romanized));
+	const showRomanized = $derived(
+		canRomanize && romanized.scripts.includes(lyrics?.script ?? '')
+	);
 
 	// videoId of the fetch whose result is (or will be) shown — guards stale responses.
 	let requested = '';
@@ -83,14 +121,15 @@
 		userScrollUntil = Date.now() + 3000;
 	}
 
-	let wasExpanded: boolean | undefined;
+	let wasLayout: string | undefined;
 
 	$effect(() => {
 		const i = activeIndex;
-		// Re-centre after the layout width/font changes, and jump rather than glide across it.
-		// (Also fires on the first run, where both values are already at their defaults.)
-		if (expanded !== wasExpanded) {
-			wasExpanded = expanded;
+		// Re-centre after the layout width/font changes or the romanized lines come and go, and
+		// jump rather than glide across it. (Also fires on the first run.)
+		const layout = `${expanded} ${showRomanized}`;
+		if (layout !== wasLayout) {
+			wasLayout = layout;
 			hasScrolled = false;
 			userScrollUntil = 0;
 		}
@@ -209,37 +248,21 @@
 							: 'text-muted-foreground opacity-70'}"
 				>
 					{#if line.words && line.words.length > 0}
-						<!-- Word-by-Word Karaoke Sweep Animation (Better-Lyrics style, highly optimized) -->
-						<span class="inline-flex flex-wrap items-baseline">
-							{#each line.words as word, wIdx (wIdx)}
-								{@const isWordEnd = word.text.endsWith(' ')}
-								{@const cleanText = word.text.trimEnd()}
-								{#if isActive}
-									{@const progress = getWordProgress(word, posMs)}
-									{@const pct = Math.round(Math.min(1, Math.max(0, progress)) * 100)}
-									{@const isCurrentWord = progress > 0 && progress < 1}
-									<!-- Only the gradient stop moves per frame; the clip/fill are static, so they
-									     live in the class and aren't re-serialised 60 times a second. Both
-									     colours are theme tokens: the sung half was hardcoded white, which is
-									     invisible on every light theme. -->
-									<span
-										class="inline-block bg-clip-text text-transparent [-webkit-text-fill-color:transparent] transition-transform duration-100 ease-out {isWordEnd ? 'mr-[0.26em]' : ''} {isCurrentWord
-											? 'scale-[1.03]'
-											: ''}"
-										style="background-image: linear-gradient(90deg, var(--foreground) {pct}%, var(--muted-foreground) {pct}%)"
-									>
-										{cleanText}
-									</span>
-								{:else}
-									<!-- Colour and dimming both come from the line. -->
-									<span class="inline-block {isWordEnd ? 'mr-[0.26em]' : ''}">
-										{cleanText}
-									</span>
-								{/if}
-							{/each}
-						</span>
+						{@render sweep(line.words, isActive)}
 					{:else}
 						<span>{line.text || '♪'}</span>
+					{/if}
+
+					{#if showRomanized && line.romanized}
+						<!-- Relative size, so it follows the line from the mini player to theater mode.
+						     Apple's reading is timed to the same syllables and sweeps with the line. -->
+						<span class="mt-0.5 block text-[length:max(0.62em,11px)] font-semibold">
+							{#if line.romanized_words && line.romanized_words.length > 0}
+								{@render sweep(line.romanized_words, isActive)}
+							{:else}
+								{line.romanized}
+							{/if}
+						</span>
 					{/if}
 
 					<!-- Translation line rendering -->
@@ -263,6 +286,9 @@
 				{#if line.text}
 					<div>
 						<p>{line.text}</p>
+						{#if showRomanized && line.romanized}
+							<p class="text-[0.85em] text-muted-foreground">{line.romanized}</p>
+						{/if}
 						{#if line.translation}
 							<p class="text-xs italic text-muted-foreground">{line.translation}</p>
 						{/if}
@@ -277,8 +303,61 @@
 	{/if}
 </div>
 {#if lyrics && !loading && !compact}
-	<p class="border-t px-4 py-2 text-xs text-muted-foreground">
-		{lyrics.source.startsWith('Source:') ? lyrics.source : `Lyrics from ${lyrics.source}`}
-	</p>
+	<div class="flex items-center gap-2 border-t px-4 py-1.5 text-xs text-muted-foreground">
+		<p class="min-w-0 flex-1 truncate py-0.5">
+			{lyrics.source.startsWith('Source:')
+				? lyrics.source
+				: t('lyrics.source', { source: lyrics.source })}
+		</p>
+		<!-- Only on lyrics that have something to romanize, so it never sits there dead on an
+		     English song. The mini player has no footer and follows whatever was chosen here. -->
+		{#if canRomanize && lyrics.script}
+			{@const script = lyrics.script}
+			<button
+				onclick={() => toggleRomanized(script)}
+				class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2 py-0.5 transition-colors hover:bg-foreground/10 {showRomanized
+					? 'text-primary'
+					: 'hover:text-foreground'}"
+				aria-pressed={showRomanized}
+				title={t('lyrics.romanize_hint')}
+			>
+				<HugeiconsIcon icon={CharacterPhoneticIcon} class="h-3.5 w-3.5" />
+				{t('lyrics.romanize')}
+			</button>
+		{/if}
+	</div>
 {/if}
+
+<!-- Word-by-word karaoke sweep (Better Lyrics style), for the line and for Apple's timed
+     romanization under it. -->
+{#snippet sweep(words: api.LyricWord[], active: boolean)}
+	<span class="inline-flex flex-wrap items-baseline">
+		{#each words as word, wIdx (wIdx)}
+			{@const isWordEnd = word.text.endsWith(' ')}
+			{@const cleanText = word.text.trimEnd()}
+			{#if active}
+				{@const progress = getWordProgress(word, posMs)}
+				{@const pct = Math.round(Math.min(1, Math.max(0, progress)) * 100)}
+				{@const isCurrentWord = progress > 0 && progress < 1}
+				<!-- Only the gradient stop moves per frame; the clip/fill are static, so they
+				     live in the class and aren't re-serialised 60 times a second. Both
+				     colours are theme tokens: the sung half was hardcoded white, which is
+				     invisible on every light theme. -->
+				<span
+					class="inline-block bg-clip-text text-transparent [-webkit-text-fill-color:transparent] transition-transform duration-100 ease-out {isWordEnd
+						? 'mr-[0.26em]'
+						: ''} {isCurrentWord ? 'scale-[1.03]' : ''}"
+					style="background-image: linear-gradient(90deg, var(--foreground) {pct}%, var(--muted-foreground) {pct}%)"
+				>
+					{cleanText}
+				</span>
+			{:else}
+				<!-- Colour and dimming both come from the line. -->
+				<span class="inline-block {isWordEnd ? 'mr-[0.26em]' : ''}">
+					{cleanText}
+				</span>
+			{/if}
+		{/each}
+	</span>
+{/snippet}
 

@@ -707,7 +707,10 @@
 	"lyrics": {
 		"title": "Lyrics",
 		"instrumental": "Instrumental",
-		"none_found": "No lyrics found for this track."
+		"none_found": "No lyrics found for this track.",
+		"source": "Lyrics from {source}",
+		"romanize": "Romanized",
+		"romanize_hint": "Show how each line is pronounced, in Latin letters"
 	},
 	"queue": {
 		"title": "Queue"
