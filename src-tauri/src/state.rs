@@ -330,6 +330,12 @@ struct QueueState {
     retried: Option<String>,
     /// The queue this one replaced, for Previous at the head of a fresh queue.
     prev_context: Option<PrevContext>,
+    /// Which queue this is. Bumped only when a different one replaces it (a playlist, a song, a
+    /// restored context, a Listen Together rebuild), never by a skip within it, unlike
+    /// `AppState::generation`, which moves on every load. `fill_playlist` checks this one: a skip
+    /// during the walk used to stop it for good, leaving a shuffled 4,000-track playlist playing
+    /// out of its first page or two (issue #316).
+    epoch: u64,
 }
 
 /// What was playing before a click replaced the whole queue, so Previous can go back to it.
@@ -397,6 +403,7 @@ impl QueueState {
     fn restore_context(&mut self, prev: PrevContext) -> (String, f64) {
         let video_id = prev.items[prev.current].video_id.clone();
         self.items = prev.items;
+        self.epoch += 1;
         self.current = prev.current;
         self.played_from = prev.played_from;
         self.shuffle_orig = prev.shuffle_orig;
@@ -1205,6 +1212,7 @@ impl AppState {
             q.source_name = (!no_radio).then(|| format!("{} Radio", seed.title));
             q.items = vec![seed];
             q.items.append(&mut carried);
+            q.epoch += 1;
             q.current = 0;
             q.played_from = 0; // new queue, nothing played in it yet
             q.lookahead_loaded = None;
@@ -1309,7 +1317,7 @@ impl AppState {
         let sticky = self.sticky_shuffle();
         let position = self.current_position();
         let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        {
+        let epoch = {
             let mut q = self.queue.lock().await;
             // Explicitly requested by a page Shuffle button, or already on and set to stick
             // across queues (issue #117: off by default, so an album opened while shuffle is on
@@ -1328,6 +1336,7 @@ impl AppState {
             // After `keep_shuffled` and `carried`, both of which read what this takes.
             q.keep_context(position);
             q.items = items;
+            q.epoch += 1;
             q.current = start;
             q.lookahead_loaded = None;
             q.source_id = source_id.clone();
@@ -1353,14 +1362,15 @@ impl AppState {
             for (k, item) in carried.into_iter().enumerate() {
                 q.items.insert(at + k, item);
             }
-        }
+            q.epoch
+        };
         // start_current emits now-playing + queue + persists; prime the gapless lookahead after.
         if self.start_current(gen).await {
             self.prime_lookahead(gen).await;
         }
         if let Some(token) = continuation {
             let me = self.clone();
-            tokio::spawn(async move { me.fill_playlist(gen, token, Fill::Playing).await });
+            tokio::spawn(async move { me.fill_playlist(epoch, gen, token, Fill::Playing).await });
         }
     }
 
@@ -1521,9 +1531,17 @@ impl AppState {
     /// ([`append_page`]), so the only track not drawn from the full playlist is the one already
     /// playing — and the walk is long finished before it ends.
     ///
-    /// Guarded by `gen`: if the user starts something else mid-walk, the pages are dropped rather
-    /// than appended to a queue they don't belong to. [`Fill`] says which queue the pages join.
-    async fn fill_playlist(self: &std::sync::Arc<Self>, gen: u64, mut token: String, fill: Fill) {
+    /// Guarded by `epoch` ([`QueueState::epoch`]): if the user starts something else mid-walk, the
+    /// pages are dropped rather than appended to a queue they don't belong to. Skipping around
+    /// inside this queue doesn't stop it. `gen` is the load the walk started under, only for
+    /// priming. [`Fill`] says which queue the pages join.
+    async fn fill_playlist(
+        self: &std::sync::Arc<Self>,
+        epoch: u64,
+        gen: u64,
+        mut token: String,
+        fill: Fill,
+    ) {
         // ponytail: ~5k tracks at 100/page. A bound so a playlist that keeps handing out tokens
         // can't walk forever; raise it if a real playlist ever hits the cap.
         const MAX_PAGES: usize = 50;
@@ -1543,9 +1561,6 @@ impl AppState {
                     break;
                 }
             };
-            if self.generation.load(Ordering::SeqCst) != gen {
-                return; // another queue owns the state now — don't touch it, don't persist
-            }
             if page.items.is_empty() {
                 break; // an empty page is the end, token or not
             }
@@ -1560,6 +1575,9 @@ impl AppState {
             }
             {
                 let mut q = self.queue.lock().await;
+                if q.epoch != epoch {
+                    return; // another queue owns the state now: don't touch it, don't persist
+                }
                 append_page(&mut q, items, matches!(fill, Fill::Playing));
                 // An append can retarget a primed repeat-all wrap (index 0 → the new tail); drop
                 // the lookahead when it stops pointing at what plays next, same check as
@@ -1576,7 +1594,15 @@ impl AppState {
                 last_emit = Some(std::time::Instant::now());
                 self.emit_queue().await;
             }
-            self.prime_lookahead(gen).await;
+            // Only while nothing has been skipped since the walk began. A skip loads its own track
+            // and primes behind it; priming while that load is still resolving hands mpv a next
+            // entry for a playlist `loadfile` is about to replace.
+            // ponytail: after a skip the walk stops re-priming, so a page that lands behind a
+            // current track that was the last one gets no gapless handoff (the track-end fallback
+            // loads it instead). Re-prime once the skip's load has settled if that gap matters.
+            if self.generation.load(Ordering::SeqCst) == gen {
+                self.prime_lookahead(gen).await;
+            }
             match page.continuation {
                 Some(next) => token = next,
                 None => break,
@@ -3030,6 +3056,7 @@ impl AppState {
             let mut items = vec![track_to_song(&track)];
             items.extend(upcoming.iter().map(track_to_song));
             q.items = items;
+            q.epoch += 1;
             q.current = 0;
             q.played_from = 0; // the host's queue starts at the track it sent; no local history
                                // Nor does Previous reach back past the session into a queue from before joining.
@@ -3338,10 +3365,13 @@ impl AppState {
         self.insert_queued(items, next, from.clone()).await;
         if let Some(token) = continuation {
             // After `insert_queued`: an add to an empty queue starts playback, which bumps the
-            // generation the walk has to match.
+            // generation the walk primes under.
             let gen = self.generation.load(Ordering::SeqCst);
+            let epoch = self.queue.lock().await.epoch;
             let me = self.clone();
-            tokio::spawn(async move { me.fill_playlist(gen, token, Fill::Queued(from)).await });
+            tokio::spawn(
+                async move { me.fill_playlist(epoch, gen, token, Fill::Queued(from)).await },
+            );
         }
     }
 
