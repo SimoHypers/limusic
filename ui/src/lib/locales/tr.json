@@ -482,7 +482,7 @@
 			"action_volume_up": "Sesi yükselt",
 			"action_volume_up_hint": "Oynatma ses düzeyini %5 yükseltir.",
 			"action_volume_down": "Sesi kıs",
-			"action_volume_down_hint": "Oynatma ses düzetini %5 düşürür.",
+			"action_volume_down_hint": "Oynatma ses düzeyini %5 düşürür.",
 			"action_mute_toggle": "Sessize al / sesi aç",
 			"action_mute_toggle_hint": "Sessize alma ve önceki ses düzeyi arasında geçiş yapar.",
 			"action_seek_forward": "İleri sar",
