@@ -19,6 +19,7 @@
 	} from '@hugeicons/core-free-icons';
 	import { toggleMode } from 'mode-watcher';
 	import { Button } from '$lib/components/ui/button';
+	import { ScrollArea } from '$lib/components/ui/scroll-area/index.js';
 	import { ON_REPEAT_ID, isLocalPlaylist, type BrowseItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import PlaylistMenu from './PlaylistMenu.svelte';
@@ -153,7 +154,7 @@
 		<Button variant="outline" size="sm" class="mb-2 w-full gap-2" onclick={() => openNewPlaylist()}>
 			<HugeiconsIcon icon={Add01Icon} class="h-4 w-4" /> {t('nav.new_playlist')}
 		</Button>
-		<div class="min-h-0 flex-1 overflow-y-auto">
+		<ScrollArea class="min-h-0 flex-1 -mr-3 pr-3" orientation="vertical">
 			{#each playlists as pl, i (pl.id)}
 				<!-- The ⋯ is a sibling of the link, not a child: a <button> inside an <a> is invalid
 				     HTML. pr-9 keeps the title clear of the button that overlays the row on hover. -->
@@ -223,6 +224,6 @@
 					<p class="px-3 py-1.5 text-xs text-muted-foreground">{t('common.loading')}</p>
 				{/if}
 			{/each}
-		</div>
+		</ScrollArea>
 	</div>
 </aside>
