@@ -82,18 +82,7 @@
 	const showChips = $derived(chips.length > 0 && (personal.home.chips || !!selected));
 	/** Anything in the chip row besides Edit Home: the chips, or their skeletons on a cold load. */
 	const chipRow = $derived(showChips || (loading && personal.home.chips));
-	// The chip bar sits on the header's artwork until it pins to the top, and only then needs a
-	// background of its own. Opaque at rest, it cut a hard band across the artwork right under the
-	// greeting. The sentinel is the line the bar leaves behind when it sticks.
-	let stuck = $state(false);
-	function stickWatch(node: HTMLElement) {
-		const io = new IntersectionObserver(
-			([e]) => (stuck = !e.isIntersecting && e.boundingClientRect.top < (e.rootBounds?.top ?? 0)),
-			{ root: node.closest('main') }
-		);
-		io.observe(node);
-		return () => io.disconnect();
-	}
+
 
 	// "Forgotten favourites" is pulled out of the feed and rendered as a list above it (see the
 	// markup) — the shelf's cards say nothing about a song, and this one is meant to be read.
@@ -366,21 +355,13 @@
      window's background rather than behind it. -->
 <div class="relative isolate" {@attach watchScroll}>
 	<HomeHero />
-	<!-- The feed's control row: Edit Home, then the mood chips. Sticky, so both
-	     stay reachable while the feed scrolls under them instead of leaving with the header.
+	<!-- The feed's control row: Edit Home, then the mood chips.
 	     Always rendered, even with the chips switched off in Edit home: the button that switches them
-	     back on lives here, so this row is the one part of the page that can't be hidden.
-	     Opaque when pinned rather than blurred: a backdrop-filter repainting on every scroll frame
-	     is the one thing WebKitGTK reliably chokes on. Under it, a short fade instead of a rule. -->
-	<div class="h-px" {@attach stickWatch}></div>
-	<div
-		class="sticky top-0 z-20 flex items-start gap-2 px-6 py-2.5 transition-colors duration-200 {stuck
-			? 'bg-background'
-			: ''}"
-	>
-		<!-- Leads the row, ahead of the chips, and never scrolls away with them: the only way into
-		     arranging home. An icon beside the chips (the tooltip names it); labelled once the chips
-		     are switched off, when it is alone in the row and a bare glyph would say nothing.
+	     back on lives here. -->
+	<div class="flex items-start gap-2 px-6 py-2.5">
+		<!-- Leads the row, ahead of the chips: the only way into arranging home. An icon beside the
+		     chips (the tooltip names it); labelled once the chips are switched off, when it is alone
+		     in the row and a bare glyph would say nothing.
 		     Sized by the same padding and line height as a chip, plus its outline. Top-aligned with the
 		     chips, not centred on the row: an overflowing chip row reserves 4px under itself for the
 		     scrollbar, which put the button below them. -mt-px splits the outline's 2px. -->
@@ -419,11 +400,6 @@
 				</div>
 			{/if}
 		</div>
-		{#if stuck}
-			<div
-				class="pointer-events-none absolute inset-x-0 top-full h-5 bg-gradient-to-b from-background to-transparent"
-			></div>
-		{/if}
 	</div>
 	<div class="px-6 pb-8 pt-4">
 		{#snippet shelfSkeletons(n: number)}

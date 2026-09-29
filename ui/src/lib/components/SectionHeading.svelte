@@ -16,7 +16,8 @@
 		icon,
 		onMore,
 		moreLabel,
-		children
+		children,
+		trailing
 	}: {
 		title: string;
 		/** Says what the section holds at a glance. Optional: not every section has a kind. */
@@ -26,6 +27,8 @@
 		moreLabel?: string;
 		/** Controls at the far end, before "See all". */
 		children?: Snippet;
+		/** Trailing controls after "See all" (e.g. pagination arrows). */
+		trailing?: Snippet;
 	} = $props();
 	const more = $derived(moreLabel ?? t('common.see_all'));
 </script>
@@ -53,7 +56,7 @@
 			onclick={onMore}
 		>
 			{more}
-			<HugeiconsIcon icon={ArrowRight01Icon} class="h-3.5 w-3.5" />
 		</button>
 	{/if}
+	{@render trailing?.()}
 </div>

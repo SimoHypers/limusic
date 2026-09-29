@@ -15,7 +15,7 @@
 	//
 	// The rail, its arrows, the edge fades and the content-visibility budget are shared by all of
 	// them; only the slot changes.
-	import { HugeiconsIcon, type IconSvgElement } from '@hugeicons/svelte';
+	import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/svelte";
 	import {
 		ArrowLeft01Icon,
 		ArrowRight01Icon,
@@ -23,20 +23,26 @@
 		MusicNote01Icon,
 		PlayIcon,
 		PlayListIcon,
-		UserMultiple02Icon
-	} from '@hugeicons/core-free-icons';
-	import MediaCard from './MediaCard.svelte';
-	import CommunityCard from './CommunityCard.svelte';
-	import PortraitCard from './PortraitCard.svelte';
-	import StackCard from './StackCard.svelte';
-	import SectionHeading from './SectionHeading.svelte';
-	import TrackRow from './TrackRow.svelte';
-	import * as api from '$lib/api';
-	import type { BrowseItem } from '$lib/api';
-	import type { CardSize } from '$lib/personal';
-	import { asSong } from '$lib/browse';
-	import { openAddToPlaylist, openPlayer, playSong, playback } from '$lib/player.svelte';
-	import { t } from '$lib/i18n.svelte';
+		UserMultiple02Icon,
+	} from "@hugeicons/core-free-icons";
+	import MediaCard from "./MediaCard.svelte";
+	import CommunityCard from "./CommunityCard.svelte";
+	import PortraitCard from "./PortraitCard.svelte";
+	import StackCard from "./StackCard.svelte";
+	import SectionHeading from "./SectionHeading.svelte";
+	import TrackRow from "./TrackRow.svelte";
+	import * as api from "$lib/api";
+	import type { BrowseItem } from "$lib/api";
+	import type { CardSize } from "$lib/personal";
+	import { asSong } from "$lib/browse";
+	import {
+		openAddToPlaylist,
+		openPlayer,
+		playSong,
+		playback,
+	} from "$lib/player.svelte";
+	import { Button } from "$lib/components/ui/button";
+	import { t } from "$lib/i18n.svelte";
 
 	let {
 		title,
@@ -45,7 +51,7 @@
 		community = false,
 		rich = true,
 		queueAll = true,
-		size = 'medium'
+		size = "medium",
 	}: {
 		title?: string;
 		items: BrowseItem[];
@@ -71,13 +77,14 @@
 	// A shelf is only worth a form of its own when it's overwhelmingly one kind of thing. Below the
 	// threshold it's a mixed bag ("Listen again"), and the plain card is the honest way to draw it.
 	const MOSTLY = 0.75;
-	type Mode = 'song' | 'album' | 'artist' | 'playlist' | 'card';
+	type Mode = "song" | "album" | "artist" | "playlist" | "card";
 	const mode = $derived.by<Mode>(() => {
-		if (community || !rich || !items.length) return 'card';
+		if (community || !rich || !items.length) return "card";
 		const counts = new Map<string, number>();
-		for (const i of items) counts.set(i.kind, (counts.get(i.kind) ?? 0) + 1);
+		for (const i of items)
+			counts.set(i.kind, (counts.get(i.kind) ?? 0) + 1);
 		const [kind, n] = [...counts].sort((a, b) => b[1] - a[1])[0];
-		return n / items.length >= MOSTLY ? (kind as Mode) : 'card';
+		return n / items.length >= MOSTLY ? (kind as Mode) : "card";
 	});
 
 	const ICONS: Record<Mode, IconSvgElement | undefined> = {
@@ -85,7 +92,7 @@
 		album: CdIcon,
 		artist: UserMultiple02Icon,
 		playlist: PlayListIcon,
-		card: undefined
+		card: undefined,
 	};
 
 	// Song mode: four rows to a column, paged sideways. Twelve legible tracks per screenful against
@@ -94,12 +101,23 @@
 	// item that doesn't fit their form. Search's "Top results" is exactly this shape (the artist you
 	// searched for plus three of their songs), and dropping it hid the match entirely.
 	const ROWS = 4;
-	const songs = $derived(mode === 'song' ? items.filter((i) => i.kind === 'song').map(asSong) : []);
-	const others = $derived(mode === 'song' ? items.filter((i) => i.kind !== 'song') : []);
+	const songs = $derived(
+		mode === "song"
+			? items.filter((i) => i.kind === "song").map(asSong)
+			: [],
+	);
+	const others = $derived(
+		mode === "song" ? items.filter((i) => i.kind !== "song") : [],
+	);
+	const otherColumns = $derived(
+		Array.from({ length: Math.ceil(others.length / 2) }, (_, c) =>
+			others.slice(c * 2, c * 2 + 2),
+		),
+	);
 	const columns = $derived(
 		Array.from({ length: Math.ceil(songs.length / ROWS) }, (_, c) =>
-			songs.slice(c * ROWS, c * ROWS + ROWS)
-		)
+			songs.slice(c * ROWS, c * ROWS + ROWS),
+		),
 	);
 	// Clicking any row starts there and queues the whole shelf, so a shelf plays as the set it is.
 	// Unless the shelf isn't a set (`queueAll={false}`), where only the clicked song plays.
@@ -119,11 +137,15 @@
 	// columns of rows, so they take a share of the rail; everything else is a card of `size` width,
 	// a playlist's a rem wider for the stack showing behind it. Inline widths, not w-* classes: a
 	// stale dev stylesheet that hasn't generated one collapses the card to its artwork's size.
-	const SONG_SLOT = 'basis-full sm:basis-1/2 xl:basis-1/3';
+	const SONG_SLOT =
+		"basis-full sm:basis-[calc((100%-1rem)/2)] xl:basis-[calc((100%-2rem)/3)]";
 	const WIDTH: Record<CardSize, number> = { small: 8, medium: 10, large: 13 };
-	const cardWidth = (playlist = false) => `width:${WIDTH[size] + (playlist ? 1 : 0)}rem`;
+	const cardWidth = (playlist = false) =>
+		`width:${WIDTH[size] + (playlist ? 1 : 0)}rem`;
 	// A card is about its width plus 7.5rem of heading, caption and padding.
-	const height = $derived(mode === 'song' ? '17rem' : `${WIDTH[size] + 7.5}rem`);
+	const height = $derived(
+		mode === "song" ? "17rem" : `${WIDTH[size] + 7.5}rem`,
+	);
 
 	let row = $state<HTMLDivElement | null>(null);
 	let canLeft = $state(false);
@@ -142,16 +164,19 @@
 			update();
 		};
 		const leave = () => (hovered = false);
-		el.addEventListener('pointerenter', enter);
-		el.addEventListener('pointerleave', leave);
+		el.addEventListener("pointerenter", enter);
+		el.addEventListener("pointerleave", leave);
 		return () => {
-			el.removeEventListener('pointerenter', enter);
-			el.removeEventListener('pointerleave', leave);
+			el.removeEventListener("pointerenter", enter);
+			el.removeEventListener("pointerleave", leave);
 		};
 	};
 
 	function page(dir: 1 | -1) {
-		row?.scrollBy({ left: dir * Math.round(row.clientWidth * 0.9), behavior: 'smooth' });
+		row?.scrollBy({
+			left: dir * Math.round(row.clientWidth * 0.9),
+			behavior: "smooth",
+		});
 	}
 
 	// Re-measure when the content changes under the pointer, and only then. Measuring at mount reads
@@ -161,6 +186,15 @@
 	$effect(() => {
 		items;
 		if (hovered) update();
+	});
+
+	$effect(() => {
+		if (!row) return;
+		const observer = new IntersectionObserver(([entry]) => {
+			if (entry.isIntersecting) update();
+		});
+		observer.observe(row);
+		return () => observer.disconnect();
 	});
 </script>
 
@@ -176,16 +210,46 @@
 	style="contain-intrinsic-size: auto {height};"
 >
 	{#if title || onMore}
-		<SectionHeading title={title ?? ''} icon={ICONS[mode]} {onMore}>
+		<SectionHeading title={title ?? ""} icon={ICONS[mode]} {onMore}>
 			{#if songs.length}
 				<button
 					onclick={playAll}
 					class="flex shrink-0 cursor-pointer items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
 				>
 					<HugeiconsIcon icon={PlayIcon} class="h-3.5 w-3.5" />
-					{t('common.play_all')}
+					{t("common.play_all")}
 				</button>
 			{/if}
+			{#snippet trailing()}
+				{#if canLeft || canRight}
+					<div class="flex items-center gap-0.5">
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							onclick={() => page(-1)}
+							disabled={!canLeft}
+							aria-label={t("a11y.scroll_left")}
+						>
+							<HugeiconsIcon
+								icon={ArrowLeft01Icon}
+								class="h-4 w-4"
+							/>
+						</Button>
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							onclick={() => page(1)}
+							disabled={!canRight}
+							aria-label={t("a11y.scroll_right")}
+						>
+							<HugeiconsIcon
+								icon={ArrowRight01Icon}
+								class="h-4 w-4"
+							/>
+						</Button>
+					</div>
+				{/if}
+			{/snippet}
 		</SectionHeading>
 	{/if}
 	<!-- Measure on pointer enter, because a shelf skipped by content-visibility has no layout at
@@ -195,22 +259,33 @@
 	<div class="group/shelf relative" {@attach measureOnEnter}>
 		<div
 			class="rail flex snap-x overflow-x-auto pb-2 {mode === 'song'
-				? 'gap-0'
+				? 'gap-4'
 				: community
 					? 'gap-3'
 					: 'gap-2'}"
+			style={mode === "song" && others.length > 0
+				? `--card-space: ${others.length * (WIDTH[size] + 1)}rem`
+				: undefined}
 			bind:this={row}
 			onscroll={update}
 		>
-			{#if mode === 'song'}
-				{#each others as item (item.id)}
-					<div class="min-w-0 shrink-0 snap-start pr-4" style={cardWidth()}><MediaCard {item} /></div>
+			{#if mode === "song"}
+				{#each otherColumns as col, c (c)}
+					<div
+						class="min-w-0 shrink-0 snap-start {SONG_SLOT} flex gap-4"
+					>
+						{#each col as item (item.id)}
+							<div class="min-w-0 flex-1">
+								<MediaCard {item} />
+							</div>
+						{/each}
+					</div>
 				{/each}
 				<!-- A gutter between columns, not a rule down each one: the rows' own hover fill already
 				     shows where a column ends, and the rules were four more lines per shelf (#319). -->
 				{#each columns as col, c (c)}
-					<div class="min-w-0 shrink-0 snap-start {SONG_SLOT} pr-6">
-						{#each col as song, r (song.video_id + ':' + r)}
+					<div class="min-w-0 shrink-0 snap-start {SONG_SLOT}">
+						{#each col as song, r (song.video_id + ":" + r)}
 							<TrackRow
 								{song}
 								compact
@@ -223,25 +298,29 @@
 					</div>
 				{/each}
 			{:else}
-				{#each items as item, i (item.id + ':' + i)}
+				{#each items as item, i (item.id + ":" + i)}
 					<!-- A shelf keeps its form even where one item doesn't fit it: a stray song in an
 					     artist shelf gets the plain card and its width, not a poster it isn't. -->
-					{@const own = community ? item.kind === 'playlist' : item.kind === mode}
+					{@const own = community
+						? item.kind === "playlist"
+						: item.kind === mode}
 					<!-- min-w-0: a flex item's automatic minimum size is its min-content, which overrides
 					     the basis, so without this a card with a long title grows past its slot. -->
 					<div
 						class="min-w-0 shrink-0 snap-start {own && community
 							? 'basis-full sm:basis-[calc((100%-0.75rem)/2)] lg:basis-[calc((100%-2.25rem)/4)]'
 							: ''}"
-						style={own && community ? undefined : cardWidth(own && mode === 'playlist')}
+						style={own && community
+							? undefined
+							: cardWidth(own && mode === "playlist")}
 					>
 						{#if !own}
 							<MediaCard {item} />
 						{:else if community}
 							<CommunityCard {item} />
-						{:else if mode === 'artist'}
+						{:else if mode === "artist"}
 							<PortraitCard {item} />
-						{:else if mode === 'playlist'}
+						{:else if mode === "playlist"}
 							<StackCard {item} />
 						{:else}
 							<MediaCard {item} />
@@ -250,32 +329,5 @@
 				{/each}
 			{/if}
 		</div>
-		<!-- Fades, not just arrows: a card sliced by the edge should read as "the row continues", which
-		     is also what makes the arrow legible sitting on top of artwork. Both are pointer-transparent
-		     so they never eat a click meant for the card underneath. -->
-		{#if canLeft}
-			<div
-				class="pointer-events-none absolute inset-y-0 left-0 w-16 bg-gradient-to-r from-background to-transparent"
-			></div>
-			<button
-				aria-label={t('a11y.scroll_left')}
-				onclick={() => page(-1)}
-				class="absolute left-1 top-1/2 flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border bg-background text-foreground opacity-0 shadow-lg transition hover:scale-105 focus-visible:opacity-100 group-hover/shelf:opacity-100"
-			>
-				<HugeiconsIcon icon={ArrowLeft01Icon} class="h-4 w-4" />
-			</button>
-		{/if}
-		{#if canRight}
-			<div
-				class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-background to-transparent"
-			></div>
-			<button
-				aria-label={t('a11y.scroll_right')}
-				onclick={() => page(1)}
-				class="absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border bg-background text-foreground opacity-0 shadow-lg transition hover:scale-105 focus-visible:opacity-100 group-hover/shelf:opacity-100"
-			>
-				<HugeiconsIcon icon={ArrowRight01Icon} class="h-4 w-4" />
-			</button>
-		{/if}
 	</div>
 </section>
