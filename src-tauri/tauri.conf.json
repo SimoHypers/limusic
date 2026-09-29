@@ -12,7 +12,6 @@
   "app": {
     "windows": [
       {
-        "label": "main",
         "title": "Limusic",
         "width": 1200,
         "height": 800,
