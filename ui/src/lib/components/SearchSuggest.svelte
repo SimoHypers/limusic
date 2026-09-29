@@ -19,7 +19,6 @@
 	import ItemMenu from './ItemMenu.svelte';
 	import { searchSuggestions, type BrowseItem, type SearchSuggestions } from '$lib/api';
 	import { openItem, rowMeta } from '$lib/browse';
-	import { MOD } from '$lib/shortcuts';
 	import { thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
 
@@ -148,7 +147,7 @@
 	<Input
 		bind:value
 		{placeholder}
-		class="pr-16 {inputClass}"
+		class={inputClass}
 		autocomplete="off"
 		role="combobox"
 		aria-expanded={open}
@@ -156,16 +155,6 @@
 		oninput={onType}
 		onkeydown={onKeydown}
 	/>
-	<!-- Advertises the palette, which searches the same thing from anywhere in the app
-	     (shortcuts.ts). Out of the way once there is a query to read, and never a click target:
-	     the field behind it is the target. -->
-	{#if !value}
-		<kbd
-			class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded border bg-muted px-1.5 py-0.5 font-mono text-[0.625rem] font-medium tracking-wide text-muted-foreground"
-		>
-			{MOD}K
-		</kbd>
-	{/if}
 	{#if open}
 		<div
 			id="search-suggest"
