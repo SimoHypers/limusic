@@ -54,7 +54,7 @@
 		{#each items as item (item.id)}
 			{@const round = item.kind === 'artist'}
 			<div
-				class="group/row flex break-inside-avoid cursor-pointer items-center gap-3 rounded-lg p-1.5 text-left transition-colors hover:bg-accent/10"
+				class="group/row flex break-inside-avoid cursor-pointer items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-accent/10"
 				data-ctx
 				role="button"
 				tabindex="0"
@@ -70,11 +70,13 @@
 				}}
 				title={item.subtitle ? `${item.title} — ${item.subtitle}` : item.title}
 			>
-				<div
-					class="relative h-10 w-10 shrink-0 overflow-hidden bg-muted {round
-						? 'rounded-full'
-						: 'rounded-md'}"
-				>
+				<div class="flex min-w-0 shrink-0 items-center gap-3">
+					<div class="w-5 shrink-0"></div>
+					<div
+						class="relative h-10 w-10 shrink-0 overflow-hidden bg-muted {round
+							? 'rounded-full'
+							: 'rounded-md'}"
+					>
 					{#if item.thumbnail && !failed[item.thumbnail]}
 						<!-- 400 for a 40px slot: it's the size every card on the page already asked for, so
 						     it comes straight out of the webview's cache. -->
@@ -102,6 +104,7 @@
 							/>
 						</div>
 					{/if}
+					</div>
 				</div>
 				<div class="min-w-0 flex-1">
 					<div class="truncate text-sm font-medium">{item.title}</div>
