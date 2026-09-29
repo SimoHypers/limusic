@@ -38,20 +38,46 @@
 		return (pl = fresh);
 	}
 
-	// Every card is one browse call, and a shelf holds 20 — only spend it once the card is on screen.
+	// Every card is one browse call, and a shelf holds 20 — only spend it once the card is on screen
+	// long enough to settle. A fast swipe used to fire dozens of fetches while the shelf was still
+	// moving, which is what made the community row feel sticky. Defer the request a little so the
+	// scroll stays smooth while the user is still moving, and cancel it when the card leaves again.
 	// `loading` also gates the placeholder pulse below: a card that has never been scrolled to is
 	// not loading anything, and an infinite animation on it runs for the whole session.
 	let loading = $state(false);
+	let loadedOnce = $state(false);
+	let pendingTimer: number | undefined = undefined;
 	$effect(() => {
-		if (!root) return;
+		if (!root || loadedOnce || loading) return;
 		const io = new IntersectionObserver((entries) => {
-			if (!entries.some((e) => e.isIntersecting)) return;
-			io.disconnect();
-			loading = true;
-			load().catch(() => {}); // best-effort: a card without its tracks still opens and plays
+			if (!entries.some((e) => e.isIntersecting)) {
+				if (pendingTimer !== undefined) {
+					window.clearTimeout(pendingTimer);
+					pendingTimer = undefined;
+				}
+				return;
+			}
+			if (pendingTimer !== undefined) return;
+			pendingTimer = window.setTimeout(() => {
+				pendingTimer = undefined;
+				if (loadedOnce || loading || !root) return;
+				loading = true;
+				load()
+					.catch(() => {}) // best-effort: a card without its tracks still opens and plays
+					.finally(() => {
+						loading = false;
+						loadedOnce = true;
+					});
+			}, 120);
 		});
 		io.observe(root);
-		return () => io.disconnect();
+		return () => {
+			if (pendingTimer !== undefined) {
+				window.clearTimeout(pendingTimer);
+				pendingTimer = undefined;
+			}
+			io.disconnect();
+		};
 	});
 
 	const tracks = $derived(pl?.items.slice(0, 3) ?? []);

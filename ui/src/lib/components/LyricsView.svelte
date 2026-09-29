@@ -339,7 +339,7 @@
 	{/if}
 </div>
 {#if track && !loading && !compact}
-	<div class="flex items-center gap-1 border-t px-4 py-1.5 text-xs text-muted-foreground">
+	<div class="mt-3 flex items-center gap-1 border-t border-border/60 px-4 pt-2 pb-1.5 text-xs text-muted-foreground">
 		<!-- The source is the switch (#23): a popover with every provider's answer for this song. -->
 		<div class="flex min-w-0 flex-1">
 			<LyricsSourcePicker {lyrics} {track} bind:open={pickerOpen} onchange={onPicked} />

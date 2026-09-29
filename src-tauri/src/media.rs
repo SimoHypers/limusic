@@ -75,10 +75,17 @@ pub fn spawn(app: AppHandle) -> Option<MediaHandle> {
 fn run(app: AppHandle, rx: std::sync::mpsc::Receiver<MediaUpdate>) {
     // On Windows SMTC needs the main window handle; Linux/macOS ignore it.
     #[cfg(target_os = "windows")]
-    let hwnd = app
-        .get_webview_window("main")
-        .and_then(|w| w.hwnd().ok())
-        .map(|h| h.0 as *mut std::ffi::c_void);
+    let hwnd = app.get_webview_window("main").and_then(|w| w.hwnd().ok()).map(|h| {
+        tracing::info!("Found main window HWND: {:?}", h.0);
+        h.0 as *mut std::ffi::c_void
+    });
+    #[cfg(target_os = "windows")]
+    if hwnd.is_none() {
+        tracing::warn!(
+            "No main window HWND found, skipping media controls on Windows to prevent panic"
+        );
+        return;
+    }
     #[cfg(not(target_os = "windows"))]
     let hwnd = None;
 

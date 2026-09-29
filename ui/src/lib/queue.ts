@@ -169,7 +169,7 @@ function sharedOrigin(rows: QueueRow[], sourceName?: string | null): string | nu
 function headingFor(block: QueueBlock, sourceName?: string | null): string {
 	if (block.autoplay) return 'Autoplay';
 	const name = sharedOrigin(block.rows, sourceName);
-	if (name) return `Next from: ${name}`;
+	if (name) return `Queue: ${name}`;
 	return block.rows.every((r) => r.item.queued || r.item.queued_end) ? 'Next in queue' : 'Next up';
 }
 

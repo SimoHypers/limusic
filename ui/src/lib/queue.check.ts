@@ -44,9 +44,9 @@ let v = queueBlocks(
 );
 ok(v.now?.item.video_id === 'a1', 'the playing track is its own row');
 ok(v.blocks.length === 3, 'context, added block, autoplay');
-ok(v.blocks[0].heading === 'Next from: Afro', 'the playing playlist keeps its name');
+ok(v.blocks[0].heading === 'Queue: Afro', 'the playing playlist keeps its name');
 ok(v.blocks[0].rows.length === 1, 'only the rest of Afro is under it');
-ok(v.blocks[1].heading === 'Next from: Nightcore Bangers', 'the added block is named after itself');
+ok(v.blocks[1].heading === 'Queue: Nightcore Bangers', 'the added block is named after itself');
 ok(v.blocks[1].rows.map((r) => r.item.video_id).join() === 'n1,n2', 'the whole added block');
 ok(v.blocks[2].autoplay, 'autoplay filler is last and marked');
 ok(v.blocks[1].clearable && !v.blocks[0].clearable, 'Clear queue sits on the manual block');
@@ -56,7 +56,7 @@ ok(v.now?.i === 0 && v.blocks[0].rows[0].i === 1 && v.blocks[2].rows[0].i === 4,
 // "Play next" (queued) stays right behind the current track, ahead of the context.
 v = queueBlocks(q([song('a1'), song('p1', { queued: true }), song('a2')], 0, 'Afro'));
 ok(v.blocks[0].heading === 'Next in queue', 'a single-song add has no source to name');
-ok(v.blocks[1].heading === 'Next from: Afro', 'the context follows it');
+ok(v.blocks[1].heading === 'Queue: Afro', 'the context follows it');
 
 // Both kinds of manual add fill one block (#26: they used to split, drawing "Next in queue" twice
 // in a row with one track under each).
@@ -77,7 +77,7 @@ v = queueBlocks(
 		0
 	)
 );
-ok(v.blocks.map((b) => b.heading).join() === 'Next from: X,Next from: Y', 'one block each');
+ok(v.blocks.map((b) => b.heading).join() === 'Queue: X,Queue: Y', 'one block each');
 ok(v.blocks[0].key !== v.blocks[1].key, 'block keys are distinct (keyed rendering)');
 
 // The one that leaked: advancing a track must not change a block's key. It used to be the first
@@ -159,13 +159,13 @@ ok(v.blocks[1].autoplay, 'filler is not merged into the shuffle');
 // Same queue unshuffled: the blocks come back (this is what turning shuffle off restores).
 v = queueBlocks(q([song('now'), song('a1'), song('a2'), added('n1'), added('n2')], 0, 'Afro'));
 ok(
-	v.blocks.map((b) => b.heading).join() === 'Next from: Afro,Next from: Nightcore Bangers',
+	v.blocks.map((b) => b.heading).join() === 'Queue: Afro,Queue: Nightcore Bangers',
 	'unshuffled ⇒ back to one block per origin'
 );
 
 // Shuffling a plain playlist (nothing added) still names it — no regression on the common case.
 v = queueBlocks(q([song('now'), song('a1'), song('a2')], 0, 'Afro', true));
-ok(v.blocks.length === 1 && v.blocks[0].heading === 'Next from: Afro', 'one origin keeps its name');
+ok(v.blocks.length === 1 && v.blocks[0].heading === 'Queue: Afro', 'one origin keeps its name');
 
 // The "Play next" block is pinned ahead of the shuffle, so it keeps its own heading.
 v = queueBlocks(

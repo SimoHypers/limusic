@@ -512,7 +512,11 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
     let subtitle_runs = flex_runs(node, 1);
     let (artists, album, duration) = split_subtitle(subtitle_runs);
     // Playlist/album rows keep the length in a fixed column instead of the subtitle. context/08.
-    let duration = duration.or_else(|| fixed_column_text(node));
+    // Some rows carry it in the third *flex* column instead — the slot the album name and the
+    // play count share. `play_count` rejects the duration shape (a count never carries a colon),
+    // so read it the other way: a duration-shaped, unlinked third column is the length.
+    let duration =
+        duration.or_else(|| fixed_column_text(node)).or_else(|| flex_column_duration(node));
     // …and the album in a column of its own rather than in the subtitle runs.
     let album = album.or_else(|| album_column(node));
     let artist_id = subtitle_runs.and_then(|r| first_artist_id(r));
@@ -606,10 +610,16 @@ fn episode_duration(text: &str) -> Option<String> {
 /// digit in whatever numerals the locale writes ("53M plays", "9845만회 재생"). Live-verified
 /// 2026-09-20 in en and ko across an album page and five playlists; 773 search rows in en kept
 /// every play count and every album exactly as the old word match had them.
+///
+/// A leading digit alone let a bare duration through on rows where the length sits in the third
+/// flex column rather than a fixed one: "3:42" opens with a digit, links nothing, and was read
+/// as a play count — the album page then printed the track's length where the plays go. A count
+/// never carries a colon, so the duration shape is excluded the same way `is_duration` admits
+/// it.
 pub(crate) fn play_count(node: &Value) -> Option<String> {
     let text = flex_column_text(node, 2)?;
     let text = text.trim();
-    if flex_column_links(node, 2) || !text.starts_with(char::is_numeric) {
+    if flex_column_links(node, 2) || !text.starts_with(char::is_numeric) || text.contains(':') {
         return None;
     }
     // The unit word is noise; the number is the value. No space to cut at (Japanese writes
@@ -631,7 +641,9 @@ fn flex_column_links(node: &Value, i: usize) -> bool {
 fn album_column(node: &Value) -> Option<String> {
     let text = flex_column_text(node, 2)?;
     let text = text.trim();
-    (!text.is_empty() && play_count(node).is_none()).then(|| text.to_owned())
+    // Not a duration: the same column carries the length on rows with no fixed column, and
+    // once `play_count` stopped claiming it the length would land in the album field.
+    (!text.is_empty() && !is_duration(text) && play_count(node).is_none()).then(|| text.to_owned())
 }
 
 /// The album's browseId (`MPRE…`): either the linked album run or the row menu's "Go to album"
@@ -876,6 +888,14 @@ fn fixed_column_text(node: &Value) -> Option<String> {
                 .and_then(runs_text_opt)
         })
         .filter(|s| is_duration(s))
+}
+
+/// The row's third *flex* column, when it holds a length rather than an album or a play count:
+/// the same slot those two share, and the same duration shape `fixed_column_text` filters for.
+/// Some playlist rows put the track's length here instead of in a fixed column, and without this
+/// the row parsed duration-less once `play_count` stopped claiming the string for itself.
+fn flex_column_duration(node: &Value) -> Option<String> {
+    flex_column_text(node, 2).filter(|s| is_duration(s))
 }
 
 fn flex_text(col: &Value) -> Option<String> {
@@ -1364,6 +1384,20 @@ mod tests {
         assert_eq!(plays(json!("The Album")).unwrap().album.as_deref(), Some("The Album"));
         assert_eq!(plays(json!("53M plays")).unwrap().album, None);
         assert_eq!(plays(json!("")).unwrap().album, None);
+        // A bare length in the third column (no fixed column on these rows) starts with a digit
+        // and links nothing — every discriminator a count passes. A count never carries a colon.
+        assert_eq!(plays(json!("3:42")).unwrap().play_count, None);
+        assert_eq!(plays(json!("1:04:11")).unwrap().play_count, None);
+        // The other side of the same fix: what the count gave up, the duration claims, so the row
+        // still shows its length instead of going blank there.
+        assert_eq!(plays(json!("3:42")).unwrap().duration.as_deref(), Some("3:42"));
+        assert_eq!(plays(json!("1:04:11")).unwrap().duration.as_deref(), Some("1:04:11"));
+        // An album name in that slot is neither.
+        assert_eq!(plays(json!("The Album")).unwrap().duration, None);
+        // And a duration is not the album either, which `album_column` would otherwise take once
+        // `play_count` stopped claiming the string for itself.
+        assert_eq!(plays(json!("3:42")).unwrap().album, None);
+        assert_eq!(plays(json!("1:04:11")).unwrap().album, None);
     }
 
     // #274: `hl` follows the UI language, so the word "plays" is gone in ten of the eleven
