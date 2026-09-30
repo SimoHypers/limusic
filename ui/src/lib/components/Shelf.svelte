@@ -150,6 +150,7 @@
 	let row = $state<HTMLDivElement | null>(null);
 	let canLeft = $state(false);
 	let canRight = $state(false);
+	let intersecting = $state(false);
 
 	function update() {
 		if (!row) return;
@@ -185,12 +186,13 @@
 	// shelves (perf/navprobe.py). The arrows only show on hover, and pointerenter measures then.
 	$effect(() => {
 		items;
-		if (hovered) update();
+		if (hovered || intersecting) update();
 	});
 
 	$effect(() => {
 		if (!row) return;
 		const observer = new IntersectionObserver(([entry]) => {
+			intersecting = entry.isIntersecting;
 			if (entry.isIntersecting) update();
 		});
 		observer.observe(row);
@@ -209,7 +211,7 @@
 	class="[content-visibility:auto]"
 	style="contain-intrinsic-size: auto {height};"
 >
-	{#if title || onMore}
+	{#if title || onMore || canLeft || canRight}
 		<SectionHeading title={title ?? ""} icon={ICONS[mode]} {onMore}>
 			{#if songs.length}
 				<button
