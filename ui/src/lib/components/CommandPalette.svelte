@@ -13,7 +13,8 @@
 		Search01Icon,
 		HistoryIcon,
 		MusicNote01Icon,
-		UserIcon
+		UserIcon,
+		FileImportIcon
 	} from '@hugeicons/core-free-icons';
 	import * as Command from '$lib/components/ui/command/index.js';
 	import { Skeleton } from '$lib/components/ui/skeleton';
@@ -127,6 +128,21 @@
 >
 	<Command.Input bind:value={query} placeholder={t('common.search_placeholder')} />
 	<Command.List class="max-h-[22rem]">
+		{#if !query.trim() || 'import playlist'.includes(query.toLowerCase().trim()) || 'import'.includes(query.toLowerCase().trim())}
+			<Command.Group>
+				<Command.Item
+					value="import_playlist"
+					onSelect={() => {
+						ui.paletteOpen = false;
+						goto('/import');
+					}}
+					class="gap-3 px-2 py-1.5"
+				>
+					<HugeiconsIcon icon={FileImportIcon} class="h-4 w-4 shrink-0 text-muted-foreground" />
+					<span class="truncate text-sm">{t('import.title')}</span>
+				</Command.Item>
+			</Command.Group>
+		{/if}
 		{#if loading}
 			{#each Array(4) as _, i (i)}
 				<div class="flex items-center gap-3 px-3 py-2">

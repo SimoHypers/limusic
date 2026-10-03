@@ -42,8 +42,13 @@
 	const local = $derived(!signedIn || hasLocalFiles || where === 'device');
 
 	// A fresh name each time it opens, so a cancelled one isn't waiting in the box next time.
+	let prevOpen = false;
 	$effect(() => {
-		if (ui.newPlaylist) title = '';
+		const open = !!ui.newPlaylist;
+		if (open && !prevOpen) {
+			title = ui.newPlaylist?.name ?? '';
+		}
+		prevOpen = open;
 	});
 
 	const close = () => (ui.newPlaylist = null);

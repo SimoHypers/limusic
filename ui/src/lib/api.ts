@@ -944,3 +944,48 @@ export const onLtState = (cb: (s: LtState) => void): Promise<UnlistenFn> =>
 	listen<LtState>('lt-state', (e) => cb(e.payload));
 export const onLtNotice = (cb: (msg: string) => void): Promise<UnlistenFn> =>
 	listen<string>('lt-notice', (e) => cb(e.payload));
+
+// --- Playlist Importer (context/11) ---------------------------------------------------------
+export interface SpotifyPlaylist {
+	name: string;
+	owner: string | null;
+	tracks: ImportTrack[];
+}
+
+export interface ImportTrack {
+	title: string;
+	artists: string[];
+	album: string | null;
+	duration_secs: number | null;
+	isrc: string | null;
+}
+
+export type ImportStatus = 'matched' | 'review' | 'not_found';
+
+export interface ImportCandidate {
+	song: SongItem;
+	score: number;
+	duration_diff_secs: number | null;
+}
+
+export interface ImportMatch {
+	index: number;
+	status: ImportStatus;
+	candidates: ImportCandidate[];
+}
+
+export const importLoadFile = (path: string) => invoke<ImportTrack[]>('import_load_file', { path });
+export const importParseCsv = (content: string) => invoke<ImportTrack[]>('import_parse_csv', { content });
+export const importMatch = (jobId: string, tracks: ImportTrack[]) => invoke<void>('import_match', { jobId, tracks });
+export const importCancel = (jobId: string) => invoke<void>('import_cancel', { jobId });
+export const importFetchSpotify = (url: string) => invoke<SpotifyPlaylist>('import_fetch_spotify', { url });
+
+export const onImportMatch = (
+	cb: (data: { job_id: string; done: number; total: number; result: ImportMatch }) => void
+): Promise<UnlistenFn> =>
+	listen<{ job_id: string; done: number; total: number; result: ImportMatch }>('import-match', (e) => cb(e.payload));
+
+export const onImportDone = (
+	cb: (data: { job_id: string; cancelled: boolean }) => void
+): Promise<UnlistenFn> =>
+	listen<{ job_id: string; cancelled: boolean }>('import-done', (e) => cb(e.payload));

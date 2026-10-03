@@ -7,12 +7,14 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		Add01Icon,
 		CloudSyncIcon,
 		CloudUploadIcon,
 		DriveIcon,
+		FileImportIcon,
 		MusicNote01Icon,
 		MusicNoteSquare02Icon,
 		Playlist02Icon,
@@ -172,6 +174,9 @@
 				</Tooltip.Provider>
 			{/if}
 			<!-- Signed out too: a playlist can live on this machine with no account (#251). -->
+			<Button variant="outline" size="sm" class="gap-2" onclick={() => goto('/import')}>
+				<HugeiconsIcon icon={FileImportIcon} class="h-4 w-4" /> {t('import.title')}
+			</Button>
 			<Button variant="outline" size="sm" class="gap-2" onclick={() => openNewPlaylist()}>
 				<HugeiconsIcon icon={Add01Icon} class="h-4 w-4" /> {t('nav.new_playlist')}
 			</Button>
