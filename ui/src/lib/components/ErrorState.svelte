@@ -8,7 +8,7 @@
 	import { isUnreachable } from '$lib/neterr';
 	import { t } from '$lib/i18n.svelte';
 
-	let { message, onRetry }: { message: string; onRetry: () => void } = $props();
+	let { message, onRetry }: { message: string; onRetry?: () => void } = $props();
 
 	const offline = $derived(isUnreachable(message));
 	// Anything we can't name keeps its raw text, one size down and muted: it is the only thing a
@@ -36,9 +36,11 @@
 		     directly would hand the callback a MouseEvent, and any retry handler with an optional
 		     parameter (like home's `load`) would silently receive it as an argument instead of its
 		     default. -->
-		<Button variant="outline" size="sm" class="mt-3 gap-2" onclick={() => onRetry()}>
-			<HugeiconsIcon icon={RefreshIcon} class="h-4 w-4" />
-			{t('common.try_again')}
-		</Button>
+		{#if onRetry}
+			<Button variant="outline" size="sm" class="mt-3 gap-2" onclick={() => onRetry()}>
+				<HugeiconsIcon icon={RefreshIcon} class="h-4 w-4" />
+				{t('common.try_again')}
+			</Button>
+		{/if}
 	</div>
 </div>

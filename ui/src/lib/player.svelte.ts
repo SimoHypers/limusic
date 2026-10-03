@@ -1150,7 +1150,7 @@ export async function startRadio(
 // Transient UI state for write actions.
 export const ui = $state({
 	addSongs: null as SongItem[] | null, // add-to-playlist picker target(s), full items for optimistic appends
-	newPlaylist: null as { songs: SongItem[] } | null, // the create-playlist dialog, and what to add to it
+	newPlaylist: null as { songs: SongItem[]; name?: string } | null, // the create-playlist dialog, and what to add to it
 	addPending: false, // one playlist batch at a time, even after the picker closes
 	share: null as BrowseItem | null, // the share modal's target
 	toast: null as Toast | null,
@@ -1231,8 +1231,8 @@ export function openAddToPlaylist(song: SongItem) {
 
 /** The create-playlist dialog. `songs` go into the new playlist once it exists: the picker's
  *  "New playlist" row hands over whatever it was opened for. */
-export function openNewPlaylist(songs: SongItem[] = []) {
-	ui.newPlaylist = { songs };
+export function openNewPlaylist(songs: SongItem[] = [], name = '') {
+	ui.newPlaylist = { songs, name };
 }
 
 async function addToOne(
