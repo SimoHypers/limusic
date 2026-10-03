@@ -3367,6 +3367,7 @@ dependencies = [
  "any_ascii",
  "anyhow",
  "base64 0.22.1",
+ "csv",
  "discord-rich-presence",
  "futures-util",
  "gtk",

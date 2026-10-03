@@ -629,7 +629,7 @@ fn parse_lrc_time(tag: &str) -> Option<u64> {
 }
 
 /// `"3:21"` / `"1:02:03"` → seconds.
-fn duration_str_secs(s: &str) -> Option<f64> {
+pub(crate) fn duration_str_secs(s: &str) -> Option<f64> {
     let mut total: u64 = 0;
     for part in s.split(':') {
         total = total * 60 + part.trim().parse::<u64>().ok()?;

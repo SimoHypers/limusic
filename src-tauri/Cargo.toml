@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+csv = "1"
 tokio = { workspace = true, features = ["net", "io-util"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

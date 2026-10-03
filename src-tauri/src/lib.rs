@@ -10,6 +10,7 @@ mod diagnostics;
 mod discord;
 mod hotkeys;
 mod http;
+mod importer;
 #[cfg(target_os = "linux")]
 mod inhibit;
 mod lastfm;
@@ -931,6 +932,11 @@ pub fn run() {
             commands::diagnostics_summary,
             commands::save_diagnostics,
             commands::log_ui,
+            importer::import_load_file,
+            importer::import_parse_csv,
+            importer::import_match,
+            importer::import_cancel,
+            importer::import_fetch_spotify,
         ])
         .on_window_event(|window, event| {
             // Close-to-tray: ✕ hides the main window and playback keeps running; real quit is
