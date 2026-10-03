@@ -948,16 +948,16 @@ export const onLtNotice = (cb: (msg: string) => void): Promise<UnlistenFn> =>
 // --- Playlist Importer (context/11) ---------------------------------------------------------
 export interface SpotifyPlaylist {
 	name: string;
-	owner?: string;
+	owner: string | null;
 	tracks: ImportTrack[];
 }
 
 export interface ImportTrack {
 	title: string;
 	artists: string[];
-	album?: string | null;
-	duration_secs?: number | null;
-	isrc?: string | null;
+	album: string | null;
+	duration_secs: number | null;
+	isrc: string | null;
 }
 
 export type ImportStatus = 'matched' | 'review' | 'not_found';
@@ -965,7 +965,7 @@ export type ImportStatus = 'matched' | 'review' | 'not_found';
 export interface ImportCandidate {
 	song: SongItem;
 	score: number;
-	duration_diff_secs?: number;
+	duration_diff_secs: number | null;
 }
 
 export interface ImportMatch {

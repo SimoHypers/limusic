@@ -107,8 +107,11 @@ pub fn parse_embed_html(html: &str) -> Result<SpotifyPlaylist, String> {
         };
 
         let duration_ms = item.get("duration").and_then(|d| d.as_u64()).unwrap_or(0);
-        let duration_secs =
-            if duration_ms > 0 { Some(((duration_ms + 500) / 1000) as u32) } else { None };
+        let duration_secs = if duration_ms > 0 {
+            u32::try_from(duration_ms.saturating_add(500) / 1000).ok()
+        } else {
+            None
+        };
 
         tracks.push(ImportTrack { title, artists, album: None, duration_secs, isrc: None });
     }
@@ -146,70 +149,110 @@ pub fn pick_best(results: Vec<Result<SpotifyPlaylist, String>>) -> Result<Spotif
     }
 }
 
-/// Fetches a Spotify playlist by URL or ID and parses its embed page.
+const FULL_PAGE: usize = 100;
+const LIKELY_COMPLETE_BELOW: usize = 90;
+
+/// Determines whether to stop fetching playlist attempts early.
+pub fn should_stop(counts: &[usize]) -> bool {
+    if let Some(&last) = counts.last() {
+        if last >= FULL_PAGE {
+            return true;
+        }
+    }
+    if counts.len() >= 2 {
+        let last = counts[counts.len() - 1];
+        let prev = counts[counts.len() - 2];
+        if last == prev && last < LIKELY_COMPLETE_BELOW {
+            return true;
+        }
+    }
+    false
+}
+
+/// Fetches a Spotify playlist by URL or ID and parses its embed page, keeping the longest result.
 pub async fn fetch_spotify(url: &str) -> Result<SpotifyPlaylist, String> {
     let playlist_id = parse_playlist_id(url).ok_or_else(|| "spotify_invalid_link".to_string())?;
-
     let fetch_url = format!("https://open.spotify.com/embed/playlist/{}", playlist_id);
 
-    let inner = async {
-        let mut results = Vec::new();
-        for attempt in 0..4 {
-            if attempt > 0 {
-                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-            }
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(25);
+    let mut results = Vec::new();
 
-            let res = async {
-                let resp = crate::http::client()
-                    .get(&fetch_url)
-                    .header("User-Agent", crate::http::WEB_UA)
-                    .timeout(std::time::Duration::from_secs(15))
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        tracing::warn!("Failed to fetch Spotify playlist embed URL: {}", e);
-                        "spotify_network".to_string()
-                    })?;
+    for attempt in 0..4 {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        }
 
-                if resp.status() == reqwest::StatusCode::NOT_FOUND {
-                    return Err("spotify_unavailable".to_string());
-                }
-
-                if !resp.status().is_success() {
-                    tracing::warn!("Spotify embed returned status: {}", resp.status());
-                    return Err("spotify_network".to_string());
-                }
-
-                let html = resp.text().await.map_err(|e| {
-                    tracing::warn!("Failed to read Spotify embed response text: {}", e);
+        let attempt_fut = async {
+            let resp = crate::http::client()
+                .get(&fetch_url)
+                .header("User-Agent", crate::http::WEB_UA)
+                .timeout(std::time::Duration::from_secs(15))
+                .send()
+                .await
+                .map_err(|e| {
+                    tracing::warn!("Failed to fetch Spotify playlist embed URL: {}", e);
                     "spotify_network".to_string()
                 })?;
 
-                parse_embed_html(&html)
-            }
-            .await;
-
-            if let Err(ref e) = res {
-                if e == "spotify_unavailable" || e == "spotify_invalid_link" || e == "spotify_empty"
-                {
-                    return Err(e.clone());
-                }
+            if resp.status() == reqwest::StatusCode::NOT_FOUND {
+                return Err("spotify_unavailable".to_string());
             }
 
-            let track_count = res.as_ref().map(|p| p.tracks.len()).unwrap_or(0);
-            results.push(res);
+            if !resp.status().is_success() {
+                tracing::warn!("Spotify embed returned status: {}", resp.status());
+                return Err("spotify_network".to_string());
+            }
 
-            if track_count >= 100 {
+            let html = resp.text().await.map_err(|e| {
+                tracing::warn!("Failed to read Spotify embed response text: {}", e);
+                "spotify_network".to_string()
+            })?;
+
+            parse_embed_html(&html)
+        };
+
+        let res = match tokio::time::timeout_at(deadline, attempt_fut).await {
+            Ok(res) => res,
+            Err(_) => {
                 break;
             }
+        };
+
+        let successful_counts: Vec<usize> = results
+            .iter()
+            .filter_map(|r: &Result<SpotifyPlaylist, String>| {
+                r.as_ref().ok().map(|p| p.tracks.len())
+            })
+            .collect();
+
+        match &res {
+            Ok(_) => {
+                let mut counts = successful_counts;
+                if let Ok(p) = &res {
+                    counts.push(p.tracks.len());
+                }
+                results.push(res);
+                if should_stop(&counts) {
+                    break;
+                }
+            }
+            Err(e) => {
+                let is_terminal = e == "spotify_unavailable"
+                    || e == "spotify_invalid_link"
+                    || e == "spotify_empty";
+                if is_terminal && successful_counts.is_empty() {
+                    return Err(e.clone());
+                } else if is_terminal {
+                    results.push(res);
+                    break;
+                } else {
+                    results.push(res);
+                }
+            }
         }
+    }
 
-        pick_best(results)
-    };
-
-    tokio::time::timeout(std::time::Duration::from_secs(25), inner)
-        .await
-        .map_err(|_| "spotify_network".to_string())?
+    pick_best(results)
 }
 
 #[cfg(test)]
@@ -288,6 +331,24 @@ mod tests {
         let res2 = parse_embed_html(html_empty_tracks);
         assert!(res2.is_err());
         assert_eq!(res2.unwrap_err(), "spotify_empty");
+    }
+
+    #[test]
+    fn test_parse_embed_html_duration_overflow() {
+        let html = r#"<html><body><script id="__NEXT_DATA__" type="application/json">{"props": {"pageProps": {"state": {"data": {"entity": {"type": "playlist", "name": "Overflow", "trackList": [{"uri": "spotify:track:1234567890123456789012", "title": "Too Long", "subtitle": "Artist", "duration": 18446744073709551615, "entityType": "track"}]}}}}}}</script></body></html>"#;
+        let playlist = parse_embed_html(html).unwrap();
+        assert_eq!(playlist.tracks.len(), 1);
+        assert_eq!(playlist.tracks[0].duration_secs, None);
+    }
+
+    #[test]
+    fn test_should_stop() {
+        assert!(should_stop(&[100]));
+        assert!(!should_stop(&[94]));
+        assert!(!should_stop(&[60]));
+        assert!(should_stop(&[60, 60]));
+        assert!(!should_stop(&[94, 94]));
+        assert!(should_stop(&[94, 98, 100]));
     }
 
     #[test]

@@ -20,8 +20,27 @@ export const importerState = $state({
 });
 
 let activeJobId: string | null = null;
+let loadGen = 0;
+let lastLoad: (() => Promise<void>) | null = null;
+let unlistenMatch: (() => void) | null = null;
+let unlistenDone: (() => void) | null = null;
 
 export function reset() {
+	loadGen++;
+	if (activeJobId) {
+		api.importCancel(activeJobId).catch(() => {});
+	}
+	if (unlistenMatch) {
+		unlistenMatch();
+		unlistenMatch = null;
+	}
+	if (unlistenDone) {
+		unlistenDone();
+		unlistenDone = null;
+	}
+	activeJobId = null;
+	lastLoad = null;
+
 	importerState.source = '';
 	importerState.owner = null;
 	importerState.fromSpotify = false;
@@ -35,13 +54,15 @@ export function reset() {
 	importerState.done = 0;
 	importerState.total = 0;
 	importerState.error = null;
-	activeJobId = null;
 }
 
 export async function loadFromFile(path: string) {
 	reset();
+	const gen = ++loadGen;
+	lastLoad = () => loadFromFile(path);
 	try {
 		const tracks = await api.importLoadFile(path);
+		if (gen !== loadGen) return;
 		importerState.source = path.split(/[/\\]/).pop() || path;
 		importerState.tracks = tracks;
 		importerState.results = new Array(tracks.length).fill(undefined);
@@ -49,15 +70,19 @@ export async function loadFromFile(path: string) {
 		importerState.picked = new Array(tracks.length).fill(false);
 		importerState.total = tracks.length;
 	} catch (e: any) {
+		if (gen !== loadGen) return;
 		importerState.error = String(e);
-		importerState.retryable = true;
+		importerState.retryable = false;
 	}
 }
 
 export async function loadFromText(csv: string) {
 	reset();
+	const gen = ++loadGen;
+	lastLoad = () => loadFromText(csv);
 	try {
 		const tracks = await api.importParseCsv(csv);
+		if (gen !== loadGen) return;
 		importerState.source = 'Clipboard / Text';
 		importerState.tracks = tracks;
 		importerState.results = new Array(tracks.length).fill(undefined);
@@ -65,19 +90,23 @@ export async function loadFromText(csv: string) {
 		importerState.picked = new Array(tracks.length).fill(false);
 		importerState.total = tracks.length;
 	} catch (e: any) {
+		if (gen !== loadGen) return;
 		importerState.error = String(e);
-		importerState.retryable = true;
+		importerState.retryable = false;
 	}
 }
 
 export async function loadFromSpotifyLink(url: string) {
 	reset();
+	const gen = ++loadGen;
+	lastLoad = () => loadFromSpotifyLink(url);
 	importerState.loading = true;
 	try {
 		const playlist = await api.importFetchSpotify(url);
+		if (gen !== loadGen) return;
 		const tracks = playlist.tracks;
 		importerState.source = playlist.name;
-		importerState.owner = playlist.owner || null;
+		importerState.owner = playlist.owner ?? null;
 		importerState.fromSpotify = true;
 		importerState.tracks = tracks;
 		importerState.results = new Array(tracks.length).fill(undefined);
@@ -85,6 +114,7 @@ export async function loadFromSpotifyLink(url: string) {
 		importerState.picked = new Array(tracks.length).fill(false);
 		importerState.total = tracks.length;
 	} catch (e: any) {
+		if (gen !== loadGen) return;
 		const errStr = String(e);
 		const SPOTIFY_ERRORS = {
 			spotify_invalid_link: 'import.err_spotify_invalid_link',
@@ -94,9 +124,16 @@ export async function loadFromSpotifyLink(url: string) {
 			spotify_network: 'import.err_spotify_network',
 		} as const satisfies Record<string, TranslationKey>;
 		importerState.error = errStr in SPOTIFY_ERRORS ? t(SPOTIFY_ERRORS[errStr as keyof typeof SPOTIFY_ERRORS]) : errStr;
-		importerState.retryable = !(errStr === 'spotify_invalid_link' || errStr === 'spotify_unavailable' || errStr === 'spotify_empty');
+		importerState.retryable = (errStr === 'spotify_network');
 	} finally {
+		if (gen !== loadGen) return;
 		importerState.loading = false;
+	}
+}
+
+export async function retryLastLoad() {
+	if (lastLoad) {
+		await lastLoad();
 	}
 }
 
@@ -109,29 +146,55 @@ export async function startMatching() {
 	const jobId = 'import_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 	activeJobId = jobId;
 
-	let unlistenMatch: (() => void) | undefined;
-	let unlistenDone: (() => void) | undefined;
+	if (unlistenMatch) {
+		unlistenMatch();
+		unlistenMatch = null;
+	}
+	if (unlistenDone) {
+		unlistenDone();
+		unlistenDone = null;
+	}
 
 	try {
 		unlistenMatch = await api.onImportMatch((event) => {
-			if (event.job_id !== jobId) return;
+			if (event.job_id !== activeJobId) return;
+			const index = event.result.index;
+			if (index < 0 || index >= importerState.tracks.length) return;
 			importerState.done = event.done;
 			applyMatchResult(importerState, event.result);
 		});
 
 		unlistenDone = await api.onImportDone((event) => {
-			if (event.job_id !== jobId) return;
+			if (event.job_id !== activeJobId) return;
 			importerState.running = false;
-			if (unlistenMatch) unlistenMatch();
-			if (unlistenDone) unlistenDone();
+			if (unlistenMatch) {
+				unlistenMatch();
+				unlistenMatch = null;
+			}
+			if (unlistenDone) {
+				unlistenDone();
+				unlistenDone = null;
+			}
+			if (activeJobId === jobId) {
+				activeJobId = null;
+			}
 		});
 
 		await api.importMatch(jobId, importerState.tracks);
 	} catch (e: any) {
 		importerState.error = String(e);
 		importerState.running = false;
-		if (unlistenMatch) unlistenMatch();
-		if (unlistenDone) unlistenDone();
+		if (unlistenMatch) {
+			unlistenMatch();
+			unlistenMatch = null;
+		}
+		if (unlistenDone) {
+			unlistenDone();
+			unlistenDone = null;
+		}
+		if (activeJobId === jobId) {
+			activeJobId = null;
+		}
 	}
 }
 

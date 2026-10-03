@@ -3,7 +3,7 @@ export type ImportStatus = 'matched' | 'review' | 'not_found';
 export interface ImportCandidate {
 	song: { video_id: string; title: string; artists: string; [key: string]: any };
 	score: number;
-	duration_diff_secs?: number;
+	duration_diff_secs: number | null;
 }
 
 export interface ImportMatch {

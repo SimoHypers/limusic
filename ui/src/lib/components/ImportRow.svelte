@@ -26,8 +26,8 @@
 		choice?: number | null;
 	} = $props();
 
-	function formatDuration(secs?: number | null): string {
-		if (!secs || secs < 0) return '';
+	function formatDuration(secs: number | null): string {
+		if (secs == null || secs < 0) return '';
 		const m = Math.floor(secs / 60);
 		const s = secs % 60;
 		return `${m}:${s.toString().padStart(2, '0')}`;
@@ -37,16 +37,16 @@
 	const artistsStr = $derived(track.artists.join(', '));
 
 	const candidate = $derived.by(() => {
-		if (!result || choice === null || choice === undefined) return null;
+		if (!result || choice == null) return null;
 		return result.candidates[choice] ?? null;
 	});
 
 	const diffText = $derived.by(() => {
-		if (!candidate || candidate.duration_diff_secs === undefined || candidate.duration_diff_secs === null || candidate.duration_diff_secs === 0) {
+		if (!candidate || candidate.duration_diff_secs == null || candidate.duration_diff_secs === 0) {
 			return null;
 		}
 		const diff = candidate.duration_diff_secs;
-		return diff > 0 ? `+${diff}s` : `${diff}s`;
+		return diff > 0 ? t('import.diff_plus', { secs: diff }) : t('import.diff_minus', { secs: -diff });
 	});
 
 	const statusIcon = $derived.by(() => {
@@ -86,7 +86,7 @@
 		<div class="min-w-0 flex-1">
 			<div class="truncate text-sm font-medium text-foreground">{track.title}</div>
 			<div class="truncate text-xs text-muted-foreground">
-				{artistsStr}{track.album ? ` · ${track.album}` : ''}{sourceDuration ? ` · ${sourceDuration}` : ''}
+				{artistsStr}{track.album != null && track.album !== '' ? ` · ${track.album}` : ''}{sourceDuration ? ` · ${sourceDuration}` : ''}
 			</div>
 		</div>
 	</div>
@@ -143,7 +143,7 @@
 						<div class="px-2 py-1.5 text-xs font-medium text-muted-foreground">{t('import.candidates')}</div>
 						{#each result.candidates as cand, k}
 							{@const isChosen = choice === k}
-							{@const candDiff = cand.duration_diff_secs === undefined || cand.duration_diff_secs === null || cand.duration_diff_secs === 0 ? null : (cand.duration_diff_secs > 0 ? `+${cand.duration_diff_secs}s` : `${cand.duration_diff_secs}s`)}
+							{@const candDiff = cand.duration_diff_secs == null || cand.duration_diff_secs === 0 ? null : (cand.duration_diff_secs > 0 ? t('import.diff_plus', { secs: cand.duration_diff_secs }) : t('import.diff_minus', { secs: -cand.duration_diff_secs }))}
 							<button
 								type="button"
 								class="w-full text-left flex items-center justify-between gap-2 rounded-md p-2 text-xs hover:bg-accent/10 transition-colors {isChosen ? 'bg-primary/10 font-medium' : ''}"

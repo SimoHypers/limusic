@@ -13,7 +13,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import * as Tabs from '$lib/components/ui/tabs';
-	import { importerState, loadFromFile, loadFromText, loadFromSpotifyLink, startMatching, cancel, pickAllMatched, selectedSongs } from '$lib/importer.svelte';
+	import { importerState, loadFromFile, loadFromText, loadFromSpotifyLink, startMatching, cancel, pickAllMatched, selectedSongs, retryLastLoad } from '$lib/importer.svelte';
 	import { openNewPlaylist, openAddManyToPlaylist, ui } from '$lib/player.svelte';
 	import ImportRow from '$lib/components/ImportRow.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
@@ -27,7 +27,7 @@
 	async function handlePickFile() {
 		try {
 			const picked = await pickFile({
-				filters: [{ name: 'CSV', extensions: ['csv'] }]
+				filters: [{ name: t('import.csv_filter'), extensions: ['csv'] }]
 			});
 			if (typeof picked === 'string') {
 				await loadFromFile(picked);
@@ -151,7 +151,7 @@
 		<div class="mb-6">
 			<ErrorState
 				message={importerState.error}
-				onRetry={importerState.retryable ? () => (importerState.error = null) : undefined}
+				onRetry={importerState.retryable ? () => retryLastLoad() : undefined}
 			/>
 		</div>
 	{/if}
@@ -164,7 +164,7 @@
 		<div class="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-card/40 p-4">
 			<div class="flex items-center gap-3">
 				<div class="text-sm font-medium">
-					{importerState.tracks.length} tracks loaded
+					{t('import.tracks_loaded', { count: importerState.tracks.length })}
 				</div>
 				{#if importerState.running}
 					<div class="flex items-center gap-2 text-xs text-muted-foreground">

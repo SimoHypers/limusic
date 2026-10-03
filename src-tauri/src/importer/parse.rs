@@ -112,13 +112,13 @@ fn parse_duration_text(text: &str) -> Option<u32> {
         2 => {
             let m = parts[0].trim().parse::<u32>().ok()?;
             let s = parts[1].trim().parse::<u32>().ok()?;
-            Some(m * 60 + s)
+            m.checked_mul(60)?.checked_add(s)
         }
         3 => {
             let h = parts[0].trim().parse::<u32>().ok()?;
             let m = parts[1].trim().parse::<u32>().ok()?;
             let s = parts[2].trim().parse::<u32>().ok()?;
-            Some(h * 3600 + m * 60 + s)
+            h.checked_mul(3600)?.checked_add(m.checked_mul(60)?)?.checked_add(s)
         }
         _ => None,
     }
@@ -174,5 +174,13 @@ mod tests {
     #[test]
     fn test_parse_duration_three_parts() {
         assert_eq!(parse_duration_text("1:02:03"), Some(3723));
+        assert_eq!(parse_duration_text("3:21"), Some(201));
+        assert_eq!(parse_duration_text("42"), Some(42));
+    }
+
+    #[test]
+    fn test_parse_duration_overflow() {
+        assert_eq!(parse_duration_text("99999999:00"), None);
+        assert_eq!(parse_duration_text("4294967295:59"), None);
     }
 }

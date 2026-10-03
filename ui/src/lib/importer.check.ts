@@ -19,7 +19,8 @@ const matchRes: ImportMatch = {
 	candidates: [
 		{
 			song: { video_id: 'v1', title: 'Song 1', artists: 'Artist 1' },
-			score: 0.95
+			score: 0.95,
+			duration_diff_secs: null
 		}
 	]
 };
@@ -35,7 +36,8 @@ const reviewRes: ImportMatch = {
 	candidates: [
 		{
 			song: { video_id: 'v2', title: 'Song 2', artists: 'Artist 2' },
-			score: 0.6
+			score: 0.6,
+			duration_diff_secs: null
 		}
 	]
 };
