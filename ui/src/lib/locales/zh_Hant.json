@@ -19,7 +19,8 @@
 		"account_changed": "由於帳號變更，無法新增歌曲。",
 		"playlist_partial": "已新增 {added} 至 {playlist}。{duplicates} 已在清單中。剩餘 {remaining} 首未知曲目。 {error}",
 		"remove": "從此播放清單中移除",
-		"remove_confirm": "移除 {count} 項？"
+		"remove_confirm": "移除 {count} 項？",
+		"playlists_partial": "已新增到 {done} 個播放列表，共有 {total} 個。錯誤：{error}"
 	},
 	"common": {
 		"loading": "載入中…",
@@ -133,7 +134,7 @@
 		"autoplay_notice": "自動播放：開啟",
 		"clear_queue": "清空待播清單",
 		"empty_queue": "待播清單沒有歌曲",
-		"play_next": "播放下一首",
+		"play_next": "接著播放",
 		"add_to_queue": "加入待播清單",
 		"remove_from_queue": "從待播清單中移除",
 		"save_to_playlist": "儲存至播放清單",
@@ -145,8 +146,6 @@
 		"share": "分享",
 		"not_playing": "現正無播放的曲目",
 		"history": "歷史紀錄",
-		"hide_history": "隱藏歷史紀錄",
-		"show_history": "顯示歷史紀錄",
 		"repeat_state": "模式：{state}",
 		"seek": "尋找",
 		"open_player": "開啟播放器",
@@ -165,7 +164,13 @@
 		"pin_to_top": "釘選視窗",
 		"unpin": "取消釘選",
 		"remove_from_this_playlist": "從此播放清單移除",
-		"back_to": "回到 {title}"
+		"back_to": "回到 {title}",
+		"mini_shrink": "縮小迷你播放器",
+		"mini_expand": "展開迷你播放器",
+		"songs_left_one": "剩餘 1 首歌",
+		"queue_ends": "這是待播清單中的最後一首。",
+		"autoplay": "自動播放",
+		"songs_left": "剩餘 {count} 首歌"
 	},
 	"home": {
 		"good_morning": "讓今天從旋律開始",
@@ -202,7 +207,7 @@
 		"sections_hint": "拖曳區塊以移動它或使用方向鍵來改變順序。此變更不會影響到隱藏的區塊。",
 		"move_section": "移動 {title}",
 		"moved_section": "{title} 已被移動到 {position}，總共 {total}",
-		"new_section": "新增",
+		"new_section": "新",
 		"show_new": "顯示新區塊",
 		"show_new_desc": "YouTube 頻道和分類標籤會隨著時間而變化。關閉後，將不會隨著時間變化，直到您重新啟用。",
 		"all_hidden": "這邊一個區塊都沒有。"
@@ -446,7 +451,14 @@
 			"lyrics_move_source": "移動 {name}",
 			"lyrics_moved_source": "{name} 已被移動至 {position}，總共 {total}",
 			"lyrics_use_source": "使用 {name}",
-			"lyrics_sources_none": "所有歌詞來源已被關閉，因此沒有找到歌詞。"
+			"lyrics_sources_none": "所有歌詞來源已被關閉，因此沒有找到歌詞。",
+			"ambient_light_hint": "播放影片時，背景會呈現出與影片相同的色彩。",
+			"ambient_light_gpu_title": "為了確保流暢的運行，需要高性能的顯卡",
+			"ambient_light_gpu": "在 PassMark 的顯卡測試中，如果分數低於 1000 點，觀看影片時可能會出現卡頓現象，尤其是在播放 MV 時。",
+			"ambient_light_gpu_check": "查看您的顯卡",
+			"ambient_light": "流光溢彩",
+			"shuffle_whole_queue": "隨機播放整個待播清單",
+			"shuffle_whole_queue_hint": "將在待播清單中新添加的歌曲隨機播放，關閉則按照您添加的順序播放。而“稍後播放”功能則不受影響。"
 		},
 		"data": {
 			"clear_cache": "清除縮圖與串流的快取",
@@ -836,7 +848,7 @@
 		"shortcuts_dropped_one": "移除了一個已刪除音樂的捷徑",
 		"shortcuts_dropped": "移除了 {count} 個已刪除音樂的捷徑",
 		"pins_full": "釘選數量已達上限：{max} 個，請先解除釘選以新增",
-		"starting_radio": "開啟電台…",
+		"starting_radio": "正在努力載入連結…",
 		"signed_in": "已登入",
 		"folder_removed": "此資料夾已從您的本地收藏庫中移除",
 		"playlist_updated": "播放清單已更新",
@@ -868,7 +880,7 @@
 		"unblocked_artist": "解除封鎖 {name}",
 		"added_to_shortcuts": "新增至快捷",
 		"already_in_shortcuts": "已在快捷中",
-		"playing_next_one": "正在播放下一首",
+		"playing_next_one": "歌曲將於稍後播放",
 		"playing_next": "{count} 首歌曲即將播放",
 		"added_to_queue_one": "已新增到待播清單",
 		"added_to_queue": "已新增 {count} 首歌曲到待播清單",
@@ -879,7 +891,10 @@
 		"unsubscribed": "取消訂閱",
 		"signed_in_as": "已使用 {name} 的身份登入",
 		"switched_to": "切換至 {name}",
-		"could_not_add": "無法新增 — 請嘗試打開它"
+		"could_not_add": "無法新增 — 請嘗試打開它",
+		"added_to_playlists": "新增 {count} 首到播放清單",
+		"added_to_playlists_dupes": "新增 {count} 首到播放清單。已跳過 {dupes} 重複項",
+		"already_in_selected": "所有的內容都在已選擇的播放清單內"
 	},
 	"errors": {
 		"unreachable": "無法連接到 YouTube Music。請檢查您的網絡連接。",
@@ -892,5 +907,19 @@
 		"clear_recent": "清除",
 		"forget": "從近期搜尋移除 \"{query}\"",
 		"filters": "結果類型"
+	},
+	"add_playlist": {
+		"confirm": "新增到播放清單",
+		"confirm_one": "新增到播放清單",
+		"dupes_title": "已發現重複項",
+		"dupes_there": "已在播放清單內",
+		"dupes_of": "{total} 中，有 {count} 個已在播放清單內",
+		"dupes_skip": "跳過重複",
+		"skip_hint": "僅新增缺失的部分",
+		"skip_none": "沒有新的內容被新增",
+		"dupes_add": "仍要新增",
+		"anyway_hint": "儲存至副本",
+		"anyway_hint_local": "僅在 YouTube 播放清單上儲存副本",
+		"adds": "+{count}"
 	}
 }

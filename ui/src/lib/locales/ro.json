@@ -117,8 +117,6 @@
 		"share": "Distribuie",
 		"not_playing": "Redare oprită",
 		"history": "Istoric",
-		"hide_history": "Ascunde istoricul",
-		"show_history": "Arata istoricul",
 		"repeat_state": "Repetă {state}",
 		"seek": "Caută",
 		"open_player": "Deschide playerul",

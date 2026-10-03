@@ -122,8 +122,6 @@
 		"share": "Partager",
 		"not_playing": "Aucune lecture en cours",
 		"history": "Historique",
-		"hide_history": "Cacher l'historique",
-		"show_history": "Afficher l'historique",
 		"repeat_state": "Répéter : {state}",
 		"seek": "Naviguer",
 		"open_player": "Ouvrir le lecteur",
@@ -143,7 +141,13 @@
 		"unpin": "Désépingler",
 		"block_artist": "Bloquer l'artiste",
 		"remove_from_this_playlist": "Retirer de cette playlist",
-		"back_to": "Retour à {title}"
+		"back_to": "Retour à {title}",
+		"mini_shrink": "Réduire le mini-lecteur",
+		"mini_expand": "Agrandir le mini-lecteur",
+		"autoplay": "Lecture automatique",
+		"songs_left": "{count} morceaux restants",
+		"songs_left_one": "1 morceau restant",
+		"queue_ends": "La file d’attente se termine après ce morceau."
 	},
 	"home": {
 		"good_morning": "Bonne matinée",
@@ -235,7 +239,19 @@
 		"no_artists": "Il n'y a pas encore d'artistes. Ils apparaîtront dès que vous aurez enregistré leurs titres ou leurs albums.",
 		"on_repeat": "En boucle",
 		"on_repeat_subtitle": "{count} titres que vous avez le plus écoutés ce mois-ci",
-		"songs_count": "{count} titres"
+		"songs_count": "{count} titres",
+		"delete_playlist_desc": "“{title}” sera supprimé de votre compte YouTube Music. Cette action est irréversible.",
+		"delete_playlist_desc_local": "“{title}” sera supprimé de cet appareil. Cette action est irréversible.",
+		"songs_count_one": "1 morceau",
+		"on_this_device": "Sur cet appareil",
+		"on_this_device_tooltip": "Enregistré sur cet ordinateur, pas sur un compte YouTube Music",
+		"local_playlist_subtitle": "Sur cet appareil • {count} morceaux",
+		"local_playlist_subtitle_one": "Sur cet appareil • 1 morceau",
+		"empty_playlist_hint": "Dans le menu ⋯ de n’importe quel morceau, sélectionnez « Enregistrer dans une playlist » pour l’ajouter ici.",
+		"saved_in": "Enregistré dans",
+		"saved_in_one": "Enregistré dans {playlist}",
+		"saved_in_many": "Enregistré dans {count} playlists",
+		"saved_in_more": "et {count} autres"
 	},
 	"local": {
 		"scanning": "Scan du dossier...",
@@ -311,7 +327,13 @@
 			"stream_clients": "Clients de streaming",
 			"stream_clients_hint": "Désactivez un client pour l’ignorer lors de la résolution des flux. Ce paramètre peut être remplacé par la variable d’environnement {var}.",
 			"system_titlebar": "Utiliser la barre de titre du système",
-			"system_titlebar_hint": "Laissez votre bureau afficher le cadre de la fenêtre et ses boutons. Limusic affiche sa propre barre d'outils en dessous."
+			"system_titlebar_hint": "Laissez votre bureau afficher le cadre de la fenêtre et ses boutons. Limusic affiche sa propre barre d'outils en dessous.",
+			"language_search": "Rechercher des langues",
+			"language_contribute": "Aider à traduire Limusic",
+			"track_notifications": "Notifications de morceaux",
+			"track_notifications_hint": "Afficher une notification lorsqu’un nouveau morceau commence et que Limusic est en arrière-plan.",
+			"start_minimized": "Lancer dans la zone de notification au démarrage",
+			"start_minimized_hint": "Lorsque Limusic démarre avec votre système, il reste dans la zone de notification jusqu’à ce que vous l’ouvriez. Si vous l’ouvrez vous-même, la fenêtre s’affiche toujours."
 		},
 		"themes": {
 			"interface_font": "Interface police",
@@ -389,7 +411,22 @@
 			"crossfade_duration_hint": "Combien de temps dure le chevauchement. Les titres courts s'estompent plus rapidement, ainsi, un fondu ne commence jamais avant que le précédent ne soit terminé.",
 			"crossfade_seconds": "{secs}s",
 			"normalize_volume": "Normalisation du volume",
-			"normalize_volume_hint": "Équilibrez le volume des titres afin qu'un titre peu fort ne soit pas masqué par celui qui suit. Désactivez cette fonction pour écouter chaque titre exactement tel qu'il a été masterisé."
+			"normalize_volume_hint": "Équilibrez le volume des titres afin qu'un titre peu fort ne soit pas masqué par celui qui suit. Désactivez cette fonction pour écouter chaque titre exactement tel qu'il a été masterisé.",
+			"crossfade_lt_paused": "En pause lorsque vous êtes dans un salon « Écouter ensemble » : le chevauchement de deux morceaux ne peut pas rester synchronisé avec les autres.",
+			"shuffle_whole_queue": "Mélanger toute la file d’attente",
+			"shuffle_whole_queue_hint": "Le mode aléatoire mélange les morceaux que vous avez ajoutés avec « Ajouter à la file d’attente » avec ceux de la playlist. Désactivez-le pour qu’ils soient lus après la playlist, dans l’ordre dans lequel vous les avez ajoutés. « Lire ensuite » est toujours lu en premier.",
+			"ambient_light": "Éclairage ambiant",
+			"ambient_light_hint": "Le lecteur autour du clip vidéo s’illumine avec les couleurs de la vidéo.",
+			"ambient_light_gpu_title": "Nécessite une carte graphique suffisamment puissante",
+			"ambient_light_gpu": "En dessous d’environ 1 000 points au benchmark de cartes graphiques PassMark, le lecteur peut saccader pendant la lecture d’un clip vidéo.",
+			"ambient_light_gpu_check": "Rechercher votre carte graphique",
+			"lyrics_sources": "Sources des paroles",
+			"lyrics_sources_hint": "Les sources sont interrogées de haut en bas. Les paroles synchronisées provenant d’une source sont prioritaires sur les paroles en texte brut de la source située juste au-dessus, et une source désactivée n’est jamais interrogée.",
+			"lyrics_sources_reset": "Réinitialiser l’ordre",
+			"lyrics_move_source": "Déplacer {name}",
+			"lyrics_moved_source": "{name} déplacé à la position {position} sur {total}",
+			"lyrics_use_source": "Utiliser {name}",
+			"lyrics_sources_none": "Toutes les sources sont désactivées, aucune parole ne sera donc trouvée."
 		},
 		"data": {
 			"clear_cache": "Vider le cache des images et des flux",
@@ -420,7 +457,10 @@
 			"update_packaged": "Cette version a été installée à l'aide d'un gestionnaire de paquets, mettez-la à jour de la même manière.",
 			"kofi": "Offre-moi un café",
 			"kofi_hint": "Limusic est gratuit et le restera. Ko-fi est là si vous souhaitez apporter votre contribution.",
-			"kofi_button": "Ouvrir Ko-fi"
+			"kofi_button": "Ouvrir Ko-fi",
+			"rollback_available": "Cette version va être restaurée vers {version}, la dernière version connue comme fonctionnelle.",
+			"beta": "Versions bêta",
+			"beta_hint": "Recevez les nouvelles versions quelques jours en avance, avant tout le monde. Elles sont moins testées. Désactiver cette option conserve la version actuelle jusqu’à ce que la prochaine version stable la dépasse."
 		},
 		"discord": {
 			"enable": "Rich Presence",
@@ -532,7 +572,8 @@
 			"public_off": "Vous seul pouvez voir cette playlist.",
 			"artwork_note": "L’image est appliquée immédiatement et envoyée sur YouTube Music en arrière-plan. Une image carrée au format JPEG ou PNG est recommandée.",
 			"pick_artwork": "Choisir l’image de la playlist",
-			"image_filter": "Images"
+			"image_filter": "Images",
+			"local_artwork_note": "La pochette reste sur cet ordinateur. Les images JPEG ou PNG carrées sont recommandées."
 		},
 		"share": {
 			"title": "Partager",
@@ -609,7 +650,29 @@
 			"status_connected": "Connecté",
 			"status_disconnected": "Déconnecté",
 			"err_enter_name": "Saisissez d’abord un nom",
-			"err_paste_code": "Collez le code d’invitation envoyé par votre ami"
+			"err_paste_code": "Collez le code d’invitation envoyé par votre ami",
+			"subtitle": "Écoutez la même musique, au même moment, avec qui vous voulez.",
+			"host_blurb": "Vous obtenez un code court à partager. Tous ceux qui rejoignent le salon entendent exactement ce que vous écoutez, en synchronisation.",
+			"share_hint": "Envoyez-le à qui vous voulez pour écouter ensemble.",
+			"change_server": "Changer de serveur",
+			"custom_server": "Personnalisé",
+			"use_default": "Utiliser la valeur par défaut",
+			"approve": "Autoriser l’accès",
+			"decline": "Refuser",
+			"queue_it": "Ajouter à la file d’attente",
+			"dismiss": "Fermer",
+			"alone_hint": "Personne d’autre pour le moment. Partagez le code ci-dessus pour remplir le salon.",
+			"copy_code": "Copier le code",
+			"copied": "Copié"
+		},
+		"new_playlist": {
+			"where": "Où l’enregistrer",
+			"account": "YouTube Music",
+			"account_desc": "Sur votre compte, où que vous soyez connecté",
+			"device": "Cet appareil",
+			"device_desc": "Aucun compte requis, les données restent sur cet ordinateur",
+			"device_only": "Cela reste sur cet ordinateur, aucun compte n’est requis. Connectez-vous pour créer des playlists sur YouTube Music.",
+			"local_files": "Les chansons de votre ordinateur ne peuvent être ajoutées qu'à une playlist sur cet appareil."
 		}
 	},
 	"integrations": {
@@ -781,7 +844,8 @@
 		"playlist_partial": "Ajout de {added} à {playlist} ; {duplicates} s'y trouvent déjà ; {remaining} n'est pas confirmé. {error}",
 		"account_changed": "L'ajout de titres a été interrompu en raison d'un changement de compte.",
 		"remove": "Retirer de cette playlist",
-		"remove_confirm": "Retirer {count} ?"
+		"remove_confirm": "Retirer {count} ?",
+		"playlists_partial": "Ajouté à {done} playlistes sur {total}. {error}"
 	},
 	"errors": {
 		"unreachable": "Impossible d'accéder à YouTube Music. Vérifiez votre connexion.",
@@ -794,5 +858,19 @@
 		"clear_recent": "Effacer",
 		"forget": "Supprimer \"{query}\" des recherches récentes",
 		"filters": "Types de résultats"
+	},
+	"add_playlist": {
+		"confirm": "Ajouter aux playlists",
+		"confirm_one": "Ajouter à la playlist",
+		"dupes_title": "Doublons trouvés",
+		"dupes_there": "Déjà présent",
+		"dupes_of": "{count} sur {total} sont déjà présents",
+		"dupes_skip": "Ignorer les doublons",
+		"skip_hint": "Ajouter uniquement ce qui manque",
+		"skip_none": "Rien de nouveau à ajouter",
+		"dupes_add": "Ajouter quand même",
+		"anyway_hint": "Conserver une deuxième copie",
+		"anyway_hint_local": "Les copies supplémentaires sont ajoutées uniquement aux playlists YouTube",
+		"adds": "+{count}"
 	}
 }

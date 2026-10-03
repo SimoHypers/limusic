@@ -122,8 +122,6 @@
 		"share": "Compartilhar",
 		"not_playing": "Nada tocando",
 		"history": "Histórico",
-		"hide_history": "Ocultar histórico",
-		"show_history": "Mostrar histórico",
 		"repeat_state": "Repetição: {state}",
 		"seek": "Posição",
 		"open_player": "Abrir player",
@@ -143,7 +141,9 @@
 		"unpin": "Desafixar",
 		"block_artist": "Bloquear artista",
 		"remove_from_this_playlist": "Remover desta playlist",
-		"back_to": "Voltar para {title}"
+		"back_to": "Voltar para {title}",
+		"mini_expand": "Expandir minirreprodutor",
+		"mini_shrink": "Recolher minirreprodutor"
 	},
 	"home": {
 		"good_morning": "Bom dia",
@@ -415,7 +415,12 @@
 			"lyrics_move_source": "Mover {name}",
 			"lyrics_moved_source": "{name} movida para a posição {position} de {total}",
 			"lyrics_use_source": "Usar {name}",
-			"lyrics_sources_none": "Todas as fontes estão desativadas, então nenhuma letra será encontrada."
+			"lyrics_sources_none": "Todas as fontes estão desativadas, então nenhuma letra será encontrada.",
+			"ambient_light": "Luz ambiente",
+			"ambient_light_hint": "A área do player ao redor do videoclipe brilha com as cores do vídeo.",
+			"ambient_light_gpu_title": "Requer uma placa de vídeo potente",
+			"ambient_light_gpu": "Com menos de 1000 pontos no benchmark de placas de vídeo PassMark, o player pode apresentar travamentos ao reproduzir um videoclipe.",
+			"ambient_light_gpu_check": "Pesquisar sua placa"
 		},
 		"data": {
 			"clear_cache": "Limpar cache de imagens e streams",
@@ -848,7 +853,10 @@
 		"unsubscribed": "Inscrição cancelada",
 		"signed_in_as": "Conectado como {name}",
 		"switched_to": "Você alternou para {name}",
-		"could_not_add": "Não foi possível adicionar esse item, tente abri-lo em vez disso"
+		"could_not_add": "Não foi possível adicionar esse item, tente abri-lo em vez disso",
+		"added_to_playlists": "Adicionado a {count} playlists",
+		"added_to_playlists_dupes": "Adicionado a {count} playlists. Duplicatas ignoradas: {dupes}",
+		"already_in_selected": "Tudo já está nas playlists selecionadas"
 	},
 	"history": {
 		"title": "Histórico",
@@ -879,7 +887,8 @@
 		"account_changed": "Interrompida a adição de músicas porque a conta foi alterada.",
 		"playlist_partial": "Total adicionado à {playlist}: {added}; Total de duplicatas: {duplicates}; Total não confirmado: {remaining}. {error}",
 		"remove": "Remover desta playlist",
-		"remove_confirm": "Remover {count}?"
+		"remove_confirm": "Remover {count}?",
+		"playlists_partial": "Adicionado a {done} de {total} playlists. {error}"
 	},
 	"errors": {
 		"unreachable": "Não foi possível acessar o YouTube Music. Verifique sua conexão.",
@@ -892,5 +901,19 @@
 		"clear_recent": "Limpar",
 		"forget": "Remover \"{query}\" das pesquisas recentes",
 		"filters": "Tipos de resultados"
+	},
+	"add_playlist": {
+		"confirm": "Adicionar às playlists",
+		"confirm_one": "Adicionar à playlist",
+		"dupes_title": "Duplicatas encontradas",
+		"dupes_there": "Já está lá",
+		"dupes_of": "{count} de {total} já estão lá",
+		"dupes_skip": "Ignorar duplicatas",
+		"skip_hint": "Adicionar apenas o que falta",
+		"skip_none": "Nada novo para adicionar",
+		"dupes_add": "Adicionar mesmo assim",
+		"anyway_hint": "Manter uma segunda cópia",
+		"anyway_hint_local": "As segundas cópias vão apenas para as playlists do YouTube",
+		"adds": "+{count}"
 	}
 }

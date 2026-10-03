@@ -145,8 +145,6 @@
 		"share": "공유",
 		"not_playing": "정지",
 		"history": "기록",
-		"hide_history": "기록 숨기기",
-		"show_history": "기록 표시하기",
 		"repeat_state": "반복: {state}",
 		"seek": "탐색",
 		"open_player": "플레이어 열기",
@@ -446,7 +444,12 @@
 			"lyrics_move_source": "{name} 이동",
 			"lyrics_moved_source": "{name} 가사 소스가 총 {total}개 중 {position}번째 위치로 이동",
 			"lyrics_use_source": "{name} 사용",
-			"lyrics_sources_none": "모든 가사 소스가 꺼져 있어 가사를 찾을 수 없습니다."
+			"lyrics_sources_none": "모든 가사 소스가 꺼져 있어 가사를 찾을 수 없습니다.",
+			"ambient_light": "은은한 조명 효과",
+			"ambient_light_hint": "뮤직비디오 주변의 플레이어 화면이 영상의 색상으로 은은하게 빛납니다.",
+			"ambient_light_gpu_title": "원활한 작동을 위해 성능이 좋은 그래픽 카드가 필요합니다",
+			"ambient_light_gpu": "PassMark 그래픽 카드 벤치마크 점수가 약 1000점 이하인 경우, 뮤직비디오 재생중 플레이어 화면이 끊길 수 있습니다.",
+			"ambient_light_gpu_check": "내 카드 찾기"
 		},
 		"data": {
 			"clear_cache": "이미지 및 스트리밍 캐시 삭제",

@@ -19,7 +19,8 @@
 		"account_changed": "Przerwano dodawanie utworów, ponieważ konto zostało zmienione.",
 		"playlist_partial": "Dodano {added} do {playlist}; {duplicates} już tam było; {remaining} niepotwierdzonych. {error}",
 		"remove": "Usuń z tej playlisty",
-		"remove_confirm": "Usunąć {count}?"
+		"remove_confirm": "Usunąć {count}?",
+		"playlists_partial": "Dodano do {done} z {total} playlist. {error}"
 	},
 	"common": {
 		"loading": "Ładowanie...",
@@ -145,8 +146,6 @@
 		"share": "Udostępnij",
 		"not_playing": "Nie odtwarzane",
 		"history": "Historia",
-		"hide_history": "Ukryj historię",
-		"show_history": "Pokaż historię",
 		"repeat_state": "Powtarzanie: {state}",
 		"seek": "Przewiń",
 		"open_player": "Otwórz odtwarzacz",
@@ -165,7 +164,13 @@
 		"pin_to_top": "Przypnij",
 		"unpin": "Odepnij",
 		"remove_from_this_playlist": "Remove from this playlista",
-		"back_to": "Powrót do {title}"
+		"back_to": "Powrót do {title}",
+		"mini_shrink": "Zmniejsz mini odtwarzacz",
+		"mini_expand": "Rozwiń mini odtwarzacz",
+		"autoplay": "Autoodtwarzanie",
+		"songs_left": "Zostało {count} utworów",
+		"songs_left_one": "Został 1 utwór",
+		"queue_ends": "Kolejka kończy się po tym utworze."
 	},
 	"home": {
 		"good_morning": "Dzień dobry",
@@ -356,7 +361,11 @@
 			"stream_clients": "Klienci strumieni",
 			"stream_clients_hint": "Wyłącz klienta, aby pominąć go podczas rozwiązywania strumieni. Nadpisywane przez zmienną środowiskową {var}.",
 			"language_search": "Szukaj języki",
-			"language_contribute": "Pomóż tłumaczyć Limusic"
+			"language_contribute": "Pomóż tłumaczyć Limusic",
+			"track_notifications": "Powiadomienia o utworach",
+			"track_notifications_hint": "Pokaż powiadomienie, gdy zacznie grać nowy utwór, a Limusic działa w tle.",
+			"start_minimized": "Uruchamiaj w zasobniku przy starcie",
+			"start_minimized_hint": "Gdy Limusic uruchamia się razem z systemem, pozostaje w zasobniku, dopóki go nie otworzysz. Ręczne otwarcie zawsze pokazuje okno."
 		},
 		"themes": {
 			"interface_font": "Czcionka interfejsu",
@@ -442,7 +451,14 @@
 			"lyrics_move_source": "Przenieś {name}",
 			"lyrics_moved_source": "Przeniesiono „{name}” na pozycję {position} z {total}",
 			"lyrics_use_source": "Użyj {name}",
-			"lyrics_sources_none": "Wszystkie źródła są wyłączone, więc nie zostaną znalezione żadne teksty."
+			"lyrics_sources_none": "Wszystkie źródła są wyłączone, więc nie zostaną znalezione żadne teksty.",
+			"shuffle_whole_queue": "Wymieszaj całą kolejkę",
+			"shuffle_whole_queue_hint": "Wymieszaj domiesza utwory dodane przez „Dodaj do kolejki\" do playlisty. Wyłączone — zagrają po niej, w kolejności dodania. „Odtwórz następny\" zawsze gra jako następny.",
+			"ambient_light": "Światło otoczenia",
+			"ambient_light_hint": "Widok odtwarzacza wokół teledysku świeci kolorami wideo.",
+			"ambient_light_gpu_title": "Wymaga wydajnej karty graficznej",
+			"ambient_light_gpu": "Poniżej około 1000 punktów w benchmarku kart graficznych PassMark widok odtwarzacza może się zacinać podczas odtwarzania teledysku.",
+			"ambient_light_gpu_check": "Sprawdź swoją kartę"
 		},
 		"data": {
 			"clear_cache": "Wyczyść pamięć podręczną obrazów i strumieni",
@@ -875,7 +891,10 @@
 		"unsubscribed": "Anulowano subskrypcję",
 		"signed_in_as": "Zalogowano jako {name}",
 		"switched_to": "Przełączono na {name}",
-		"could_not_add": "Nie udało się tego dodać. Spróbuj to otworzyć"
+		"could_not_add": "Nie udało się tego dodać. Spróbuj to otworzyć",
+		"added_to_playlists": "Dodano do {count} playlist",
+		"added_to_playlists_dupes": "Dodano do {count} playlist. Pominięto duplikaty: {dupes}",
+		"already_in_selected": "Wszystko jest już na wybranych playlistach"
 	},
 	"errors": {
 		"unreachable": "Nie można połączyć się z YouTube Music. Sprawdź połączenie.",
@@ -888,5 +907,19 @@
 		"clear_recent": "Wyczyść",
 		"forget": "Usuń „{query}” z ostatnich wyszukiwań",
 		"filters": "Typy wyników"
+	},
+	"add_playlist": {
+		"confirm": "Dodaj do playlist",
+		"confirm_one": "Dodaj do playlisty",
+		"dupes_title": "Znaleziono duplikaty",
+		"dupes_there": "Już tam jest",
+		"dupes_of": "{count} z {total} już tam jest",
+		"dupes_skip": "Pomiń duplikaty",
+		"skip_hint": "Dodaj tylko brakujące",
+		"skip_none": "Nie ma nic nowego do dodania",
+		"dupes_add": "Dodaj mimo to",
+		"anyway_hint": "Zachowaj drugą kopię",
+		"anyway_hint_local": "Drugie kopie trafiają tylko do playlist YouTube",
+		"adds": "+{count}"
 	}
 }

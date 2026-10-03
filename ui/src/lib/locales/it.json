@@ -117,8 +117,6 @@
 		"share": "Condividi",
 		"not_playing": "Non in riproduzione",
 		"history": "Cronologia",
-		"hide_history": "Nascondi cronologia",
-		"show_history": "Mostra cronologia",
 		"repeat_state": "Ripetizione: {state}",
 		"seek": "Cerca",
 		"open_player": "Apri player",

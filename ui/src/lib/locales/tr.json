@@ -122,8 +122,6 @@
 		"share": "Paylaş",
 		"not_playing": "Çalmıyor",
 		"history": "Geçmiş",
-		"hide_history": "Geçmişi gizle",
-		"show_history": "Geçmişi göster",
 		"repeat_state": "Tekrar: {state}",
 		"seek": "Konum",
 		"open_player": "Oynatıcıyı aç",
@@ -143,7 +141,9 @@
 		"unpin": "Sabitlemeyi kaldır",
 		"block_artist": "Sanatçıyı engelle",
 		"remove_from_this_playlist": "Bu çalma listesinden kaldır",
-		"back_to": "Geri dön: {title}"
+		"back_to": "Geri dön: {title}",
+		"mini_shrink": "Mini oynatıcıyı küçült",
+		"mini_expand": "Mini oynatıcıyı genişlet"
 	},
 	"home": {
 		"good_morning": "Günaydın",
@@ -415,7 +415,8 @@
 			"lyrics_move_source": "{name} kaynağını taşı",
 			"lyrics_moved_source": "{name} öğesi, {total} öğe arasında {position}. sıraya taşındı",
 			"lyrics_use_source": "{name} kaynağını kullan",
-			"lyrics_sources_none": "Bütün kaynaklar kapalı, bu yüzden hiçbir şarkı sözü bulunmayacak."
+			"lyrics_sources_none": "Bütün kaynaklar kapalı, bu yüzden hiçbir şarkı sözü bulunmayacak.",
+			"ambient_light_gpu_title": "Destekleyen bir ekran kartı gerektirir"
 		},
 		"data": {
 			"clear_cache": "Görsel ve akış önbelleğini temizle",
@@ -530,7 +531,7 @@
 			"action_volume_up": "Sesi yükselt",
 			"action_volume_up_hint": "Oynatma ses düzeyini %5 yükseltir.",
 			"action_volume_down": "Sesi kıs",
-			"action_volume_down_hint": "Oynatma ses düzetini %5 düşürür.",
+			"action_volume_down_hint": "Oynatma ses düzeyini %5 düşürür.",
 			"action_mute_toggle": "Sessize al / sesi aç",
 			"action_mute_toggle_hint": "Sessize alma ve önceki ses düzeyi arasında geçiş yapar.",
 			"action_seek_forward": "İleri sar",
@@ -848,7 +849,8 @@
 		"unsubscribed": "Abonelikten çıkıldı",
 		"signed_in_as": "{name} olarak giriş yapıldı",
 		"switched_to": "{name} hesabına geçildi",
-		"could_not_add": "Bu eklenemedi, bunun yerine açmayı deneyin"
+		"could_not_add": "Bu eklenemedi, bunun yerine açmayı deneyin",
+		"already_in_selected": "Her şey seçilen çalma listelerinde zaten mevcut"
 	},
 	"history": {
 		"title": "Geçmiş",
@@ -892,5 +894,17 @@
 		"clear_recent": "Temizle",
 		"forget": "\"{query}\" sorgusunu son aramalardan kaldır",
 		"filters": "Sonuç türleri"
+	},
+	"add_playlist": {
+		"confirm": "Çalma listelerine ekle",
+		"confirm_one": "Çalma listesine ekle",
+		"dupes_title": "Yinelenen kayıtlar bulundu",
+		"dupes_there": "Zaten orada",
+		"skip_hint": "Sadece eksik olanları ekleyin",
+		"skip_none": "Eklenecek yeni bir şey yok",
+		"dupes_add": "Yine de ekle",
+		"anyway_hint": "İkinci bir kopyasını sakla",
+		"anyway_hint_local": "İkinci kopyalar yalnızca YouTube çalma listelerine eklenir",
+		"adds": "+{count}"
 	}
 }
