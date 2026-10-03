@@ -16,6 +16,7 @@ mod lastfm;
 mod listentogether;
 mod local;
 mod lyrics;
+mod matugen;
 mod media;
 mod mini;
 #[cfg(target_os = "linux")]
@@ -573,6 +574,7 @@ pub fn run() {
                 lastfm,
             ));
             app.manage(app_state.clone());
+            matugen::start(handle.clone());
 
             // The player view's <video> pulls its bytes from Rust over loopback, so the webview
             // never sees a googlevideo URL (context/11). videoproxy.rs explains why a socket and
@@ -839,6 +841,7 @@ pub fn run() {
             commands::forget_video_stream,
             commands::native_video_rect,
             commands::ambient_frame,
+            commands::get_matugen_theme,
             commands::get_settings,
             commands::set_setting,
             commands::get_global_hotkeys,
