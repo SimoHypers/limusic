@@ -35,7 +35,7 @@ pub enum HotkeyAction {
     SeekBackward,
     ToggleShuffle,
     ToggleRepeat,
-    ShowApp,
+    ToggleApp,
 }
 
 /// Global hotkeys configuration saved in local settings.
@@ -57,7 +57,7 @@ impl Default for HotkeysConfig {
         bindings.insert(HotkeyAction::VolumeDown, "Ctrl+Alt+Down".into());
         bindings.insert(HotkeyAction::SeekForward, "Ctrl+Alt+PageUp".into());
         bindings.insert(HotkeyAction::SeekBackward, "Ctrl+Alt+PageDown".into());
-        bindings.insert(HotkeyAction::ShowApp, "Ctrl+Alt+Home".into());
+        bindings.insert(HotkeyAction::ToggleApp, "Ctrl+Alt+Home".into());
         Self { enabled: false, bindings }
     }
 }
@@ -213,8 +213,33 @@ pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
             HotkeyAction::ToggleRepeat => {
                 state.cycle_repeat().await;
             }
-            HotkeyAction::ShowApp => {
-                crate::tray::show_main(&app);
+            HotkeyAction::ToggleApp => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Some(w) = app.get_webview_window("main") {
+                        if let Ok(true) = w.is_visible() {
+                            // Window is visible, hide it
+                            if crate::tray::available() {
+                                if let Some(state) = app.try_state::<Arc<AppState>>() {
+                                    let setting = state.db.get_setting("close_to_tray");
+                                    if setting.as_deref() != Some("false") {
+                                        let _ = w.hide();
+                                        crate::tray::set_main_visible(&app, false);
+                                    } else {
+                                        // Close to tray is disabled, just minimize
+                                        let _ = w.minimize();
+                                    }
+                                }
+                            } else {
+                                // No tray available, just minimize
+                                let _ = w.minimize();
+                            }
+                        } else {
+                            // Window is hidden, show it
+                            crate::tray::show_main(&app);
+                        }
+                    }
+                });
             }
         }
     });
@@ -258,9 +283,9 @@ mod tests {
     #[test]
     fn config_round_trips_through_settings_json() {
         let json =
-            r#"{"enabled":true,"bindings":{"play_pause":"Ctrl+Alt+Space","show_app":"F12"}}"#;
+            r#"{"enabled":true,"bindings":{"play_pause":"Ctrl+Alt+Space","toggle_app":"F12"}}"#;
         let cfg: HotkeysConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(cfg.bindings[&HotkeyAction::ShowApp], "F12");
+        assert_eq!(cfg.bindings[&HotkeyAction::ToggleApp], "F12");
         let back: HotkeysConfig =
             serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
         assert_eq!(back.bindings, cfg.bindings);
