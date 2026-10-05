@@ -12,6 +12,8 @@
 	import { startRadio, toast, ui } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import { isSpotifyLink, openSpotifyLink } from '$lib/import.svelte';
+	import { LOCAL_SONG_PREFIX } from '$lib/api';
+	import { play } from '$lib/api';
 
 	let url = $state('');
 
@@ -41,18 +43,77 @@
 		open(target);
 	}
 
+	// Supported audio extensions from local.rs
+	const AUDIO_EXTENSIONS = new Set([
+		'mp3', 'flac', 'm4a', 'm4b', 'aac', 'ogg', 'oga', 'opus', 'wav', 'wma', 'aiff', 'aif', 'ape', 'wv', 'mka'
+	]);
+
+	function isLocalAudioFile(path: string): boolean {
+		try {
+			const url = new URL(path);
+			// It's a URL, not a file path
+			return false;
+		} catch {
+			// Not a URL, treat as potential file path
+			const ext = path.split('.').pop()?.toLowerCase();
+			return ext ? AUDIO_EXTENSIONS.has(ext) : false;
+		}
+	}
+
+	async function playLocalFile(filePath: string) {
+		const songItem = {
+			video_id: `${LOCAL_SONG_PREFIX}${filePath}`,
+			title: filePath.split(/[\\/]/).pop() || 'Local file',
+			artists: 'Unknown artist',
+			album: undefined,
+			album_id: undefined,
+			duration: undefined,
+			thumbnail: undefined,
+			play_count: undefined,
+			artist_runs: undefined,
+			set_video_id: undefined,
+			added_by: undefined,
+			added_by_avatar: undefined,
+			rating: undefined,
+			library: undefined,
+			queued_by: undefined,
+			queued: false,
+			queued_end: false,
+			queued_from: undefined,
+			autoplay: false,
+			explicit: false,
+			is_video: false,
+			is_upload: false,
+			artist_id: undefined
+		};
+		await play(songItem);
+	}
+
 	// The same from outside the app (#348): `limusic-app <link>`, from Rust at launch or from a
 	// second launch while this one runs. Flags ride along in argv (`--autostart`, macOS's `-psn_`),
 	// and a leading word like `open` is skipped too, since the first argument that parses wins.
 	onMount(() => {
-		const fromArgs = (args: string[]) => {
+		const fromArgs = async (args: string[]) => {
 			const given = args.filter((a) => !a.startsWith('-'));
 			if (!given.length) return;
-			const spotify = given.find(isSpotifyLink);
-			if (spotify) return openSpotifyLink(spotify);
-			const target = given.map(parseYtLink).find((x) => x);
-			if (target) open(target);
-			else toast.error(t('dialogs.link.invalid_link'));
+			
+			// Check each arg: Spotify link, YouTube link, or local audio file
+			for (const arg of given) {
+				if (isSpotifyLink(arg)) {
+					await openSpotifyLink(arg);
+					return;
+				}
+				const target = parseYtLink(arg);
+				if (target) {
+					open(target);
+					return;
+				}
+				if (isLocalAudioFile(arg)) {
+					await playLocalFile(arg);
+					return;
+				}
+			}
+			toast.error(t('dialogs.link.invalid_link'));
 		};
 		const un = onOpenLink(fromArgs);
 		takeLaunchArgs()

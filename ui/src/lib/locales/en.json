@@ -522,8 +522,8 @@
 			"action_toggle_shuffle_hint": "Turn shuffle on or off for the queue.",
 			"action_toggle_repeat": "Toggle repeat",
 			"action_toggle_repeat_hint": "Cycle repeat mode: off, all, one.",
-			"action_show_app": "Show application",
-			"action_show_app_hint": "Bring the Limusic window to the foreground."
+			"action_toggle_app": "Show / hide application",
+			"action_toggle_app_hint": "Toggle the Limusic window. When hiding, minimizes to tray if \"Close to system tray\" is enabled in General settings."
 		},
 		"data": {
 			"clear_cache": "Clear image and stream cache",

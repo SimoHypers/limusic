@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "limusic",
+  "productName": "Limusic",
   "version": "1.2.0-rc.1",
   "identifier": "com.limusic.desktop",
   "build": {
@@ -39,6 +39,15 @@
     "category": "Music",
     "targets": ["deb", "rpm", "appimage"],
     "createUpdaterArtifacts": true,
+    "fileAssociations": [
+      {
+        "ext": ["mp3", "flac", "m4a", "m4b", "aac", "ogg", "oga", "opus", "wav", "wma", "aiff", "aif", "ape", "wv", "mka"],
+        "name": "Limusic Audio",
+        "description": "Audio file supported by Limusic",
+        "role": "Viewer",
+        "mimeType": "audio/*"
+      }
+    ],
     "icon": [
       "icons/icon.png",
       "icons/32x32.png",

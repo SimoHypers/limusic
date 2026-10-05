@@ -75,9 +75,9 @@ export const HOTKEY_ACTIONS: HotkeyActionDef[] = [
 	},
 	// Window
 	{
-		id: 'show_app',
-		titleKey: 'settings.hotkeys.action_show_app',
-		hintKey: 'settings.hotkeys.action_show_app_hint',
+		id: 'toggle_app',
+		titleKey: 'settings.hotkeys.action_toggle_app',
+		hintKey: 'settings.hotkeys.action_toggle_app_hint',
 		section: 'window'
 	}
 ];

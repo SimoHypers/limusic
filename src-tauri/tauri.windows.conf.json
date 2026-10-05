@@ -2,6 +2,15 @@
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
     "targets": ["nsis", "msi"],
-    "resources": ["libmpv-2.dll"]
+    "resources": ["libmpv-2.dll"],
+    "fileAssociations": [
+      {
+        "ext": ["mp3", "flac", "m4a", "m4b", "aac", "ogg", "oga", "opus", "wav", "wma", "aiff", "aif", "ape", "wv", "mka"],
+        "name": "Limusic Audio",
+        "description": "Audio file supported by Limusic",
+        "role": "Viewer",
+        "mimeType": "audio/*"
+      }
+    ]
   }
 }
