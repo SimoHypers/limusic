@@ -529,6 +529,10 @@
 			"action_show_app": "Show application",
 			"action_show_app_hint": "Bring the Limusic window to the foreground."
 		},
+		"keybinds": {
+			"conflict": "That shortcut is already used by \"{action}\"",
+			"unbindable": "That combination can't be used here. Add another modifier (like ⌘ or Ctrl) or pick a different key."
+		},
 		"data": {
 			"clear_cache": "Clear image and stream cache",
 			"clear_cache_hint": "Frees up disk space by clearing cached thumbnails and audio chunks.",
@@ -647,6 +651,11 @@
 		"shortcuts": {
 			"title": "Keyboard shortcuts",
 			"reopen_hint": "{key} brings this back at any time.",
+			"edit_hint": "Click a shortcut, then press the keys you want. Escape cancels.",
+			"recording": "Press keys…",
+			"rebind": "Change shortcut for {action}",
+			"reset_action": "Reset this shortcut",
+			"reset_all": "Reset all",
 			"group_playback": "Playback",
 			"group_general": "General",
 			"play_pause": "Play or pause",
