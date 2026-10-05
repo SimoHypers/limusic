@@ -379,6 +379,8 @@
 			"autostart_hint": "Automatically start Limusic when your system boots.",
 			"close_to_tray": "Close to system tray",
 			"close_to_tray_hint": "Keep Limusic running in the background when closing the window.",
+			"hide_tray": "Hide menu bar icon",
+			"hide_tray_hint": "Limusic adds an icon to the macOS menu bar. Hide it if you don't use it; closing the window then quits Limusic instead of keeping it running in the background.",
 			"track_notifications": "Song notifications",
 			"track_notifications_hint": "Show a notification when a new song starts while Limusic is in the background.",
 			"start_minimized": "Launch to tray on startup",

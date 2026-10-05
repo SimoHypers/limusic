@@ -28,7 +28,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Select from '$lib/components/ui/select';
 	import * as Popover from '$lib/components/ui/popover';
-	import { HELP_COMBO } from '$lib/shortcuts';
+	import { HELP_COMBO, IS_MAC } from '$lib/shortcuts';
 	import { copyText } from '$lib/clipboard';
 	import * as api from '$lib/api';
 	import { blocked, prefs, refreshView, setAutoplay, ui, toast, unblockArtist } from '$lib/player.svelte';
@@ -357,6 +357,10 @@
 	const updateBannerOn = $derived(settings.update_banner !== 'false');
 	const betaOn = $derived(settings.update_channel === 'beta');
 	const trayOn = $derived(settings.close_to_tray !== 'false');
+	// macOS only: the menu bar icon is redundant next to the Dock, and hiding it also changes what
+	// ✕ does (Rust drops `AVAILABLE`, so closing quits instead of hiding into a tray that isn't
+	// there). Off by default.
+	const hideTrayOn = $derived(settings.hide_tray === 'true');
 	const trackNotificationsOn = $derived(settings.track_notifications === 'true');
 	const autostartOn = $derived(settings.autostart === 'true');
 	const startMinimizedOn = $derived(settings.start_minimized === 'true');
@@ -467,6 +471,11 @@
 	async function setTray(on: boolean) {
 		settings.close_to_tray = on ? 'true' : 'false';
 		await api.setSetting('close_to_tray', settings.close_to_tray);
+	}
+
+	async function setHideTray(on: boolean) {
+		settings.hide_tray = on ? 'true' : 'false';
+		await api.setSetting('hide_tray', settings.hide_tray);
 	}
 
 	async function setTrackNotifications(on: boolean) {
@@ -671,11 +680,20 @@
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.system')}</h3>
 							<div class={CARD}>
-								{@render row({
-									title: t('settings.general.close_to_tray'),
-									desc: t('settings.general.close_to_tray_hint'),
-									control: traySwitch
-								})}
+								{#if !hideTrayOn}
+									{@render row({
+										title: t('settings.general.close_to_tray'),
+										desc: t('settings.general.close_to_tray_hint'),
+										control: traySwitch
+									})}
+								{/if}
+								{#if IS_MAC}
+									{@render row({
+										title: t('settings.general.hide_tray'),
+										desc: t('settings.general.hide_tray_hint'),
+										control: hideTraySwitch
+									})}
+								{/if}
 								{@render row({
 									title: t('settings.general.track_notifications'),
 									desc: t('settings.general.track_notifications_hint'),
@@ -1083,6 +1101,7 @@
 
 {#snippet historySwitch()}<Switch checked={historyOn} onCheckedChange={setHistory} />{/snippet}
 {#snippet traySwitch()}<Switch checked={trayOn} onCheckedChange={setTray} />{/snippet}
+{#snippet hideTraySwitch()}<Switch checked={hideTrayOn} onCheckedChange={setHideTray} />{/snippet}
 {#snippet trackNotificationsSwitch()}<Switch
 		checked={trackNotificationsOn}
 		onCheckedChange={setTrackNotifications}

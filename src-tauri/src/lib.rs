@@ -616,6 +616,18 @@ pub fn run() {
                 tray::set_available(false);
             }
 
+            // macOS only: some users would rather not have the extra menu bar icon (Settings >
+            // General). `AVAILABLE` follows it, because with no icon there is nothing to bring the
+            // window back from, so ✕ must quit instead of hiding into a tray that isn't there.
+            #[cfg(target_os = "macos")]
+            if app_state.db.get_setting("hide_tray").as_deref() == Some("true") {
+                // Only forget the tray once it is really hidden: a failed hide leaves the icon on
+                // screen, so the window must still be able to come back to it.
+                if tray::set_visible(&handle, false) {
+                    tray::set_available(false);
+                }
+            }
+
             // System-wide global hotkeys for playback control
             let hotkeys_cfg = hotkeys::load_config(&app_state.db);
             let hotkeys_mgr = Arc::new(hotkeys::HotkeysManager::new(hotkeys_cfg.clone()));
