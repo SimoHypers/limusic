@@ -4,7 +4,16 @@
     "targets": ["app", "dmg"],
     "macOS": {
       "minimumSystemVersion": "14.0"
-    }
+    },
+    "fileAssociations": [
+      {
+        "ext": ["mp3", "flac", "m4a", "m4b", "aac", "ogg", "oga", "opus", "wav", "wma", "aiff", "aif", "ape", "wv", "mka"],
+        "name": "Limusic Audio",
+        "description": "Audio file supported by Limusic",
+        "role": "Viewer",
+        "mimeType": "audio/*"
+      }
+    ]
   },
   "app": {
     "windows": [
