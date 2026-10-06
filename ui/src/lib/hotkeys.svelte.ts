@@ -2,6 +2,7 @@ import * as api from '$lib/api';
 import { toast } from '$lib/player.svelte';
 import { t, type TranslationKey } from '$lib/i18n.svelte';
 import { IS_MAC } from '$lib/shortcuts';
+import { comboFromEvent } from '$lib/keycombo';
 
 export interface HotkeyActionDef {
 	id: string;
@@ -184,111 +185,12 @@ class HotkeysStore {
 export const hotkeys = new HotkeysStore();
 
 /**
- * Maps physical KeyboardEvent.code to the canonical tokens accepted by parse_shortcut.
- * Returns null for unmapped or unsupported keys. No media keys: those already reach the app through
- * the OS media controls, and a second grab on them would toggle twice.
- */
-function canonicalKeyFromCode(code: string): string | null {
-	// Function keys F1-F24
-	if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) {
-		return code;
-	}
-	// Letters KeyA - KeyZ
-	if (/^Key[A-Z]$/.test(code)) {
-		return code.slice(3);
-	}
-	// Digits Digit0 - Digit9
-	if (/^Digit[0-9]$/.test(code)) {
-		return code.slice(5);
-	}
-	// Numpad0 - Numpad9
-	if (/^Numpad[0-9]$/.test(code)) {
-		return code;
-	}
-	// Navigation & editing keys
-	switch (code) {
-		case 'ArrowUp':
-		case 'ArrowDown':
-		case 'ArrowLeft':
-		case 'ArrowRight':
-		case 'PageUp':
-		case 'PageDown':
-		case 'Home':
-		case 'End':
-		case 'Insert':
-		case 'Delete':
-		case 'Space':
-		case 'Enter':
-		case 'Tab':
-		case 'Backspace':
-		case 'Escape':
-			return code;
-		// Punctuation / symbols matching backend parse_key_code
-		case 'Minus':
-			return '-';
-		case 'Equal':
-			return '=';
-		case 'BracketLeft':
-			return '[';
-		case 'BracketRight':
-			return ']';
-		case 'Backslash':
-			return '\\';
-		case 'Semicolon':
-			return ';';
-		case 'Quote':
-			return "'";
-		case 'Comma':
-			return ',';
-		case 'Period':
-			return '.';
-		case 'Slash':
-			return '/';
-		default:
-			return null;
-	}
-}
-
-/**
  * Format a keyboard event into a normalized shortcut string using canonical physical codes.
  * Returns null for modifiers alone, an unsupported key, or a key with no Ctrl, Alt or Super.
  */
 export function eventToShortcut(e: KeyboardEvent): string | null {
-	// Modifiers only: ignore
-	if (
-		['Control', 'Shift', 'Alt', 'Meta'].includes(e.key) ||
-		[
-			'ControlLeft',
-			'ControlRight',
-			'ShiftLeft',
-			'ShiftRight',
-			'AltLeft',
-			'AltRight',
-			'MetaLeft',
-			'MetaRight'
-		].includes(e.code)
-	) {
-		return null;
-	}
-
-	const primaryKey = canonicalKeyFromCode(e.code);
-	if (!primaryKey) {
-		return null;
-	}
-
-	// A bare key (or Shift+key) would be grabbed from every app on the desktop. F-keys type nothing.
-	if (!e.ctrlKey && !e.altKey && !e.metaKey && !/^F\d/.test(primaryKey)) {
-		return null;
-	}
-
-	const parts: string[] = [];
-	if (e.ctrlKey) parts.push('Ctrl');
-	if (e.altKey) parts.push('Alt');
-	if (e.shiftKey) parts.push('Shift');
-	if (e.metaKey) parts.push('Super');
-
-	parts.push(primaryKey);
-	return parts.join('+');
+	// `true`: a global grab needs a modifier (or an F-key), unlike the app's own shortcuts.
+	return comboFromEvent(e, true);
 }
 
 const MAC_KEYS: Record<string, string> = { Ctrl: '⌃', Alt: '⌥', Shift: '⇧', Super: '⌘' };

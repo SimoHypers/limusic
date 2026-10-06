@@ -46,9 +46,9 @@ YouTube Music client, and grew from there.
 - **Last.fm scrobbling**: connect once from the title bar, every play is scrobbled
 - **Discord Rich Presence**: artwork, live progress bar, one click to toggle
 - **OS media keys** and now-playing integration (MPRIS on Linux, SMTC on Windows, plus playback buttons on the Windows taskbar preview)
-- **System tray**: close the window, keep the music; play/pause and skip from the tray, optional start-on-login
+- **System tray**: close the window, keep the music; play/pause and skip from the tray, optional start-on-login, and on macOS the menu bar icon can be hidden entirely
 - **Listen Together**: synced listening rooms over a small self-hosted relay
-- **Keyboard and mouse**: `Ctrl+K` searches from anywhere, `Ctrl+H` lists every shortcut, right-click menus throughout, `Ctrl` and the wheel zooms the interface
+- **Keyboard and mouse**: `Ctrl+K` searches from anywhere, `Ctrl+H` lists every shortcut and lets you rebind them, right-click menus throughout, `Ctrl` and the wheel zooms the interface
 - **Fifteen languages**: English, German, Spanish, French, Indonesian, Italian, Japanese, Korean, Polish, Brazilian Portuguese, Romanian, Russian, Turkish, Ukrainian and Traditional Chinese, with more in progress on [Weblate](https://hosted.weblate.org/projects/limusic/)
 - **Self-updating builds** (AppImage on Linux, setup.exe on Windows, .app on macOS)
 - **Make it yours**: accent palettes, custom colors, your own fonts, corner roundness, a custom app icon, and an adaptive theme that recolors the app from the playing cover

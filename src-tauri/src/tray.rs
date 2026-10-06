@@ -19,7 +19,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::state::AppState;
 
-pub use imp::{init, set_icon, set_playing};
+pub use imp::{init, set_icon, set_playing, set_visible};
 
 /// Whether a tray icon actually exists for the user to click.
 ///
@@ -228,6 +228,13 @@ mod imp {
             handle.update(|t| t.icon = pixmap).await;
         });
     }
+
+    /// Not offered on Linux, so this is never reached from the UI: the setting is macOS-only. The
+    /// StatusNotifierItem has no cheap hide, and hiding it there would strand close-to-tray with
+    /// nothing to come back from. Always `false` — there is no icon here to have reached.
+    pub fn set_visible(_app: &AppHandle, _visible: bool) -> bool {
+        false
+    }
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -294,6 +301,18 @@ mod imp {
     pub fn set_icon(app: &AppHandle, icon: &tauri::image::Image<'_>) {
         if let Some(tray) = app.tray_by_id("main") {
             let _ = tray.set_icon(Some(sized(icon)));
+        }
+    }
+
+    /// Show or hide the icon, reporting whether the call reached a live tray item and succeeded
+    /// (`init` can have failed, leaving none). macOS-only in practice (Settings > General): the
+    /// status item has no reason to exist next to the Dock, and the setting is not offered where
+    /// there is no Dock to fall back on. Hidden, the window is gone too, so callers pair this with
+    /// [`super::AVAILABLE`].
+    pub fn set_visible(app: &AppHandle, visible: bool) -> bool {
+        match app.tray_by_id("main") {
+            Some(tray) => tray.set_visible(visible).is_ok(),
+            None => false,
         }
     }
 

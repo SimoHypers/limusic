@@ -222,7 +222,7 @@ pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
 /// `visitor_data`) and internal blobs (`queue_json`, `queue_index`, `queue_position`) never cross
 /// into the webview: they'd otherwise ship the login credential to the renderer on every open, and
 /// the webview can't overwrite them either.
-const UI_SETTINGS: [&str; 28] = [
+const UI_SETTINGS: [&str; 29] = [
     "volume",
     "proxy",
     "quality",
@@ -232,6 +232,7 @@ const UI_SETTINGS: [&str; 28] = [
     "discord_rpc",
     "discord_rpc_config",
     "close_to_tray",
+    "hide_tray",
     "track_notifications",
     "autostart",
     "start_minimized",
@@ -400,6 +401,22 @@ pub async fn set_setting(
         res.map_err(|e| format!("autostart: {e}"))?;
     }
     state.db.set_setting(&key, &value);
+    // macOS only (the row is not offered elsewhere): hide or show the menu bar icon without a
+    // restart. `AVAILABLE` moves with it — hidden, close-to-tray has nothing to come back from.
+    #[cfg(target_os = "macos")]
+    if key == "hide_tray" {
+        let visible = value != "true";
+        let applied = crate::tray::set_visible(&app, visible);
+        // `AVAILABLE` tracks where the tray actually is. A show that worked means there is an icon
+        // to come back to; a show that failed (no item, or the call errored) means there is not. A
+        // hide that worked means there is not; a hide that failed left the icon where it was, so
+        // whatever was true before is still true.
+        if applied {
+            crate::tray::set_available(visible);
+        } else if visible {
+            crate::tray::set_available(false);
+        }
+    }
     // A music video track already playing gets its picture now rather than from the next track.
     if key == "music_videos" && value == "true" {
         state.inner().attach_current_video().await;

@@ -19,7 +19,7 @@
 	import ItemMenu from './ItemMenu.svelte';
 	import { searchSuggestions, type BrowseItem, type SearchSuggestions } from '$lib/api';
 	import { openItem, rowMeta } from '$lib/browse';
-	import { MOD } from '$lib/shortcuts';
+	import { keybinds } from '$lib/keybinds.svelte';
 	import { thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
 
@@ -157,13 +157,13 @@
 		onkeydown={onKeydown}
 	/>
 	<!-- Advertises the palette, which searches the same thing from anywhere in the app
-	     (shortcuts.ts). Out of the way once there is a query to read, and never a click target:
-	     the field behind it is the target. -->
+	     (shortcuts.ts). Reflects the user's own binding. Out of the way once there is a query to
+	     read, and never a click target: the field behind it is the target. -->
 	{#if !value}
 		<kbd
 			class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded border bg-muted px-1.5 py-0.5 font-mono text-[0.625rem] font-medium tracking-wide text-muted-foreground"
 		>
-			{MOD}K
+			{keybinds.label('search')}
 		</kbd>
 	{/if}
 	{#if open}

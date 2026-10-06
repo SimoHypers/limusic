@@ -1,31 +1,14 @@
-// App-wide keyboard shortcuts. One window listener: the unmodified keys (space, ;) bail out on a
-// typing target first, everything else is gated on Ctrl/Cmd, so a key typed into a field costs a
-// couple of cheap checks and falls straight through. Zoom keeps its own listener (zoom.ts) because
-// it also owns the ctrl+wheel gesture.
-import { browser } from '$app/environment';
+// App-wide keyboard shortcuts. One window listener: the event is turned into a canonical combo
+// (keycombo.ts) and looked up in the editable bindings (keybinds.svelte.ts), so what Settings > the
+// shortcuts list shows is exactly what fires. Zoom keeps its own listener (zoom.svelte.ts) because
+// it also owns the ctrl+wheel gesture, and the global OS-level hotkeys live in hotkeys.svelte.ts.
 import * as api from './api';
 import { cycleRepeat, np, nudgeVolume, playback, refreshView, toggleMute, ui } from './player.svelte';
+import { keybinds } from './keybinds.svelte';
+import { comboFromEvent, isLocalBindable, parseCombo, IS_MAC } from './keycombo';
+import { setZoom, stepZoom } from './zoom.svelte';
 
-export const IS_MAC = browser && navigator.platform.startsWith('Mac');
-
-/** How this machine writes the modifier these shortcuts hang off, for anything that shows a key
- *  hint. Mac takes the bare glyph; everywhere else the `+` is part of the spelling. */
-export const MOD = IS_MAC ? '⌘' : 'Ctrl+';
-
-/** macOS keeps ⌘H for the system "hide the window", so the shortcuts list answers to ⌘/ there. */
-export const HELP_KEY = IS_MAC ? '/' : 'H';
-
-/** The whole combo that opens the shortcuts list, spelled for this machine. */
-export const HELP_COMBO = `${MOD}${HELP_KEY}`;
-
-/** `HELP_KEY` as the event reports it. A letter arrives in either case; `/` only ever as itself. */
-const isHelpKey = (key: string) => key === HELP_KEY || key === HELP_KEY.toLowerCase();
-
-/** macOS keeps ⌘M for the system "minimize the window", so mute asks for ⇧ on top there. */
-export const MUTE_COMBO = IS_MAC ? `${MOD}⇧M` : `${MOD}M`;
-
-/** Mute's key, shift and all. Elsewhere ⇧ is ignored, the way it always was for these letters. */
-const isMuteKey = (e: KeyboardEvent) => (e.key === 'm' || e.key === 'M') && (!IS_MAC || e.shiftKey);
+export { IS_MAC };
 
 /** Percent per press, matching a step of the volume slider's arrow keys. */
 const VOLUME_STEP = 5;
@@ -35,86 +18,93 @@ const typing = (t: EventTarget | null) =>
 	t instanceof HTMLElement &&
 	(t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
 
-/** `mini` = the mini-player window: same transport keys, minus the ones that toggle a piece of
- *  chrome that window doesn't render (palette, shortcut list, now-playing view). */
+/** The mini window renders none of the chrome these toggle, and it has no page to reload, so it
+ *  keeps the bindings for everything else but not these. */
+const MINI_EXCLUDED: Record<string, true> = {
+	// No page to reload.
+	refresh: true,
+	// None of this chrome exists in the widget.
+	search: true,
+	now_playing: true,
+	show_list: true,
+	// The widget is a fixed-size card; it never initializes zoom.
+	zoom_in: true,
+	zoom_out: true,
+	reset_zoom: true
+};
+
 export function initShortcuts(mini = false) {
+	keybinds.load();
 	const onKey = (e: KeyboardEvent) => {
 		// Focused controls (including track selection) have already handled this key.
 		if (e.defaultPrevented) return;
-		// F5 reloads the page here for the same reason it does in a browser, and like a browser it
-		// works from inside a text field too. Ctrl+R is not a second way in: that key cycles repeat.
-		// The mini widget has no page to reload, so it keeps the key for the OS.
-		if (!mini && e.key === 'F5') {
-			refreshView();
-			e.preventDefault();
-			return;
-		}
-		if (!e.ctrlKey && !e.metaKey) {
-			// Space also activates a focused button and scrolls the page, so it is swallowed either
-			// way once we know it isn't being typed.
-			if (e.key !== ' ' && e.key !== ';') return;
-			if (typing(e.target) || e.altKey || e.shiftKey) return;
-			api.togglePause();
-			e.preventDefault();
-			return;
-		}
-		// Ctrl+Alt belongs to the global hotkeys (Ctrl+Alt+M would otherwise mute here too and the
-		// two toggles cancel out), and on Windows it is also how AltGr arrives, typing a character.
-		if (e.altKey) return;
-		if (mini && ('kKeE'.includes(e.key) || isHelpKey(e.key))) return;
-		// Out of the switch because the key is per-platform: on macOS ⌘H has to fall through
-		// untouched, so the window still hides.
-		if (isHelpKey(e.key)) {
-			ui.shortcutsOpen = !ui.shortcutsOpen;
-			e.preventDefault();
-			return;
-		}
-		// Out of the switch for the same reason, and it has to read the whole event: on macOS a
-		// bare ⌘M falls through so AppKit still minimizes, and only ⌘⇧M mutes.
-		if (isMuteKey(e)) {
-			toggleMute();
-			e.preventDefault();
-			return;
-		}
-		switch (e.key) {
+		// A rebind owns the keyboard. It stops propagation as well; this is belt and braces.
+		if (keybinds.recording) return;
+		const combo = comboFromEvent(e);
+		if (!combo) return;
+		const action = keybinds.actionFor(combo);
+		if (!action) return;
+		if (mini && MINI_EXCLUDED[action]) return;
+		// A combo the recorder refuses to save never fires; the shared predicate keeps the two in
+		// step (it drops Shift+<bare key> and Ctrl/Super+Alt).
+		if (!isLocalBindable(combo)) return;
+		const bare = !(e.ctrlKey || e.metaKey || e.altKey);
+		// A bare key is a character in a field. F-keys are the exception: nothing types with them,
+		// so like a browser's reload, F5 works from a field too.
+		if (bare && !/^F\d/.test(parseCombo(combo).key) && typing(e.target)) return;
+		switch (action) {
+			case 'refresh':
+				refreshView();
+				break;
+			case 'play_pause':
+				api.togglePause();
+				break;
 			// Toggles, so the key that opened the palette also dismisses it.
-			case 'k':
-			case 'K':
+			case 'search':
 				ui.paletteOpen = !ui.paletteOpen;
 				break;
-			case 'e':
-			case 'E':
-				// With nothing playing there is no view to open (the layout renders it behind
-				// `playback.now`), and flipping the flag anyway would ambush the next play.
+			// With nothing playing there is no view to open (the layout renders it behind
+			// `playback.now`), and flipping the flag anyway would ambush the next play.
+			case 'now_playing':
 				if (!playback.now) return;
 				np.open = !np.open;
 				break;
-			case 'f':
-			case 'F':
+			case 'next':
 				api.nextTrack();
 				break;
-			case 'd':
-			case 'D':
+			case 'prev':
 				api.prevTrack();
 				break;
-			case 's':
-			case 'S':
+			case 'shuffle':
 				api.toggleShuffle();
 				break;
-			case 'r':
-			case 'R':
+			case 'repeat':
 				cycleRepeat();
 				break;
-			// Shift+. and Shift+, on a US layout. The unshifted keys are accepted too, so the
-			// shortcut still works on layouts that put > and < somewhere else.
-			case '>':
-			case '.':
+			case 'mute':
+				toggleMute();
+				break;
+			case 'volume_up':
 				nudgeVolume(VOLUME_STEP);
 				break;
-			case '<':
-			case ',':
+			case 'volume_down':
 				nudgeVolume(-VOLUME_STEP);
 				break;
+			case 'show_list':
+				ui.shortcutsOpen = !ui.shortcutsOpen;
+				break;
+			// Zoom is matched here like everything else, but deliberately does not preventDefault:
+			// the webview's own ctrl+wheel/zoom polyfill still runs underneath, and `setZoom` is what
+			// clamps the level to the app's own ceiling (see zoom.svelte.ts).
+			case 'zoom_in':
+				stepZoom(1);
+				return;
+			case 'zoom_out':
+				stepZoom(-1);
+				return;
+			case 'reset_zoom':
+				setZoom(1);
+				return;
 			default:
 				return;
 		}
