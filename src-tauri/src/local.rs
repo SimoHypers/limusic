@@ -642,6 +642,9 @@ pub fn playback_data(video_id: &str, path: &str) -> Result<crate::orchestrator::
         is_video: None,
         thumbnail: None,
         stream_client: "local".to_owned(),
+        // A file on disk has no YouTube format behind it.
+        mime_type: None,
+        bitrate: None,
     })
 }
 

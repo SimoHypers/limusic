@@ -1173,6 +1173,15 @@ export const ui = $state({
 	newPlaylist: null as { songs: SongItem[] } | null, // the create-playlist dialog, and what to add to it
 	addPending: false, // one playlist batch at a time, even after the picker closes
 	share: null as BrowseItem | null, // the share modal's target
+	/** The Download-playlist dialog's target: the list, its name for the copy, its track count
+	 *  when the surface that opened it knew one (the count box clamps against it), and whether
+	 *  it is an album (the dialog's title says which). */
+	downloadPlaylist: null as {
+		id: string;
+		title?: string;
+		total?: number;
+		kind?: 'playlist' | 'album';
+	} | null,
 	toast: null as Toast | null,
 	settingsOpen: false, // the settings modal
 	settingsFocus: null as 'lyrics' | 'scrobbling' | null, // a section to open settings on, once

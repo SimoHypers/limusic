@@ -7,10 +7,13 @@
 		ArrowDownWideNarrowIcon,
 		PlayListAddIcon,
 		PlayListRemoveIcon,
+		Download01Icon,
 		Cancel01Icon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from './ui/button';
-	import { enqueue, openAddManyToPlaylist, ui } from '$lib/player.svelte';
+	import { enqueue, openAddManyToPlaylist, toast, ui } from '$lib/player.svelte';
+	import { downloadSongs } from '$lib/downloads.svelte';
+	import { canDownload } from '$lib/downloads';
 	import type { SongItem } from '$lib/api';
 	import { t } from '$lib/i18n.svelte';
 	import type { TrackSelection } from '$lib/selection.svelte';
@@ -66,6 +69,23 @@
 			busy = false;
 		}
 	}
+
+	// The batch download: one backend call for the whole selection. Local files are skipped (they
+	// are already on this machine); a selection of only those says so rather than calling in vain.
+	async function download() {
+		if (blocked || !selection.count) return;
+		const targets = [...selection.songs].filter(canDownload);
+		if (!targets.length) {
+			toast(t('downloads.none_local'));
+			return;
+		}
+		busy = true;
+		try {
+			await downloadSongs(targets);
+		} finally {
+			busy = false;
+		}
+	}
 </script>
 
 <!-- Floating, like the update banner and the toast above it, rather than a strip wedged between the
@@ -109,6 +129,11 @@
 						<HugeiconsIcon icon={PlayListAddIcon} class="h-4 w-4" />
 					</Button>
 				{/if}
+				<Button variant="ghost" size="icon" disabled={blocked} onkeydown={onKey}
+					title={t('downloads.download_selected')} aria-label={t('downloads.download_selected')}
+					onclick={download}>
+					<HugeiconsIcon icon={Download01Icon} class="h-4 w-4" />
+				</Button>
 				{#if onRemove}
 					{#if confirmRemove}
 						<Button variant="destructive" size="sm" disabled={blocked} onkeydown={onKey}

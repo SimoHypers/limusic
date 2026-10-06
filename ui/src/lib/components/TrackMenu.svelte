@@ -25,7 +25,11 @@
 		DashboardSquare02Icon,
 		Share08Icon,
 		PreferenceVerticalIcon,
-		PencilEdit02Icon
+		PencilEdit02Icon,
+		Download01Icon,
+		Delete02Icon,
+		RefreshIcon,
+		Cancel01Icon as CancelDownloadIcon
 	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import type { SongItem } from '$lib/api';
@@ -57,6 +61,9 @@
 	import { lt } from '$lib/lt.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import { invalidateCachedPrefix } from '$lib/pagecache';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
+	import { downloads, dlBusy, actOnDownload, downloadSong } from '$lib/downloads.svelte';
+	import { canDownload, downloadFor } from '$lib/downloads';
 	import TempoPitchDialog from './TempoPitchDialog.svelte';
 
 	let {
@@ -144,6 +151,22 @@
 	// "Remove from this playlist", for a row playing out of a playlist (issue #270). What the three
 	// conditions are and why is in `removableFromPlaylist` (queue.ts), where they are checkable.
 	const removable = $derived(removableFromPlaylist(song, playlistId, savedIn.map));
+
+	// Offline download: the shared store is the one source, so a state set on the Downloads page
+	// (or by another window's event) is what this menu shows. A local file has nothing to fetch.
+	const dl = $derived(canDownload(song) ? downloadFor(downloads.items, song.video_id) : undefined);
+	const dlPending = $derived(!!dl && !!dlBusy[dl.id]);
+	// Removing a download deletes the saved file, so it confirms first; the dialog lives below,
+	// outside the popup (which is unmounted the moment the menu closes).
+	let confirmingDlRemove = $state(false);
+
+	function askRemoveDownload() {
+		confirmingDlRemove = true;
+	}
+
+	async function removeDownload() {
+		if (dl && (await actOnDownload(dl.id, 'remove'))) confirmingDlRemove = false;
+	}
 
 	// "Play next" on a track that is already coming up in the queue moves it into the Play next block
 	// rather than queueing a second copy. A row the user queued, the backend moves by itself
@@ -307,6 +330,40 @@
 				{inLib ? t('library.remove_from_library') : t('library.save_to_library')}
 			</button>
 		{/if}
+		{#if !isLocal}
+			{#if !dl}
+				<button
+					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+					onclick={(e) => run(e, () => downloadSong(song))}
+				>
+					<HugeiconsIcon icon={Download01Icon} class="h-4 w-4" /> {t('downloads.action_download')}
+				</button>
+			{:else if dl.state === 'done'}
+				<button
+					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
+					disabled={dlPending}
+					onclick={(e) => run(e, askRemoveDownload)}
+				>
+					<HugeiconsIcon icon={Delete02Icon} class="h-4 w-4" /> {t('downloads.action_remove')}
+				</button>
+			{:else if dl.state === 'error' || dl.state === 'cancelled'}
+				<button
+					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10 disabled:opacity-50"
+					disabled={dlPending}
+					onclick={(e) => run(e, () => actOnDownload(dl.id, 'retry'))}
+				>
+					<HugeiconsIcon icon={RefreshIcon} class="h-4 w-4" /> {t('downloads.action_retry')}
+				</button>
+			{:else}
+				<button
+					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
+					disabled={dlPending}
+					onclick={(e) => run(e, () => actOnDownload(dl.id, 'cancel'))}
+				>
+					<HugeiconsIcon icon={CancelDownloadIcon} class="h-4 w-4" /> {t('downloads.action_cancel')}
+				</button>
+			{/if}
+		{/if}
 		{#if song.artist_id}
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
@@ -435,3 +492,21 @@
 {#if linksOnly}
 	<TempoPitchDialog bind:open={advancedOpen} />
 {/if}
+
+<!-- Removing a download deletes the file from disk: two-step, like the Downloads page. -->
+<AlertDialog.Root bind:open={confirmingDlRemove}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>{t('downloads.remove_confirm_title')}</AlertDialog.Title>
+			<AlertDialog.Description>
+				{t('downloads.remove_confirm_desc', { title: song.title })}
+			</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel>{t('common.cancel')}</AlertDialog.Cancel>
+			<AlertDialog.Action variant="destructive" disabled={dlPending} onclick={removeDownload}>
+				{t('downloads.action_remove')}
+			</AlertDialog.Action>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>

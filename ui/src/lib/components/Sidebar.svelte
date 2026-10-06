@@ -7,6 +7,7 @@
 		Home01Icon,
 		Search01Icon,
 		LibraryIcon,
+		Download01Icon,
 		Settings01Icon,
 		Sun01Icon,
 		Moon02Icon,
@@ -25,6 +26,7 @@
 	import { thumb } from '$lib/thumb';
 	import PlaylistMenu from './PlaylistMenu.svelte';
 	import { library, personal, ui, openNewPlaylist, toggleSidebar } from '$lib/player.svelte';
+	import { downloads } from '$lib/downloads.svelte';
 	import { mergeSaved, orderLibrary } from '$lib/personal';
 	import { t } from '$lib/i18n.svelte';
 	import { imp } from '$lib/import.svelte';
@@ -32,8 +34,16 @@
 	const nav = $derived([
 		{ href: '/', label: t('nav.home'), icon: Home01Icon },
 		{ href: '/search', label: t('nav.search'), icon: Search01Icon },
-		{ href: '/library', label: t('nav.library'), icon: LibraryIcon }
+		{ href: '/library', label: t('nav.library'), icon: LibraryIcon },
+		{ href: '/downloads', label: t('nav.downloads'), icon: Download01Icon }
 	]);
+	// Downloads still moving, for the rail's count pill — the shared store every download surface
+	// reads, so the number here is the one the Downloads page shows.
+	const dlActive = $derived(
+		downloads.items.filter(
+			(d) => d.state === 'downloading' || d.state === 'queued' || d.state === 'paused'
+		).length
+	);
 	const isActive = (href: string) =>
 		href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(href);
 
@@ -161,6 +171,15 @@
 					class="h-5 w-5 shrink-0"
 				/>
 				<span class="hidden {wide('lg:inline')}">{n.label}</span>
+				{#if n.href === '/downloads' && dlActive}
+					<span
+						class="ml-auto hidden shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary {wide(
+							'lg:inline'
+						)}"
+					>
+						{dlActive}
+					</span>
+				{/if}
 			</a>
 		{/each}
 		<button

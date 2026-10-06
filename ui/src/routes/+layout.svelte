@@ -41,7 +41,9 @@
 	import ListenTogether from '$lib/components/ListenTogether.svelte';
 	import LinkDialog from '$lib/components/LinkDialog.svelte';
 	import ImportDialog from '$lib/components/ImportDialog.svelte';
+	import DownloadDialog from '$lib/components/DownloadDialog.svelte';
 	import { handleImportDrop, initImport } from '$lib/import.svelte';
+	import { initDownloads } from '$lib/downloads.svelte';
 	import MiniPlayer from '$lib/components/MiniPlayer.svelte';
 	import NowPlaying from '$lib/components/NowPlaying.svelte';
 	import TheaterMode from '$lib/components/TheaterMode.svelte';
@@ -206,12 +208,15 @@
 		// mounted for days and a mount-only check would never see a release published in between.
 		const updateTimer = setInterval(checkForUpdatesQuiet, QUIET_INTERVAL_MS);
 		const teardownApp = initApp();
+		// The download queue is global: subscribed once here, torn down with the rest.
+		const teardownDownloads = initDownloads();
 		const teardownZoom = initZoom();
 		const teardownShortcuts = initShortcuts();
 		initImport();
 		return () => {
 			clearInterval(updateTimer);
 			teardownApp();
+			teardownDownloads();
 			teardownWin();
 			teardownZoom();
 			teardownShortcuts();
@@ -325,6 +330,7 @@
 	<ListenTogether />
 	<LinkDialog />
 	<ImportDialog />
+	<DownloadDialog />
 
 	<!-- The two notification banners below run at z-[100]. Dialogs and menus sit at z-50 and portal to
 	     <body>, so a z-50 banner loses the tie on DOM order and hides behind an open modal. -->

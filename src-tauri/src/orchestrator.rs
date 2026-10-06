@@ -47,6 +47,13 @@ pub struct PlaybackData {
     pub is_video: Option<bool>,
     /// Which client produced the stream (diagnostics). context/06.
     pub stream_client: String,
+    /// The format's MIME type, when a `Format` produced this stream. Used by offline downloads to
+    /// name the saved file and its extension; `None` on a cache replay, a local file and rustypipe
+    /// (which reports no mime).
+    pub mime_type: Option<String>,
+    /// The format's bitrate in bits/s, when it reported one. Downloads show it as part of the
+    /// actual quality label ("256 kbps AAC").
+    pub bitrate: Option<i64>,
 }
 
 /// The watch-history ping for one play: `playbackTracking.videostatsPlaybackUrl.baseUrl` plus the
@@ -547,6 +554,9 @@ impl Orchestrator {
                 // rustypipe answers without a `musicVideoType`, so the queue row's flag stands.
                 is_video: None,
                 stream_client: "rustypipe".to_owned(),
+                // rustypipe reports no mime or bitrate.
+                mime_type: None,
+                bitrate: None,
             }),
             Err(e) => {
                 tracing::error!(video_id, error = %e, "rustypipe fallback failed");
@@ -810,6 +820,8 @@ impl Orchestrator {
             thumbnail: main_resp.as_ref().and_then(best_thumbnail),
             is_video: vd.and_then(|v| v.is_music_video()),
             stream_client: client.to_owned(),
+            mime_type: Some(format.mime_type.clone()),
+            bitrate: Some(format.bitrate),
         }
     }
 }

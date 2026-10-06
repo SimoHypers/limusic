@@ -18,7 +18,8 @@
 		Globe02Icon,
 		ArrowDown01Icon,
 		Alert02Icon,
-		LinkSquare02Icon
+		LinkSquare02Icon,
+		Download01Icon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -70,17 +71,25 @@
 		openDownloadPage,
 		recheckForUpdates
 	} from '$lib/updater.svelte';
+	import { goto } from '$app/navigation';
 	import { getVersion } from '@tauri-apps/api/app';
 	import { t, setLocale, currentLocale, LOCALES } from '$lib/i18n.svelte';
 	import { appIcon, chooseAppIcon } from '$lib/appicon.svelte';
 	import GlobalHotkeysSettings from '$lib/components/GlobalHotkeysSettings.svelte';
 	import LyricsSourcesSettings from '$lib/components/LyricsSourcesSettings.svelte';
 	import LanguagePicker from '$lib/components/LanguagePicker.svelte';
+	import { downloads } from '$lib/downloads.svelte';
+	import {
+		clampDownloadConcurrency,
+		parseDownloadQuality,
+		type DownloadQuality
+	} from '$lib/downloads';
 
 	type TabId =
 		| 'general'
 		| 'themes'
 		| 'playback'
+		| 'downloads'
 		| 'hotkeys'
 		| 'discord'
 		| 'scrobbling'
@@ -90,6 +99,7 @@
 		{ id: 'general', label: t('settings.tabs.general'), hint: t('settings.tabs.general_hint'), icon: Settings02Icon },
 		{ id: 'themes', label: t('settings.tabs.themes'), hint: t('settings.tabs.themes_hint'), icon: PaintBoardIcon },
 		{ id: 'playback', label: t('settings.tabs.playback'), hint: t('settings.tabs.playback_hint'), icon: PlayCircleIcon },
+		{ id: 'downloads', label: t('settings.tabs.downloads'), hint: t('settings.tabs.downloads_hint'), icon: Download01Icon },
 		{ id: 'hotkeys', label: t('settings.tabs.hotkeys'), hint: t('settings.tabs.hotkeys_hint'), icon: KeyboardIcon },
 		{ id: 'discord', label: t('settings.tabs.discord'), hint: t('settings.tabs.discord_hint'), icon: DiscordIcon },
 		{ id: 'scrobbling', label: t('settings.tabs.scrobbling'), hint: t('settings.tabs.scrobbling_hint'), icon: LastFmIcon },
@@ -394,6 +404,81 @@
 		// Cached URLs are keyed by video only, so clear them to apply the new quality everywhere.
 		await api.clearCaches();
 		toast.success(t('toasts.quality_updated'));
+	}
+
+	// --- Downloads tab ---
+	// The labels and hints are the same keys the playlist dialog uses: one wording for "High"
+	// wherever the choice is offered.
+	const DOWNLOAD_QUALITIES = [
+		{ id: 'HIGH', label: 'downloads.quality_high', hint: 'downloads.quality_high_hint' },
+		{ id: 'AUTO', label: 'downloads.quality_auto', hint: 'downloads.quality_auto_hint' },
+		{ id: 'LOW', label: 'downloads.quality_low', hint: 'downloads.quality_low_hint' }
+	] as const;
+	const downloadQuality = $derived(parseDownloadQuality(settings.download_quality));
+	const downloadConcurrency = $derived(clampDownloadConcurrency(settings.download_concurrency));
+	/** `download_dir`: an absolute path the user picked, or empty for the app's own folder. */
+	const downloadDir = $derived(settings.download_dir ?? '');
+	const downloadQualityHint = $derived(
+		t((DOWNLOAD_QUALITIES.find((q) => q.id === downloadQuality) ?? DOWNLOAD_QUALITIES[0]).hint)
+	);
+
+	async function setDownloadQuality(q: DownloadQuality) {
+		const prev = settings.download_quality;
+		settings.download_quality = q;
+		// The shared store feeds the playlist dialog's default and every batch call, so it moves
+		// now rather than at the next launch.
+		downloads.quality = q;
+		try {
+			await api.setSetting('download_quality', q);
+			toast.success(t('toasts.download_quality_updated'));
+		} catch (e) {
+			settings.download_quality = prev;
+			downloads.quality = parseDownloadQuality(prev);
+			toast.error(String(e));
+		}
+	}
+
+	async function setDownloadConcurrency(n: number) {
+		const prev = settings.download_concurrency;
+		settings.download_concurrency = String(n);
+		downloads.concurrency = n;
+		try {
+			await api.setSetting('download_concurrency', String(n));
+		} catch (e) {
+			settings.download_concurrency = prev;
+			toast.error(String(e));
+		}
+	}
+
+	function openDownloads() {
+		ui.settingsOpen = false;
+		goto('/downloads');
+	}
+
+	async function pickDownloadDir() {
+		try {
+			const picked = await open({
+				title: t('settings.downloads.folder_dialog'),
+				directory: true
+			});
+			if (typeof picked !== 'string') return;
+			await saveDownloadDir(picked);
+		} catch (e) {
+			toast.error(String(e));
+		}
+	}
+
+	async function saveDownloadDir(dir: string) {
+		const prev = settings.download_dir;
+		settings.download_dir = dir;
+		try {
+			await api.setSetting('download_dir', dir);
+			toast.success(t('toasts.download_folder_updated'));
+		} catch (e) {
+			// The backend refuses a folder inside the audio cache; put the old one back.
+			settings.download_dir = prev;
+			toast.error(String(e));
+		}
 	}
 
 	async function setHistory(on: boolean) {
@@ -907,6 +992,43 @@
 								{@render row({ title: t('settings.general.stream_clients'), below: clientList })}
 							</div>
 						</section>
+					{:else if tab === 'downloads'}
+						<section class={GROUP}>
+							<h3 class={LABEL}>{t('settings.sections.downloads')}</h3>
+							<div class={CARD}>
+								<!-- The picker sits below, not beside: the honest labels make it wide, and beside
+								     the hint would wrap into a two-word column. -->
+								{@render row({
+									title: t('settings.downloads.quality'),
+									desc: downloadQualityHint,
+									below: downloadQualityPicker
+								})}
+								{@render row({
+									title: t('settings.downloads.concurrency'),
+									desc: t('settings.downloads.concurrency_hint'),
+									control: downloadConcurrencyControl,
+									tall: true
+								})}
+							</div>
+						</section>
+						<section class={GROUP}>
+							<h3 class={LABEL}>{t('settings.sections.storage')}</h3>
+							<div class={CARD}>
+								{@render row({
+									title: t('settings.downloads.folder'),
+									desc: downloadDir
+										? t('settings.downloads.folder_current', { path: downloadDir })
+										: t('settings.downloads.folder_hint'),
+									control: downloadFolderButtons,
+									tall: true
+								})}
+								{@render row({
+									title: t('settings.downloads.files'),
+									desc: t('settings.downloads.files_hint'),
+									control: openDownloadsButton
+								})}
+							</div>
+						</section>
 					{:else if tab === 'hotkeys'}
 						<GlobalHotkeysSettings />
 					{:else if tab === 'data'}
@@ -1363,6 +1485,60 @@
 				{t(q.key)}
 			</button>
 		{/each}
+	</div>
+{/snippet}
+
+<!-- Offline downloads: the same segmented control as the playback picker above, drawn from
+     the option list the playlist dialog shares. -->
+{#snippet downloadQualityPicker()}
+	<div class="flex rounded-lg bg-muted p-0.5">
+		{#each DOWNLOAD_QUALITIES as q (q.id)}
+			<button
+				type="button"
+				onclick={() => setDownloadQuality(q.id)}
+				aria-pressed={downloadQuality === q.id}
+				class="cursor-pointer rounded-md px-3.5 py-1.5 text-xs font-medium transition-colors {downloadQuality ===
+				q.id
+					? 'bg-background text-foreground shadow-sm'
+					: 'text-muted-foreground hover:text-foreground'}"
+			>
+				{t(q.label)}
+			</button>
+		{/each}
+	</div>
+{/snippet}
+
+{#snippet downloadConcurrencyControl()}
+	<div class="flex w-44 shrink-0 items-center gap-3">
+		<Slider
+			type="single"
+			aria-label={t('settings.downloads.concurrency')}
+			min={1}
+			max={4}
+			step={1}
+			value={downloadConcurrency}
+			onValueChange={(n) => setDownloadConcurrency(n)}
+		/>
+		<span class="w-8 shrink-0 text-right font-mono text-xs text-muted-foreground">
+			{downloadConcurrency}
+		</span>
+	</div>
+{/snippet}
+
+{#snippet openDownloadsButton()}
+	<Button variant="outline" size="sm" onclick={openDownloads}>{t('settings.downloads.open')}</Button>
+{/snippet}
+
+{#snippet downloadFolderButtons()}
+	<div class="flex shrink-0 items-center gap-2">
+		<Button variant="outline" size="sm" onclick={pickDownloadDir}>
+			{t('settings.downloads.folder_pick')}
+		</Button>
+		{#if downloadDir}
+			<Button variant="ghost" size="sm" onclick={() => saveDownloadDir('')}>
+				{t('common.reset')}
+			</Button>
+		{/if}
 	</div>
 {/snippet}
 

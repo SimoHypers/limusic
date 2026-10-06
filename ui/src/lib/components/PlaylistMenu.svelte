@@ -19,6 +19,7 @@
 		DashboardSquare02Icon,
 		PlayListAddIcon,
 		Share08Icon,
+		Download01Icon,
 		UserBlock01Icon
 	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
@@ -43,8 +44,10 @@
 		startRadio,
 		toast,
 		togglePin,
-		toggleSaved
+		toggleSaved,
+		ui
 	} from '$lib/player.svelte';
+	import { playlistTotal } from '$lib/downloads';
 
 	let {
 		item,
@@ -279,6 +282,28 @@
 				onclick={(e) => run(e, () => startRadio(item.kind as 'artist' | 'album' | 'playlist', item.id, item.title))}
 			>
 				<HugeiconsIcon icon={Radio02Icon} class="h-4 w-4" /> {t('player.start_radio')}
+			</button>
+		{/if}
+		<!-- Offline download. The backend walks YouTube playlists (VL…), albums (MPRE…), local
+		     playlists and On Repeat, so all of those get this; Liked Music browses through a
+		     different endpoint, which is the one list it cannot walk. A local album is a folder of
+		     files, not something to fetch. -->
+		{#if (item.kind === 'playlist' || item.kind === 'album') && item.id !== api.LIKED_MUSIC_ID && !(item.kind === 'album' && api.isLocalId(item.id))}
+			<button
+				class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+				onclick={(e) =>
+					run(e, () => {
+						ui.downloadPlaylist = {
+							id: item.id,
+							title: item.title,
+							total: playlistTotal(item.subtitle),
+							// Narrowed: only the two kinds this row offers reach here.
+							kind: item.kind === 'album' ? 'album' : 'playlist'
+						};
+					})}
+			>
+				<HugeiconsIcon icon={Download01Icon} class="h-4 w-4" />
+				{t(item.kind === 'album' ? 'downloads.action_download_album' : 'downloads.action_download_playlist')}
 			</button>
 		{/if}
 		<!-- Copies the tracks into one of your playlists. An artist has no track list to copy. Local

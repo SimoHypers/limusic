@@ -222,7 +222,7 @@ pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
 /// `visitor_data`) and internal blobs (`queue_json`, `queue_index`, `queue_position`) never cross
 /// into the webview: they'd otherwise ship the login credential to the renderer on every open, and
 /// the webview can't overwrite them either.
-const UI_SETTINGS: [&str; 29] = [
+const UI_SETTINGS: [&str; 32] = [
     "volume",
     "proxy",
     "quality",
@@ -252,6 +252,9 @@ const UI_SETTINGS: [&str; 29] = [
     "crossfade",
     "crossfade_secs",
     "locale",
+    "download_quality",
+    "download_concurrency",
+    "download_dir",
 ];
 
 /// Resolve the music video for `video_id` and hand back a `limusicvideo://` URL the player view
@@ -379,6 +382,12 @@ pub async fn set_setting(
     if !UI_SETTINGS.contains(&key.as_str()) {
         return Err(format!("unknown setting: {key}"));
     }
+
+    // The download knobs are validated where they land: an out-of-range concurrency or a
+    // download_dir inside the audio cache is refused rather than silently corrected.
+    if key.starts_with("download_") {
+        crate::downloads::validate_setting(&key, &value, state.cache_dir())?;
+    }
     // Registers/removes the login autostart entry on toggle; the OS persists it from there, and
     // startup repoints an existing entry at the running binary (lib.rs). Before the write, so a
     // failure leaves the setting as it was. A dev build would register itself, and at login its
@@ -401,6 +410,13 @@ pub async fn set_setting(
         res.map_err(|e| format!("autostart: {e}"))?;
     }
     state.db.set_setting(&key, &value);
+    // A download knob change reaches the worker now, not at the next track: concurrency is
+    // read at claim time, and the folder at the next file.
+    if key.starts_with("download_") {
+        if let Some(ctx) = crate::downloads::ctx() {
+            ctx.nudge();
+        }
+    }
     // A music video track already playing gets its picture now rather than from the next track.
     if key == "music_videos" && value == "true" {
         state.inner().attach_current_video().await;
@@ -636,6 +652,57 @@ pub async fn app_icon_path(app: tauri::AppHandle) -> Result<Option<String>, Stri
 pub async fn clear_caches(state: St<'_>) -> Result<(), String> {
     state.clear_caches();
     Ok(())
+}
+
+// --- offline downloads ------------------------------------------------------------------------
+
+/// Queue a single track or a batch. `quality` is per-request (HIGH/LOW/AUTO); omitting it uses
+/// the `download_quality` setting. A track already downloaded is returned as it stands (no
+/// re-fetch); one that failed or was cancelled restarts.
+#[tauri::command]
+pub async fn download_items(
+    state: St<'_>,
+    items: Vec<SongItem>,
+    quality: Option<String>,
+) -> Result<Vec<crate::downloads::DownloadItem>, String> {
+    let ctx = crate::downloads::ctx().ok_or("downloads are not ready")?;
+    let quality = crate::downloads::picked_quality(&state.db, quality.as_deref())?;
+    Ok(crate::downloads::enqueue_items(ctx, &items, &quality))
+}
+
+/// Queue up to `count` tracks of a list (`null` → the whole list, capped): a YouTube playlist
+/// or album, a playlist kept on this machine, or On Repeat. Returns how many tracks are now
+/// actively queued (tracks already downloaded do not count).
+#[tauri::command]
+pub async fn download_playlist(
+    state: St<'_>,
+    playlist_id: String,
+    count: Option<u32>,
+    quality: Option<String>,
+) -> Result<u32, String> {
+    let ctx = crate::downloads::ctx().ok_or("downloads are not ready")?;
+    let quality = crate::downloads::picked_quality(&state.db, quality.as_deref())?;
+    let songs = crate::downloads::collect_playlist(state.inner(), &playlist_id, count).await?;
+    let queued = crate::downloads::enqueue_items(ctx, &songs, &quality)
+        .iter()
+        .filter(|i| matches!(i.state.as_str(), "queued" | "downloading" | "paused"))
+        .count();
+    Ok(queued as u32)
+}
+
+/// The whole download list, oldest first. The UI’s initial snapshot; `downloads-changed` carries
+/// the updates after it.
+#[tauri::command]
+pub async fn downloads_list() -> Result<Vec<crate::downloads::DownloadItem>, String> {
+    let ctx = crate::downloads::ctx().ok_or("downloads are not ready")?;
+    Ok(crate::downloads::list(ctx))
+}
+
+/// pause | resume | cancel | retry | remove, on one download by its id.
+#[tauri::command]
+pub async fn downloads_action(id: String, action: String) -> Result<(), String> {
+    let ctx = crate::downloads::ctx().ok_or("downloads are not ready")?;
+    crate::downloads::action(ctx, &id, &action)
 }
 
 // --- auth (context/15) ---------------------------------------------------------------------

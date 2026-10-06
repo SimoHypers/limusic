@@ -719,6 +719,66 @@ export const setSongSaved = (token: string) => invoke<void>('set_song_saved', { 
 export const setAlbumSaved = (playlistId: string, saved: boolean) =>
 	invoke<void>('set_album_saved', { playlistId, saved });
 
+// --- downloads ---------------------------------------------------------------------------------
+// Offline downloads. The queue lives in Rust (SQLite + files); the UI reads it whole, patches
+// progress from the events, and never touches a file itself.
+
+/** Where one download is in its life. */
+export type DownloadState = 'queued' | 'downloading' | 'paused' | 'done' | 'error' | 'cancelled';
+
+/**
+ * One download, as the backend reports it. snake_case on purpose: the payload is the contract, and
+ * re-spelling fields on the way in would be one more place a rename can quietly drop one.
+ */
+export interface DownloadItem {
+	id: string;
+	video_id: string;
+	title: string;
+	artists: string;
+	album: string | null;
+	thumbnail: string | null;
+	state: DownloadState;
+	/** The stream variant that was (or is being) fetched. */
+	itag: number | null;
+	mime: string | null;
+	/** What the backend actually got, for the row's quality chip ("AAC 256kbps"). */
+	quality_label: string;
+	/** Absolute path of the saved file; null until there is one. */
+	path: string | null;
+	bytes_done: number;
+	bytes_total: number | null;
+	error: string | null;
+	added_at: number;
+	updated_at: number;
+}
+
+/** `download-progress`: bytes for one row, sent while it is downloading. */
+export interface DownloadProgress {
+	id: string;
+	bytes_done: number;
+	bytes_total: number | null;
+}
+
+export type DownloadAction = 'pause' | 'resume' | 'cancel' | 'retry' | 'remove';
+
+/** Queue songs (a single track is a one-element batch). Answers the queue's rows for them. */
+export const downloadItems = (items: SongItem[], quality?: string) =>
+	invoke<DownloadItem[]>('download_items', { items, quality });
+/** Queue a playlist; `count` null = the whole list. Answers how many were queued. */
+export const downloadPlaylist = (playlistId: string, count?: number | null, quality?: string) =>
+	invoke<number>('download_playlist', { playlistId, count, quality });
+/** Every download the backend knows about, in no particular order. */
+export const downloadsList = () => invoke<DownloadItem[]>('downloads_list');
+/** One of the row's controls. */
+export const downloadsAction = (id: string, action: DownloadAction) =>
+	invoke<void>('downloads_action', { id, action });
+/** The whole queue changed (an add, a state change, a removal). Replaces the local list. */
+export const onDownloadsChanged = (cb: (items: DownloadItem[]) => void): Promise<UnlistenFn> =>
+	listen<DownloadItem[]>('downloads-changed', (e) => cb(e.payload));
+/** Bytes moved for one row. Fired while downloading; patches the row in place. */
+export const onDownloadProgress = (cb: (p: DownloadProgress) => void): Promise<UnlistenFn> =>
+	listen<DownloadProgress>('download-progress', (e) => cb(e.payload));
+
 // --- Spotify import (spotify.rs, import.rs, #375) ----------------------------------------------
 // Rejections are short codes (`private`, `busy`, ...) worded by `importError` in import.svelte.ts.
 

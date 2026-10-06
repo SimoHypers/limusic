@@ -8,6 +8,7 @@ mod commands;
 mod db;
 mod diagnostics;
 mod discord;
+mod downloads;
 mod hotkeys;
 mod http;
 mod import;
@@ -46,7 +47,10 @@ use player::{Player, PlayerEvent};
 use tauri::{Emitter, Manager};
 
 use cipher::{CipherDeobfuscator, PlayerConfigStore};
+// The downloads surface as a public re-export so the contract tests in `tests/` can hold
+// the serialized shape the UI consumes (the rest of the module stays crate-private).
 use db::Db;
+pub use downloads::DownloadItem;
 use orchestrator::Orchestrator;
 use potoken::PoTokenGenerator;
 use state::AppState;
@@ -592,6 +596,11 @@ pub fn run() {
             // several MB/s on the same URL. audioproxy.rs has the measurements.
             audioproxy::start();
 
+            // Offline downloads: a persistent queue over the downloads/ folder beside the
+            // database (never inside audio-cache/). It recovers what the last run left and
+            // then works in the background.
+            downloads::start(app_state.clone());
+
             // Local music artwork reaches the webview over the asset protocol, whose configured
             // scope is empty — the folders it may read are the ones the user picked (local.rs).
             local::allow_music_paths(&handle, &app_state.db);
@@ -855,6 +864,10 @@ pub fn run() {
             commands::reset_global_hotkeys,
             commands::get_stream_clients,
             commands::clear_caches,
+            commands::download_items,
+            commands::download_playlist,
+            commands::downloads_list,
+            commands::downloads_action,
             commands::set_app_icon,
             commands::app_icon_path,
             commands::get_account,

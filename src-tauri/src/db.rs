@@ -247,15 +247,40 @@ impl Db {
             -- user's own picks, which every later import and "Update from Spotify" reuses.
             -- `candidates_json` is kept only for rows that still need a look.
             CREATE TABLE IF NOT EXISTS import_matches (
-                key             TEXT PRIMARY KEY,
-                video_id        TEXT,
-                song_json       TEXT,
-                tier            TEXT NOT NULL,
-                candidates_json TEXT,
-                manual          INTEGER NOT NULL DEFAULT 0,
-                updated_at      INTEGER NOT NULL
-            );
-            "#,
+                            key             TEXT PRIMARY KEY,
+                            video_id        TEXT,
+                            song_json       TEXT,
+                            tier            TEXT NOT NULL,
+                            candidates_json TEXT,
+                            manual          INTEGER NOT NULL DEFAULT 0,
+                            updated_at      INTEGER NOT NULL
+                        );
+                        -- Offline downloads (feat/offline-downloads). Unlike the caches above this is user
+                        -- data: nothing rebuilds it, and "Clear caches" must never touch it (the files live in
+                        -- `downloads/` next to this database, never inside `audio-cache/`). One row per
+                        -- videoId — the id is the videoId — so re-adding a track dedupes instead of
+                        -- downloading it twice.
+                        CREATE TABLE IF NOT EXISTS downloads (
+                            video_id      TEXT PRIMARY KEY,
+                            title         TEXT NOT NULL,
+                            artists       TEXT NOT NULL,
+                            album         TEXT,
+                            thumbnail     TEXT,
+                            state         TEXT NOT NULL,
+                            quality       TEXT NOT NULL DEFAULT 'HIGH',
+                            quality_label TEXT NOT NULL DEFAULT '',
+                            itag          INTEGER,
+                            mime          TEXT,
+                            path          TEXT,
+                            bytes_done    INTEGER NOT NULL DEFAULT 0,
+                            bytes_total   INTEGER,
+                            error         TEXT,
+                            is_upload     INTEGER NOT NULL DEFAULT 0,
+                            added_at      INTEGER NOT NULL,
+                            updated_at    INTEGER NOT NULL
+                        );
+                        CREATE INDEX IF NOT EXISTS downloads_state ON downloads(state);
+                        "#,
         )?;
         // Migrate pre-Phase-4 DBs that predate the loudness_db column. Errors ("duplicate column")
         // on fresh DBs are expected and ignored — the cache is disposable anyway.
@@ -1260,6 +1285,399 @@ pub struct LocalPlaylist {
     pub first_song: Option<String>,
 }
 
+// --- offline downloads ---------------------------------------------------------------------------
+
+/// One row of the `downloads` table. `video_id` is also the row's id — one row per track, so
+/// re-adding an already-downloaded song dedupes instead of fetching it twice (see `downloads.rs`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DownloadRow {
+    /// The YouTube videoId, and the UI's handle for `downloads_action`.
+    pub video_id: String,
+    pub title: String,
+    pub artists: String,
+    pub album: Option<String>,
+    pub thumbnail: Option<String>,
+    /// queued | downloading | paused | done | error | cancelled
+    pub state: String,
+    /// The requested quality (`HIGH` / `LOW` / `AUTO`) the worker resolves with.
+    pub quality: String,
+    /// What the UI shows: the requested quality until a format is known, then the actual one
+    /// ("256 kbps AAC"). See `downloads.rs`.
+    pub quality_label: String,
+    pub itag: Option<i64>,
+    pub mime: Option<String>,
+    /// Absolute path of the finished file. `Some` only while `done`.
+    pub path: Option<String>,
+    pub bytes_done: i64,
+    pub bytes_total: Option<i64>,
+    /// Short human message, never a URL. Cleared on retry.
+    pub error: Option<String>,
+    /// One of the user's own uploads: streams only to an authenticated client.
+    pub is_upload: bool,
+    pub added_at: i64,
+    pub updated_at: i64,
+}
+
+/// What an enqueue supplies; the rest of a row is state the download worker owns.
+#[derive(Debug, Clone)]
+pub struct NewDownload {
+    pub video_id: String,
+    pub title: String,
+    pub artists: String,
+    pub album: Option<String>,
+    pub thumbnail: Option<String>,
+    /// HIGH / LOW / AUTO.
+    pub quality: String,
+    pub is_upload: bool,
+}
+
+/// Every column, in `download_from_row`'s order.
+const DOWNLOAD_COLUMNS: &str = "video_id, title, artists, album, thumbnail, state, quality, \
+     quality_label, itag, mime, path, bytes_done, bytes_total, error, is_upload, added_at, \
+     updated_at";
+
+fn download_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DownloadRow> {
+    Ok(DownloadRow {
+        video_id: row.get(0)?,
+        title: row.get(1)?,
+        artists: row.get(2)?,
+        album: row.get(3)?,
+        thumbnail: row.get(4)?,
+        state: row.get(5)?,
+        quality: row.get(6)?,
+        quality_label: row.get(7)?,
+        itag: row.get(8)?,
+        mime: row.get(9)?,
+        path: row.get(10)?,
+        bytes_done: row.get(11)?,
+        bytes_total: row.get(12)?,
+        error: row.get(13)?,
+        is_upload: row.get::<_, i64>(14)? != 0,
+        added_at: row.get(15)?,
+        updated_at: row.get(16)?,
+    })
+}
+
+impl Db {
+    /// Every download, oldest first. The UI's initial snapshot (`downloads_list`).
+    pub fn downloads_all(&self) -> Vec<DownloadRow> {
+        let conn = self.0.lock().unwrap();
+        let mut out = Vec::new();
+        let sql = format!("SELECT {DOWNLOAD_COLUMNS} FROM downloads ORDER BY added_at, video_id");
+        if let Ok(mut stmt) = conn.prepare(&sql) {
+            if let Ok(rows) = stmt.query_map([], download_from_row) {
+                out.extend(rows.flatten());
+            }
+        }
+        out
+    }
+
+    pub fn download(&self, video_id: &str) -> Option<DownloadRow> {
+        let conn = self.0.lock().unwrap();
+        conn.query_row(
+            &format!("SELECT {DOWNLOAD_COLUMNS} FROM downloads WHERE video_id = ?1"),
+            [video_id],
+            download_from_row,
+        )
+        .ok()
+    }
+
+    /// Insert or refresh one download. One row per videoId:
+    /// - a fresh id starts `queued`;
+    /// - `queued`/`downloading`/`paused` rows keep their state (metadata and the requested
+    ///   quality refresh; a resolved `quality_label` is re-derived by the worker anyway);
+    /// - `error`/`cancelled` rows restart as `queued`, keeping `bytes_done` so a partial file can
+    ///   still resume;
+    /// - a `done` row stays done — unless `reset_done`, which the caller sets when the finished
+    ///   file has vanished and the track has to be fetched again (that also clears the stale
+    ///   path/size, since there is nothing on disk any more).
+    pub fn put_download(&self, n: &NewDownload, reset_done: bool) -> rusqlite::Result<DownloadRow> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        let now = now_secs();
+        let existing: Option<String> = tx
+            .query_row("SELECT state FROM downloads WHERE video_id = ?1", [&n.video_id], |r| {
+                r.get(0)
+            })
+            .ok();
+        match existing.as_deref() {
+            None => {
+                tx.execute(
+                    "INSERT INTO downloads(video_id, title, artists, album, thumbnail, state, \
+                     quality, quality_label, is_upload, added_at, updated_at) \
+                     VALUES(?1, ?2, ?3, ?4, ?5, 'queued', ?6, ?6, ?7, ?8, ?8)",
+                    rusqlite::params![
+                        n.video_id,
+                        n.title,
+                        n.artists,
+                        n.album,
+                        n.thumbnail,
+                        n.quality,
+                        n.is_upload as i64,
+                        now
+                    ],
+                )?;
+            }
+            Some("done") if !reset_done => {
+                // Already downloaded: keep the finished file's state and metadata; just refresh
+                // what the row displays (a title/artwork fix upstream lands here).
+                tx.execute(
+                    "UPDATE downloads SET title=?2, artists=?3, album=?4, thumbnail=?5, \
+                     is_upload=?6, updated_at=?7 WHERE video_id=?1",
+                    rusqlite::params![
+                        n.video_id,
+                        n.title,
+                        n.artists,
+                        n.album,
+                        n.thumbnail,
+                        n.is_upload as i64,
+                        now
+                    ],
+                )?;
+            }
+            Some("done") => {
+                tx.execute(
+                    "UPDATE downloads SET title=?2, artists=?3, album=?4, thumbnail=?5, quality=?6, \
+                     quality_label=?6, is_upload=?7, state='queued', path=NULL, bytes_done=0, \
+                     bytes_total=NULL, error=NULL, updated_at=?8 WHERE video_id=?1",
+                    rusqlite::params![
+                        n.video_id,
+                        n.title,
+                        n.artists,
+                        n.album,
+                        n.thumbnail,
+                        n.quality,
+                        n.is_upload as i64,
+                        now
+                    ],
+                )?;
+            }
+            Some("error" | "cancelled") => {
+                tx.execute(
+                    "UPDATE downloads SET title=?2, artists=?3, album=?4, thumbnail=?5, quality=?6, \
+                     quality_label=?6, is_upload=?7, state='queued', error=NULL, updated_at=?8 \
+                     WHERE video_id=?1",
+                    rusqlite::params![
+                        n.video_id,
+                        n.title,
+                        n.artists,
+                        n.album,
+                        n.thumbnail,
+                        n.quality,
+                        n.is_upload as i64,
+                        now
+                    ],
+                )?;
+            }
+            Some(_) => {
+                // queued / downloading / paused: the request is already being served. Refresh the
+                // display metadata, and the requested quality for a queued row that has not been
+                // resolved yet.
+                tx.execute(
+                    "UPDATE downloads SET title=?2, artists=?3, album=?4, thumbnail=?5, \
+                     quality=?6, quality_label=CASE WHEN itag IS NULL THEN ?7 ELSE quality_label END, \
+                     is_upload=?8, updated_at=?9 WHERE video_id=?1",
+                    rusqlite::params![
+                        n.video_id,
+                        n.title,
+                        n.artists,
+                        n.album,
+                        n.thumbnail,
+                        n.quality,
+                        n.quality,
+                        n.is_upload as i64,
+                        now
+                    ],
+                )?;
+            }
+        }
+        let row = tx.query_row(
+            &format!("SELECT {DOWNLOAD_COLUMNS} FROM downloads WHERE video_id = ?1"),
+            [&n.video_id],
+            download_from_row,
+        )?;
+        tx.commit()?;
+        Ok(row)
+    }
+
+    /// Take the next queued download for a worker. `None` when nothing is waiting (or every
+    /// candidate was claimed/stopped out from under this scan). Claiming is one conditional
+    /// UPDATE, so a pause or cancel landing in the same instant wins and the worker never starts.
+    pub fn claim_next_download(&self) -> Option<DownloadRow> {
+        let conn = self.0.lock().unwrap();
+        for _ in 0..4 {
+            let video_id: Option<String> = conn
+                .query_row(
+                    "SELECT video_id FROM downloads WHERE state='queued' \
+                     ORDER BY added_at, video_id LIMIT 1",
+                    [],
+                    |r| r.get(0),
+                )
+                .ok();
+            let video_id = video_id?;
+            let claimed = conn
+                .execute(
+                    "UPDATE downloads SET state='downloading', updated_at=?1 \
+                     WHERE video_id=?2 AND state='queued'",
+                    rusqlite::params![now_secs(), &video_id],
+                )
+                .unwrap_or(0);
+            if claimed == 0 {
+                continue; // the row moved on between the scan and the claim
+            }
+            return conn
+                .query_row(
+                    &format!("SELECT {DOWNLOAD_COLUMNS} FROM downloads WHERE video_id = ?1"),
+                    [&video_id],
+                    download_from_row,
+                )
+                .ok();
+        }
+        None
+    }
+
+    /// Progress from the worker. Refused (`false`) once the row is no longer `downloading` —
+    /// that is a pause/cancel winning the race, and the worker stops on it.
+    pub fn update_download_progress(&self, video_id: &str, done: i64, total: Option<i64>) -> bool {
+        let conn = self.0.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET bytes_done=?1, bytes_total=COALESCE(?2, bytes_total), \
+             updated_at=?3 WHERE video_id=?4 AND state='downloading'",
+            rusqlite::params![done, total, now_secs(), video_id],
+        )
+        .is_ok_and(|n| n > 0)
+    }
+
+    /// Record the resolved format (itag/mime, and the actual bitrate label).
+    pub fn set_download_format(
+        &self,
+        video_id: &str,
+        itag: i64,
+        mime: Option<&str>,
+        quality_label: &str,
+    ) -> bool {
+        let conn = self.0.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET itag=?1, mime=?2, quality_label=?3, updated_at=?4 \
+             WHERE video_id=?5 AND state='downloading'",
+            rusqlite::params![itag, mime, quality_label, now_secs(), video_id],
+        )
+        .is_ok_and(|n| n > 0)
+    }
+
+    /// Claim a finished download: `downloading` → `done`. `false` when a pause/cancel won.
+    pub fn finish_download(&self, video_id: &str, path: &str, bytes_total: i64) -> bool {
+        let conn = self.0.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET state='done', path=?1, bytes_done=?2, bytes_total=?2, \
+             error=NULL, updated_at=?3 WHERE video_id=?4 AND state='downloading'",
+            rusqlite::params![path, bytes_total, now_secs(), video_id],
+        )
+        .is_ok_and(|n| n > 0)
+    }
+
+    /// Worker failure: `downloading` → `error`, keeping the partial file for a retry. `false` when
+    /// a pause/cancel won.
+    pub fn fail_download(&self, video_id: &str, error: &str) -> bool {
+        let conn = self.0.lock().unwrap();
+        let error: String = error.chars().take(300).collect();
+        conn.execute(
+            "UPDATE downloads SET state='error', error=?1, updated_at=?2 \
+             WHERE video_id=?3 AND state='downloading'",
+            rusqlite::params![error, now_secs(), video_id],
+        )
+        .is_ok_and(|n| n > 0)
+    }
+
+    /// A conditional state transition for the UI actions (pause/resume/cancel/retry), and for the
+    /// worker's own reconciliations (finishing a file whose row moved on). Returns whether the row
+    /// was in one of `from`.
+    pub fn set_download_state_if(
+        &self,
+        video_id: &str,
+        from: &[&str],
+        to: &str,
+        error: Option<&str>,
+    ) -> bool {
+        if from.is_empty() {
+            return false;
+        }
+        let conn = self.0.lock().unwrap();
+        let now = now_secs();
+        // Explicit shapes rather than a dynamic parameter list: the state names are internal
+        // constants, but this keeps the statement fully parameterized all the same.
+        let sql = match from.len() {
+            1 => "UPDATE downloads SET state=?1, error=?2, updated_at=?3 WHERE video_id=?4 AND state=?5",
+            2 => "UPDATE downloads SET state=?1, error=?2, updated_at=?3 WHERE video_id=?4 AND state IN (?5, ?6)",
+            3 => "UPDATE downloads SET state=?1, error=?2, updated_at=?3 WHERE video_id=?4 AND state IN (?5, ?6, ?7)",
+            _ => "UPDATE downloads SET state=?1, error=?2, updated_at=?3 WHERE video_id=?4 AND state IN (?5, ?6, ?7, ?8)",
+        };
+        let changed = match (from.len(), from) {
+            (1, [a]) => conn.execute(sql, rusqlite::params![to, error, now, video_id, a]),
+            (2, [a, b]) => conn.execute(sql, rusqlite::params![to, error, now, video_id, a, b]),
+            (3, [a, b, c]) => {
+                conn.execute(sql, rusqlite::params![to, error, now, video_id, a, b, c])
+            }
+            (_, [a, b, c, d, ..]) => {
+                conn.execute(sql, rusqlite::params![to, error, now, video_id, a, b, c, d])
+            }
+            _ => return false,
+        };
+        changed.is_ok_and(|n| n > 0)
+    }
+
+    /// Cancel from any live state. The path is cleared so nothing can hand mpv a file that is
+    /// about to be deleted; the worker deletes its own partial when it sees the stop. `false`
+    /// when the row was already cancelled or gone.
+    pub fn cancel_download(&self, video_id: &str) -> bool {
+        let conn = self.0.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET state='cancelled', path=NULL, error=NULL, bytes_done=0, \
+             updated_at=?1 WHERE video_id=?2 AND state != 'cancelled'",
+            rusqlite::params![now_secs(), video_id],
+        )
+        .is_ok_and(|n| n > 0)
+    }
+
+    /// Put a byte count on a row unconditionally. Used when a stopped worker reconciles its
+    /// partial file after pause/cancel already moved the state.
+    pub fn set_download_bytes(&self, video_id: &str, bytes_done: i64) -> bool {
+        let conn = self.0.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET bytes_done=?1, updated_at=?2 WHERE video_id=?3",
+            rusqlite::params![bytes_done, now_secs(), video_id],
+        )
+        .is_ok_and(|n| n > 0)
+    }
+
+    /// Drop a download row, returning it so the caller can delete the files it names.
+    pub fn delete_download(&self, video_id: &str) -> Option<DownloadRow> {
+        let mut conn = self.0.lock().unwrap();
+        let row = conn
+            .query_row(
+                &format!("SELECT {DOWNLOAD_COLUMNS} FROM downloads WHERE video_id = ?1"),
+                [video_id],
+                download_from_row,
+            )
+            .ok()?;
+        let tx = conn.transaction().ok()?;
+        tx.execute("DELETE FROM downloads WHERE video_id = ?1", [video_id]).ok()?;
+        tx.commit().ok()?;
+        Some(row)
+    }
+
+    /// Rows a dead process left mid-flight (`downloading`) go back to `queued` — the worker that
+    /// owned them is gone, and their partial files are still on disk. Returns how many moved.
+    pub fn requeue_interrupted_downloads(&self) -> usize {
+        let conn = self.0.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET state='queued', updated_at=?1 WHERE state='downloading'",
+            [now_secs()],
+        )
+        .unwrap_or(0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2194,6 +2612,79 @@ mod tests {
         assert_eq!(d.get_setting("selected_identity_json"), None);
         assert_eq!(d.get_setting("data_sync_id"), None);
         assert_eq!(d.get_setting("account_json"), None);
+    }
+
+    /// The downloads queue's state machine through the real accessors: claim-once, conditional
+    /// transitions, restart recovery, cancel/remove.
+    #[test]
+    fn downloads_queue_transitions_claims_and_recovers() {
+        let d = db();
+        let new = |v: &str| NewDownload {
+            video_id: v.into(),
+            title: "Song".into(),
+            artists: "Artist".into(),
+            album: None,
+            thumbnail: None,
+            quality: "HIGH".into(),
+            is_upload: false,
+        };
+        let a = d.put_download(&new("aaaaaaaaaaa"), false).unwrap();
+        assert_eq!(a.state, "queued");
+        assert_eq!(a.quality_label, "HIGH", "the requested quality until the format is known");
+
+        // One claim only: a claimed row is not claimable again.
+        let claimed = d.claim_next_download().unwrap();
+        assert_eq!(
+            (claimed.video_id.as_str(), claimed.state.as_str()),
+            ("aaaaaaaaaaa", "downloading")
+        );
+        assert!(d.claim_next_download().is_none());
+
+        // Progress lands while downloading; a pause freezes it and refuses later writes.
+        assert!(d.update_download_progress("aaaaaaaaaaa", 4096, Some(9999)));
+        assert!(d.set_download_state_if("aaaaaaaaaaa", &["downloading"], "paused", None));
+        assert!(
+            !d.update_download_progress("aaaaaaaaaaa", 8192, Some(9999)),
+            "paused rows refuse progress"
+        );
+        let paused = d.download("aaaaaaaaaaa").unwrap();
+        assert_eq!((paused.state.as_str(), paused.bytes_done), ("paused", 4096));
+
+        // finish only from downloading; resume re-queues first.
+        assert!(d.set_download_state_if("aaaaaaaaaaa", &["paused"], "queued", None));
+        assert!(!d.finish_download("aaaaaaaaaaa", "/tmp/x.m4a", 9999), "not downloading");
+        assert!(d.claim_next_download().is_some());
+        assert!(d.finish_download("aaaaaaaaaaa", "/tmp/x.m4a", 9999));
+        let done = d.download("aaaaaaaaaaa").unwrap();
+        assert_eq!((done.state.as_str(), done.path.as_deref()), ("done", Some("/tmp/x.m4a")));
+        assert_eq!(done.bytes_total, Some(9999));
+
+        // Re-adding a done row keeps it done — unless its file is gone (reset_done).
+        assert_eq!(d.put_download(&new("aaaaaaaaaaa"), false).unwrap().state, "done");
+        let reset = d.put_download(&new("aaaaaaaaaaa"), true).unwrap();
+        assert_eq!(reset.state, "queued");
+        assert_eq!((reset.path, reset.bytes_done), (None, 0));
+
+        // An error row re-added restarts cleanly; an interrupted row is requeued.
+        assert!(d.set_download_state_if("aaaaaaaaaaa", &["queued"], "error", Some("boom")));
+        assert_eq!(d.download("aaaaaaaaaaa").unwrap().error.as_deref(), Some("boom"));
+        let retried = d.put_download(&new("aaaaaaaaaaa"), false).unwrap();
+        assert_eq!((retried.state.as_str(), retried.error), ("queued", None));
+        assert!(d.claim_next_download().is_some());
+        assert_eq!(d.requeue_interrupted_downloads(), 1, "a downloading row is a crash leftover");
+        assert_eq!(d.download("aaaaaaaaaaa").unwrap().state, "queued");
+
+        // Cancel clears the path and the byte count; remove drops the row.
+        assert!(d.cancel_download("aaaaaaaaaaa"));
+        let cancelled = d.download("aaaaaaaaaaa").unwrap();
+        assert_eq!(
+            (cancelled.state.as_str(), cancelled.path, cancelled.bytes_done),
+            ("cancelled", None, 0)
+        );
+        assert!(!d.cancel_download("aaaaaaaaaaa"), "cancelling twice is a no-op");
+        assert!(d.delete_download("aaaaaaaaaaa").is_some());
+        assert!(d.download("aaaaaaaaaaa").is_none());
+        assert!(d.delete_download("aaaaaaaaaaa").is_none());
     }
 }
 
