@@ -1013,6 +1013,30 @@ export interface ScrobblePreview {
 export const lastfmPreview = (config: string, track: ScrobbleTrack) =>
 	invoke<ScrobblePreview>('lastfm_preview', { config, track });
 
+// --- ListenBrainz scrobbling ----------------------------------------------------------------
+// Same `ScrobbleTrack`/`ScrobblePreview` shapes as Last.fm: both services send what `resolve`
+// in lastfm.rs computes. Only the account calls differ.
+export interface ListenBrainzState {
+	connected: boolean;
+	username?: string | null;
+	error?: string | null;
+}
+export const listenbrainzStatus = () => invoke<ListenBrainzState>('listenbrainz_status');
+/** Validates the pasted user token and stores it. Rejects on a bad token or no network. */
+export const listenbrainzConnect = (token: string) =>
+	invoke<void>('listenbrainz_connect', { token });
+export const listenbrainzDisconnect = () => invoke<void>('listenbrainz_disconnect');
+export const onListenBrainzState = (cb: (s: ListenBrainzState) => void): Promise<UnlistenFn> =>
+	listen<ListenBrainzState>('listenbrainz-state', (e) => cb(e.payload));
+/** `Profile` in listenbrainz.rs. */
+export interface ListenBrainzProfile {
+	username: string;
+	url: string;
+	listens: number;
+}
+/** `null` when not connected or ListenBrainz didn't answer. */
+export const listenbrainzProfile = () => invoke<ListenBrainzProfile | null>('listenbrainz_profile');
+
 // --- Listen Together (context/19) -----------------------------------------------------------
 export interface LtUser {
 	user_id: string;

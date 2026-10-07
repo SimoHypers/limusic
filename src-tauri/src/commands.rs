@@ -420,9 +420,12 @@ pub async fn set_setting(
         state.set_discord_config(&value);
     }
     // The Scrobbling tab's settings, read whole each time: the two switches from #231 keep rows of
-    // their own, and the scrobbler wants all of it in one message.
+    // their own, and both scrobblers want all of it in one message (same rules/threshold for
+    // Last.fm and ListenBrainz).
     if matches!(key.as_str(), "lastfm_config" | "lastfm_primary_artist" | "lastfm_primary_strict") {
-        state.lastfm.set_config(crate::lastfm::ScrobbleConfig::load(&state.db));
+        let cfg = crate::lastfm::ScrobbleConfig::load(&state.db);
+        state.lastfm.set_config(cfg.clone());
+        state.listenbrainz.set_config(cfg);
     }
     // Retune the track that's playing. Unlike crossfade below, this one has to apply to what the
     // user is hearing right now: the switch exists so they can A/B the same loud section (#298).
@@ -2240,6 +2243,38 @@ pub async fn lastfm_preview(
     track: crate::lastfm::Track,
 ) -> crate::lastfm::Resolved {
     crate::lastfm::resolve(&track, &crate::lastfm::ScrobbleConfig::parse(&config))
+}
+
+// --- ListenBrainz scrobbling ------------------------------------------------------------------
+///
+/// Same scrobbling settings as Last.fm (the shared `lastfm_config` blob); only the account
+/// differs: a user token pasted from ListenBrainz settings, validated before it is stored.
+
+/// Validate `token` against ListenBrainz and store it. Returns the error rather than emitting
+/// it: a pasted token is validated synchronously, unlike Last.fm's browser round-trip.
+#[tauri::command]
+pub async fn listenbrainz_connect(state: St<'_>, token: String) -> Result<(), String> {
+    crate::listenbrainz::connect(state.inner().clone(), token).await
+}
+
+#[tauri::command]
+pub async fn listenbrainz_disconnect(state: St<'_>) -> Result<(), String> {
+    crate::listenbrainz::disconnect(&state);
+    Ok(())
+}
+
+/// `{ connected, username }` from the persisted token — seeds the Scrobbling tab on mount.
+#[tauri::command]
+pub async fn listenbrainz_status(state: St<'_>) -> Result<serde_json::Value, String> {
+    Ok(crate::listenbrainz::status(&state))
+}
+
+/// Listen count for the Scrobbling tab's account card. One ListenBrainz call per tab open.
+#[tauri::command]
+pub async fn listenbrainz_profile(
+    state: St<'_>,
+) -> Result<Option<crate::listenbrainz::Profile>, String> {
+    Ok(crate::listenbrainz::profile(&state).await)
 }
 
 /// Theater mode's fullscreen toggle (#139).

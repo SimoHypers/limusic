@@ -113,6 +113,14 @@ impl ScrobbleConfig {
         cfg.primary_strict = db.get_setting("lastfm_primary_strict").as_deref() == Some("true");
         cfg
     }
+
+    pub(crate) fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub(crate) fn now_playing_enabled(&self) -> bool {
+        self.now_playing
+    }
 }
 
 /// Find and replace on one field, applied to every track in list order. The pattern is a regular
@@ -193,14 +201,14 @@ enum Msg {
 
 /// The track as YouTube describes it. What Last.fm gets is [`resolve`]d from this at send time, so
 /// a rule or edit saved mid-track still applies to that track's scrobble.
-#[derive(Default, serde::Deserialize)]
+#[derive(Default, serde::Deserialize, serde::Serialize, Clone)]
 #[serde(default)]
 pub struct Track {
-    video_id: String,
-    title: String,
-    artists: String,
-    album: Option<String>,
-    is_video: bool,
+    pub video_id: String,
+    pub title: String,
+    pub artists: String,
+    pub album: Option<String>,
+    pub is_video: bool,
 }
 
 impl From<&SongItem> for Track {
@@ -375,20 +383,20 @@ impl Scrobbler {
 /// is set; the settings tab renders all of it as its preview, so the two can never disagree.
 #[derive(serde::Serialize)]
 pub struct Resolved {
-    artist: String,
-    title: String,
-    album: String,
+    pub artist: String,
+    pub title: String,
+    pub album: String,
     /// Why nothing is sent: `edit` (the user's edit says skip) or `incomplete` (no title or artist
     /// left, or an untagged local file).
-    skip: Option<&'static str>,
+    pub skip: Option<&'static str>,
     /// Index into `edits` of the edit that decided this track.
-    edit: Option<usize>,
+    pub edit: Option<usize>,
     /// The video title was split into artist and song.
-    split: bool,
+    pub split: bool,
     /// Indices of the rules that changed something, in order.
-    rules: Vec<usize>,
+    pub rules: Vec<usize>,
     /// Rules whose pattern doesn't compile, by index, with the reason. They are skipped.
-    errors: Vec<(usize, String)>,
+    pub errors: Vec<(usize, String)>,
 }
 
 impl Resolved {
@@ -547,7 +555,7 @@ fn primary_artist(artists: &str, strict: bool) -> String {
 /// When the scrobble fires, in seconds into the track: `percent` of it or `minutes` in, whichever
 /// comes first. `None` means never: tracks under 30s don't scrobble (Last.fm's floor), and with the
 /// minutes cap off a track of unknown length has nothing to time from yet.
-fn scrobble_at(duration: f64, cfg: &ScrobbleConfig) -> Option<f64> {
+pub(crate) fn scrobble_at(duration: f64, cfg: &ScrobbleConfig) -> Option<f64> {
     if duration > 0.0 && duration < 30.0 {
         return None;
     }
@@ -560,7 +568,7 @@ fn scrobble_at(duration: f64, cfg: &ScrobbleConfig) -> Option<f64> {
     Some(share.min(cap)).filter(|at| at.is_finite())
 }
 
-fn crosses_threshold(pos: f64, duration: f64, cfg: &ScrobbleConfig) -> bool {
+pub(crate) fn crosses_threshold(pos: f64, duration: f64, cfg: &ScrobbleConfig) -> bool {
     scrobble_at(duration, cfg).is_some_and(|at| pos >= at)
 }
 

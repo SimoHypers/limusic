@@ -14,6 +14,7 @@ mod import;
 #[cfg(target_os = "linux")]
 mod inhibit;
 mod lastfm;
+mod listenbrainz;
 mod listentogether;
 mod local;
 mod lyrics;
@@ -555,9 +556,16 @@ pub fn run() {
             );
 
             // Last.fm scrobbler — parks until a session key exists (titlebar connect flow).
+            let scrobble_cfg = lastfm::ScrobbleConfig::load(&db);
             let lastfm = lastfm::spawn(
                 db.get_setting("lastfm_session_key").filter(|s| !s.is_empty()),
-                lastfm::ScrobbleConfig::load(&db),
+                scrobble_cfg.clone(),
+            );
+
+            // ListenBrainz scrobbler — same settings, parks until a user token exists.
+            let listenbrainz = listenbrainz::spawn(
+                db.get_setting("listenbrainz_token").filter(|s| !s.is_empty()),
+                scrobble_cfg,
             );
 
             // Listen Together session (context/19). Server URL is a DB setting so "home PC → VPS" is
@@ -579,6 +587,7 @@ pub fn run() {
                 media,
                 discord,
                 lastfm,
+                listenbrainz,
             ));
             app.manage(app_state.clone());
 
@@ -944,6 +953,10 @@ pub fn run() {
             commands::lastfm_status,
             commands::lastfm_preview,
             commands::lastfm_profile,
+            commands::listenbrainz_connect,
+            commands::listenbrainz_disconnect,
+            commands::listenbrainz_status,
+            commands::listenbrainz_profile,
             commands::theater_fullscreen,
             commands::release_notes,
             commands::can_self_update,

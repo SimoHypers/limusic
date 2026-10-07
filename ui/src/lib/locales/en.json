@@ -336,7 +336,7 @@
 			"discord": "Discord",
 			"discord_hint": "How your Rich Presence card looks.",
 			"scrobbling": "Scrobbling",
-			"scrobbling_hint": "What Last.fm gets, and when a play counts.",
+			"scrobbling_hint": "What scrobbling sends, and when a play counts.",
 			"themes": "Appearance",
 			"themes_hint": "Colors, fonts and the player view.",
 			"playback": "Playback",
@@ -681,13 +681,19 @@
 			"applied_edit": "Your edit",
 			"applied_split": "Title split",
 			"applied_rule": "Rule {n}",
-			"status_disconnected": "Last.fm isn't connected, so nothing is sent.",
+			"status_disconnected": "No scrobbling service is connected, so nothing is sent.",
 			"status_paused": "Scrobbling is off.",
 			"status_skip_edit": "Your edit turns this track off.",
 			"status_incomplete": "Nothing is sent: no title or artist is left.",
 			"status_short": "Too short to scrobble.",
 			"status_at": "Scrobbles at {time}.",
-			"status_done": "Scrobbled at {time}."
+			"status_done": "Scrobbled at {time}.",
+			"stat_listens": "Listens",
+			"lb_open_profile": "Open your ListenBrainz profile",
+			"lb_disconnected": "Connect your ListenBrainz account to send it what you play.",
+			"lb_validating": "Checking that token with ListenBrainz.",
+			"lb_token_hint": "Paste your user token here. You can copy it from your ListenBrainz settings page on",
+			"lb_token_placeholder": "ListenBrainz user token"
 		}
 	},
 	"dialogs": {
@@ -820,6 +826,8 @@
 		"lastfm_connecting": "Connecting to Last.fm — click to cancel",
 		"lastfm_scrobble_to": "Scrobble to Last.fm",
 		"lastfm_settings": "Scrobbling settings",
+		"listenbrainz_connected_as": "Sending listens as {user}",
+		"listenbrainz_disconnected": "ListenBrainz disconnected",
 		"disconnect": "Disconnect"
 	},
 	"a11y": {

@@ -44,6 +44,7 @@ YouTube Music client, and grew from there.
 - **Mini Player and theater mode**: shrink to a strip that keeps playing, or go fullscreen with cover and lyrics side by side
 - **Local Music**: play your own files, with all metadata still intact
 - **Last.fm scrobbling**: connect once from the title bar, every play is scrobbled
+- **ListenBrainz scrobbling**: paste a user token in the Scrobbling settings, same plays go there too
 - **Discord Rich Presence**: artwork, live progress bar, one click to toggle
 - **OS media keys** and now-playing integration (MPRIS on Linux, SMTC on Windows, plus playback buttons on the Windows taskbar preview)
 - **System tray**: close the window, keep the music; play/pause and skip from the tray, optional start-on-login
@@ -100,12 +101,18 @@ Community-maintained repositories, packaged and updated by their maintainers rat
 
 ## Scrobbling & Discord
 
-Both live in the title bar, next to the window controls.
+Last.fm lives in the title bar, next to the window controls. ListenBrainz lives in
+Settings ▸ Scrobbling, beside it — both send the same cleaned-up track (the tab's preview
+shows what each play counts as).
 
 - **Last.fm**: click the Last.fm mark, approve Limusic in the browser tab that
   opens, and you're connected for good. Tracks scrobble at the halfway point (or
   four minutes, whichever comes first), which is Last.fm's own rule. Click again
   to see the account or disconnect.
+- **ListenBrainz**: open the Scrobbling settings, paste the user token from
+  [listenbrainz.org/settings](https://listenbrainz.org/settings/) and connect.
+  Plays submit as `playing_now` on start and one `single` listen at the same
+  halfway-or-four-minutes point.
 - **Discord**: click the Discord mark to toggle Rich Presence. Green dot means
   it's live. The card shows the track, artist, album art, and a progress bar, and
   it disappears when you pause.
