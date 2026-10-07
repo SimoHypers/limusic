@@ -1,0 +1,1272 @@
+{
+ "onResponseReceivedEndpoints": [
+  {
+   "reloadContinuationItemsCommand": {
+    "targetId": "fixtureVid1",
+    "continuationItems": [
+     {
+      "commentsHeaderRenderer": {
+       "countText": {
+        "runs": [
+         {
+          "text": "2,458,377"
+         },
+         {
+          "text": " Comments"
+         }
+        ]
+       },
+       "createRenderer": {
+        "commentSimpleboxRenderer": {
+         "authorThumbnail": {
+          "thumbnails": [
+           {
+            "url": "https://yt3.ggpht.com/a/default-user=s48-c-k-c0x00ffffff-no-rj",
+            "width": 48,
+            "height": 48
+           },
+           {
+            "url": "https://yt3.ggpht.com/a/default-user=s88-c-k-c0x00ffffff-no-rj",
+            "width": 88,
+            "height": 88
+           },
+           {
+            "url": "https://yt3.ggpht.com/a/default-user=s176-c-k-c0x00ffffff-no-rj",
+            "width": 176,
+            "height": 176
+           }
+          ],
+          "accessibility": {
+           "accessibilityData": {
+            "label": "Default profile photo"
+           }
+          }
+         },
+         "placeholderText": {
+          "runs": [
+           {
+            "text": "Add a comment..."
+           }
+          ]
+         },
+         "prepareAccountEndpoint": {
+          "signInEndpoint": {
+           "nextEndpoint": {
+            "watchEndpoint": {
+             "videoId": "fixtureVid1"
+            }
+           }
+          }
+         },
+         "avatarSize": "SIMPLEBOX_AVATAR_SIZE_TYPE_DEFAULT",
+         "disabledText": "Comments are turned off.",
+         "disabledTextUrl": "https://support.google.com/youtube/answer/9706180"
+        }
+       },
+       "sortMenu": {
+        "sortFilterSubMenuRenderer": {
+         "subMenuItems": [
+          {
+           "title": "Top",
+           "selected": true,
+           "continuation": {
+            "reloadContinuationData": {
+             "continuation": "fixture-continuation-1",
+             "disableContinuationClickLogging": false
+            }
+           },
+           "subtitle": "Show featured comments",
+           "rendererContext": {
+            "loggingContext": {}
+           }
+          },
+          {
+           "title": "Newest",
+           "selected": false,
+           "continuation": {
+            "reloadContinuationData": {
+             "continuation": "fixture-continuation-2",
+             "disableContinuationClickLogging": false
+            }
+           },
+           "subtitle": "Show recent comments, including potential spam",
+           "rendererContext": {
+            "loggingContext": {}
+           }
+          }
+         ],
+         "icon": {
+          "iconType": "SORT"
+         },
+         "accessibility": {
+          "accessibilityData": {
+           "label": "Sort comments"
+          }
+         }
+        }
+       },
+       "titleText": {
+        "runs": [
+         {
+          "text": "Comments"
+         }
+        ]
+       },
+       "commentsCount": {
+        "runs": [
+         {
+          "text": "2.4M"
+         }
+        ]
+       },
+       "showSeparator": true,
+       "unicodeEmojisUrl": "https://www.gstatic.com/youtube/img/emojis/emojis-png-7.json"
+      }
+     }
+    ],
+    "slot": "RELOAD_CONTINUATION_SLOT_HEADER"
+   }
+  },
+  {
+   "reloadContinuationItemsCommand": {
+    "targetId": "fixtureVid1",
+    "continuationItems": [
+     {
+      "commentThreadRenderer": {
+       "replies": {
+        "commentRepliesRenderer": {
+         "viewReplies": {
+          "buttonRenderer": {
+           "text": {
+            "runs": [
+             {
+              "text": "962 replies"
+             }
+            ]
+           },
+           "icon": {
+            "iconType": "EXPAND"
+           },
+           "iconPosition": "BUTTON_ICON_POSITION_TYPE_LEFT_OF_TEXT"
+          }
+         },
+         "hideReplies": {
+          "buttonRenderer": {
+           "text": {
+            "runs": [
+             {
+              "text": "Hide replies"
+             }
+            ]
+           },
+           "icon": {
+            "iconType": "COLLAPSE"
+           },
+           "iconPosition": "BUTTON_ICON_POSITION_TYPE_LEFT_OF_TEXT"
+          }
+         },
+         "targetId": "comment-replies-item-UgFixtureComment1",
+         "subThreads": [
+          {
+           "continuationItemRenderer": {
+            "trigger": "CONTINUATION_TRIGGER_ON_ITEM_SHOWN",
+            "continuationEndpoint": {
+             "continuationCommand": {
+              "token": "fixture-token-3"
+             }
+            }
+           }
+          }
+         ]
+        }
+       },
+       "renderingPriority": "RENDERING_PRIORITY_PINNED_COMMENT",
+       "isModeratedElqComment": false,
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "fixture-commentKey-4",
+         "sharedKey": "EgAgKygB",
+         "toolbarStateKey": "fixture-toolbarStateKey-5",
+         "toolbarSurfaceKey": "fixture-toolbarSurfaceKey-6",
+         "pinnedText": "Pinned by @creator",
+         "commentId": "UgFixtureComment1",
+         "commentSurfaceKey": "fixture-commentSurfaceKey-7",
+         "sharedSurfaceKey": "fixture-sharedSurfaceKey-8",
+         "inlineRepliesKey": "empty_inline_replies",
+         "rendererContext": {
+          "loggingContext": {}
+         }
+        }
+       }
+      }
+     },
+     {
+      "commentThreadRenderer": {
+       "replies": {
+        "commentRepliesRenderer": {
+         "viewReplies": {
+          "buttonRenderer": {
+           "text": {
+            "runs": [
+             {
+              "text": "611 replies"
+             }
+            ]
+           },
+           "icon": {
+            "iconType": "EXPAND"
+           },
+           "iconPosition": "BUTTON_ICON_POSITION_TYPE_LEFT_OF_TEXT"
+          }
+         },
+         "hideReplies": {
+          "buttonRenderer": {
+           "text": {
+            "runs": [
+             {
+              "text": "Hide replies"
+             }
+            ]
+           },
+           "icon": {
+            "iconType": "COLLAPSE"
+           },
+           "iconPosition": "BUTTON_ICON_POSITION_TYPE_LEFT_OF_TEXT"
+          }
+         },
+         "targetId": "comment-replies-item-UgFixtureComment2",
+         "subThreads": [
+          {
+           "continuationItemRenderer": {
+            "trigger": "CONTINUATION_TRIGGER_ON_ITEM_SHOWN",
+            "continuationEndpoint": {
+             "continuationCommand": {
+              "token": "fixture-token-9"
+             }
+            }
+           }
+          }
+         ]
+        }
+       },
+       "renderingPriority": "RENDERING_PRIORITY_UNKNOWN",
+       "isModeratedElqComment": false,
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "fixture-commentKey-10",
+         "sharedKey": "EgAgKygB",
+         "toolbarStateKey": "fixture-toolbarStateKey-11",
+         "toolbarSurfaceKey": "fixture-toolbarSurfaceKey-12",
+         "commentId": "UgFixtureComment2",
+         "commentSurfaceKey": "fixture-commentSurfaceKey-13",
+         "sharedSurfaceKey": "fixture-sharedSurfaceKey-8",
+         "inlineRepliesKey": "empty_inline_replies",
+         "rendererContext": {
+          "loggingContext": {}
+         }
+        }
+       }
+      }
+     },
+     {
+      "commentThreadRenderer": {
+       "replies": {
+        "commentRepliesRenderer": {
+         "viewReplies": {
+          "buttonRenderer": {
+           "text": {
+            "runs": [
+             {
+              "text": "581 replies"
+             }
+            ]
+           },
+           "icon": {
+            "iconType": "EXPAND"
+           },
+           "iconPosition": "BUTTON_ICON_POSITION_TYPE_LEFT_OF_TEXT"
+          }
+         },
+         "hideReplies": {
+          "buttonRenderer": {
+           "text": {
+            "runs": [
+             {
+              "text": "Hide replies"
+             }
+            ]
+           },
+           "icon": {
+            "iconType": "COLLAPSE"
+           },
+           "iconPosition": "BUTTON_ICON_POSITION_TYPE_LEFT_OF_TEXT"
+          }
+         },
+         "targetId": "comment-replies-item-UgFixtureComment3",
+         "subThreads": [
+          {
+           "continuationItemRenderer": {
+            "trigger": "CONTINUATION_TRIGGER_ON_ITEM_SHOWN",
+            "continuationEndpoint": {
+             "continuationCommand": {
+              "token": "fixture-token-14"
+             }
+            }
+           }
+          }
+         ]
+        }
+       },
+       "renderingPriority": "RENDERING_PRIORITY_UNKNOWN",
+       "isModeratedElqComment": false,
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "fixture-commentKey-15",
+         "sharedKey": "EgAgKygB",
+         "toolbarStateKey": "fixture-toolbarStateKey-16",
+         "toolbarSurfaceKey": "fixture-toolbarSurfaceKey-17",
+         "commentId": "UgFixtureComment3",
+         "commentSurfaceKey": "fixture-commentSurfaceKey-18",
+         "sharedSurfaceKey": "fixture-sharedSurfaceKey-8",
+         "inlineRepliesKey": "empty_inline_replies",
+         "rendererContext": {
+          "loggingContext": {}
+         }
+        }
+       }
+      }
+     },
+     {
+      "commentThreadRenderer": {
+       "replies": {
+        "commentRepliesRenderer": {
+         "viewReplies": {
+          "buttonRenderer": {
+           "text": {
+            "runs": [
+             {
+              "text": "53 replies"
+             }
+            ]
+           },
+           "icon": {
+            "iconType": "EXPAND"
+           },
+           "iconPosition": "BUTTON_ICON_POSITION_TYPE_LEFT_OF_TEXT"
+          }
+         },
+         "hideReplies": {
+          "buttonRenderer": {
+           "text": {
+            "runs": [
+             {
+              "text": "Hide replies"
+             }
+            ]
+           },
+           "icon": {
+            "iconType": "COLLAPSE"
+           },
+           "iconPosition": "BUTTON_ICON_POSITION_TYPE_LEFT_OF_TEXT"
+          }
+         },
+         "targetId": "comment-replies-item-UgFixtureComment4",
+         "subThreads": [
+          {
+           "continuationItemRenderer": {
+            "trigger": "CONTINUATION_TRIGGER_ON_ITEM_SHOWN",
+            "continuationEndpoint": {
+             "continuationCommand": {
+              "token": "fixture-token-19"
+             }
+            }
+           }
+          }
+         ]
+        }
+       },
+       "renderingPriority": "RENDERING_PRIORITY_UNKNOWN",
+       "isModeratedElqComment": false,
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "fixture-commentKey-20",
+         "sharedKey": "EgAgKygB",
+         "toolbarStateKey": "fixture-toolbarStateKey-21",
+         "toolbarSurfaceKey": "fixture-toolbarSurfaceKey-22",
+         "commentId": "UgFixtureComment4",
+         "commentSurfaceKey": "fixture-commentSurfaceKey-23",
+         "sharedSurfaceKey": "fixture-sharedSurfaceKey-8",
+         "inlineRepliesKey": "empty_inline_replies",
+         "rendererContext": {
+          "loggingContext": {}
+         }
+        }
+       }
+      }
+     },
+     {
+      "continuationItemRenderer": {
+       "trigger": "CONTINUATION_TRIGGER_ON_ITEM_SHOWN",
+       "continuationEndpoint": {
+        "continuationCommand": {
+         "token": "fixture-token-24"
+        }
+       }
+      }
+     }
+    ],
+    "slot": "RELOAD_CONTINUATION_SLOT_BODY"
+   }
+  }
+ ],
+ "frameworkUpdates": {
+  "entityBatchUpdate": {
+   "mutations": [
+    {
+     "entityKey": "EgAgKygB",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentSharedEntityPayload": {
+       "key": "EgAgKygB",
+       "strings": {
+        "viewAllRepliesButtonA11y": "View all replies",
+        "expandText": "Read more",
+        "translatingText": "Translating...",
+        "seeOriginalText": "See original (Translated by Google)",
+        "discardDialogTitle": "Discard comment?",
+        "discardDialogAction": "Discard",
+        "discardDialogCancel": "Keep writing",
+        "shortReplyThumbnailA11y": "See Short reply",
+        "collapseText": "Show less",
+        "replyButtonText": "Reply",
+        "smartRepliesAiDisclaimer": "Replies made with AI"
+       },
+       "toolbarShared": {
+        "unlikeButtonA11y": "Unlike",
+        "undislikeButtonA11y": "Remove dislike",
+        "heartButtonA11y": "Heart",
+        "unheartButtonA11y": "Remove heart",
+        "heartedTooltipA11y": "❤ by @creator",
+        "replyButtonA11y": "Reply",
+        "menuButtonA11y": "Action menu",
+        "approveButtonA11y": "Approve",
+        "removeButtonA11y": "Remove",
+        "blockButtonA11y": "Hide user from channel",
+        "spamButtonA11y": "Report spam or abuse",
+        "heartedTooltipCommand": {
+         "tooltipCommand": {
+          "hintRenderer": {
+           "content": {
+            "bubbleHintRenderer": {
+             "detailsText": {
+              "runs": [
+               {
+                "text": "❤ by @creator",
+                "textColor": 4294967295
+               }
+              ]
+             },
+             "isVisible": true
+            }
+           },
+           "dwellTimeMs": "1500",
+           "suggestedPosition": {
+            "type": "HINT_SUGGESTED_POSITION_TYPE_ABOVE"
+           }
+          }
+         }
+        },
+        "dislikeCommentButtonA11y": "Dislike this comment",
+        "dislikeReplyButtonA11y": "Dislike this reply",
+        "cancelButtonLabel": "Cancel"
+       },
+       "experiments": {
+        "translateButtonStyle": "TRANSLATE_BUTTON_STYLE_WITH_LANGUAGE",
+        "enablePersistentCommentComposer": false,
+        "useRoundedCornersForSmartReplies": true
+       },
+       "environment": {
+        "platformName": "PLATFORM_NAME_IOS",
+        "formFactor": "SMALL_FORM_FACTOR"
+       },
+       "capabilities": {
+        "supportsIndicatorTouchExpansion": false,
+        "supportsIndicatorPadding": false,
+        "supportsTooltipCommand": false,
+        "supportsSubstitute": false,
+        "supportsUpdate": false,
+        "supportsLogGestureCommand": false,
+        "supportsClickableSpanIncrease": false
+       },
+       "commentEnvironment": {
+        "platformName": "PLATFORM_NAME_IOS"
+       },
+       "clientName": "WEB_REMIX"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentKey-4",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-commentKey-4",
+       "properties": {
+        "commentId": "UgFixtureComment1",
+        "content": {
+         "content": "Sample comment text c1"
+        },
+        "publishedTime": "1 year ago",
+        "replyLevel": 0,
+        "authorButtonA11y": "@userN",
+        "toolbarStateKey": "fixture-toolbarStateKey-5",
+        "translateButtonEntityKey": "fixture-translateButtonEntityKey-25"
+       },
+       "author": {
+        "channelId": "UCfixtureuser20000000000",
+        "displayName": "@user2",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-user2=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": true,
+        "isCurrentUser": false,
+        "isCreator": false,
+        "channelCommand": {
+         "innertubeCommand": {
+          "browseEndpoint": {
+           "browseId": "UCfixtureuser20000000000",
+           "canonicalBaseUrl": "/@user2"
+          }
+         }
+        },
+        "innerBadgeA11y": "@user2, verified user",
+        "isArtist": false
+       },
+       "toolbar": {
+        "likeCountLiked": "324K",
+        "likeCountNotliked": "324K",
+        "replyCount": "962",
+        "creatorThumbnailUrl": "https://yt3.ggpht.com/fixture-creator=s88-c-k-c0x00ffffff-no-rj",
+        "likeButtonA11y": "Like this comment along with 324K other people",
+        "engagementToolbarStyle": {
+         "value": "ENGAGEMENT_TOOLBAR_STYLE_VALUE_DEFAULT"
+        },
+        "likeCountA11y": "324K likes",
+        "replyCountA11y": "962 replies",
+        "likeInactiveTooltip": "Like",
+        "likeActiveTooltip": "Unlike",
+        "dislikeInactiveTooltip": "Dislike",
+        "dislikeActiveTooltip": "Remove dislike",
+        "heartActiveTooltip": "❤ by @creator"
+       },
+       "readMoreLogging": {}
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentSurfaceKey-7",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentSurfaceEntityPayload": {
+       "key": "fixture-commentSurfaceKey-7",
+       "inlineReadMoreButton": {
+        "isExpanded": false
+       },
+       "composerDraftEntityKey": "N/A",
+       "viewRepliesTooltipData": {
+        "tooltipCommand": {
+         "tooltipCommand": {
+          "hintRenderer": {
+           "content": {
+            "bubbleHintRenderer": {
+             "text": {
+              "runs": [
+               {
+                "text": "Tap the comment to view replies"
+               }
+              ]
+             },
+             "isVisible": true
+            }
+           },
+           "dismissStrategy": {
+            "type": "DISMISS_ON_TAP_ONLY"
+           },
+           "hintCap": {
+            "impressionCap": "1"
+           },
+           "suggestedPosition": {
+            "type": "HINT_SUGGESTED_POSITION_TYPE_BELOW"
+           }
+          }
+         }
+        },
+        "viewRepliesTooltipIdentifier": "view_replies_tooltip_identifier"
+       },
+       "publishedTimeCommand": {
+        "innertubeCommand": {
+         "watchEndpoint": {
+          "videoId": "fixtureVid1",
+          "params": "fixture-params-26"
+         }
+        }
+       },
+       "logTapCommand": {
+        "logGestureCommand": {
+         "gestureType": "GESTURE_EVENT_TYPE_LOG_GENERIC_CLICK"
+        }
+       },
+       "threadLines": {},
+       "relativeNestingLevel": 0,
+       "avatar": {
+        "avatarViewModel": {
+         "image": {
+          "sources": [
+           {
+            "url": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+            "width": 88,
+            "height": 88
+           }
+          ],
+          "processor": {
+           "borderImageProcessor": {
+            "circular": true
+           }
+          }
+         },
+         "accessibilityText": "@userN",
+         "avatarImageSize": "AVATAR_SIZE_40",
+         "endpoint": {
+          "innertubeCommand": {
+           "browseEndpoint": {
+            "browseId": "UCfixtureother00000000000",
+            "canonicalBaseUrl": "/@userN"
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-translateButtonEntityKey-25",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "triStateButtonStateEntityPayload": {
+       "key": "fixture-translateButtonEntityKey-25",
+       "stateIdentifier": "TRI_STATE_IDENTIFIER_UNTOGGLED_STATE"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarSurfaceKey-6",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-toolbarSurfaceKey-6",
+       "prepareAccountCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "likeCommand": {
+        "innertubeCommand": {}
+       },
+       "unlikeCommand": {
+        "innertubeCommand": {}
+       },
+       "dislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "undislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "isEngagementToolbar": true
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarStateKey-5",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-toolbarStateKey-5",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_HEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentKey-10",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-commentKey-10",
+       "properties": {
+        "commentId": "UgFixtureComment2",
+        "content": {
+         "content": "Sample comment text c3"
+        },
+        "publishedTime": "7 years ago",
+        "replyLevel": 0,
+        "authorButtonA11y": "@userN",
+        "toolbarStateKey": "fixture-toolbarStateKey-11",
+        "translateButtonEntityKey": "fixture-translateButtonEntityKey-27"
+       },
+       "author": {
+        "channelId": "UCfixtureuser40000000000",
+        "displayName": "@user4",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-user4=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCurrentUser": false,
+        "isCreator": false,
+        "channelCommand": {
+         "innertubeCommand": {
+          "browseEndpoint": {
+           "browseId": "UCfixtureuser40000000000",
+           "canonicalBaseUrl": "/@user4"
+          }
+         }
+        },
+        "isArtist": false
+       },
+       "toolbar": {
+        "likeCountLiked": "68K",
+        "likeCountNotliked": "68K",
+        "replyCount": "611",
+        "likeButtonA11y": "Like this comment along with 68K other people",
+        "engagementToolbarStyle": {
+         "value": "ENGAGEMENT_TOOLBAR_STYLE_VALUE_DEFAULT"
+        },
+        "likeCountA11y": "68K likes",
+        "replyCountA11y": "611 replies",
+        "likeInactiveTooltip": "Like",
+        "likeActiveTooltip": "Unlike",
+        "dislikeInactiveTooltip": "Dislike",
+        "dislikeActiveTooltip": "Remove dislike",
+        "heartActiveTooltip": "❤ by @creator"
+       },
+       "readMoreLogging": {}
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentSurfaceKey-13",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentSurfaceEntityPayload": {
+       "key": "fixture-commentSurfaceKey-13",
+       "commentClickCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "inlineReadMoreButton": {
+        "isExpanded": false
+       },
+       "commentClickOpensComposer": true,
+       "composerDraftEntityKey": "N/A",
+       "publishedTimeCommand": {
+        "innertubeCommand": {
+         "watchEndpoint": {
+          "videoId": "fixtureVid1",
+          "params": "fixture-params-28"
+         }
+        }
+       },
+       "logTapCommand": {
+        "logGestureCommand": {
+         "gestureType": "GESTURE_EVENT_TYPE_LOG_GENERIC_CLICK"
+        }
+       },
+       "threadLines": {},
+       "relativeNestingLevel": 0,
+       "avatar": {
+        "avatarViewModel": {
+         "image": {
+          "sources": [
+           {
+            "url": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+            "width": 88,
+            "height": 88
+           }
+          ],
+          "processor": {
+           "borderImageProcessor": {
+            "circular": true
+           }
+          }
+         },
+         "accessibilityText": "@userN",
+         "avatarImageSize": "AVATAR_SIZE_40",
+         "endpoint": {
+          "innertubeCommand": {
+           "browseEndpoint": {
+            "browseId": "UCfixtureother00000000000",
+            "canonicalBaseUrl": "/@userN"
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-translateButtonEntityKey-27",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "triStateButtonStateEntityPayload": {
+       "key": "fixture-translateButtonEntityKey-27",
+       "stateIdentifier": "TRI_STATE_IDENTIFIER_UNTOGGLED_STATE"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarSurfaceKey-12",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-toolbarSurfaceKey-12",
+       "prepareAccountCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "likeCommand": {
+        "innertubeCommand": {}
+       },
+       "unlikeCommand": {
+        "innertubeCommand": {}
+       },
+       "dislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "undislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "replyCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "isEngagementToolbar": true
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarStateKey-11",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-toolbarStateKey-11",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentKey-15",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-commentKey-15",
+       "properties": {
+        "commentId": "UgFixtureComment3",
+        "content": {
+         "content": "Sample comment text c5"
+        },
+        "publishedTime": "6 years ago (edited)",
+        "replyLevel": 0,
+        "authorButtonA11y": "@userN",
+        "toolbarStateKey": "fixture-toolbarStateKey-16",
+        "translateButtonEntityKey": "fixture-translateButtonEntityKey-29"
+       },
+       "author": {
+        "channelId": "UCfixtureuser60000000000",
+        "displayName": "@user6",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-user6=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCurrentUser": false,
+        "isCreator": false,
+        "channelCommand": {
+         "innertubeCommand": {
+          "browseEndpoint": {
+           "browseId": "UCfixtureuser60000000000",
+           "canonicalBaseUrl": "/@user6"
+          }
+         }
+        },
+        "isArtist": false
+       },
+       "toolbar": {
+        "likeCountLiked": "103K",
+        "likeCountNotliked": "103K",
+        "replyCount": "581",
+        "likeButtonA11y": "Like this comment along with 103K other people",
+        "engagementToolbarStyle": {
+         "value": "ENGAGEMENT_TOOLBAR_STYLE_VALUE_DEFAULT"
+        },
+        "likeCountA11y": "103K likes",
+        "replyCountA11y": "581 replies",
+        "likeInactiveTooltip": "Like",
+        "likeActiveTooltip": "Unlike",
+        "dislikeInactiveTooltip": "Dislike",
+        "dislikeActiveTooltip": "Remove dislike",
+        "heartActiveTooltip": "❤ by @creator"
+       },
+       "readMoreLogging": {}
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentSurfaceKey-18",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentSurfaceEntityPayload": {
+       "key": "fixture-commentSurfaceKey-18",
+       "commentClickCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "inlineReadMoreButton": {
+        "isExpanded": false
+       },
+       "commentClickOpensComposer": true,
+       "composerDraftEntityKey": "N/A",
+       "publishedTimeCommand": {
+        "innertubeCommand": {
+         "watchEndpoint": {
+          "videoId": "fixtureVid1",
+          "params": "fixture-params-30"
+         }
+        }
+       },
+       "logTapCommand": {
+        "logGestureCommand": {
+         "gestureType": "GESTURE_EVENT_TYPE_LOG_GENERIC_CLICK"
+        }
+       },
+       "threadLines": {},
+       "relativeNestingLevel": 0,
+       "avatar": {
+        "avatarViewModel": {
+         "image": {
+          "sources": [
+           {
+            "url": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+            "width": 88,
+            "height": 88
+           }
+          ],
+          "processor": {
+           "borderImageProcessor": {
+            "circular": true
+           }
+          }
+         },
+         "accessibilityText": "@userN",
+         "avatarImageSize": "AVATAR_SIZE_40",
+         "endpoint": {
+          "innertubeCommand": {
+           "browseEndpoint": {
+            "browseId": "UCfixtureother00000000000",
+            "canonicalBaseUrl": "/@userN"
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-translateButtonEntityKey-29",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "triStateButtonStateEntityPayload": {
+       "key": "fixture-translateButtonEntityKey-29",
+       "stateIdentifier": "TRI_STATE_IDENTIFIER_UNTOGGLED_STATE"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarSurfaceKey-17",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-toolbarSurfaceKey-17",
+       "prepareAccountCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "likeCommand": {
+        "innertubeCommand": {}
+       },
+       "unlikeCommand": {
+        "innertubeCommand": {}
+       },
+       "dislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "undislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "replyCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "isEngagementToolbar": true
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarStateKey-16",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-toolbarStateKey-16",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentKey-20",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-commentKey-20",
+       "properties": {
+        "commentId": "UgFixtureComment4",
+        "content": {
+         "content": "Sample comment text c7"
+        },
+        "publishedTime": "2 months ago",
+        "replyLevel": 0,
+        "authorButtonA11y": "@userN",
+        "toolbarStateKey": "fixture-toolbarStateKey-21",
+        "translateButtonEntityKey": "fixture-translateButtonEntityKey-31"
+       },
+       "author": {
+        "channelId": "UCfixtureuser80000000000",
+        "displayName": "@user8",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-user8=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCurrentUser": false,
+        "isCreator": false,
+        "channelCommand": {
+         "innertubeCommand": {
+          "browseEndpoint": {
+           "browseId": "UCfixtureuser80000000000",
+           "canonicalBaseUrl": "/@user8"
+          }
+         }
+        },
+        "isArtist": false
+       },
+       "toolbar": {
+        "likeCountLiked": "5.5K",
+        "likeCountNotliked": "5.5K",
+        "replyCount": "53",
+        "likeButtonA11y": "Like this comment along with 5.5K other people",
+        "engagementToolbarStyle": {
+         "value": "ENGAGEMENT_TOOLBAR_STYLE_VALUE_DEFAULT"
+        },
+        "likeCountA11y": "5.5K likes",
+        "replyCountA11y": "53 replies",
+        "likeInactiveTooltip": "Like",
+        "likeActiveTooltip": "Unlike",
+        "dislikeInactiveTooltip": "Dislike",
+        "dislikeActiveTooltip": "Remove dislike",
+        "heartActiveTooltip": "❤ by @creator"
+       },
+       "readMoreLogging": {}
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentSurfaceKey-23",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentSurfaceEntityPayload": {
+       "key": "fixture-commentSurfaceKey-23",
+       "commentClickCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "inlineReadMoreButton": {
+        "isExpanded": false
+       },
+       "commentClickOpensComposer": true,
+       "composerDraftEntityKey": "N/A",
+       "publishedTimeCommand": {
+        "innertubeCommand": {
+         "watchEndpoint": {
+          "videoId": "fixtureVid1",
+          "params": "fixture-params-32"
+         }
+        }
+       },
+       "logTapCommand": {
+        "logGestureCommand": {
+         "gestureType": "GESTURE_EVENT_TYPE_LOG_GENERIC_CLICK"
+        }
+       },
+       "threadLines": {},
+       "relativeNestingLevel": 0,
+       "avatar": {
+        "avatarViewModel": {
+         "image": {
+          "sources": [
+           {
+            "url": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+            "width": 88,
+            "height": 88
+           }
+          ],
+          "processor": {
+           "borderImageProcessor": {
+            "circular": true
+           }
+          }
+         },
+         "accessibilityText": "@userN",
+         "avatarImageSize": "AVATAR_SIZE_40",
+         "endpoint": {
+          "innertubeCommand": {
+           "browseEndpoint": {
+            "browseId": "UCfixtureother00000000000",
+            "canonicalBaseUrl": "/@userN"
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-translateButtonEntityKey-31",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "triStateButtonStateEntityPayload": {
+       "key": "fixture-translateButtonEntityKey-31",
+       "stateIdentifier": "TRI_STATE_IDENTIFIER_UNTOGGLED_STATE"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarSurfaceKey-22",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-toolbarSurfaceKey-22",
+       "prepareAccountCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "likeCommand": {
+        "innertubeCommand": {}
+       },
+       "unlikeCommand": {
+        "innertubeCommand": {}
+       },
+       "dislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "undislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "replyCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "isEngagementToolbar": true
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarStateKey-21",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-toolbarStateKey-21",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    }
+   ],
+   "timestamp": {
+    "seconds": "1791318069",
+    "nanos": 797164276
+   }
+  }
+ }
+}

@@ -8,6 +8,7 @@ use crate::models::browse::{
     self, AlbumPage, ArtistPage, BrowseItem, HistoryGroup, HomePage, MoodSection,
     PlaylistContinuation, PlaylistPage, PlaylistSort, SearchResults, SearchSuggestions,
 };
+use crate::models::comments::{self, CommentReplies, CommentsPage};
 use crate::models::context::Context;
 use crate::models::lyrics::{self, PlainLyrics, TimedLyricLine};
 use crate::models::metadata::{
@@ -252,6 +253,79 @@ impl InnerTube {
         }
         self.drop_blocked_songs(&mut next.items, video_id);
         Ok(next)
+    }
+
+    // --- comments (read-only). All of it goes through `next`: a comments token sent to `browse`
+    // is answered 200 with the Home feed. ---------------------------------------------------
+
+    /// First page of comments for a video. Looks the first-page token up on the `next` response
+    /// (the Comments tab), then loads it. No token means the comments are turned off, which comes
+    /// back as `CommentsState::Disabled` rather than an error.
+    ///
+    /// An audio track (ATV) has a comment thread of its own, separate from its music video's: the
+    /// id is never remapped here.
+    pub async fn comments(
+        &self,
+        client: &YouTubeClient,
+        video_id: &str,
+    ) -> Result<CommentsPage, Error> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct NextBody {
+            context: Context,
+            video_id: String,
+            is_audio_only: bool,
+        }
+        let body = NextBody {
+            context: self.context_for(client),
+            video_id: video_id.to_owned(),
+            is_audio_only: true,
+        };
+        let tabs = self.post("next", client, &body, true).await.map_err(comments_error)?;
+        let Some(token) = comments::parse_comments_token(&tabs) else {
+            return Ok(CommentsPage::disabled());
+        };
+        let value = self.next_continuation(client, &token).await.map_err(comments_error)?;
+        Ok(comments::parse_comments_page(&value, true))
+    }
+
+    /// The next page of comments, or the comments in another order: pagination and sort tokens
+    /// both load through here (the header's sort entries carry their own tokens).
+    pub async fn comments_continuation(
+        &self,
+        client: &YouTubeClient,
+        token: &str,
+    ) -> Result<CommentsPage, Error> {
+        let value = self.next_continuation(client, token).await.map_err(comments_error)?;
+        // A sort switch answers with a header and a body, a page with the body alone.
+        Ok(comments::parse_comments_page(&value, false))
+    }
+
+    /// One page of a thread's replies, via the token on the thread (or on the previous page's
+    /// "Show more replies").
+    pub async fn comment_replies(
+        &self,
+        client: &YouTubeClient,
+        token: &str,
+    ) -> Result<CommentReplies, Error> {
+        let value = self.next_continuation(client, token).await.map_err(comments_error)?;
+        Ok(comments::parse_comment_replies(&value))
+    }
+
+    /// `next` with a bare continuation token. Not `browse_continuation`, see above.
+    async fn next_continuation(
+        &self,
+        client: &YouTubeClient,
+        token: &str,
+    ) -> Result<serde_json::Value, Error> {
+        #[derive(Serialize)]
+        struct ContinuationBody {
+            context: Context,
+            continuation: String,
+        }
+        let body =
+            ContinuationBody { context: self.context_for(client), continuation: token.to_owned() };
+        self.post("next", client, &body, true).await
     }
 
     /// Logged-in account summary (`account/account_menu`, context/01). Requires a cookie. Also the
@@ -1140,6 +1214,16 @@ fn custom_thumbnail_key() -> serde_json::Value {
         "name": "studio_square_thumbnail",
         "type": "PLAYLIST_IMAGE_TYPE_CUSTOM_THUMBNAIL",
     })
+}
+
+/// A comments failure is just that. `SessionExpired` would tell a signed-in user to sign in again
+/// over a side panel: the transport has already raised the healer's signal for the real session
+/// problem, so here it reads as a plain load error.
+fn comments_error(e: Error) -> Error {
+    match e {
+        Error::SessionExpired => Error::Other("YouTube refused the request for comments.".into()),
+        e => e,
+    }
 }
 
 /// Playlist edit/delete want the raw playlistId; browse gives it `VL`-prefixed. context/01.

@@ -1,0 +1,1369 @@
+{
+ "onResponseReceivedEndpoints": [
+  {
+   "appendContinuationItemsAction": {
+    "continuationItems": [
+     {
+      "commentThreadRenderer": {
+       "replies": {
+        "commentRepliesRenderer": {
+         "viewReplies": {
+          "buttonRenderer": {
+           "text": {
+            "runs": [
+             {
+              "text": "View replies"
+             }
+            ]
+           },
+           "icon": {
+            "iconType": "EXPAND"
+           },
+           "iconPosition": "BUTTON_ICON_POSITION_TYPE_LEFT_OF_TEXT"
+          }
+         },
+         "hideReplies": {
+          "buttonRenderer": {
+           "text": {
+            "runs": [
+             {
+              "text": "Hide replies"
+             }
+            ]
+           },
+           "icon": {
+            "iconType": "COLLAPSE"
+           },
+           "iconPosition": "BUTTON_ICON_POSITION_TYPE_LEFT_OF_TEXT"
+          }
+         },
+         "targetId": "comment-replies-item-UgFixtureComment1",
+         "subThreads": [
+          {
+           "commentThreadRenderer": {
+            "renderingPriority": "RENDERING_PRIORITY_UNKNOWN",
+            "isModeratedElqComment": false,
+            "commentViewModel": {
+             "commentViewModel": {
+              "commentKey": "fixture-commentKey-1",
+              "sharedKey": "EgAgKygB",
+              "toolbarStateKey": "fixture-toolbarStateKey-2",
+              "toolbarSurfaceKey": "fixture-toolbarSurfaceKey-3",
+              "commentId": "UgFixtureComment2",
+              "commentSurfaceKey": "fixture-commentSurfaceKey-4",
+              "sharedSurfaceKey": "fixture-sharedSurfaceKey-5",
+              "inlineRepliesKey": "empty_inline_replies",
+              "rendererContext": {
+               "loggingContext": {}
+              }
+             }
+            }
+           }
+          },
+          {
+           "commentThreadRenderer": {
+            "renderingPriority": "RENDERING_PRIORITY_UNKNOWN",
+            "isModeratedElqComment": false,
+            "commentViewModel": {
+             "commentViewModel": {
+              "commentKey": "fixture-commentKey-6",
+              "sharedKey": "EgAgKygB",
+              "toolbarStateKey": "fixture-toolbarStateKey-7",
+              "toolbarSurfaceKey": "fixture-toolbarSurfaceKey-8",
+              "commentId": "UgFixtureComment3",
+              "commentSurfaceKey": "fixture-commentSurfaceKey-9",
+              "sharedSurfaceKey": "fixture-sharedSurfaceKey-5",
+              "inlineRepliesKey": "empty_inline_replies",
+              "rendererContext": {
+               "loggingContext": {}
+              }
+             }
+            }
+           }
+          }
+         ]
+        }
+       },
+       "renderingPriority": "RENDERING_PRIORITY_UNKNOWN",
+       "isModeratedElqComment": false,
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "fixture-commentKey-10",
+         "sharedKey": "EgAgKygB",
+         "toolbarStateKey": "fixture-toolbarStateKey-11",
+         "toolbarSurfaceKey": "fixture-toolbarSurfaceKey-12",
+         "commentId": "UgFixtureComment1",
+         "commentSurfaceKey": "fixture-commentSurfaceKey-13",
+         "sharedSurfaceKey": "fixture-sharedSurfaceKey-5",
+         "inlineRepliesKey": "empty_inline_replies",
+         "rendererContext": {
+          "loggingContext": {}
+         }
+        }
+       }
+      }
+     },
+     {
+      "commentThreadRenderer": {
+       "replies": {
+        "commentRepliesRenderer": {
+         "viewReplies": {
+          "buttonRenderer": {
+           "text": {
+            "runs": [
+             {
+              "text": "View reply"
+             }
+            ]
+           },
+           "icon": {
+            "iconType": "EXPAND"
+           },
+           "iconPosition": "BUTTON_ICON_POSITION_TYPE_LEFT_OF_TEXT"
+          }
+         },
+         "hideReplies": {
+          "buttonRenderer": {
+           "text": {
+            "runs": [
+             {
+              "text": "Hide replies"
+             }
+            ]
+           },
+           "icon": {
+            "iconType": "COLLAPSE"
+           },
+           "iconPosition": "BUTTON_ICON_POSITION_TYPE_LEFT_OF_TEXT"
+          }
+         },
+         "targetId": "comment-replies-item-UgFixtureComment4",
+         "subThreads": [
+          {
+           "commentThreadRenderer": {
+            "renderingPriority": "RENDERING_PRIORITY_UNKNOWN",
+            "isModeratedElqComment": false,
+            "commentViewModel": {
+             "commentViewModel": {
+              "commentKey": "fixture-commentKey-14",
+              "sharedKey": "EgAgKygB",
+              "toolbarStateKey": "fixture-toolbarStateKey-15",
+              "toolbarSurfaceKey": "fixture-toolbarSurfaceKey-16",
+              "commentId": "UgFixtureComment5",
+              "commentSurfaceKey": "fixture-commentSurfaceKey-17",
+              "sharedSurfaceKey": "fixture-sharedSurfaceKey-5",
+              "inlineRepliesKey": "empty_inline_replies",
+              "rendererContext": {
+               "loggingContext": {}
+              }
+             }
+            }
+           }
+          }
+         ]
+        }
+       },
+       "renderingPriority": "RENDERING_PRIORITY_UNKNOWN",
+       "isModeratedElqComment": false,
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "fixture-commentKey-18",
+         "sharedKey": "EgAgKygB",
+         "toolbarStateKey": "fixture-toolbarStateKey-19",
+         "toolbarSurfaceKey": "fixture-toolbarSurfaceKey-20",
+         "commentId": "UgFixtureComment4",
+         "commentSurfaceKey": "fixture-commentSurfaceKey-21",
+         "sharedSurfaceKey": "fixture-sharedSurfaceKey-5",
+         "inlineRepliesKey": "empty_inline_replies",
+         "rendererContext": {
+          "loggingContext": {}
+         }
+        }
+       }
+      }
+     },
+     {
+      "commentThreadRenderer": {
+       "renderingPriority": "RENDERING_PRIORITY_UNKNOWN",
+       "isModeratedElqComment": false,
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "fixture-commentKey-22",
+         "sharedKey": "EgAgKygB",
+         "toolbarStateKey": "fixture-toolbarStateKey-23",
+         "toolbarSurfaceKey": "fixture-toolbarSurfaceKey-24",
+         "commentId": "UgFixtureComment6",
+         "commentSurfaceKey": "fixture-commentSurfaceKey-25",
+         "sharedSurfaceKey": "fixture-sharedSurfaceKey-5",
+         "inlineRepliesKey": "empty_inline_replies",
+         "rendererContext": {
+          "loggingContext": {}
+         }
+        }
+       }
+      }
+     },
+     {
+      "continuationItemRenderer": {
+       "button": {
+        "buttonRenderer": {
+         "text": {
+          "runs": [
+           {
+            "text": "Show more replies"
+           }
+          ]
+         },
+         "icon": {
+          "iconType": "EXPAND"
+         },
+         "command": {
+          "continuationCommand": {
+           "token": "fixture-token-26"
+          }
+         }
+        }
+       }
+      }
+     }
+    ],
+    "targetId": "comment-replies-item-UgFixtureComment7"
+   }
+  }
+ ],
+ "frameworkUpdates": {
+  "entityBatchUpdate": {
+   "mutations": [
+    {
+     "entityKey": "fixture-commentKey-10",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-commentKey-10",
+       "properties": {
+        "commentId": "UgFixtureComment1",
+        "content": {
+         "content": "Sample comment text c17"
+        },
+        "publishedTime": "2 months ago",
+        "replyLevel": 1,
+        "authorButtonA11y": "@userN",
+        "toolbarStateKey": "fixture-toolbarStateKey-11",
+        "translateButtonEntityKey": "fixture-translateButtonEntityKey-27"
+       },
+       "author": {
+        "channelId": "UCfixtureuser18000000000",
+        "displayName": "@user18",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-user18=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCurrentUser": false,
+        "isCreator": false,
+        "channelCommand": {
+         "innertubeCommand": {
+          "browseEndpoint": {
+           "browseId": "UCfixtureuser18000000000",
+           "canonicalBaseUrl": "/@user18"
+          }
+         }
+        },
+        "isArtist": false
+       },
+       "toolbar": {
+        "likeCountLiked": "16",
+        "likeCountNotliked": "15",
+        "replyCount": "",
+        "likeButtonA11y": "Like this reply along with 15 other people",
+        "engagementToolbarStyle": {
+         "value": "ENGAGEMENT_TOOLBAR_STYLE_VALUE_DEFAULT"
+        },
+        "likeCountA11y": "15 likes",
+        "replyCountA11y": "2 replies",
+        "likeInactiveTooltip": "Like",
+        "likeActiveTooltip": "Unlike",
+        "dislikeInactiveTooltip": "Dislike",
+        "dislikeActiveTooltip": "Remove dislike",
+        "heartActiveTooltip": "❤ by @creator"
+       },
+       "readMoreLogging": {}
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentSurfaceKey-13",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentSurfaceEntityPayload": {
+       "key": "fixture-commentSurfaceKey-13",
+       "commentClickCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "inlineReadMoreButton": {
+        "isExpanded": false
+       },
+       "commentClickOpensComposer": true,
+       "composerDraftEntityKey": "N/A",
+       "publishedTimeCommand": {
+        "innertubeCommand": {
+         "watchEndpoint": {
+          "videoId": "fixtureVid1",
+          "params": "fixture-params-28"
+         }
+        }
+       },
+       "logTapCommand": {
+        "logGestureCommand": {
+         "gestureType": "GESTURE_EVENT_TYPE_LOG_GENERIC_CLICK"
+        }
+       },
+       "threadLines": {},
+       "relativeNestingLevel": 0,
+       "avatar": {
+        "avatarViewModel": {
+         "image": {
+          "sources": [
+           {
+            "url": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+            "width": 88,
+            "height": 88
+           }
+          ],
+          "processor": {
+           "borderImageProcessor": {
+            "circular": true
+           }
+          }
+         },
+         "accessibilityText": "@userN",
+         "avatarImageSize": "AVATAR_SIZE_40",
+         "endpoint": {
+          "innertubeCommand": {
+           "browseEndpoint": {
+            "browseId": "UCfixtureother00000000000",
+            "canonicalBaseUrl": "/@userN"
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-translateButtonEntityKey-27",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "triStateButtonStateEntityPayload": {
+       "key": "fixture-translateButtonEntityKey-27",
+       "stateIdentifier": "TRI_STATE_IDENTIFIER_UNTOGGLED_STATE"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarSurfaceKey-12",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-toolbarSurfaceKey-12",
+       "prepareAccountCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "likeCommand": {
+        "innertubeCommand": {}
+       },
+       "unlikeCommand": {
+        "innertubeCommand": {}
+       },
+       "dislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "undislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "replyCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "isEngagementToolbar": true
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarStateKey-11",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-toolbarStateKey-11",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentKey-1",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-commentKey-1",
+       "properties": {
+        "commentId": "UgFixtureComment2",
+        "content": {
+         "content": "Sample comment text c19"
+        },
+        "publishedTime": "2 months ago",
+        "replyLevel": 2,
+        "authorButtonA11y": "@userN",
+        "toolbarStateKey": "fixture-toolbarStateKey-2",
+        "translateButtonEntityKey": "fixture-translateButtonEntityKey-29"
+       },
+       "author": {
+        "channelId": "UCfixtureuser20000000000",
+        "displayName": "@user20",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-user20=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCurrentUser": false,
+        "isCreator": false,
+        "channelCommand": {
+         "innertubeCommand": {
+          "browseEndpoint": {
+           "browseId": "UCfixtureuser20000000000",
+           "canonicalBaseUrl": "/@user20"
+          }
+         }
+        },
+        "isArtist": false
+       },
+       "toolbar": {
+        "likeCountLiked": "4",
+        "likeCountNotliked": "3",
+        "replyCount": "",
+        "likeButtonA11y": "Like this reply along with 3 other people",
+        "engagementToolbarStyle": {
+         "value": "ENGAGEMENT_TOOLBAR_STYLE_VALUE_DEFAULT"
+        },
+        "likeCountA11y": "3 likes",
+        "replyCountA11y": "0 replies",
+        "likeInactiveTooltip": "Like",
+        "likeActiveTooltip": "Unlike",
+        "dislikeInactiveTooltip": "Dislike",
+        "dislikeActiveTooltip": "Remove dislike",
+        "heartActiveTooltip": "❤ by @creator"
+       },
+       "readMoreLogging": {}
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentSurfaceKey-4",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentSurfaceEntityPayload": {
+       "key": "fixture-commentSurfaceKey-4",
+       "commentClickCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "inlineReadMoreButton": {
+        "isExpanded": false
+       },
+       "commentClickOpensComposer": true,
+       "composerDraftEntityKey": "N/A",
+       "publishedTimeCommand": {
+        "innertubeCommand": {
+         "watchEndpoint": {
+          "videoId": "fixtureVid1",
+          "params": "fixture-params-30"
+         }
+        }
+       },
+       "logTapCommand": {
+        "logGestureCommand": {
+         "gestureType": "GESTURE_EVENT_TYPE_LOG_GENERIC_CLICK"
+        }
+       },
+       "threadLines": {},
+       "relativeNestingLevel": 0,
+       "avatar": {
+        "avatarViewModel": {
+         "image": {
+          "sources": [
+           {
+            "url": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+            "width": 88,
+            "height": 88
+           }
+          ],
+          "processor": {
+           "borderImageProcessor": {
+            "circular": true
+           }
+          }
+         },
+         "accessibilityText": "@userN",
+         "avatarImageSize": "AVATAR_SIZE_40",
+         "endpoint": {
+          "innertubeCommand": {
+           "browseEndpoint": {
+            "browseId": "UCfixtureother00000000000",
+            "canonicalBaseUrl": "/@userN"
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-translateButtonEntityKey-29",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "triStateButtonStateEntityPayload": {
+       "key": "fixture-translateButtonEntityKey-29",
+       "stateIdentifier": "TRI_STATE_IDENTIFIER_UNTOGGLED_STATE"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarSurfaceKey-3",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-toolbarSurfaceKey-3",
+       "prepareAccountCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "likeCommand": {
+        "innertubeCommand": {}
+       },
+       "unlikeCommand": {
+        "innertubeCommand": {}
+       },
+       "dislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "undislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "replyCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "isEngagementToolbar": true
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarStateKey-2",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-toolbarStateKey-2",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentKey-6",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-commentKey-6",
+       "properties": {
+        "commentId": "UgFixtureComment3",
+        "content": {
+         "content": "Sample comment text c21"
+        },
+        "publishedTime": "1 month ago",
+        "replyLevel": 2,
+        "authorButtonA11y": "@userN",
+        "toolbarStateKey": "fixture-toolbarStateKey-7",
+        "translateButtonEntityKey": "fixture-translateButtonEntityKey-31"
+       },
+       "author": {
+        "channelId": "UCfixtureuser22000000000",
+        "displayName": "@user22",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-user22=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCurrentUser": false,
+        "isCreator": false,
+        "channelCommand": {
+         "innertubeCommand": {
+          "browseEndpoint": {
+           "browseId": "UCfixtureuser22000000000",
+           "canonicalBaseUrl": "/@user22"
+          }
+         }
+        },
+        "isArtist": false
+       },
+       "toolbar": {
+        "likeCountLiked": "2",
+        "likeCountNotliked": "1",
+        "replyCount": "",
+        "likeButtonA11y": "Like this reply along with 1 other person",
+        "engagementToolbarStyle": {
+         "value": "ENGAGEMENT_TOOLBAR_STYLE_VALUE_DEFAULT"
+        },
+        "likeCountA11y": "1 like",
+        "replyCountA11y": "0 replies",
+        "likeInactiveTooltip": "Like",
+        "likeActiveTooltip": "Unlike",
+        "dislikeInactiveTooltip": "Dislike",
+        "dislikeActiveTooltip": "Remove dislike",
+        "heartActiveTooltip": "❤ by @creator"
+       },
+       "readMoreLogging": {}
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentSurfaceKey-9",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentSurfaceEntityPayload": {
+       "key": "fixture-commentSurfaceKey-9",
+       "commentClickCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "inlineReadMoreButton": {
+        "isExpanded": false
+       },
+       "commentClickOpensComposer": true,
+       "composerDraftEntityKey": "N/A",
+       "publishedTimeCommand": {
+        "innertubeCommand": {
+         "watchEndpoint": {
+          "videoId": "fixtureVid1",
+          "params": "fixture-params-32"
+         }
+        }
+       },
+       "logTapCommand": {
+        "logGestureCommand": {
+         "gestureType": "GESTURE_EVENT_TYPE_LOG_GENERIC_CLICK"
+        }
+       },
+       "threadLines": {},
+       "relativeNestingLevel": 0,
+       "avatar": {
+        "avatarViewModel": {
+         "image": {
+          "sources": [
+           {
+            "url": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+            "width": 88,
+            "height": 88
+           }
+          ],
+          "processor": {
+           "borderImageProcessor": {
+            "circular": true
+           }
+          }
+         },
+         "accessibilityText": "@userN",
+         "avatarImageSize": "AVATAR_SIZE_40",
+         "endpoint": {
+          "innertubeCommand": {
+           "browseEndpoint": {
+            "browseId": "UCfixtureother00000000000",
+            "canonicalBaseUrl": "/@userN"
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-translateButtonEntityKey-31",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "triStateButtonStateEntityPayload": {
+       "key": "fixture-translateButtonEntityKey-31",
+       "stateIdentifier": "TRI_STATE_IDENTIFIER_UNTOGGLED_STATE"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarSurfaceKey-8",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-toolbarSurfaceKey-8",
+       "prepareAccountCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1",
+            "playerParams": "0gcJCTEAlc8ueATH"
+           }
+          }
+         }
+        }
+       },
+       "likeCommand": {
+        "innertubeCommand": {}
+       },
+       "unlikeCommand": {
+        "innertubeCommand": {}
+       },
+       "dislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "undislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "replyCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "isEngagementToolbar": true
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarStateKey-7",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-toolbarStateKey-7",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentKey-18",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-commentKey-18",
+       "properties": {
+        "commentId": "UgFixtureComment4",
+        "content": {
+         "content": "Sample comment text c23"
+        },
+        "publishedTime": "2 months ago",
+        "replyLevel": 1,
+        "authorButtonA11y": "@userN",
+        "toolbarStateKey": "fixture-toolbarStateKey-19",
+        "translateButtonEntityKey": "fixture-translateButtonEntityKey-33"
+       },
+       "author": {
+        "channelId": "UCfixtureuser24000000000",
+        "displayName": "@user24",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-user24=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCurrentUser": false,
+        "isCreator": false,
+        "channelCommand": {
+         "innertubeCommand": {
+          "browseEndpoint": {
+           "browseId": "UCfixtureuser24000000000",
+           "canonicalBaseUrl": "/@user24"
+          }
+         }
+        },
+        "isArtist": false
+       },
+       "toolbar": {
+        "likeCountLiked": "117",
+        "likeCountNotliked": "116",
+        "replyCount": "",
+        "likeButtonA11y": "Like this reply along with 116 other people",
+        "engagementToolbarStyle": {
+         "value": "ENGAGEMENT_TOOLBAR_STYLE_VALUE_DEFAULT"
+        },
+        "likeCountA11y": "116 likes",
+        "replyCountA11y": "1 reply",
+        "likeInactiveTooltip": "Like",
+        "likeActiveTooltip": "Unlike",
+        "dislikeInactiveTooltip": "Dislike",
+        "dislikeActiveTooltip": "Remove dislike",
+        "heartActiveTooltip": "❤ by @creator"
+       },
+       "readMoreLogging": {}
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentSurfaceKey-21",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentSurfaceEntityPayload": {
+       "key": "fixture-commentSurfaceKey-21",
+       "commentClickCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "inlineReadMoreButton": {
+        "isExpanded": false
+       },
+       "commentClickOpensComposer": true,
+       "composerDraftEntityKey": "N/A",
+       "publishedTimeCommand": {
+        "innertubeCommand": {
+         "watchEndpoint": {
+          "videoId": "fixtureVid1",
+          "params": "fixture-params-34"
+         }
+        }
+       },
+       "logTapCommand": {
+        "logGestureCommand": {
+         "gestureType": "GESTURE_EVENT_TYPE_LOG_GENERIC_CLICK"
+        }
+       },
+       "threadLines": {},
+       "relativeNestingLevel": 0,
+       "avatar": {
+        "avatarViewModel": {
+         "image": {
+          "sources": [
+           {
+            "url": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+            "width": 88,
+            "height": 88
+           }
+          ],
+          "processor": {
+           "borderImageProcessor": {
+            "circular": true
+           }
+          }
+         },
+         "accessibilityText": "@userN",
+         "avatarImageSize": "AVATAR_SIZE_40",
+         "endpoint": {
+          "innertubeCommand": {
+           "browseEndpoint": {
+            "browseId": "UCfixtureother00000000000",
+            "canonicalBaseUrl": "/@userN"
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-translateButtonEntityKey-33",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "triStateButtonStateEntityPayload": {
+       "key": "fixture-translateButtonEntityKey-33",
+       "stateIdentifier": "TRI_STATE_IDENTIFIER_UNTOGGLED_STATE"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarSurfaceKey-20",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-toolbarSurfaceKey-20",
+       "prepareAccountCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1",
+            "playerParams": "0gcJCTEAlc8ueATH"
+           }
+          }
+         }
+        }
+       },
+       "likeCommand": {
+        "innertubeCommand": {}
+       },
+       "unlikeCommand": {
+        "innertubeCommand": {}
+       },
+       "dislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "undislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "replyCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "isEngagementToolbar": true
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarStateKey-19",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-toolbarStateKey-19",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentKey-14",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-commentKey-14",
+       "properties": {
+        "commentId": "UgFixtureComment5",
+        "content": {
+         "content": "Sample comment text c25"
+        },
+        "publishedTime": "2 months ago",
+        "replyLevel": 2,
+        "authorButtonA11y": "@userN",
+        "toolbarStateKey": "fixture-toolbarStateKey-15",
+        "translateButtonEntityKey": "fixture-translateButtonEntityKey-35"
+       },
+       "author": {
+        "channelId": "UCfixtureuser26000000000",
+        "displayName": "@user26",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-user26=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCurrentUser": false,
+        "isCreator": false,
+        "channelCommand": {
+         "innertubeCommand": {
+          "browseEndpoint": {
+           "browseId": "UCfixtureuser26000000000",
+           "canonicalBaseUrl": "/@user26"
+          }
+         }
+        },
+        "isArtist": false
+       },
+       "toolbar": {
+        "likeCountLiked": "51",
+        "likeCountNotliked": "50",
+        "replyCount": "",
+        "likeButtonA11y": "Like this reply along with 50 other people",
+        "engagementToolbarStyle": {
+         "value": "ENGAGEMENT_TOOLBAR_STYLE_VALUE_DEFAULT"
+        },
+        "likeCountA11y": "50 likes",
+        "replyCountA11y": "0 replies",
+        "likeInactiveTooltip": "Like",
+        "likeActiveTooltip": "Unlike",
+        "dislikeInactiveTooltip": "Dislike",
+        "dislikeActiveTooltip": "Remove dislike",
+        "heartActiveTooltip": "❤ by @creator"
+       },
+       "readMoreLogging": {}
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentSurfaceKey-17",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentSurfaceEntityPayload": {
+       "key": "fixture-commentSurfaceKey-17",
+       "commentClickCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "inlineReadMoreButton": {
+        "isExpanded": false
+       },
+       "commentClickOpensComposer": true,
+       "composerDraftEntityKey": "N/A",
+       "publishedTimeCommand": {
+        "innertubeCommand": {
+         "watchEndpoint": {
+          "videoId": "fixtureVid1",
+          "params": "fixture-params-36"
+         }
+        }
+       },
+       "logTapCommand": {
+        "logGestureCommand": {
+         "gestureType": "GESTURE_EVENT_TYPE_LOG_GENERIC_CLICK"
+        }
+       },
+       "threadLines": {},
+       "relativeNestingLevel": 0,
+       "avatar": {
+        "avatarViewModel": {
+         "image": {
+          "sources": [
+           {
+            "url": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+            "width": 88,
+            "height": 88
+           }
+          ],
+          "processor": {
+           "borderImageProcessor": {
+            "circular": true
+           }
+          }
+         },
+         "accessibilityText": "@userN",
+         "avatarImageSize": "AVATAR_SIZE_40",
+         "endpoint": {
+          "innertubeCommand": {
+           "browseEndpoint": {
+            "browseId": "UCfixtureother00000000000",
+            "canonicalBaseUrl": "/@userN"
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-translateButtonEntityKey-35",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "triStateButtonStateEntityPayload": {
+       "key": "fixture-translateButtonEntityKey-35",
+       "stateIdentifier": "TRI_STATE_IDENTIFIER_UNTOGGLED_STATE"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarSurfaceKey-16",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-toolbarSurfaceKey-16",
+       "prepareAccountCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "likeCommand": {
+        "innertubeCommand": {}
+       },
+       "unlikeCommand": {
+        "innertubeCommand": {}
+       },
+       "dislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "undislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "replyCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "isEngagementToolbar": true
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarStateKey-15",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-toolbarStateKey-15",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentKey-22",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-commentKey-22",
+       "properties": {
+        "commentId": "UgFixtureComment6",
+        "content": {
+         "content": "Sample comment text c27"
+        },
+        "publishedTime": "2 months ago",
+        "replyLevel": 1,
+        "authorButtonA11y": "@userN",
+        "toolbarStateKey": "fixture-toolbarStateKey-23",
+        "translateButtonEntityKey": "fixture-translateButtonEntityKey-37"
+       },
+       "author": {
+        "channelId": "UCfixtureuser28000000000",
+        "displayName": "@user28",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-user28=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCurrentUser": false,
+        "isCreator": false,
+        "channelCommand": {
+         "innertubeCommand": {
+          "browseEndpoint": {
+           "browseId": "UCfixtureuser28000000000",
+           "canonicalBaseUrl": "/@user28"
+          }
+         }
+        },
+        "isArtist": false
+       },
+       "toolbar": {
+        "likeCountLiked": "5",
+        "likeCountNotliked": "4",
+        "replyCount": "",
+        "likeButtonA11y": "Like this reply along with 4 other people",
+        "engagementToolbarStyle": {
+         "value": "ENGAGEMENT_TOOLBAR_STYLE_VALUE_DEFAULT"
+        },
+        "likeCountA11y": "4 likes",
+        "replyCountA11y": "0 replies",
+        "likeInactiveTooltip": "Like",
+        "likeActiveTooltip": "Unlike",
+        "dislikeInactiveTooltip": "Dislike",
+        "dislikeActiveTooltip": "Remove dislike",
+        "heartActiveTooltip": "❤ by @creator"
+       },
+       "readMoreLogging": {}
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-commentSurfaceKey-25",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentSurfaceEntityPayload": {
+       "key": "fixture-commentSurfaceKey-25",
+       "commentClickCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "inlineReadMoreButton": {
+        "isExpanded": false
+       },
+       "commentClickOpensComposer": true,
+       "composerDraftEntityKey": "N/A",
+       "publishedTimeCommand": {
+        "innertubeCommand": {
+         "watchEndpoint": {
+          "videoId": "fixtureVid1",
+          "params": "fixture-params-38"
+         }
+        }
+       },
+       "logTapCommand": {
+        "logGestureCommand": {
+         "gestureType": "GESTURE_EVENT_TYPE_LOG_GENERIC_CLICK"
+        }
+       },
+       "threadLines": {},
+       "relativeNestingLevel": 0,
+       "avatar": {
+        "avatarViewModel": {
+         "image": {
+          "sources": [
+           {
+            "url": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+            "width": 88,
+            "height": 88
+           }
+          ],
+          "processor": {
+           "borderImageProcessor": {
+            "circular": true
+           }
+          }
+         },
+         "accessibilityText": "@userN",
+         "avatarImageSize": "AVATAR_SIZE_40",
+         "endpoint": {
+          "innertubeCommand": {
+           "browseEndpoint": {
+            "browseId": "UCfixtureother00000000000",
+            "canonicalBaseUrl": "/@userN"
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-translateButtonEntityKey-37",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "triStateButtonStateEntityPayload": {
+       "key": "fixture-translateButtonEntityKey-37",
+       "stateIdentifier": "TRI_STATE_IDENTIFIER_UNTOGGLED_STATE"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarSurfaceKey-24",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-toolbarSurfaceKey-24",
+       "prepareAccountCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1"
+           }
+          }
+         }
+        }
+       },
+       "likeCommand": {
+        "innertubeCommand": {}
+       },
+       "unlikeCommand": {
+        "innertubeCommand": {}
+       },
+       "dislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "undislikeCommand": {
+        "innertubeCommand": {}
+       },
+       "replyCommand": {
+        "innertubeCommand": {
+         "signInEndpoint": {
+          "nextEndpoint": {
+           "watchEndpoint": {
+            "videoId": "fixtureVid1",
+            "playerParams": "0gcJCTEAlc8ueATH"
+           }
+          }
+         }
+        }
+       },
+       "isEngagementToolbar": true
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-toolbarStateKey-23",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-toolbarStateKey-23",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    }
+   ],
+   "timestamp": {
+    "seconds": "1791318123",
+    "nanos": 758537976
+   }
+  }
+ }
+}

@@ -21,6 +21,10 @@ pub use models::browse::{
     PlaylistContinuation, PlaylistPage, PlaylistSort, QuerySuggestion, SearchResults,
     SearchSuggestions, Section, SortMenu,
 };
+pub use models::comments::{
+    Comment, CommentAuthor, CommentReplies, CommentSort, CommentSortKey, CommentThread,
+    CommentsHeader, CommentsPage, CommentsState,
+};
 pub use models::context::Locale;
 pub use models::lyrics::{PlainLyrics, TimedLyricLine};
 pub use models::metadata::{

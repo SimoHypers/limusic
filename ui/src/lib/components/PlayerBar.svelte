@@ -9,6 +9,7 @@
 		RepeatIcon,
 		RepeatOne01Icon,
 		Queue01Icon,
+		Comment01Icon,
 		Mic01Icon,
 		VolumeHighIcon,
 		VolumeMute02Icon,
@@ -46,12 +47,16 @@
 		onToggleQueue,
 		queueOpen,
 		onToggleLyrics,
-		lyricsOpen
+		lyricsOpen,
+		onToggleComments,
+		commentsOpen
 	}: {
 		onToggleQueue: () => void;
 		queueOpen: boolean;
 		onToggleLyrics: () => void;
 		lyricsOpen: boolean;
+		onToggleComments: () => void;
+		commentsOpen: boolean;
 	} = $props();
 
 	// Pop the heart once when the user favourites (not when un-favouriting). Reset on animation end
@@ -381,6 +386,17 @@
 			>
 				<HugeiconsIcon icon={Mic01Icon} class="h-5 w-5" />
 			</Button>
+			<!-- A local file has no YouTube comment thread to open. -->
+			{#if playback.now && !api.isLocalId(playback.now.videoId)}
+				<Button
+					variant={commentsOpen ? 'secondary' : 'ghost'}
+					size="icon-sm"
+					onclick={onToggleComments}
+					aria-label={t('player.comments')}
+				>
+					<HugeiconsIcon icon={Comment01Icon} class="h-5 w-5" />
+				</Button>
+			{/if}
 			<Button
 				variant={queueOpen ? 'secondary' : 'ghost'}
 				size="icon-sm"

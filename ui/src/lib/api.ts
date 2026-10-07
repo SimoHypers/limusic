@@ -526,6 +526,75 @@ export const setMiniCompact = (compact: boolean) => invoke<void>('set_mini_compa
 /** `params` is a `HomeChip.params` token — omit for the unfiltered feed. */
 export const getHome = (params?: string) => invoke<HomePage>('get_home', { params });
 export const getHomeMore = (token: string) => invoke<HomePage>('get_home_more', { token });
+
+/** A comment's author. `channel_id` and `avatar` are absent when YouTube omitted them. */
+export interface CommentAuthor {
+	name: string;
+	channel_id?: string;
+	avatar?: string;
+	verified: boolean;
+	is_creator: boolean;
+	is_artist: boolean;
+}
+
+/** One comment. Counts and the time are YouTube's own display strings ("2.4M", "6 years ago"),
+ *  shown as they come: they are not numbers and not in the app's language. */
+export interface Comment {
+	id: string;
+	text: string;
+	author: CommentAuthor;
+	published?: string;
+	like_count?: string;
+	liked: boolean;
+	reply_count?: string;
+	hearted: boolean;
+	pinned: boolean;
+}
+
+export interface CommentThread {
+	comment: Comment;
+	/** Loads this thread's replies (`getCommentReplies`); absent when there is nothing to fetch. */
+	replies_token?: string;
+	/** Replies that arrived with the thread, nested levels already flattened. */
+	replies: Comment[];
+}
+
+export interface CommentSort {
+	key: 'top' | 'newest';
+	selected: boolean;
+	/** Pass to `getCommentsMore` to reload the comments in this order. */
+	token: string;
+}
+
+export interface CommentsHeader {
+	/** The short count ("7.8K"). */
+	count_text?: string;
+	sorts: CommentSort[];
+}
+
+/** `disabled` covers both "turned off" and "could not be read": either way, nothing to show. */
+export type CommentsState = 'ok' | 'empty' | 'disabled';
+
+export interface CommentsPage {
+	/** First page and sort switches only. */
+	header?: CommentsHeader;
+	threads: CommentThread[];
+	/** Next page of top-level comments; absent is the end of the list. */
+	continuation?: string;
+	state: CommentsState;
+}
+
+export interface CommentReplies {
+	replies: Comment[];
+	continuation?: string;
+}
+
+export const getComments = (videoId: string) => invoke<CommentsPage>('get_comments', { videoId });
+/** The next page of comments, or the same comments in another order (a sort token). */
+export const getCommentsMore = (token: string) =>
+	invoke<CommentsPage>('get_comments_more', { token });
+export const getCommentReplies = (token: string) =>
+	invoke<CommentReplies>('get_comment_replies', { token });
 /**
  * On Repeat is the app's own playlist (Rust builds it from this machine's play counts), so its
  * title and subtitle are our English rather than YouTube's, and Rust cannot translate them: the

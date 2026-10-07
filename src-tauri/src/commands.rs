@@ -4,8 +4,9 @@
 use std::sync::Arc;
 
 use innertube::{
-    AlbumPage, ArtistPage, BrowseItem, HistoryGroup, HomePage, MoodSection, PlaylistContinuation,
-    PlaylistPage, PlaylistSort, Rating, SearchResults, SearchSuggestions, SongItem,
+    AlbumPage, ArtistPage, BrowseItem, CommentReplies, CommentsPage, HistoryGroup, HomePage,
+    MoodSection, PlaylistContinuation, PlaylistPage, PlaylistSort, Rating, SearchResults,
+    SearchSuggestions, SongItem,
 };
 use tauri::{Emitter, Manager, State};
 
@@ -772,6 +773,30 @@ pub async fn get_home(state: St<'_>, params: Option<String>) -> Result<HomePage,
 pub async fn get_home_more(state: St<'_>, token: String) -> Result<HomePage, String> {
     let client = metadata_client(&state)?;
     state.it.home_continuation(client, &token).await.map_err(|e| e.to_string())
+}
+
+/// First page of comments for a video: the token lookup and the first request both happen here, so
+/// the UI only ever holds tokens this returned. Comments off comes back as a `Disabled` page, not
+/// an error.
+#[tauri::command]
+pub async fn get_comments(state: St<'_>, video_id: String) -> Result<CommentsPage, String> {
+    let client = metadata_client(&state)?;
+    state.it.comments(client, &video_id).await.map_err(|e| e.to_string())
+}
+
+/// Next page of comments, or the same comments in another order: pagination tokens and the
+/// header's sort tokens both load through here.
+#[tauri::command]
+pub async fn get_comments_more(state: St<'_>, token: String) -> Result<CommentsPage, String> {
+    let client = metadata_client(&state)?;
+    state.it.comments_continuation(client, &token).await.map_err(|e| e.to_string())
+}
+
+/// A page of one thread's replies, with the token for the next page when there is one.
+#[tauri::command]
+pub async fn get_comment_replies(state: St<'_>, token: String) -> Result<CommentReplies, String> {
+    let client = metadata_client(&state)?;
+    state.it.comment_replies(client, &token).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
