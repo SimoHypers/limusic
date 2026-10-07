@@ -37,10 +37,8 @@
 	import {
 		connectListenBrainz,
 		disconnectListenBrainz,
-		listenbrainz,
-		watchListenBrainz
+		listenbrainz
 	} from '$lib/listenbrainz.svelte';
-	import { onMount } from 'svelte';
 	import {
 		PRESETS,
 		blankEdit,
@@ -99,9 +97,10 @@
 			.catch(() => {});
 	});
 	// --- ListenBrainz: token auth, listen count off the public API ---
+	// Connection state comes from Titlebar's single `watchListenBrainz` subscription
+	// (same as Last.fm's `watchLastfm`): a second subscription here would double the toasts.
 	let lbProfile = $state<api.ListenBrainzProfile | null>(null);
 	let lbToken = $state('');
-	onMount(watchListenBrainz);
 	$effect(() => {
 		const name = listenbrainz.connected ? listenbrainz.username : null;
 		lbProfile = null;
