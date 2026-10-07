@@ -13,13 +13,11 @@ export const listenbrainz = $state({
 
 /** Load the stored token and follow the backend's answers. Call once; returns the unlisten. */
 export function watchListenBrainz(): () => void {
-	api.listenbrainzStatus()
-		.then((s) => {
-			listenbrainz.connected = s.connected;
-			listenbrainz.username = s.username ?? null;
-		})
-		.catch(() => {});
+	// Subscribe before snapshotting: a state event arriving while the status request is in
+	// flight is newer than the snapshot, so the snapshot must not overwrite it.
+	let eventSeen = false;
 	const sub = api.onListenBrainzState((s) => {
+		eventSeen = true;
 		const wasConnecting = listenbrainz.connecting;
 		listenbrainz.connecting = false;
 		listenbrainz.connected = s.connected;
@@ -29,6 +27,13 @@ export function watchListenBrainz(): () => void {
 			toast.success(t('integrations.listenbrainz_connected_as', { user: s.username ?? '' }));
 		else if (!wasConnecting) toast.success(t('integrations.listenbrainz_disconnected'));
 	});
+	api.listenbrainzStatus()
+		.then((s) => {
+			if (eventSeen) return;
+			listenbrainz.connected = s.connected;
+			listenbrainz.username = s.username ?? null;
+		})
+		.catch(() => {});
 	return () => void sub.then((u) => u());
 }
 
