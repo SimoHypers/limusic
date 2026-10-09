@@ -148,7 +148,9 @@
 		"songs_left": "{count} şarkı kaldı",
 		"songs_left_one": "1 şarkı kaldı",
 		"queue_ends": "Sıra bu şarkıdan sonra sona erecek.",
-		"edit_scrobble": "Skropu düzenle"
+		"edit_scrobble": "Skropu düzenle",
+		"song": "Müzik",
+		"video": "Video"
 	},
 	"home": {
 		"good_morning": "Günaydın",
@@ -311,7 +313,9 @@
 			"discord_status": "Durum",
 			"discord_card": "Kart",
 			"discord_links": "Tıklanabilirlik",
-			"discord_buttons": "Düğmeler"
+			"discord_buttons": "Düğmeler",
+			"colors": "Renkler",
+			"interface": "Arayüz"
 		},
 		"general": {
 			"language": "Arayüz dili",
@@ -377,7 +381,8 @@
 			"app_icon_dialog": "Bir uygulama simgesi seçin",
 			"app_icon_filter": "PNG görsel",
 			"zoom": "Arayüz ölçeği",
-			"zoom_hint": "Penceredeki her şeyi ölçeklendirir. Yakınlaştırma kısayolları da bunu değiştirir ve uygulama yeniden başlatıldığında hatırlanır."
+			"zoom_hint": "Penceredeki her şeyi ölçeklendirir. Yakınlaştırma kısayolları da bunu değiştirir ve uygulama yeniden başlatıldığında hatırlanır.",
+			"stage_player": "Yeni oynatıcı düzeni"
 		},
 		"playback": {
 			"audio_quality": "Ses kalitesi",
