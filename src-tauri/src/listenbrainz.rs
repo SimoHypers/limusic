@@ -22,13 +22,17 @@ use crate::lastfm::{crosses_threshold, resolve, Resolved, ScrobbleConfig, Track}
 use crate::state::AppState;
 
 const API_ROOT: &str = "https://api.listenbrainz.org";
-const USER_AGENT: &str = concat!("Limusic/", env!("CARGO_PKG_VERSION"), " (https://github.com/SimoHypers/limusic)");
+const USER_AGENT: &str =
+    concat!("Limusic/", env!("CARGO_PKG_VERSION"), " (https://github.com/SimoHypers/limusic)");
 
 enum Msg {
     Track(Box<Track>),
     /// Same late-album path as Last.fm (#309): a search card starts with no album, the radio
     /// behind it supplies one. Keyed by video id so a stale album can't land on the next track.
-    Album { video_id: String, album: String },
+    Album {
+        video_id: String,
+        album: String,
+    },
     Duration(f64),
     Position(f64),
     /// User token set (connect) or cleared (disconnect).
@@ -231,15 +235,19 @@ async fn validate(token: &str) -> Result<String, String> {
             .unwrap_or("ListenBrainz rejected that token");
         return Err(msg.into());
     }
-    body
-        .get("user_name")
+    body.get("user_name")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .map(str::to_owned)
         .ok_or_else(|| "ListenBrainz validated the token but named no user".to_string())
 }
 
-fn emit_state(app: &tauri::AppHandle, connected: bool, username: Option<&str>, error: Option<&str>) {
+fn emit_state(
+    app: &tauri::AppHandle,
+    connected: bool,
+    username: Option<&str>,
+    error: Option<&str>,
+) {
     let _ = app.emit(
         "listenbrainz-state",
         serde_json::json!({ "connected": connected, "username": username, "error": error }),
