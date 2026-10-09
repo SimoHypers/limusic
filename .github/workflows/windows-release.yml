@@ -480,9 +480,11 @@ jobs:
           # tagged `beta` holding one latest.json, which installs on the beta channel read
           # (`check_beta_update` in commands.rs). A complete stable release moves the pointer too when
           # it is ahead of what the pointer holds, so beta installs land on 1.1.0 once it ships but
-          # stay on 1.1.0-rc.2 through a 1.0.3 fix. The pointer never moves backwards here, so a
-          # re-dispatch against an old tag cannot roll the beta channel back; that is done by hand
-          # (RELEASING.md §8).
+          # stay on 1.1.0-rc.2 through a 1.0.3 fix. It is also rewritten when it holds this same
+          # version, so a re-run that replaces a binary in place refreshes the beta copy of its
+          # signature: after 1.2.0's Windows installer was swapped (#436), the stale copy failed every
+          # beta install's signature check. The pointer never moves backwards here, so a re-dispatch
+          # against an old tag cannot roll the beta channel back; that is done by hand (RELEASING.md §8).
           REQUIRED_PLATFORMS='["darwin-aarch64","linux-x86_64","windows-x86_64"]'
           retry 3 fetch_manifest final
           HAVE="$(jq -c '.platforms | keys' final/latest.json)"
@@ -531,7 +533,7 @@ jobs:
             (TAG=beta; retry 3 fetch_manifest beta)
             BETA_VERSION="$(jq -r .version beta/latest.json)"
           fi
-          if [ -z "$BETA_VERSION" ] || semver_gt "$VERSION" "$BETA_VERSION"; then
+          if [ -z "$BETA_VERSION" ] || [ "$VERSION" = "$BETA_VERSION" ] || semver_gt "$VERSION" "$BETA_VERSION"; then
             (RELEASE_ID="$BETA_ID"; retry 3 upload final/latest.json)
             echo "beta channel moved to $VERSION (was ${BETA_VERSION:-empty})"
           else
