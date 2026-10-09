@@ -400,10 +400,8 @@
 		"themes": {
 			"interface_font": "Phông chữ giao diện",
 			"load_font_file": "Tải phông chữ từ tệp",
-			"custom_colors": "Màu tuỳ chỉnh",
 			"primary_color": "Màu nhấn chính",
 			"background_color": "Màu nền",
-			"reset_theme": "Đặt lại về chủ đề mặc định",
 			"your_fonts": "Phông chữ của bạn",
 			"custom_font": "Tuỳ chỉnh…",
 			"font_placeholder": "Phông chữ đã cài trên máy này, ví dụ: Inter",

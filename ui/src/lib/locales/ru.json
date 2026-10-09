@@ -342,10 +342,8 @@
 		"themes": {
 			"interface_font": "Шрифт интерфейса",
 			"load_font_file": "Загрузить шрифт из файла",
-			"custom_colors": "Пользовательские цвета",
 			"primary_color": "Основной акцент",
 			"background_color": "Цвет фона",
-			"reset_theme": "Сбросить тему по умолчанию",
 			"your_fonts": "Ваши шрифты",
 			"custom_font": "Свой шрифт…",
 			"font_placeholder": "Шрифт, установленный в системе (например, Inter)",

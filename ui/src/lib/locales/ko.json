@@ -374,10 +374,8 @@
 		"themes": {
 			"interface_font": "앱 표시 글꼴",
 			"load_font_file": "글꼴 파일 추가",
-			"custom_colors": "사용자 지정 색상",
 			"primary_color": "주요 강조 색상",
 			"background_color": "배경색",
-			"reset_theme": "기본 테마로 초기화",
 			"your_fonts": "내 글꼴",
 			"custom_font": "사용자 지정…",
 			"font_placeholder": "기기에 설치된 글꼴 이름 입력 (예: Inter)",

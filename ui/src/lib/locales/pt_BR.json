@@ -342,10 +342,8 @@
 		"themes": {
 			"interface_font": "Fonte da interface",
 			"load_font_file": "Carregar fonte de um arquivo",
-			"custom_colors": "Cores personalizadas",
 			"primary_color": "Cor de destaque",
 			"background_color": "Fundo",
-			"reset_theme": "Restaurar tema padrão",
 			"your_fonts": "Suas fontes",
 			"custom_font": "Personalizada…",
 			"font_placeholder": "Fonte instalada neste computador, ex.: Inter",

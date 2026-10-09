@@ -342,10 +342,8 @@
 		"themes": {
 			"interface_font": "Arayüz yazı tipi",
 			"load_font_file": "Dosyadan yazı tipi yükle",
-			"custom_colors": "Özel Renkler",
 			"primary_color": "Ana Vurgu Rengi",
 			"background_color": "Arka Plan",
-			"reset_theme": "Varsayılan temaya sıfırla",
 			"your_fonts": "Yazı tipleriniz",
 			"custom_font": "Özel…",
 			"font_placeholder": "Bu bilgisayarda yüklü olan yazı tipi, örn. Inter",

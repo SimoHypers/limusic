@@ -351,10 +351,8 @@
 		"themes": {
 			"interface_font": "Шрифт інтерфейсу",
 			"load_font_file": "Завантажити шрифт із файлу",
-			"custom_colors": "Власні кольори",
 			"primary_color": "Основний акцент",
 			"background_color": "Фон",
-			"reset_theme": "Скинути до стандартної теми",
 			"your_fonts": "Ваші шрифти",
 			"custom_font": "Власний…",
 			"font_placeholder": "Шрифт, встановлений у системі, наприклад Inter",
