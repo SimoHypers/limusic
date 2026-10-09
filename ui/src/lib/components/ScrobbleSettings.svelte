@@ -475,14 +475,16 @@
 					<div class="border-t border-border/60 px-4 py-3">
 						<p class="mb-2 text-xs leading-relaxed text-muted-foreground">
 							{t('settings.scrobbling.lb_token_hint')}
-							<button
-								type="button"
-								class="cursor-pointer underline hover:text-foreground"
-								onclick={() => api.openExternal('https://listenbrainz.org/settings/')}
-							>
-								listenbrainz.org
-							</button>
 						</p>
+						<Button
+							variant="secondary"
+							size="sm"
+							class="mb-2.5 gap-1.5"
+							onclick={() => api.openExternal('https://listenbrainz.org/settings/')}
+						>
+							<HugeiconsIcon icon={LinkSquare02Icon} size={15} />
+							{t('settings.scrobbling.lb_open_settings')}
+						</Button>
 						<div class="flex gap-2">
 							<Input
 								class="h-8 font-mono text-xs"

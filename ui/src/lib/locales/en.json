@@ -692,7 +692,8 @@
 			"lb_open_profile": "Open your ListenBrainz profile",
 			"lb_disconnected": "Connect your ListenBrainz account to send it what you play.",
 			"lb_validating": "Checking that token with ListenBrainz.",
-			"lb_token_hint": "Paste your user token here. You can copy it from your ListenBrainz settings page on",
+			"lb_token_hint": "Paste your user token here. You can copy it from your ListenBrainz settings page.",
+			"lb_open_settings": "Open ListenBrainz settings",
 			"lb_token_placeholder": "ListenBrainz user token"
 		}
 	},
