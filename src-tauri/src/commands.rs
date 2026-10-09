@@ -420,12 +420,9 @@ pub async fn set_setting(
         state.set_discord_config(&value);
     }
     // The Scrobbling tab's settings, read whole each time: the two switches from #231 keep rows of
-    // their own, and both scrobblers want all of it in one message (same rules/threshold for
-    // Last.fm and ListenBrainz).
+    // their own, and the scrobbler wants all of it in one message.
     if matches!(key.as_str(), "lastfm_config" | "lastfm_primary_artist" | "lastfm_primary_strict") {
-        let cfg = crate::lastfm::ScrobbleConfig::load(&state.db);
-        state.lastfm.set_config(cfg.clone());
-        state.listenbrainz.set_config(cfg);
+        state.lastfm.set_config(crate::lastfm::ScrobbleConfig::load(&state.db));
     }
     // Retune the track that's playing. Unlike crossfade below, this one has to apply to what the
     // user is hearing right now: the switch exists so they can A/B the same loud section (#298).
@@ -2246,7 +2243,7 @@ pub async fn lastfm_preview(
 }
 
 // --- ListenBrainz scrobbling ------------------------------------------------------------------
-///
+
 /// Same scrobbling settings as Last.fm (the shared `lastfm_config` blob); only the account
 /// differs: a user token pasted from ListenBrainz settings, validated before it is stored.
 

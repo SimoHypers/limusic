@@ -56,10 +56,9 @@ pub struct AppState {
     /// Discord rich presence. Fed the same track/playback changes as `media`; gated on the
     /// `discord_rpc` setting inside its own thread.
     discord: Option<DiscordHandle>,
-    /// Last.fm scrobbler. Same feed again; parks until a session key is set (titlebar button).
+    /// Last.fm + ListenBrainz scrobbler. Same feed again; each half parks until its own
+    /// credential is set (session key via the titlebar button, user token via Scrobbling settings).
     pub lastfm: crate::lastfm::LastfmHandle,
-    /// ListenBrainz scrobbler. Same feed a third time; parks until a user token is set.
-    pub listenbrainz: crate::listenbrainz::ListenBrainzHandle,
     queue: Mutex<QueueState>,
     /// Bumped on every explicit `play`/jump so superseded async resolves discard their result
     /// (cancellation without JoinHandle bookkeeping). context/06 §6.
@@ -461,7 +460,6 @@ impl AppState {
         media: Option<MediaHandle>,
         discord: Option<DiscordHandle>,
         lastfm: crate::lastfm::LastfmHandle,
-        listenbrainz: crate::listenbrainz::ListenBrainzHandle,
     ) -> Self {
         AppState {
             it,
@@ -475,7 +473,6 @@ impl AppState {
             media,
             discord,
             lastfm,
-            listenbrainz,
             queue: Mutex::new(QueueState::default()),
             auth: tokio::sync::Mutex::default(),
             history_pinged: AtomicBool::new(false),
@@ -1360,7 +1357,6 @@ impl AppState {
                         d.set_album(&video_id, album);
                     }
                     self.lastfm.set_album(&video_id, album);
-                    self.listenbrainz.set_album(&video_id, album);
                 }
                 // Shuffle on → the radio hydration is part of the queue: snapshot it as the
                 // "original" order, then shuffle the upcoming tracks. (Runs before the lookahead
@@ -2438,7 +2434,6 @@ impl AppState {
             crate::notify::track_changed(&self.app, &item.title, &item.artists);
         }
         self.lastfm.set_track(item);
-        self.listenbrainz.set_track(item);
         // New track ⇒ let the next position tick through immediately instead of waiting out the
         // ~1s throttle, so a restored seek position (and the play-state self-heal) lands at once.
         self.last_media_push.store(0, Ordering::Relaxed);
@@ -2760,7 +2755,6 @@ impl AppState {
                 d.set_duration(secs);
             }
             self.lastfm.set_duration(secs);
-            self.listenbrainz.set_duration(secs);
         }
     }
 
@@ -3094,7 +3088,6 @@ impl AppState {
                 d.set_position(pos);
             }
             self.lastfm.set_position(pos);
-            self.listenbrainz.set_position(pos);
         }
     }
 

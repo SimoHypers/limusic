@@ -555,17 +555,12 @@ pub fn run() {
                 discord::RpcConfig::parse(db.get_setting("discord_rpc_config").as_deref()),
             );
 
-            // Last.fm scrobbler — parks until a session key exists (titlebar connect flow).
-            let scrobble_cfg = lastfm::ScrobbleConfig::load(&db);
+            // Scrobbler — one task, one clock for Last.fm + ListenBrainz. Each half parks until
+            // its own credential exists (session key via the titlebar flow, user token via settings).
             let lastfm = lastfm::spawn(
                 db.get_setting("lastfm_session_key").filter(|s| !s.is_empty()),
-                scrobble_cfg.clone(),
-            );
-
-            // ListenBrainz scrobbler — same settings, parks until a user token exists.
-            let listenbrainz = listenbrainz::spawn(
                 db.get_setting("listenbrainz_token").filter(|s| !s.is_empty()),
-                scrobble_cfg,
+                lastfm::ScrobbleConfig::load(&db),
             );
 
             // Listen Together session (context/19). Server URL is a DB setting so "home PC → VPS" is
@@ -587,7 +582,6 @@ pub fn run() {
                 media,
                 discord,
                 lastfm,
-                listenbrainz,
             ));
             app.manage(app_state.clone());
 
