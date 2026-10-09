@@ -917,11 +917,6 @@
 		<Button variant="ghost" size="sm" class="text-destructive hover:text-destructive" onclick={disconnectListenBrainz}>
 			{t('integrations.disconnect')}
 		</Button>
-	{:else if listenbrainz.connecting}
-		<Button variant="ghost" size="sm" class="gap-1.5" disabled>
-			<HugeiconsIcon icon={Loading03Icon} size={15} class="animate-spin" />
-			{t('common.cancel')}
-		</Button>
 	{/if}
 {/snippet}
 {#snippet enabledSwitch()}<Switch
