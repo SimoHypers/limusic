@@ -629,7 +629,7 @@
 			"enable": "Scrobble",
 			"enable_hint": "Turn off to stop scrobbling for a while without disconnecting your account.",
 			"now_playing": "Show what's playing",
-			"now_playing_hint": "Tell Last.fm about a track as it starts, so your profile shows it live.",
+			"now_playing_hint": "Announce a track as it starts, so your profile shows it live.",
 			"section_timing": "When a play counts",
 			"percent": "Scrobble after",
 			"percent_value": "{n}%",
