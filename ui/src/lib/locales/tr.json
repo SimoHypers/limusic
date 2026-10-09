@@ -382,7 +382,15 @@
 			"app_icon_filter": "PNG görsel",
 			"zoom": "Arayüz ölçeği",
 			"zoom_hint": "Penceredeki her şeyi ölçeklendirir. Yakınlaştırma kısayolları da bunu değiştirir ve uygulama yeniden başlatıldığında hatırlanır.",
-			"stage_player": "Yeni oynatıcı düzeni"
+			"stage_player": "Yeni oynatıcı düzeni",
+			"mode": "Aydınlık veya karanlık",
+			"mode_hint": "Sistem bilgisayarınızın ayarını takip eder ve ona göre değiştirir.",
+			"mode_light": "Aydınlık",
+			"mode_dark": "Karanlık",
+			"mode_system": "Sistem",
+			"accent_hint": "Butonlar, ilerleme çubuğu ve seçilen her şey.",
+			"accent_theme": "Temanın kendı vurgusu",
+			"preview": "Önizle"
 		},
 		"playback": {
 			"audio_quality": "Ses kalitesi",
@@ -432,7 +440,8 @@
 			"ambient_light_hint": "Müzik videosunun etrafındaki oynatıcı alanı, videonun renkleriyle uyumlu bir şekilde parıldar.",
 			"ambient_light_gpu_check": "Kartınıza bakın",
 			"shuffle_whole_queue_hint": "“Karıştır” seçeneği, “Sıraya Ekle” ile eklediğiniz şarkıları çalma listesiyle karıştırır. Bu seçeneği devre dışı bırakırsanız, şarkılar eklediğiniz sırayla çalınır. “Sonraki” seçeneği ise her zaman bir sonraki şarkıyı çalar.",
-			"ambient_light_gpu": "PassMark ekran kartı performans testinde 1000 puanın altında kalan durumlarda, müzik videosu oynatılırken oynatıcının görüntüsünde takılmalar yaşanabilir."
+			"ambient_light_gpu": "PassMark ekran kartı performans testinde 1000 puanın altında kalan durumlarda, müzik videosu oynatılırken oynatıcının görüntüsünde takılmalar yaşanabilir.",
+			"ambient_light": "Ambiyant aydınlık"
 		},
 		"data": {
 			"clear_cache": "Görsel ve akış önbelleğini temizle",
@@ -626,7 +635,9 @@
 			"section_timing": "Bir oynatmanın ne zaman sayılacağı",
 			"percent_hint": "Bir parçanın ne kadarının çalınması gerektiği. Last.fm'in kendi kuralı yarısıdır. Bu değeri artırın ki, erken atladığınız şarkılar sayılmasın.",
 			"minutes_off": "Kapalı",
-			"section_metadata": "Gönderilecekler"
+			"section_metadata": "Gönderilecekler",
+			"rule_field": "Alan",
+			"rule_enabled": "Bu kuralı kullan"
 		}
 	},
 	"dialogs": {
@@ -674,7 +685,8 @@
 			"zoom_out": "Uzaklaştır",
 			"reset_zoom": "Yakınlaştırmayı sıfırla",
 			"show_this_list": "Bu listeyi göster",
-			"refresh_page": "Sayfayı yenile"
+			"refresh_page": "Sayfayı yenile",
+			"quit_app": "Limusic'ten çık"
 		},
 		"tempo_pitch": {
 			"title": "Tempo ve Perde Kontrolleri",
