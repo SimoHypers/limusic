@@ -156,6 +156,20 @@ export async function installUpdate() {
 	if (!pending) return;
 	updateState.installing = true;
 	try {
+		// Re-read the manifest first. A banner can sit on screen for hours, and an installer replaced
+		// in place since then no longer matches the signature it was offered with, so the plugin
+		// refuses it (#436, 1.2.0's Windows swap). `look` swaps `pending` for the current one.
+		if (!(await look())) {
+			updateState.available = null;
+			updateState.installing = false;
+			return;
+		}
+		// The manifest went unusable and `look` fell back to the releases API: the banner now offers
+		// the download page instead, and there is nothing signed to install.
+		if (!updateState.canInstall) {
+			updateState.installing = false;
+			return;
+		}
 		await pending.downloadAndInstall();
 		await relaunch();
 	} catch (e) {
