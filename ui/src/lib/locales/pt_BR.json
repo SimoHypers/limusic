@@ -148,7 +148,9 @@
 		"songs_left": "{count} músicas restantes",
 		"songs_left_one": "1 música restante",
 		"queue_ends": "A fila termina após esta música.",
-		"edit_scrobble": "Editar scrobble"
+		"edit_scrobble": "Editar scrobble",
+		"song": "Música",
+		"video": "Vídeo"
 	},
 	"home": {
 		"good_morning": "Bom dia",
@@ -311,7 +313,9 @@
 			"discord_status": "Status",
 			"discord_card": "Painel",
 			"discord_links": "Clicável",
-			"discord_buttons": "Botões"
+			"discord_buttons": "Botões",
+			"colors": "Cores",
+			"interface": "Interface"
 		},
 		"general": {
 			"language": "Idioma da interface",
@@ -377,7 +381,19 @@
 			"app_icon_dialog": "Escolha um ícone do aplicativo",
 			"app_icon_filter": "Imagem PNG",
 			"zoom": "Escala da interface",
-			"zoom_hint": "Redimensiona tudo na janela. Os atalhos de zoom também alteram a escala, e ela fica salva ao reabrir o app."
+			"zoom_hint": "Redimensiona tudo na janela. Os atalhos de zoom também alteram a escala, e ela fica salva ao reabrir o app.",
+			"stage_player": "Novo layout do player",
+			"stage_player_hint": "O título, o artista e o álbum da música ficam abaixo da capa; a fila e as letras, em uma coluna de altura total; e a tela é iluminada pelas cores da capa. Desativar mantém o layout original.",
+			"mode": "Claro ou escuro",
+			"mode_hint": "A opção Sistema segue a configuração do seu computador e alterna junto com ela.",
+			"mode_light": "Claro",
+			"mode_dark": "Escuro",
+			"mode_system": "Sistema",
+			"accent_hint": "Botões, barra de progresso e qualquer item selecionado.",
+			"accent_theme": "A cor de destaque do próprio tema",
+			"accent_artwork_note": "Enquanto uma música toca, a cor de destaque vem da capa. Desative a opção Adaptar cores à capa para ver esta cor.",
+			"preview": "Prévia",
+			"preview_hint": "Os controles deslizantes e o seletor de cores aparecem aqui enquanto você arrasta, e o app acompanha quando você solta."
 		},
 		"playback": {
 			"audio_quality": "Qualidade de áudio",
@@ -675,7 +691,8 @@
 			"zoom_out": "Reduzir",
 			"reset_zoom": "Redefinir zoom",
 			"show_this_list": "Mostrar esta lista",
-			"refresh_page": "Recarregar página"
+			"refresh_page": "Recarregar página",
+			"quit_app": "Sair do Limusic"
 		},
 		"tempo_pitch": {
 			"title": "Controles de tempo e tom",
