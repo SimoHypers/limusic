@@ -119,9 +119,6 @@ fn emit_state(
 /// is an error rather than a stored token that silently scrobbles nothing.
 pub async fn connect(state: Arc<AppState>, token: String) -> Result<(), String> {
     let token = token.trim().to_owned();
-    if token.is_empty() {
-        return Err("Paste your ListenBrainz user token first — find it under Settings on listenbrainz.org.".into());
-    }
     let username = validate(&token).await.map_err(|e| format!("ListenBrainz: {e}"))?;
     state.db.set_setting("listenbrainz_token", &token);
     state.db.set_setting("listenbrainz_username", &username);
@@ -149,15 +146,17 @@ pub fn status(state: &AppState) -> serde_json::Value {
 /// is connected or ListenBrainz didn't answer.
 pub async fn profile(state: &AppState) -> Option<Profile> {
     let username = state.db.get_setting("listenbrainz_username").filter(|s| !s.is_empty())?;
-    let token = state.db.get_setting("listenbrainz_token").filter(|s| !s.is_empty())?;
-    let mut req = crate::http::client()
+    // Listen counts are public: no token needed.
+    let body: serde_json::Value = crate::http::client()
         .get(format!("{API_ROOT}/1/user/{username}/listen-count"))
         .header("User-Agent", USER_AGENT)
-        .timeout(Duration::from_secs(15));
-    if !token.is_empty() {
-        req = req.header("Authorization", format!("Token {token}"));
-    }
-    let body: serde_json::Value = req.send().await.ok()?.json().await.ok()?;
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
     let count = body.pointer("/payload/count").and_then(|v| v.as_u64()).unwrap_or(0);
     Some(Profile {
         username: username.clone(),
