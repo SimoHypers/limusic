@@ -34,27 +34,6 @@ use super::metadata::find_all;
 /// `Comments.createComment` / `CreateCommentEndpoint` in youtubei.js v18.1.0. UNVERIFIED live.
 pub const COMMENT_CREATE_PATH: &str = "comment/create_comment";
 
-/// A comment's own entity key (`commentViewModel.commentKey`), kept only to tell whether an
-/// answer's mutations delete that comment. Opaque, never serialized, and `Debug` shows nothing.
-#[derive(Clone, Default, PartialEq, Eq)]
-pub struct EntityKey(Option<String>);
-
-impl EntityKey {
-    pub fn new(key: Option<&str>) -> Self {
-        EntityKey(key.map(str::to_owned))
-    }
-
-    pub fn get(&self) -> Option<&str> {
-        self.0.as_deref()
-    }
-}
-
-impl fmt::Debug for EntityKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("EntityKey(<redacted>)")
-    }
-}
-
 /// What a viewer can write on a comment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -178,26 +157,6 @@ pub(crate) fn action_token(command: &Value) -> Option<String> {
     (!token.is_empty()).then(|| token.to_owned())
 }
 
-/// Replay-ready form of one command node, with the name of its endpoint. `None` when it has no
-/// endpoint, no usable path, or no token.
-fn replayable(node: &Value) -> Option<(String, WriteCommand)> {
-    let data = unwrap_command(node);
-    let (name, payload) = endpoint_of(data)?;
-    if name == "performCommentActionEndpoint" {
-        return Some((name.to_owned(), WriteCommand::Action(action_token(data)?)));
-    }
-    let api_url = data.pointer("/commandMetadata/webCommandMetadata/apiUrl")?.as_str()?;
-    let path = comment_path(api_url)?;
-    Some((name.to_owned(), WriteCommand::Endpoint { path, payload: payload.as_object()?.clone() }))
-}
-
-fn button_command(button_renderer: &Value) -> Option<(String, WriteCommand)> {
-    ["serviceEndpoint", "navigationEndpoint", "command"]
-        .iter()
-        .find_map(|k| button_renderer.get(k))
-        .and_then(replayable)
-}
-
 fn runs_text(v: Option<&Value>) -> Option<String> {
     v?.pointer("/runs/0/text").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned)
 }
@@ -226,25 +185,54 @@ pub(crate) fn create_command(header: &Value) -> Option<(Composer, WriteCommand)>
     ))
 }
 
+/// Where a reply goes when its button's command names no plain `comment/…` path (a live response
+/// does not). UNVERIFIED, and not from a reference: youtubei.js v18.1.0 has no reply path (it
+/// replays the `apiUrl` the response names, and a live one names none). It is inferred from the
+/// naming of the verified paths (`comment/create_comment`, `comment/update_comment`,
+/// `comment/perform_comment_action`), exactly like [`COMMENT_UPDATE_PATH`]. A path the response
+/// does name always wins. A 404 on it is never taken to mean the comment is gone.
+pub const COMMENT_REPLY_PATH: &str = "comment/create_comment_reply";
+
 /// A comment's reply command, off its toolbar surface entity's `replyCommand` (VERIFIED live:
 /// `…createCommentReplyDialogEndpoint.dialog.commentReplyDialogRenderer` with `replyButton`), and
-/// the dialog's placeholder. The button's endpoint must name a `comment/…` path itself.
+/// the dialog's placeholder.
 pub(crate) fn reply_command(surface: &Value) -> Option<(Option<String>, WriteCommand)> {
     let dialog =
         find_all(surface.get("replyCommand")?, "commentReplyDialogRenderer").into_iter().next()?;
     let button = dialog.pointer("/replyButton/buttonRenderer")?;
-    let (_, command) = button_command(button)?;
-    // youtubei.js sends whatever fields the endpoint carries (`{...payload, commentText}`) to the
-    // `apiUrl` the response names, and names neither the path nor a field of its own: so a reply
-    // needs the path from the response (no path is guessed) and a payload that is not empty.
-    matches!(&command, WriteCommand::Endpoint { payload, .. } if !payload.is_empty())
-        .then(|| (runs_text(dialog.get("placeholderText")), command))
+    let (command, _) = reply_of(button)?;
+    Some((runs_text(dialog.get("placeholderText")), command))
+}
+
+/// The reply button's command, and where its path came from (`apiUrl` or `constant`). VERIFIED
+/// live: its `createCommentReplyEndpoint` carries `createReplyParams` and no `apiUrl`. Sent as
+/// `{context, commentText, createReplyParams}`; offered only when `createReplyParams` is a
+/// non-empty string.
+fn reply_of(button: &Value) -> Option<(WriteCommand, &'static str)> {
+    let service =
+        ["serviceEndpoint", "navigationEndpoint", "command"].iter().find_map(|k| button.get(k))?;
+    let data = unwrap_command(service);
+    let params = data
+        .pointer("/createCommentReplyEndpoint/createReplyParams")?
+        .as_str()
+        .filter(|p| !p.is_empty())?;
+    let named = [data, service]
+        .iter()
+        .find_map(|c| c.pointer("/commandMetadata/webCommandMetadata/apiUrl")?.as_str())
+        .and_then(comment_path);
+    let (path, source) = match named {
+        Some(path) => (path, "apiUrl"),
+        None => (COMMENT_REPLY_PATH.to_owned(), "constant"),
+    };
+    let payload = Map::from_iter([("createReplyParams".to_owned(), Value::String(params.into()))]);
+    Some((WriteCommand::Endpoint { path, payload }, source))
 }
 
 /// Key names (never values) of what a comment's reply command carries, for the debug line that
 /// says why Reply is or is not offered: the button, its service endpoint, the endpoint's payload
 /// fields, the command metadata, and whether the `apiUrl` is there and is a plain `comment/…`
-/// path. `source=apiUrl` when a path would be taken from it, `source=none` otherwise.
+/// path, and whether `createReplyParams` is there. `source` is where the path comes from:
+/// `apiUrl`, `constant` (the unverified fallback) or `none` (no reply is offered).
 pub(crate) fn reply_probe(surface: &Value) -> String {
     fn names(v: Option<&Value>) -> String {
         v.and_then(Value::as_object)
@@ -268,8 +256,17 @@ pub(crate) fn reply_probe(surface: &Value) -> String {
         .and_then(|d| d.pointer("/commandMetadata/webCommandMetadata/apiUrl"))
         .and_then(Value::as_str);
     let plain = api_url.and_then(comment_path).is_some();
+    let params = match data
+        .and_then(|d| d.pointer("/createCommentReplyEndpoint/createReplyParams"))
+        .and_then(Value::as_str)
+    {
+        Some("") => "empty",
+        Some(_) => "string",
+        None => "missing",
+    };
+    let source = button.and_then(reply_of).map_or("none", |(_, source)| source);
     format!(
-        "reply: button={} service={} endpoint={}:{} commandMetadata={} webCommandMetadata={} apiUrl={} apiUrl_plain={plain} source={}",
+        "reply: button={} service={} endpoint={}:{} commandMetadata={} webCommandMetadata={} apiUrl={} apiUrl_plain={plain} createReplyParams={params} source={source}",
         names(button),
         names(service),
         endpoint.map_or("-", |(name, _)| name),
@@ -277,7 +274,6 @@ pub(crate) fn reply_probe(surface: &Value) -> String {
         names(data.and_then(|d| d.get("commandMetadata"))),
         names(data.and_then(|d| d.pointer("/commandMetadata/webCommandMetadata"))),
         if api_url.is_some() { "string" } else { "missing" },
-        if plain { "apiUrl" } else { "none" },
     )
 }
 
@@ -501,13 +497,6 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn ep(path: &str, name: &str, payload: Value) -> Value {
-        json!({ "innertubeCommand": {
-            "clickTrackingParams": "fixture-click",
-            "commandMetadata": { "webCommandMetadata": { "sendPost": true, "apiUrl": path } },
-            name: payload } })
-    }
-
     #[test]
     fn paths_must_be_plain_comment_paths() {
         assert_eq!(
@@ -540,34 +529,6 @@ mod tests {
         ] {
             assert_eq!(comment_path(bad), None, "{bad}");
         }
-    }
-
-    #[test]
-    fn a_command_is_unwrapped_like_youtubejs_does() {
-        let (name, cmd) = replayable(&ep(
-            "/youtubei/v1/comment/create_comment_reply",
-            "createCommentReplyEndpoint",
-            json!({ "fixtureReplyField": "P" }),
-        ))
-        .unwrap();
-        assert_eq!(name, "createCommentReplyEndpoint");
-        let WriteCommand::Endpoint { path, payload } = cmd else { panic!("endpoint") };
-        assert_eq!(path, "comment/create_comment_reply");
-        assert_eq!(payload["fixtureReplyField"], "P");
-        // `command` and a bare command (no wrapper) read the same.
-        let bare = json!({ "commandMetadata": { "webCommandMetadata": { "apiUrl": "/youtubei/v1/comment/x" } },
-                           "xEndpoint": { "p": 1 } });
-        assert!(replayable(&bare).is_some());
-        assert!(replayable(&json!({ "command": bare })).is_some());
-        // No path, or one outside comment/, or no endpoint at all: nothing to replay.
-        assert!(replayable(&json!({ "xEndpoint": { "p": 1 } })).is_none());
-        assert!(replayable(&ep("/youtubei/v1/browse", "xEndpoint", json!({}))).is_none());
-        assert!(replayable(&json!({ "innertubeCommand": {} })).is_none());
-        assert!(replayable(&json!(null)).is_none());
-        // A perform-action command is its token.
-        let act =
-            json!({ "innertubeCommand": { "performCommentActionEndpoint": { "action": "T" } } });
-        assert_eq!(replayable(&act).unwrap().1, WriteCommand::Action("T".into()));
     }
 
     #[test]
@@ -616,27 +577,47 @@ mod tests {
         assert!(create_command(&json!({})).is_none());
     }
 
-    /// The probe says which keys the live reply endpoint has and where a path would come from,
-    /// and never a value.
+    fn reply_button(service: Value) -> Value {
+        reply_surface(
+            json!({ "replyButton": { "buttonRenderer": { "serviceEndpoint": service } } }),
+        )
+    }
+
+    fn reply_service(api_url: Option<&str>, params: Value) -> Value {
+        let mut service = json!({ "createCommentReplyEndpoint": { "createReplyParams": params } });
+        if let Some(url) = api_url {
+            service["commandMetadata"] = json!({ "webCommandMetadata": { "apiUrl": url } });
+        }
+        service
+    }
+
+    /// The probe says which keys the live reply endpoint has and where the path comes from, and
+    /// never a value.
     #[test]
     fn the_reply_probe_names_keys_and_the_path_source_and_never_values() {
-        let named = reply_surface(
-            json!({ "replyButton": { "buttonRenderer": { "text": "secret", "serviceEndpoint": {
-            "commandMetadata": { "webCommandMetadata": { "sendPost": true, "apiUrl": "/youtubei/v1/comment/secret_path" } },
-            "createCommentReplyEndpoint": { "secretField": "secret-value" } } } } }),
-        );
+        let named = reply_surface(json!({ "replyButton": { "buttonRenderer": { "text": "secret",
+            "serviceEndpoint": reply_service(Some("/youtubei/v1/comment/secret_path"), json!("secret-value")) } } }));
         assert_eq!(
             reply_probe(&named),
-            "reply: button=serviceEndpoint,text service=commandMetadata,createCommentReplyEndpoint endpoint=createCommentReplyEndpoint:secretField commandMetadata=webCommandMetadata webCommandMetadata=apiUrl,sendPost apiUrl=string apiUrl_plain=true source=apiUrl"
+            "reply: button=serviceEndpoint,text service=commandMetadata,createCommentReplyEndpoint endpoint=createCommentReplyEndpoint:createReplyParams commandMetadata=webCommandMetadata webCommandMetadata=apiUrl apiUrl=string apiUrl_plain=true createReplyParams=string source=apiUrl"
         );
-        let unnamed =
-            reply_surface(json!({ "replyButton": { "buttonRenderer": { "serviceEndpoint": {
-            "createCommentReplyEndpoint": { "secretField": "secret-value" } } } } }));
-        let probe = reply_probe(&unnamed);
-        assert!(probe.ends_with("apiUrl=missing apiUrl_plain=false source=none"), "{probe}");
-        // The probe only lists key names, so even a sensitive-looking value never shows. (Key
-        // names such as `secretField` do: they are schema, not data.)
-        assert!(!probe.contains("secret-value") && !reply_probe(&named).contains("secret_path"));
+        // The live case: params, and no apiUrl.
+        let live = reply_button(reply_service(None, json!("secret-value")));
+        let probe = reply_probe(&live);
+        assert!(
+            probe.ends_with(
+                "apiUrl=missing apiUrl_plain=false createReplyParams=string source=constant"
+            ),
+            "{probe}"
+        );
+        // Params missing or empty: nothing is offered.
+        let empty = reply_probe(&reply_button(reply_service(None, json!(""))));
+        assert!(empty.ends_with("createReplyParams=empty source=none"), "{empty}");
+        let none = reply_probe(&reply_button(json!({ "createCommentReplyEndpoint": {} })));
+        assert!(none.ends_with("createReplyParams=missing source=none"), "{none}");
+        for shown in [&probe, &empty, &none, &reply_probe(&named)] {
+            assert!(!shown.contains("secret-value") && !shown.contains("secret_path"), "{shown}");
+        }
         assert_eq!(reply_probe(&json!({})), "reply: no replyCommand");
         assert_eq!(
             reply_probe(&json!({ "replyCommand": {} })),
@@ -644,25 +625,56 @@ mod tests {
         );
     }
 
-    /// A reply with no path in the response, or no payload to send, is not offered. No path is
-    /// made up for it: youtubei.js v18.1.0 has none either.
+    /// A reply is offered when `createReplyParams` is a non-empty string. Its path is the one the
+    /// response names if that is a plain comment path, else the (unverified) constant.
     #[test]
-    fn a_reply_needs_a_path_from_the_response_and_a_payload() {
-        let button = |service: Value| {
-            reply_surface(
-                json!({ "replyButton": { "buttonRenderer": { "serviceEndpoint": service } } }),
-            )
-        };
-        let with_path = |fields: Value| {
-            json!({
-            "commandMetadata": { "webCommandMetadata": { "apiUrl": "/youtubei/v1/comment/x_reply" } },
-            "createCommentReplyEndpoint": fields })
-        };
-        assert!(reply_command(&button(with_path(json!({ "f": 1 })))).is_some());
-        assert!(reply_command(&button(with_path(json!({})))).is_none(), "empty payload");
-        assert!(
-            reply_command(&button(json!({ "createCommentReplyEndpoint": { "f": 1 } }))).is_none(),
-            "no apiUrl"
+    fn a_reply_needs_createreplyparams_and_takes_its_path_from_the_response_or_the_constant() {
+        let path_and_params =
+            |service: Value| match reply_command(&reply_button(service)).map(|(_, c)| c) {
+                Some(WriteCommand::Endpoint { path, payload }) => {
+                    assert_eq!(payload.len(), 1, "only createReplyParams is sent");
+                    Some((path, payload["createReplyParams"].as_str().unwrap().to_owned()))
+                }
+                Some(other) => panic!("{other:?}"),
+                None => None,
+            };
+        // The live shape: no apiUrl, so the constant.
+        assert_eq!(
+            path_and_params(reply_service(None, json!("R1"))),
+            Some((COMMENT_REPLY_PATH.to_owned(), "R1".to_owned()))
+        );
+        // A plain path the response names wins; a hostile or foreign one is not used.
+        assert_eq!(
+            path_and_params(reply_service(Some("/youtubei/v1/comment/reply_v2"), json!("R2")))
+                .unwrap()
+                .0,
+            "comment/reply_v2"
+        );
+        for hostile in [
+            "/youtubei/v1/browse",
+            "https://evil.example/youtubei/v1/comment/x",
+            "/youtubei/v1/comment/../x",
+        ] {
+            assert_eq!(
+                path_and_params(reply_service(Some(hostile), json!("R3"))).unwrap().0,
+                COMMENT_REPLY_PATH,
+                "{hostile}"
+            );
+        }
+        // No params (missing, empty, not a string): no reply, whatever the path says.
+        for params in [json!(""), json!(null), json!(7), json!({})] {
+            assert_eq!(
+                path_and_params(reply_service(Some("/youtubei/v1/comment/x"), params)),
+                None
+            );
+        }
+        assert_eq!(path_and_params(json!({ "createCommentReplyEndpoint": {} })), None);
+        // Other fields of the endpoint are not sent.
+        assert_eq!(
+            path_and_params(
+                json!({ "createCommentReplyEndpoint": { "createReplyParams": "R4", "other": "x" } })
+            ),
+            Some((COMMENT_REPLY_PATH.to_owned(), "R4".to_owned()))
         );
     }
 
@@ -672,25 +684,19 @@ mod tests {
     }
 
     #[test]
-    fn a_reply_needs_a_reply_button_endpoint_naming_a_comment_path() {
-        let reply_button = json!({ "buttonRenderer": { "serviceEndpoint": {
-            "commandMetadata": { "webCommandMetadata": { "apiUrl": "/youtubei/v1/comment/create_comment_reply" } },
-            "createCommentReplyEndpoint": { "fixtureReplyField": "R1" } } } });
+    fn a_reply_needs_a_dialog_with_a_reply_button() {
         let ok = reply_surface(json!({
             "placeholderText": { "runs": [{ "text": "Add a reply..." }] },
-            "replyButton": reply_button, "cancelButton": { "buttonRenderer": {} } }));
+            "replyButton": { "buttonRenderer": { "serviceEndpoint": reply_service(None, json!("R1")) } },
+            "cancelButton": { "buttonRenderer": {} } }));
         let (placeholder, cmd) = reply_command(&ok).unwrap();
         assert_eq!(placeholder.as_deref(), Some("Add a reply..."));
         assert!(
-            matches!(cmd, WriteCommand::Endpoint { ref path, .. } if path == "comment/create_comment_reply")
+            matches!(cmd, WriteCommand::Endpoint { ref path, .. } if path == COMMENT_REPLY_PATH)
         );
-
         for dialog in [
             json!({ "cancelButton": { "buttonRenderer": {} } }),
             json!({ "replyButton": { "buttonRenderer": {} } }),
-            json!({ "replyButton": { "buttonRenderer": { "serviceEndpoint": {
-                "commandMetadata": { "webCommandMetadata": { "apiUrl": "/youtubei/v1/browse" } },
-                "createCommentReplyEndpoint": { "p": 1 } } } } }),
         ] {
             assert!(reply_command(&reply_surface(dialog)).is_none());
         }

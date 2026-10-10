@@ -459,15 +459,39 @@ impl InnerTube {
                 Err(Error::ActionRejected)
             }
             Verdict::Missing => {
-                tracing::debug!(
-                    kind,
-                    path,
-                    shape = %write_answer_shape(&value).0,
-                    "comment action answer has no status"
-                );
-                if missing_ok {
+                // A delete's answer (live) has no status and no mutations: its `actions[]` has a
+                // `removeCommentAction`, which is the definitive success marker, and an
+                // `openPopupAction` (the web client's own toast), which is ignored and only noted.
+                let marker = missing_ok && has_action(&value, "removeCommentAction");
+                let popup = has_action(&value, "openPopupAction");
+                if marker {
+                    tracing::debug!(
+                        kind,
+                        path,
+                        marker = "removeCommentAction",
+                        fallback_used = false,
+                        popup_present = popup,
+                        "comment action succeeded"
+                    );
+                    Ok(value)
+                } else if missing_ok {
+                    // HTTP 200, no status, no error, no marker: accepted, and logged as the fallback.
+                    tracing::debug!(
+                        kind,
+                        path,
+                        fallback_used = true,
+                        popup_present = popup,
+                        shape = %write_answer_shape(&value).0,
+                        "comment action answer has no status or marker; accepted"
+                    );
                     Ok(value)
                 } else {
+                    tracing::debug!(
+                        kind,
+                        path,
+                        shape = %write_answer_shape(&value).0,
+                        "comment action answer has no status"
+                    );
                     Err(Error::ActionRejected)
                 }
             }
@@ -1490,6 +1514,14 @@ fn custom_thumbnail_key() -> serde_json::Value {
     })
 }
 
+/// Whether `actions[]` has an entry with this key (names only: the entry's contents are never read).
+fn has_action(value: &serde_json::Value, key: &str) -> bool {
+    value
+        .get("actions")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|actions| actions.iter().any(|a| a.get(key).is_some()))
+}
+
 /// What a comment action's or write's answer says about itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Verdict {
@@ -2249,6 +2281,36 @@ mod tests {
             );
             assert_eq!((got_vote, got_post, got_delete), (vote, post, delete), "{reply}");
         }
+    }
+
+    /// The live answer to a delete: no status, no mutations, `actions` with a `removeCommentAction`
+    /// (success) and an `openPopupAction` (the web client's toast, ignored). The marker is what
+    /// counts; without it a 200 with no status and no error is accepted as the fallback.
+    #[tokio::test]
+    async fn a_delete_answer_with_remove_comment_action_is_the_success_marker() {
+        let live = r#"{"responseContext":{},"actions":[
+            {"clickTrackingParams":"x","removeCommentAction":{"actionResult":{"status":"STATUS_SUCCEEDED"}}},
+            {"clickTrackingParams":"y","openPopupAction":{"popup":{}}}]}"#;
+        let popup_only = r#"{"responseContext":{},"actions":[{"clickTrackingParams":"y","openPopupAction":{}}]}"#;
+        let bare = r#"{"responseContext":{}}"#;
+        let failed = r#"{"actions":[{"removeCommentAction":{}}],"error":{"code":400}}"#;
+        let token = || WriteCommand::Action("fixture-token".into());
+        for (reply, ok) in [(live, true), (popup_only, true), (bare, true), (failed, false)] {
+            let server = MockServer::start(move |_: &Seen| (200, reply.to_owned()));
+            let it = it_against(&server, true);
+            let got = it.comment_write(&web(), &token(), "delete", None, true).await;
+            assert_eq!(got.is_ok(), ok, "{reply}");
+        }
+        // The marker is read from actions[] only, whatever else is in the answer, and a vote
+        // (which never takes the marker or the fallback) still needs a status.
+        let v: serde_json::Value = serde_json::from_str(live).unwrap();
+        assert!(has_action(&v, "removeCommentAction") && has_action(&v, "openPopupAction"));
+        assert!(!has_action(&json!({ "removeCommentAction": {} }), "removeCommentAction"));
+        assert!(!has_action(&json!({ "actions": [1, null, "x"] }), "removeCommentAction"));
+        assert!(!has_action(&json!(null), "removeCommentAction"));
+        let server = MockServer::start(move |_: &Seen| (200, live.to_owned()));
+        let it = it_against(&server, true);
+        assert!(matches!(it.comment_action(&web(), "T", "like").await, Err(Error::ActionRejected)));
     }
 
     /// Delete is idempotent: a 404 is success, a failure leaves nothing unknown (it can simply

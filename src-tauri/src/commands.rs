@@ -819,8 +819,13 @@ impl CommentsError {
 impl CommentsError {
     /// [`Self::of`] for a request about one specific comment, where a 404 means it is gone.
     /// `kind` (`like`, `reply`, `edit`, `delete`, ...) names the request in the log.
+    ///
+    /// Except for a reply: it goes to a path that is inferred rather than named by a response
+    /// (`COMMENT_REPLY_PATH`), so a 404 there may be the path and says nothing about the comment.
+    /// It is an ordinary failure, with the path and status in the log (`comment write request
+    /// failed`), and the parent row stays.
     fn of_comment(e: &innertube::Error, kind: &'static str) -> Self {
-        if e.is_not_found() {
+        if e.is_not_found() && kind != "reply" {
             tracing::debug!(kind, "comment request: the comment no longer exists (404)");
             CommentsError::Gone
         } else {
@@ -1022,25 +1027,14 @@ async fn write_on_comment(
         .await;
     // Under the identity it was sent as, whoever is active now. A delete that went through, and
     // a comment YouTube says is gone (404), are forgotten.
-    let gone = sent.as_ref().err().is_some_and(innertube::Error::is_not_found);
+    let gone = write != CommentWrite::Reply
+        && sent.as_ref().err().is_some_and(innertube::Error::is_not_found);
     state.comments.lock().unwrap().finish_write(
         &identity,
         comment_id,
         gone || (sent.is_ok() && write == CommentWrite::Delete),
     );
     let answer = sent.map_err(|e| CommentsError::of_comment(&e, write.name()))?;
-    if write == CommentWrite::Delete {
-        // Whether the answer itself says the comment's entity was deleted. Never required: the
-        // status decides, and a delete that went through is a delete.
-        let d = innertube::delete_mutation(&answer, ticket.entity_key());
-        tracing::debug!(
-            kind = "delete",
-            deleted_entity_found = d.for_comment,
-            any_delete_mutation = d.any_delete,
-            mutation_types = %d.types.join(","),
-            "comment write: delete mutation in the answer"
-        );
-    }
     Ok((answer, identity))
 }
 

@@ -329,7 +329,7 @@
               "serviceEndpoint": {
                "clickTrackingParams": "fixture-click",
                "createCommentReplyEndpoint": {
-                "fixtureReplyField": "fixture-reply-params-1"
+                "createReplyParams": "fixture-reply-params-1"
                },
                "commandMetadata": {
                 "webCommandMetadata": {
@@ -524,7 +524,7 @@
               "serviceEndpoint": {
                "clickTrackingParams": "fixture-click",
                "createCommentReplyEndpoint": {
-                "fixtureReplyField": "fixture-reply-params-2"
+                "createReplyParams": "fixture-reply-params-2"
                },
                "commandMetadata": {
                 "webCommandMetadata": {
@@ -719,7 +719,7 @@
               "serviceEndpoint": {
                "clickTrackingParams": "fixture-click",
                "createCommentReplyEndpoint": {
-                "fixtureReplyField": "fixture-reply-params-3"
+                "createReplyParams": "fixture-reply-params-3"
                },
                "commandMetadata": {
                 "webCommandMetadata": {
@@ -819,7 +819,7 @@
               "serviceEndpoint": {
                "clickTrackingParams": "fixture-click",
                "createCommentReplyEndpoint": {
-                "fixtureReplyField": "fixture-reply-params-4"
+                "createReplyParams": "fixture-reply-params-4"
                },
                "commandMetadata": {
                 "webCommandMetadata": {
@@ -952,7 +952,7 @@
               "serviceEndpoint": {
                "clickTrackingParams": "fixture-click",
                "createCommentReplyEndpoint": {
-                "fixtureReplyField": "fixture-reply-params-5"
+                "createReplyParams": "fixture-reply-params-5"
                },
                "commandMetadata": {
                 "webCommandMetadata": {
@@ -1092,7 +1092,7 @@
               "serviceEndpoint": {
                "clickTrackingParams": "fixture-click",
                "createCommentReplyEndpoint": {
-                "fixtureReplyField": "fixture-reply-params-6"
+                "createReplyParams": "fixture-reply-params-6"
                },
                "commandMetadata": {
                 "webCommandMetadata": {
@@ -1238,7 +1238,7 @@
               "serviceEndpoint": {
                "clickTrackingParams": "fixture-click",
                "createCommentReplyEndpoint": {
-                "fixtureReplyField": "fixture-reply-params-7"
+                "createReplyParams": "fixture-reply-params-7"
                },
                "commandMetadata": {
                 "webCommandMetadata": {
@@ -1382,7 +1382,7 @@
               "serviceEndpoint": {
                "clickTrackingParams": "fixture-click",
                "createCommentReplyEndpoint": {
-                "fixtureReplyField": "fixture-reply-params-8"
+                "createReplyParams": "fixture-reply-params-8"
                },
                "commandMetadata": {
                 "webCommandMetadata": {
@@ -1471,7 +1471,7 @@
               "serviceEndpoint": {
                "clickTrackingParams": "fixture-click",
                "createCommentReplyEndpoint": {
-                "fixtureReplyField": "fixture-reply-params-10"
+                "createReplyParams": "fixture-reply-params-10"
                }
               }
              }

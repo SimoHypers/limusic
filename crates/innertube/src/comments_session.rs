@@ -103,7 +103,6 @@ struct Entry {
     vote: Option<VoteState>,
     tokens: ActionTokens,
     writes: WriteCommands,
-    entity_key: Option<String>,
 }
 
 /// What stands in for a comment id in the busy set while the top-level comment is being posted.
@@ -113,17 +112,11 @@ const COMPOSER: &str = "\0composer";
 /// params or a token.
 pub struct WriteTicket {
     command: WriteCommand,
-    entity_key: Option<String>,
 }
 
 impl WriteTicket {
     pub fn command(&self) -> &WriteCommand {
         &self.command
-    }
-
-    /// The comment's entity key, to look for its delete mutation in an answer (debug line only).
-    pub fn entity_key(&self) -> Option<&str> {
-        self.entity_key.as_deref()
     }
 }
 
@@ -217,7 +210,6 @@ impl CommentsSession {
                 vote: comment.vote,
                 tokens: comment.tokens.clone(),
                 writes: comment.commands.clone(),
-                entity_key: comment.entity_key.get().map(str::to_owned),
             },
         );
     }
@@ -286,9 +278,8 @@ impl CommentsSession {
             return Err(ActionError::Busy);
         }
         let command = entry.writes.get(write).ok_or(ActionError::Unavailable)?.clone();
-        let entity_key = entry.entity_key.clone();
         self.busy.insert(key);
-        Ok(WriteTicket { command, entity_key })
+        Ok(WriteTicket { command })
     }
 
     /// The write is over. A delete that YouTube accepted forgets the comment, so nothing can be
@@ -319,7 +310,7 @@ impl CommentsSession {
         if !self.busy.insert((identity.to_owned(), COMPOSER.to_owned())) {
             return Err(ActionError::Busy);
         }
-        Ok(WriteTicket { command, entity_key: None })
+        Ok(WriteTicket { command })
     }
 
     pub fn finish_create(&mut self, identity: &str) {
@@ -571,11 +562,14 @@ mod tests {
             s.begin_write("a", &bare, CommentWrite::Edit),
             Err(ActionError::Unavailable)
         ));
-        let bad = comment_id(&page, "bad_reply_path");
+        // A reply with no `createReplyParams` is not offered; one with no apiUrl is (constant path).
+        let none = comment_id(&page, "reply_empty_payload");
         assert!(matches!(
-            s.begin_write("a", &bad, CommentWrite::Reply),
+            s.begin_write("a", &none, CommentWrite::Reply),
             Err(ActionError::Unavailable)
         ));
+        let no_path = comment_id(&page, "reply_no_api_url");
+        assert!(s.begin_write("a", &no_path, CommentWrite::Reply).is_ok());
     }
 
     #[test]

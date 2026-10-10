@@ -26,12 +26,13 @@ pub use models::browse::{
     SearchSuggestions, Section, SortMenu,
 };
 pub use models::comment_write::{
-    CommentWrite, Composer, WriteCommand, WriteCommands, COMMENT_CREATE_PATH, COMMENT_UPDATE_PATH,
+    CommentWrite, Composer, WriteCommand, WriteCommands, COMMENT_CREATE_PATH, COMMENT_REPLY_PATH,
+    COMMENT_UPDATE_PATH,
 };
 pub use models::comments::{
-    available_actions, delete_mutation, parse_written_comment, ActionTokens, Comment,
-    CommentAction, CommentAuthor, CommentReplies, CommentSort, CommentSortKey, CommentThread,
-    CommentsHeader, CommentsPage, CommentsState, DeleteMutation, VoteState,
+    available_actions, parse_written_comment, ActionTokens, Comment, CommentAction, CommentAuthor,
+    CommentReplies, CommentSort, CommentSortKey, CommentThread, CommentsHeader, CommentsPage,
+    CommentsState, VoteState,
 };
 pub use models::context::Locale;
 pub use models::lyrics::{PlainLyrics, TimedLyricLine};
