@@ -829,6 +829,7 @@ pub fn run() {
             commands::search_suggestions,
             commands::search_cards,
             commands::search_videos,
+            commands::song,
             commands::play,
             commands::play_index,
             commands::remove_from_queue,

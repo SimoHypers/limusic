@@ -40,6 +40,15 @@ pub async fn search_videos(state: St<'_>, query: String) -> Result<Vec<SongItem>
     Ok(result.items)
 }
 
+/// One song or video by id, for a pasted YouTube link (#441). `/next` is the one call that answers
+/// with the id's own title, artists and art; the seed comes back as one of its rows.
+#[tauri::command]
+pub async fn song(state: St<'_>, video_id: String) -> Result<SongItem, String> {
+    let client = metadata_client(&state)?;
+    let next = state.it.next(client, Some(&video_id), None).await.map_err(|e| e.to_string())?;
+    next.items.into_iter().find(|i| i.video_id == video_id).ok_or_else(|| "not_found".into())
+}
+
 /// Unfiltered search → categorized sections for the search page. `record_history` as in [`search`].
 #[tauri::command]
 pub async fn search_all(
