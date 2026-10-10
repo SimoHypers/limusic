@@ -343,6 +343,8 @@ export const search = (query: string, recordHistory = false) =>
 /** Video uploads only: covers, live sets and remixes with no official release. Empty when the
  *  "hide music videos" setting is on. */
 export const searchVideos = (query: string) => invoke<SongItem[]>('search_videos', { query });
+/** One song or video by id, title and art included (a pasted YouTube link). */
+export const song = (videoId: string) => invoke<SongItem>('song', { videoId });
 /** Unfiltered search → categorized sections. */
 export const searchAll = (query: string, recordHistory = false) =>
 	invoke<SearchResults>('search_all', { query, recordHistory });

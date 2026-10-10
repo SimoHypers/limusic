@@ -1075,6 +1075,7 @@
 		"change": "Change",
 		"choose": "Choose",
 		"search_ytm": "Search YouTube Music",
+		"paste_link_hint": "Only on YouTube as a video? Paste its link.",
 		"no_candidates": "No suggestions. Try a search.",
 		"keep": "Looks right",
 		"skip": "Leave out",
