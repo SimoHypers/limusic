@@ -1,13 +1,6 @@
-//! What the app remembers about the comments on screen, none of which the UI is allowed to see:
-//!
-//! - **Provenance of every token handed to the UI** (next page, sort, replies): which identity
-//!   issued it, anonymous or a specific account. A token goes back the way it came, and never as
-//!   an account that is no longer the active one.
-//! - **Action tokens** (like/unlike/dislike/undislike) per `(account identity, comment id)`, with
-//!   the vote they were read at. A token issued to one account or channel is never sent as another.
-//!
-//! Plain data, no I/O: the app wraps it in a `Mutex` and clears it on every auth change and when
-//! the loaded track changes. Both maps are bounded and drop their oldest entries first.
+//! What the app keeps about the comments on screen and never shows the UI: who issued each paging
+//! token, and each comment's vote, action tokens and write commands per account identity. Plain
+//! data; the app clears it on every auth change and track change.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
@@ -219,13 +212,8 @@ impl CommentsSession {
         self.tokens.map.get(token).cloned()
     }
 
-    /// Approve `action` on a comment for the account `identity`, or say why not. Marks the comment
-    /// busy until [`Self::finish_action`], so a second click cannot start a second request.
-    ///
-    /// Which actions are offered is exactly [`available_actions`] for the comment's vote and
-    /// tokens. A transition between like and dislike is therefore one request with the target
-    /// action's own token (what youtubei.js v18.1.0 does too), and an action with no token in the
-    /// current state is simply `Unavailable`: no two-step transition is ever invented.
+    /// Approve `action` on a comment for `identity` if [`available_actions`] offers it, and mark
+    /// the comment busy until [`Self::finish_action`]. Like to dislike is one request.
     pub fn begin_action(
         &mut self,
         identity: &str,

@@ -776,38 +776,30 @@ pub async fn get_home_more(state: St<'_>, token: String) -> Result<HomePage, Str
     state.it.home_continuation(client, &token).await.map_err(|e| e.to_string())
 }
 
-/// Why a comments command failed, as a stable word the UI maps to its own text. The UI never
-/// shows a string from Rust for these: a message from here is English, may name a URL, and is not
-/// what a user can act on. What went wrong is logged at debug level instead.
+/// Why a comments command failed, as a stable word the UI words itself. Details go to the debug log.
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommentsError {
-    /// The signed-in account (or channel) is not the one these comments were read as, or nobody
-    /// is signed in any more. The comments have to be reloaded.
+    /// The account changed or signed out since these comments were read: reload them.
     AccountChanged,
     /// A token this session does not know: forgotten, or from before the last reload.
     StaleToken,
     /// Another action on the same comment is still running.
     Busy,
-    /// The comment does not offer that action (no token for it in its current state).
+    /// The comment does not offer that action.
     Unavailable,
-    /// YouTube answered the action and did not accept it.
+    /// YouTube answered and did not accept it.
     Rejected,
-    /// YouTube answered 404 for a request about one comment: it no longer exists (it was
-    /// deleted, here or elsewhere). The UI drops the row.
+    /// YouTube answered 404: the comment no longer exists.
     Gone,
-    /// A post or reply whose outcome is unknown: the request may have reached YouTube and only
-    /// the answer was lost, so it may have been posted. Never retried; the UI offers a reload.
-    /// Only create and reply come back as this: an edit and a delete are idempotent, retried by
-    /// the transport, and a final failure is a plain `Failed`.
+    /// A post or reply that may have gone through (`Error::WriteUncertain`).
     Uncertain,
     /// Anything else: network, refusals, an unreadable answer.
     Failed,
 }
 
 impl CommentsError {
-    /// Classify an innertube error, logging what it was. The text of these errors holds no token
-    /// (tokens travel in request bodies only) and no account data.
+    /// Classify an innertube error, logging it (its text holds no token or account data).
     fn of(e: &innertube::Error) -> Self {
         tracing::debug!(error = %e, "comments command failed");
         match e {
@@ -819,14 +811,8 @@ impl CommentsError {
 }
 
 impl CommentsError {
-    /// [`Self::of`] for a request about one specific comment, where a 404 means it is gone.
-    /// `kind` (`like`, `reply`, `edit`, `delete`, ...) names the request in the log.
-    ///
-    /// Except for a reply and the edit of a reply (`edit_reply`): they go to a path that may be
-    /// inferred rather than named by a response (`COMMENT_REPLY_PATH`,
-    /// `COMMENT_UPDATE_REPLY_PATH`), so a 404 there may be the path and says nothing about the
-    /// comment. It is an ordinary failure, with the path and status in the log (`comment write
-    /// request failed`), and the row stays as it was.
+    /// [`Self::of`] for a request about one comment, where a 404 means it is gone. `kind` names
+    /// the request in the log.
     fn of_comment(e: &innertube::Error, kind: &'static str) -> Self {
         if e.is_not_found() && !may_be_a_wrong_path(kind) {
             tracing::debug!(kind, "comment request: the comment no longer exists (404)");
@@ -838,7 +824,7 @@ impl CommentsError {
     }
 }
 
-/// A write whose path may be our inferred constant, so a 404 on it does not mean the comment is gone.
+/// Writes whose 404 is not taken to mean gone.
 fn may_be_a_wrong_path(kind: &str) -> bool {
     matches!(kind, "reply" | "edit_reply")
 }
@@ -851,14 +837,8 @@ impl From<String> for CommentsError {
     }
 }
 
-/// First page of comments for a video: the token lookup and the first request both happen here, so
-/// the UI only ever holds tokens this returned. Comments off comes back as a `Disabled` page, not
-/// an error.
-///
-/// Signed in, it is read as the account (see `InnerTube::comments`), so the page can carry the
-/// viewer's own votes and the actions on offer, and falls back to an anonymous read by itself.
-/// Every token on the page is remembered here with who it was issued to; the action tokens stay
-/// here and are never sent to the UI. A new track starts a new set.
+/// First page of comments for a video (see `InnerTube::comments`). Starts a new session: every
+/// token on the page is remembered with who it was issued to.
 #[tauri::command]
 pub async fn get_comments(state: St<'_>, video_id: String) -> Result<CommentsPage, CommentsError> {
     let client = metadata_client(&state)?;
@@ -866,8 +846,7 @@ pub async fn get_comments(state: St<'_>, video_id: String) -> Result<CommentsPag
     let before = state.it.comments_identity();
     let page = state.it.comments(client, &video_id).await.map_err(|e| CommentsError::of(&e))?;
     let provenance = if page.read_as_account {
-        // Whoever signed in at the start of the read is who it was read as: if that changed
-        // meanwhile, the page and its tokens belong to nobody the app has now.
+        // If the account changed during the read, the page belongs to nobody signed in now.
         match (before, state.it.comments_identity()) {
             (Some(was), Some(is)) if was == is => Provenance::Account(is),
             _ => return Err(CommentsError::AccountChanged),
@@ -879,9 +858,7 @@ pub async fn get_comments(state: St<'_>, video_id: String) -> Result<CommentsPag
     Ok(page)
 }
 
-/// How a token handed to the UI may be sent back: the way it was issued, or not at all. An
-/// anonymous token goes anonymously; an account's goes as that account if it is still the active
-/// one, and otherwise nothing is sent and the UI is told to reload.
+/// How a token goes back: the way it was issued, and an account's only while that account is active.
 fn comments_token_origin(
     state: &Arc<AppState>,
     token: &str,
@@ -935,8 +912,7 @@ pub async fn get_comment_replies(
     Ok(replies)
 }
 
-/// What a comment looks like after an action YouTube accepted. No counts: the answer carries
-/// none, and the UI swaps between the two count strings the comment already has.
+/// A comment after an accepted action. No counts: the UI swaps the two it already has.
 #[derive(serde::Serialize)]
 pub struct CommentActionOutcome {
     pub vote: VoteState,
@@ -944,13 +920,8 @@ pub struct CommentActionOutcome {
     pub actions: Vec<CommentAction>,
 }
 
-/// Like, unlike, dislike or undislike one comment, as the signed-in account. The UI names the
-/// comment and the action; the token is looked up here, under the active account, and only if the
-/// comment's vote and tokens offer that action. A user's own action, so it goes the ordinary
-/// authenticated way (like `rate`), healer included.
-///
-/// Like to dislike (and back) is one request with the target action's own token, which is what
-/// youtubei.js v18.1.0 does; where that token is missing the action is simply not on offer.
+/// Like, unlike, dislike or undislike one comment. The token is looked up here under the active
+/// account, and only if the comment offers that action.
 #[tauri::command]
 pub async fn comment_action(
     state: St<'_>,
@@ -969,8 +940,7 @@ pub async fn comment_action(
             },
         )?;
     let sent = state.it.comment_action(client, ticket.token(), action.name()).await;
-    // Under the identity it was sent as, whoever is active now: a switch mid-request leaves the
-    // answer where it belongs and the new account's comments untouched.
+    // Under the identity it was sent as, whoever is active now.
     let accepted = sent.is_ok().then_some(ticket.resulting_vote);
     let after = state.comments.lock().unwrap().finish_action(&identity, &comment_id, accepted);
     if sent.as_ref().err().is_some_and(innertube::Error::is_not_found) {
@@ -984,18 +954,10 @@ pub async fn comment_action(
     })
 }
 
-// --- writing comments --------------------------------------------------------------------
-//
-// Post, reply, edit and delete replay a command the signed-in read issued for exactly that (see
-// `innertube::WriteCommand`), looked up here under the active account: nothing is built from
-// what the UI sends but the text and the id of the comment. They are the user's own actions, so
-// they go the ordinary authenticated way (healer included), need a login, and are refused for a
-// command issued to another account or channel. Posting and replying are never sent twice
-// (`InnerTube::comment_write`); a lost answer comes back as `uncertain`. An edit and a delete
-// are idempotent, so they take the ordinary path, retries included.
+// --- writing comments: replay the command the active account's read issued (see
+// `innertube::WriteCommand`); the UI sends only the comment id and the text. ---------------
 
-/// The text of a comment about to be sent: trimmed, and not empty. YouTube's own limit is not
-/// ours to guess at; a response that names none leaves it to YouTube.
+/// The text of a comment about to be sent: trimmed, and not empty.
 fn comment_text(text: &str) -> Result<&str, CommentsError> {
     let text = text.trim();
     if text.is_empty() {
@@ -1029,16 +991,12 @@ async fn write_on_comment(
         .unwrap()
         .begin_write(&identity, comment_id, write)
         .map_err(write_denied)?;
-    // `edit` or `edit_reply` for an edit, so the two can be told apart in the logs.
     let kind = ticket.command().log_kind(write);
-    // An edit (the same text twice gives the same result) and a delete may be sent again by the
-    // transport; a reply may not.
     let sent = state
         .it
         .comment_write(client, ticket.command(), kind, text, write != CommentWrite::Reply)
         .await;
-    // Under the identity it was sent as, whoever is active now. A delete that went through, and
-    // a comment YouTube says is gone (404), are forgotten; not on a path that may be inferred.
+    // Under the identity it was sent as. A delete that went through, and a 404, forget the comment.
     let gone = !may_be_a_wrong_path(kind)
         && sent.as_ref().err().is_some_and(innertube::Error::is_not_found);
     state.comments.lock().unwrap().finish_write(
@@ -1050,9 +1008,7 @@ async fn write_on_comment(
     Ok((answer, identity))
 }
 
-/// A comment the viewer just wrote, from an answer: if it has no Edit or Delete (the answer's
-/// toolbar surface carried no menu, or the comment came from its entity alone), say so once, with
-/// the key names and types under it. They then appear on it after the next read.
+/// Logs the key names under a just-written comment that came back without Edit or Delete.
 fn log_written_menu(kind: &'static str, comment: &Comment, answer: &serde_json::Value) {
     let offered = |w| comment.writes.contains(&w);
     if comment.own && !offered(CommentWrite::Edit) && !offered(CommentWrite::Delete) {
@@ -1065,10 +1021,7 @@ fn log_written_menu(kind: &'static str, comment: &Comment, answer: &serde_json::
     }
 }
 
-/// Post a new top-level comment on the track whose comments are on screen. Returns the comment
-/// when the answer carried it, built by the same parser as a read; `None` otherwise, and the UI
-/// shows a row of its own for the text it sent. Nothing is reloaded: reads right after a write
-/// do not reliably include it yet.
+/// Post a top-level comment on the track on screen. Returns it when the answer carried it.
 #[tauri::command]
 pub async fn comment_create(
     state: St<'_>,
@@ -1087,7 +1040,6 @@ pub async fn comment_create(
     let thread = innertube::parse_written_comment(&answer);
     if let Some(thread) = &thread {
         log_written_menu("create", &thread.comment, &answer);
-        // Its own tokens and commands, so it can be liked, edited and deleted right away.
         let who = Provenance::Account(identity);
         state.comments.lock().unwrap().remember_thread(&who, thread);
     }

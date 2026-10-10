@@ -27,10 +27,7 @@ pub const FILTER_ALBUM: &str = "EgWKAQIYAWoKEAkQChAFEAMQBA%3D%3D";
 pub const FILTER_ARTIST: &str = "EgWKAQIgAWoKEAkQChAFEAMQBA%3D%3D";
 pub const FILTER_COMMUNITY_PLAYLIST: &str = "EgeKAQQoAEABagoQAxAEEAoQCRAF";
 
-/// Where a comment's like/unlike/dislike/undislike goes. The path is confirmed by a capture from
-/// the real YouTube Music web client (HTTP 200, `actionResults[0].status`); the request body is
-/// not: `{context, actions: [<token>]}` follows youtubei.js v18.1.0 (MIT) and our transport sends
-/// it as plain JSON where the web client gzips it. UNVERIFIED.
+/// A comment's like/unlike/dislike/undislike and delete: `{context, actions: [<token>]}`.
 pub const COMMENT_ACTION_PATH: &str = "comment/perform_comment_action";
 
 impl InnerTube {
@@ -262,21 +259,12 @@ impl InnerTube {
         Ok(next)
     }
 
-    // --- comments (read-only). All of it goes through `next`: a comments token sent to `browse`
-    // is answered 200 with the Home feed. ---------------------------------------------------
+    // --- comments. Reads go through `next`: a comments token sent to `browse` is answered with
+    // the Home feed. -----------------------------------------------------------------------
 
-    /// First page of comments for a video. Looks the first-page token up on the `next` response
-    /// (the Comments tab), then loads it. No token means the comments are turned off, which comes
-    /// back as `CommentsState::Disabled` rather than an error.
-    ///
-    /// Signed in, the whole chain (tab lookup, then first page) is read as the account, through
-    /// [`InnerTube::post_no_heal`] so it can never wake the session healer. If either request is
-    /// refused (401/403) the WHOLE chain is redone anonymously, starting from a fresh tab lookup:
-    /// a token issued to an authenticated request is never replayed into an anonymous one.
-    /// `CommentsPage::read_as_account` says which of the two happened.
-    ///
-    /// An audio track (ATV) has a comment thread of its own, separate from its music video's: the
-    /// id is never remapped here.
+    /// First page of comments for a video (the Comments tab's token, then its page); no token is
+    /// `CommentsState::Disabled`. Signed in, both requests go as the account without the healer;
+    /// a 401/403 redoes the whole chain anonymously, so an account's token is never sent without it.
     pub async fn comments(
         &self,
         client: &YouTubeClient,
@@ -336,13 +324,9 @@ impl InnerTube {
         Ok(page)
     }
 
-    /// The next page of comments, or the comments in another order: pagination and sort tokens
-    /// both load through here (the header's sort entries carry their own tokens).
-    ///
-    /// `as_account` must be how the page that issued `token` was read (its
-    /// `read_as_account`): a token goes back the way it came. A refusal is NOT retried
-    /// anonymously, since that would replay an account's token without it. It comes back as a
-    /// plain error and the caller offers a retry or a reload.
+    /// The next page of comments, or another sort (the header's sort entries carry tokens).
+    /// `as_account` is how the page that issued `token` was read; a refusal is not retried
+    /// anonymously.
     pub async fn comments_continuation(
         &self,
         client: &YouTubeClient,
@@ -400,14 +384,8 @@ impl InnerTube {
         .await
     }
 
-    /// Send one comment action (like, unlike, dislike, undislike): `token` is the opaque string a
-    /// comment's own toolbar command carried (see `ActionTokens`), replayed as it came. The way
-    /// `feedback` replays a library token, and like `rate` this is a user's own action: it goes
-    /// through the ordinary authenticated path, healer included. `kind` names it in the logs.
-    ///
-    /// Success is HTTP 200 AND a status of `STATUS_SUCCEEDED`, in `actionResults[0]` or in
-    /// `actionResult` (see [`answer_verdict`]). A different status, or none, is a rejection. The
-    /// token is never part of an error or a log line.
+    /// Like, unlike, dislike or undislike: replays the comment's own toolbar token, through the
+    /// ordinary path like `rate`. Needs `STATUS_SUCCEEDED` ([`answer_verdict`]).
     pub async fn comment_action(
         &self,
         client: &YouTubeClient,
@@ -417,9 +395,8 @@ impl InnerTube {
         self.send_action(client, token, kind, false).await.map(|_| ())
     }
 
-    /// [`Self::comment_action`], and the delete of a comment, which is the same replay. With
-    /// `missing_ok` an answer with no status at all (and no `error`) is accepted instead of
-    /// rejected: that is the rule for a delete, as for a post or an edit. Returns the answer.
+    /// [`Self::comment_action`] and a delete. `missing_ok` accepts an answer with no status (a
+    /// delete's). Returns the answer.
     async fn send_action(
         &self,
         client: &YouTubeClient,
@@ -438,8 +415,6 @@ impl InnerTube {
         let value = match self.post(path, client, &body, true).await {
             Ok(value) => value,
             Err(e) => {
-                // What to look at if the web client's gzipped body turns out to matter: the
-                // status and the names of the keys we sent, never what was in them.
                 if let Error::Http(h) = &e {
                     tracing::debug!(
                         kind,
@@ -460,9 +435,7 @@ impl InnerTube {
                 Err(Error::ActionRejected)
             }
             Verdict::Missing => {
-                // A delete's answer (live) has no status and no mutations: its `actions[]` has a
-                // `removeCommentAction`, which is the definitive success marker, and an
-                // `openPopupAction` (the web client's own toast), which is ignored and only noted.
+                // A delete's answer has no status; its `actions[]` carries a `removeCommentAction`.
                 let marker = missing_ok && has_action(&value, "removeCommentAction");
                 let popup = has_action(&value, "openPopupAction");
                 if marker {
@@ -499,32 +472,9 @@ impl InnerTube {
         }
     }
 
-    /// Replay a command the server issued for writing a comment (see `WriteCommand`): post a
-    /// comment, reply, edit or delete. The command and its params came from a signed-in read and
-    /// are sent as they were; `text` is added for the ones that take it, as `commentText` or, for a
-    /// reply's edit, the unverified `replyText` (`WriteCommand::text_field`). `kind`
-    /// (`create`, `reply`, `edit`, `edit_reply`, `delete`) names it in the logs, next to the path it
-    /// went to. A 400 also logs YouTube's own `error.status` and `error.message` (the transport
-    /// does, for any `comment/…` path), so a field the server did not take can be named.
-    ///
-    /// `replayable` says whether sending it twice is harmless. Posting and replying are not (a
-    /// retry after a lost answer would post twice), so those go through [`InnerTube::post_write`],
-    /// which never retries and reports a lost answer as `Error::WriteUncertain`. An edit (setting
-    /// the same text twice gives the same result) and a delete pass `true` and take the ordinary
-    /// path, retries included. A user's own action, so the healer may run on a refusal, like
-    /// `rate`.
-    ///
-    /// Success is HTTP 200 with no `error` and no status other than `STATUS_SUCCEEDED` (in
-    /// `actionResults[0]` or `actionResult`). An answer with no status at all is accepted for
-    /// every write, delete included, and its shape is logged. A delete (a token replay) that gets
-    /// a 404 has nothing left to do: the comment is already gone, so that is success too. A 404 on
-    /// an edit is not: the edit did not happen.
-    /// The shape of the answer (key names only) is logged at debug level. Neither the command,
-    /// the params nor the text appear in an error or a log line.
-    ///
-    /// Returns the answer, for the caller to look for the comment it put on the page
-    /// (`parse_written_comment`) or the entity a delete removed (`delete_mutation`); `Null` for a
-    /// 404 on a delete.
+    /// Replays a write command from a signed-in read, with `text` in the command's text field.
+    /// `replayable` writes (edit, delete) use `post`; the others use [`InnerTube::post_write`]. A
+    /// 404 on a delete is success (`Null`). Returns the answer.
     pub async fn comment_write(
         &self,
         client: &YouTubeClient,
@@ -537,8 +487,7 @@ impl InnerTube {
             // A `performCommentActionEndpoint` token: the same replay as a vote.
             WriteCommand::Action(token) => {
                 return match self.send_action(client, token, kind, true).await {
-                    // A token replay is the delete, which is idempotent: a 404 means the comment
-                    // is already gone, which is what it was for.
+                    // A token replay is a delete: a 404 means it is already gone.
                     Err(e) if e.is_not_found() => {
                         tracing::debug!(
                             kind,
@@ -550,8 +499,6 @@ impl InnerTube {
                 };
             }
             WriteCommand::Endpoint { path, payload } => {
-                // The path is glued onto the fixed base URL as text, so it must be a plain
-                // `comment/…` path whoever built the command. Nothing is sent otherwise.
                 if !crate::models::comment_write::is_plain_comment_path(path) {
                     tracing::debug!(
                         kind,
@@ -606,14 +553,8 @@ impl InnerTube {
         client.login_supported && self.is_logged_in()
     }
 
-    /// One comments `next` request, sent either as the account or as nobody.
-    ///
-    /// As the account it carries the cookie, SAPISIDHASH and `onBehalfOfUser`, so the answer can
-    /// hold the viewer's own like/dislike state, but through [`InnerTube::post_no_heal`]: a side
-    /// panel's read must never be able to wake the session healer. A 401/403 comes back as
-    /// `Error::Http` for the caller to decide on. Anonymously it is `context_anonymous` with no
-    /// cookie and no auth header, the read that always worked. If the session went away since the
-    /// caller decided, an account request is an error and never silently an anonymous one.
+    /// One comments `next` request, as the account through [`InnerTube::post_no_heal`] or
+    /// anonymously. An account request with nobody signed in is an error, never an anonymous one.
     async fn comments_send<B: Serialize>(
         &self,
         client: &YouTubeClient,
@@ -1545,12 +1486,9 @@ struct Answer {
     feedback: String,
 }
 
-/// Read an answer to a comment action or write. Success is `STATUS_SUCCEEDED` in
-/// `actionResults[0].status` (the capture of a like: `actionResults: [{ "status":
-/// "STATUS_SUCCEEDED", "feedback": "FEEDBACK_LIKE" }]`) OR in `actionResult.status` (the capture
-/// of an edit, a singular object: `status`, `feedbackText`). Either shape works for every comment
-/// action and write. Another status is a rejection; none at all is `Missing`, which the caller
-/// decides on. A top-level `error` is a rejection.
+/// Read an answer to a comment action or write: `STATUS_SUCCEEDED` in `actionResults[0]` (a vote)
+/// or `actionResult` (an edit) succeeds; another status or a top-level `error` is a rejection;
+/// none is `Missing`, for the caller to decide.
 fn answer_verdict(value: &serde_json::Value) -> Answer {
     use serde_json::Value;
     fn enum_like(v: Option<&str>) -> String {
@@ -1579,9 +1517,8 @@ fn answer_verdict(value: &serde_json::Value) -> Answer {
 
 /// The shape of a write's answer, as one string: the key names of the object, of EVERY entry of
 /// `actions[]` and of `actionResult`, the kinds of payload in `frameworkUpdates`' mutations (with
-/// counts), and the `actionResult.status` enum. Key names, counts and one enum: no id, text or
-/// token, so that a first live post can be understood from one log line. Also whether an action
-/// is a `runAttestationCommand`.
+/// counts), and the `actionResult.status` enum: no id, text or token. Also whether an action is a
+/// `runAttestationCommand`.
 fn write_answer_shape(value: &serde_json::Value) -> (String, bool) {
     use serde_json::Value;
     let names = |v: Option<&Value>| -> String {
@@ -1638,7 +1575,6 @@ fn log_write_answer(kind: &'static str, path: &str, value: &serde_json::Value) {
 
 /// One line per signed-in page: how many comments offer Reply, and, if any does not, the key names
 /// of the first comment's reply command and where a path would come from (see `reply_probe`).
-/// Reply needs the endpoint to name a `comment/…` path, which no source lets us guess.
 fn log_reply_commands(value: &serde_json::Value, page: &CommentsPage) {
     let all = || page.threads.iter().flat_map(|t| std::iter::once(&t.comment).chain(&t.replies));
     let total = all().count();
@@ -1707,8 +1643,7 @@ fn log_viewer_state_gaps(value: &serde_json::Value, page: &CommentsPage) {
     }
 }
 
-/// What a comments request that YouTube refused reads as. Plain wording: no "session expired",
-/// which would send a signed-in user to the sign-in flow over a side panel.
+/// A refused comments request, worded so it never reads as "session expired".
 const COMMENTS_REFUSED: &str = "YouTube refused the request for comments.";
 
 /// A 401/403: YouTube said no to this request.
@@ -1716,9 +1651,7 @@ fn is_refusal(e: &Error) -> bool {
     matches!(e, Error::Http(h) if h.status().is_some_and(|s| s == 401 || s == 403))
 }
 
-/// A comments failure is just that. Neither a refusal nor `SessionExpired` (which these reads no
-/// longer reach, since they use `post_no_heal` or go anonymous) may tell a signed-in user to sign
-/// in again over a side panel.
+/// A refusal or `SessionExpired` on a comments read is a plain failure, never a sign-in prompt.
 fn comments_error(e: Error) -> Error {
     if is_refusal(&e) || matches!(e, Error::SessionExpired) {
         Error::Other(COMMENTS_REFUSED.into())
@@ -2214,7 +2147,7 @@ mod tests {
 
     #[test]
     fn success_is_a_succeeded_status_in_either_answer_shape() {
-        // `actionResults: [..]` (a like) and `actionResult: {..}` (an edit, as captured live).
+        // `actionResults: [..]` (a like) and `actionResult: {..}` (an edit).
         let like = json!({ "actionResults": [{ "status": "STATUS_SUCCEEDED", "feedback": "FEEDBACK_LIKE" }] });
         let edit = json!({ "actionResult": { "status": "STATUS_SUCCEEDED", "feedbackText": { "runs": [] } } });
         for ok in [&like, &edit] {
@@ -2351,7 +2284,7 @@ mod tests {
         }
     }
 
-    /// The live answer to a delete: no status, no mutations, `actions` with a `removeCommentAction`
+    /// A delete's answer: no status, no mutations, `actions` with a `removeCommentAction`
     /// (success) and an `openPopupAction` (the web client's toast, ignored). The marker is what
     /// counts; without it a 200 with no status and no error is accepted as the fallback.
     #[tokio::test]

@@ -1,31 +1,7 @@
-//! Writing comments: finding, in a signed-in read response, the commands the server issued for
-//! posting a comment, replying, and (for the viewer's own comments) editing and deleting.
-//!
-//! Nothing here builds a request out of thin air. A command is whatever the response carried,
-//! replayed the way youtubei.js v18.1.0 (MIT) replays one (`NavigationEndpoint`): unwrap
-//! `innertubeCommand`, take the one key ending in `Endpoint`, send its fields (plus the text) to the
-//! `apiUrl` the response names. What the reference has, and does not have:
-//!
-//! - **Create**: `Comments.createComment` takes the comment box's `submitButton` endpoint
-//!   (`createCommentEndpoint.createCommentParams`) from the response and calls `comment/create_comment`
-//!   with it and `commentText`. FROM-REFERENCE.
-//! - **Reply**: `CommentView.reply` takes the reply dialog's `replyButton` endpoint from the
-//!   response and sends its own payload plus `commentText` to the `apiUrl` the endpoint names (it has
-//!   no class and no path constant of its own). FROM-REFERENCE. That dialog and button exist in a
-//!   live signed-in response (VERIFIED); what is inside the button's endpoint is not.
-//! - **Edit and delete**: youtubei.js v18.1.0 has neither (searched the whole tag). They are read
-//!   from the viewer's OWN comment's menu, by exact structure, as a live signed-in response shows
-//!   it (VERIFIED): `engagementToolbarSurfaceEntityPayload.menuCommand…menuRenderer.items[]`, an
-//!   item whose `navigationEndpoint` opens an `updateCommentDialogEndpoint` (edit) or a
-//!   `confirmDialogEndpoint` (delete). Delete replays the confirm button's action token; edit
-//!   sends `{context, commentText, updateCommentParams}`. A reply's Edit is a different dialog
-//!   (VERIFIED live): `updateCommentReplyDialogEndpoint`, whose `commentReplyDialogRenderer`
-//!   `replyButton` carries `updateCommentReplyEndpoint.updateReplyParams`; it sends
-//!   `{context, replyText, updateReplyParams}` (the text field is UNVERIFIED, see
-//!   [`REPLY_EDIT_TEXT_FIELD`]).
-//!
-//! Every command is opaque and stays in Rust: `Debug` prints no payload and no token, and none of
-//! these types is serialized to the UI.
+//! Write commands (post, reply, edit, delete) taken from a signed-in comments response and
+//! replayed as issued, the way youtubei.js v18.1.0 (MIT) replays a `NavigationEndpoint`. Edit and
+//! delete come from the viewer's own comment menu, matched by structure. Commands stay in Rust:
+//! `Debug` prints no payload or token, and none is serialized to the UI.
 
 use std::fmt;
 
@@ -34,7 +10,7 @@ use serde_json::{Map, Value};
 
 use super::metadata::find_all;
 
-/// `Comments.createComment` / `CreateCommentEndpoint` in youtubei.js v18.1.0. UNVERIFIED live.
+/// As youtubei.js (MIT) `Comments.createComment`.
 pub const COMMENT_CREATE_PATH: &str = "comment/create_comment";
 
 /// What a viewer can write on a comment.
@@ -73,19 +49,14 @@ pub enum WriteCommand {
     Endpoint { path: String, payload: Map<String, Value> },
 }
 
-/// The body field for the text of every write that takes one, except a reply's edit. VERIFIED
-/// live for create, reply and a comment's edit.
+/// The body field for a write's text.
 pub const TEXT_FIELD: &str = "commentText";
 
-/// The body field for the new text of a reply's edit (`comment/update_comment_reply`).
-/// UNVERIFIED: inferred from naming, not from a reference (youtubei.js v18.1.0 has no edit).
-/// `commentText` there was refused live with 400 `INVALID_ARGUMENT`. One field is sent; nothing
-/// tries other names at runtime.
+/// The body field for a reply's new text (`comment/update_comment_reply`).
 pub const REPLY_EDIT_TEXT_FIELD: &str = "replyText";
 
 impl WriteCommand {
-    /// The body field this write's text goes in: [`REPLY_EDIT_TEXT_FIELD`] for a reply's edit
-    /// (`updateReplyParams`), [`TEXT_FIELD`] for everything else.
+    /// The body field this write's text goes in.
     pub fn text_field(&self) -> &'static str {
         match self {
             WriteCommand::Endpoint { payload, .. } if payload.contains_key("updateReplyParams") => {
@@ -95,8 +66,7 @@ impl WriteCommand {
         }
     }
 
-    /// The name of a write in log lines: [`CommentWrite::name`], except that editing a reply
-    /// (`updateReplyParams`) is `edit_reply`, so the two edits can be told apart.
+    /// The name of a write in log lines; a reply's edit is `edit_reply`.
     pub fn log_kind(&self, write: CommentWrite) -> &'static str {
         match self {
             WriteCommand::Endpoint { payload, .. }
@@ -154,10 +124,8 @@ fn comment_path(api_url: &str) -> Option<String> {
     is_plain_comment_path(path).then(|| path.to_owned())
 }
 
-/// A path relative to `https://music.youtube.com/youtubei/v1/` that stays under `comment/`: lowercase
-/// letters, digits, `_` and `/` only, so no scheme, host, port, `.`, `?`, `#`, `%`, `@`, backslash,
-/// whitespace or non-ASCII can be in it, and no empty segment (`//`). Checked when a command is
-/// read AND again when one is sent, since the path is glued onto the fixed base URL as text.
+/// A path under `comment/` made of lowercase letters, digits, `_` and single `/` only. Checked on
+/// read and again on send, since the path is appended to the base URL as text.
 pub(crate) fn is_plain_comment_path(path: &str) -> bool {
     path.starts_with("comment/")
         && path.len() > "comment/".len()
@@ -200,11 +168,8 @@ fn runs_text(v: Option<&Value>) -> Option<String> {
     v?.pointer("/runs/0/text").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned)
 }
 
-/// The comment box in `commentsHeaderRenderer.createRenderer.commentSimpleboxRenderer`: its
-/// placeholder, and the `createCommentEndpoint.createCommentParams` the submit button carries.
-/// Both are required for a composer to be offered; the signed-out box has a sign-in endpoint and
-/// no submit button, so it yields nothing. The params are server-issued: this never builds them
-/// (youtubei.js's `InteractionManager.comment` does build a protobuf; that path is not taken).
+/// The comment box (`createRenderer.commentSimpleboxRenderer`): its placeholder and the submit
+/// button's `createCommentParams`. The signed-out box has no submit button, so it yields nothing.
 pub(crate) fn create_command(header: &Value) -> Option<(Composer, WriteCommand)> {
     let simplebox = header.pointer("/createRenderer/commentSimpleboxRenderer")?;
     let button = simplebox.pointer("/submitButton/buttonRenderer")?;
@@ -224,17 +189,11 @@ pub(crate) fn create_command(header: &Value) -> Option<(Composer, WriteCommand)>
     ))
 }
 
-/// Where a reply goes when its button's command names no plain `comment/…` path (a live response
-/// does not). UNVERIFIED, and not from a reference: youtubei.js v18.1.0 has no reply path (it
-/// replays the `apiUrl` the response names, and a live one names none). It is inferred from the
-/// naming of the verified paths (`comment/create_comment`, `comment/update_comment`,
-/// `comment/perform_comment_action`), exactly like [`COMMENT_UPDATE_PATH`]. A path the response
-/// does name always wins. A 404 on it is never taken to mean the comment is gone.
+/// Reply path; the reply button names none.
 pub const COMMENT_REPLY_PATH: &str = "comment/create_comment_reply";
 
-/// A comment's reply command, off its toolbar surface entity's `replyCommand` (VERIFIED live:
-/// `…createCommentReplyDialogEndpoint.dialog.commentReplyDialogRenderer` with `replyButton`), and
-/// the dialog's placeholder.
+/// A comment's reply command (`replyCommand…commentReplyDialogRenderer.replyButton`) and the
+/// dialog's placeholder.
 pub(crate) fn reply_command(surface: &Value) -> Option<(Option<String>, WriteCommand)> {
     let dialog =
         find_all(surface.get("replyCommand")?, "commentReplyDialogRenderer").into_iter().next()?;
@@ -243,10 +202,8 @@ pub(crate) fn reply_command(surface: &Value) -> Option<(Option<String>, WriteCom
     Some((runs_text(dialog.get("placeholderText")), command))
 }
 
-/// The reply button's command, and where its path came from (`apiUrl` or `constant`). VERIFIED
-/// live: its `createCommentReplyEndpoint` carries `createReplyParams` and no `apiUrl`. Sent as
-/// `{context, commentText, createReplyParams}`; offered only when `createReplyParams` is a
-/// non-empty string.
+/// The reply button's command, and where its path came from (`apiUrl` or `constant`). Needs a
+/// non-empty `createReplyParams`.
 fn reply_of(button: &Value) -> Option<(WriteCommand, &'static str)> {
     let service =
         ["serviceEndpoint", "navigationEndpoint", "command"].iter().find_map(|k| button.get(k))?;
@@ -267,11 +224,8 @@ fn reply_of(button: &Value) -> Option<(WriteCommand, &'static str)> {
     Some((WriteCommand::Endpoint { path, payload }, source))
 }
 
-/// Key names (never values) of what a comment's reply command carries, for the debug line that
-/// says why Reply is or is not offered: the button, its service endpoint, the endpoint's payload
-/// fields, the command metadata, and whether the `apiUrl` is there and is a plain `comment/…`
-/// path, and whether `createReplyParams` is there. `source` is where the path comes from:
-/// `apiUrl`, `constant` (the unverified fallback) or `none` (no reply is offered).
+/// Key names (never values) of a comment's reply command, for the debug line that says why Reply
+/// is or is not offered.
 pub(crate) fn reply_probe(surface: &Value) -> String {
     fn names(v: Option<&Value>) -> String {
         v.and_then(Value::as_object)
@@ -318,20 +272,13 @@ pub(crate) fn reply_probe(surface: &Value) -> String {
 
 const MAX_DEPTH: usize = 24;
 
-/// Where editing falls back to when the update button's command names no usable path. UNVERIFIED:
-/// it is the name `updateCommentEndpoint` suggests and the pattern of the other comment paths
-/// (`comment/create_comment`, `comment/perform_comment_action`), not something a response said.
-/// A live response so far carries `commandMetadata.webCommandMetadata.apiUrl` for it, which wins.
+/// Edit path when the update button names none.
 pub const COMMENT_UPDATE_PATH: &str = "comment/update_comment";
 
-/// Where editing a REPLY goes when its button's command names no plain `comment/…` path.
-/// UNVERIFIED, and not from a reference (youtubei.js v18.1.0 has no edit at all): inferred from
-/// the naming of the verified paths `comment/create_comment_reply` and `comment/update_comment`.
-/// A path the response does name always wins. A 404 on it is never taken to mean the reply is
-/// gone: it may be this path that is wrong.
+/// A reply's edit path when its button names none.
 pub const COMMENT_UPDATE_REPLY_PATH: &str = "comment/update_comment_reply";
 
-/// One of the two edit dialogs a menu item can open, by exact structure (both VERIFIED live).
+/// One of the two edit dialogs a menu item can open.
 struct EditShape {
     /// Its name in log lines.
     kind: &'static str,
@@ -342,7 +289,7 @@ struct EditShape {
     /// The endpoint and its params field, under that service endpoint's command.
     endpoint: &'static str,
     field: &'static str,
-    /// The path when the command names no usable one (UNVERIFIED, both).
+    /// The path when the command names none.
     fallback: &'static str,
 }
 
@@ -376,8 +323,7 @@ pub(crate) struct MenuCommands {
     pub delete: Option<WriteCommand>,
 }
 
-/// The items of every `menuRenderer` under the toolbar surface entity's `menuCommand`. VERIFIED in
-/// a live response: `menuCommand/innertubeCommand/menuEndpoint/menu/menuRenderer/items[]`.
+/// The items of every `menuRenderer` under the toolbar surface entity's `menuCommand`.
 fn menu_items(surface: &Value) -> Vec<&Value> {
     let Some(menu) = surface.get("menuCommand") else { return Vec::new() };
     find_all(menu, "menuRenderer")
@@ -393,18 +339,8 @@ fn item_renderer(item: &Value) -> Option<&Value> {
     item.as_object()?.values().find(|v| v.get("navigationEndpoint").is_some())
 }
 
-/// Edit, by structure (VERIFIED live), in one of two shapes ([`EDIT_SHAPES`]):
-/// - a comment: the item's `navigationEndpoint` is an `updateCommentDialogEndpoint` whose
-///   `commentDialogRenderer.submitButton…serviceEndpoint` holds an `updateCommentEndpoint` with an
-///   `updateCommentParams` string; sent as `{context, commentText, updateCommentParams}`;
-/// - a reply: an `updateCommentReplyDialogEndpoint` whose
-///   `commentReplyDialogRenderer.replyButton…serviceEndpoint` holds an `updateCommentReplyEndpoint`
-///   with an `updateReplyParams` string; sent as `{context, replyText, updateReplyParams}`
-///   ([`REPLY_EDIT_TEXT_FIELD`]).
-///
-/// To the path that command names, or to the shape's constant when it names none (UNVERIFIED
-/// fallbacks; which one was used is logged at debug level). The dialog's `editableText` is the
-/// prefill. Returns the shape's log name too.
+/// Edit, in one of the [`EDIT_SHAPES`]: the command, the dialog's `editableText` prefill, and the
+/// shape's log name.
 fn edit_of(navigation: &Value) -> Option<(WriteCommand, Option<String>, &'static str)> {
     EDIT_SHAPES.iter().find_map(|shape| edit_in(navigation, shape))
 }
@@ -427,16 +363,15 @@ fn edit_in(
         Some(None) => (shape.fallback.to_owned(), "constant (the apiUrl was not a comment path)"),
         None => (shape.fallback.to_owned(), "constant (no apiUrl)"),
     };
-    // A path that passed `comment_path` or is our constant: not secret.
+    // A plain comment path or a constant: not secret.
     tracing::debug!(kind = shape.kind, source, path = %path, "edit command path");
     let payload = Map::from_iter([(shape.field.to_owned(), Value::String(params.into()))]);
     let text = editable_text(dialog.get("editableText"));
     Some((WriteCommand::Endpoint { path, payload }, text, shape.kind))
 }
 
-/// Delete, by structure (VERIFIED live): the item's `navigationEndpoint` is a `confirmDialogEndpoint`
-/// whose `confirmDialogRenderer.confirmButton…serviceEndpoint` is a `performCommentActionEndpoint`
-/// with an action token: replayed like a vote.
+/// Delete: a `confirmDialogEndpoint` whose confirm button holds a `performCommentActionEndpoint`
+/// token, replayed like a vote.
 fn delete_of(navigation: &Value) -> Option<WriteCommand> {
     let service = unwrap_command(navigation).pointer(
         "/confirmDialogEndpoint/content/confirmDialogRenderer/confirmButton/buttonRenderer/serviceEndpoint",
@@ -684,8 +619,7 @@ mod tests {
         service
     }
 
-    /// The probe says which keys the live reply endpoint has and where the path comes from, and
-    /// never a value.
+    /// The probe names keys and the path source, never a value.
     #[test]
     fn the_reply_probe_names_keys_and_the_path_source_and_never_values() {
         let named = reply_surface(json!({ "replyButton": { "buttonRenderer": { "text": "secret",
@@ -694,9 +628,8 @@ mod tests {
             reply_probe(&named),
             "reply: button=serviceEndpoint,text service=commandMetadata,createCommentReplyEndpoint endpoint=createCommentReplyEndpoint:createReplyParams commandMetadata=webCommandMetadata webCommandMetadata=apiUrl apiUrl=string apiUrl_plain=true createReplyParams=string source=apiUrl"
         );
-        // The live case: params, and no apiUrl.
-        let live = reply_button(reply_service(None, json!("secret-value")));
-        let probe = reply_probe(&live);
+        // Params and no apiUrl: the constant.
+        let probe = reply_probe(&reply_button(reply_service(None, json!("secret-value"))));
         assert!(
             probe.ends_with(
                 "apiUrl=missing apiUrl_plain=false createReplyParams=string source=constant"
@@ -719,7 +652,7 @@ mod tests {
     }
 
     /// A reply is offered when `createReplyParams` is a non-empty string. Its path is the one the
-    /// response names if that is a plain comment path, else the (unverified) constant.
+    /// response names if that is a plain comment path, else the constant.
     #[test]
     fn a_reply_needs_createreplyparams_and_takes_its_path_from_the_response_or_the_constant() {
         let path_and_params =
@@ -731,7 +664,7 @@ mod tests {
                 Some(other) => panic!("{other:?}"),
                 None => None,
             };
-        // The live shape: no apiUrl, so the constant.
+        // No apiUrl: the constant.
         assert_eq!(
             path_and_params(reply_service(None, json!("R1"))),
             Some((COMMENT_REPLY_PATH.to_owned(), "R1".to_owned()))
@@ -797,7 +730,7 @@ mod tests {
         assert!(reply_command(&json!({})).is_none());
     }
 
-    /// The real structure, with placeholders (SYNTHETIC values on a VERIFIED shape).
+    /// A toolbar surface whose menu holds `items`.
     fn menu(items: Vec<Value>) -> Value {
         json!({ "menuCommand": { "innertubeCommand": { "menuEndpoint": { "menu": { "menuRenderer": {
             "items": items } } } } } })
@@ -818,7 +751,7 @@ mod tests {
         json!({ "menuNavigationItemRenderer": renderer })
     }
 
-    /// A reply's Edit, in the live structure (SYNTHETIC values on a VERIFIED shape).
+    /// A reply's Edit menu item.
     fn reply_edit_item(icon: Option<&str>, api_url: Option<&str>, params: Value) -> Value {
         let mut service = json!({ "updateCommentReplyEndpoint": { "updateReplyParams": params } });
         if let Some(url) = api_url {
@@ -901,9 +834,8 @@ mod tests {
     }
 
     /// A reply's Edit is its own dialog: `updateReplyParams` is sent (nothing else from the
-    /// endpoint), to the path the command names when it is plain, else to the unverified
-    /// constant; `editableText` is the prefill. A half of one shape and a half of the other is
-    /// not an edit.
+    /// endpoint), to the path the command names when it is plain, else to the constant;
+    /// `editableText` is the prefill. A half of one shape and a half of the other is not an edit.
     #[test]
     fn a_replys_edit_is_matched_by_its_own_dialog_structure() {
         let edit = |item: Value| menu_commands(&menu(vec![item]));

@@ -546,14 +546,12 @@ export interface Comment {
 	published?: string;
 	/** The count as it reads for the viewer's current vote. */
 	like_count?: string;
-	/** The count if the viewer has not liked it / if they have. Display strings, either may be
-	 *  absent (YouTube sends none for zero): never add one to a count, swap between these. */
+	/** The count if the viewer has not liked it / has. Swap between these, never add to one. */
 	like_count_notliked?: string;
 	like_count_liked?: string;
-	/** The viewer's vote; absent when the response carried none (read anonymously). */
+	/** The viewer's vote; absent when read anonymously. */
 	vote?: CommentVote;
-	/** What the viewer can do to this comment now. Empty means static: no buttons. The only
-	 *  thing the like/dislike buttons go by (never `CommentsPage.read_as_account`). */
+	/** What the viewer can do to this comment now; the vote buttons go by this alone. */
 	actions: CommentAction[];
 	reply_count?: string;
 	hearted: boolean;
@@ -562,8 +560,7 @@ export interface Comment {
 	own: boolean;
 	/** What the edit dialog pre-fills, when the response had it plainly; edit `text` otherwise. */
 	edit_text?: string;
-	/** What the viewer can write on it: exactly what the response offered. `reply` on a comment
-	 *  that took replies, `edit` and `delete` only on one's own and only if found. Empty signed out. */
+	/** What the viewer can write on it, as the response offered. Empty signed out. */
 	writes: CommentWrite[];
 	/** The reply box's placeholder, if the response sent one. */
 	reply_placeholder?: string;
@@ -607,8 +604,6 @@ export interface CommentsPage {
 	/** Next page of top-level comments; absent is the end of the list. */
 	continuation?: string;
 	state: CommentsState;
-	/** The request was sent as the signed-in account. Not "viewer state is present": go by each
-	 *  comment's `vote` and `actions`. */
 	read_as_account: boolean;
 }
 
@@ -624,18 +619,7 @@ export interface CommentActionOutcome {
 	actions: CommentAction[];
 }
 
-/**
- * Why a comments command failed. Rust sends one of these words and never a message, so the UI
- * words every failure itself.
- *  - `account_changed` / `stale_token`: the comments belong to a session that is gone; reload.
- *  - `busy`: another action on that comment is still running; ignore.
- *  - `unavailable`: the comment does not offer that action.
- *  - `rejected`: YouTube answered and did not accept the action.
- *  - `gone`: YouTube says the comment no longer exists (a 404 on a request about it): drop it.
- *  - `uncertain`: a post or reply whose outcome is unknown (the answer was lost): it may have been
- *    posted, so offer a reload and never resend by itself.
- *  - `failed`: anything else (network, refusals).
- */
+/** Why a comments command failed: `CommentsError` in `src-tauri/src/commands.rs`. */
 export type CommentsErrorKind =
 	| 'account_changed'
 	| 'stale_token'
@@ -667,13 +651,11 @@ export const getCommentsMore = (token: string) =>
 	invoke<CommentsPage>('get_comments_more', { token });
 export const getCommentReplies = (token: string) =>
 	invoke<CommentReplies>('get_comment_replies', { token });
-/** Like, unlike, dislike or undislike one comment, as the signed-in account. Only an action in
- *  that comment's own `actions`; the token never reaches the UI. */
+/** Like, unlike, dislike or undislike one comment; only an action in its `actions`. */
 export const commentAction = (commentId: string, action: CommentAction) =>
 	invoke<CommentActionOutcome>('comment_action', { commentId, action });
-/** Post a top-level comment on the track whose comments are loaded. Needs the header's
- *  `composer`. Never retried by Rust: a lost answer rejects with `uncertain`. Resolves with the
- *  posted comment when YouTube's answer carried it, otherwise `null` (show a row of your own). */
+/** Post a top-level comment (needs the header's `composer`). Resolves with the posted comment
+ *  when YouTube's answer carried it, otherwise `null`. */
 export const commentCreate = (text: string) =>
 	invoke<CommentThread | null>('comment_create', { text });
 /** Reply to a comment that offers `reply`. Resolves with the reply as for `commentCreate`. */

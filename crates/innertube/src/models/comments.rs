@@ -148,15 +148,9 @@ impl std::fmt::Debug for ActionTokens {
     }
 }
 
-/// The token inside one toolbar command: `performCommentActionEndpoint.action` (a string), or the
-/// first of `.actions` (an array of them), whichever the response uses, under the command's
-/// `innertubeCommand` wrapper (or `command` / `performOnceCommand`). Searched for rather than
-/// pinned to one path, so a wrapper YouTube adds does not lose the action.
-///
-/// FROM-REFERENCE youtubei.js v18.1.0 (MIT): `CommentView.applyMutations` takes the four
-/// commands off the surface entity, `NavigationEndpoint` unwraps `innertubeCommand`/`command`/
-/// `performOnceCommand`, and `PerformCommentActionEndpoint.buildRequest` reads `action` or
-/// `actions`. The shape of a signed-in command is NOT a capture of ours: UNVERIFIED.
+/// The token inside one toolbar command: `performCommentActionEndpoint.action`, or the first of
+/// `.actions`. Searched for, so a wrapper YouTube adds does not lose it. Ported from youtubei.js
+/// (MIT) `CommentView.applyMutations` / `PerformCommentActionEndpoint`.
 fn action_token(command: &Value) -> Option<String> {
     let endpoint = find_all(command, "performCommentActionEndpoint").into_iter().next()?;
     let token = endpoint
@@ -213,9 +207,8 @@ pub struct Comment {
     /// What the edit dialog pre-fills (`editableText`), when the response had it in a plain shape;
     /// the UI edits `text` otherwise.
     pub edit_text: Option<String>,
-    /// What the viewer can write on it: exactly the commands the response carried. Reply on any
-    /// comment that offered it; edit and delete only on one's own, and only if found (UNVERIFIED,
-    /// see `comment_write`). Empty read anonymously.
+    /// What the viewer can write on it: exactly the commands the response carried. Edit and
+    /// delete only on one's own. Empty read anonymously.
     pub writes: Vec<CommentWrite>,
     /// The reply box's placeholder, if the response sent one.
     pub reply_placeholder: Option<String>,
@@ -256,12 +249,8 @@ pub struct CommentsPage {
     /// Next page of top-level comments; `None` is the end of the list.
     pub continuation: Option<String>,
     pub state: CommentsState,
-    /// `true` when the request that produced this page was sent as the signed-in account (cookie,
-    /// auth header, `onBehalfOfUser`). It says NOTHING about whether viewer state is present: a
-    /// request sent as the account can still come back without it, and an anonymous page can
-    /// carry neutral state. What a comment offers is in its own `vote` and `actions`, and that is
-    /// all the UI may go by. It is also how a token must be sent back (`as_account`). Set by the
-    /// endpoint, never the parser.
+    /// The request was sent as the signed-in account, so its tokens go back that way. Set by the
+    /// endpoint. Not a sign of viewer state: go by each comment's `vote` and `actions`.
     pub read_as_account: bool,
 }
 
@@ -618,12 +607,8 @@ pub(crate) fn reply_probe_of_page(root: &Value) -> Option<String> {
     })
 }
 
-/// The comment a write put on the page, if its answer carries it: the thread itself
-/// (`commentThreadRenderer`, with its entities in `frameworkUpdates`), or failing that just the
-/// viewer's own comment entity in the answer's mutations, which gives the row with no actions or
-/// write commands until the next read. `None` when the answer holds neither, and the caller shows
-/// a local row instead. Never reloads anything. UNVERIFIED which of these a live answer holds;
-/// what keys an answer has is logged at debug level.
+/// The comment a write put on the page: the answer's `commentThreadRenderer`, or failing that the
+/// viewer's own comment entity in its mutations. `None` when the answer holds neither.
 pub fn parse_written_comment(root: &Value) -> Option<CommentThread> {
     let entities = Entities::new(root);
     if let Some(thread) =
@@ -721,12 +706,12 @@ mod tests {
     const REPLIES: &str = include_str!("../../tests/fixtures/comments/replies.json");
     const EMPTY: &str = include_str!("../../tests/fixtures/comments/empty_zero.json");
     const TABS: &str = include_str!("../../tests/fixtures/comments/next_tabs.json");
-    /// SYNTHETIC (see the note inside it): not a live signed-in capture.
+    /// Signed-in vote cases.
     const SIGNED_IN: &str = include_str!("../../tests/fixtures/comments/signed_in_synthetic.json");
-    /// SYNTHETIC: a replies page in the live structure, with own and other replies, one nested.
+    /// A replies page with own and other replies, one nested.
     const REPLIES_WRITES: &str =
         include_str!("../../tests/fixtures/comments/signed_in_replies_write_synthetic.json");
-    /// SYNTHETIC too: write commands, with ASSUMED shapes for edit and delete.
+    /// Write command cases.
     const WRITES: &str =
         include_str!("../../tests/fixtures/comments/signed_in_write_synthetic.json");
 
@@ -753,8 +738,8 @@ mod tests {
         assert!(first.comment.reply_count.is_some());
         assert!(page.threads.iter().any(|t| t.comment.author.verified));
         assert!(page.threads.iter().filter(|t| t.comment.pinned).count() == 1);
-        // Anonymous captures: the state entity says neutral, and every command is empty, so
-        // there is nothing to offer and no token.
+        // Read anonymously: the state is neutral and every command is empty, so nothing is
+        // offered.
         for t in &page.threads {
             let c = &t.comment;
             assert_eq!(c.vote, Some(VoteState::Neutral), "anonymous read");
@@ -840,7 +825,6 @@ mod tests {
         assert_eq!(parse_comments_page(&root, true).threads.len(), all - 1);
     }
 
-    /// `isCreator` / `isArtist` were never true in the live samples.
     #[test]
     fn creator_and_artist_flags_are_read() {
         let root = json!({
@@ -975,8 +959,8 @@ mod tests {
         (c.vote, c.actions.clone())
     }
 
-    /// What each synthetic case reads as. The vote comes from the state entity and decides which
-    /// actions make sense; a token has to be present for each one.
+    /// The vote comes from the state entity and decides which actions make sense; a token has to
+    /// be present for each one.
     #[test]
     fn viewer_state_and_available_actions_follow_the_response() {
         use CommentAction::*;
@@ -1032,7 +1016,7 @@ mod tests {
         assert_eq!(neutral.tokens.get(CommentAction::Unlike), Some("fixture-token-unlike-1"));
         assert_eq!(neutral.tokens.get(CommentAction::Dislike), Some("fixture-token-dislike-1"));
         assert_eq!(neutral.tokens.get(CommentAction::Undislike), Some("fixture-token-undislike-1"));
-        // Present even where nothing is offered, so a later step can decide on its own.
+        // Kept even where nothing is offered.
         let missing_state = page.threads.iter().find(|t| t.comment.vote.is_none()).unwrap();
         assert!(missing_state.comment.tokens.get(CommentAction::Like).is_some());
 
@@ -1072,7 +1056,7 @@ mod tests {
     }
 
     /// Replies share the toolbar payloads with top-level comments: the same parser gives them
-    /// their own vote and tokens (UNVERIFIED that a live reply carries them).
+    /// their own vote and tokens.
     #[test]
     fn a_reply_with_the_same_toolbar_payloads_gets_the_same_state() {
         let root = load(SIGNED_IN);
@@ -1084,7 +1068,7 @@ mod tests {
         assert_eq!(liked.actions, [CommentAction::Unlike, CommentAction::Dislike]);
     }
 
-    /// The "read as the account" line is counts only. The synthetic page has 8 comments: 4
+    /// The "read as the account" line is counts only. The page has 8 comments: 4
     /// neutral (one of them offered nothing, one only `like`), 1 liked, 1 disliked, 2 with no vote.
     #[test]
     fn the_account_read_summary_counts_votes_and_offers_and_nothing_else() {
@@ -1150,7 +1134,7 @@ mod tests {
             ("own_edit_hostile_api_url", true, vec![Reply, Edit]),
             // An update button with no params is not an edit.
             ("own_edit_no_params", true, vec![Reply]),
-            // A reply button that names no path (the live case) or a foreign one is offered, on
+            // A reply button that names no path or a foreign one is offered, on
             // the constant path; one with no `createReplyParams` is not.
             ("bad_reply_path", false, vec![Reply]),
             ("reply_no_api_url", false, vec![Reply]),
@@ -1246,8 +1230,8 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
-        // The anonymous captures have a comment box with no submit button: no composer, no
-        // commands, and nothing to write on any comment.
+        // Read anonymously, the comment box has no submit button: no composer, no commands, and
+        // nothing to write on any comment.
         let anon = parse_comments_page(&load(INITIAL), true);
         let header = anon.header.unwrap();
         assert!(header.composer.is_none() && header.create.is_none());
@@ -1275,9 +1259,7 @@ mod tests {
         assert_eq!(own_comment_probe(&load(INITIAL)), None, "no own comment, no line");
     }
 
-    /// What a write's answer can hold, by what is in it. The shapes are SYNTHETIC: no live answer
-    /// is known to carry the comment (a live create answer has `actions` with an attestation
-    /// command and a `frameworkUpdates`), which is why a local row is the last resort.
+    /// A comment entity in a write's answer.
     fn own_entity(key: &str, id: &str, text: &str, own: bool) -> Value {
         json!({ "entityKey": key, "payload": { "commentEntityPayload": {
             "key": key,

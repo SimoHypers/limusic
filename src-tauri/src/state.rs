@@ -67,10 +67,8 @@ pub struct AppState {
     /// and throws the answer away if it moved: a like landing in that ~400 ms window is newer
     /// than what YouTube was asked, and applying the stale reply would flip the heart back.
     pub rate_epoch: AtomicU64,
-    /// What the comments panel's tokens mean: who issued each paging/sort/replies token, and the
-    /// like/dislike tokens of the comments on screen, per account identity. Never leaves Rust.
-    /// Cleared when the loaded track changes (`get_comments`) and on every auth change
-    /// ([`Self::clear_comments`]). A `std` mutex, never held across an `.await`.
+    /// The comments panel's tokens and commands. Cleared by `get_comments` and on every auth
+    /// change ([`Self::clear_comments`]). Never held across an `.await`.
     pub comments: std::sync::Mutex<innertube::CommentsSession>,
     /// A one-shot resume position `(videoId, secs)` set by `restore_queue` and consumed by the
     /// next `start_current` — applied only when that track is the one being started, so jumping to

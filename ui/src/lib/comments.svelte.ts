@@ -1,14 +1,6 @@
-// State behind the comments panel: the comments of one track, its sort, paging, per-thread
-// replies and the signed-in viewer's likes and dislikes. One track at a time, because the panel
-// only shows the playing one; `videoId` says which.
-//
-// Every request is guarded against the world having moved on while it was in flight (a track
-// change, a sort switch, a retry, a sign-in or account switch), the way `loadMore` in the home
-// page is: a response is applied only if `gen` and the token it was asked with are still current.
-//
-// Errors arrive as a kind word (`api.commentsErrorKind`), never as text. `account_changed` and
-// `stale_token` mean the comments belong to a session that is gone: the panel goes to `reload`
-// and shows its own button. Anything else is a toast the UI words itself.
+// State behind the comments panel, for the playing track (`videoId`). A response is applied only
+// if `gen` and the token it was asked with are still current, as in the home page's `loadMore`.
+// Errors arrive as a kind word (`api.commentsErrorKind`) and are worded here.
 import * as api from './api';
 import type {
 	Comment,
@@ -325,16 +317,8 @@ export async function actOnComment(c: Comment, action: CommentAction) {
 
 // --- writing: post, reply, edit, delete -------------------------------------------------------
 //
-// No optimistic insert for a post, reply or edit (YouTube may refuse the text): the composer shows
-// a pending state and keeps its text if anything goes wrong. A delete hides the row at once and
-// puts it back if it fails. Rust never resends a post or a reply, and a lost answer to one is
-// `uncertain`; an edit and a delete are idempotent, so the transport retries them and a final
-// failure is a plain one (the row keeps its text, the composer keeps the new one, a toast says so).
-//
-// After a post or a reply the list is NOT reloaded: YouTube's reads are not consistent right
-// after a write (a reload 0.26 s later did not have the comment). The row comes from the
-// answer when it carried the comment, and otherwise is built here from the text that was sent,
-// until the next read.
+// A post, reply or edit waits for the answer and keeps its text on failure; a delete hides the
+// row at once and puts it back on failure. Not reloaded after a write: reads lag behind writes.
 
 const emptyDraft = () => emptyBox();
 
@@ -377,11 +361,7 @@ function writeFailed(e: unknown, box: Box) {
 	toast.error(t(kind === 'rejected' ? 'toasts.comment_write_rejected' : 'toasts.comment_write_failed'));
 }
 
-/**
- * Show the list again from the top, in the current sort, drafts kept. Not used right after a
- * write (see above): it is the reload button of an `uncertain` write, where the point is to
- * check what YouTube has.
- */
+/** Show the list again from the top, in the current sort, drafts kept. */
 export async function reloadComments() {
 	const videoId = comments.videoId;
 	if (!videoId) return;
@@ -557,8 +537,6 @@ export async function confirmDelete(c: Comment | null) {
 			// Already gone is what a delete is for: nothing to say.
 			removeComment(c.id);
 		} else {
-			// A delete is idempotent, so a failure is just a failure: the row comes back, and
-			// pressing Delete again is safe.
 			delete comments.hidden[c.id];
 			if (kind !== 'busy') toast.error(t('toasts.comment_delete_failed'));
 		}

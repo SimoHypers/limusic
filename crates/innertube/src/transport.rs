@@ -61,13 +61,11 @@ pub enum Error {
     SessionExpired,
     #[error("This track is already in the playlist.")]
     AlreadyInPlaylist,
-    /// A post or reply whose outcome is unknown: the request may have reached YouTube and only the
-    /// answer was lost, so it may have been posted. Never retried automatically. (An edit and a
-    /// delete are idempotent: they are retried and never come back as this.)
+    /// A post or reply that may have reached YouTube with its answer lost. See
+    /// [`InnerTube::post_write`].
     #[error("The request may have reached YouTube.")]
     WriteUncertain,
-    /// A comment action that came back 200 without `STATUS_SUCCEEDED`. A variant of its own so
-    /// the app can tell "YouTube said no" from "the request failed" without reading a message.
+    /// A comment action or write answered 200 without success.
     #[error("YouTube did not accept that action.")]
     ActionRejected,
     #[error(
@@ -79,17 +77,14 @@ pub enum Error {
 }
 
 impl Error {
-    /// YouTube answered 404. For a request about one specific comment that means the comment is
-    /// gone (deleted, or never existed for this account), not that the request was wrong.
+    /// YouTube answered 404: for a request about one comment, the comment is gone.
     pub fn is_not_found(&self) -> bool {
         matches!(self, Error::Http(e) if e.status().is_some_and(|s| s.as_u16() == 404))
     }
 }
 
-/// YouTube's own `error.status` (an enum such as `INVALID_ARGUMENT`) and `error.message` from a
-/// 400 answer to a comment request, at debug level: they say which field it did not take, and
-/// hold no user data. The status is kept only if it is enum-like, the message is cut at 200
-/// characters, and nothing else of the answer is logged.
+/// Logs `error.status` (if enum-like) and `error.message` (cut at 200 characters) of a 400 to a
+/// comment request: they name the field YouTube did not take.
 async fn log_comment_refusal(path: &str, resp: reqwest::Response) {
     let value: serde_json::Value = resp.json().await.unwrap_or_default();
     let error = value.get("error");
@@ -363,13 +358,9 @@ impl InnerTube {
         self.session.read().unwrap().data_sync_id.clone()
     }
 
-    /// A key for "who is signed in right now", for keeping things that must not cross accounts or
-    /// channels (comment action tokens, the provenance of paging tokens). It covers the account's
-    /// `SAPISID` and the selected `data_sync_id`, so switching either changes it, while a rotated
-    /// `__Secure-*SIDTS` (which keeps the same account) does not. `None` when signed out.
-    ///
-    /// Only a hash: it is held in memory next to cached tokens and must not make a second copy of
-    /// the cookie's secret. Not for logging all the same.
+    /// Who is signed in, for comment tokens that must not cross accounts or channels: a hash of
+    /// `SAPISID` and `data_sync_id`, so a rotated `__Secure-*SIDTS` keeps it. `None` signed out.
+    /// Not for logging.
     pub fn comments_identity(&self) -> Option<String> {
         let s = self.session.read().unwrap();
         let sapisid = s.sapisid()?;
@@ -443,11 +434,8 @@ impl InnerTube {
         self.post_inner(path, client, body, set_login, true, true).await
     }
 
-    /// [`InnerTube::post`] for a request the user did not ask for and that must never put the
-    /// session at risk: it sends the same authenticated headers, but a 401/403 comes straight
-    /// back as `Error::Http` instead of raising `session_rejected` and parking the request on the
-    /// healer (a hidden webview, up to 45 s, a possible `auth-changed` page remount). The caller
-    /// decides what a refusal means, normally by asking again anonymously.
+    /// [`InnerTube::post`] that hands a 401/403 back as `Error::Http` instead of waking the healer,
+    /// for a read the user did not ask for. The caller decides, normally by asking anonymously.
     pub(crate) async fn post_no_heal<B: Serialize>(
         &self,
         path: &str,
@@ -458,15 +446,9 @@ impl InnerTube {
         self.post_inner(path, client, body, set_login, false, true).await
     }
 
-    /// [`InnerTube::post`] for a write that is not idempotent (posting a comment, replying): it is
-    /// never sent twice by this layer. The ordinary retry on a connect error or
-    /// timeout would post a duplicate whenever the request reached YouTube and only the answer was
-    /// lost. A refusal (401/403) is still healed and re-sent, since the server rejected that
-    /// request without acting on it.
-    ///
-    /// A failure that leaves open whether the write happened (the connection died or timed out
-    /// after the request went out, or the answer could not be read) is `Error::WriteUncertain`.
-    /// A connect failure means nothing was sent, so it stays a plain error.
+    /// [`InnerTube::post`] for a write that is not idempotent (post, reply): never retried, since a
+    /// lost answer would mean a duplicate. A refusal is still healed and re-sent. A failure after
+    /// the request went out (timeout, reset, unreadable answer) is `Error::WriteUncertain`.
     pub(crate) async fn post_write<B: Serialize>(
         &self,
         path: &str,
@@ -487,9 +469,8 @@ impl InnerTube {
         }
     }
 
-    /// `heal` is whether a 401/403 on a signed-in request may wake the healer, and `retry`
-    /// whether a connect error or timeout is sent again. Both are `true` for [`InnerTube::post`],
-    /// so its behaviour is the same as before the flags existed.
+    /// `heal`: a 401/403 on a signed-in request may wake the healer. `retry`: a connect error or
+    /// timeout is sent again. Both `true` for [`InnerTube::post`].
     async fn post_inner<B: Serialize>(
         &self,
         path: &str,

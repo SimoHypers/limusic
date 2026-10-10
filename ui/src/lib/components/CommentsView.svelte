@@ -47,9 +47,8 @@
 		if (comments.confirmDelete) toDelete = comments.confirmDelete;
 	});
 
-	// Pages arrive ~20 at a time, so a sentinel at the foot is enough: no windowing. Keyed on the
-	// thread count below, because a sentinel that stays in view after a short page would otherwise
-	// never fire again.
+	// A sentinel at the foot loads the next page. Keyed on the thread count below: one that stays in
+	// view after a short page would otherwise never fire again.
 	function watch(node: HTMLElement) {
 		const io = new IntersectionObserver(
 			(entries) => {
@@ -91,7 +90,13 @@
 				class="flex cursor-pointer items-center gap-1 text-xs font-medium text-primary"
 				onclick={() => toggleReplies(v)}
 			>
-				<HugeiconsIcon icon={v.open ? ArrowUp01Icon : ArrowDown01Icon} class="h-3.5 w-3.5" />
+				<!-- altIcon/showAlt, not a ternary: `icon` is frozen at mount -->
+				<HugeiconsIcon
+					icon={ArrowDown01Icon}
+					altIcon={ArrowUp01Icon}
+					showAlt={v.open}
+					class="h-3.5 w-3.5"
+				/>
 				{v.open ? t('comments.hide_replies') : repliesLabel(v.comment.reply_count)}
 			</button>
 		</div>
