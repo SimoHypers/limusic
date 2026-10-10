@@ -100,7 +100,7 @@ const FEATURES = [
 
 const EXTRAS = [
   { icon: KeyboardIcon, label: 'Media keys & shortcuts' },
-  { icon: LastFmIcon, label: 'Last.fm scrobbling' },
+  { icon: LastFmIcon, label: 'Last.fm + ListenBrainz scrobbling' },
   { icon: DiscordIcon, label: 'Discord Rich Presence' },
   { icon: Video01Icon, label: 'Music videos' },
   { icon: MaximizeScreenIcon, label: 'Theater mode' },

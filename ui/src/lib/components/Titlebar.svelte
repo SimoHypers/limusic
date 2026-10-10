@@ -37,6 +37,7 @@
 	import { anchorMenu, fitMenu, NO_ANCHOR } from '$lib/menu';
 	import { t } from '$lib/i18n.svelte';
 	import { connectLastfm, disconnectLastfm, lastfm, watchLastfm } from '$lib/lastfm.svelte';
+	import { watchListenBrainz } from '$lib/listenbrainz.svelte';
 
 	// `w` is this window; `win` (imported) is the shared frame state.
 	const w = getCurrentWindow();
@@ -80,6 +81,7 @@
 	}
 
 	onMount(watchLastfm);
+	onMount(watchListenBrainz);
 
 	function onScrobblerClick(e: MouseEvent) {
 		if (connecting) {

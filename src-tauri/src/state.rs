@@ -56,7 +56,8 @@ pub struct AppState {
     /// Discord rich presence. Fed the same track/playback changes as `media`; gated on the
     /// `discord_rpc` setting inside its own thread.
     discord: Option<DiscordHandle>,
-    /// Last.fm scrobbler. Same feed again; parks until a session key is set (titlebar button).
+    /// Last.fm + ListenBrainz scrobbler. Same feed again; each half parks until its own
+    /// credential is set (session key via the titlebar button, user token via Scrobbling settings).
     pub lastfm: crate::lastfm::LastfmHandle,
     queue: Mutex<QueueState>,
     /// Bumped on every explicit `play`/jump so superseded async resolves discard their result

@@ -1,9 +1,15 @@
-//! Last.fm scrobbling. A second consumer of the same track/duration/position stream that feeds
-//! `discord.rs` — but simpler: Last.fm doesn't care about live position, only two moments per
-//! track. `track.updateNowPlaying` when a track starts, and one `track.scrobble` once the track
+//! Last.fm + ListenBrainz scrobbling. One consumer of the same track/duration/position stream
+//! that feeds `discord.rs` — but simpler: neither service cares about live position, only two
+//! moments per track. A now-playing ping when a track starts, and one scrobble once the track
 //! has played half its length or 4 minutes, whichever comes first (Last.fm's official rule;
 //! tracks under 30s never scrobble). Both numbers are the user's to change in the Scrobbling
 //! settings tab (#327), along with what gets sent: see [`ScrobbleConfig`] and [`resolve`].
+//!
+//! One task, one clock: the [`Scrobbler`] holds the Last.fm session key next to the ListenBrainz
+//! user token and sends to whichever service is connected from the same `now_playing` and
+//! `scrobble`. Only the transports differ — Last.fm's signed calls live here, ListenBrainz's
+//! `submit-listens` calls in [`crate::listenbrainz`]. A fix to when a play counts (repeat-one,
+//! real played time) lands once, not in two tasks.
 //!
 //! Everything is best-effort (context/16 fail-soft, same as Discord/media): a failed scrobble is
 //! a `debug!` line, never a user-facing error. No offline queue — Last.fm accepts scrobbles up to
@@ -188,10 +194,12 @@ enum Msg {
     Position(f64),
     /// Session key set (connect) or cleared (disconnect).
     Session(Option<String>),
+    /// ListenBrainz user token set (connect) or cleared (disconnect).
+    Token(Option<String>),
     Config(Box<ScrobbleConfig>),
 }
 
-/// The track as YouTube describes it. What Last.fm gets is [`resolve`]d from this at send time, so
+/// The track as YouTube describes it. What gets sent is [`resolve`]d from this at send time, so
 /// a rule or edit saved mid-track still applies to that track's scrobble.
 #[derive(Default, serde::Deserialize)]
 #[serde(default)]
@@ -252,6 +260,12 @@ impl LastfmHandle {
         let _ = self.tx.send(Msg::Session(key));
     }
 
+    /// ListenBrainz connect/disconnect writes here (see `crate::listenbrainz`): same task, same
+    /// clock, second credential.
+    pub(crate) fn set_token(&self, token: Option<String>) {
+        let _ = self.tx.send(Msg::Token(token));
+    }
+
     fn bump_gen(&self) -> u64 {
         self.auth_gen.fetch_add(1, Ordering::SeqCst) + 1
     }
@@ -261,12 +275,16 @@ impl LastfmHandle {
     }
 }
 
-/// Spawn the scrobbler task. `session_key` is the persisted login; `None` parks the task until
-/// the user connects.
-pub fn spawn(session_key: Option<String>, cfg: ScrobbleConfig) -> LastfmHandle {
+/// Spawn the scrobbler task. `session_key` is the persisted Last.fm login and `lb_token` the
+/// persisted ListenBrainz user token; `None` parks that half until the user connects.
+pub fn spawn(
+    session_key: Option<String>,
+    lb_token: Option<String>,
+    cfg: ScrobbleConfig,
+) -> LastfmHandle {
     let (tx, mut rx) = unbounded_channel::<Msg>();
     tauri::async_runtime::spawn(async move {
-        let mut s = Scrobbler::new(session_key, cfg);
+        let mut s = Scrobbler::new(session_key, lb_token, cfg);
         while let Some(msg) = rx.recv().await {
             s.apply(msg).await;
         }
@@ -276,17 +294,26 @@ pub fn spawn(session_key: Option<String>, cfg: ScrobbleConfig) -> LastfmHandle {
 
 struct Scrobbler {
     session: Option<String>,
+    lb_token: Option<String>,
     cfg: ScrobbleConfig,
     track: Option<Track>,
-    /// Epoch secs when the current track started — the scrobble's `timestamp`.
+    /// Epoch secs when the current track started — the scrobble's `timestamp` / `listened_at`.
     started_at: u64,
     duration: f64,
     scrobbled: bool,
 }
 
 impl Scrobbler {
-    fn new(session: Option<String>, cfg: ScrobbleConfig) -> Self {
-        Scrobbler { session, cfg, track: None, started_at: 0, duration: 0.0, scrobbled: false }
+    fn new(session: Option<String>, lb_token: Option<String>, cfg: ScrobbleConfig) -> Self {
+        Scrobbler {
+            session,
+            lb_token,
+            cfg,
+            track: None,
+            started_at: 0,
+            duration: 0.0,
+            scrobbled: false,
+        }
     }
 
     async fn apply(&mut self, msg: Msg) {
@@ -315,34 +342,46 @@ impl Scrobbler {
                 }
             }
             Msg::Session(key) => self.session = key,
+            Msg::Token(token) => self.lb_token = token,
             // ponytail: "now playing" isn't re-sent on a config change. The tab saves as the user
-            // types, and Last.fm would get one call per pause in typing a rule.
+            // types, and each service would get one call per pause in typing a rule.
             Msg::Config(cfg) => self.cfg = *cfg,
         }
     }
 
-    /// The session key and what to send, or `None` when this track isn't going to Last.fm.
-    fn outgoing(&self) -> Option<(&str, Resolved)> {
-        let (Some(sk), Some(t)) = (&self.session, &self.track) else { return None };
+    /// What the current track resolves to, or `None` when nothing is sent anywhere: scrobbling
+    /// off, no track yet, or this track skips. Which services it goes to is decided at send
+    /// time, from whichever credential is set.
+    fn outgoing(&self) -> Option<Resolved> {
+        let t = self.track.as_ref()?;
         if !self.cfg.enabled {
             return None;
         }
         let r = resolve(t, &self.cfg);
-        r.skip.is_none().then_some((sk.as_str(), r))
+        r.skip.is_none().then_some(r)
     }
 
     async fn now_playing(&self) {
         if !self.cfg.now_playing {
             return;
         }
-        let Some((sk, r)) = self.outgoing() else { return };
+        let Some(r) = self.outgoing() else { return };
+        if let Some(sk) = self.session.as_deref() {
+            self.now_playing_lastfm(sk, &r).await;
+        }
+        if let Some(token) = self.lb_token.as_deref() {
+            self.now_playing_listenbrainz(token, &r).await;
+        }
+    }
+
+    async fn now_playing_lastfm(&self, sk: &str, r: &Resolved) {
         let mut params = vec![
-            ("artist".to_string(), r.artist),
+            ("artist".to_string(), r.artist.clone()),
             ("track".to_string(), r.title.clone()),
             ("sk".to_string(), sk.to_string()),
         ];
         if !r.album.is_empty() {
-            params.push(("album".to_string(), r.album));
+            params.push(("album".to_string(), r.album.clone()));
         }
         match call("track.updateNowPlaying", params, true).await {
             Ok(_) => tracing::debug!(track = %r.title, "last.fm now playing sent"),
@@ -350,16 +389,36 @@ impl Scrobbler {
         }
     }
 
+    async fn now_playing_listenbrainz(&self, token: &str, r: &Resolved) {
+        let video_id = self.track.as_ref().map(|t| t.video_id.as_str()).unwrap_or("");
+        let payload = serde_json::json!([{
+            "track_metadata": crate::listenbrainz::track_metadata(r, video_id, self.duration),
+        }]);
+        match crate::listenbrainz::submit(token, "playing_now", payload).await {
+            Ok(_) => tracing::debug!(track = %r.title, "listenbrainz now playing sent"),
+            Err(e) => tracing::debug!(error = %e, "listenbrainz now playing failed"),
+        }
+    }
+
     async fn scrobble(&self) {
-        let Some((sk, r)) = self.outgoing() else { return };
+        let Some(r) = self.outgoing() else { return };
+        if let Some(sk) = self.session.as_deref() {
+            self.scrobble_lastfm(sk, &r).await;
+        }
+        if let Some(token) = self.lb_token.as_deref() {
+            self.scrobble_listenbrainz(token, &r).await;
+        }
+    }
+
+    async fn scrobble_lastfm(&self, sk: &str, r: &Resolved) {
         let mut params = vec![
-            ("artist".to_string(), r.artist),
+            ("artist".to_string(), r.artist.clone()),
             ("track".to_string(), r.title.clone()),
             ("timestamp".to_string(), self.started_at.to_string()),
             ("sk".to_string(), sk.to_string()),
         ];
         if !r.album.is_empty() {
-            params.push(("album".to_string(), r.album));
+            params.push(("album".to_string(), r.album.clone()));
         }
         if self.duration > 0.0 {
             params.push(("duration".to_string(), (self.duration as i64).to_string()));
@@ -369,26 +428,38 @@ impl Scrobbler {
             Err(e) => tracing::warn!(error = %e.message, "last.fm scrobble failed"),
         }
     }
+
+    async fn scrobble_listenbrainz(&self, token: &str, r: &Resolved) {
+        let video_id = self.track.as_ref().map(|t| t.video_id.as_str()).unwrap_or("");
+        let payload = serde_json::json!([{
+            "listened_at": self.started_at,
+            "track_metadata": crate::listenbrainz::track_metadata(r, video_id, self.duration),
+        }]);
+        match crate::listenbrainz::submit(token, "single", payload).await {
+            Ok(_) => tracing::info!(track = %r.title, "submitted listen to listenbrainz"),
+            Err(e) => tracing::warn!(error = %e, "listenbrainz listen failed"),
+        }
+    }
 }
 
 /// What a track scrobbles as, and why. The scrobbler sends `artist`/`title`/`album` unless `skip`
 /// is set; the settings tab renders all of it as its preview, so the two can never disagree.
 #[derive(serde::Serialize)]
 pub struct Resolved {
-    artist: String,
-    title: String,
-    album: String,
+    pub artist: String,
+    pub title: String,
+    pub album: String,
     /// Why nothing is sent: `edit` (the user's edit says skip) or `incomplete` (no title or artist
     /// left, or an untagged local file).
-    skip: Option<&'static str>,
+    pub skip: Option<&'static str>,
     /// Index into `edits` of the edit that decided this track.
-    edit: Option<usize>,
+    pub edit: Option<usize>,
     /// The video title was split into artist and song.
-    split: bool,
+    pub split: bool,
     /// Indices of the rules that changed something, in order.
-    rules: Vec<usize>,
+    pub rules: Vec<usize>,
     /// Rules whose pattern doesn't compile, by index, with the reason. They are skipped.
-    errors: Vec<(usize, String)>,
+    pub errors: Vec<(usize, String)>,
 }
 
 impl Resolved {

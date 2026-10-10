@@ -2248,6 +2248,38 @@ pub async fn lastfm_preview(
     crate::lastfm::resolve(&track, &crate::lastfm::ScrobbleConfig::parse(&config))
 }
 
+// --- ListenBrainz scrobbling ------------------------------------------------------------------
+
+/// Same scrobbling settings as Last.fm (the shared `lastfm_config` blob); only the account
+/// differs: a user token pasted from ListenBrainz settings, validated before it is stored.
+
+/// Validate `token` against ListenBrainz and store it. Returns the error rather than emitting
+/// it: a pasted token is validated synchronously, unlike Last.fm's browser round-trip.
+#[tauri::command]
+pub async fn listenbrainz_connect(state: St<'_>, token: String) -> Result<(), String> {
+    crate::listenbrainz::connect(state.inner().clone(), token).await
+}
+
+#[tauri::command]
+pub async fn listenbrainz_disconnect(state: St<'_>) -> Result<(), String> {
+    crate::listenbrainz::disconnect(&state);
+    Ok(())
+}
+
+/// `{ connected, username }` from the persisted token — seeds the Scrobbling tab on mount.
+#[tauri::command]
+pub async fn listenbrainz_status(state: St<'_>) -> Result<serde_json::Value, String> {
+    Ok(crate::listenbrainz::status(&state))
+}
+
+/// Listen count for the Scrobbling tab's account card. One ListenBrainz call per tab open.
+#[tauri::command]
+pub async fn listenbrainz_profile(
+    state: St<'_>,
+) -> Result<Option<crate::listenbrainz::Profile>, String> {
+    Ok(crate::listenbrainz::profile(&state).await)
+}
+
 /// Theater mode's fullscreen toggle (#139).
 ///
 /// `setFullscreen` on its own is not enough on Windows. tao decides the client area in

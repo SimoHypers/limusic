@@ -14,6 +14,7 @@ mod import;
 #[cfg(target_os = "linux")]
 mod inhibit;
 mod lastfm;
+mod listenbrainz;
 mod listentogether;
 mod local;
 mod lyrics;
@@ -554,9 +555,11 @@ pub fn run() {
                 discord::RpcConfig::parse(db.get_setting("discord_rpc_config").as_deref()),
             );
 
-            // Last.fm scrobbler — parks until a session key exists (titlebar connect flow).
+            // Scrobbler — one task, one clock for Last.fm + ListenBrainz. Each half parks until
+            // its own credential exists (session key via the titlebar flow, user token via settings).
             let lastfm = lastfm::spawn(
                 db.get_setting("lastfm_session_key").filter(|s| !s.is_empty()),
+                db.get_setting("listenbrainz_token").filter(|s| !s.is_empty()),
                 lastfm::ScrobbleConfig::load(&db),
             );
 
@@ -944,6 +947,10 @@ pub fn run() {
             commands::lastfm_status,
             commands::lastfm_preview,
             commands::lastfm_profile,
+            commands::listenbrainz_connect,
+            commands::listenbrainz_disconnect,
+            commands::listenbrainz_status,
+            commands::listenbrainz_profile,
             commands::theater_fullscreen,
             commands::release_notes,
             commands::can_self_update,
