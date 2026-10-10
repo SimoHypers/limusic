@@ -77,6 +77,14 @@ pub enum Error {
     Other(String),
 }
 
+impl Error {
+    /// YouTube answered 404. For a request about one specific comment that means the comment is
+    /// gone (deleted, or never existed for this account), not that the request was wrong.
+    pub fn is_not_found(&self) -> bool {
+        matches!(self, Error::Http(e) if e.status().is_some_and(|s| s.as_u16() == 404))
+    }
+}
+
 /// Session state, set once at startup / login. context/01 §mutable session state.
 #[derive(Debug, Clone, Default)]
 pub struct Session {
@@ -977,6 +985,20 @@ mod tests {
         it.set_base_url(&dead);
         let got = it.post_write("comment/x", web, &serde_json::json!({}), true).await;
         assert!(matches!(got, Err(Error::Http(_))), "a connect failure sent nothing: {got:?}");
+    }
+
+    #[tokio::test]
+    async fn a_404_is_not_found_and_other_failures_are_not() {
+        let clients = crate::clients::Clients::bundled();
+        let web = clients.get(crate::clients::METADATA_CLIENT).unwrap();
+        for (status, gone) in [(404, true), (400, false), (403, false), (500, false)] {
+            let server = crate::test_server::MockServer::start(move |_| (status, "{}".into()));
+            let it = signed_in_against(&server);
+            let got = it.post_write("comment/x", web, &serde_json::json!({}), false).await;
+            let err = got.expect_err("a non-2xx is an error");
+            assert_eq!(err.is_not_found(), gone, "{status}: {err:?}");
+        }
+        assert!(!Error::ActionRejected.is_not_found() && !Error::WriteUncertain.is_not_found());
     }
 
     #[test]

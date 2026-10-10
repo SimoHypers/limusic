@@ -34,6 +34,27 @@ use super::metadata::find_all;
 /// `Comments.createComment` / `CreateCommentEndpoint` in youtubei.js v18.1.0. UNVERIFIED live.
 pub const COMMENT_CREATE_PATH: &str = "comment/create_comment";
 
+/// A comment's own entity key (`commentViewModel.commentKey`), kept only to tell whether an
+/// answer's mutations delete that comment. Opaque, never serialized, and `Debug` shows nothing.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct EntityKey(Option<String>);
+
+impl EntityKey {
+    pub fn new(key: Option<&str>) -> Self {
+        EntityKey(key.map(str::to_owned))
+    }
+
+    pub fn get(&self) -> Option<&str> {
+        self.0.as_deref()
+    }
+}
+
+impl fmt::Debug for EntityKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("EntityKey(<redacted>)")
+    }
+}
+
 /// What a viewer can write on a comment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -41,6 +62,17 @@ pub enum CommentWrite {
     Reply,
     Edit,
     Delete,
+}
+
+impl CommentWrite {
+    /// The word for it in log lines.
+    pub fn name(self) -> &'static str {
+        match self {
+            CommentWrite::Reply => "reply",
+            CommentWrite::Edit => "edit",
+            CommentWrite::Delete => "delete",
+        }
+    }
 }
 
 /// The comment box at the top of the panel, as the UI needs it. Present only when the response
@@ -202,8 +234,51 @@ pub(crate) fn reply_command(surface: &Value) -> Option<(Option<String>, WriteCom
         find_all(surface.get("replyCommand")?, "commentReplyDialogRenderer").into_iter().next()?;
     let button = dialog.pointer("/replyButton/buttonRenderer")?;
     let (_, command) = button_command(button)?;
-    matches!(command, WriteCommand::Endpoint { .. })
+    // youtubei.js sends whatever fields the endpoint carries (`{...payload, commentText}`) to the
+    // `apiUrl` the response names, and names neither the path nor a field of its own: so a reply
+    // needs the path from the response (no path is guessed) and a payload that is not empty.
+    matches!(&command, WriteCommand::Endpoint { payload, .. } if !payload.is_empty())
         .then(|| (runs_text(dialog.get("placeholderText")), command))
+}
+
+/// Key names (never values) of what a comment's reply command carries, for the debug line that
+/// says why Reply is or is not offered: the button, its service endpoint, the endpoint's payload
+/// fields, the command metadata, and whether the `apiUrl` is there and is a plain `comment/…`
+/// path. `source=apiUrl` when a path would be taken from it, `source=none` otherwise.
+pub(crate) fn reply_probe(surface: &Value) -> String {
+    fn names(v: Option<&Value>) -> String {
+        v.and_then(Value::as_object)
+            .map(|o| o.keys().cloned().collect::<Vec<_>>().join(","))
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| "-".into())
+    }
+    let Some(command) = surface.get("replyCommand") else {
+        return "reply: no replyCommand".into();
+    };
+    let Some(dialog) = find_all(command, "commentReplyDialogRenderer").into_iter().next() else {
+        return "reply: replyCommand has no commentReplyDialogRenderer".into();
+    };
+    let button = dialog.pointer("/replyButton/buttonRenderer");
+    let service = button.and_then(|b| {
+        ["serviceEndpoint", "navigationEndpoint", "command"].iter().find_map(|k| b.get(k))
+    });
+    let data = service.map(unwrap_command);
+    let endpoint = data.and_then(endpoint_of);
+    let api_url = data
+        .and_then(|d| d.pointer("/commandMetadata/webCommandMetadata/apiUrl"))
+        .and_then(Value::as_str);
+    let plain = api_url.and_then(comment_path).is_some();
+    format!(
+        "reply: button={} service={} endpoint={}:{} commandMetadata={} webCommandMetadata={} apiUrl={} apiUrl_plain={plain} source={}",
+        names(button),
+        names(service),
+        endpoint.map_or("-", |(name, _)| name),
+        names(endpoint.map(|(_, payload)| payload)),
+        names(data.and_then(|d| d.get("commandMetadata"))),
+        names(data.and_then(|d| d.pointer("/commandMetadata/webCommandMetadata"))),
+        if api_url.is_some() { "string" } else { "missing" },
+        if plain { "apiUrl" } else { "none" },
+    )
 }
 
 const MAX_DEPTH: usize = 24;
@@ -472,13 +547,13 @@ mod tests {
         let (name, cmd) = replayable(&ep(
             "/youtubei/v1/comment/create_comment_reply",
             "createCommentReplyEndpoint",
-            json!({ "createReplyParams": "P" }),
+            json!({ "fixtureReplyField": "P" }),
         ))
         .unwrap();
         assert_eq!(name, "createCommentReplyEndpoint");
         let WriteCommand::Endpoint { path, payload } = cmd else { panic!("endpoint") };
         assert_eq!(path, "comment/create_comment_reply");
-        assert_eq!(payload["createReplyParams"], "P");
+        assert_eq!(payload["fixtureReplyField"], "P");
         // `command` and a bare command (no wrapper) read the same.
         let bare = json!({ "commandMetadata": { "webCommandMetadata": { "apiUrl": "/youtubei/v1/comment/x" } },
                            "xEndpoint": { "p": 1 } });
@@ -541,6 +616,56 @@ mod tests {
         assert!(create_command(&json!({})).is_none());
     }
 
+    /// The probe says which keys the live reply endpoint has and where a path would come from,
+    /// and never a value.
+    #[test]
+    fn the_reply_probe_names_keys_and_the_path_source_and_never_values() {
+        let named = reply_surface(
+            json!({ "replyButton": { "buttonRenderer": { "text": "secret", "serviceEndpoint": {
+            "commandMetadata": { "webCommandMetadata": { "sendPost": true, "apiUrl": "/youtubei/v1/comment/secret_path" } },
+            "createCommentReplyEndpoint": { "secretField": "secret-value" } } } } }),
+        );
+        assert_eq!(
+            reply_probe(&named),
+            "reply: button=serviceEndpoint,text service=commandMetadata,createCommentReplyEndpoint endpoint=createCommentReplyEndpoint:secretField commandMetadata=webCommandMetadata webCommandMetadata=apiUrl,sendPost apiUrl=string apiUrl_plain=true source=apiUrl"
+        );
+        let unnamed =
+            reply_surface(json!({ "replyButton": { "buttonRenderer": { "serviceEndpoint": {
+            "createCommentReplyEndpoint": { "secretField": "secret-value" } } } } }));
+        let probe = reply_probe(&unnamed);
+        assert!(probe.ends_with("apiUrl=missing apiUrl_plain=false source=none"), "{probe}");
+        // The probe only lists key names, so even a sensitive-looking value never shows. (Key
+        // names such as `secretField` do: they are schema, not data.)
+        assert!(!probe.contains("secret-value") && !reply_probe(&named).contains("secret_path"));
+        assert_eq!(reply_probe(&json!({})), "reply: no replyCommand");
+        assert_eq!(
+            reply_probe(&json!({ "replyCommand": {} })),
+            "reply: replyCommand has no commentReplyDialogRenderer"
+        );
+    }
+
+    /// A reply with no path in the response, or no payload to send, is not offered. No path is
+    /// made up for it: youtubei.js v18.1.0 has none either.
+    #[test]
+    fn a_reply_needs_a_path_from_the_response_and_a_payload() {
+        let button = |service: Value| {
+            reply_surface(
+                json!({ "replyButton": { "buttonRenderer": { "serviceEndpoint": service } } }),
+            )
+        };
+        let with_path = |fields: Value| {
+            json!({
+            "commandMetadata": { "webCommandMetadata": { "apiUrl": "/youtubei/v1/comment/x_reply" } },
+            "createCommentReplyEndpoint": fields })
+        };
+        assert!(reply_command(&button(with_path(json!({ "f": 1 })))).is_some());
+        assert!(reply_command(&button(with_path(json!({})))).is_none(), "empty payload");
+        assert!(
+            reply_command(&button(json!({ "createCommentReplyEndpoint": { "f": 1 } }))).is_none(),
+            "no apiUrl"
+        );
+    }
+
     fn reply_surface(dialog: Value) -> Value {
         json!({ "replyCommand": { "innertubeCommand": { "createCommentReplyDialogEndpoint": {
             "dialog": { "commentReplyDialogRenderer": dialog } } } } })
@@ -550,7 +675,7 @@ mod tests {
     fn a_reply_needs_a_reply_button_endpoint_naming_a_comment_path() {
         let reply_button = json!({ "buttonRenderer": { "serviceEndpoint": {
             "commandMetadata": { "webCommandMetadata": { "apiUrl": "/youtubei/v1/comment/create_comment_reply" } },
-            "createCommentReplyEndpoint": { "createReplyParams": "R1" } } } });
+            "createCommentReplyEndpoint": { "fixtureReplyField": "R1" } } } });
         let ok = reply_surface(json!({
             "placeholderText": { "runs": [{ "text": "Add a reply..." }] },
             "replyButton": reply_button, "cancelButton": { "buttonRenderer": {} } }));

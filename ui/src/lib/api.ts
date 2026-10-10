@@ -631,6 +631,7 @@ export interface CommentActionOutcome {
  *  - `busy`: another action on that comment is still running; ignore.
  *  - `unavailable`: the comment does not offer that action.
  *  - `rejected`: YouTube answered and did not accept the action.
+ *  - `gone`: YouTube says the comment no longer exists (a 404 on a request about it): drop it.
  *  - `uncertain`: a write whose outcome is unknown (the answer was lost): it may have been
  *    posted, so offer a reload and never resend by itself.
  *  - `failed`: anything else (network, refusals).
@@ -641,6 +642,7 @@ export type CommentsErrorKind =
 	| 'busy'
 	| 'unavailable'
 	| 'rejected'
+	| 'gone'
 	| 'uncertain'
 	| 'failed';
 
@@ -650,6 +652,7 @@ const COMMENTS_ERROR_KINDS: readonly string[] = [
 	'busy',
 	'unavailable',
 	'rejected',
+	'gone',
 	'uncertain',
 	'failed'
 ];

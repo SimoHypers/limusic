@@ -793,6 +793,9 @@ pub enum CommentsError {
     Unavailable,
     /// YouTube answered the action and did not accept it.
     Rejected,
+    /// YouTube answered 404 for a request about one comment: it no longer exists (it was
+    /// deleted, here or elsewhere). The UI drops the row.
+    Gone,
     /// A comment write whose outcome is unknown: the request may have reached YouTube and only
     /// the answer was lost, so it may have been posted. Never retried; the UI offers a reload.
     Uncertain,
@@ -809,6 +812,20 @@ impl CommentsError {
             innertube::Error::ActionRejected => CommentsError::Rejected,
             innertube::Error::WriteUncertain => CommentsError::Uncertain,
             _ => CommentsError::Failed,
+        }
+    }
+}
+
+impl CommentsError {
+    /// [`Self::of`] for a request about one specific comment, where a 404 means it is gone.
+    /// `kind` (`like`, `reply`, `edit`, `delete`, ...) names the request in the log.
+    fn of_comment(e: &innertube::Error, kind: &'static str) -> Self {
+        if e.is_not_found() {
+            tracing::debug!(kind, "comment request: the comment no longer exists (404)");
+            CommentsError::Gone
+        } else {
+            tracing::debug!(kind, error = %e, "comment request failed");
+            Self::of(e)
         }
     }
 }
@@ -938,12 +955,16 @@ pub async fn comment_action(
                 ActionError::Unavailable => CommentsError::Unavailable,
             },
         )?;
-    let sent = state.it.comment_action(client, ticket.token()).await;
+    let sent = state.it.comment_action(client, ticket.token(), action.name()).await;
     // Under the identity it was sent as, whoever is active now: a switch mid-request leaves the
     // answer where it belongs and the new account's comments untouched.
     let accepted = sent.is_ok().then_some(ticket.resulting_vote);
     let after = state.comments.lock().unwrap().finish_action(&identity, &comment_id, accepted);
-    sent.map_err(|e| CommentsError::of(&e))?;
+    if sent.as_ref().err().is_some_and(innertube::Error::is_not_found) {
+        // The comment is gone: nothing may be sent for it again.
+        state.comments.lock().unwrap().forget(&identity, &comment_id);
+    }
+    sent.map_err(|e| CommentsError::of_comment(&e, action.name()))?;
     Ok(CommentActionOutcome {
         vote: ticket.resulting_vote,
         actions: after.map(|(_, actions)| actions).unwrap_or_default(),
@@ -995,15 +1016,32 @@ async fn write_on_comment(
         .begin_write(&identity, comment_id, write)
         .map_err(write_denied)?;
     // Only a delete may be sent again by the transport.
-    let sent =
-        state.it.comment_write(client, ticket.command(), text, write == CommentWrite::Delete).await;
-    // Under the identity it was sent as, whoever is active now.
+    let sent = state
+        .it
+        .comment_write(client, ticket.command(), write.name(), text, write == CommentWrite::Delete)
+        .await;
+    // Under the identity it was sent as, whoever is active now. A delete that went through, and
+    // a comment YouTube says is gone (404), are forgotten.
+    let gone = sent.as_ref().err().is_some_and(innertube::Error::is_not_found);
     state.comments.lock().unwrap().finish_write(
         &identity,
         comment_id,
-        sent.is_ok() && write == CommentWrite::Delete,
+        gone || (sent.is_ok() && write == CommentWrite::Delete),
     );
-    sent.map(|answer| (answer, identity)).map_err(|e| CommentsError::of(&e))
+    let answer = sent.map_err(|e| CommentsError::of_comment(&e, write.name()))?;
+    if write == CommentWrite::Delete {
+        // Whether the answer itself says the comment's entity was deleted. Never required: the
+        // status decides, and a delete that went through is a delete.
+        let d = innertube::delete_mutation(&answer, ticket.entity_key());
+        tracing::debug!(
+            kind = "delete",
+            deleted_entity_found = d.for_comment,
+            any_delete_mutation = d.any_delete,
+            mutation_types = %d.types.join(","),
+            "comment write: delete mutation in the answer"
+        );
+    }
+    Ok((answer, identity))
 }
 
 /// Post a new top-level comment on the track whose comments are on screen. Returns the comment
@@ -1019,8 +1057,11 @@ pub async fn comment_create(
     let client = require_login(&state).map_err(|_| CommentsError::AccountChanged)?;
     let identity = state.it.comments_identity().ok_or(CommentsError::AccountChanged)?;
     let ticket = state.comments.lock().unwrap().begin_create(&identity).map_err(write_denied)?;
-    let sent = state.it.comment_write(client, ticket.command(), Some(text), false).await;
+    let sent = state.it.comment_write(client, ticket.command(), "create", Some(text), false).await;
     state.comments.lock().unwrap().finish_create(&identity);
+    if let Err(e) = &sent {
+        tracing::debug!(kind = "create", error = %e, "comment request failed");
+    }
     let answer = sent.map_err(|e| CommentsError::of(&e))?;
     let thread = innertube::parse_written_comment(&answer);
     if let Some(thread) = &thread {
@@ -1028,7 +1069,11 @@ pub async fn comment_create(
         let who = Provenance::Account(identity);
         state.comments.lock().unwrap().remember_thread(&who, thread);
     }
-    tracing::debug!(found = thread.is_some(), "comment write: the posted comment in the answer");
+    tracing::debug!(
+        kind = "create",
+        found = thread.is_some(),
+        "comment write: the posted comment in the answer"
+    );
     Ok(thread)
 }
 
@@ -1046,7 +1091,11 @@ pub async fn comment_reply(
     if let Some(thread) = &thread {
         state.comments.lock().unwrap().remember_thread(&Provenance::Account(identity), thread);
     }
-    tracing::debug!(found = thread.is_some(), "comment write: the posted reply in the answer");
+    tracing::debug!(
+        kind = "reply",
+        found = thread.is_some(),
+        "comment write: the posted reply in the answer"
+    );
     Ok(thread.map(|t| t.comment))
 }
 

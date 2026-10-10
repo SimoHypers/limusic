@@ -13,7 +13,7 @@ use serde_json::Value;
 
 use super::comment_write::{
     command_probe, create_command, menu_commands, menu_probe, reply_command, CommentWrite,
-    Composer, MenuCommands, WriteCommand, WriteCommands,
+    Composer, EntityKey, MenuCommands, WriteCommand, WriteCommands,
 };
 use super::metadata::find_all;
 
@@ -76,6 +76,16 @@ pub enum CommentAction {
 }
 
 impl CommentAction {
+    /// The word for it in log lines.
+    pub fn name(self) -> &'static str {
+        match self {
+            CommentAction::Like => "like",
+            CommentAction::Unlike => "unlike",
+            CommentAction::Dislike => "dislike",
+            CommentAction::Undislike => "undislike",
+        }
+    }
+
     /// The vote a comment has once YouTube accepts this action.
     pub fn resulting_vote(self) -> VoteState {
         match self {
@@ -212,6 +222,9 @@ pub struct Comment {
     /// The commands behind `writes`. Never serialized.
     #[serde(skip)]
     pub commands: WriteCommands,
+    /// This comment's entity key, to recognise a delete mutation in an answer. Never serialized.
+    #[serde(skip)]
+    pub entity_key: EntityKey,
     /// Display string, `None` when there are no replies.
     pub reply_count: Option<String>,
     pub hearted: bool,
@@ -495,6 +508,7 @@ fn parse_comment(vm: &Value, pinned: bool, entities: &Entities) -> Option<Commen
         writes: commands.offered(),
         reply_placeholder,
         commands,
+        entity_key: EntityKey::new(str_of(vm, "commentKey")),
         reply_count: non_empty(toolbar.and_then(|t| t.get("replyCount"))),
         hearted: state.and_then(|s| str_of(s, "heartState")) == Some("TOOLBAR_HEART_STATE_HEARTED"),
         pinned,
@@ -594,6 +608,56 @@ pub(crate) fn own_comment_probe(root: &Value) -> Option<String> {
         let menu = surface.map_or_else(|| "menu: no surface".to_owned(), menu_probe);
         Some(format!("{}; {menu}", command_probe(&roots)))
     })
+}
+
+/// For the debug line that says why Reply is or is not offered: the key names of the first
+/// comment's reply command (see `reply_probe`). `None` when the response has no comment with a
+/// toolbar surface entity.
+pub(crate) fn reply_probe_of_page(root: &Value) -> Option<String> {
+    let entities = Entities::new(root);
+    find_all(root, "commentViewModel").into_iter().find_map(|vm| {
+        let surface = entities
+            .get(str_of(vm, "toolbarSurfaceKey"), "engagementToolbarSurfaceEntityPayload")?;
+        Some(super::comment_write::reply_probe(surface))
+    })
+}
+
+/// What a delete's answer says about the comment's entity, from `frameworkUpdates` mutations:
+/// whether one deletes THIS comment's entity (a mutation whose `type` ends in `DELETE` on its
+/// key), whether any mutation deletes anything, and the mutation type enums that are there. For
+/// the debug line only: a delete's success never depends on it. Enum strings and booleans, no key.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct DeleteMutation {
+    pub for_comment: bool,
+    pub any_delete: bool,
+    pub types: Vec<String>,
+}
+
+pub fn delete_mutation(answer: &Value, entity_key: Option<&str>) -> DeleteMutation {
+    let mutations = answer
+        .pointer("/frameworkUpdates/entityBatchUpdate/mutations")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let mut out = DeleteMutation::default();
+    for m in mutations {
+        let kind = m
+            .get("type")
+            .and_then(Value::as_str)
+            .filter(|k| k.len() <= 64 && k.bytes().all(|b| b.is_ascii_uppercase() || b == b'_'));
+        let Some(kind) = kind else { continue };
+        if !out.types.iter().any(|t| t == kind) {
+            out.types.push(kind.to_owned());
+        }
+        if kind.ends_with("DELETE") {
+            out.any_delete = true;
+            if entity_key.is_some() && m.get("entityKey").and_then(Value::as_str) == entity_key {
+                out.for_comment = true;
+            }
+        }
+    }
+    out.types.sort();
+    out
 }
 
 /// The comment a write put on the page, if its answer carries it: the thread itself
@@ -1113,7 +1177,7 @@ mod tests {
     fn writes_follow_the_commands_the_response_carried() {
         use CommentWrite::*;
         let page = writes_page();
-        assert_eq!(page.threads.len(), 9, "the thread whose entity is missing is skipped");
+        assert_eq!(page.threads.len(), 11, "the thread whose entity is missing is skipped");
         let want = [
             // Edit and delete are in this one's menu too, but it is not the viewer's own.
             ("other", false, vec![Reply]),
@@ -1125,8 +1189,11 @@ mod tests {
             ("own_edit_hostile_api_url", true, vec![Reply, Edit]),
             // An update button with no params is not an edit.
             ("own_edit_no_params", true, vec![Reply]),
-            // A reply button naming a path outside comment/ offers nothing.
+            // A reply button naming a path outside comment/ offers nothing, and neither does one
+            // that names no path (none is made up) or sends nothing.
             ("bad_reply_path", false, vec![]),
+            ("reply_no_api_url", false, vec![]),
+            ("reply_empty_payload", false, vec![]),
             ("no_reply_dialog", false, vec![]),
         ];
         for (name, own, writes) in want {
@@ -1144,7 +1211,7 @@ mod tests {
         match own.commands.reply.as_ref().unwrap() {
             WriteCommand::Endpoint { path, payload } => {
                 assert_eq!(path, "comment/create_comment_reply");
-                assert_eq!(payload["createReplyParams"], "fixture-reply-params-2");
+                assert_eq!(payload["fixtureReplyField"], "fixture-reply-params-2");
             }
             other => panic!("{other:?}"),
         }
@@ -1190,6 +1257,18 @@ mod tests {
             assert!(!format!("{page:?}").contains(secret), "`{secret}` reached Debug output");
         }
         assert!(!sent.contains("update_comment") && !sent.contains("create_comment"));
+    }
+
+    #[test]
+    fn the_page_reply_probe_describes_the_first_comments_reply_command() {
+        let probe = reply_probe_of_page(&load(WRITES)).expect("a comment with a surface");
+        assert!(probe.starts_with("reply: button=serviceEndpoint "), "{probe}");
+        assert!(probe.contains("endpoint=createCommentReplyEndpoint:fixtureReplyField"), "{probe}");
+        assert!(probe.ends_with("source=apiUrl"), "{probe}");
+        for value in ["fixture-reply", "/youtubei", "comment/create_comment_reply"] {
+            assert!(!probe.contains(value), "{probe}");
+        }
+        assert_eq!(reply_probe_of_page(&json!({})), None);
     }
 
     #[test]
@@ -1305,6 +1384,60 @@ mod tests {
         ] {
             assert!(parse_written_comment(&answer).is_none(), "{answer}");
         }
+    }
+
+    #[test]
+    fn a_delete_mutation_is_recognised_by_type_and_key_and_never_needed() {
+        let answer = json!({ "frameworkUpdates": { "entityBatchUpdate": { "mutations": [
+            { "entityKey": "k-other", "type": "ENTITY_MUTATION_TYPE_REPLACE", "payload": {} },
+            { "entityKey": "k-mine", "type": "ENTITY_MUTATION_TYPE_DELETE" },
+            { "entityKey": "k-unrelated", "type": "not an enum" },
+            { "type": 5 },
+        ] } } });
+        let d = delete_mutation(&answer, Some("k-mine"));
+        assert_eq!(
+            d,
+            DeleteMutation {
+                for_comment: true,
+                any_delete: true,
+                types: vec![
+                    "ENTITY_MUTATION_TYPE_DELETE".into(),
+                    "ENTITY_MUTATION_TYPE_REPLACE".into()
+                ],
+            }
+        );
+        // A delete of some other entity is "any", not "for this comment"; no key never matches.
+        assert_eq!(
+            delete_mutation(&answer, Some("k-else")),
+            DeleteMutation { for_comment: false, any_delete: true, types: d.types.clone() }
+        );
+        assert!(!delete_mutation(&answer, None).for_comment);
+        // No mutations (or no answer at all, as after a 404) is just "not found".
+        for none in [json!({}), json!(null), json!({ "frameworkUpdates": 3 })] {
+            assert_eq!(delete_mutation(&none, Some("k")), DeleteMutation::default());
+        }
+        // The entity key never shows in Debug output of a comment.
+        let page = writes_page();
+        assert!(page.threads.iter().all(|t| t.comment.entity_key.get().is_some()));
+        assert!(!format!("{page:?}").contains("fixture-own_full-comment"));
+    }
+
+    #[test]
+    fn actions_and_writes_have_log_names() {
+        assert_eq!(
+            [
+                CommentAction::Like,
+                CommentAction::Unlike,
+                CommentAction::Dislike,
+                CommentAction::Undislike
+            ]
+            .map(CommentAction::name),
+            ["like", "unlike", "dislike", "undislike"]
+        );
+        assert_eq!(
+            [CommentWrite::Reply, CommentWrite::Edit, CommentWrite::Delete].map(CommentWrite::name),
+            ["reply", "edit", "delete"]
+        );
     }
 
     #[test]

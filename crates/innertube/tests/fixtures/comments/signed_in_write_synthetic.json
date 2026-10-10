@@ -10,7 +10,7 @@
        "countText": {
         "runs": [
          {
-          "text": "9"
+          "text": "11"
          },
          {
           "text": " Comments"
@@ -196,12 +196,40 @@
       "commentThreadRenderer": {
        "commentViewModel": {
         "commentViewModel": {
+         "commentKey": "fixture-reply_no_api_url-comment",
+         "toolbarStateKey": "fixture-reply_no_api_url-state",
+         "toolbarSurfaceKey": "fixture-reply_no_api_url-surface",
+         "commentSurfaceKey": "fixture-reply_no_api_url-surface-comment",
+         "sharedKey": "fixture-shared",
+         "commentId": "FixtureWrite9"
+        }
+       }
+      }
+     },
+     {
+      "commentThreadRenderer": {
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "fixture-reply_empty_payload-comment",
+         "toolbarStateKey": "fixture-reply_empty_payload-state",
+         "toolbarSurfaceKey": "fixture-reply_empty_payload-surface",
+         "commentSurfaceKey": "fixture-reply_empty_payload-surface-comment",
+         "sharedKey": "fixture-shared",
+         "commentId": "FixtureWrite10"
+        }
+       }
+      }
+     },
+     {
+      "commentThreadRenderer": {
+       "commentViewModel": {
+        "commentViewModel": {
          "commentKey": "fixture-no_reply_dialog-comment",
          "toolbarStateKey": "fixture-no_reply_dialog-state",
          "toolbarSurfaceKey": "fixture-no_reply_dialog-surface",
          "commentSurfaceKey": "fixture-no_reply_dialog-surface-comment",
          "sharedKey": "fixture-shared",
-         "commentId": "FixtureWrite9"
+         "commentId": "FixtureWrite11"
         }
        }
       }
@@ -300,14 +328,14 @@
              "buttonRenderer": {
               "serviceEndpoint": {
                "clickTrackingParams": "fixture-click",
+               "createCommentReplyEndpoint": {
+                "fixtureReplyField": "fixture-reply-params-1"
+               },
                "commandMetadata": {
                 "webCommandMetadata": {
                  "sendPost": true,
                  "apiUrl": "/youtubei/v1/comment/create_comment_reply"
                 }
-               },
-               "createCommentReplyEndpoint": {
-                "createReplyParams": "fixture-reply-params-1"
                }
               }
              }
@@ -495,14 +523,14 @@
              "buttonRenderer": {
               "serviceEndpoint": {
                "clickTrackingParams": "fixture-click",
+               "createCommentReplyEndpoint": {
+                "fixtureReplyField": "fixture-reply-params-2"
+               },
                "commandMetadata": {
                 "webCommandMetadata": {
                  "sendPost": true,
                  "apiUrl": "/youtubei/v1/comment/create_comment_reply"
                 }
-               },
-               "createCommentReplyEndpoint": {
-                "createReplyParams": "fixture-reply-params-2"
                }
               }
              }
@@ -690,14 +718,14 @@
              "buttonRenderer": {
               "serviceEndpoint": {
                "clickTrackingParams": "fixture-click",
+               "createCommentReplyEndpoint": {
+                "fixtureReplyField": "fixture-reply-params-3"
+               },
                "commandMetadata": {
                 "webCommandMetadata": {
                  "sendPost": true,
                  "apiUrl": "/youtubei/v1/comment/create_comment_reply"
                 }
-               },
-               "createCommentReplyEndpoint": {
-                "createReplyParams": "fixture-reply-params-3"
                }
               }
              }
@@ -790,14 +818,14 @@
              "buttonRenderer": {
               "serviceEndpoint": {
                "clickTrackingParams": "fixture-click",
+               "createCommentReplyEndpoint": {
+                "fixtureReplyField": "fixture-reply-params-4"
+               },
                "commandMetadata": {
                 "webCommandMetadata": {
                  "sendPost": true,
                  "apiUrl": "/youtubei/v1/comment/create_comment_reply"
                 }
-               },
-               "createCommentReplyEndpoint": {
-                "createReplyParams": "fixture-reply-params-4"
                }
               }
              }
@@ -923,14 +951,14 @@
              "buttonRenderer": {
               "serviceEndpoint": {
                "clickTrackingParams": "fixture-click",
+               "createCommentReplyEndpoint": {
+                "fixtureReplyField": "fixture-reply-params-5"
+               },
                "commandMetadata": {
                 "webCommandMetadata": {
                  "sendPost": true,
                  "apiUrl": "/youtubei/v1/comment/create_comment_reply"
                 }
-               },
-               "createCommentReplyEndpoint": {
-                "createReplyParams": "fixture-reply-params-5"
                }
               }
              }
@@ -1063,14 +1091,14 @@
              "buttonRenderer": {
               "serviceEndpoint": {
                "clickTrackingParams": "fixture-click",
+               "createCommentReplyEndpoint": {
+                "fixtureReplyField": "fixture-reply-params-6"
+               },
                "commandMetadata": {
                 "webCommandMetadata": {
                  "sendPost": true,
                  "apiUrl": "/youtubei/v1/comment/create_comment_reply"
                 }
-               },
-               "createCommentReplyEndpoint": {
-                "createReplyParams": "fixture-reply-params-6"
                }
               }
              }
@@ -1209,14 +1237,14 @@
              "buttonRenderer": {
               "serviceEndpoint": {
                "clickTrackingParams": "fixture-click",
+               "createCommentReplyEndpoint": {
+                "fixtureReplyField": "fixture-reply-params-7"
+               },
                "commandMetadata": {
                 "webCommandMetadata": {
                  "sendPost": true,
                  "apiUrl": "/youtubei/v1/comment/create_comment_reply"
                 }
-               },
-               "createCommentReplyEndpoint": {
-                "createReplyParams": "fixture-reply-params-7"
                }
               }
              }
@@ -1353,14 +1381,184 @@
              "buttonRenderer": {
               "serviceEndpoint": {
                "clickTrackingParams": "fixture-click",
+               "createCommentReplyEndpoint": {
+                "fixtureReplyField": "fixture-reply-params-8"
+               },
                "commandMetadata": {
                 "webCommandMetadata": {
                  "sendPost": true,
                  "apiUrl": "/youtubei/v1/browse"
                 }
-               },
+               }
+              }
+             }
+            },
+            "cancelButton": {
+             "buttonRenderer": {}
+            }
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-reply_no_api_url-comment",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-reply_no_api_url-comment",
+       "properties": {
+        "commentId": "FixtureWrite9",
+        "content": {
+         "content": "Synthetic write reply_no_api_url"
+        },
+        "publishedTime": "1 day ago",
+        "replyLevel": 0
+       },
+       "author": {
+        "channelId": "UCfixturesynthetic0000000",
+        "displayName": "@synthetic9",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCreator": false,
+        "isArtist": false,
+        "isCurrentUser": false
+       },
+       "toolbar": {
+        "likeCountNotliked": "1",
+        "likeCountLiked": "2",
+        "replyCount": ""
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-reply_no_api_url-state",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-reply_no_api_url-state",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-reply_no_api_url-surface",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-reply_no_api_url-surface",
+       "isEngagementToolbar": true,
+       "replyCommand": {
+        "innertubeCommand": {
+         "clickTrackingParams": "fixture-click",
+         "createCommentReplyDialogEndpoint": {
+          "dialog": {
+           "commentReplyDialogRenderer": {
+            "placeholderText": {
+             "runs": [
+              {
+               "text": "Add a reply..."
+              }
+             ]
+            },
+            "replyButton": {
+             "buttonRenderer": {
+              "serviceEndpoint": {
+               "clickTrackingParams": "fixture-click",
                "createCommentReplyEndpoint": {
-                "createReplyParams": "fixture-reply-params-8"
+                "fixtureReplyField": "fixture-reply-params-10"
+               }
+              }
+             }
+            },
+            "cancelButton": {
+             "buttonRenderer": {}
+            }
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-reply_empty_payload-comment",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-reply_empty_payload-comment",
+       "properties": {
+        "commentId": "FixtureWrite10",
+        "content": {
+         "content": "Synthetic write reply_empty_payload"
+        },
+        "publishedTime": "1 day ago",
+        "replyLevel": 0
+       },
+       "author": {
+        "channelId": "UCfixturesynthetic0000000",
+        "displayName": "@synthetic10",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCreator": false,
+        "isArtist": false,
+        "isCurrentUser": false
+       },
+       "toolbar": {
+        "likeCountNotliked": "1",
+        "likeCountLiked": "2",
+        "replyCount": ""
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-reply_empty_payload-state",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-reply_empty_payload-state",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-reply_empty_payload-surface",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-reply_empty_payload-surface",
+       "isEngagementToolbar": true,
+       "replyCommand": {
+        "innertubeCommand": {
+         "clickTrackingParams": "fixture-click",
+         "createCommentReplyDialogEndpoint": {
+          "dialog": {
+           "commentReplyDialogRenderer": {
+            "placeholderText": {
+             "runs": [
+              {
+               "text": "Add a reply..."
+              }
+             ]
+            },
+            "replyButton": {
+             "buttonRenderer": {
+              "serviceEndpoint": {
+               "clickTrackingParams": "fixture-click",
+               "createCommentReplyEndpoint": {},
+               "commandMetadata": {
+                "webCommandMetadata": {
+                 "sendPost": true,
+                 "apiUrl": "/youtubei/v1/comment/create_comment_reply"
+                }
                }
               }
              }
@@ -1383,7 +1581,7 @@
       "commentEntityPayload": {
        "key": "fixture-no_reply_dialog-comment",
        "properties": {
-        "commentId": "FixtureWrite9",
+        "commentId": "FixtureWrite11",
         "content": {
          "content": "Synthetic write no_reply_dialog"
         },
@@ -1392,7 +1590,7 @@
        },
        "author": {
         "channelId": "UCfixturesynthetic0000000",
-        "displayName": "@synthetic9",
+        "displayName": "@synthetic11",
         "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
         "isVerified": false,
         "isCreator": false,

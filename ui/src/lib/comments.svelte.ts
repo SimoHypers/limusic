@@ -308,6 +308,10 @@ export async function actOnComment(c: Comment, action: CommentAction) {
 			comments.status = 'reload'; // everything here is replaced by the reload
 			return;
 		}
+		if (kind === 'gone') {
+			dropGone(c.id);
+			return;
+		}
 		c.vote = prev.vote;
 		c.actions = prev.actions;
 		// `busy` is a second click racing the first: nothing to say.
@@ -331,6 +335,20 @@ export async function actOnComment(c: Comment, action: CommentAction) {
 // until the next read.
 
 const emptyDraft = () => emptyBox();
+
+/** The comment is gone on YouTube's side (404): drop it, and anything open on it. */
+function dropGone(id: string) {
+	removeComment(id);
+	if (comments.draft.target?.id === id) comments.draft = emptyDraft();
+	toast.error(t('toasts.comment_gone'));
+}
+
+/** Take a comment (and, for a top-level one, its loaded replies) off the screen. */
+function removeComment(id: string) {
+	comments.hidden[id] = true;
+	comments.threads = comments.threads.filter((v) => v.comment.id !== id);
+	for (const v of comments.threads) v.replies = v.replies.filter((r) => r.id !== id);
+}
 
 /** Every comment on screen, top-level and replies. */
 function findComment(id: string): Comment | undefined {
@@ -501,7 +519,8 @@ export async function submitDraft() {
 		}
 	} catch (e) {
 		if (s !== session) return;
-		writeFailed(e, d);
+		if (api.commentsErrorKind(e) === 'gone') dropGone(target.id);
+		else writeFailed(e, d);
 	} finally {
 		if (s === session) d.pending = false;
 	}
@@ -525,12 +544,21 @@ export async function confirmDelete(c: Comment | null) {
 	try {
 		await api.commentDelete(c.id);
 		if (s !== session) return;
-		comments.threads = comments.threads.filter((v) => v.comment.id !== c.id);
-		for (const v of comments.threads) v.replies = v.replies.filter((r) => r.id !== c.id);
+		removeComment(c.id);
 	} catch (e) {
 		if (s !== session) return;
-		delete comments.hidden[c.id];
-		if (needsReload(e)) comments.status = 'reload';
-		else if (api.commentsErrorKind(e) !== 'busy') toast.error(t('toasts.comment_delete_failed'));
+		const kind = api.commentsErrorKind(e);
+		if (needsReload(e)) {
+			delete comments.hidden[c.id];
+			comments.status = 'reload';
+		} else if (kind === 'gone') {
+			// Already gone is what a delete is for: nothing to say.
+			removeComment(c.id);
+		} else {
+			// A delete is idempotent, so a failure is just a failure: the row comes back, and
+			// pressing Delete again is safe.
+			delete comments.hidden[c.id];
+			if (kind !== 'busy') toast.error(t('toasts.comment_delete_failed'));
+		}
 	}
 }

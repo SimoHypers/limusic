@@ -103,6 +103,7 @@ struct Entry {
     vote: Option<VoteState>,
     tokens: ActionTokens,
     writes: WriteCommands,
+    entity_key: Option<String>,
 }
 
 /// What stands in for a comment id in the busy set while the top-level comment is being posted.
@@ -112,11 +113,17 @@ const COMPOSER: &str = "\0composer";
 /// params or a token.
 pub struct WriteTicket {
     command: WriteCommand,
+    entity_key: Option<String>,
 }
 
 impl WriteTicket {
     pub fn command(&self) -> &WriteCommand {
         &self.command
+    }
+
+    /// The comment's entity key, to look for its delete mutation in an answer (debug line only).
+    pub fn entity_key(&self) -> Option<&str> {
+        self.entity_key.as_deref()
     }
 }
 
@@ -210,6 +217,7 @@ impl CommentsSession {
                 vote: comment.vote,
                 tokens: comment.tokens.clone(),
                 writes: comment.commands.clone(),
+                entity_key: comment.entity_key.get().map(str::to_owned),
             },
         );
     }
@@ -278,8 +286,9 @@ impl CommentsSession {
             return Err(ActionError::Busy);
         }
         let command = entry.writes.get(write).ok_or(ActionError::Unavailable)?.clone();
+        let entity_key = entry.entity_key.clone();
         self.busy.insert(key);
-        Ok(WriteTicket { command })
+        Ok(WriteTicket { command, entity_key })
     }
 
     /// The write is over. A delete that YouTube accepted forgets the comment, so nothing can be
@@ -292,6 +301,14 @@ impl CommentsSession {
         }
     }
 
+    /// YouTube said the comment is gone (404): forget what is kept for it, so nothing can be sent
+    /// for it again.
+    pub fn forget(&mut self, identity: &str, comment_id: &str) {
+        let key = (identity.to_owned(), comment_id.to_owned());
+        self.busy.remove(&key);
+        self.comments.map.remove(&key);
+    }
+
     /// Approve posting a top-level comment for `identity`: only with the command the page read as
     /// that identity carried. One post at a time.
     pub fn begin_create(&mut self, identity: &str) -> Result<WriteTicket, ActionError> {
@@ -302,7 +319,7 @@ impl CommentsSession {
         if !self.busy.insert((identity.to_owned(), COMPOSER.to_owned())) {
             return Err(ActionError::Busy);
         }
-        Ok(WriteTicket { command })
+        Ok(WriteTicket { command, entity_key: None })
     }
 
     pub fn finish_create(&mut self, identity: &str) {
@@ -582,6 +599,24 @@ mod tests {
         s.finish_write("a", &own, true);
         assert!(matches!(s.begin_write("a", &own, CommentWrite::Edit), Err(ActionError::Unknown)));
         assert!(matches!(s.begin_action("a", &own, Like), Err(ActionError::Unknown)));
+    }
+
+    #[test]
+    fn a_comment_that_is_gone_is_forgotten_whatever_was_in_flight() {
+        let mut s = CommentsSession::default();
+        let page = writes_page();
+        s.remember_page(&account("a"), &page);
+        let own = comment_id(&page, "own_full");
+        let _t = s.begin_write("a", &own, CommentWrite::Edit).ok().unwrap();
+        s.forget("a", &own);
+        for w in [CommentWrite::Edit, CommentWrite::Delete, CommentWrite::Reply] {
+            assert!(matches!(s.begin_write("a", &own, w), Err(ActionError::Unknown)));
+        }
+        assert!(matches!(s.begin_action("a", &own, Like), Err(ActionError::Unknown)));
+        // Someone else's entry for the same id is untouched.
+        s.remember_page(&account("b"), &page);
+        s.forget("a", &own);
+        assert!(s.begin_write("b", &own, CommentWrite::Edit).is_ok());
     }
 
     #[test]
