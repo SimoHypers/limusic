@@ -4,8 +4,10 @@
 use std::sync::Arc;
 
 use innertube::{
-    AlbumPage, ArtistPage, BrowseItem, HistoryGroup, HomePage, MoodSection, PlaylistContinuation,
-    PlaylistPage, PlaylistSort, Rating, SearchResults, SearchSuggestions, SongItem,
+    ActionError, AlbumPage, ArtistPage, BrowseItem, Comment, CommentAction, CommentReplies,
+    CommentThread, CommentWrite, CommentsPage, HistoryGroup, HomePage, MoodSection,
+    PlaylistContinuation, PlaylistPage, PlaylistSort, Provenance, Rating, SearchResults,
+    SearchSuggestions, SongItem, VoteState,
 };
 use tauri::{Emitter, Manager, State};
 
@@ -772,6 +774,278 @@ pub async fn get_home(state: St<'_>, params: Option<String>) -> Result<HomePage,
 pub async fn get_home_more(state: St<'_>, token: String) -> Result<HomePage, String> {
     let client = metadata_client(&state)?;
     state.it.home_continuation(client, &token).await.map_err(|e| e.to_string())
+}
+
+//// Why a comments command failed, as a stable word the UI words itself. Details go to the debug log.
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommentsError {
+    /// The comments belong to a session that is gone (another account, signed out, or a token
+    /// from before the last reload): reload them.
+    AccountChanged,
+    /// Another action on the same comment is still running.
+    Busy,
+    /// YouTube answered and did not accept it.
+    Rejected,
+    /// YouTube answered 404: the comment no longer exists.
+    Gone,
+    /// A post or reply that may have gone through (`Error::WriteUncertain`).
+    Uncertain,
+    /// Anything else: network, refusals, an unreadable answer, an action not on offer.
+    Failed,
+}
+
+impl CommentsError {
+    /// Classify an innertube error, logging it (its text holds no token or account data).
+    fn of(e: &innertube::Error) -> Self {
+        tracing::debug!(error = %e, "comments command failed");
+        match e {
+            innertube::Error::AccountChanged => CommentsError::AccountChanged,
+            innertube::Error::ActionRejected => CommentsError::Rejected,
+            innertube::Error::WriteUncertain => CommentsError::Uncertain,
+            _ => CommentsError::Failed,
+        }
+    }
+
+    /// [`Self::of`] for a request about one comment, where a 404 means it is gone. `kind` names
+    /// the request in the log.
+    fn of_comment(e: &innertube::Error, kind: &'static str) -> Self {
+        if e.is_not_found() {
+            tracing::debug!(kind, "comment request: the comment no longer exists (404)");
+            CommentsError::Gone
+        } else {
+            tracing::debug!(kind, "comment request failed");
+            Self::of(e)
+        }
+    }
+}
+
+impl From<String> for CommentsError {
+    /// The helpers shared with the other commands report plain strings; here that is a failure.
+    fn from(e: String) -> Self {
+        tracing::debug!(error = %e, "comments command failed");
+        CommentsError::Failed
+    }
+}
+
+impl From<ActionError> for CommentsError {
+    fn from(e: ActionError) -> Self {
+        match e {
+            ActionError::Unknown => CommentsError::AccountChanged,
+            ActionError::Busy => CommentsError::Busy,
+            ActionError::Unavailable => CommentsError::Failed,
+        }
+    }
+}
+
+/// First page of comments for a video (see `InnerTube::comments`). Starts a new session: every
+/// token on the page is remembered with who it was issued to.
+#[tauri::command]
+pub async fn get_comments(state: St<'_>, video_id: String) -> Result<CommentsPage, CommentsError> {
+    let client = metadata_client(&state)?;
+    state.comments.lock().unwrap().clear();
+    let before = state.it.comments_identity();
+    let page = state.it.comments(client, &video_id).await.map_err(|e| CommentsError::of(&e))?;
+    let provenance = if page.read_as_account {
+        // If the account changed during the read, the page belongs to nobody signed in now.
+        match (before, state.it.comments_identity()) {
+            (Some(was), Some(is)) if was == is => Provenance::Account(is),
+            _ => return Err(CommentsError::AccountChanged),
+        }
+    } else {
+        Provenance::Anonymous
+    };
+    state.comments.lock().unwrap().remember_page(&provenance, &page);
+    Ok(page)
+}
+
+/// How a token goes back: the way it was issued, and an account's only while that account is active.
+fn comments_token_origin(
+    state: &Arc<AppState>,
+    token: &str,
+) -> Result<(Provenance, bool), CommentsError> {
+    let origin = state.comments.lock().unwrap().provenance(token);
+    match origin {
+        None => Err(CommentsError::AccountChanged),
+        Some(Provenance::Anonymous) => Ok((Provenance::Anonymous, false)),
+        Some(Provenance::Account(who)) => {
+            if state.it.comments_identity().as_deref() == Some(who.as_str()) {
+                Ok((Provenance::Account(who), true))
+            } else {
+                Err(CommentsError::AccountChanged)
+            }
+        }
+    }
+}
+
+/// Next page of comments, or the same comments in another order: pagination tokens and the
+/// header's sort tokens both load through here.
+#[tauri::command]
+pub async fn get_comments_more(
+    state: St<'_>,
+    token: String,
+) -> Result<CommentsPage, CommentsError> {
+    let client = metadata_client(&state)?;
+    let (provenance, as_account) = comments_token_origin(&state, &token)?;
+    let page = state
+        .it
+        .comments_continuation(client, &token, as_account)
+        .await
+        .map_err(|e| CommentsError::of(&e))?;
+    state.comments.lock().unwrap().remember_page(&provenance, &page);
+    Ok(page)
+}
+
+/// A page of one thread's replies, with the token for the next page when there is one.
+#[tauri::command]
+pub async fn get_comment_replies(
+    state: St<'_>,
+    token: String,
+) -> Result<CommentReplies, CommentsError> {
+    let client = metadata_client(&state)?;
+    let (provenance, as_account) = comments_token_origin(&state, &token)?;
+    let replies = state
+        .it
+        .comment_replies(client, &token, as_account)
+        .await
+        .map_err(|e| CommentsError::of(&e))?;
+    state.comments.lock().unwrap().remember_replies(&provenance, &replies);
+    Ok(replies)
+}
+
+/// A comment after an accepted action. No counts: the UI swaps the two it already has.
+#[derive(serde::Serialize)]
+pub struct CommentActionOutcome {
+    pub vote: VoteState,
+    /// What the comment offers next, which may be nothing.
+    pub actions: Vec<CommentAction>,
+}
+
+/// Like, unlike, dislike or undislike one comment. The token is looked up here under the active
+/// account, and only if the comment offers that action.
+#[tauri::command]
+pub async fn comment_action(
+    state: St<'_>,
+    comment_id: String,
+    action: CommentAction,
+) -> Result<CommentActionOutcome, CommentsError> {
+    // Nobody signed in (any more) is the same as a changed account: reload the comments.
+    let client = require_login(&state).map_err(|_| CommentsError::AccountChanged)?;
+    let identity = state.it.comments_identity().ok_or(CommentsError::AccountChanged)?;
+    let ticket = state.comments.lock().unwrap().begin_action(&identity, &comment_id, action)?;
+    let sent = state.it.comment_action(client, ticket.token(), action.name()).await;
+    // Under the identity it was sent as, whoever is active now.
+    let accepted = sent.is_ok().then_some(ticket.resulting_vote);
+    let after = state.comments.lock().unwrap().finish_action(&identity, &comment_id, accepted);
+    if sent.as_ref().err().is_some_and(innertube::Error::is_not_found) {
+        // The comment is gone: nothing may be sent for it again.
+        state.comments.lock().unwrap().forget(&identity, &comment_id);
+    }
+    sent.map_err(|e| CommentsError::of_comment(&e, action.name()))?;
+    Ok(CommentActionOutcome {
+        vote: ticket.resulting_vote,
+        actions: after.map(|(_, actions)| actions).unwrap_or_default(),
+    })
+}
+
+// --- writing comments: replay the command the active account's read issued (see
+// `innertube::WriteCommand`); the UI sends only the comment id and the text. ---------------
+
+/// The text of a comment about to be sent: trimmed, and not empty.
+fn comment_text(text: &str) -> Result<&str, CommentsError> {
+    let text = text.trim();
+    if text.is_empty() {
+        Err(CommentsError::Failed)
+    } else {
+        Ok(text)
+    }
+}
+
+/// Reply, edit or delete one comment. The answer is returned for a reply to be looked at.
+async fn write_on_comment(
+    state: &Arc<AppState>,
+    comment_id: &str,
+    write: CommentWrite,
+    text: Option<&str>,
+) -> Result<(serde_json::Value, String), CommentsError> {
+    // Nobody signed in (any more) is the same as a changed account: reload the comments.
+    let client = require_login(state).map_err(|_| CommentsError::AccountChanged)?;
+    let identity = state.it.comments_identity().ok_or(CommentsError::AccountChanged)?;
+    let ticket = state.comments.lock().unwrap().begin_write(&identity, comment_id, write)?;
+    let replayable = write != CommentWrite::Reply;
+    let sent = state.it.comment_write(client, ticket.command(), text, replayable).await;
+    // Under the identity it was sent as. A delete that went through, and a 404, forget the comment.
+    let gone = sent.as_ref().err().is_some_and(innertube::Error::is_not_found);
+    state.comments.lock().unwrap().finish_write(
+        &identity,
+        comment_id,
+        gone || (sent.is_ok() && write == CommentWrite::Delete),
+    );
+    let answer = sent.map_err(|e| CommentsError::of_comment(&e, ticket.command().log_kind()))?;
+    Ok((answer, identity))
+}
+
+/// The comment a post or reply put on the page, if its answer carried it: remembered under the
+/// identity that wrote it, so it can be acted on at once.
+fn remember_written(
+    state: &AppState,
+    kind: &'static str,
+    identity: String,
+    answer: &serde_json::Value,
+) -> Option<CommentThread> {
+    let thread = innertube::parse_written_comment(answer);
+    if let Some(thread) = &thread {
+        state.comments.lock().unwrap().remember_thread(&Provenance::Account(identity), thread);
+    }
+    tracing::debug!(kind, found = thread.is_some(), "comment write: the comment in the answer");
+    thread
+}
+
+/// Post a top-level comment on the track on screen. Returns it when the answer carried it.
+#[tauri::command]
+pub async fn comment_create(
+    state: St<'_>,
+    text: String,
+) -> Result<Option<CommentThread>, CommentsError> {
+    let text = comment_text(&text)?;
+    let client = require_login(&state).map_err(|_| CommentsError::AccountChanged)?;
+    let identity = state.it.comments_identity().ok_or(CommentsError::AccountChanged)?;
+    let ticket = state.comments.lock().unwrap().begin_create(&identity)?;
+    let sent = state.it.comment_write(client, ticket.command(), Some(text), false).await;
+    state.comments.lock().unwrap().finish_create(&identity);
+    let answer = sent.map_err(|e| CommentsError::of(&e))?;
+    Ok(remember_written(&state, "create", identity, &answer))
+}
+
+/// Reply to a comment. Returns the reply when the answer carried it.
+#[tauri::command]
+pub async fn comment_reply(
+    state: St<'_>,
+    comment_id: String,
+    text: String,
+) -> Result<Option<Comment>, CommentsError> {
+    let text = comment_text(&text)?;
+    let (answer, identity) =
+        write_on_comment(&state, &comment_id, CommentWrite::Reply, Some(text)).await?;
+    Ok(remember_written(&state, "reply", identity, &answer).map(|t| t.comment))
+}
+
+/// Replace the text of one of the viewer's own comments.
+#[tauri::command]
+pub async fn comment_edit(
+    state: St<'_>,
+    comment_id: String,
+    text: String,
+) -> Result<(), CommentsError> {
+    write_on_comment(&state, &comment_id, CommentWrite::Edit, Some(comment_text(&text)?)).await?;
+    Ok(())
+}
+
+/// Delete one of the viewer's own comments.
+#[tauri::command]
+pub async fn comment_delete(state: St<'_>, comment_id: String) -> Result<(), CommentsError> {
+    write_on_comment(&state, &comment_id, CommentWrite::Delete, None).await?;
+    Ok(())
 }
 
 #[tauri::command]

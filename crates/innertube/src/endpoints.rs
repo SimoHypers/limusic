@@ -8,6 +8,8 @@ use crate::models::browse::{
     self, AlbumPage, ArtistPage, BrowseItem, HistoryGroup, HomePage, MoodSection,
     PlaylistContinuation, PlaylistPage, PlaylistSort, SearchResults, SearchSuggestions,
 };
+use crate::models::comment_write::WriteCommand;
+use crate::models::comments::{self, CommentReplies, CommentsPage};
 use crate::models::context::Context;
 use crate::models::lyrics::{self, PlainLyrics, TimedLyricLine};
 use crate::models::metadata::{
@@ -16,7 +18,7 @@ use crate::models::metadata::{
 use crate::models::player::{
     ContentPlaybackContext, PlaybackContext, PlayerBody, PlayerResponse, ServiceIntegrityDimensions,
 };
-use crate::transport::{Error, InnerTube};
+use crate::transport::{enum_like, Error, InnerTube};
 
 /// Search filter params (opaque base64). context/08.
 pub const FILTER_SONG: &str = "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D";
@@ -24,6 +26,9 @@ pub const FILTER_VIDEO: &str = "EgWKAQIQAWoKEAkQChAFEAMQBA%3D%3D";
 pub const FILTER_ALBUM: &str = "EgWKAQIYAWoKEAkQChAFEAMQBA%3D%3D";
 pub const FILTER_ARTIST: &str = "EgWKAQIgAWoKEAkQChAFEAMQBA%3D%3D";
 pub const FILTER_COMMUNITY_PLAYLIST: &str = "EgeKAQQoAEABagoQAxAEEAoQCRAF";
+
+/// A comment's like/unlike/dislike/undislike and delete: `{context, actions: [<token>]}`.
+pub const COMMENT_ACTION_PATH: &str = "comment/perform_comment_action";
 
 impl InnerTube {
     /// `/player` for one client. context/03, context/06.
@@ -252,6 +257,217 @@ impl InnerTube {
         }
         self.drop_blocked_songs(&mut next.items, video_id);
         Ok(next)
+    }
+
+    // --- comments. Reads go through `next`: a comments token sent to `browse` is answered with
+    // the Home feed. -----------------------------------------------------------------------
+
+    /// First page of comments for a video (the Comments tab's token, then its page); no token is
+    /// `CommentsState::Disabled`. Signed in, both requests go as the account without the healer;
+    /// a 401/403 redoes the whole chain anonymously, so an account's token is never sent without it.
+    pub async fn comments(
+        &self,
+        client: &YouTubeClient,
+        video_id: &str,
+    ) -> Result<CommentsPage, Error> {
+        if self.can_read_as_account(client) {
+            match self.comments_first_page(client, video_id, true).await {
+                Ok(mut page) => {
+                    page.read_as_account = true;
+                    return Ok(page);
+                }
+                Err(e) if is_refusal(&e) => {
+                    // Nothing about the request or the account is logged.
+                    tracing::debug!("signed-in comments read refused, redoing it anonymously");
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        self.comments_first_page(client, video_id, false).await
+    }
+
+    /// The tab lookup and the first page, both sent the same way (`as_account`).
+    async fn comments_first_page(
+        &self,
+        client: &YouTubeClient,
+        video_id: &str,
+        as_account: bool,
+    ) -> Result<CommentsPage, Error> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct NextBody {
+            context: Context,
+            video_id: String,
+            is_audio_only: bool,
+        }
+        let tabs = self
+            .comments_send(client, as_account, |context| NextBody {
+                context,
+                video_id: video_id.to_owned(),
+                is_audio_only: true,
+            })
+            .await?;
+        let Some(token) = comments::parse_comments_token(&tabs) else {
+            return Ok(CommentsPage::disabled());
+        };
+        let value = self.next_continuation(client, &token, as_account).await?;
+        let page = comments::parse_comments_page(&value, true);
+        if as_account {
+            log_own_comment_commands("first page", page_comments(&page));
+        }
+        Ok(page)
+    }
+
+    /// The next page of comments, or another sort (the header's sort entries carry tokens).
+    /// `as_account` is how the page that issued `token` was read; a refusal is not retried
+    /// anonymously.
+    pub async fn comments_continuation(
+        &self,
+        client: &YouTubeClient,
+        token: &str,
+        as_account: bool,
+    ) -> Result<CommentsPage, Error> {
+        let value = self.next_continuation(client, token, as_account).await?;
+        // A sort switch answers with a header and a body, a page with the body alone.
+        let mut page = comments::parse_comments_page(&value, false);
+        page.read_as_account = as_account;
+        if as_account {
+            log_own_comment_commands("continuation", page_comments(&page));
+        }
+        Ok(page)
+    }
+
+    /// One page of a thread's replies, via the token on the thread (or on the previous page's
+    /// "Show more replies"). `as_account` and refusals as for [`Self::comments_continuation`].
+    pub async fn comment_replies(
+        &self,
+        client: &YouTubeClient,
+        token: &str,
+        as_account: bool,
+    ) -> Result<CommentReplies, Error> {
+        let value = self.next_continuation(client, token, as_account).await?;
+        let replies = comments::parse_comment_replies(&value);
+        if as_account {
+            log_own_comment_commands("replies", replies.replies.iter());
+        }
+        Ok(replies)
+    }
+
+    /// `next` with a bare continuation token. Not `browse_continuation`, see above.
+    async fn next_continuation(
+        &self,
+        client: &YouTubeClient,
+        token: &str,
+        as_account: bool,
+    ) -> Result<serde_json::Value, Error> {
+        #[derive(Serialize)]
+        struct ContinuationBody {
+            context: Context,
+            continuation: String,
+        }
+        self.comments_send(client, as_account, |context| ContinuationBody {
+            context,
+            continuation: token.to_owned(),
+        })
+        .await
+    }
+
+    /// Like, unlike, dislike or undislike: replays the comment's own toolbar token, through the
+    /// ordinary path like `rate`. Needs `STATUS_SUCCEEDED` ([`answer_verdict`]).
+    pub async fn comment_action(
+        &self,
+        client: &YouTubeClient,
+        token: &str,
+        kind: &'static str,
+    ) -> Result<(), Error> {
+        self.send_action(client, token, kind, false).await.map(|_| ())
+    }
+
+    /// [`Self::comment_action`] and a delete. `missing_ok` accepts an answer with no status (a
+    /// delete's). Returns the answer.
+    async fn send_action(
+        &self,
+        client: &YouTubeClient,
+        token: &str,
+        kind: &'static str,
+        missing_ok: bool,
+    ) -> Result<serde_json::Value, Error> {
+        #[derive(Serialize)]
+        struct ActionBody {
+            context: Context,
+            actions: Vec<String>,
+        }
+        let body =
+            ActionBody { context: self.context_for(client), actions: vec![token.to_owned()] };
+        let value = self.post(COMMENT_ACTION_PATH, client, &body, true).await?;
+        accept_answer(kind, value, missing_ok)
+    }
+
+    /// Replays a write command from a signed-in read, with `text` in the command's text field.
+    /// `replayable` writes (edit, delete) use `post`; the others use [`InnerTube::post_write`]. A
+    /// 404 on a delete is success (`Null`). Returns the answer.
+    pub async fn comment_write(
+        &self,
+        client: &YouTubeClient,
+        command: &WriteCommand,
+        text: Option<&str>,
+        replayable: bool,
+    ) -> Result<serde_json::Value, Error> {
+        let kind = command.log_kind();
+        let (path, body) = match command {
+            WriteCommand::Action(token) => {
+                return match self.send_action(client, token, kind, true).await {
+                    // A token replay is a delete: a 404 means it is already gone.
+                    Err(e) if e.is_not_found() => Ok(serde_json::Value::Null),
+                    other => other,
+                };
+            }
+            WriteCommand::Endpoint { path, payload, text_field, .. } => {
+                if !crate::models::comment_write::is_plain_comment_path(path) {
+                    tracing::debug!(kind, "comment write refused: not a plain comment path");
+                    return Err(Error::Other("Not a comment path.".into()));
+                }
+                let mut body = serde_json::Map::new();
+                body.insert("context".into(), serde_json::to_value(self.context_for(client))?);
+                for (key, value) in payload {
+                    // What the server issued never replaces the context.
+                    body.entry(key.clone()).or_insert_with(|| value.clone());
+                }
+                if let Some(text) = text {
+                    body.insert((*text_field).into(), text.into());
+                }
+                (path.as_str(), serde_json::Value::Object(body))
+            }
+        };
+        let value = if replayable {
+            self.post(path, client, &body, true).await?
+        } else {
+            self.post_write(path, client, &body, true).await?
+        };
+        accept_answer(kind, value, true)
+    }
+
+    /// Whether a comments request can go out as the account right now.
+    fn can_read_as_account(&self, client: &YouTubeClient) -> bool {
+        client.login_supported && self.is_logged_in()
+    }
+
+    /// One comments `next` request, as the account through [`InnerTube::post_no_heal`] or
+    /// anonymously. An account request with nobody signed in is an error, never an anonymous one.
+    async fn comments_send<B: Serialize>(
+        &self,
+        client: &YouTubeClient,
+        as_account: bool,
+        build: impl Fn(Context) -> B,
+    ) -> Result<serde_json::Value, Error> {
+        if as_account {
+            if !self.can_read_as_account(client) {
+                return Err(Error::AccountChanged);
+            }
+            self.post_no_heal("next", client, &build(self.context_for(client)), true).await
+        } else {
+            self.post("next", client, &build(self.context_anonymous(client)), false).await
+        }
     }
 
     /// Logged-in account summary (`account/account_menu`, context/01). Requires a cookie. Also the
@@ -1142,7 +1358,75 @@ fn custom_thumbnail_key() -> serde_json::Value {
     })
 }
 
-/// Playlist edit/delete want the raw playlistId; browse gives it `VL`-prefixed. context/01.
+/// What a comment action's or write's answer says about itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Verdict {
+    Succeeded,
+    /// A status that is not `STATUS_SUCCEEDED`, or a top-level `error`.
+    Rejected,
+    /// A 200 with no status to read.
+    Missing,
+}
+
+/// Read an answer to a comment action or write: `STATUS_SUCCEEDED` in `actionResults[0]` (a vote)
+/// or `actionResult` (an edit) succeeds; another status or a top-level `error` is a rejection;
+/// none is `Missing`, for the caller to decide. Also the status, as it may be logged.
+fn answer_verdict(value: &serde_json::Value) -> (Verdict, &str) {
+    let result = value.pointer("/actionResults/0").or_else(|| value.get("actionResult"));
+    let status = result.and_then(|r| r.get("status")).and_then(serde_json::Value::as_str);
+    let verdict = match status {
+        _ if value.get("error").is_some() => Verdict::Rejected,
+        Some("STATUS_SUCCEEDED") => Verdict::Succeeded,
+        Some(_) => Verdict::Rejected,
+        None => Verdict::Missing,
+    };
+    (verdict, status.map_or("missing", |s| enum_like(s).unwrap_or("unexpected")))
+}
+
+/// The answer, unless it is a rejection. `missing_ok`: an answer with no status is accepted.
+fn accept_answer(
+    kind: &'static str,
+    value: serde_json::Value,
+    missing_ok: bool,
+) -> Result<serde_json::Value, Error> {
+    match answer_verdict(&value) {
+        (Verdict::Succeeded, _) => Ok(value),
+        (Verdict::Missing, _) if missing_ok => Ok(value),
+        (_, status) => {
+            tracing::debug!(kind, status, "comment action rejected");
+            Err(Error::ActionRejected)
+        }
+    }
+}
+
+/// Every comment on a page, top-level and inline replies.
+fn page_comments(page: &CommentsPage) -> impl Iterator<Item = &comments::Comment> {
+    page.threads.iter().flat_map(|t| std::iter::once(&t.comment).chain(&t.replies))
+}
+
+/// One line per signed-in page that has the viewer's own comments: how many, and how many of them
+/// offer edit and delete. Counts only.
+fn log_own_comment_commands<'a>(
+    kind: &'static str,
+    comments: impl Iterator<Item = &'a comments::Comment>,
+) {
+    let (mut own, mut with_edit, mut with_delete) = (0, 0, 0);
+    for c in comments.filter(|c| c.own) {
+        own += 1;
+        with_edit += usize::from(c.commands.edit.is_some());
+        with_delete += usize::from(c.commands.delete.is_some());
+    }
+    if own > 0 {
+        tracing::debug!(kind, own, with_edit, with_delete, "own comment commands");
+    }
+}
+
+/// A 401/403: YouTube said no to this request.
+fn is_refusal(e: &Error) -> bool {
+    matches!(e, Error::Http(h) if h.status().is_some_and(|s| s == 401 || s == 403))
+}
+
+// Playlist edit/delete want the raw playlistId; browse gives it `VL`-prefixed. context/01.
 fn strip_vl(id: &str) -> &str {
     id.strip_prefix("VL").unwrap_or(id)
 }
@@ -1241,5 +1525,571 @@ mod tests {
     fn create_playlist_id_parsed() {
         let resp = json!({ "playlistId": "PLnew123", "status": "STATUS_SUCCEEDED" });
         assert_eq!(metadata::find_first_str(&resp, "playlistId").as_deref(), Some("PLnew123"));
+    }
+
+    // --- comments reads: as the account without the healer, never a token across the line ---
+
+    use crate::clients::{Clients, METADATA_CLIENT};
+    use crate::models::comment_write::{REPLY_EDIT_TEXT_FIELD, TEXT_FIELD};
+    use crate::models::comments::CommentsState;
+    use crate::test_server::{MockServer, Seen};
+    use crate::transport::Session;
+    use std::time::Duration;
+
+    fn it_against(server: &MockServer, signed_in: bool) -> InnerTube {
+        let session = Session {
+            cookie: signed_in.then(|| "SAPISID=fixture-sapisid; PREF=x".to_owned()),
+            data_sync_id: signed_in.then(|| "fixture-dsid".to_owned()),
+            visitor_data: Some("fixture-visitor".into()),
+            ..Default::default()
+        };
+        let mut it = InnerTube::new(session, None).unwrap();
+        it.set_base_url(&server.base_url);
+        it
+    }
+
+    fn web() -> YouTubeClient {
+        Clients::bundled().get(METADATA_CLIENT).unwrap().clone()
+    }
+
+    fn as_account(req: &Seen) -> bool {
+        req.header("cookie").is_some()
+            || req.header("authorization").is_some()
+            || req.body.contains("onBehalfOfUser")
+    }
+
+    fn is_tab_lookup(req: &Seen) -> bool {
+        req.body.contains("\"videoId\"")
+    }
+
+    /// A tab-lookup answer whose comments token records who it was issued to.
+    fn tab_answer(req: &Seen) -> String {
+        let issued_to = if as_account(req) { "tok-account" } else { "tok-anon" };
+        json!({ "tabs": [{ "tabRenderer": { "content": { "sectionListRenderer": {
+            "continuations": [{ "reloadContinuationData": { "continuation": issued_to } }] } } } }] })
+        .to_string()
+    }
+
+    /// A first page that has a header and no threads: parses as `Empty`.
+    const PAGE: &str = r#"{"x":{"continuationItems":[{"commentsHeaderRenderer":{}}]}}"#;
+
+    async fn no_heal(it: &InnerTube) {
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), it.session_rejected().notified())
+                .await
+                .is_err(),
+            "a comments request must never wake the healer"
+        );
+        assert!(it.is_logged_in(), "and the session is untouched");
+    }
+
+    /// A refusal comes back as the HTTP error it was, never as an expired session.
+    fn is_plain_refusal(e: &Error) -> bool {
+        is_refusal(e) && !matches!(e, Error::SessionExpired)
+    }
+
+    #[tokio::test]
+    async fn a_signed_in_first_page_is_read_as_the_account_and_says_so() {
+        let server = MockServer::start(|req| {
+            (200, if is_tab_lookup(req) { tab_answer(req) } else { PAGE.to_owned() })
+        });
+        let it = it_against(&server, true);
+        let page = it.comments(&web(), "vid").await.unwrap();
+        assert!(page.read_as_account);
+        assert_eq!(page.state, CommentsState::Empty);
+        let sent = server.requests();
+        assert_eq!(sent.len(), 2, "tab lookup, first page");
+        assert!(sent.iter().all(as_account));
+        assert!(sent.iter().all(|r| r.path.starts_with("/youtubei/v1/next")));
+        assert!(sent[0].header("authorization").is_some_and(|a| a.starts_with("SAPISIDHASH ")));
+        assert!(sent[1].body.contains("tok-account"), "the token it was issued");
+        no_heal(&it).await;
+    }
+
+    /// The first page is refused: the whole chain restarts anonymously, with a FRESH tab lookup,
+    /// and the account's token is never sent without the account.
+    #[tokio::test]
+    async fn a_refused_first_page_redoes_the_whole_chain_anonymously() {
+        for status in [401, 403] {
+            let server = MockServer::start(move |req| {
+                if is_tab_lookup(req) {
+                    (200, tab_answer(req))
+                } else if as_account(req) {
+                    (status, "{}".into())
+                } else if req.body.contains("tok-anon") {
+                    (200, PAGE.to_owned())
+                } else {
+                    (400, "an account's token in an anonymous request".into())
+                }
+            });
+            let it = it_against(&server, true);
+            let page = it.comments(&web(), "vid").await.unwrap();
+            assert!(!page.read_as_account);
+            assert_eq!(page.state, CommentsState::Empty);
+
+            let sent = server.requests();
+            let shape: Vec<(bool, bool)> =
+                sent.iter().map(|r| (is_tab_lookup(r), as_account(r))).collect();
+            assert_eq!(
+                shape,
+                [(true, true), (false, true), (true, false), (false, false)],
+                "account tab, refused page, then a fresh anonymous tab and page"
+            );
+            assert!(
+                sent.iter().filter(|r| !as_account(r)).all(|r| !r.body.contains("tok-account")),
+                "an account's token was replayed anonymously"
+            );
+            no_heal(&it).await;
+        }
+    }
+
+    /// The tab lookup itself is refused: the chain restarts anonymously from the same place.
+    #[tokio::test]
+    async fn a_refused_tab_lookup_falls_back_anonymously() {
+        let server = MockServer::start(|req| {
+            if is_tab_lookup(req) && as_account(req) {
+                (403, "{}".into())
+            } else if is_tab_lookup(req) {
+                (200, tab_answer(req))
+            } else {
+                (200, PAGE.to_owned())
+            }
+        });
+        let it = it_against(&server, true);
+        let page = it.comments(&web(), "vid").await.unwrap();
+        assert!(!page.read_as_account);
+        let sent = server.requests();
+        assert_eq!(sent.len(), 3, "refused tab, anonymous tab, anonymous page");
+        assert!(!as_account(&sent[1]) && !as_account(&sent[2]));
+        no_heal(&it).await;
+    }
+
+    /// Only a refusal restarts the chain: a 500 would just repeat itself.
+    #[tokio::test]
+    async fn other_failures_do_not_restart_the_chain() {
+        let server = MockServer::start(|_| (500, "{}".into()));
+        let it = it_against(&server, true);
+        assert!(matches!(it.comments(&web(), "vid").await, Err(Error::Http(_))));
+        assert_eq!(server.requests().len(), 1);
+        no_heal(&it).await;
+    }
+
+    #[tokio::test]
+    async fn a_refusal_on_both_sides_is_a_plain_error_not_a_session_one() {
+        let server = MockServer::start(|_| (403, "{}".into()));
+        let it = it_against(&server, true);
+        let err = it.comments(&web(), "vid").await.unwrap_err();
+        assert!(is_plain_refusal(&err), "{err:?}");
+        assert_eq!(server.requests().len(), 2, "one account attempt, one anonymous");
+        no_heal(&it).await;
+    }
+
+    #[tokio::test]
+    async fn signed_out_is_one_anonymous_chain() {
+        let server = MockServer::start(|req| {
+            (200, if is_tab_lookup(req) { tab_answer(req) } else { PAGE.to_owned() })
+        });
+        let it = it_against(&server, false);
+        let page = it.comments(&web(), "vid").await.unwrap();
+        assert!(!page.read_as_account);
+        let sent = server.requests();
+        assert_eq!(sent.len(), 2);
+        assert!(!sent.iter().any(as_account));
+    }
+
+    /// A sort switch, a page and a replies page carry tokens issued earlier: refused, they come
+    /// back as a plain error with exactly one request, never as an anonymous retry.
+    #[tokio::test]
+    async fn a_refused_continuation_or_replies_page_is_not_retried_anonymously() {
+        for status in [401, 403] {
+            let server = MockServer::start(move |_| (status, "{}".into()));
+            let it = it_against(&server, true);
+            let page = it.comments_continuation(&web(), "tok-account", true).await;
+            let replies = it.comment_replies(&web(), "tok-account", true).await;
+            for err in [page.unwrap_err(), replies.unwrap_err()] {
+                assert!(is_plain_refusal(&err), "{err:?}");
+            }
+            assert_eq!(server.requests().len(), 2, "one request each, no retry");
+            assert!(server.requests().iter().all(as_account));
+            no_heal(&it).await;
+        }
+    }
+
+    /// A token goes back the way it came: issued to an anonymous read, it is sent anonymously
+    /// even though the app is signed in now.
+    #[tokio::test]
+    async fn a_token_goes_back_the_way_it_came() {
+        let server = MockServer::start(|_| (200, PAGE.to_owned()));
+        let it = it_against(&server, true);
+        let anon = it.comments_continuation(&web(), "tok-anon", false).await.unwrap();
+        assert!(!anon.read_as_account);
+        let acct = it.comments_continuation(&web(), "tok-account", true).await.unwrap();
+        assert!(acct.read_as_account);
+        it.comment_replies(&web(), "tok-account", true).await.unwrap();
+        let sent = server.requests();
+        assert!(!as_account(&sent[0]) && as_account(&sent[1]) && as_account(&sent[2]));
+    }
+
+    /// The session went away between the first page and a later one: the account's token is not
+    /// sent anonymously, nothing goes out, and the caller is told the account changed.
+    #[tokio::test]
+    async fn an_account_token_without_the_account_is_an_error_and_sends_nothing() {
+        let server = MockServer::start(|_| (200, PAGE.to_owned()));
+        let it = it_against(&server, false);
+        let err = it.comments_continuation(&web(), "tok-account", true).await.unwrap_err();
+        assert!(matches!(err, Error::AccountChanged), "{err:?}");
+        assert!(server.requests().is_empty());
+    }
+
+    // --- comment writes ----------------------------------------------------------------------
+
+    /// An `Endpoint` command as a read would build it, sending its text as `commentText`.
+    fn endpoint(path: &str, kind: &'static str, payload: serde_json::Value) -> WriteCommand {
+        WriteCommand::Endpoint {
+            path: path.to_owned(),
+            payload: payload.as_object().cloned().unwrap_or_default(),
+            text_field: TEXT_FIELD,
+            kind,
+        }
+    }
+
+    fn create() -> WriteCommand {
+        endpoint("comment/create_comment", "create", json!({ "createCommentParams": "P" }))
+    }
+
+    fn edit() -> WriteCommand {
+        endpoint("comment/update_comment", "edit", json!({ "updateCommentParams": "P" }))
+    }
+
+    fn delete() -> WriteCommand {
+        WriteCommand::Action("fixture-token".into())
+    }
+
+    /// The request as the server sees it: the server-issued fields and the text, the context ours
+    /// (a payload can never replace it), the path the command named, and the account's headers.
+    #[tokio::test]
+    async fn a_write_replays_the_servers_command_with_the_text() {
+        let server =
+            MockServer::start(|_| (200, r#"{"actions":[{"createCommentAction":{}}]}"#.into()));
+        let it = it_against(&server, true);
+        let cmd = endpoint(
+            "comment/create_comment",
+            "create",
+            json!({ "createCommentParams": "fixture-params", "context": "must-not-win" }),
+        );
+        it.comment_write(&web(), &cmd, Some("hello"), false).await.unwrap();
+        let sent = server.requests();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].path.starts_with("/youtubei/v1/comment/create_comment?"));
+        let body: serde_json::Value = serde_json::from_str(&sent[0].body).unwrap();
+        assert_eq!(body["createCommentParams"], "fixture-params");
+        assert_eq!(body["commentText"], "hello");
+        assert!(body["context"].is_object(), "the context is ours: {body}");
+        assert!(as_account(&sent[0]));
+        assert!(sent[0].header("authorization").is_some_and(|a| a.starts_with("SAPISIDHASH ")));
+    }
+
+    /// The answers: a clean 200 is accepted; an `error`, a failed result, or a non-200 is not; and
+    /// none of them carries the params or the text in what comes back.
+    #[tokio::test]
+    async fn write_answers_are_checked_and_errors_never_hold_the_params_or_text() {
+        for (status, reply, ok) in [
+            (200, r#"{"actions":[{"createCommentAction":{}}]}"#, true),
+            (200, r#"{}"#, true),
+            (200, r#"{"error":{"code":400}}"#, false),
+            (200, r#"{"actionResults":[{"status":"STATUS_FAILED"}]}"#, false),
+            (200, r#"{"actionResults":[{"status":"STATUS_SUCCEEDED"}]}"#, true),
+            (400, r#"{}"#, false),
+            (500, r#"{}"#, false),
+        ] {
+            let server = MockServer::start(move |_: &Seen| (status, reply.to_owned()));
+            let it = it_against(&server, true);
+            let cmd = endpoint("comment/x", "reply", json!({ "p": "secret-params" }));
+            let got = it.comment_write(&web(), &cmd, Some("secret text"), false).await;
+            assert_eq!(got.is_ok(), ok, "{status} {reply}");
+            if let Err(e) = &got {
+                for shown in [e.to_string(), format!("{e:?}")] {
+                    assert!(!shown.contains("secret"), "{shown}");
+                }
+            }
+            assert_eq!(server.requests().len(), 1);
+        }
+    }
+
+    /// Never sent twice: a lost answer to a post is `WriteUncertain` after exactly one request.
+    #[tokio::test]
+    async fn a_lost_answer_to_a_post_is_uncertain_and_never_resent() {
+        let server = MockServer::start(|_: &Seen| (0, String::new())); // hang up
+        let it = it_against(&server, true);
+        let got = it.comment_write(&web(), &create(), Some("hello"), false).await;
+        assert!(matches!(got, Err(Error::WriteUncertain)), "{got:?}");
+        assert_eq!(server.requests().len(), 1, "exactly one request");
+    }
+
+    /// A path that is not a plain `comment/…` one never reaches the network, even in a command
+    /// that was built by hand: the host, scheme and port are the fixed base's alone.
+    #[tokio::test]
+    async fn a_hostile_command_path_sends_nothing() {
+        let server = MockServer::start(|_: &Seen| (200, "{}".into()));
+        let it = it_against(&server, true);
+        for path in [
+            "../browse",
+            "comment/../browse",
+            "comment//x",
+            "comment/x?y=1",
+            "comment/x#frag",
+            "https://evil.example/comment/x",
+            "//evil.example/comment/x",
+            "evil.example/comment/x",
+            "comment/x@evil.example",
+            "comment/%2e%2e/x",
+            "browse",
+            "",
+        ] {
+            let got = it
+                .comment_write(&web(), &endpoint(path, "edit", json!({})), Some("t"), false)
+                .await;
+            assert!(matches!(got, Err(Error::Other(_))), "{path}: {got:?}");
+        }
+        assert!(server.requests().is_empty(), "something was sent");
+    }
+
+    /// A delete that is a perform-action token is the same replay as a vote.
+    #[tokio::test]
+    async fn an_action_token_write_goes_to_the_perform_action_path() {
+        let server = MockServer::start(|_: &Seen| {
+            (200, r#"{"actionResults":[{"status":"STATUS_SUCCEEDED"}]}"#.into())
+        });
+        let it = it_against(&server, true);
+        it.comment_write(&web(), &delete(), None, true).await.unwrap();
+        let sent = server.requests();
+        assert!(sent[0].path.starts_with(&format!("/youtubei/v1/{COMMENT_ACTION_PATH}")));
+        let body: serde_json::Value = serde_json::from_str(&sent[0].body).unwrap();
+        assert_eq!(body["actions"], json!(["fixture-token"]));
+    }
+
+    // --- comment actions ---------------------------------------------------------------------
+
+    #[test]
+    fn success_is_a_succeeded_status_in_either_answer_shape() {
+        let verdict = |v: &serde_json::Value| answer_verdict(v).0;
+        // `actionResults: [..]` (a like) and `actionResult: {..}` (an edit).
+        let like = json!({ "actionResults": [{ "status": "STATUS_SUCCEEDED", "feedback": "FEEDBACK_LIKE" }] });
+        let edit = json!({ "actionResult": { "status": "STATUS_SUCCEEDED", "feedbackText": { "runs": [] } } });
+        for ok in [&like, &edit] {
+            assert_eq!(answer_verdict(ok), (Verdict::Succeeded, "STATUS_SUCCEEDED"), "{ok}");
+        }
+
+        // A different status is a rejection in either shape, and so is a top-level error, even
+        // beside a success.
+        for rejected in [
+            json!({ "actionResults": [{ "status": "STATUS_FAILED", "feedback": "FEEDBACK_LIKE" }] }),
+            json!({ "actionResult": { "status": "STATUS_FAILED" } }),
+            json!({ "actionResults": [{ "status": "nope" }] }),
+            json!({ "error": { "code": 400 }, "actionResult": { "status": "STATUS_SUCCEEDED" } }),
+        ] {
+            assert_eq!(verdict(&rejected), Verdict::Rejected, "{rejected}");
+        }
+        // The plural array wins when both are there, and only its first entry is the answer.
+        let both = json!({ "actionResults": [{ "status": "STATUS_FAILED" }], "actionResult": { "status": "STATUS_SUCCEEDED" } });
+        assert_eq!(verdict(&both), Verdict::Rejected);
+        let late = json!({ "actionResults": [{ "status": "STATUS_FAILED" }, { "status": "STATUS_SUCCEEDED" }] });
+        assert_eq!(verdict(&late), Verdict::Rejected);
+
+        // No status to read: missing, for the caller to decide.
+        for missing in [
+            json!({}),
+            json!(null),
+            json!([]),
+            json!({ "actionResults": [] }),
+            json!({ "actionResults": [{ "feedback": "FEEDBACK_LIKE" }] }),
+            json!({ "actionResults": "STATUS_SUCCEEDED" }),
+            json!({ "actionResult": {} }),
+            json!({ "actionResult": { "feedbackText": "x" } }),
+            json!({ "responseContext": {} }),
+        ] {
+            assert_eq!(answer_verdict(&missing), (Verdict::Missing, "missing"), "{missing}");
+        }
+        // Only enum-like words are echoed for the log.
+        let odd = json!({ "actionResult": { "status": "STATUS_secret value" } });
+        assert_eq!(answer_verdict(&odd), (Verdict::Rejected, "unexpected"));
+    }
+
+    /// Both answer shapes through a real request, for a vote, a write and a delete; and what a
+    /// missing status means for each.
+    #[tokio::test]
+    async fn every_action_and_write_accepts_either_shape_and_handles_a_missing_status() {
+        const PLURAL: &str = r#"{"actionResults":[{"status":"STATUS_SUCCEEDED"}]}"#;
+        const SINGULAR: &str =
+            r#"{"actionResult":{"status":"STATUS_SUCCEEDED","feedbackText":{}}}"#;
+        const FAILED: &str = r#"{"actionResult":{"status":"STATUS_FAILED"}}"#;
+        const NONE: &str = r#"{"responseContext":{},"trackingParams":"x"}"#;
+
+        for (reply, vote, write, del) in [
+            (PLURAL, "ok", "ok", "ok"),
+            (SINGULAR, "ok", "ok", "ok"),
+            (FAILED, "rejected", "rejected", "rejected"),
+            // No status: a vote is a rejection; a write or a delete is accepted.
+            (NONE, "rejected", "ok", "ok"),
+        ] {
+            let server = MockServer::start(move |_: &Seen| (200, reply.to_owned()));
+            let it = it_against(&server, true);
+            let label = |r: Result<_, Error>| match r {
+                Ok(_) => "ok",
+                Err(Error::ActionRejected) => "rejected",
+                Err(Error::WriteUncertain) => "uncertain",
+                Err(_) => "other",
+            };
+            let got_vote = label(it.comment_action(&web(), "T", "like").await);
+            let got_write =
+                label(it.comment_write(&web(), &edit(), Some("t"), false).await.map(|_| ()));
+            let got_delete =
+                label(it.comment_write(&web(), &delete(), None, true).await.map(|_| ()));
+            assert_eq!((got_vote, got_write, got_delete), (vote, write, del), "{reply}");
+        }
+    }
+
+    /// An edit is idempotent, so it takes the ordinary path: the transport retries a dropped
+    /// connection, and a final failure is a plain failure, never `uncertain` (a post or a reply
+    /// still is, and is still sent once).
+    #[tokio::test]
+    async fn an_edit_is_retried_and_never_uncertain_while_a_post_is_sent_once() {
+        let server = MockServer::start(|_: &Seen| (0, String::new())); // hang up
+        let it = it_against(&server, true);
+        let got = it.comment_write(&web(), &edit(), Some("t"), true).await;
+        assert!(matches!(&got, Err(Error::Http(_))), "{got:?}");
+        assert!(server.requests().len() > 1, "the edit was not retried");
+
+        let before = server.requests().len();
+        let got = it.comment_write(&web(), &create(), Some("t"), false).await;
+        assert!(matches!(got, Err(Error::WriteUncertain)), "{got:?}");
+        assert_eq!(server.requests().len() - before, 1, "a post is sent exactly once");
+    }
+
+    /// A reply's edit goes out as `{context, replyText, updateReplyParams}` to its path, by the
+    /// ordinary (retrying) path; a 404 or a 400 there is an ordinary error, never success.
+    #[tokio::test]
+    async fn a_reply_edit_sends_update_reply_params_and_a_refusal_is_an_error() {
+        for status in [404, 400] {
+            let server = MockServer::start(move |_: &Seen| {
+                (
+                    status,
+                    r#"{"error":{"code":400,"message":"m","status":"INVALID_ARGUMENT"}}"#.into(),
+                )
+            });
+            let it = it_against(&server, true);
+            let edit = WriteCommand::Endpoint {
+                path: crate::models::comment_write::COMMENT_UPDATE_REPLY_PATH.into(),
+                payload: json!({ "updateReplyParams": "P" }).as_object().cloned().unwrap(),
+                text_field: REPLY_EDIT_TEXT_FIELD,
+                kind: "edit_reply",
+            };
+            let got = it.comment_write(&web(), &edit, Some("new text"), true).await;
+            assert!(
+                matches!(&got, Err(Error::Http(e)) if e.status().map(|s| s.as_u16()) == Some(status)),
+                "{got:?}"
+            );
+            let sent = server.requests();
+            assert_eq!(sent.len(), 1, "a refusal is not retried");
+            assert!(sent[0].path.starts_with("/youtubei/v1/comment/update_comment_reply?"));
+            let body: serde_json::Value = serde_json::from_str(&sent[0].body).unwrap();
+            let mut keys: Vec<&str> =
+                body.as_object().unwrap().keys().map(String::as_str).collect();
+            keys.sort_unstable();
+            assert_eq!(keys, ["context", "replyText", "updateReplyParams"]);
+            assert_eq!(body[REPLY_EDIT_TEXT_FIELD], "new text");
+        }
+    }
+
+    /// A delete's answer has no status (it carries a `removeCommentAction` and the web client's
+    /// toast): accepted, as is a bare 200; an `error` is not. A vote with the same answer still
+    /// needs a status.
+    #[tokio::test]
+    async fn a_delete_answer_without_a_status_is_accepted() {
+        let answer = r#"{"responseContext":{},"actions":[
+            {"clickTrackingParams":"x","removeCommentAction":{"actionResult":{"status":"STATUS_SUCCEEDED"}}},
+            {"clickTrackingParams":"y","openPopupAction":{"popup":{}}}]}"#;
+        let popup_only = r#"{"responseContext":{},"actions":[{"clickTrackingParams":"y","openPopupAction":{}}]}"#;
+        let bare = r#"{"responseContext":{}}"#;
+        let failed = r#"{"actions":[{"removeCommentAction":{}}],"error":{"code":400}}"#;
+        for (reply, ok) in [(answer, true), (popup_only, true), (bare, true), (failed, false)] {
+            let server = MockServer::start(move |_: &Seen| (200, reply.to_owned()));
+            let it = it_against(&server, true);
+            let got = it.comment_write(&web(), &delete(), None, true).await;
+            assert_eq!(got.is_ok(), ok, "{reply}");
+        }
+        let server = MockServer::start(move |_: &Seen| (200, answer.to_owned()));
+        let it = it_against(&server, true);
+        assert!(matches!(it.comment_action(&web(), "T", "like").await, Err(Error::ActionRejected)));
+    }
+
+    /// Delete is idempotent: a 404 is success, a failure leaves nothing unknown (it can simply
+    /// be pressed again), a rejection is a rejection, and none of them is `uncertain`.
+    #[tokio::test]
+    async fn a_delete_succeeds_on_a_404_and_is_never_uncertain() {
+        // 404: already gone, so done.
+        let server = MockServer::start(|_: &Seen| (404, "{}".into()));
+        let it = it_against(&server, true);
+        let got = it.comment_write(&web(), &delete(), None, true).await;
+        assert!(matches!(got, Ok(serde_json::Value::Null)), "{got:?}");
+        assert_eq!(server.requests().len(), 1);
+
+        // The same 404 on an edit is an error (the comment is gone, the edit did not happen).
+        let it = it_against(&server, true);
+        let got = it.comment_write(&web(), &edit(), Some("t"), true).await;
+        assert!(matches!(&got, Err(e) if e.is_not_found()), "{got:?}");
+
+        // A 500 (what a dead connection looks like after the retries) is a plain failure.
+        let server = MockServer::start(|_: &Seen| (500, "{}".into()));
+        let it = it_against(&server, true);
+        let got = it.comment_write(&web(), &delete(), None, true).await;
+        assert!(matches!(&got, Err(Error::Http(_))), "{got:?}");
+
+        // A rejected status is a rejection, in both shapes, and so is an `error` with no status.
+        for reply in [
+            r#"{"actionResult":{"status":"STATUS_FAILED"}}"#,
+            r#"{"actionResults":[{"status":"STATUS_FAILED"}]}"#,
+            r#"{"error":{"code":400}}"#,
+        ] {
+            let server = MockServer::start(move |_: &Seen| (200, reply.to_owned()));
+            let it = it_against(&server, true);
+            let got = it.comment_write(&web(), &delete(), None, true).await;
+            assert!(matches!(got, Err(Error::ActionRejected)), "{reply}");
+        }
+    }
+
+    /// The request as the server sees it, and what each answer turns into. The token is in the
+    /// body and nowhere else, and never in what comes back to the caller.
+    #[tokio::test]
+    async fn a_comment_action_posts_the_token_and_checks_the_answer() {
+        const TOKEN: &str = "fixture-secret-token";
+        for (status, reply, ok) in [
+            (
+                200,
+                r#"{"actionResults":[{"status":"STATUS_SUCCEEDED","feedback":"FEEDBACK_LIKE"}]}"#,
+                true,
+            ),
+            (200, r#"{"actionResults":[{"status":"STATUS_FAILED"}]}"#, false),
+            (200, r#"{}"#, false),
+            (400, r#"{}"#, false),
+            (500, r#"{}"#, false),
+        ] {
+            let server = MockServer::start(move |_: &Seen| (status, reply.to_owned()));
+            let it = it_against(&server, true);
+            let got = it.comment_action(&web(), TOKEN, "like").await;
+            assert_eq!(got.is_ok(), ok, "{status} {reply}");
+            if let Err(e) = &got {
+                assert!(!e.to_string().contains(TOKEN), "the token is in an error: {e}");
+                assert!(!format!("{e:?}").contains(TOKEN));
+            }
+            let sent = server.requests();
+            assert_eq!(sent.len(), 1);
+            assert!(sent[0].path.starts_with(&format!("/youtubei/v1/{COMMENT_ACTION_PATH}")));
+            assert!(sent[0].path.contains("prettyPrint=false"));
+            let body: serde_json::Value = serde_json::from_str(&sent[0].body).unwrap();
+            assert_eq!(body["actions"], json!([TOKEN]), "{{context, actions: [token]}}");
+            assert!(body.get("context").is_some());
+            assert!(as_account(&sent[0]), "an action is the account's own");
+        }
     }
 }

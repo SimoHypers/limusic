@@ -6,6 +6,7 @@
 	import {
 		ArrowDown01Icon,
 		FavouriteIcon,
+		Comment01Icon,
 		Maximize01Icon,
 		Minimize01Icon,
 		Mic01Icon,
@@ -46,12 +47,15 @@
 	import QueueList from './QueueList.svelte';
 	import LyricsView from './LyricsView.svelte';
 	import TrackMenu from './TrackMenu.svelte';
+	import CommentsView from './CommentsView.svelte';
 	import Ambient from './Ambient.svelte';
 
 	// Off in settings, this view drops its tabs and the queue/lyrics panels stay in charge of both
 	// (see +layout): they paint above this (z-30 over z-20), so all this needs is to hand back the
 	// width they take at lg+ instead of letting them cover a third of the artwork. Below lg they're
 	// a scrimmed overlay and there's nothing to shrink into. In tabbed mode both are always closed.
+	// `lyricsOpen` is the lyrics/comments slot: the comments panel takes the lyrics' place, so either
+	// one open counts as that one panel.
 	let { queueOpen, lyricsOpen }: { queueOpen: boolean; lyricsOpen: boolean } = $props();
 	const tabbed = $derived(appearance.tabbedPlayer);
 	// The two layouts (Settings > Appearance > New player layout). One component, so both share
@@ -386,6 +390,12 @@
 						<HugeiconsIcon icon={Mic01Icon} class="h-4 w-4" />
 						{t('player.lyrics')}
 					</Tabs.Trigger>
+					{#if !api.isLocalId(playback.now?.videoId)}
+						<Tabs.Trigger value="comments" class={stage ? 'flex-none gap-2 px-0.5' : 'gap-2.5'}>
+							<HugeiconsIcon icon={Comment01Icon} class="h-4 w-4" />
+							{t('player.comments')}
+						</Tabs.Trigger>
+					{/if}
 				</Tabs.List>
 				{#if np.tab === 'lyrics'}
 					<button
@@ -412,6 +422,10 @@
 			{#if np.tab === 'queue'}
 				<Tabs.Content value="queue" class="flex min-h-0 flex-col">
 					<QueueList />
+				</Tabs.Content>
+			{:else if np.tab === 'comments'}
+				<Tabs.Content value="comments" class="flex min-h-0 flex-col">
+					<CommentsView />
 				</Tabs.Content>
 			{:else}
 				<Tabs.Content value="lyrics" class="flex min-h-0 flex-col">

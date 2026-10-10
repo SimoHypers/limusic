@@ -526,6 +526,128 @@ export const setMiniCompact = (compact: boolean) => invoke<void>('set_mini_compa
 /** `params` is a `HomeChip.params` token — omit for the unfiltered feed. */
 export const getHome = (params?: string) => invoke<HomePage>('get_home', { params });
 export const getHomeMore = (token: string) => invoke<HomePage>('get_home_more', { token });
+
+/** A comment's author. `channel_id` and `avatar` are absent when YouTube omitted them. */
+export interface CommentAuthor {
+	name: string;
+	channel_id?: string;
+	avatar?: string;
+	verified: boolean;
+	is_creator: boolean;
+	is_artist: boolean;
+}
+
+/** One comment. Counts and the time are YouTube's own display strings ("2.4M", "6 years ago"),
+ *  shown as they come: they are not numbers and not in the app's language. */
+export interface Comment {
+	id: string;
+	text: string;
+	author: CommentAuthor;
+	published?: string;
+	/** The count as it reads for the viewer's current vote. */
+	like_count?: string;
+	/** The count if the viewer has not liked it / has. Swap between these, never add to one. */
+	like_count_notliked?: string;
+	like_count_liked?: string;
+	/** The viewer's vote; absent when read anonymously. */
+	vote?: CommentVote;
+	/** What the viewer can do to this comment now; the vote buttons go by this alone. */
+	actions: CommentAction[];
+	reply_count?: string;
+	hearted: boolean;
+	pinned: boolean;
+	/** The viewer's own comment. */
+	own: boolean;
+	/** What the edit dialog pre-fills, when the response had it plainly; edit `text` otherwise. */
+	edit_text?: string;
+	/** What the viewer can write on it, as the response offered. Empty signed out. */
+	writes: CommentWrite[];
+	/** The reply box's placeholder, if the response sent one. */
+	reply_placeholder?: string;
+}
+
+export type CommentWrite = 'reply' | 'edit' | 'delete';
+
+export type CommentVote = 'neutral' | 'liked' | 'disliked';
+export type CommentAction = 'like' | 'unlike' | 'dislike' | 'undislike';
+
+export interface CommentThread {
+	comment: Comment;
+	/** Loads this thread's replies (`getCommentReplies`); absent when there is nothing to fetch. */
+	replies_token?: string;
+	/** Replies that arrived with the thread, nested levels already flattened. */
+	replies: Comment[];
+}
+
+export interface CommentSort {
+	key: 'top' | 'newest';
+	selected: boolean;
+	/** Pass to `getCommentsMore` to reload the comments in this order. */
+	token: string;
+}
+
+export interface CommentsHeader {
+	/** The short count ("7.8K"). */
+	count_text?: string;
+	sorts: CommentSort[];
+	/** The comment box. Present only when the response carried a way to post (signed in). */
+	composer?: { placeholder?: string };
+}
+
+/** `disabled` covers both "turned off" and "could not be read": either way, nothing to show. */
+export type CommentsState = 'ok' | 'empty' | 'disabled';
+
+export interface CommentsPage {
+	/** First page and sort switches only. */
+	header?: CommentsHeader;
+	threads: CommentThread[];
+	/** Next page of top-level comments; absent is the end of the list. */
+	continuation?: string;
+	state: CommentsState;
+}
+
+export interface CommentReplies {
+	replies: Comment[];
+	continuation?: string;
+}
+
+/** What a comment looks like after YouTube accepted an action on it. */
+export interface CommentActionOutcome {
+	vote: CommentVote;
+	actions: CommentAction[];
+}
+
+/** Why a comments command failed: `CommentsError` in `src-tauri/src/commands.rs`. */
+const COMMENTS_ERROR_KINDS = ['account_changed', 'busy', 'rejected', 'gone', 'uncertain', 'failed'] as const;
+export type CommentsErrorKind = (typeof COMMENTS_ERROR_KINDS)[number];
+
+/** The kind out of whatever a comments command rejected with; anything unrecognised is `failed`. */
+export const commentsErrorKind = (e: unknown): CommentsErrorKind =>
+	typeof e === 'string' && (COMMENTS_ERROR_KINDS as readonly string[]).includes(e)
+		? (e as CommentsErrorKind)
+		: 'failed';
+
+export const getComments = (videoId: string) => invoke<CommentsPage>('get_comments', { videoId });
+/** The next page of comments, or the same comments in another order (a sort token). */
+export const getCommentsMore = (token: string) =>
+	invoke<CommentsPage>('get_comments_more', { token });
+export const getCommentReplies = (token: string) =>
+	invoke<CommentReplies>('get_comment_replies', { token });
+/** Like, unlike, dislike or undislike one comment; only an action in its `actions`. */
+export const commentAction = (commentId: string, action: CommentAction) =>
+	invoke<CommentActionOutcome>('comment_action', { commentId, action });
+/** Post a top-level comment (needs the header's `composer`). Resolves with the posted comment
+ *  when YouTube's answer carried it, otherwise `null`. */
+export const commentCreate = (text: string) =>
+	invoke<CommentThread | null>('comment_create', { text });
+/** Reply to a comment that offers `reply`. Resolves with the reply as for `commentCreate`. */
+export const commentReply = (commentId: string, text: string) =>
+	invoke<Comment | null>('comment_reply', { commentId, text });
+/** Replace the text of one of the viewer's own comments (one that offers `edit`). */
+export const commentEdit = (commentId: string, text: string) =>
+	invoke<void>('comment_edit', { commentId, text });
+/** Delete one of the viewer's own comments (one that offers `delete`). */
+export const commentDelete = (commentId: string) => invoke<void>('comment_delete', { commentId });
 /**
  * On Repeat is the app's own playlist (Rust builds it from this machine's play counts), so its
  * title and subtitle are our English rather than YouTube's, and Rust cannot translate them: the

@@ -61,12 +61,45 @@ pub enum Error {
     SessionExpired,
     #[error("This track is already in the playlist.")]
     AlreadyInPlaylist,
+    /// A post or reply that may have reached YouTube with its answer lost. See
+    /// [`InnerTube::post_write`].
+    #[error("The request may have reached YouTube.")]
+    WriteUncertain,
+    /// The signed-in account changed since the comments were read.
+    #[error("The signed-in account changed.")]
+    AccountChanged,
+    /// A comment action or write answered 200 without success.
+    #[error("YouTube did not accept that action.")]
+    ActionRejected,
     #[error(
         "YouTube Music only allows custom playlist art on accounts with a verified phone number."
     )]
     CoverRefused,
     #[error("{0}")]
     Other(String),
+}
+
+impl Error {
+    /// YouTube answered 404: for a request about one comment, the comment is gone.
+    pub fn is_not_found(&self) -> bool {
+        matches!(self, Error::Http(e) if e.status().is_some_and(|s| s.as_u16() == 404))
+    }
+}
+
+/// Logs `error.status` (if enum-like) and `error.message` (cut at 200 characters) of a 400 to a
+/// comment request: they name the field YouTube did not take.
+async fn log_comment_refusal(path: &str, resp: reqwest::Response) {
+    let value: serde_json::Value = resp.json().await.unwrap_or_default();
+    let field = |k: &str| value.pointer(&format!("/error/{k}")).and_then(serde_json::Value::as_str);
+    let status = field("status").map_or("-", |s| enum_like(s).unwrap_or("unexpected"));
+    let message: String = field("message").unwrap_or("-").chars().take(200).collect();
+    tracing::debug!(path, error_status = status, error_message = %message, "comment request answered 400");
+}
+
+/// `s` if it looks like an enum value (`STATUS_SUCCEEDED`), safe to log.
+pub(crate) fn enum_like(s: &str) -> Option<&str> {
+    (s.len() <= 64 && s.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_'))
+        .then_some(s)
 }
 
 /// Session state, set once at startup / login. context/01 §mutable session state.
@@ -184,6 +217,8 @@ pub struct InnerTube {
     /// Pinged when a response's `Set-Cookie` actually changed the stored jar, so the app can
     /// write the rotated cookie back to disk. See [`InnerTube::absorb_cookies`].
     cookie_changed: Arc<Notify>,
+    /// Where `post` sends to: [`BASE_URL`], except in tests, which point it at a local server.
+    base_url: String,
 }
 
 impl InnerTube {
@@ -196,6 +231,11 @@ impl InnerTube {
         if let Some(p) = proxy {
             builder = builder.proxy(reqwest::Proxy::all(p)?);
         }
+        // Tests talk to a server on localhost: a system proxy must not get in the way.
+        #[cfg(test)]
+        {
+            builder = builder.no_proxy();
+        }
         Ok(InnerTube {
             http: builder.build()?,
             session: Arc::new(RwLock::new(session)),
@@ -204,7 +244,14 @@ impl InnerTube {
             session_rejected: Arc::new(Notify::new()),
             heal: Arc::new(watch::Sender::new(HealState::default())),
             cookie_changed: Arc::new(Notify::new()),
+            base_url: BASE_URL.to_owned(),
         })
+    }
+
+    /// Point `post` somewhere else (a local test server).
+    #[cfg(test)]
+    pub(crate) fn set_base_url(&mut self, url: &str) {
+        self.base_url = url.to_owned();
     }
 
     /// Signal raised when YouTube rejects the signed-in session. See the field.
@@ -305,6 +352,16 @@ impl InnerTube {
         self.session.read().unwrap().data_sync_id.clone()
     }
 
+    /// Who is signed in, for comment tokens that must not cross accounts or channels: a hash of
+    /// `SAPISID` and `data_sync_id`, so a rotated `__Secure-*SIDTS` keeps it. `None` signed out.
+    /// Not for logging.
+    pub fn comments_identity(&self) -> Option<String> {
+        let s = self.session.read().unwrap();
+        let sapisid = s.sapisid()?;
+        let dsid = s.data_sync_id.as_deref().unwrap_or_default();
+        Some(sha1_hex(&format!("limusic-comments-identity-v1\0{sapisid}\0{dsid}")))
+    }
+
     pub fn set_visitor_data(&self, vd: Option<String>) {
         self.session.write().unwrap().visitor_data = vd;
     }
@@ -368,9 +425,58 @@ impl InnerTube {
         body: &B,
         set_login: bool,
     ) -> Result<serde_json::Value, Error> {
+        self.post_inner(path, client, body, set_login, true, true).await
+    }
+
+    /// [`InnerTube::post`] that hands a 401/403 back as `Error::Http` instead of waking the healer,
+    /// for a read the user did not ask for. The caller decides, normally by asking anonymously.
+    pub(crate) async fn post_no_heal<B: Serialize>(
+        &self,
+        path: &str,
+        client: &YouTubeClient,
+        body: &B,
+        set_login: bool,
+    ) -> Result<serde_json::Value, Error> {
+        self.post_inner(path, client, body, set_login, false, true).await
+    }
+
+    /// [`InnerTube::post`] for a write that is not idempotent (post, reply): never retried, since a
+    /// lost answer would mean a duplicate. A refusal is still healed and re-sent. A failure after
+    /// the request went out (timeout, reset, unreadable answer) is `Error::WriteUncertain`.
+    pub(crate) async fn post_write<B: Serialize>(
+        &self,
+        path: &str,
+        client: &YouTubeClient,
+        body: &B,
+        set_login: bool,
+    ) -> Result<serde_json::Value, Error> {
+        match self.post_inner(path, client, body, set_login, true, false).await {
+            Err(Error::Http(e)) if e.status().is_none() && !e.is_connect() && !e.is_builder() => {
+                tracing::debug!(
+                    timeout = e.is_timeout(),
+                    decode = e.is_decode(),
+                    "comment write outcome unknown"
+                );
+                Err(Error::WriteUncertain)
+            }
+            other => other,
+        }
+    }
+
+    /// `heal`: a 401/403 on a signed-in request may wake the healer. `retry`: a connect error or
+    /// timeout is sent again. Both `true` for [`InnerTube::post`].
+    async fn post_inner<B: Serialize>(
+        &self,
+        path: &str,
+        client: &YouTubeClient,
+        body: &B,
+        set_login: bool,
+        heal: bool,
+        retry: bool,
+    ) -> Result<serde_json::Value, Error> {
         // `path` may already carry query params (e.g. browse continuations); chain accordingly.
         let sep = if path.contains('?') { '&' } else { '?' };
-        let url = format!("{BASE_URL}{path}{sep}prettyPrint=false");
+        let url = format!("{}{path}{sep}prettyPrint=false", self.base_url);
         let body = serde_json::to_vec(body)?;
 
         let mut delay = Duration::from_millis(500);
@@ -382,14 +488,21 @@ impl InnerTube {
             // Rebuild headers on every iteration so retried requests use the updated session cookie.
             let headers = self.headers(client, set_login);
 
-            let res = self
-                .http
-                .post(&url)
-                .headers(headers)
-                .body(body.clone())
-                .send()
-                .await
-                .and_then(|r| r.error_for_status());
+            let res = match self.http.post(&url).headers(headers).body(body.clone()).send().await {
+                // A comment request YouTube found malformed: its answer names what it did not
+                // take, so that is logged before the answer is dropped.
+                Ok(resp)
+                    if resp.status() == reqwest::StatusCode::BAD_REQUEST
+                        && path.starts_with("comment/") =>
+                {
+                    let Some(e) = resp.error_for_status_ref().err() else {
+                        unreachable!("400 is an error status")
+                    };
+                    log_comment_refusal(path, resp).await;
+                    Err(e)
+                }
+                other => other.and_then(|r| r.error_for_status()),
+            };
 
             match res {
                 Ok(resp) => {
@@ -397,7 +510,11 @@ impl InnerTube {
                     return Ok(resp.json().await?);
                 }
                 // Retry only on connect/timeout (transient), matching Metrolist's IOException filter.
-                Err(e) if attempt < 3 && (e.is_timeout() || e.is_connect() || e.is_request()) => {
+                Err(e)
+                    if retry
+                        && attempt < 3
+                        && (e.is_timeout() || e.is_connect() || e.is_request()) =>
+                {
                     tracing::warn!(attempt, error = %e, "retrying InnerTube POST {path}");
                     tokio::time::sleep(delay).await;
                     delay *= 2;
@@ -414,7 +531,8 @@ impl InnerTube {
                 // the next one. `healing_suspended` keeps the healer's own validation call from
                 // waiting on the healer that is making it.
                 Err(e)
-                    if set_login
+                    if heal
+                        && set_login
                         && client.login_supported
                         && self.is_logged_in()
                         && !healed
@@ -432,7 +550,8 @@ impl InnerTube {
                 // hands the user a URL instead of the one thing that fixes it, so this stays
                 // `SessionExpired`.
                 Err(e)
-                    if set_login
+                    if heal
+                        && set_login
                         && client.login_supported
                         && self.is_logged_in()
                         && e.status().is_some_and(|s| s == 401 || s == 403) =>
@@ -799,6 +918,100 @@ mod tests {
     }
 
     #[test]
+    fn the_comments_identity_tracks_the_account_and_channel_not_the_rotating_cookies() {
+        let it = |cookie: Option<&str>, dsid: Option<&str>| {
+            InnerTube::new(
+                Session {
+                    cookie: cookie.map(str::to_owned),
+                    data_sync_id: dsid.map(str::to_owned),
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap()
+        };
+        assert_eq!(it(None, Some("d")).comments_identity(), None, "signed out has none");
+        let base = it(Some("SAPISID=a; __Secure-3PSIDTS=old"), Some("d")).comments_identity();
+        assert!(base.is_some());
+        assert_eq!(
+            base,
+            it(Some("__Secure-3PSIDTS=new; SAPISID=a"), Some("d")).comments_identity(),
+            "a rotated cookie is the same identity"
+        );
+        assert_ne!(base, it(Some("SAPISID=b"), Some("d")).comments_identity(), "another account");
+        assert_ne!(base, it(Some("SAPISID=a"), Some("e")).comments_identity(), "another channel");
+        assert_ne!(base, it(Some("SAPISID=a"), None).comments_identity(), "no channel selected");
+        let shown = base.unwrap();
+        assert_eq!(shown.len(), 40, "a sha1 hex digest, not the secret");
+    }
+
+    /// A write is never sent twice by the transport, and a lost answer is "uncertain", not a plain
+    /// failure. The control is the ordinary `post`, which does retry the same hang-up.
+    #[tokio::test]
+    async fn a_write_is_sent_once_and_a_lost_answer_is_uncertain() {
+        let server = crate::test_server::MockServer::start(|_| (0, String::new())); // hang up
+        let it = signed_in_against(&server);
+        let clients = crate::clients::Clients::bundled();
+        let web = clients.get(crate::clients::METADATA_CLIENT).unwrap();
+
+        let got = it.post_write("comment/x", web, &serde_json::json!({}), true).await;
+        assert!(matches!(got, Err(Error::WriteUncertain)), "{got:?}");
+        assert_eq!(server.requests().len(), 1, "exactly one request, no retry");
+
+        // Control: the ordinary path retries the very same failure (3 attempts).
+        let before = server.requests().len();
+        let _ = it.post("comment/x", web, &serde_json::json!({}), true).await;
+        assert!(server.requests().len() - before > 1, "post() was expected to retry");
+    }
+
+    /// What is and is not uncertain: an answer that arrived is never uncertain unless it is
+    /// unreadable (it was a 200, so the write may have happened); nothing sent is a plain error.
+    #[tokio::test]
+    async fn only_an_unknown_outcome_is_uncertain() {
+        let clients = crate::clients::Clients::bundled();
+        let web = clients.get(crate::clients::METADATA_CLIENT).unwrap();
+
+        let refused = crate::test_server::MockServer::start(|_| (500, "{}".into()));
+        let it = signed_in_against(&refused);
+        let got = it.post_write("comment/x", web, &serde_json::json!({}), true).await;
+        assert!(matches!(got, Err(Error::Http(_))), "a 500 is a plain failure: {got:?}");
+        assert_eq!(refused.requests().len(), 1);
+
+        let garbled = crate::test_server::MockServer::start(|_| (200, "not json".into()));
+        let it = signed_in_against(&garbled);
+        let got = it.post_write("comment/x", web, &serde_json::json!({}), true).await;
+        assert!(matches!(got, Err(Error::WriteUncertain)), "accepted but unreadable: {got:?}");
+
+        let ok = crate::test_server::MockServer::start(|_| (200, r#"{"ok":1}"#.into()));
+        let it = signed_in_against(&ok);
+        assert!(it.post_write("comment/x", web, &serde_json::json!({}), true).await.is_ok());
+
+        // Nothing listening: the request was never sent, so it is not uncertain.
+        let dead = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            format!("http://{}/youtubei/v1/", l.local_addr().unwrap())
+        };
+        let mut it = signed_in_against(&ok);
+        it.set_base_url(&dead);
+        let got = it.post_write("comment/x", web, &serde_json::json!({}), true).await;
+        assert!(matches!(got, Err(Error::Http(_))), "a connect failure sent nothing: {got:?}");
+    }
+
+    #[tokio::test]
+    async fn a_404_is_not_found_and_other_failures_are_not() {
+        let clients = crate::clients::Clients::bundled();
+        let web = clients.get(crate::clients::METADATA_CLIENT).unwrap();
+        for (status, gone) in [(404, true), (400, false), (403, false), (500, false)] {
+            let server = crate::test_server::MockServer::start(move |_| (status, "{}".into()));
+            let it = signed_in_against(&server);
+            let got = it.post_write("comment/x", web, &serde_json::json!({}), false).await;
+            let err = got.expect_err("a non-2xx is an error");
+            assert_eq!(err.is_not_found(), gone, "{status}: {err:?}");
+        }
+        assert!(!Error::ActionRejected.is_not_found() && !Error::WriteUncertain.is_not_found());
+    }
+
+    #[test]
     fn sapisid_extracted_from_cookie() {
         let s = Session {
             cookie: Some("FOO=bar; SAPISID=secret123; OTHER=x".into()),
@@ -954,6 +1167,60 @@ mod tests {
             merged.as_deref(),
             Some("SAPISID=keep; __Secure-3PSIDTS=new; PREF=x; YSC=fresh")
         );
+    }
+
+    /// A signed-in `InnerTube` talking to `server`, as the account `SAPISID=fixture-sapisid`.
+    fn signed_in_against(server: &crate::test_server::MockServer) -> InnerTube {
+        let session = Session {
+            cookie: Some("SAPISID=fixture-sapisid; PREF=x".into()),
+            data_sync_id: Some("fixture-dsid".into()),
+            ..Default::default()
+        };
+        let mut it = InnerTube::new(session, None).unwrap();
+        it.set_base_url(&server.base_url);
+        it
+    }
+
+    /// The point of `post_no_heal`: a refusal comes back to the caller, and the healer (which
+    /// would open a hidden webview and may remount the page) is never told. The same request
+    /// through `post` is the control: it does wake it, so the silence is meaningful.
+    #[tokio::test]
+    async fn a_refusal_through_post_no_heal_never_wakes_the_healer() {
+        let server = crate::test_server::MockServer::start(|_| (401, "{}".into()));
+        let it = signed_in_against(&server);
+        let clients = crate::clients::Clients::bundled();
+        let web = clients.get(crate::clients::METADATA_CLIENT).unwrap();
+        let rejected = it.session_rejected();
+
+        let got = it.post_no_heal("next", web, &serde_json::json!({}), true).await;
+        assert!(
+            matches!(&got, Err(Error::Http(e)) if e.status() == Some(reqwest::StatusCode::UNAUTHORIZED)),
+            "the refusal is handed back as it is: {got:?}"
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(150), rejected.notified()).await.is_err(),
+            "session_rejected was raised"
+        );
+        assert_eq!(*it.heal.borrow(), HealState::default(), "no heal was started or awaited");
+        assert!(it.is_logged_in(), "and nothing touched the session");
+
+        // It was sent as the account: cookie and SAPISIDHASH both.
+        let sent = server.requests();
+        assert_eq!(sent.len(), 1, "no retry on a refusal");
+        assert!(sent[0].header("cookie").is_some_and(|c| c.contains("SAPISID=")));
+        assert!(sent[0].header("authorization").is_some_and(|a| a.starts_with("SAPISIDHASH ")));
+
+        // Control: the ordinary path raises the signal on the same answer.
+        let ordinary = it.clone();
+        let web = web.clone();
+        let parked =
+            tokio::spawn(
+                async move { ordinary.post("next", &web, &serde_json::json!({}), true).await },
+            );
+        tokio::time::timeout(Duration::from_secs(5), rejected.notified())
+            .await
+            .expect("post() raises session_rejected on a 401");
+        parked.abort();
     }
 
     #[test]
