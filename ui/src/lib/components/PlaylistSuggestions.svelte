@@ -2,7 +2,7 @@
 	import { MediaQuery, SvelteSet } from 'svelte/reactivity';
 	import { fade, slide } from 'svelte/transition';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { PlusSignIcon, RefreshIcon, SparklesIcon, Tick02Icon } from '@hugeicons/core-free-icons';
+	import { LayerAddIcon, PlusSignIcon, Refresh01Icon, Tick02Icon } from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import TrackRow from './TrackRow.svelte';
 	import TrackRowSkeleton from './TrackRowSkeleton.svelte';
@@ -134,7 +134,7 @@
 				<span
 					class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"
 				>
-					<HugeiconsIcon icon={SparklesIcon} class="h-4 w-4" />
+					<HugeiconsIcon icon={LayerAddIcon} class="h-4 w-4" />
 				</span>
 				<div class="min-w-0">
 					<h2 class="truncate font-heading text-xl font-bold tracking-tight">
@@ -151,7 +151,7 @@
 				disabled={loading}
 			>
 				<!-- Spins only while a batch is in the air: nothing loops at rest. -->
-				<HugeiconsIcon icon={RefreshIcon} class="h-4 w-4 {loading ? 'animate-spin' : ''}" />
+				<HugeiconsIcon icon={Refresh01Icon} class="h-4 w-4 {loading ? 'animate-spin' : ''}" />
 				{t('common.refresh')}
 			</Button>
 		</div>
