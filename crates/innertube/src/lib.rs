@@ -18,8 +18,8 @@ pub use clients::{
 };
 pub use models::browse::{
     AlbumPage, ArtistCarousel, ArtistPage, BrowseItem, HistoryGroup, HomePage, Mood, MoodSection,
-    PlaylistContinuation, PlaylistPage, PlaylistSort, QuerySuggestion, SearchResults,
-    SearchSuggestions, Section, SortMenu,
+    PlaylistContinuation, PlaylistPage, PlaylistSort, PlaylistSuggestions, QuerySuggestion,
+    SearchResults, SearchSuggestions, Section, SortMenu,
 };
 pub use models::context::Locale;
 pub use models::lyrics::{PlainLyrics, TimedLyricLine};

@@ -885,6 +885,7 @@ pub fn run() {
             commands::get_history,
             commands::get_playlist,
             commands::get_playlist_more,
+            commands::get_playlist_suggestions,
             commands::playlist_index,
             commands::sync_playlist_index,
             commands::play_counts,

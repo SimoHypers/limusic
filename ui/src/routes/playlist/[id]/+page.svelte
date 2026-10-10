@@ -36,6 +36,7 @@
 	import EditPlaylistDialog from '$lib/components/EditPlaylistDialog.svelte';
 	import TrackFilter, { filterTracks } from '$lib/components/TrackFilter.svelte';
 	import TrackRowSkeleton from '$lib/components/TrackRowSkeleton.svelte';
+	import PlaylistSuggestions from '$lib/components/PlaylistSuggestions.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import * as api from '$lib/api';
 	import { ON_REPEAT_ID } from '$lib/api';
@@ -74,6 +75,7 @@
 		toast,
 		toggleSaved,
 		bumpLibraryTrackCount,
+		noteSavedIn,
 		noteUnsavedFrom,
 		setRating,
 		patchLibraryPlaylist,
@@ -516,10 +518,64 @@
 		cacheCurrent();
 	});
 
+	// A suggestion (#395) joins the list the moment it is picked, and leaves again if YouTube
+	// refuses it. Answers whether it is in the playlist, so the shelf knows whether to take it back.
+	async function addSuggestion(song: SongItem): Promise<boolean> {
+		if (!pl) return false;
+		const pid = id;
+		const row: SongItem = { ...song, set_video_id: undefined };
+		pl = { ...pl, items: [...pl.items, row] };
+		cacheCurrent();
+		const drop = () => {
+			if (pid !== id || !pl) return;
+			pl = { ...pl, items: pl.items.filter((t) => t !== row) };
+			cacheCurrent();
+		};
+		try {
+			const added = await api.addToPlaylist(pid, song.video_id);
+			noteSavedIn(pid, [song.video_id]);
+			if (!added) {
+				// Already in it (added elsewhere since the page loaded): the optimistic row would be
+				// a second copy, and the suggestion is spent either way.
+				drop();
+				toast(t('toasts.already_in', { playlist: pl?.title ?? '' }));
+				return true;
+			}
+			bumpLibraryTrackCount(pid, 1);
+			if (pid === id) fillSetVideoIds();
+			return true;
+		} catch (e) {
+			drop();
+			toast.error(String(e));
+			return false;
+		}
+	}
+
+	// One refetch loop at a time: picking five suggestions in a row would otherwise start five, each
+	// re-reading page 1 up to three times. A row added while one runs is caught by its next pass, or
+	// by the pass queued here.
+	let filling = false;
+	let fillQueued = false;
+	async function fillSetVideoIds() {
+		if (filling) {
+			fillQueued = true;
+			return;
+		}
+		filling = true;
+		try {
+			do {
+				fillQueued = false;
+				await fillPass();
+			} while (fillQueued);
+		} finally {
+			filling = false;
+		}
+	}
+
 	// Optimistic rows lack set_video_id, so "Remove from playlist" is hidden on them. Refetch and
 	// patch the real ids into place (merge, not replace — keeps loadMore pages and any row YouTube
 	// hasn't reflected yet). Retries because the add is eventually-consistent on YouTube's side.
-	async function fillSetVideoIds() {
+	async function fillPass() {
 		if (isLiked) return;
 		const pid = id;
 		for (const delay of [0, 2000, 4000]) {
@@ -1143,6 +1199,21 @@
 					{/if}
 				{/if}
 			</div>
+			<!-- After the last row, so only once every page is in, and not under a filter's matches,
+			     which it would read as part of. Outside the list's wrapper so a re-sort doesn't dim it.
+			     Every playlist of yours on YouTube: one with no shelf of its own gets its radio's. -->
+			{#if editable && !isLocalList && !pl.continuation && !filtering}
+				<div class="px-4 pb-6">
+					{#key id}
+						<PlaylistSuggestions
+							playlistId={id}
+							token={pl.suggestions}
+							current={() => pl?.items ?? []}
+							onadd={addSuggestion}
+						/>
+					{/key}
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>
