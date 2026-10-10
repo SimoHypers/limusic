@@ -262,12 +262,44 @@ impl InnerTube {
     /// (the Comments tab), then loads it. No token means the comments are turned off, which comes
     /// back as `CommentsState::Disabled` rather than an error.
     ///
+    /// Signed in, the whole chain (tab lookup, then first page) is read as the account, through
+    /// [`InnerTube::post_no_heal`] so it can never wake the session healer. If either request is
+    /// refused (401/403) the WHOLE chain is redone anonymously, starting from a fresh tab lookup:
+    /// a token issued to an authenticated request is never replayed into an anonymous one.
+    /// `CommentsPage::read_as_account` says which of the two happened.
+    ///
     /// An audio track (ATV) has a comment thread of its own, separate from its music video's: the
     /// id is never remapped here.
     pub async fn comments(
         &self,
         client: &YouTubeClient,
         video_id: &str,
+    ) -> Result<CommentsPage, Error> {
+        if self.can_read_as_account(client) {
+            match self.comments_first_page(client, video_id, true).await {
+                Ok(mut page) => {
+                    page.read_as_account = true;
+                    return Ok(page);
+                }
+                Err(e) if is_refusal(&e) => {
+                    // Nothing about the request or the account is logged.
+                    tracing::debug!("signed-in comments read refused, redoing it anonymously");
+                }
+                Err(e) => return Err(comments_error(e)),
+            }
+        }
+        let mut page =
+            self.comments_first_page(client, video_id, false).await.map_err(comments_error)?;
+        page.read_as_account = false;
+        Ok(page)
+    }
+
+    /// The tab lookup and the first page, both sent the same way (`as_account`).
+    async fn comments_first_page(
+        &self,
+        client: &YouTubeClient,
+        video_id: &str,
+        as_account: bool,
     ) -> Result<CommentsPage, Error> {
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
@@ -276,40 +308,54 @@ impl InnerTube {
             video_id: String,
             is_audio_only: bool,
         }
-        let body = NextBody {
-            context: self.context_for(client),
-            video_id: video_id.to_owned(),
-            is_audio_only: true,
-        };
-        let tabs = self.post("next", client, &body, true).await.map_err(comments_error)?;
+        let tabs = self
+            .comments_send(client, as_account, |context| NextBody {
+                context,
+                video_id: video_id.to_owned(),
+                is_audio_only: true,
+            })
+            .await?;
         let Some(token) = comments::parse_comments_token(&tabs) else {
             return Ok(CommentsPage::disabled());
         };
-        let value = self.next_continuation(client, &token).await.map_err(comments_error)?;
+        let value = self.next_continuation(client, &token, as_account).await?;
         Ok(comments::parse_comments_page(&value, true))
     }
 
     /// The next page of comments, or the comments in another order: pagination and sort tokens
     /// both load through here (the header's sort entries carry their own tokens).
+    ///
+    /// `as_account` must be how the page that issued `token` was read (its
+    /// `read_as_account`): a token goes back the way it came. A refusal is NOT retried
+    /// anonymously, since that would replay an account's token without it. It comes back as a
+    /// plain error and the caller offers a retry or a reload.
     pub async fn comments_continuation(
         &self,
         client: &YouTubeClient,
         token: &str,
+        as_account: bool,
     ) -> Result<CommentsPage, Error> {
-        let value = self.next_continuation(client, token).await.map_err(comments_error)?;
+        let value =
+            self.next_continuation(client, token, as_account).await.map_err(comments_error)?;
         // A sort switch answers with a header and a body, a page with the body alone.
-        Ok(comments::parse_comments_page(&value, false))
+        let mut page = comments::parse_comments_page(&value, false);
+        page.read_as_account = as_account;
+        Ok(page)
     }
 
     /// One page of a thread's replies, via the token on the thread (or on the previous page's
-    /// "Show more replies").
+    /// "Show more replies"). `as_account` and refusals as for [`Self::comments_continuation`].
     pub async fn comment_replies(
         &self,
         client: &YouTubeClient,
         token: &str,
+        as_account: bool,
     ) -> Result<CommentReplies, Error> {
-        let value = self.next_continuation(client, token).await.map_err(comments_error)?;
-        Ok(comments::parse_comment_replies(&value))
+        let value =
+            self.next_continuation(client, token, as_account).await.map_err(comments_error)?;
+        let mut replies = comments::parse_comment_replies(&value);
+        replies.read_as_account = as_account;
+        Ok(replies)
     }
 
     /// `next` with a bare continuation token. Not `browse_continuation`, see above.
@@ -317,15 +363,49 @@ impl InnerTube {
         &self,
         client: &YouTubeClient,
         token: &str,
+        as_account: bool,
     ) -> Result<serde_json::Value, Error> {
         #[derive(Serialize)]
         struct ContinuationBody {
             context: Context,
             continuation: String,
         }
-        let body =
-            ContinuationBody { context: self.context_for(client), continuation: token.to_owned() };
-        self.post("next", client, &body, true).await
+        self.comments_send(client, as_account, |context| ContinuationBody {
+            context,
+            continuation: token.to_owned(),
+        })
+        .await
+    }
+
+    /// Whether a comments request can go out as the account right now.
+    fn can_read_as_account(&self, client: &YouTubeClient) -> bool {
+        client.login_supported && self.is_logged_in()
+    }
+
+    /// One comments `next` request, sent either as the account or as nobody.
+    ///
+    /// As the account it carries the cookie, SAPISIDHASH and `onBehalfOfUser`, so the answer can
+    /// hold the viewer's own like/dislike state, but through [`InnerTube::post_no_heal`]: a side
+    /// panel's read must never be able to wake the session healer. A 401/403 comes back as
+    /// `Error::Http` for the caller to decide on. Anonymously it is `context_anonymous` with no
+    /// cookie and no auth header, the read that always worked. If the session went away since the
+    /// caller decided, an account request is an error and never silently an anonymous one.
+    async fn comments_send<B: Serialize>(
+        &self,
+        client: &YouTubeClient,
+        as_account: bool,
+        build: impl Fn(Context) -> B,
+    ) -> Result<serde_json::Value, Error> {
+        if as_account {
+            if !self.can_read_as_account(client) {
+                return Err(Error::Other(
+                    "The signed-in account changed. Reload the comments.".into(),
+                ));
+            }
+            self.post_no_heal("next", client, &build(self.context_for(client)), true).await
+        } else {
+            self.post("next", client, &build(self.context_anonymous(client)), false).await
+        }
     }
 
     /// Logged-in account summary (`account/account_menu`, context/01). Requires a cookie. Also the
@@ -1216,13 +1296,23 @@ fn custom_thumbnail_key() -> serde_json::Value {
     })
 }
 
-/// A comments failure is just that. `SessionExpired` would tell a signed-in user to sign in again
-/// over a side panel: the transport has already raised the healer's signal for the real session
-/// problem, so here it reads as a plain load error.
+/// What a comments request that YouTube refused reads as. Plain wording: no "session expired",
+/// which would send a signed-in user to the sign-in flow over a side panel.
+const COMMENTS_REFUSED: &str = "YouTube refused the request for comments.";
+
+/// A 401/403: YouTube said no to this request.
+fn is_refusal(e: &Error) -> bool {
+    matches!(e, Error::Http(h) if h.status().is_some_and(|s| s == 401 || s == 403))
+}
+
+/// A comments failure is just that. Neither a refusal nor `SessionExpired` (which these reads no
+/// longer reach, since they use `post_no_heal` or go anonymous) may tell a signed-in user to sign
+/// in again over a side panel.
 fn comments_error(e: Error) -> Error {
-    match e {
-        Error::SessionExpired => Error::Other("YouTube refused the request for comments.".into()),
-        e => e,
+    if is_refusal(&e) || matches!(e, Error::SessionExpired) {
+        Error::Other(COMMENTS_REFUSED.into())
+    } else {
+        e
     }
 }
 
@@ -1325,5 +1415,216 @@ mod tests {
     fn create_playlist_id_parsed() {
         let resp = json!({ "playlistId": "PLnew123", "status": "STATUS_SUCCEEDED" });
         assert_eq!(metadata::find_first_str(&resp, "playlistId").as_deref(), Some("PLnew123"));
+    }
+
+    // --- comments reads: as the account without the healer, never a token across the line ---
+
+    use crate::clients::{Clients, METADATA_CLIENT};
+    use crate::models::comments::CommentsState;
+    use crate::test_server::{MockServer, Seen};
+    use crate::transport::Session;
+    use std::time::Duration;
+
+    fn it_against(server: &MockServer, signed_in: bool) -> InnerTube {
+        let session = Session {
+            cookie: signed_in.then(|| "SAPISID=fixture-sapisid; PREF=x".to_owned()),
+            data_sync_id: signed_in.then(|| "fixture-dsid".to_owned()),
+            visitor_data: Some("fixture-visitor".into()),
+            ..Default::default()
+        };
+        let mut it = InnerTube::new(session, None).unwrap();
+        it.set_base_url(&server.base_url);
+        it
+    }
+
+    fn web() -> YouTubeClient {
+        Clients::bundled().get(METADATA_CLIENT).unwrap().clone()
+    }
+
+    fn as_account(req: &Seen) -> bool {
+        req.header("cookie").is_some()
+            || req.header("authorization").is_some()
+            || req.body.contains("onBehalfOfUser")
+    }
+
+    fn is_tab_lookup(req: &Seen) -> bool {
+        req.body.contains("\"videoId\"")
+    }
+
+    /// A tab-lookup answer whose comments token records who it was issued to.
+    fn tab_answer(req: &Seen) -> String {
+        let issued_to = if as_account(req) { "tok-account" } else { "tok-anon" };
+        json!({ "tabs": [{ "tabRenderer": { "content": { "sectionListRenderer": {
+            "continuations": [{ "reloadContinuationData": { "continuation": issued_to } }] } } } }] })
+        .to_string()
+    }
+
+    /// A first page that has a header and no threads: parses as `Empty`.
+    const PAGE: &str = r#"{"x":{"continuationItems":[{"commentsHeaderRenderer":{}}]}}"#;
+
+    async fn no_heal(it: &InnerTube) {
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), it.session_rejected().notified())
+                .await
+                .is_err(),
+            "a comments request must never wake the healer"
+        );
+        assert!(it.is_logged_in(), "and the session is untouched");
+    }
+
+    #[tokio::test]
+    async fn a_signed_in_first_page_is_read_as_the_account_and_says_so() {
+        let server = MockServer::start(|req| {
+            (200, if is_tab_lookup(req) { tab_answer(req) } else { PAGE.to_owned() })
+        });
+        let it = it_against(&server, true);
+        let page = it.comments(&web(), "vid").await.unwrap();
+        assert!(page.read_as_account);
+        assert_eq!(page.state, CommentsState::Empty);
+        let sent = server.requests();
+        assert_eq!(sent.len(), 2, "tab lookup, first page");
+        assert!(sent.iter().all(as_account));
+        assert!(sent.iter().all(|r| r.path.starts_with("/youtubei/v1/next")));
+        assert!(sent[0].header("authorization").is_some_and(|a| a.starts_with("SAPISIDHASH ")));
+        assert!(sent[1].body.contains("tok-account"), "the token it was issued");
+        no_heal(&it).await;
+    }
+
+    /// The first page is refused: the whole chain restarts anonymously, with a FRESH tab lookup,
+    /// and the account's token is never sent without the account.
+    #[tokio::test]
+    async fn a_refused_first_page_redoes_the_whole_chain_anonymously() {
+        for status in [401, 403] {
+            let server = MockServer::start(move |req| {
+                if is_tab_lookup(req) {
+                    (200, tab_answer(req))
+                } else if as_account(req) {
+                    (status, "{}".into())
+                } else if req.body.contains("tok-anon") {
+                    (200, PAGE.to_owned())
+                } else {
+                    (400, "an account's token in an anonymous request".into())
+                }
+            });
+            let it = it_against(&server, true);
+            let page = it.comments(&web(), "vid").await.unwrap();
+            assert!(!page.read_as_account);
+            assert_eq!(page.state, CommentsState::Empty);
+
+            let sent = server.requests();
+            let shape: Vec<(bool, bool)> =
+                sent.iter().map(|r| (is_tab_lookup(r), as_account(r))).collect();
+            assert_eq!(
+                shape,
+                [(true, true), (false, true), (true, false), (false, false)],
+                "account tab, refused page, then a fresh anonymous tab and page"
+            );
+            assert!(
+                sent.iter().filter(|r| !as_account(r)).all(|r| !r.body.contains("tok-account")),
+                "an account's token was replayed anonymously"
+            );
+            no_heal(&it).await;
+        }
+    }
+
+    /// The tab lookup itself is refused: the chain restarts anonymously from the same place.
+    #[tokio::test]
+    async fn a_refused_tab_lookup_falls_back_anonymously() {
+        let server = MockServer::start(|req| {
+            if is_tab_lookup(req) && as_account(req) {
+                (403, "{}".into())
+            } else if is_tab_lookup(req) {
+                (200, tab_answer(req))
+            } else {
+                (200, PAGE.to_owned())
+            }
+        });
+        let it = it_against(&server, true);
+        let page = it.comments(&web(), "vid").await.unwrap();
+        assert!(!page.read_as_account);
+        let sent = server.requests();
+        assert_eq!(sent.len(), 3, "refused tab, anonymous tab, anonymous page");
+        assert!(!as_account(&sent[1]) && !as_account(&sent[2]));
+        no_heal(&it).await;
+    }
+
+    /// Only a refusal restarts the chain: a 500 would just repeat itself.
+    #[tokio::test]
+    async fn other_failures_do_not_restart_the_chain() {
+        let server = MockServer::start(|_| (500, "{}".into()));
+        let it = it_against(&server, true);
+        assert!(matches!(it.comments(&web(), "vid").await, Err(Error::Http(_))));
+        assert_eq!(server.requests().len(), 1);
+        no_heal(&it).await;
+    }
+
+    #[tokio::test]
+    async fn a_refusal_on_both_sides_is_a_plain_error_not_a_session_one() {
+        let server = MockServer::start(|_| (403, "{}".into()));
+        let it = it_against(&server, true);
+        let err = it.comments(&web(), "vid").await.unwrap_err();
+        assert!(matches!(&err, Error::Other(m) if m == COMMENTS_REFUSED), "{err:?}");
+        assert!(!err.to_string().to_lowercase().contains("session"));
+        assert_eq!(server.requests().len(), 2, "one account attempt, one anonymous");
+        no_heal(&it).await;
+    }
+
+    #[tokio::test]
+    async fn signed_out_is_one_anonymous_chain() {
+        let server = MockServer::start(|req| {
+            (200, if is_tab_lookup(req) { tab_answer(req) } else { PAGE.to_owned() })
+        });
+        let it = it_against(&server, false);
+        let page = it.comments(&web(), "vid").await.unwrap();
+        assert!(!page.read_as_account);
+        let sent = server.requests();
+        assert_eq!(sent.len(), 2);
+        assert!(!sent.iter().any(as_account));
+    }
+
+    /// A sort switch, a page and a replies page carry tokens issued earlier: refused, they come
+    /// back as a plain error with exactly one request, never as an anonymous retry.
+    #[tokio::test]
+    async fn a_refused_continuation_or_replies_page_is_not_retried_anonymously() {
+        for status in [401, 403] {
+            let server = MockServer::start(move |_| (status, "{}".into()));
+            let it = it_against(&server, true);
+            let page = it.comments_continuation(&web(), "tok-account", true).await;
+            let replies = it.comment_replies(&web(), "tok-account", true).await;
+            for err in [page.unwrap_err(), replies.unwrap_err()] {
+                assert!(matches!(&err, Error::Other(m) if m == COMMENTS_REFUSED), "{err:?}");
+                assert!(!err.to_string().to_lowercase().contains("session"));
+            }
+            assert_eq!(server.requests().len(), 2, "one request each, no retry");
+            assert!(server.requests().iter().all(as_account));
+            no_heal(&it).await;
+        }
+    }
+
+    /// A token goes back the way it came: issued to an anonymous read, it is sent anonymously
+    /// even though the app is signed in now.
+    #[tokio::test]
+    async fn a_token_goes_back_the_way_it_came() {
+        let server = MockServer::start(|_| (200, PAGE.to_owned()));
+        let it = it_against(&server, true);
+        let anon = it.comments_continuation(&web(), "tok-anon", false).await.unwrap();
+        assert!(!anon.read_as_account);
+        let acct = it.comments_continuation(&web(), "tok-account", true).await.unwrap();
+        assert!(acct.read_as_account);
+        let replies = it.comment_replies(&web(), "tok-account", true).await.unwrap();
+        assert!(replies.read_as_account);
+        let sent = server.requests();
+        assert!(!as_account(&sent[0]) && as_account(&sent[1]) && as_account(&sent[2]));
+    }
+
+    /// The session went away between the first page and a later one: the account's token is not
+    /// sent anonymously, and nothing goes out at all.
+    #[tokio::test]
+    async fn an_account_token_without_the_account_is_an_error_and_sends_nothing() {
+        let server = MockServer::start(|_| (200, PAGE.to_owned()));
+        let it = it_against(&server, false);
+        let err = it.comments_continuation(&web(), "tok-account", true).await.unwrap_err();
+        assert!(matches!(err, Error::Other(_)));
+        assert!(server.requests().is_empty());
     }
 }

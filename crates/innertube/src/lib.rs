@@ -9,6 +9,8 @@ pub mod clients;
 pub mod endpoints;
 pub mod models;
 pub mod rustypipe_fallback;
+#[cfg(test)]
+mod test_server;
 pub mod transport;
 
 pub use blocklist::BlockList;

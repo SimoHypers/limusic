@@ -781,7 +781,9 @@ pub async fn get_home_more(state: St<'_>, token: String) -> Result<HomePage, Str
 #[tauri::command]
 pub async fn get_comments(state: St<'_>, video_id: String) -> Result<CommentsPage, String> {
     let client = metadata_client(&state)?;
-    state.it.comments(client, &video_id).await.map_err(|e| e.to_string())
+    let page = state.it.comments(client, &video_id).await.map_err(|e| e.to_string())?;
+    state.comments_as_account.store(page.read_as_account, std::sync::atomic::Ordering::SeqCst);
+    Ok(page)
 }
 
 /// Next page of comments, or the same comments in another order: pagination tokens and the
@@ -789,14 +791,16 @@ pub async fn get_comments(state: St<'_>, video_id: String) -> Result<CommentsPag
 #[tauri::command]
 pub async fn get_comments_more(state: St<'_>, token: String) -> Result<CommentsPage, String> {
     let client = metadata_client(&state)?;
-    state.it.comments_continuation(client, &token).await.map_err(|e| e.to_string())
+    let as_account = state.comments_as_account.load(std::sync::atomic::Ordering::SeqCst);
+    state.it.comments_continuation(client, &token, as_account).await.map_err(|e| e.to_string())
 }
 
 /// A page of one thread's replies, with the token for the next page when there is one.
 #[tauri::command]
 pub async fn get_comment_replies(state: St<'_>, token: String) -> Result<CommentReplies, String> {
     let client = metadata_client(&state)?;
-    state.it.comment_replies(client, &token).await.map_err(|e| e.to_string())
+    let as_account = state.comments_as_account.load(std::sync::atomic::Ordering::SeqCst);
+    state.it.comment_replies(client, &token, as_account).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

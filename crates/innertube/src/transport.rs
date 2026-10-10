@@ -184,6 +184,8 @@ pub struct InnerTube {
     /// Pinged when a response's `Set-Cookie` actually changed the stored jar, so the app can
     /// write the rotated cookie back to disk. See [`InnerTube::absorb_cookies`].
     cookie_changed: Arc<Notify>,
+    /// Where `post` sends to: [`BASE_URL`], except in tests, which point it at a local server.
+    base_url: String,
 }
 
 impl InnerTube {
@@ -196,6 +198,11 @@ impl InnerTube {
         if let Some(p) = proxy {
             builder = builder.proxy(reqwest::Proxy::all(p)?);
         }
+        // Tests talk to a server on localhost: a system proxy must not get in the way.
+        #[cfg(test)]
+        {
+            builder = builder.no_proxy();
+        }
         Ok(InnerTube {
             http: builder.build()?,
             session: Arc::new(RwLock::new(session)),
@@ -204,7 +211,14 @@ impl InnerTube {
             session_rejected: Arc::new(Notify::new()),
             heal: Arc::new(watch::Sender::new(HealState::default())),
             cookie_changed: Arc::new(Notify::new()),
+            base_url: BASE_URL.to_owned(),
         })
+    }
+
+    /// Point `post` somewhere else (a local test server).
+    #[cfg(test)]
+    pub(crate) fn set_base_url(&mut self, url: &str) {
+        self.base_url = url.to_owned();
     }
 
     /// Signal raised when YouTube rejects the signed-in session. See the field.
@@ -368,9 +382,37 @@ impl InnerTube {
         body: &B,
         set_login: bool,
     ) -> Result<serde_json::Value, Error> {
+        self.post_inner(path, client, body, set_login, true).await
+    }
+
+    /// [`InnerTube::post`] for a request the user did not ask for and that must never put the
+    /// session at risk: it sends the same authenticated headers, but a 401/403 comes straight
+    /// back as `Error::Http` instead of raising `session_rejected` and parking the request on the
+    /// healer (a hidden webview, up to 45 s, a possible `auth-changed` page remount). The caller
+    /// decides what a refusal means, normally by asking again anonymously.
+    pub(crate) async fn post_no_heal<B: Serialize>(
+        &self,
+        path: &str,
+        client: &YouTubeClient,
+        body: &B,
+        set_login: bool,
+    ) -> Result<serde_json::Value, Error> {
+        self.post_inner(path, client, body, set_login, false).await
+    }
+
+    /// `heal` is whether a 401/403 on a signed-in request may wake the healer. Always `true` for
+    /// [`InnerTube::post`], so its behaviour is the same as before the flag existed.
+    async fn post_inner<B: Serialize>(
+        &self,
+        path: &str,
+        client: &YouTubeClient,
+        body: &B,
+        set_login: bool,
+        heal: bool,
+    ) -> Result<serde_json::Value, Error> {
         // `path` may already carry query params (e.g. browse continuations); chain accordingly.
         let sep = if path.contains('?') { '&' } else { '?' };
-        let url = format!("{BASE_URL}{path}{sep}prettyPrint=false");
+        let url = format!("{}{path}{sep}prettyPrint=false", self.base_url);
         let body = serde_json::to_vec(body)?;
 
         let mut delay = Duration::from_millis(500);
@@ -414,7 +456,8 @@ impl InnerTube {
                 // the next one. `healing_suspended` keeps the healer's own validation call from
                 // waiting on the healer that is making it.
                 Err(e)
-                    if set_login
+                    if heal
+                        && set_login
                         && client.login_supported
                         && self.is_logged_in()
                         && !healed
@@ -432,7 +475,8 @@ impl InnerTube {
                 // hands the user a URL instead of the one thing that fixes it, so this stays
                 // `SessionExpired`.
                 Err(e)
-                    if set_login
+                    if heal
+                        && set_login
                         && client.login_supported
                         && self.is_logged_in()
                         && e.status().is_some_and(|s| s == 401 || s == 403) =>
@@ -954,6 +998,60 @@ mod tests {
             merged.as_deref(),
             Some("SAPISID=keep; __Secure-3PSIDTS=new; PREF=x; YSC=fresh")
         );
+    }
+
+    /// A signed-in `InnerTube` talking to `server`, as the account `SAPISID=fixture-sapisid`.
+    fn signed_in_against(server: &crate::test_server::MockServer) -> InnerTube {
+        let session = Session {
+            cookie: Some("SAPISID=fixture-sapisid; PREF=x".into()),
+            data_sync_id: Some("fixture-dsid".into()),
+            ..Default::default()
+        };
+        let mut it = InnerTube::new(session, None).unwrap();
+        it.set_base_url(&server.base_url);
+        it
+    }
+
+    /// The point of `post_no_heal`: a refusal comes back to the caller, and the healer (which
+    /// would open a hidden webview and may remount the page) is never told. The same request
+    /// through `post` is the control: it does wake it, so the silence is meaningful.
+    #[tokio::test]
+    async fn a_refusal_through_post_no_heal_never_wakes_the_healer() {
+        let server = crate::test_server::MockServer::start(|_| (401, "{}".into()));
+        let it = signed_in_against(&server);
+        let clients = crate::clients::Clients::bundled();
+        let web = clients.get(crate::clients::METADATA_CLIENT).unwrap();
+        let rejected = it.session_rejected();
+
+        let got = it.post_no_heal("next", web, &serde_json::json!({}), true).await;
+        assert!(
+            matches!(&got, Err(Error::Http(e)) if e.status() == Some(reqwest::StatusCode::UNAUTHORIZED)),
+            "the refusal is handed back as it is: {got:?}"
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(150), rejected.notified()).await.is_err(),
+            "session_rejected was raised"
+        );
+        assert_eq!(*it.heal.borrow(), HealState::default(), "no heal was started or awaited");
+        assert!(it.is_logged_in(), "and nothing touched the session");
+
+        // It was sent as the account: cookie and SAPISIDHASH both.
+        let sent = server.requests();
+        assert_eq!(sent.len(), 1, "no retry on a refusal");
+        assert!(sent[0].header("cookie").is_some_and(|c| c.contains("SAPISID=")));
+        assert!(sent[0].header("authorization").is_some_and(|a| a.starts_with("SAPISIDHASH ")));
+
+        // Control: the ordinary path raises the signal on the same answer.
+        let ordinary = it.clone();
+        let web = web.clone();
+        let parked =
+            tokio::spawn(
+                async move { ordinary.post("next", &web, &serde_json::json!({}), true).await },
+            );
+        tokio::time::timeout(Duration::from_secs(5), rejected.notified())
+            .await
+            .expect("post() raises session_rejected on a 401");
+        parked.abort();
     }
 
     #[test]

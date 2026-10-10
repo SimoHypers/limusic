@@ -67,6 +67,10 @@ pub struct AppState {
     /// and throws the answer away if it moved: a like landing in that ~400 ms window is newer
     /// than what YouTube was asked, and applying the stale reply would flip the heart back.
     pub rate_epoch: AtomicU64,
+    /// How the comments page now on screen was read (`CommentsPage::read_as_account`): later
+    /// pages, sort switches and replies must go back the way their token was issued. One flag for
+    /// the one track the panel shows, set by `get_comments`.
+    pub comments_as_account: AtomicBool,
     /// A one-shot resume position `(videoId, secs)` set by `restore_queue` and consumed by the
     /// next `start_current` — applied only when that track is the one being started, so jumping to
     /// a different track first doesn't inherit the old position (context/11).
@@ -479,6 +483,7 @@ impl AppState {
             is_playing: AtomicBool::new(false),
             generation: AtomicU64::new(0),
             rate_epoch: AtomicU64::new(0),
+            comments_as_account: AtomicBool::new(false),
             pending_seek: std::sync::Mutex::new(None),
             video_urls: std::sync::Mutex::new(std::collections::HashMap::new()),
             latest_position: AtomicU64::new(0),

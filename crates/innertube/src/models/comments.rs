@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::metadata::find_all;
@@ -47,6 +47,114 @@ pub struct CommentAuthor {
     pub is_artist: bool,
 }
 
+/// What the viewer has voted on a comment, from `engagementToolbarStateEntityPayload.likeState`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VoteState {
+    Neutral,
+    Liked,
+    Disliked,
+}
+
+/// The four things the viewer can do to a comment's vote.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommentAction {
+    Like,
+    Unlike,
+    Dislike,
+    Undislike,
+}
+
+/// The opaque, server-minted token behind each action, taken from the toolbar surface entity
+/// (`likeCommand` / `unlikeCommand` / `dislikeCommand` / `undislikeCommand`). They stay in Rust:
+/// the field that holds them is `#[serde(skip)]`, so the type that goes to the UI cannot carry
+/// one, and `Debug` says only which are present, so a stray `{:?}` cannot log one.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct ActionTokens {
+    like: Option<String>,
+    unlike: Option<String>,
+    dislike: Option<String>,
+    undislike: Option<String>,
+}
+
+impl ActionTokens {
+    /// The token for `action`, if the response carried one.
+    pub fn get(&self, action: CommentAction) -> Option<&str> {
+        match action {
+            CommentAction::Like => &self.like,
+            CommentAction::Unlike => &self.unlike,
+            CommentAction::Dislike => &self.dislike,
+            CommentAction::Undislike => &self.undislike,
+        }
+        .as_deref()
+    }
+
+    /// Read the four commands off an `engagementToolbarSurfaceEntityPayload`. A surface that is
+    /// the signed-out one (`prepareAccountCommand`), or any command that is empty or shaped
+    /// differently, simply yields no token for that action.
+    fn from_surface(surface: &Value) -> Self {
+        if surface.get("prepareAccountCommand").is_some() {
+            return Self::default();
+        }
+        let token = |key: &str| surface.get(key).and_then(action_token);
+        ActionTokens {
+            like: token("likeCommand"),
+            unlike: token("unlikeCommand"),
+            dislike: token("dislikeCommand"),
+            undislike: token("undislikeCommand"),
+        }
+    }
+}
+
+impl std::fmt::Debug for ActionTokens {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ActionTokens")
+            .field("like", &self.like.is_some())
+            .field("unlike", &self.unlike.is_some())
+            .field("dislike", &self.dislike.is_some())
+            .field("undislike", &self.undislike.is_some())
+            .finish()
+    }
+}
+
+/// The token inside one toolbar command: `performCommentActionEndpoint.action` (a string), or the
+/// first of `.actions` (an array of them), whichever the response uses, under the command's
+/// `innertubeCommand` wrapper (or `command` / `performOnceCommand`). Searched for rather than
+/// pinned to one path, so a wrapper YouTube adds does not lose the action.
+///
+/// FROM-REFERENCE youtubei.js v18.1.0 (MIT): `CommentView.applyMutations` takes the four
+/// commands off the surface entity, `NavigationEndpoint` unwraps `innertubeCommand`/`command`/
+/// `performOnceCommand`, and `PerformCommentActionEndpoint.buildRequest` reads `action` or
+/// `actions`. The shape of a signed-in command is NOT a capture of ours: UNVERIFIED.
+fn action_token(command: &Value) -> Option<String> {
+    let endpoint = find_all(command, "performCommentActionEndpoint").into_iter().next()?;
+    let token = endpoint
+        .get("action")
+        .and_then(Value::as_str)
+        .or_else(|| endpoint.get("actions")?.as_array()?.first()?.as_str())?;
+    (!token.is_empty()).then(|| token.to_owned())
+}
+
+/// What the viewer can do to a comment right now, given its vote and the tokens it has. An
+/// action needs a token AND a vote it makes sense from; with no vote state at all (anonymous
+/// read, or the state entity missing) nothing is offered, because the UI would not know which
+/// button to light.
+pub fn available_actions(vote: Option<VoteState>, tokens: &ActionTokens) -> Vec<CommentAction> {
+    use CommentAction::*;
+    let Some(vote) = vote else { return Vec::new() };
+    [
+        (Like, vote != VoteState::Liked),
+        (Unlike, vote == VoteState::Liked),
+        (Dislike, vote != VoteState::Disliked),
+        (Undislike, vote == VoteState::Disliked),
+    ]
+    .into_iter()
+    .filter(|&(action, fits)| fits && tokens.get(action).is_some())
+    .map(|(action, _)| action)
+    .collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Comment {
     pub id: String,
@@ -54,9 +162,22 @@ pub struct Comment {
     pub author: CommentAuthor,
     /// YouTube's own display string ("6 years ago (edited)"), localized, shown as-is.
     pub published: Option<String>,
-    /// Display string ("2.4M"), not a number. `None` when YouTube sends none (zero likes).
+    /// Display string ("2.4M"), not a number: the count as it reads for the viewer's current vote
+    /// (the liked variant while liked). `None` when YouTube sends none (zero likes).
     pub like_count: Option<String>,
-    pub liked: bool,
+    /// The count if the viewer has not liked it, and if they have: both display strings, so an
+    /// optimistic update swaps one for the other instead of adding one. Either may be missing
+    /// (YouTube sends `""` for none); never guess a number.
+    pub like_count_notliked: Option<String>,
+    pub like_count_liked: Option<String>,
+    /// The viewer's vote, from the response's own state entity. `None` when it carried none.
+    pub vote: Option<VoteState>,
+    /// What the viewer can do to this comment now. Empty when read anonymously, when the vote is
+    /// unknown, or when the response had no token for an action.
+    pub actions: Vec<CommentAction>,
+    /// Never serialized. Kept on the type so the command layer can cache them in Rust.
+    #[serde(skip)]
+    pub tokens: ActionTokens,
     /// Display string, `None` when there are no replies.
     pub reply_count: Option<String>,
     pub hearted: bool,
@@ -91,6 +212,13 @@ pub struct CommentsPage {
     /// Next page of top-level comments; `None` is the end of the list.
     pub continuation: Option<String>,
     pub state: CommentsState,
+    /// `true` when the request that produced this page was sent as the signed-in account (cookie,
+    /// auth header, `onBehalfOfUser`). It says NOTHING about whether viewer state is present: a
+    /// request sent as the account can still come back without it, and an anonymous page can
+    /// carry neutral state. What a comment offers is in its own `vote` and `actions`, and that is
+    /// all the UI may go by. It is also how a token must be sent back (`as_account`). Set by the
+    /// endpoint, never the parser.
+    pub read_as_account: bool,
 }
 
 impl CommentsPage {
@@ -101,6 +229,7 @@ impl CommentsPage {
             threads: Vec::new(),
             continuation: None,
             state: CommentsState::Disabled,
+            read_as_account: false,
         }
     }
 }
@@ -110,6 +239,8 @@ impl CommentsPage {
 pub struct CommentReplies {
     pub replies: Vec<Comment>,
     pub continuation: Option<String>,
+    /// As [`CommentsPage::read_as_account`].
+    pub read_as_account: bool,
 }
 
 /// The first-comments token off a `next` response: the one tab whose content is a section list
@@ -156,7 +287,7 @@ pub fn parse_comments_page(root: &Value, first: bool) -> CommentsPage {
     } else {
         CommentsState::Disabled
     };
-    CommentsPage { header, threads, continuation, state }
+    CommentsPage { header, threads, continuation, state, read_as_account: false }
 }
 
 /// Parse a replies response: every comment in order (nested levels flattened) and the "Show more
@@ -277,8 +408,19 @@ fn parse_comment(vm: &Value, pinned: bool, entities: &Entities) -> Option<Commen
     let toolbar = payload.get("toolbar");
     let state = entities.get(str_of(vm, "toolbarStateKey"), "engagementToolbarStateEntityPayload");
 
-    let liked = state.and_then(|s| str_of(s, "likeState")) == Some("TOOLBAR_LIKE_STATE_LIKED");
-    let like_key = if liked { "likeCountLiked" } else { "likeCountNotliked" };
+    // A value this does not know is "no state", not an error and not neutral.
+    let vote = match state.and_then(|s| str_of(s, "likeState")) {
+        Some("TOOLBAR_LIKE_STATE_LIKED") => Some(VoteState::Liked),
+        Some("TOOLBAR_LIKE_STATE_DISLIKED") => Some(VoteState::Disliked),
+        Some("TOOLBAR_LIKE_STATE_INDIFFERENT") => Some(VoteState::Neutral),
+        _ => None,
+    };
+    let like_key =
+        if vote == Some(VoteState::Liked) { "likeCountLiked" } else { "likeCountNotliked" };
+    let tokens = entities
+        .get(str_of(vm, "toolbarSurfaceKey"), "engagementToolbarSurfaceEntityPayload")
+        .map(ActionTokens::from_surface)
+        .unwrap_or_default();
     let flag = |k: &str| author.get(k).and_then(Value::as_bool).unwrap_or(false);
 
     Some(Comment {
@@ -294,7 +436,11 @@ fn parse_comment(vm: &Value, pinned: bool, entities: &Entities) -> Option<Commen
         },
         published: non_empty(props.get("publishedTime")),
         like_count: non_empty(toolbar.and_then(|t| t.get(like_key))),
-        liked,
+        like_count_notliked: non_empty(toolbar.and_then(|t| t.get("likeCountNotliked"))),
+        like_count_liked: non_empty(toolbar.and_then(|t| t.get("likeCountLiked"))),
+        vote,
+        actions: available_actions(vote, &tokens),
+        tokens,
         reply_count: non_empty(toolbar.and_then(|t| t.get("replyCount"))),
         hearted: state.and_then(|s| str_of(s, "heartState")) == Some("TOOLBAR_HEART_STATE_HEARTED"),
         pinned,
@@ -311,6 +457,8 @@ mod tests {
     const REPLIES: &str = include_str!("../../tests/fixtures/comments/replies.json");
     const EMPTY: &str = include_str!("../../tests/fixtures/comments/empty_zero.json");
     const TABS: &str = include_str!("../../tests/fixtures/comments/next_tabs.json");
+    /// SYNTHETIC (see the note inside it): not a live signed-in capture.
+    const SIGNED_IN: &str = include_str!("../../tests/fixtures/comments/signed_in_synthetic.json");
 
     fn load(s: &str) -> Value {
         serde_json::from_str(s).expect("fixture is valid JSON")
@@ -335,7 +483,14 @@ mod tests {
         assert!(first.comment.reply_count.is_some());
         assert!(page.threads.iter().any(|t| t.comment.author.verified));
         assert!(page.threads.iter().filter(|t| t.comment.pinned).count() == 1);
-        assert!(page.threads.iter().all(|t| !t.comment.liked), "anonymous read");
+        // Anonymous captures: the state entity says neutral, and every command is empty, so
+        // there is nothing to offer and no token.
+        for t in &page.threads {
+            let c = &t.comment;
+            assert_eq!(c.vote, Some(VoteState::Neutral), "anonymous read");
+            assert!(c.actions.is_empty());
+            assert_eq!(c.tokens, ActionTokens::default());
+        }
     }
 
     #[test]
@@ -439,7 +594,7 @@ mod tests {
         let page = parse_comments_page(&root, false);
         let c = &page.threads[0].comment;
         assert!(c.author.is_creator && c.author.is_artist && !c.author.verified);
-        assert!(c.liked && !c.hearted && !c.pinned);
+        assert!(c.vote == Some(VoteState::Liked) && !c.hearted && !c.pinned);
         assert_eq!(c.like_count.as_deref(), Some("1"), "the liked count while liked");
         assert_eq!(c.reply_count, None, "empty string is no count");
         assert_eq!(c.author.channel_id, None);
@@ -536,6 +691,155 @@ mod tests {
         assert_eq!((sorts[0].key, sorts[0].selected), (CommentSortKey::Newest, true));
     }
 
+    fn synthetic_page() -> CommentsPage {
+        parse_comments_page(&load(SIGNED_IN), false)
+    }
+
+    fn actions_of(page: &CommentsPage, name: &str) -> (Option<VoteState>, Vec<CommentAction>) {
+        let c = &page
+            .threads
+            .iter()
+            .find(|t| t.comment.text.ends_with(name))
+            .unwrap_or_else(|| panic!("no {name} thread"))
+            .comment;
+        (c.vote, c.actions.clone())
+    }
+
+    /// What each synthetic case reads as. The vote comes from the state entity and decides which
+    /// actions make sense; a token has to be present for each one.
+    #[test]
+    fn viewer_state_and_available_actions_follow_the_response() {
+        use CommentAction::*;
+        let page = synthetic_page();
+        assert_eq!(page.threads.len(), 8);
+        let n = VoteState::Neutral;
+        let want = [
+            ("neutral", Some(n), vec![Like, Dislike]),
+            ("liked", Some(VoteState::Liked), vec![Unlike, Dislike]),
+            ("disliked", Some(VoteState::Disliked), vec![Like, Undislike]),
+            // Commands empty: the signed-out shape. State is neutral, nothing is offered.
+            ("empty_commands", Some(n), vec![]),
+            // State entity missing: tokens exist, but with no vote nothing can be offered.
+            ("state_missing", None, vec![]),
+            // Only the like command exists: only like is offered.
+            ("like_only", Some(n), vec![Like]),
+            // A signed-out surface (prepareAccountCommand) offers nothing even beside a command.
+            ("signed_out_surface", Some(n), vec![]),
+            // A likeState this parser does not know is no state, not an error, not neutral.
+            ("unknown_state", None, vec![]),
+        ];
+        for (name, vote, actions) in want {
+            assert_eq!(actions_of(&page, name), (vote, actions), "{name}");
+        }
+    }
+
+    /// Both count strings come through as sent, and `like_count` is the one for the current vote.
+    /// `""` is no count, never zero.
+    #[test]
+    fn both_count_strings_are_exposed_and_never_invented() {
+        let page = synthetic_page();
+        let by = |name: &str| {
+            &page.threads.iter().find(|t| t.comment.text.ends_with(name)).unwrap().comment
+        };
+        let neutral = by("neutral");
+        assert_eq!(neutral.like_count_notliked.as_deref(), Some("41"));
+        assert_eq!(neutral.like_count_liked.as_deref(), Some("42"));
+        assert_eq!(neutral.like_count.as_deref(), Some("41"));
+        assert_eq!(by("liked").like_count.as_deref(), Some("42"), "the liked variant while liked");
+        assert_eq!(by("disliked").like_count.as_deref(), Some("41"));
+        let zero = by("empty_commands");
+        assert_eq!(zero.like_count_notliked, None, "\"\" is no count");
+        assert_eq!(zero.like_count_liked.as_deref(), Some("1"));
+        assert_eq!(zero.like_count, None);
+    }
+
+    /// The tokens are in Rust and nowhere else: not in what the UI is sent, not in `Debug`.
+    #[test]
+    fn tokens_are_kept_but_never_serialized_or_printed() {
+        let page = synthetic_page();
+        let neutral = &page.threads[0].comment;
+        assert_eq!(neutral.tokens.get(CommentAction::Like), Some("fixture-token-like-1"));
+        assert_eq!(neutral.tokens.get(CommentAction::Unlike), Some("fixture-token-unlike-1"));
+        assert_eq!(neutral.tokens.get(CommentAction::Dislike), Some("fixture-token-dislike-1"));
+        assert_eq!(neutral.tokens.get(CommentAction::Undislike), Some("fixture-token-undislike-1"));
+        // Present even where nothing is offered, so a later step can decide on its own.
+        let missing_state = page.threads.iter().find(|t| t.comment.vote.is_none()).unwrap();
+        assert!(missing_state.comment.tokens.get(CommentAction::Like).is_some());
+
+        let sent = serde_json::to_string(&page).unwrap();
+        assert!(!sent.contains("fixture-token"), "a token reached the serialized page");
+        assert!(sent.contains("\"actions\""), "the actions themselves do");
+        for printed in [format!("{page:?}"), format!("{:?}", neutral.tokens)] {
+            assert!(!printed.contains("fixture-token"), "a token reached Debug output");
+        }
+    }
+
+    /// The array form of the endpoint (`actions: [token]`) and a differently wrapped command read
+    /// too; a token that is not a string, or empty, is no token.
+    #[test]
+    fn token_extraction_is_tolerant_about_shape() {
+        let wrapped =
+            |inner: Value| json!({ "innertubeCommand": { "performCommentActionEndpoint": inner } });
+        assert_eq!(action_token(&wrapped(json!({ "action": "T1" }))).as_deref(), Some("T1"));
+        assert_eq!(
+            action_token(&wrapped(json!({ "actions": ["T2", "T3"] }))).as_deref(),
+            Some("T2")
+        );
+        let bare = json!({ "command": { "performCommentActionEndpoint": { "action": "T4" } } });
+        assert_eq!(action_token(&bare).as_deref(), Some("T4"));
+        for junk in [
+            json!(null),
+            json!(5),
+            json!({ "innertubeCommand": {} }),
+            wrapped(json!({ "action": "" })),
+            wrapped(json!({ "action": 7 })),
+            wrapped(json!({ "actions": [] })),
+            wrapped(json!({ "actions": [null] })),
+            wrapped(json!("not an object")),
+        ] {
+            assert_eq!(action_token(&junk), None, "{junk}");
+        }
+    }
+
+    /// Replies share the toolbar payloads with top-level comments: the same parser gives them
+    /// their own vote and tokens (UNVERIFIED that a live reply carries them).
+    #[test]
+    fn a_reply_with_the_same_toolbar_payloads_gets_the_same_state() {
+        let root = load(SIGNED_IN);
+        let replies = parse_comment_replies(&root);
+        assert_eq!(replies.replies.len(), 8);
+        assert!(!replies.read_as_account, "the endpoint sets that, not the parser");
+        let liked = replies.replies.iter().find(|c| c.text.ends_with("liked")).unwrap();
+        assert_eq!(liked.vote, Some(VoteState::Liked));
+        assert_eq!(liked.actions, [CommentAction::Unlike, CommentAction::Dislike]);
+    }
+
+    #[test]
+    fn availability_needs_both_a_vote_and_a_token() {
+        let none = ActionTokens::default();
+        for vote in
+            [None, Some(VoteState::Neutral), Some(VoteState::Liked), Some(VoteState::Disliked)]
+        {
+            assert!(available_actions(vote, &none).is_empty(), "no tokens, nothing: {vote:?}");
+        }
+        let all = ActionTokens {
+            like: Some("a".into()),
+            unlike: Some("b".into()),
+            dislike: Some("c".into()),
+            undislike: Some("d".into()),
+        };
+        assert!(available_actions(None, &all).is_empty(), "no vote, nothing");
+        // Never an action that does not fit the vote, even with every token present.
+        assert_eq!(
+            available_actions(Some(VoteState::Liked), &all),
+            [CommentAction::Unlike, CommentAction::Dislike]
+        );
+        assert_eq!(
+            available_actions(Some(VoteState::Disliked), &all),
+            [CommentAction::Like, CommentAction::Undislike]
+        );
+    }
+
     #[test]
     fn unexpected_json_never_panics() {
         for v in [
@@ -549,6 +853,13 @@ mod tests {
                 { "continuationItemRenderer": { "continuationEndpoint": 9 } },
                 { "commentsHeaderRenderer": { "sortMenu": 4 } }] } }),
             json!({ "frameworkUpdates": { "entityBatchUpdate": { "mutations": [null, 3] } } }),
+            json!({ "frameworkUpdates": { "entityBatchUpdate": { "mutations": [
+                { "entityKey": "s", "payload": { "engagementToolbarSurfaceEntityPayload": {
+                    "likeCommand": 5, "unlikeCommand": [], "dislikeCommand": { "innertubeCommand": 7 },
+                    "undislikeCommand": { "performCommentActionEndpoint": { "actions": "x" } } } } },
+                { "entityKey": "t", "payload": { "engagementToolbarStateEntityPayload": {
+                    "likeState": 3 } } },
+            ] } } }),
         ] {
             let _ = parse_comments_page(&v, true);
             let _ = parse_comments_page(&v, false);
