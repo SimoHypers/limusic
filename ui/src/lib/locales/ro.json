@@ -346,10 +346,8 @@
 		"themes": {
 			"interface_font": "Font interfață",
 			"load_font_file": "Încarcă un font din fișier",
-			"custom_colors": "Culori personalizate",
 			"primary_color": "Culoare de accent principală",
 			"background_color": "Fundal",
-			"reset_theme": "Resetează la tema implicită",
 			"your_fonts": "Fonturile tale",
 			"custom_font": "Personalizat…",
 			"font_placeholder": "Font instalat pe acest calculator, de ex. Inter",

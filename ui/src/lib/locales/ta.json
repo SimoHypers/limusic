@@ -346,10 +346,8 @@
 		"themes": {
 			"interface_font": "இடைமுக எழுத்துரு",
 			"load_font_file": "கோப்பிலிருந்து எழுத்துருவை ஏற்று",
-			"custom_colors": "விருப்ப வண்ணங்கள்",
 			"primary_color": "முதன்மை வண்ணம்",
 			"background_color": "பின்னணி வண்ணம்",
-			"reset_theme": "இயல்புநிலை தீமுக்கு மீட்டமை",
 			"your_fonts": "உங்கள் எழுத்துருக்கள்",
 			"custom_font": "விருப்பப்படியானவை…",
 			"font_placeholder": "கணினியில் நிறுவப்பட்ட எழுத்துரு, எ.கா: Inter",

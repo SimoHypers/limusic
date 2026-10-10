@@ -351,10 +351,8 @@
 		"themes": {
 			"interface_font": "خط الواجهة",
 			"load_font_file": "تحميل خط من ملف",
-			"custom_colors": "ألوان مخصصة",
 			"primary_color": "لون التمييز الأساسي",
 			"background_color": "الخلفية",
-			"reset_theme": "إعادة التعيين إلى المظهر الافتراضي",
 			"your_fonts": "خطوطك",
 			"custom_font": "مخصص…",
 			"font_placeholder": "خط مثبت على هذا الكمبيوتر، مثل Inter",
