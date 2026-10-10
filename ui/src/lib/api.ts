@@ -1030,6 +1030,13 @@ export const listenbrainzConnect = (token: string) =>
 export const listenbrainzDisconnect = () => invoke<void>('listenbrainz_disconnect');
 export const onListenBrainzState = (cb: (s: ListenBrainzState) => void): Promise<UnlistenFn> =>
 	listen<ListenBrainzState>('listenbrainz-state', (e) => cb(e.payload));
+/** Why ListenBrainz refuses listens (`problem` in listenbrainz.rs): `email` until the MetaBrainz
+ *  email is verified, `rejected` for a token it no longer takes. `null` once one goes through. */
+export type ListenBrainzProblem = 'email' | 'rejected';
+export const onListenBrainzProblem = (
+	cb: (p: ListenBrainzProblem | null) => void
+): Promise<UnlistenFn> =>
+	listen<ListenBrainzProblem | null>('listenbrainz-problem', (e) => cb(e.payload));
 /** `Profile` in listenbrainz.rs. */
 export interface ListenBrainzProfile {
 	username: string;

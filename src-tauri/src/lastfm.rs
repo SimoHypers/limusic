@@ -276,15 +276,17 @@ impl LastfmHandle {
 }
 
 /// Spawn the scrobbler task. `session_key` is the persisted Last.fm login and `lb_token` the
-/// persisted ListenBrainz user token; `None` parks that half until the user connects.
+/// persisted ListenBrainz user token; `None` parks that half until the user connects. `app` is
+/// for telling the UI when ListenBrainz refuses listens (see [`Scrobbler::lb_sent`]).
 pub fn spawn(
+    app: tauri::AppHandle,
     session_key: Option<String>,
     lb_token: Option<String>,
     cfg: ScrobbleConfig,
 ) -> LastfmHandle {
     let (tx, mut rx) = unbounded_channel::<Msg>();
     tauri::async_runtime::spawn(async move {
-        let mut s = Scrobbler::new(session_key, lb_token, cfg);
+        let mut s = Scrobbler::new(app, session_key, lb_token, cfg);
         while let Some(msg) = rx.recv().await {
             s.apply(msg).await;
         }
@@ -293,8 +295,12 @@ pub fn spawn(
 }
 
 struct Scrobbler {
+    app: tauri::AppHandle,
     session: Option<String>,
     lb_token: Option<String>,
+    /// What ListenBrainz last said is wrong with the token (`listenbrainz::problem`), so the UI
+    /// hears about a change once instead of once per track.
+    lb_problem: Option<&'static str>,
     cfg: ScrobbleConfig,
     track: Option<Track>,
     /// Epoch secs when the current track started — the scrobble's `timestamp` / `listened_at`.
@@ -304,10 +310,17 @@ struct Scrobbler {
 }
 
 impl Scrobbler {
-    fn new(session: Option<String>, lb_token: Option<String>, cfg: ScrobbleConfig) -> Self {
+    fn new(
+        app: tauri::AppHandle,
+        session: Option<String>,
+        lb_token: Option<String>,
+        cfg: ScrobbleConfig,
+    ) -> Self {
         Scrobbler {
+            app,
             session,
             lb_token,
+            lb_problem: None,
             cfg,
             track: None,
             started_at: 0,
@@ -342,7 +355,10 @@ impl Scrobbler {
                 }
             }
             Msg::Session(key) => self.session = key,
-            Msg::Token(token) => self.lb_token = token,
+            Msg::Token(token) => {
+                self.lb_token = token;
+                self.lb_problem = None; // the UI clears its copy on the connect/disconnect event
+            }
             // ponytail: "now playing" isn't re-sent on a config change. The tab saves as the user
             // types, and each service would get one call per pause in typing a rule.
             Msg::Config(cfg) => self.cfg = *cfg,
@@ -361,7 +377,7 @@ impl Scrobbler {
         r.skip.is_none().then_some(r)
     }
 
-    async fn now_playing(&self) {
+    async fn now_playing(&mut self) {
         if !self.cfg.now_playing {
             return;
         }
@@ -369,8 +385,9 @@ impl Scrobbler {
         if let Some(sk) = self.session.as_deref() {
             self.now_playing_lastfm(sk, &r).await;
         }
-        if let Some(token) = self.lb_token.as_deref() {
-            self.now_playing_listenbrainz(token, &r).await;
+        if let Some(token) = self.lb_token.clone() {
+            let sent = self.now_playing_listenbrainz(&token, &r).await;
+            self.lb_sent(sent);
         }
     }
 
@@ -389,24 +406,27 @@ impl Scrobbler {
         }
     }
 
-    async fn now_playing_listenbrainz(&self, token: &str, r: &Resolved) {
+    async fn now_playing_listenbrainz(&self, token: &str, r: &Resolved) -> LbSent {
         let video_id = self.track.as_ref().map(|t| t.video_id.as_str()).unwrap_or("");
         let payload = serde_json::json!([{
             "track_metadata": crate::listenbrainz::track_metadata(r, video_id, self.duration),
         }]);
-        match crate::listenbrainz::submit(token, "playing_now", payload).await {
+        let sent = crate::listenbrainz::submit(token, "playing_now", payload).await;
+        match &sent {
             Ok(_) => tracing::debug!(track = %r.title, "listenbrainz now playing sent"),
             Err(e) => tracing::debug!(error = %e, "listenbrainz now playing failed"),
         }
+        sent
     }
 
-    async fn scrobble(&self) {
+    async fn scrobble(&mut self) {
         let Some(r) = self.outgoing() else { return };
         if let Some(sk) = self.session.as_deref() {
             self.scrobble_lastfm(sk, &r).await;
         }
-        if let Some(token) = self.lb_token.as_deref() {
-            self.scrobble_listenbrainz(token, &r).await;
+        if let Some(token) = self.lb_token.clone() {
+            let sent = self.scrobble_listenbrainz(&token, &r).await;
+            self.lb_sent(sent);
         }
     }
 
@@ -429,18 +449,38 @@ impl Scrobbler {
         }
     }
 
-    async fn scrobble_listenbrainz(&self, token: &str, r: &Resolved) {
+    async fn scrobble_listenbrainz(&self, token: &str, r: &Resolved) -> LbSent {
         let video_id = self.track.as_ref().map(|t| t.video_id.as_str()).unwrap_or("");
         let payload = serde_json::json!([{
             "listened_at": self.started_at,
             "track_metadata": crate::listenbrainz::track_metadata(r, video_id, self.duration),
         }]);
-        match crate::listenbrainz::submit(token, "single", payload).await {
+        let sent = crate::listenbrainz::submit(token, "single", payload).await;
+        match &sent {
             Ok(_) => tracing::info!(track = %r.title, "submitted listen to listenbrainz"),
             Err(e) => tracing::warn!(error = %e, "listenbrainz listen failed"),
         }
+        sent
+    }
+
+    /// ListenBrainz accepts the token at connect even when it will refuse every listen (an
+    /// unverified MetaBrainz email, a token reset on the website), so the first submit is where
+    /// that shows. Tell the UI when refusing starts and when a listen goes through again, never
+    /// per track. A network failure says nothing about the account and changes nothing.
+    fn lb_sent(&mut self, sent: LbSent) {
+        let problem = match sent {
+            Ok(()) => None,
+            Err(e) if e.problem.is_some() => e.problem,
+            Err(_) => return,
+        };
+        if self.lb_problem != problem {
+            self.lb_problem = problem;
+            crate::listenbrainz::emit_problem(&self.app, problem);
+        }
     }
 }
+
+type LbSent = Result<(), crate::listenbrainz::SubmitError>;
 
 /// What a track scrobbles as, and why. The scrobbler sends `artist`/`title`/`album` unless `skip`
 /// is set; the settings tab renders all of it as its preview, so the two can never disagree.

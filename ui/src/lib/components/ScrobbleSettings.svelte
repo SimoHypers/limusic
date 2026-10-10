@@ -35,9 +35,11 @@
 	import LastFmIcon from '$lib/components/LastFmIcon.svelte';
 	import { connectLastfm, disconnectLastfm, lastfm } from '$lib/lastfm.svelte';
 	import {
+		METABRAINZ_PROFILE,
 		connectListenBrainz,
 		disconnectListenBrainz,
-		listenbrainz
+		listenbrainz,
+		problemText
 	} from '$lib/listenbrainz.svelte';
 	import {
 		PRESETS,
@@ -445,9 +447,24 @@
 									<HugeiconsIcon icon={LinkSquare02Icon} size={13} class="shrink-0 text-muted-foreground" />
 								{/if}
 							</button>
-							<p class="truncate text-xs text-muted-foreground">
-								{t('integrations.listenbrainz_connected_as', { user: listenbrainz.username ?? '' })}
-							</p>
+							{#if listenbrainz.problem}
+								<p class="text-xs text-destructive">
+									{problemText(listenbrainz.problem)}
+									{#if listenbrainz.problem === 'email'}
+										<button
+											type="button"
+											class="cursor-pointer underline hover:text-foreground"
+											onclick={() => api.openExternal(METABRAINZ_PROFILE)}
+										>
+											{t('settings.scrobbling.lb_verify_email')}
+										</button>
+									{/if}
+								</p>
+							{:else}
+								<p class="truncate text-xs text-muted-foreground">
+									{t('integrations.listenbrainz_connected_as', { user: listenbrainz.username ?? '' })}
+								</p>
+							{/if}
 						{:else}
 							<p class="text-sm font-semibold">ListenBrainz</p>
 							<p class="text-xs text-muted-foreground">

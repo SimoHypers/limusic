@@ -8,8 +8,19 @@ export const listenbrainz = $state({
 	connected: false,
 	username: null as string | null,
 	/** UI-local: set while the token validates, cleared by the `listenbrainz-state` event. */
-	connecting: false
+	connecting: false,
+	/** ListenBrainz refusing listens, from the scrobbler. Cleared by the next accepted listen
+	 *  or a connect/disconnect. */
+	problem: null as api.ListenBrainzProblem | null
 });
+
+/** Where a MetaBrainz account verifies its email. */
+export const METABRAINZ_PROFILE = 'https://metabrainz.org/profile';
+
+export const problemText = (p: api.ListenBrainzProblem) =>
+	p === 'email'
+		? t('settings.scrobbling.lb_problem_email')
+		: t('settings.scrobbling.lb_problem_rejected');
 
 /** Load the stored token and follow the backend's answers. Call once; returns the unlisten. */
 export function watchListenBrainz(): () => void {
@@ -20,6 +31,7 @@ export function watchListenBrainz(): () => void {
 		eventSeen = true;
 		const wasConnecting = listenbrainz.connecting;
 		listenbrainz.connecting = false;
+		listenbrainz.problem = null;
 		listenbrainz.connected = s.connected;
 		listenbrainz.username = s.username ?? null;
 		if (s.error) toast.error(s.error);
@@ -34,7 +46,15 @@ export function watchListenBrainz(): () => void {
 			listenbrainz.username = s.username ?? null;
 		})
 		.catch(() => {});
-	return () => void sub.then((u) => u());
+	// One toast when refusing starts (the card keeps saying it), none per track or on recovery.
+	const problem = api.onListenBrainzProblem((p) => {
+		listenbrainz.problem = p;
+		if (p) toast.error(problemText(p));
+	});
+	return () => {
+		void sub.then((u) => u());
+		void problem.then((u) => u());
+	};
 }
 
 /** Validate and store a pasted user token. */

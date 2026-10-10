@@ -55,11 +55,24 @@ pub(crate) fn track_metadata(r: &Resolved, video_id: &str, duration: f64) -> ser
     meta
 }
 
+/// A failed submit. `problem` is set when ListenBrainz refused the listen for a reason only the
+/// user can fix (see [`problem`]); anything else is a hiccup that stays a log line.
+pub(crate) struct SubmitError {
+    pub problem: Option<&'static str>,
+    message: String,
+}
+
+impl std::fmt::Display for SubmitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
 pub(crate) async fn submit(
     token: &str,
     listen_type: &str,
     payload: serde_json::Value,
-) -> Result<(), String> {
+) -> Result<(), SubmitError> {
     let body = serde_json::json!({ "listen_type": listen_type, "payload": payload });
     let resp = crate::http::client()
         .post(format!("{API_ROOT}/1/submit-listens"))
@@ -69,14 +82,38 @@ pub(crate) async fn submit(
         .timeout(Duration::from_secs(15))
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| SubmitError { problem: None, message: e.to_string() })?;
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         let short: String = text.chars().take(300).collect();
-        return Err(format!("{status}: {short}"));
+        return Err(SubmitError {
+            problem: problem(status, &text),
+            message: format!("{status}: {short}"),
+        });
     }
     Ok(())
+}
+
+/// Why ListenBrainz refuses this token's listens, as the code the UI words: `email` while the
+/// MetaBrainz account's email is unverified, `rejected` for any other 401 (a token reset on the
+/// website). It answers 401 for both, and `/1/validate-token` accepts both.
+// ponytail: matched on the English body; if ListenBrainz rewords it, the email case reads as
+// `rejected`, which still tells the user something is wrong.
+fn problem(status: reqwest::StatusCode, body: &str) -> Option<&'static str> {
+    (status == reqwest::StatusCode::UNAUTHORIZED).then(|| {
+        if body.contains("verified email") {
+            "email"
+        } else {
+            "rejected"
+        }
+    })
+}
+
+/// `listenbrainz-problem`: a [`problem`] code when ListenBrainz starts refusing listens, `null`
+/// once one goes through again.
+pub(crate) fn emit_problem(app: &tauri::AppHandle, problem: Option<&str>) {
+    let _ = app.emit("listenbrainz-problem", problem);
 }
 
 async fn validate(token: &str) -> Result<String, String> {
@@ -206,5 +243,17 @@ mod tests {
         // Local files carry no URL.
         let m = track_metadata(&r, "LOCAL:/music/song.mp3", 10.0);
         assert!(m["additional_info"].get("origin_url").is_none());
+    }
+
+    #[test]
+    fn a_refused_listen_names_what_the_user_has_to_fix() {
+        use reqwest::StatusCode;
+        // Verbatim start of what ListenBrainz answered an unverified account (2026-10-10).
+        let unverified = r#"{"code":401,"error":"The listens were rejected because your MetaBrainz account does not have a verified email address. Please check your inbox"#;
+        assert_eq!(problem(StatusCode::UNAUTHORIZED, unverified), Some("email"));
+        assert_eq!(problem(StatusCode::UNAUTHORIZED, r#"{"code":401}"#), Some("rejected"));
+        // Not the user's to fix: stays a log line.
+        assert_eq!(problem(StatusCode::BAD_REQUEST, unverified), None);
+        assert_eq!(problem(StatusCode::SERVICE_UNAVAILABLE, ""), None);
     }
 }

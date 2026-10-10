@@ -708,7 +708,10 @@
 			"lb_validating": "Checking that token with ListenBrainz.",
 			"lb_token_hint": "Paste your user token here. You can copy it from your ListenBrainz settings page.",
 			"lb_open_settings": "Open ListenBrainz settings",
-			"lb_token_placeholder": "ListenBrainz user token"
+			"lb_token_placeholder": "ListenBrainz user token",
+			"lb_problem_email": "Verify your MetaBrainz email so ListenBrainz accepts your listens.",
+			"lb_problem_rejected": "ListenBrainz no longer accepts this token. Connect again with a new one.",
+			"lb_verify_email": "Verify email"
 		}
 	},
 	"dialogs": {
