@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { HugeiconsIcon, type IconSvgElement } from '@hugeicons/svelte';
 	import {
 		FavouriteIcon,
@@ -40,7 +41,8 @@
 		inLibraryList = false,
 		selection,
 		selectionKey,
-		lazy = false
+		lazy = false,
+		trailing
 	}: {
 		song: SongItem;
 		/** Position badge when set (playlist/queue); omitted for flat search results. */
@@ -87,6 +89,9 @@
 		 * row below.
 		 */
 		lazy?: boolean;
+		/** Last in the row, after the ⋯ (the suggestions shelf's Add). Stop the click's propagation:
+		 *  the row itself is a play button. */
+		trailing?: Snippet;
 	} = $props();
 	const selectionDescriptionId = $props.id();
 
@@ -413,5 +418,6 @@
 				? ''
 				: 'invisible group-focus-within:visible group-hover:visible'}"
 		/>
+		{@render trailing?.()}
 	</div>
 </div>

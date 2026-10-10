@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use innertube::{
     AlbumPage, ArtistPage, BrowseItem, HistoryGroup, HomePage, MoodSection, PlaylistContinuation,
-    PlaylistPage, PlaylistSort, Rating, SearchResults, SearchSuggestions, SongItem,
+    PlaylistPage, PlaylistSort, PlaylistSuggestions, Rating, SearchResults, SearchSuggestions,
+    SongItem,
 };
 use tauri::{Emitter, Manager, State};
 
@@ -905,6 +906,7 @@ pub async fn get_playlist(
             owned: false, // nothing to rename or delete; it rebuilds itself from what you play
             collaborative: false,
             sort_menu: None, // built from local history, so YouTube has no order to give
+            suggestions: None,
         });
     }
     if is_local_playlist(&id) {
@@ -987,6 +989,17 @@ pub async fn get_playlist_more(
 ) -> Result<PlaylistContinuation, String> {
     let client = metadata_client(&state)?;
     state.it.playlist_continuation(client, &token).await.map_err(|e| e.to_string())
+}
+
+/// A batch of the suggestions shelf under a playlist you own (#395). `token` is the page's
+/// `suggestions`, or the previous batch's `refresh`.
+#[tauri::command]
+pub async fn get_playlist_suggestions(
+    state: St<'_>,
+    token: String,
+) -> Result<PlaylistSuggestions, String> {
+    let client = metadata_client(&state)?;
+    state.it.playlist_suggestions(client, &token).await.map_err(|e| e.to_string())
 }
 
 /// An album page. `id` is the album browseId (`MPRE…`).
@@ -1655,6 +1668,7 @@ fn local_playlist_page(state: &Arc<AppState>, id: &str) -> Result<PlaylistPage, 
         owned: true,
         collaborative: false,
         sort_menu: None, // no server to keep an order, so every sort is done on the page
+        suggestions: None, // YouTube suggests only for its own playlists
     })
 }
 

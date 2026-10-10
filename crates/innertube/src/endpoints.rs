@@ -6,7 +6,8 @@ use crate::blocklist;
 use crate::clients::YouTubeClient;
 use crate::models::browse::{
     self, AlbumPage, ArtistPage, BrowseItem, HistoryGroup, HomePage, MoodSection,
-    PlaylistContinuation, PlaylistPage, PlaylistSort, SearchResults, SearchSuggestions,
+    PlaylistContinuation, PlaylistPage, PlaylistSort, PlaylistSuggestions, SearchResults,
+    SearchSuggestions,
 };
 use crate::models::context::Context;
 use crate::models::lyrics::{self, PlainLyrics, TimedLyricLine};
@@ -645,6 +646,21 @@ impl InnerTube {
     ) -> Result<PlaylistContinuation, Error> {
         let value = self.browse_continuation(client, token).await?;
         Ok(browse::parse_playlist_continuation(&value))
+    }
+
+    /// The "Suggestions" shelf under a playlist you own (#395), from `PlaylistPage::suggestions`
+    /// or a previous batch's `refresh`. YouTube's picks, not rows the user asked for, so both the
+    /// blocklist and "hide music videos" apply.
+    pub async fn playlist_suggestions(
+        &self,
+        client: &YouTubeClient,
+        token: &str,
+    ) -> Result<PlaylistSuggestions, Error> {
+        let value = self.browse_continuation(client, token).await?;
+        let mut batch = browse::parse_playlist_suggestions(&value);
+        self.drop_video_songs(&mut batch.items);
+        self.drop_blocked_songs(&mut batch.items, None);
+        Ok(batch)
     }
 
     // --- lyrics (context/08 §lyrics; browseId comes from `next`) -----------------------------

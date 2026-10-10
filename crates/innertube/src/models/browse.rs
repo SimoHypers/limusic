@@ -220,6 +220,10 @@ pub struct PlaylistPage {
     pub collaborative: bool,
     /// Absent on lists YouTube will not reorder at all: albums and its own radio mixes.
     pub sort_menu: Option<SortMenu>,
+    /// Token for the "Suggestions" shelf YouTube Music puts under a playlist you own (#395), read
+    /// with `InnerTube::playlist_suggestions`. Withheld on anyone else's playlist, where the same
+    /// token pages to related playlists instead.
+    pub suggestions: Option<String>,
 }
 
 /// A page of extra tracks fetched via a continuation token.
@@ -227,6 +231,14 @@ pub struct PlaylistPage {
 pub struct PlaylistContinuation {
     pub items: Vec<SongItem>,
     pub continuation: Option<String>,
+}
+
+/// One batch of the suggestions shelf, and the token that swaps it for a fresh batch (the shelf's
+/// Refresh button in YouTube Music).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct PlaylistSuggestions {
+    pub items: Vec<SongItem>,
+    pub refresh: Option<String>,
 }
 
 /// An artist detail page (`browse` on a `UC…` channel id). context/08.
@@ -477,6 +489,7 @@ pub fn parse_playlist(root: &Value) -> PlaylistPage {
         owned,
         collaborative,
         sort_menu: sort_menu(root),
+        suggestions: owned.then(|| suggestions_token(root)).flatten(),
     }
 }
 
@@ -541,6 +554,34 @@ pub fn parse_playlist_continuation(root: &Value) -> PlaylistContinuation {
     PlaylistContinuation {
         items,
         continuation: shelf_continuation(root).or_else(|| continuation_token(root)),
+    }
+}
+
+/// The suggestions shelf's token: the paging token of the section list the track shelf sits in.
+/// Read off that list's own `continuations`, since a sweep of the whole section would reach the
+/// track shelf's token first.
+fn suggestions_token(root: &Value) -> Option<String> {
+    find_all(root, "sectionListRenderer")
+        .into_iter()
+        .find_map(|s| continuation_token(s.get("continuations")?))
+}
+
+/// Parse the suggestions shelf: the first batch (a `sectionListContinuation` holding a
+/// `musicShelfRenderer`) or a refresh (a bare `musicShelfContinuation`). Rows and token are read
+/// off the shelf alone, so nothing else in the section can leak into either.
+pub fn parse_playlist_suggestions(root: &Value) -> PlaylistSuggestions {
+    let Some(shelf) = ["musicShelfRenderer", "musicShelfContinuation"]
+        .into_iter()
+        .find_map(|key| find_all(root, key).into_iter().next())
+    else {
+        return PlaylistSuggestions::default();
+    };
+    PlaylistSuggestions {
+        items: playlist_rows(shelf, None).collect(),
+        refresh: find_all(shelf, "reloadContinuationData")
+            .into_iter()
+            .find_map(|c| c.get("continuation")?.as_str())
+            .map(str::to_owned),
     }
 }
 
@@ -1649,6 +1690,79 @@ mod tests {
         let p = parse_playlist(&root);
         assert_eq!(p.items.len(), 1);
         assert_eq!(p.continuation, None, "the suggestions token is not a track continuation");
+    }
+
+    /// #395: the suggestions shelf is the section list's own token, never the track shelf's, and
+    /// only on a playlist you own (on anyone else's it pages to related playlists).
+    #[test]
+    fn owned_playlist_offers_its_suggestions_token() {
+        let page = |header: &str| {
+            json!({
+                "header": { header: { "header": { "musicResponsiveHeaderRenderer": {
+                    "title": { "runs": [{ "text": "Hip Hop" }] }
+                } } } },
+                "contents": { "twoColumnBrowseResultsRenderer": { "secondaryContents": {
+                    "sectionListRenderer": {
+                        "contents": [{ "musicPlaylistShelfRenderer": {
+                            "contents": [],
+                            "continuations": [{ "nextContinuationData": { "continuation": "MORE_TRACKS" } }]
+                        } }],
+                        "continuations": [{ "nextContinuationData": { "continuation": "SUGGEST" } }]
+                    }
+                } } }
+            })
+        };
+        let mine = parse_playlist(&page("musicEditablePlaylistDetailHeaderRenderer"));
+        assert_eq!(mine.continuation.as_deref(), Some("MORE_TRACKS"));
+        assert_eq!(mine.suggestions.as_deref(), Some("SUGGEST"));
+        assert_eq!(parse_playlist(&page("someoneElsesHeader")).suggestions, None);
+    }
+
+    /// The first batch arrives inside a section list continuation, a Refresh as a bare shelf
+    /// continuation. Each row embeds a copy of itself in its add button's command, which must not
+    /// count as a second suggestion.
+    #[test]
+    fn parses_both_shapes_of_the_suggestions_shelf() {
+        let row = |id: &str, title: &str| {
+            json!({ "musicResponsiveListItemRenderer": {
+                "playlistItemData": { "videoId": id },
+                "flexColumns": [
+                    { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": title }] } } }
+                ],
+                "fixedColumns": [{ "musicResponsiveListItemFixedColumnRenderer": { "button": {
+                    "buttonRenderer": { "command": { "playlistEditEndpoint": { "clientActions": [
+                        { "musicAddSuggestionToPlaylistCommand": { "addToPlaylistCommand": {
+                            "insertShelfItemCommand": { "item": {
+                                "musicResponsiveListItemRenderer": { "playlistItemData": { "videoId": id } }
+                            } }
+                        } } }
+                    ] } } }
+                } } }]
+            } })
+        };
+        let first = json!({ "continuationContents": { "sectionListContinuation": {
+            "contents": [{ "musicShelfRenderer": {
+                "title": { "runs": [{ "text": "Suggestions" }] },
+                "contents": [row("aaaaaaaaaaa", "BAND4BAND"), row("bbbbbbbbbbb", "No Pole")],
+                "continuations": [{ "reloadContinuationData": { "continuation": "AGAIN" } }]
+            } }],
+            "continuations": [{ "nextContinuationData": { "continuation": "RELATED" } }]
+        } } });
+        let batch = parse_playlist_suggestions(&first);
+        let ids: Vec<_> = batch.items.iter().map(|s| s.video_id.as_str()).collect();
+        assert_eq!(ids, ["aaaaaaaaaaa", "bbbbbbbbbbb"]);
+        assert_eq!(batch.refresh.as_deref(), Some("AGAIN"), "not the related-playlists token");
+
+        let refresh = json!({ "continuationContents": { "musicShelfContinuation": {
+            "contents": [row("ccccccccccc", "Often")],
+            "continuations": [{ "reloadContinuationData": { "continuation": "AGAIN2" } }]
+        } } });
+        let batch = parse_playlist_suggestions(&refresh);
+        assert_eq!(batch.items.len(), 1);
+        assert_eq!(batch.refresh.as_deref(), Some("AGAIN2"));
+
+        // A playlist YouTube has nothing to suggest for: no shelf, no rows, no refresh.
+        assert!(parse_playlist_suggestions(&json!({})).items.is_empty());
     }
 
     /// What the "Edit playlist" dialog prefills from. Both fields have to survive the round trip:
