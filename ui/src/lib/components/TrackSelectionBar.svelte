@@ -71,6 +71,7 @@
 			await api.clearQueued();
 			await api.playPlaylist(items, 0, undefined, from);
 			openPlayer();
+			selection.exit(); // done with these rows; the player view is what matters now
 		} catch (e) {
 			toast.error(String(e));
 		} finally {
