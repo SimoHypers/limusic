@@ -28,6 +28,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use innertube::models::metadata::ArtistRun;
 use innertube::SongItem;
 use md5::{Digest, Md5};
 use tauri::Emitter;
@@ -209,6 +210,8 @@ pub struct Track {
     artists: String,
     album: Option<String>,
     is_video: bool,
+    /// Only read for the joiner between artists, see [`primary_artist`].
+    artist_runs: Vec<ArtistRun>,
 }
 
 impl From<&SongItem> for Track {
@@ -219,6 +222,7 @@ impl From<&SongItem> for Track {
             artists: item.artists.clone(),
             album: item.album.clone(),
             is_video: item.is_video,
+            artist_runs: item.artist_runs.clone(),
         }
     }
 }
@@ -566,7 +570,7 @@ pub fn resolve(t: &Track, cfg: &ScrobbleConfig) -> Resolved {
         }
     }
     if cfg.primary_artist {
-        r.artist = primary_artist(&r.artist, cfg.primary_strict);
+        r.artist = primary_artist(&r.artist, cfg.primary_strict, &t.artist_runs);
     }
     for (i, (rule, re)) in cfg.rules.iter().zip(&compiled).enumerate() {
         if let Some(re) = re {
@@ -641,12 +645,29 @@ fn split_title(title: &str) -> Option<(String, String)> {
 /// handling either way, YouTube Music puts features in the track title, which is also where
 /// Last.fm wants them.
 ///
+/// "&" is only YouTube's English. It answers in the app's language (#274) and joins the last two
+/// artists with that language's word: "underscores y Jane Remover" in Spanish (#439). So strict
+/// also cuts at whatever unlinked run sits between two linked artists in `runs`, which is the
+/// joiner in any language without a word list to keep up.
+///
 /// This runs on the string, not on `artist_runs`, because the runs are gone exactly where this is
 /// needed most: `backfill_metadata` clears them whenever it repairs the byline from
-/// `videoDetails.author`, and a Listen Together guest's queue never had them.
+/// `videoDetails.author`, and a Listen Together guest's queue never had them. Without runs only
+/// "&" cuts.
 // ponytail: separator scan. A real credit parser only if users report bylines it gets wrong.
-fn primary_artist(artists: &str, strict: bool) -> String {
-    let end = artists.find(|c: char| c == ',' || (strict && c == '&')).unwrap_or(artists.len());
+fn primary_artist(artists: &str, strict: bool, runs: &[ArtistRun]) -> String {
+    let mut cuts = vec![","];
+    if strict {
+        cuts.push("&");
+        let linked = |r: &ArtistRun| r.id.is_some();
+        cuts.extend(
+            runs.windows(3)
+                .filter(|w| linked(&w[0]) && !linked(&w[1]) && linked(&w[2]))
+                .map(|w| w[1].text.as_str())
+                .filter(|j| !j.trim().is_empty()),
+        );
+    }
+    let end = cuts.iter().filter_map(|c| artists.find(c)).min().unwrap_or(artists.len());
     let first = artists[..end].trim();
     if first.is_empty() {
         artists.to_owned()
@@ -1007,19 +1028,36 @@ mod tests {
 
     #[test]
     fn primary_artist_cuts_at_commas_and_only_at_ampersands_when_strict() {
-        assert_eq!(primary_artist("Artist A, Artist B", false), "Artist A");
-        assert_eq!(primary_artist("Kendrick Lamar,SZA", false), "Kendrick Lamar");
+        assert_eq!(primary_artist("Artist A, Artist B", false, &[]), "Artist A");
+        assert_eq!(primary_artist("Kendrick Lamar,SZA", false, &[]), "Kendrick Lamar");
         // A joint act stays whole until the user opts into the strict cut.
-        assert_eq!(primary_artist("Future & Metro Boomin", false), "Future & Metro Boomin");
-        assert_eq!(primary_artist("Future & Metro Boomin", true), "Future");
-        assert_eq!(primary_artist("Simon&Garfunkel", true), "Simon");
+        assert_eq!(primary_artist("Future & Metro Boomin", false, &[]), "Future & Metro Boomin");
+        assert_eq!(primary_artist("Future & Metro Boomin", true, &[]), "Future");
+        assert_eq!(primary_artist("Simon&Garfunkel", true, &[]), "Simon");
         // Whichever separator comes first wins.
-        assert_eq!(primary_artist("A & B, C", true), "A");
-        assert_eq!(primary_artist("A, B & C", true), "A");
+        assert_eq!(primary_artist("A & B, C", true, &[]), "A");
+        assert_eq!(primary_artist("A, B & C", true, &[]), "A");
         // A lone artist, and a byline that starts with the separator, come back untouched.
-        assert_eq!(primary_artist("Delara", true), "Delara");
-        assert_eq!(primary_artist(", Artist B", true), ", Artist B");
-        assert_eq!(primary_artist("& Juliet", true), "& Juliet");
+        assert_eq!(primary_artist("Delara", true, &[]), "Delara");
+        assert_eq!(primary_artist(", Artist B", true, &[]), ", Artist B");
+        assert_eq!(primary_artist("& Juliet", true, &[]), "& Juliet");
+    }
+
+    /// #439: YouTube in Spanish writes "y" where English writes "&". The runs say which word it
+    /// used; the string alone doesn't.
+    #[test]
+    fn primary_artist_strict_cuts_at_youtubes_own_joiner() {
+        let run =
+            |text: &str, id: Option<&str>| ArtistRun { text: text.into(), id: id.map(Into::into) };
+        let runs =
+            [run("underscores", Some("UC1")), run(" y ", None), run("Jane Remover", Some("UC2"))];
+        let byline = "underscores y Jane Remover";
+        assert_eq!(primary_artist(byline, true, &runs), "underscores");
+        assert_eq!(primary_artist(byline, false, &runs), byline);
+        assert_eq!(primary_artist(byline, true, &[]), byline);
+        // Only a run between two linked artists is a joiner: an unlinked name is not.
+        let runs = [run("A", Some("UC1")), run(" y B", None)];
+        assert_eq!(primary_artist("A y B", true, &runs), "A y B");
     }
 
     #[test]
@@ -1060,6 +1098,7 @@ mod tests {
             artists: artists.into(),
             album: None,
             is_video,
+            artist_runs: Vec::new(),
         }
     }
 
