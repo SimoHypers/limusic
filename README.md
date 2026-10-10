@@ -101,9 +101,9 @@ Community-maintained repositories, packaged and updated by their maintainers rat
 
 ## Scrobbling & Discord
 
-Last.fm lives in the title bar, next to the window controls. ListenBrainz lives in
-Settings ▸ Scrobbling, beside it — both send the same cleaned-up track (the tab's preview
-shows what each play counts as).
+Last.fm lives in the title bar, next to the window controls, and ListenBrainz connects from
+Settings ▸ Scrobbling. Both get the same cleaned-up track (the tab's preview shows what each
+play counts as).
 
 - **Last.fm**: click the Last.fm mark, approve Limusic in the browser tab that
   opens, and you're connected for good. Tracks scrobble at the halfway point (or
@@ -112,7 +112,8 @@ shows what each play counts as).
 - **ListenBrainz**: open the Scrobbling settings, paste the user token from
   [listenbrainz.org/settings](https://listenbrainz.org/settings/) and connect.
   Plays submit as `playing_now` on start and one `single` listen at the same
-  halfway-or-four-minutes point.
+  halfway-or-four-minutes point. A new MetaBrainz account has to verify its email first, or
+  ListenBrainz turns every listen away (the Scrobbling tab says so).
 - **Discord**: click the Discord mark to toggle Rich Presence. Green dot means
   it's live. The card shows the track, artist, album art, and a progress bar, and
   it disappears when you pause.

@@ -2250,8 +2250,8 @@ pub async fn lastfm_preview(
 
 // --- ListenBrainz scrobbling ------------------------------------------------------------------
 
-/// Same scrobbling settings as Last.fm (the shared `lastfm_config` blob); only the account
-/// differs: a user token pasted from ListenBrainz settings, validated before it is stored.
+// Same scrobbling settings as Last.fm (the shared `lastfm_config` blob); only the account
+// differs: a user token pasted from ListenBrainz settings, validated before it is stored.
 
 /// Validate `token` against ListenBrainz and store it. Returns the error rather than emitting
 /// it: a pasted token is validated synchronously, unlike Last.fm's browser round-trip.
