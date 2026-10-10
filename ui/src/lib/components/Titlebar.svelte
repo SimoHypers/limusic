@@ -140,7 +140,9 @@
 	<!-- macOS overlay style floats the traffic lights over the top-left of the webview, so the row
 	     starts clear of them. `trafficLightPosition` in tauri.macos.conf.json centres them in this
 	     36px bar and insets them 14px (#189); they end near 68px, so 70px plus the logo's margin
-	     leaves about as much space after them as before them. -->
+	     leaves about as much space after them as before them. Its `y` is not a top margin: tao
+	     sizes the titlebar to the 16px button plus `y` and the buttons keep their offset from its
+	     bottom, so their centre lands at y + 2 (y: 10 moved them up 2px on a real Mac). -->
 	<div class="flex h-full items-center {win.chrome === 'overlay' ? 'pl-[70px]' : ''}">
 		<!-- pointer-events-none: the logo is decoration; clicks on it should drag the window. -->
 		<img src={appIcon.src} alt="" class="pointer-events-none ml-3 mr-1 h-4 w-4" />
