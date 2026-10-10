@@ -999,6 +999,8 @@ export interface ScrobbleTrack {
 	artists: string;
 	album?: string | null;
 	is_video?: boolean;
+	/** Tells `resolve` which word YouTube joined the artists with in this language (#439). */
+	artist_runs?: ArtistRun[];
 }
 /** `Resolved` in lastfm.rs: what a track scrobbles as, and which settings made it so. */
 export interface ScrobblePreview {

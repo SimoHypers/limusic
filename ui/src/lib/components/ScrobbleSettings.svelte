@@ -171,6 +171,7 @@
 						(row?.video_id === playback.now.videoId ? row.album : undefined) ??
 						null,
 					is_video: !!playback.now.isVideo,
+					artist_runs: playback.now.artistRuns,
 					thumbnail: playback.now.thumbnail
 				}
 			: null
@@ -183,9 +184,9 @@
 	let seq = 0;
 	$effect(() => {
 		const config = JSON.stringify({ ...cfg, primary_artist: primaryOn, primary_strict: strictOn });
-		const { video_id, title, artists, album, is_video } = track;
+		const { video_id, title, artists, album, is_video, artist_runs } = track;
 		const n = ++seq;
-		api.lastfmPreview(config, { video_id, title, artists, album, is_video })
+		api.lastfmPreview(config, { video_id, title, artists, album, is_video, artist_runs })
 			.then((p) => {
 				if (n !== seq) return;
 				preview = p;
