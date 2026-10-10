@@ -8,7 +8,7 @@ use crate::models::browse::{
     self, AlbumPage, ArtistPage, BrowseItem, HistoryGroup, HomePage, MoodSection,
     PlaylistContinuation, PlaylistPage, PlaylistSort, SearchResults, SearchSuggestions,
 };
-use crate::models::comments::{self, CommentReplies, CommentsPage};
+use crate::models::comments::{self, CommentReplies, CommentsPage, ViewerSummary};
 use crate::models::context::Context;
 use crate::models::lyrics::{self, PlainLyrics, TimedLyricLine};
 use crate::models::metadata::{
@@ -25,6 +25,12 @@ pub const FILTER_VIDEO: &str = "EgWKAQIQAWoKEAkQChAFEAMQBA%3D%3D";
 pub const FILTER_ALBUM: &str = "EgWKAQIYAWoKEAkQChAFEAMQBA%3D%3D";
 pub const FILTER_ARTIST: &str = "EgWKAQIgAWoKEAkQChAFEAMQBA%3D%3D";
 pub const FILTER_COMMUNITY_PLAYLIST: &str = "EgeKAQQoAEABagoQAxAEEAoQCRAF";
+
+/// Where a comment's like/unlike/dislike/undislike goes. The path is confirmed by a capture from
+/// the real YouTube Music web client (HTTP 200, `actionResults[0].status`); the request body is
+/// not: `{context, actions: [<token>]}` follows youtubei.js v18.1.0 (MIT) and our transport sends
+/// it as plain JSON where the web client gzips it. UNVERIFIED.
+pub const COMMENT_ACTION_PATH: &str = "comment/perform_comment_action";
 
 impl InnerTube {
     /// `/player` for one client. context/03, context/06.
@@ -319,7 +325,12 @@ impl InnerTube {
             return Ok(CommentsPage::disabled());
         };
         let value = self.next_continuation(client, &token, as_account).await?;
-        Ok(comments::parse_comments_page(&value, true))
+        let page = comments::parse_comments_page(&value, true);
+        if as_account {
+            log_account_read("first page", &ViewerSummary::of_page(&page));
+            log_viewer_state_gaps(&value, &page);
+        }
+        Ok(page)
     }
 
     /// The next page of comments, or the comments in another order: pagination and sort tokens
@@ -340,6 +351,9 @@ impl InnerTube {
         // A sort switch answers with a header and a body, a page with the body alone.
         let mut page = comments::parse_comments_page(&value, false);
         page.read_as_account = as_account;
+        if as_account {
+            log_account_read("continuation", &ViewerSummary::of_page(&page));
+        }
         Ok(page)
     }
 
@@ -355,6 +369,9 @@ impl InnerTube {
             self.next_continuation(client, token, as_account).await.map_err(comments_error)?;
         let mut replies = comments::parse_comment_replies(&value);
         replies.read_as_account = as_account;
+        if as_account {
+            log_account_read("replies", &ViewerSummary::of_replies(&replies));
+        }
         Ok(replies)
     }
 
@@ -375,6 +392,38 @@ impl InnerTube {
             continuation: token.to_owned(),
         })
         .await
+    }
+
+    /// Send one comment action: `token` is the opaque string a comment's own toolbar command
+    /// carried (see `ActionTokens`), replayed as it came. The way `feedback` replays a library
+    /// token, and like `rate` this is a user's own action: it goes through the ordinary
+    /// authenticated path, healer included.
+    ///
+    /// Success is HTTP 200 AND `actionResults[0].status == "STATUS_SUCCEEDED"`. A 200 without it
+    /// is a rejection. The token is never part of an error or a log line.
+    pub async fn comment_action(&self, client: &YouTubeClient, token: &str) -> Result<(), Error> {
+        #[derive(Serialize)]
+        struct ActionBody {
+            context: Context,
+            actions: Vec<String>,
+        }
+        let body =
+            ActionBody { context: self.context_for(client), actions: vec![token.to_owned()] };
+        match self.post(COMMENT_ACTION_PATH, client, &body, true).await {
+            Ok(value) => check_comment_action(&value),
+            Err(e) => {
+                // What to look at if the web client's gzipped body turns out to matter: the
+                // status and the names of the keys we sent, never what was in them.
+                if let Error::Http(h) = &e {
+                    tracing::debug!(
+                        status = ?h.status(),
+                        request_keys = "context, actions",
+                        "comment action request failed"
+                    );
+                }
+                Err(e)
+            }
+        }
     }
 
     /// Whether a comments request can go out as the account right now.
@@ -1296,6 +1345,51 @@ fn custom_thumbnail_key() -> serde_json::Value {
     })
 }
 
+/// The accepted answer to a comment action, from the capture of the real web client:
+/// `actionResults: [{ "status": "STATUS_SUCCEEDED", "feedback": "FEEDBACK_LIKE" }]`. Anything else,
+/// including a 200 with no `actionResults`, is a rejection. Only the two enum-like values are
+/// logged, and only if they look like enums.
+fn check_comment_action(value: &serde_json::Value) -> Result<(), Error> {
+    let first = value.pointer("/actionResults/0");
+    let field = |name: &str| first.and_then(|r| r.get(name)).and_then(serde_json::Value::as_str);
+    if field("status") == Some("STATUS_SUCCEEDED") {
+        return Ok(());
+    }
+    fn enum_like(v: Option<&str>) -> &str {
+        match v {
+            None => "missing",
+            Some(s) if s.len() <= 64 && s.bytes().all(|b| b.is_ascii_uppercase() || b == b'_') => s,
+            Some(_) => "unexpected",
+        }
+    }
+    tracing::debug!(
+        status = enum_like(field("status")),
+        feedback = enum_like(field("feedback")),
+        "comment action rejected"
+    );
+    Err(Error::Other("YouTube did not accept that action.".into()))
+}
+
+/// One debug line per page read as the account, so a log that shows nothing from the comments
+/// code means the filter never reached it, not that everything was found. Counts only.
+fn log_account_read(kind: &'static str, summary: &ViewerSummary) {
+    tracing::debug!(kind, summary = %summary, "comments read as the account");
+}
+
+/// A page read as the account whose comments carry no vote, or a vote but no action: say so once
+/// per page, with the JSON paths and value types that were checked and no values (see
+/// `viewer_state_probe`), so a missing button can be diagnosed from a log line.
+fn log_viewer_state_gaps(value: &serde_json::Value, page: &CommentsPage) {
+    if page.threads.is_empty() {
+        return;
+    }
+    if page.threads.iter().all(|t| t.comment.vote.is_none()) {
+        tracing::debug!(paths = %comments::viewer_state_probe(value), "signed-in page without viewer state");
+    } else if page.threads.iter().all(|t| t.comment.actions.is_empty()) {
+        tracing::debug!(paths = %comments::viewer_state_probe(value), "signed-in page without like/dislike actions");
+    }
+}
+
 /// What a comments request that YouTube refused reads as. Plain wording: no "session expired",
 /// which would send a signed-in user to the sign-in flow over a side panel.
 const COMMENTS_REFUSED: &str = "YouTube refused the request for comments.";
@@ -1626,5 +1720,66 @@ mod tests {
         let err = it.comments_continuation(&web(), "tok-account", true).await.unwrap_err();
         assert!(matches!(err, Error::Other(_)));
         assert!(server.requests().is_empty());
+    }
+
+    // --- comment actions ---------------------------------------------------------------------
+
+    #[test]
+    fn only_a_succeeded_status_in_action_results_is_success() {
+        let ok = json!({ "actionResults": [{ "status": "STATUS_SUCCEEDED", "feedback": "FEEDBACK_LIKE" }] });
+        assert!(check_comment_action(&ok).is_ok());
+        for rejected in [
+            json!({ "actionResults": [{ "status": "STATUS_FAILED", "feedback": "FEEDBACK_LIKE" }] }),
+            json!({ "actionResults": [{ "feedback": "FEEDBACK_LIKE" }] }),
+            json!({ "actionResults": [{ "status": 1 }] }),
+            json!({ "actionResults": [] }),
+            json!({ "actionResults": "STATUS_SUCCEEDED" }),
+            json!({ "responseContext": {} }),
+            json!(null),
+            json!([]),
+        ] {
+            assert!(
+                matches!(check_comment_action(&rejected), Err(Error::Other(_))),
+                "a 200 without STATUS_SUCCEEDED is a rejection: {rejected}"
+            );
+        }
+        // The second entry is not the answer to our one action.
+        let late = json!({ "actionResults": [{ "status": "STATUS_FAILED" }, { "status": "STATUS_SUCCEEDED" }] });
+        assert!(check_comment_action(&late).is_err());
+    }
+
+    /// The request as the server sees it, and what each answer turns into. The token is in the
+    /// body and nowhere else, and never in what comes back to the caller.
+    #[tokio::test]
+    async fn a_comment_action_posts_the_token_and_checks_the_answer() {
+        const TOKEN: &str = "fixture-secret-token";
+        for (status, reply, ok) in [
+            (
+                200,
+                r#"{"actionResults":[{"status":"STATUS_SUCCEEDED","feedback":"FEEDBACK_LIKE"}]}"#,
+                true,
+            ),
+            (200, r#"{"actionResults":[{"status":"STATUS_FAILED"}]}"#, false),
+            (200, r#"{}"#, false),
+            (400, r#"{}"#, false),
+            (500, r#"{}"#, false),
+        ] {
+            let server = MockServer::start(move |_: &Seen| (status, reply.to_owned()));
+            let it = it_against(&server, true);
+            let got = it.comment_action(&web(), TOKEN).await;
+            assert_eq!(got.is_ok(), ok, "{status} {reply}");
+            if let Err(e) = &got {
+                assert!(!e.to_string().contains(TOKEN), "the token is in an error: {e}");
+                assert!(!format!("{e:?}").contains(TOKEN));
+            }
+            let sent = server.requests();
+            assert_eq!(sent.len(), 1);
+            assert!(sent[0].path.starts_with(&format!("/youtubei/v1/{COMMENT_ACTION_PATH}")));
+            assert!(sent[0].path.contains("prettyPrint=false"));
+            let body: serde_json::Value = serde_json::from_str(&sent[0].body).unwrap();
+            assert_eq!(body["actions"], json!([TOKEN]), "{{context, actions: [token]}}");
+            assert!(body.get("context").is_some());
+            assert!(as_account(&sent[0]), "an action is the account's own");
+        }
     }
 }

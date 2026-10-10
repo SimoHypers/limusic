@@ -790,15 +790,20 @@ async fn comments_load_for_an_audio_track_and_a_video() {
             .all(|t| !t.comment.text.is_empty() && !t.comment.id.is_empty()));
 
         let token = page.continuation.clone().expect("a second page token");
-        let more = it.comments_continuation(&client, &token).await.expect("page 2");
+        let more =
+            it.comments_continuation(&client, &token, page.read_as_account).await.expect("page 2");
         assert!(!more.threads.is_empty(), "page 2 came back empty");
 
         if let Some(rt) = page.threads.iter().find_map(|t| t.replies_token.clone()) {
-            let replies = it.comment_replies(&client, &rt).await.expect("replies");
+            let replies =
+                it.comment_replies(&client, &rt, page.read_as_account).await.expect("replies");
             assert!(!replies.replies.is_empty(), "replies token resolved to nothing");
         }
         let newest = header.sorts.iter().find(|s| s.key == CommentSortKey::Newest).unwrap();
-        let sorted = it.comments_continuation(&client, &newest.token).await.expect("sort switch");
+        let sorted = it
+            .comments_continuation(&client, &newest.token, page.read_as_account)
+            .await
+            .expect("sort switch");
         assert!(sorted.header.as_ref().is_some_and(|h| h.sorts.iter().any(|s| s.selected)));
     }
 }

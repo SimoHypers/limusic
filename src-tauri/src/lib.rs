@@ -879,6 +879,7 @@ pub fn run() {
             commands::get_comments,
             commands::get_comments_more,
             commands::get_comment_replies,
+            commands::comment_action,
             commands::get_library,
             commands::get_library_albums,
             commands::get_library_artists,

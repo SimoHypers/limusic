@@ -66,6 +66,17 @@ pub enum CommentAction {
     Undislike,
 }
 
+impl CommentAction {
+    /// The vote a comment has once YouTube accepts this action.
+    pub fn resulting_vote(self) -> VoteState {
+        match self {
+            CommentAction::Like => VoteState::Liked,
+            CommentAction::Dislike => VoteState::Disliked,
+            CommentAction::Unlike | CommentAction::Undislike => VoteState::Neutral,
+        }
+    }
+}
+
 /// The opaque, server-minted token behind each action, taken from the toolbar surface entity
 /// (`likeCommand` / `unlikeCommand` / `dislikeCommand` / `undislikeCommand`). They stay in Rust:
 /// the field that holds them is `#[serde(skip)]`, so the type that goes to the UI cannot carry
@@ -447,6 +458,135 @@ fn parse_comment(vm: &Value, pinned: bool, entities: &Entities) -> Option<Commen
     })
 }
 
+/// What a page read as the account turned out to hold, as counts only, for the one debug line per
+/// page that says "the viewer state was found" (silence in a log is ambiguous: it could be a
+/// filter that never reached the app). No id, token, name, text or path can be in it.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ViewerSummary {
+    pub comments: usize,
+    pub liked: usize,
+    pub disliked: usize,
+    pub neutral: usize,
+    pub vote_missing: usize,
+    pub offer_like: usize,
+    pub offer_unlike: usize,
+    pub offer_dislike: usize,
+    pub offer_undislike: usize,
+}
+
+impl ViewerSummary {
+    pub fn of<'a>(comments: impl IntoIterator<Item = &'a Comment>) -> Self {
+        let mut s = ViewerSummary::default();
+        for c in comments {
+            s.comments += 1;
+            match c.vote {
+                Some(VoteState::Liked) => s.liked += 1,
+                Some(VoteState::Disliked) => s.disliked += 1,
+                Some(VoteState::Neutral) => s.neutral += 1,
+                None => s.vote_missing += 1,
+            }
+            for action in &c.actions {
+                match action {
+                    CommentAction::Like => s.offer_like += 1,
+                    CommentAction::Unlike => s.offer_unlike += 1,
+                    CommentAction::Dislike => s.offer_dislike += 1,
+                    CommentAction::Undislike => s.offer_undislike += 1,
+                }
+            }
+        }
+        s
+    }
+
+    /// Every comment on a page: the threads' own and the replies that came inline.
+    pub fn of_page(page: &CommentsPage) -> Self {
+        Self::of(page.threads.iter().flat_map(|t| std::iter::once(&t.comment).chain(&t.replies)))
+    }
+
+    pub fn of_replies(replies: &CommentReplies) -> Self {
+        Self::of(&replies.replies)
+    }
+}
+
+impl std::fmt::Display for ViewerSummary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "comments={} liked={} disliked={} neutral={} vote_missing={} offer_like={} offer_unlike={} offer_dislike={} offer_undislike={}",
+            self.comments,
+            self.liked,
+            self.disliked,
+            self.neutral,
+            self.vote_missing,
+            self.offer_like,
+            self.offer_unlike,
+            self.offer_dislike,
+            self.offer_undislike
+        )
+    }
+}
+
+/// JSON PATHS and value TYPES (never values) of what the viewer-state parse depends on, for the
+/// debug log line that says why a signed-in page came back without a vote or without actions.
+/// Only structure and counts: no id, token, name or text can appear in it.
+pub(crate) fn viewer_state_probe(root: &Value) -> String {
+    fn ty(v: Option<&Value>) -> &'static str {
+        match v {
+            None => "missing",
+            Some(Value::Null) => "null",
+            Some(Value::Bool(_)) => "bool",
+            Some(Value::Number(_)) => "number",
+            Some(Value::String(_)) => "string",
+            Some(Value::Array(_)) => "array",
+            Some(Value::Object(_)) => "object",
+        }
+    }
+    let muts = root.pointer("/frameworkUpdates/entityBatchUpdate/mutations");
+    let payloads: Vec<&Value> = muts
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|m| m.get("payload"))
+        .collect();
+    let of = |kind: &str| payloads.iter().filter_map(|p| p.get(kind)).collect::<Vec<_>>();
+    let (states, surfaces) =
+        (of("engagementToolbarStateEntityPayload"), of("engagementToolbarSurfaceEntityPayload"));
+
+    let mut out = vec![
+        format!("/frameworkUpdates/entityBatchUpdate/mutations: {}", ty(muts)),
+        format!("mutations with engagementToolbarStateEntityPayload: {}", states.len()),
+        format!("mutations with engagementToolbarSurfaceEntityPayload: {}", surfaces.len()),
+    ];
+    if let Some(vm) =
+        find_all(root, "commentViewModel").into_iter().find_map(|w| w.get("commentViewModel"))
+    {
+        for key in ["commentKey", "toolbarStateKey", "toolbarSurfaceKey"] {
+            out.push(format!("first thread commentViewModel/{key}: {}", ty(vm.get(key))));
+        }
+    }
+    if let Some(state) = states.first() {
+        out.push(format!("state payload /likeState: {}", ty(state.get("likeState"))));
+    }
+    if let Some(surface) = surfaces.first() {
+        for key in ["likeCommand", "unlikeCommand", "dislikeCommand", "undislikeCommand"] {
+            let cmd = surface.get(key);
+            let ep =
+                cmd.and_then(|c| find_all(c, "performCommentActionEndpoint").into_iter().next());
+            out.push(format!(
+                "surface payload /{key}: {}, performCommentActionEndpoint: {}, action: {}, actions: {}",
+                ty(cmd),
+                ty(ep),
+                ty(ep.and_then(|e| e.get("action"))),
+                ty(ep.and_then(|e| e.get("actions"))),
+            ));
+        }
+        out.push(format!(
+            "surface payload /prepareAccountCommand: {}",
+            ty(surface.get("prepareAccountCommand"))
+        ));
+    }
+    out.join("; ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -812,6 +952,68 @@ mod tests {
         let liked = replies.replies.iter().find(|c| c.text.ends_with("liked")).unwrap();
         assert_eq!(liked.vote, Some(VoteState::Liked));
         assert_eq!(liked.actions, [CommentAction::Unlike, CommentAction::Dislike]);
+    }
+
+    /// The "read as the account" line is counts only. The synthetic page has 8 comments: 4
+    /// neutral (one of them offered nothing, one only `like`), 1 liked, 1 disliked, 2 with no vote.
+    #[test]
+    fn the_account_read_summary_counts_votes_and_offers_and_nothing_else() {
+        let page = synthetic_page();
+        let s = ViewerSummary::of_page(&page);
+        assert_eq!(
+            s,
+            ViewerSummary {
+                comments: 8,
+                liked: 1,
+                disliked: 1,
+                neutral: 4,
+                vote_missing: 2,
+                offer_like: 3,
+                offer_unlike: 1,
+                offer_dislike: 2,
+                offer_undislike: 1,
+            }
+        );
+        let line = s.to_string();
+        assert_eq!(
+            line,
+            "comments=8 liked=1 disliked=1 neutral=4 vote_missing=2 offer_like=3 offer_unlike=1 offer_dislike=2 offer_undislike=1"
+        );
+        for value in ["fixture", "Synthetic", "UCfixture", "@synthetic", "TOOLBAR", "/"] {
+            assert!(!line.contains(value), "the summary leaks `{value}`: {line}");
+        }
+        // A replies page is summarised the same way, and an empty one is all zeros.
+        let replies = parse_comment_replies(&load(SIGNED_IN));
+        assert_eq!(ViewerSummary::of_replies(&replies).comments, 8);
+        assert_eq!(ViewerSummary::of_replies(&CommentReplies::default()), ViewerSummary::default());
+    }
+
+    #[test]
+    fn each_action_has_one_resulting_vote() {
+        use CommentAction::*;
+        let got: Vec<_> =
+            [Like, Unlike, Dislike, Undislike].map(CommentAction::resulting_vote).into();
+        assert_eq!(
+            got,
+            [VoteState::Liked, VoteState::Neutral, VoteState::Disliked, VoteState::Neutral]
+        );
+    }
+
+    /// The diagnostics line is structure only: no id, token, name or comment text.
+    #[test]
+    fn the_viewer_state_probe_describes_paths_and_types_and_nothing_else() {
+        let probe = viewer_state_probe(&load(SIGNED_IN));
+        assert!(probe.contains("/frameworkUpdates/entityBatchUpdate/mutations: array"));
+        assert!(probe.contains("engagementToolbarStateEntityPayload: 7"), "{probe}");
+        assert!(probe
+            .contains("likeCommand: object, performCommentActionEndpoint: object, action: string"));
+        assert!(probe.contains("toolbarStateKey: string"));
+        for value in ["fixture", "Synthetic", "TOOLBAR_LIKE", "UCfixture", "@synthetic"] {
+            assert!(!probe.contains(value), "the probe leaks `{value}`: {probe}");
+        }
+        // A response with none of it still describes itself instead of failing.
+        let bare = viewer_state_probe(&json!({}));
+        assert!(bare.contains("mutations: missing"));
     }
 
     #[test]

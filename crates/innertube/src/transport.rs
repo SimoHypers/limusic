@@ -319,6 +319,20 @@ impl InnerTube {
         self.session.read().unwrap().data_sync_id.clone()
     }
 
+    /// A key for "who is signed in right now", for keeping things that must not cross accounts or
+    /// channels (comment action tokens, the provenance of paging tokens). It covers the account's
+    /// `SAPISID` and the selected `data_sync_id`, so switching either changes it, while a rotated
+    /// `__Secure-*SIDTS` (which keeps the same account) does not. `None` when signed out.
+    ///
+    /// Only a hash: it is held in memory next to cached tokens and must not make a second copy of
+    /// the cookie's secret. Not for logging all the same.
+    pub fn comments_identity(&self) -> Option<String> {
+        let s = self.session.read().unwrap();
+        let sapisid = s.sapisid()?;
+        let dsid = s.data_sync_id.as_deref().unwrap_or_default();
+        Some(sha1_hex(&format!("limusic-comments-identity-v1\0{sapisid}\0{dsid}")))
+    }
+
     pub fn set_visitor_data(&self, vd: Option<String>) {
         self.session.write().unwrap().visitor_data = vd;
     }
@@ -840,6 +854,34 @@ mod tests {
             Some("candidate-id")
         );
         assert_eq!(it.context_for(web).user.on_behalf_of_user.as_deref(), Some("committed-id"));
+    }
+
+    #[test]
+    fn the_comments_identity_tracks_the_account_and_channel_not_the_rotating_cookies() {
+        let it = |cookie: Option<&str>, dsid: Option<&str>| {
+            InnerTube::new(
+                Session {
+                    cookie: cookie.map(str::to_owned),
+                    data_sync_id: dsid.map(str::to_owned),
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap()
+        };
+        assert_eq!(it(None, Some("d")).comments_identity(), None, "signed out has none");
+        let base = it(Some("SAPISID=a; __Secure-3PSIDTS=old"), Some("d")).comments_identity();
+        assert!(base.is_some());
+        assert_eq!(
+            base,
+            it(Some("__Secure-3PSIDTS=new; SAPISID=a"), Some("d")).comments_identity(),
+            "a rotated cookie is the same identity"
+        );
+        assert_ne!(base, it(Some("SAPISID=b"), Some("d")).comments_identity(), "another account");
+        assert_ne!(base, it(Some("SAPISID=a"), Some("e")).comments_identity(), "another channel");
+        assert_ne!(base, it(Some("SAPISID=a"), None).comments_identity(), "no channel selected");
+        let shown = base.unwrap();
+        assert_eq!(shown.len(), 40, "a sha1 hex digest, not the secret");
     }
 
     #[test]

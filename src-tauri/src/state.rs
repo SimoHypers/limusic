@@ -67,10 +67,11 @@ pub struct AppState {
     /// and throws the answer away if it moved: a like landing in that ~400 ms window is newer
     /// than what YouTube was asked, and applying the stale reply would flip the heart back.
     pub rate_epoch: AtomicU64,
-    /// How the comments page now on screen was read (`CommentsPage::read_as_account`): later
-    /// pages, sort switches and replies must go back the way their token was issued. One flag for
-    /// the one track the panel shows, set by `get_comments`.
-    pub comments_as_account: AtomicBool,
+    /// What the comments panel's tokens mean: who issued each paging/sort/replies token, and the
+    /// like/dislike tokens of the comments on screen, per account identity. Never leaves Rust.
+    /// Cleared when the loaded track changes (`get_comments`) and on every auth change
+    /// ([`Self::clear_comments`]). A `std` mutex, never held across an `.await`.
+    pub comments: std::sync::Mutex<innertube::CommentsSession>,
     /// A one-shot resume position `(videoId, secs)` set by `restore_queue` and consumed by the
     /// next `start_current` — applied only when that track is the one being started, so jumping to
     /// a different track first doesn't inherit the old position (context/11).
@@ -483,7 +484,7 @@ impl AppState {
             is_playing: AtomicBool::new(false),
             generation: AtomicU64::new(0),
             rate_epoch: AtomicU64::new(0),
-            comments_as_account: AtomicBool::new(false),
+            comments: std::sync::Mutex::new(innertube::CommentsSession::default()),
             pending_seek: std::sync::Mutex::new(None),
             video_urls: std::sync::Mutex::new(std::collections::HashMap::new()),
             latest_position: AtomicU64::new(0),
@@ -907,6 +908,7 @@ impl AppState {
         self.sync_active_account();
         self.forget_playlist_index();
         self.it.set_data_sync_id(selected.data_sync_id.clone());
+        self.clear_comments();
         let _ = self.app.emit("auth-changed", &account);
         Ok(account)
     }
@@ -1007,6 +1009,7 @@ impl AppState {
             self.forget_playlist_index();
             let snapshot = self.account_snapshot();
             let _ = self.app.emit("account-selection-required", ());
+            self.clear_comments();
             let _ = self.app.emit("auth-changed", &snapshot);
             return Ok(snapshot);
         }
@@ -1035,6 +1038,7 @@ impl AppState {
         self.sync_active_account();
         self.forget_playlist_index();
         let snapshot = self.account_snapshot();
+        self.clear_comments();
         let _ = self.app.emit("auth-changed", &snapshot);
         Ok(snapshot)
     }
@@ -1059,6 +1063,13 @@ impl AppState {
         }
     }
 
+    /// A sign-in, sign-out, account or channel switch, or a heal that re-minted the session: the
+    /// comments' tokens belong to who was signed in before, so none of them may be used again.
+    /// Called wherever `auth-changed` is emitted.
+    fn clear_comments(&self) {
+        self.comments.lock().unwrap().clear();
+    }
+
     /// Drop the live session back to guest, leaving the saved rows alone.
     fn clear_session(&self) {
         self.it.set_cookie(None);
@@ -1067,6 +1078,7 @@ impl AppState {
         self.db.delete_setting("active_account");
         self.forget_playlist_index();
         let _ = self.db.clear_auth_identity();
+        self.clear_comments();
         let _ = self.app.emit("auth-changed", serde_json::json!({ "signedIn": false }));
     }
 

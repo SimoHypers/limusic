@@ -6,6 +6,7 @@
 
 pub mod blocklist;
 pub mod clients;
+pub mod comments_session;
 pub mod endpoints;
 pub mod models;
 pub mod rustypipe_fallback;
@@ -18,14 +19,16 @@ pub use clients::{
     Clients, YouTubeClient, LYRICS_TIMED_CLIENT, MAIN_CLIENT, METADATA_CLIENT,
     STREAM_FALLBACK_ORDER, UPLOAD_FALLBACK_ORDER,
 };
+pub use comments_session::{ActionError, ActionTicket, CommentsSession, Provenance};
 pub use models::browse::{
     AlbumPage, ArtistCarousel, ArtistPage, BrowseItem, HistoryGroup, HomePage, Mood, MoodSection,
     PlaylistContinuation, PlaylistPage, PlaylistSort, QuerySuggestion, SearchResults,
     SearchSuggestions, Section, SortMenu,
 };
 pub use models::comments::{
-    Comment, CommentAuthor, CommentReplies, CommentSort, CommentSortKey, CommentThread,
-    CommentsHeader, CommentsPage, CommentsState,
+    available_actions, ActionTokens, Comment, CommentAction, CommentAuthor, CommentReplies,
+    CommentSort, CommentSortKey, CommentThread, CommentsHeader, CommentsPage, CommentsState,
+    VoteState,
 };
 pub use models::context::Locale;
 pub use models::lyrics::{PlainLyrics, TimedLyricLine};
