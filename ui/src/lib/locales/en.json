@@ -12,6 +12,7 @@
 		"clear": "Clear",
 		"remove": "Remove from this playlist",
 		"remove_confirm": "Remove {count}?",
+		"play_on_repeat": "Play only these, on repeat",
 		"track": "{title}. Space to select, Enter to play.",
 		"track_guest": "{title}. Space to select, Enter to add to the session queue.",
 		"select_track": "Select {title}",
