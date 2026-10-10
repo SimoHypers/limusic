@@ -6,7 +6,6 @@
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
-	import type { Comment } from '$lib/api';
 	import {
 		cancelDelete,
 		comments,
@@ -14,7 +13,6 @@
 		loadComments,
 		loadMoreComments,
 		loadMoreReplies,
-		reloadComments,
 		setCommentSort,
 		submitCreate,
 		toggleReplies,
@@ -39,13 +37,6 @@
 	});
 
 	let scroller = $state<HTMLElement | null>(null);
-
-	// The dialog closes on the click that confirms it, which clears the request in the state: keep
-	// the comment it was opened for until it is sent.
-	let toDelete = $state<Comment | null>(null);
-	$effect(() => {
-		if (comments.confirmDelete) toDelete = comments.confirmDelete;
-	});
 
 	// A sentinel at the foot loads the next page. Keyed on the thread count below: one that stays in
 	// view after a short page would otherwise never fire again.
@@ -155,9 +146,7 @@
 					label={t('comments.composer_label')}
 					submitLabel={t('comments.post')}
 					pending={comments.create.pending}
-					uncertain={comments.create.uncertain}
 					onsubmit={submitCreate}
-					onreload={reloadComments}
 				/>
 			</div>
 		{/if}
@@ -214,6 +203,8 @@
 	</div>
 </div>
 
+<!-- The store holds the comment until confirm or cancel: Action does not close the dialog by
+     itself (only Cancel, Escape and an outside click do, and those cancel). -->
 <AlertDialog.Root
 	open={!!comments.confirmDelete}
 	onOpenChange={(open) => {
@@ -227,7 +218,7 @@
 		</AlertDialog.Header>
 		<AlertDialog.Footer>
 			<AlertDialog.Cancel>{t('common.cancel')}</AlertDialog.Cancel>
-			<AlertDialog.Action onclick={() => confirmDelete(toDelete)}>
+			<AlertDialog.Action onclick={confirmDelete}>
 				{t('common.delete')}
 			</AlertDialog.Action>
 		</AlertDialog.Footer>

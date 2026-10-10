@@ -13,6 +13,21 @@ use super::metadata::find_all;
 /// As youtubei.js (MIT) `Comments.createComment`.
 pub const COMMENT_CREATE_PATH: &str = "comment/create_comment";
 
+/// Reply path; the reply button names none.
+pub const COMMENT_REPLY_PATH: &str = "comment/create_comment_reply";
+
+/// Edit path when the update button names none.
+pub const COMMENT_UPDATE_PATH: &str = "comment/update_comment";
+
+/// A reply's edit path when its button names none.
+pub const COMMENT_UPDATE_REPLY_PATH: &str = "comment/update_comment_reply";
+
+/// The body field for a write's text.
+pub const TEXT_FIELD: &str = "commentText";
+
+/// The body field for a reply's new text (`comment/update_comment_reply`).
+pub const REPLY_EDIT_TEXT_FIELD: &str = "replyText";
+
 /// What a viewer can write on a comment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -20,17 +35,6 @@ pub enum CommentWrite {
     Reply,
     Edit,
     Delete,
-}
-
-impl CommentWrite {
-    /// The word for it in log lines.
-    pub fn name(self) -> &'static str {
-        match self {
-            CommentWrite::Reply => "reply",
-            CommentWrite::Edit => "edit",
-            CommentWrite::Delete => "delete",
-        }
-    }
 }
 
 /// The comment box at the top of the panel, as the UI needs it. Present only when the response
@@ -43,38 +47,24 @@ pub struct Composer {
 /// A command the server issued, ready to replay.
 #[derive(Clone, PartialEq, Eq)]
 pub enum WriteCommand {
-    /// A `performCommentActionEndpoint` token: `comment/perform_comment_action {actions:[token]}`.
+    /// A `performCommentActionEndpoint` token (a delete), replayed like a vote.
     Action(String),
-    /// `path` (under `/youtubei/v1/`, always `comment/…`) and the endpoint's own fields.
-    Endpoint { path: String, payload: Map<String, Value> },
+    /// `path` (always `comment/…`), the endpoint's own fields, the body field the text goes in,
+    /// and the write's name in log lines.
+    Endpoint {
+        path: String,
+        payload: Map<String, Value>,
+        text_field: &'static str,
+        kind: &'static str,
+    },
 }
 
-/// The body field for a write's text.
-pub const TEXT_FIELD: &str = "commentText";
-
-/// The body field for a reply's new text (`comment/update_comment_reply`).
-pub const REPLY_EDIT_TEXT_FIELD: &str = "replyText";
-
 impl WriteCommand {
-    /// The body field this write's text goes in.
-    pub fn text_field(&self) -> &'static str {
+    /// The name of a write in log lines (`create`, `reply`, `edit`, `edit_reply`, `delete`).
+    pub fn log_kind(&self) -> &'static str {
         match self {
-            WriteCommand::Endpoint { payload, .. } if payload.contains_key("updateReplyParams") => {
-                REPLY_EDIT_TEXT_FIELD
-            }
-            _ => TEXT_FIELD,
-        }
-    }
-
-    /// The name of a write in log lines; a reply's edit is `edit_reply`.
-    pub fn log_kind(&self, write: CommentWrite) -> &'static str {
-        match self {
-            WriteCommand::Endpoint { payload, .. }
-                if write == CommentWrite::Edit && payload.contains_key("updateReplyParams") =>
-            {
-                "edit_reply"
-            }
-            _ => write.name(),
+            WriteCommand::Action(_) => "delete",
+            WriteCommand::Endpoint { kind, .. } => kind,
         }
     }
 }
@@ -83,9 +73,10 @@ impl fmt::Debug for WriteCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             WriteCommand::Action(_) => f.write_str("WriteCommand::Action(<redacted>)"),
-            WriteCommand::Endpoint { path, .. } => {
-                write!(f, "WriteCommand::Endpoint {{ path: {path:?}, payload: <redacted> }}")
-            }
+            WriteCommand::Endpoint { path, kind, .. } => write!(
+                f,
+                "WriteCommand::Endpoint {{ path: {path:?}, kind: {kind:?}, payload: <redacted> }}"
+            ),
         }
     }
 }
@@ -145,16 +136,14 @@ fn unwrap_command(node: &Value) -> &Value {
         .unwrap_or(node)
 }
 
-/// The one key ending in `Endpoint` or `Command` in a command, and what is under it.
-fn endpoint_of(data: &Value) -> Option<(&str, &Value)> {
-    data.as_object()?
-        .iter()
-        .find(|(k, _)| k.ends_with("Endpoint") || k.ends_with("Command"))
-        .map(|(k, v)| (k.as_str(), v))
+/// A `buttonRenderer`'s command: the first of `serviceEndpoint`, `navigationEndpoint`, `command`.
+fn button_command(button: &Value) -> Option<&Value> {
+    ["serviceEndpoint", "navigationEndpoint", "command"].iter().find_map(|k| button.get(k))
 }
 
-/// The `performCommentActionEndpoint` token, as for the like/dislike commands: `action`, or the
-/// first of `actions`.
+/// The `performCommentActionEndpoint` token under a command: `action`, or the first of `actions`.
+/// Searched for, so a wrapper YouTube adds does not lose it. Ported from youtubei.js (MIT)
+/// `CommentView.applyMutations` / `PerformCommentActionEndpoint`.
 pub(crate) fn action_token(command: &Value) -> Option<String> {
     let endpoint = find_all(command, "performCommentActionEndpoint").into_iter().next()?;
     let token = endpoint
@@ -173,10 +162,7 @@ fn runs_text(v: Option<&Value>) -> Option<String> {
 pub(crate) fn create_command(header: &Value) -> Option<(Composer, WriteCommand)> {
     let simplebox = header.pointer("/createRenderer/commentSimpleboxRenderer")?;
     let button = simplebox.pointer("/submitButton/buttonRenderer")?;
-    let data = ["serviceEndpoint", "navigationEndpoint", "command"]
-        .iter()
-        .find_map(|k| button.get(k))
-        .map(unwrap_command)?;
+    let data = button_command(button).map(unwrap_command)?;
     let params = data.pointer("/createCommentEndpoint/createCommentParams")?.as_str()?;
     if params.is_empty() {
         return None;
@@ -185,132 +171,90 @@ pub(crate) fn create_command(header: &Value) -> Option<(Composer, WriteCommand)>
         Map::from_iter([("createCommentParams".to_owned(), Value::String(params.into()))]);
     Some((
         Composer { placeholder: runs_text(simplebox.get("placeholderText")) },
-        WriteCommand::Endpoint { path: COMMENT_CREATE_PATH.to_owned(), payload },
+        WriteCommand::Endpoint {
+            path: COMMENT_CREATE_PATH.to_owned(),
+            payload,
+            text_field: TEXT_FIELD,
+            kind: "create",
+        },
     ))
 }
 
-/// Reply path; the reply button names none.
-pub const COMMENT_REPLY_PATH: &str = "comment/create_comment_reply";
+/// A write a button's command can carry: the endpoint and its params field, the path when the
+/// command names none, the body field for the text, and the name in log lines.
+struct Shape {
+    kind: &'static str,
+    endpoint: &'static str,
+    field: &'static str,
+    fallback: &'static str,
+    text_field: &'static str,
+}
+
+const REPLY: Shape = Shape {
+    kind: "reply",
+    endpoint: "createCommentReplyEndpoint",
+    field: "createReplyParams",
+    fallback: COMMENT_REPLY_PATH,
+    text_field: TEXT_FIELD,
+};
+
+/// The command under a button's `service` endpoint, if it carries a non-empty `shape` params
+/// string. Its path is the plain `comment/…` `apiUrl` the command names, else the fallback.
+fn replay(service: &Value, shape: &Shape) -> Option<WriteCommand> {
+    let data = unwrap_command(service);
+    let params = data.get(shape.endpoint)?.get(shape.field)?.as_str().filter(|p| !p.is_empty())?;
+    // The command that holds the endpoint names the path; `service` is tried too, for a wrapper.
+    let path = [data, service]
+        .iter()
+        .find_map(|c| c.pointer("/commandMetadata/webCommandMetadata/apiUrl")?.as_str())
+        .and_then(comment_path)
+        .unwrap_or_else(|| shape.fallback.to_owned());
+    let payload = Map::from_iter([(shape.field.to_owned(), Value::String(params.into()))]);
+    Some(WriteCommand::Endpoint { path, payload, text_field: shape.text_field, kind: shape.kind })
+}
 
 /// A comment's reply command (`replyCommand…commentReplyDialogRenderer.replyButton`) and the
 /// dialog's placeholder.
 pub(crate) fn reply_command(surface: &Value) -> Option<(Option<String>, WriteCommand)> {
     let dialog =
         find_all(surface.get("replyCommand")?, "commentReplyDialogRenderer").into_iter().next()?;
-    let button = dialog.pointer("/replyButton/buttonRenderer")?;
-    let (command, _) = reply_of(button)?;
+    let service = button_command(dialog.pointer("/replyButton/buttonRenderer")?)?;
+    let command = replay(service, &REPLY)?;
     Some((runs_text(dialog.get("placeholderText")), command))
 }
 
-/// The reply button's command, and where its path came from (`apiUrl` or `constant`). Needs a
-/// non-empty `createReplyParams`.
-fn reply_of(button: &Value) -> Option<(WriteCommand, &'static str)> {
-    let service =
-        ["serviceEndpoint", "navigationEndpoint", "command"].iter().find_map(|k| button.get(k))?;
-    let data = unwrap_command(service);
-    let params = data
-        .pointer("/createCommentReplyEndpoint/createReplyParams")?
-        .as_str()
-        .filter(|p| !p.is_empty())?;
-    let named = [data, service]
-        .iter()
-        .find_map(|c| c.pointer("/commandMetadata/webCommandMetadata/apiUrl")?.as_str())
-        .and_then(comment_path);
-    let (path, source) = match named {
-        Some(path) => (path, "apiUrl"),
-        None => (COMMENT_REPLY_PATH.to_owned(), "constant"),
-    };
-    let payload = Map::from_iter([("createReplyParams".to_owned(), Value::String(params.into()))]);
-    Some((WriteCommand::Endpoint { path, payload }, source))
-}
-
-/// Key names (never values) of a comment's reply command, for the debug line that says why Reply
-/// is or is not offered.
-pub(crate) fn reply_probe(surface: &Value) -> String {
-    fn names(v: Option<&Value>) -> String {
-        v.and_then(Value::as_object)
-            .map(|o| o.keys().cloned().collect::<Vec<_>>().join(","))
-            .filter(|n| !n.is_empty())
-            .unwrap_or_else(|| "-".into())
-    }
-    let Some(command) = surface.get("replyCommand") else {
-        return "reply: no replyCommand".into();
-    };
-    let Some(dialog) = find_all(command, "commentReplyDialogRenderer").into_iter().next() else {
-        return "reply: replyCommand has no commentReplyDialogRenderer".into();
-    };
-    let button = dialog.pointer("/replyButton/buttonRenderer");
-    let service = button.and_then(|b| {
-        ["serviceEndpoint", "navigationEndpoint", "command"].iter().find_map(|k| b.get(k))
-    });
-    let data = service.map(unwrap_command);
-    let endpoint = data.and_then(endpoint_of);
-    let api_url = data
-        .and_then(|d| d.pointer("/commandMetadata/webCommandMetadata/apiUrl"))
-        .and_then(Value::as_str);
-    let plain = api_url.and_then(comment_path).is_some();
-    let params = match data
-        .and_then(|d| d.pointer("/createCommentReplyEndpoint/createReplyParams"))
-        .and_then(Value::as_str)
-    {
-        Some("") => "empty",
-        Some(_) => "string",
-        None => "missing",
-    };
-    let source = button.and_then(reply_of).map_or("none", |(_, source)| source);
-    format!(
-        "reply: button={} service={} endpoint={}:{} commandMetadata={} webCommandMetadata={} apiUrl={} apiUrl_plain={plain} createReplyParams={params} source={source}",
-        names(button),
-        names(service),
-        endpoint.map_or("-", |(name, _)| name),
-        names(endpoint.map(|(_, payload)| payload)),
-        names(data.and_then(|d| d.get("commandMetadata"))),
-        names(data.and_then(|d| d.pointer("/commandMetadata/webCommandMetadata"))),
-        if api_url.is_some() { "string" } else { "missing" },
-    )
-}
-
-const MAX_DEPTH: usize = 24;
-
-/// Edit path when the update button names none.
-pub const COMMENT_UPDATE_PATH: &str = "comment/update_comment";
-
-/// A reply's edit path when its button names none.
-pub const COMMENT_UPDATE_REPLY_PATH: &str = "comment/update_comment_reply";
-
-/// One of the two edit dialogs a menu item can open.
+/// One of the two edit dialogs a menu item can open: the dialog under the item's
+/// `navigationEndpoint`, its button's service endpoint, and the write it carries.
 struct EditShape {
-    /// Its name in log lines.
-    kind: &'static str,
-    /// Under the item's `navigationEndpoint`: the dialog renderer.
     dialog: &'static str,
-    /// Under the dialog: the button's service endpoint.
     button: &'static str,
-    /// The endpoint and its params field, under that service endpoint's command.
-    endpoint: &'static str,
-    field: &'static str,
-    /// The path when the command names none.
-    fallback: &'static str,
+    shape: Shape,
 }
 
 const EDIT_SHAPES: [EditShape; 2] = [
     // A top-level comment.
     EditShape {
-        kind: "edit",
         dialog: "/updateCommentDialogEndpoint/dialog/commentDialogRenderer",
         button: "/submitButton/buttonRenderer/serviceEndpoint",
-        endpoint: "updateCommentEndpoint",
-        field: "updateCommentParams",
-        fallback: COMMENT_UPDATE_PATH,
+        shape: Shape {
+            kind: "edit",
+            endpoint: "updateCommentEndpoint",
+            field: "updateCommentParams",
+            fallback: COMMENT_UPDATE_PATH,
+            text_field: TEXT_FIELD,
+        },
     },
     // A reply.
     EditShape {
-        kind: "edit_reply",
         dialog: "/updateCommentReplyDialogEndpoint/dialog/commentReplyDialogRenderer",
         button: "/replyButton/buttonRenderer/serviceEndpoint",
-        endpoint: "updateCommentReplyEndpoint",
-        field: "updateReplyParams",
-        fallback: COMMENT_UPDATE_REPLY_PATH,
+        shape: Shape {
+            kind: "edit_reply",
+            endpoint: "updateCommentReplyEndpoint",
+            field: "updateReplyParams",
+            fallback: COMMENT_UPDATE_REPLY_PATH,
+            text_field: REPLY_EDIT_TEXT_FIELD,
+        },
     },
 ];
 
@@ -339,35 +283,13 @@ fn item_renderer(item: &Value) -> Option<&Value> {
     item.as_object()?.values().find(|v| v.get("navigationEndpoint").is_some())
 }
 
-/// Edit, in one of the [`EDIT_SHAPES`]: the command, the dialog's `editableText` prefill, and the
-/// shape's log name.
-fn edit_of(navigation: &Value) -> Option<(WriteCommand, Option<String>, &'static str)> {
-    EDIT_SHAPES.iter().find_map(|shape| edit_in(navigation, shape))
-}
-
-fn edit_in(
-    navigation: &Value,
-    shape: &EditShape,
-) -> Option<(WriteCommand, Option<String>, &'static str)> {
-    let dialog = unwrap_command(navigation).pointer(shape.dialog)?;
-    let service = dialog.pointer(shape.button)?;
-    let data = unwrap_command(service);
-    let params = data.get(shape.endpoint)?.get(shape.field)?.as_str().filter(|p| !p.is_empty())?;
-    // The command that holds the endpoint names its path; `service` itself is also tried in case
-    // there is a wrapper in between.
-    let named = [data, service]
-        .iter()
-        .find_map(|c| c.pointer("/commandMetadata/webCommandMetadata/apiUrl")?.as_str());
-    let (path, source) = match named.map(comment_path) {
-        Some(Some(path)) => (path, "apiUrl"),
-        Some(None) => (shape.fallback.to_owned(), "constant (the apiUrl was not a comment path)"),
-        None => (shape.fallback.to_owned(), "constant (no apiUrl)"),
-    };
-    // A plain comment path or a constant: not secret.
-    tracing::debug!(kind = shape.kind, source, path = %path, "edit command path");
-    let payload = Map::from_iter([(shape.field.to_owned(), Value::String(params.into()))]);
-    let text = editable_text(dialog.get("editableText"));
-    Some((WriteCommand::Endpoint { path, payload }, text, shape.kind))
+/// Edit, in one of the [`EDIT_SHAPES`]: the command and the dialog's `editableText` prefill.
+fn edit_of(navigation: &Value) -> Option<(WriteCommand, Option<String>)> {
+    EDIT_SHAPES.iter().find_map(|edit| {
+        let dialog = unwrap_command(navigation).pointer(edit.dialog)?;
+        let command = replay(dialog.pointer(edit.button)?, &edit.shape)?;
+        Some((command, editable_text(dialog.get("editableText"))))
+    })
 }
 
 /// Delete: a `confirmDialogEndpoint` whose confirm button holds a `performCommentActionEndpoint`
@@ -410,7 +332,7 @@ pub(crate) fn menu_commands(surface: &Value) -> MenuCommands {
             continue;
         };
         if out.edit.is_none() {
-            if let Some((edit, text, _)) = edit_of(nav) {
+            if let Some((edit, text)) = edit_of(nav) {
                 out.edit = Some(edit);
                 out.edit_text = text;
                 continue;
@@ -423,105 +345,8 @@ pub(crate) fn menu_commands(surface: &Value) -> MenuCommands {
     out
 }
 
-/// One entry per menu item for the debug line that says why edit or delete is missing: which kind
-/// the structure matched (`edit`, `edit_reply`, `delete`, `other`) and the item's `icon.iconType` enum when it
-/// is a plain enum string. Enum values only; no text, id or token.
-pub(crate) fn menu_probe(surface: &Value) -> String {
-    let items = menu_items(surface);
-    if items.is_empty() {
-        return "menu: no items".into();
-    }
-    let entries: Vec<String> = items
-        .iter()
-        .enumerate()
-        .map(|(i, item)| {
-            let renderer = item_renderer(item);
-            let nav = renderer.and_then(|r| r.get("navigationEndpoint"));
-            let kind = match nav {
-                Some(n) => match edit_of(n) {
-                    Some((_, _, kind)) => kind,
-                    None if delete_of(n).is_some() => "delete",
-                    None => "other",
-                },
-                None => "other",
-            };
-            let icon = renderer
-                .and_then(|r| r.pointer("/icon/iconType"))
-                .and_then(Value::as_str)
-                .map_or("none", |s| {
-                    if s.len() <= 48
-                        && s.bytes()
-                            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
-                    {
-                        s
-                    } else {
-                        "unexpected"
-                    }
-                });
-            format!("item[{i}]: {kind}, icon={icon}")
-        })
-        .collect();
-    format!("menu: {}", entries.join(", "))
-}
-
-/// Key names and value types (never values) of everything under a comment's entities that looks
-/// like a command or a menu, for the one debug line that says why edit or delete is missing.
-pub(crate) fn command_probe(roots: &[(&str, &Value)]) -> String {
-    fn ty(v: &Value) -> &'static str {
-        match v {
-            Value::Null => "null",
-            Value::Bool(_) => "bool",
-            Value::Number(_) => "number",
-            Value::String(_) => "string",
-            Value::Array(_) => "array",
-            Value::Object(_) => "object",
-        }
-    }
-    fn interesting(k: &str) -> bool {
-        let k = k.to_lowercase();
-        k.ends_with("endpoint")
-            || k.ends_with("command")
-            || k.ends_with("action")
-            || ["menu", "edit", "delete", "remove", "update"].iter().any(|w| k.contains(w))
-    }
-    fn go(node: &Value, path: &mut Vec<String>, out: &mut Vec<String>, depth: usize) {
-        if depth > MAX_DEPTH || out.len() >= 80 {
-            return;
-        }
-        match node {
-            Value::Object(map) => {
-                for (k, v) in map {
-                    path.push(k.clone());
-                    if interesting(k) {
-                        out.push(format!("{}: {}", path.join("/"), ty(v)));
-                    }
-                    go(v, path, out, depth + 1);
-                    path.pop();
-                }
-            }
-            Value::Array(items) => {
-                path.push("[]".into());
-                items.iter().for_each(|e| go(e, path, out, depth + 1));
-                path.pop();
-            }
-            _ => {}
-        }
-    }
-    let mut out = Vec::new();
-    for (label, root) in roots {
-        go(root, &mut vec![(*label).to_owned()], &mut out, 0);
-    }
-    out.sort();
-    out.dedup();
-    if out.is_empty() {
-        "no command-like keys".into()
-    } else {
-        out.join("; ")
-    }
-}
-
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use serde_json::json;
 
@@ -567,10 +392,20 @@ mod tests {
             WriteCommand::Endpoint {
                 path: "comment/x".into(),
                 payload: Map::from_iter([("p".to_owned(), json!("secret-params"))]),
+                text_field: TEXT_FIELD,
+                kind: "edit",
             }
         );
         for shown in [a, e] {
             assert!(!shown.contains("secret"), "{shown}");
+        }
+    }
+
+    /// The path, params and text field of an `Endpoint` command.
+    fn parts(cmd: &WriteCommand) -> (&str, &Map<String, Value>, &'static str) {
+        match cmd {
+            WriteCommand::Endpoint { path, payload, text_field, .. } => (path, payload, text_field),
+            other => panic!("{other:?}"),
         }
     }
 
@@ -585,8 +420,8 @@ mod tests {
             "commandMetadata": {}, "createCommentEndpoint": { "createCommentParams": "P1" } } } }));
         let (composer, cmd) = create_command(&good).unwrap();
         assert_eq!(composer.placeholder.as_deref(), Some("Add a comment..."));
-        let WriteCommand::Endpoint { path, payload } = cmd else { panic!() };
-        assert_eq!(path, COMMENT_CREATE_PATH);
+        let (path, payload, text_field) = parts(&cmd);
+        assert_eq!((path, text_field, cmd.log_kind()), (COMMENT_CREATE_PATH, TEXT_FIELD, "create"));
         assert_eq!(payload.len(), 1);
         assert_eq!(payload["createCommentParams"], "P1");
         // Signed out: a sign-in endpoint and no submit button. Or no params. Or empty ones.
@@ -619,51 +454,18 @@ mod tests {
         service
     }
 
-    /// The probe names keys and the path source, never a value.
-    #[test]
-    fn the_reply_probe_names_keys_and_the_path_source_and_never_values() {
-        let named = reply_surface(json!({ "replyButton": { "buttonRenderer": { "text": "secret",
-            "serviceEndpoint": reply_service(Some("/youtubei/v1/comment/secret_path"), json!("secret-value")) } } }));
-        assert_eq!(
-            reply_probe(&named),
-            "reply: button=serviceEndpoint,text service=commandMetadata,createCommentReplyEndpoint endpoint=createCommentReplyEndpoint:createReplyParams commandMetadata=webCommandMetadata webCommandMetadata=apiUrl apiUrl=string apiUrl_plain=true createReplyParams=string source=apiUrl"
-        );
-        // Params and no apiUrl: the constant.
-        let probe = reply_probe(&reply_button(reply_service(None, json!("secret-value"))));
-        assert!(
-            probe.ends_with(
-                "apiUrl=missing apiUrl_plain=false createReplyParams=string source=constant"
-            ),
-            "{probe}"
-        );
-        // Params missing or empty: nothing is offered.
-        let empty = reply_probe(&reply_button(reply_service(None, json!(""))));
-        assert!(empty.ends_with("createReplyParams=empty source=none"), "{empty}");
-        let none = reply_probe(&reply_button(json!({ "createCommentReplyEndpoint": {} })));
-        assert!(none.ends_with("createReplyParams=missing source=none"), "{none}");
-        for shown in [&probe, &empty, &none, &reply_probe(&named)] {
-            assert!(!shown.contains("secret-value") && !shown.contains("secret_path"), "{shown}");
-        }
-        assert_eq!(reply_probe(&json!({})), "reply: no replyCommand");
-        assert_eq!(
-            reply_probe(&json!({ "replyCommand": {} })),
-            "reply: replyCommand has no commentReplyDialogRenderer"
-        );
-    }
-
     /// A reply is offered when `createReplyParams` is a non-empty string. Its path is the one the
     /// response names if that is a plain comment path, else the constant.
     #[test]
     fn a_reply_needs_createreplyparams_and_takes_its_path_from_the_response_or_the_constant() {
-        let path_and_params =
-            |service: Value| match reply_command(&reply_button(service)).map(|(_, c)| c) {
-                Some(WriteCommand::Endpoint { path, payload }) => {
-                    assert_eq!(payload.len(), 1, "only createReplyParams is sent");
-                    Some((path, payload["createReplyParams"].as_str().unwrap().to_owned()))
-                }
-                Some(other) => panic!("{other:?}"),
-                None => None,
-            };
+        let path_and_params = |service: Value| {
+            reply_command(&reply_button(service)).map(|(_, c)| {
+                let (path, payload, text_field) = parts(&c);
+                assert_eq!(payload.len(), 1, "only createReplyParams is sent");
+                assert_eq!((text_field, c.log_kind()), (TEXT_FIELD, "reply"));
+                (path.to_owned(), payload["createReplyParams"].as_str().unwrap().to_owned())
+            })
+        };
         // No apiUrl: the constant.
         assert_eq!(
             path_and_params(reply_service(None, json!("R1"))),
@@ -717,9 +519,7 @@ mod tests {
             "cancelButton": { "buttonRenderer": {} } }));
         let (placeholder, cmd) = reply_command(&ok).unwrap();
         assert_eq!(placeholder.as_deref(), Some("Add a reply..."));
-        assert!(
-            matches!(cmd, WriteCommand::Endpoint { ref path, .. } if path == COMMENT_REPLY_PATH)
-        );
+        assert_eq!(parts(&cmd).0, COMMENT_REPLY_PATH);
         for dialog in [
             json!({ "cancelButton": { "buttonRenderer": {} } }),
             json!({ "replyButton": { "buttonRenderer": {} } }),
@@ -731,12 +531,12 @@ mod tests {
     }
 
     /// A toolbar surface whose menu holds `items`.
-    fn menu(items: Vec<Value>) -> Value {
+    pub(crate) fn menu(items: Vec<Value>) -> Value {
         json!({ "menuCommand": { "innertubeCommand": { "menuEndpoint": { "menu": { "menuRenderer": {
             "items": items } } } } } })
     }
 
-    fn edit_item(icon: Option<&str>, api_url: Option<&str>, params: Value) -> Value {
+    pub(crate) fn edit_item(icon: Option<&str>, api_url: Option<&str>, params: Value) -> Value {
         let mut service = json!({ "updateCommentEndpoint": { "updateCommentParams": params } });
         if let Some(url) = api_url {
             service["commandMetadata"] = json!({ "webCommandMetadata": { "apiUrl": url } });
@@ -752,7 +552,11 @@ mod tests {
     }
 
     /// A reply's Edit menu item.
-    fn reply_edit_item(icon: Option<&str>, api_url: Option<&str>, params: Value) -> Value {
+    pub(crate) fn reply_edit_item(
+        icon: Option<&str>,
+        api_url: Option<&str>,
+        params: Value,
+    ) -> Value {
         let mut service = json!({ "updateCommentReplyEndpoint": { "updateReplyParams": params } });
         if let Some(url) = api_url {
             service["commandMetadata"] = json!({ "webCommandMetadata": { "apiUrl": url } });
@@ -767,7 +571,7 @@ mod tests {
         json!({ "menuNavigationItemRenderer": renderer })
     }
 
-    fn delete_item(icon: Option<&str>, action: Value) -> Value {
+    pub(crate) fn delete_item(icon: Option<&str>, action: Value) -> Value {
         let mut renderer = json!({ "navigationEndpoint": { "confirmDialogEndpoint": { "content": {
             "confirmDialogRenderer": { "confirmButton": { "buttonRenderer": { "serviceEndpoint": {
                 "performCommentActionEndpoint": action } } } } } } } });
@@ -785,12 +589,17 @@ mod tests {
             delete_item(None, json!({ "action": "D1" })),
         ]);
         let got = menu_commands(&surface);
-        let Some(WriteCommand::Endpoint { path, payload }) = got.edit else { panic!("edit") };
-        assert_eq!(path, "comment/update_comment");
+        let edit = got.edit.as_ref().expect("edit");
+        let (path, payload, text_field) = parts(edit);
+        assert_eq!(
+            (path, text_field, edit.log_kind()),
+            ("comment/update_comment", TEXT_FIELD, "edit")
+        );
         assert_eq!(payload.len(), 1);
         assert_eq!(payload["updateCommentParams"], "E1");
         assert_eq!(got.edit_text.as_deref(), Some("old text"), "editableText runs");
         assert_eq!(got.delete, Some(WriteCommand::Action("D1".into())));
+        assert_eq!(got.delete.unwrap().log_kind(), "delete");
 
         // Order and extra items do not matter, and a localized label is never looked at.
         let surface = menu(vec![
@@ -802,16 +611,16 @@ mod tests {
         let got = menu_commands(&surface);
         assert_eq!(got.delete, Some(WriteCommand::Action("D2".into())));
         assert!(got.edit.is_some());
+
+        // A delete with no edit beside it.
+        let only = menu_commands(&menu(vec![delete_item(None, json!({ "action": "D3" }))]));
+        assert_eq!((only.edit, only.delete), (None, Some(WriteCommand::Action("D3".into()))));
     }
 
     #[test]
     fn an_edit_without_a_usable_path_falls_back_to_the_constant_and_a_hostile_one_is_not_used() {
         let path_of = |item: Value| {
-            let Some(WriteCommand::Endpoint { path, .. }) = menu_commands(&menu(vec![item])).edit
-            else {
-                panic!("expected an edit")
-            };
-            path
+            parts(menu_commands(&menu(vec![item])).edit.as_ref().unwrap()).0.to_owned()
         };
         assert_eq!(path_of(edit_item(None, None, json!("E"))), COMMENT_UPDATE_PATH);
         for hostile in [
@@ -834,22 +643,23 @@ mod tests {
     }
 
     /// A reply's Edit is its own dialog: `updateReplyParams` is sent (nothing else from the
-    /// endpoint), to the path the command names when it is plain, else to the constant;
-    /// `editableText` is the prefill. A half of one shape and a half of the other is not an edit.
+    /// endpoint) with the text as `replyText`, to the path the command names when it is plain,
+    /// else to the constant; `editableText` is the prefill. A half of one shape and a half of the
+    /// other is not an edit.
     #[test]
     fn a_replys_edit_is_matched_by_its_own_dialog_structure() {
         let edit = |item: Value| menu_commands(&menu(vec![item]));
         let got = edit(reply_edit_item(Some("EDIT"), None, json!("ER1")));
-        let Some(WriteCommand::Endpoint { path, payload }) = &got.edit else { panic!("edit") };
-        assert_eq!(path, COMMENT_UPDATE_REPLY_PATH);
+        let cmd = got.edit.as_ref().expect("edit");
+        let (path, payload, text_field) = parts(cmd);
+        assert_eq!(
+            (path, text_field, cmd.log_kind()),
+            (COMMENT_UPDATE_REPLY_PATH, REPLY_EDIT_TEXT_FIELD, "edit_reply")
+        );
         assert_eq!(payload.len(), 1, "only updateReplyParams is sent");
         assert_eq!(payload["updateReplyParams"], "ER1");
         assert_eq!(got.edit_text.as_deref(), Some("old reply"), "editableText runs");
-        assert_eq!(got.edit.as_ref().unwrap().log_kind(CommentWrite::Edit), "edit_reply");
-        let path_of = |item: Value| match edit(item).edit {
-            Some(WriteCommand::Endpoint { path, .. }) => path,
-            other => panic!("{other:?}"),
-        };
+        let path_of = |item: Value| parts(edit(item).edit.as_ref().unwrap()).0.to_owned();
         assert_eq!(
             path_of(reply_edit_item(
                 None,
@@ -886,16 +696,6 @@ mod tests {
         {
             assert_eq!(edit(item.clone()), MenuCommands::default(), "{item}");
         }
-        // The two edits have their own names in the logs; everything else is the write's name.
-        let comment_edit = edit(edit_item(None, None, json!("E"))).edit.unwrap();
-        assert_eq!(comment_edit.log_kind(CommentWrite::Edit), "edit");
-        assert_eq!(WriteCommand::Action("t".into()).log_kind(CommentWrite::Delete), "delete");
-        // Only a reply's edit takes its text in another field.
-        let reply_edit = edit(reply_edit_item(None, None, json!("E"))).edit.unwrap();
-        assert_eq!(reply_edit.text_field(), REPLY_EDIT_TEXT_FIELD);
-        assert_eq!(comment_edit.text_field(), TEXT_FIELD);
-        let reply = reply_command(&reply_button(reply_service(None, json!("R")))).unwrap().1;
-        assert_eq!(reply.text_field(), TEXT_FIELD);
     }
 
     #[test]
@@ -922,26 +722,6 @@ mod tests {
         }
     }
 
-    /// Each kind is the first match, and the probe says what each item matched and its icon enum.
-    #[test]
-    fn the_menu_probe_names_kinds_and_icon_enums_and_never_text() {
-        let surface = menu(vec![
-            edit_item(Some("EDIT"), None, json!("secret-edit-params")),
-            delete_item(Some("DELETE"), json!({ "action": "secret-token" })),
-            json!({ "menuNavigationItemRenderer": { "icon": { "iconType": "not an enum!" },
-                "text": { "runs": [{ "text": "secret label" }] }, "navigationEndpoint": {} } }),
-            json!({ "menuNavigationItemRenderer": { "navigationEndpoint": {} } }),
-            reply_edit_item(Some("EDIT"), None, json!("secret-reply-params")),
-        ]);
-        let probe = menu_probe(&surface);
-        assert_eq!(
-            probe,
-            "menu: item[0]: edit, icon=EDIT, item[1]: delete, icon=DELETE, item[2]: other, icon=unexpected, item[3]: other, icon=none, item[4]: edit_reply, icon=EDIT"
-        );
-        assert!(!probe.contains("secret"));
-        assert_eq!(menu_probe(&json!({})), "menu: no items");
-    }
-
     #[test]
     fn editable_text_is_read_only_when_it_is_plain() {
         assert_eq!(editable_text(Some(&json!({ "simpleText": "a" }))).as_deref(), Some("a"));
@@ -961,16 +741,30 @@ mod tests {
         assert_eq!(editable_text(None), None);
     }
 
+    /// The array form of the endpoint (`actions: [token]`) and a differently wrapped command read
+    /// too; a token that is not a string, or empty, is no token.
     #[test]
-    fn the_probe_lists_command_like_keys_and_types_and_never_values() {
-        let node = json!({ "menu": { "items": [{ "deleteCommentCommand": { "innertubeCommand": {
-            "performCommentActionEndpoint": { "action": "secret-token" } } } }] },
-            "text": "secret comment text" });
-        let probe = command_probe(&[("surface", &node)]);
-        assert!(probe.contains("surface/menu: object"), "{probe}");
-        assert!(probe.contains("deleteCommentCommand: object"), "{probe}");
-        assert!(probe.contains("performCommentActionEndpoint: object"));
-        assert!(!probe.contains("secret"), "{probe}");
-        assert_eq!(command_probe(&[("x", &json!({}))]), "no command-like keys");
+    fn token_extraction_is_tolerant_about_shape() {
+        let wrapped =
+            |inner: Value| json!({ "innertubeCommand": { "performCommentActionEndpoint": inner } });
+        assert_eq!(action_token(&wrapped(json!({ "action": "T1" }))).as_deref(), Some("T1"));
+        assert_eq!(
+            action_token(&wrapped(json!({ "actions": ["T2", "T3"] }))).as_deref(),
+            Some("T2")
+        );
+        let bare = json!({ "command": { "performCommentActionEndpoint": { "action": "T4" } } });
+        assert_eq!(action_token(&bare).as_deref(), Some("T4"));
+        for junk in [
+            json!(null),
+            json!(5),
+            json!({ "innertubeCommand": {} }),
+            wrapped(json!({ "action": "" })),
+            wrapped(json!({ "action": 7 })),
+            wrapped(json!({ "actions": [] })),
+            wrapped(json!({ "actions": [null] })),
+            wrapped(json!("not an object")),
+        ] {
+            assert_eq!(action_token(&junk), None, "{junk}");
+        }
     }
 }

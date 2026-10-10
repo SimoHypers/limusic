@@ -25,16 +25,14 @@ export interface ThreadView {
 	error: boolean;
 }
 
-/** A composer's text and what it is waiting for. */
+/** A composer's text and whether it is waiting for an answer. */
 interface Box {
 	text: string;
 	pending: boolean;
-	/** The last write may have gone through and the answer was lost: say so, offer a reload. */
-	uncertain: boolean;
 }
 
 function emptyBox(): Box & { target: null } {
-	return { text: '', pending: false, uncertain: false, target: null };
+	return { text: '', pending: false, target: null };
 }
 
 export const comments = $state({
@@ -53,9 +51,6 @@ export const comments = $state({
 	epoch: 0,
 	/** Comments with a like/dislike request in flight, by id. */
 	acting: {} as Record<string, boolean>,
-	/** Comments the viewer has voted on in this panel, by id. Their buttons stay (disabled if the
-	 *  reverse action is not on offer) instead of vanishing, which would look like a lost vote. */
-	touched: {} as Record<string, boolean>,
 	/** Comments hidden since their deletion was confirmed (back again if it fails). */
 	hidden: {} as Record<string, boolean>,
 	/** The comment waiting for the viewer to confirm its deletion. */
@@ -68,8 +63,8 @@ export const comments = $state({
 
 /** Bumped on every (re)load and sort switch; a response from an older one is dropped. */
 let gen = 0;
-/** Bumped only by a (re)load of the track: what a write was started under. A sort switch or a
- *  refresh after posting must not strand the composer that caused it in its pending state. */
+/** Bumped only by a (re)load of the track: what a write was started under. A sort switch must not
+ *  strand the composer that was sending in its pending state. */
 let session = 0;
 
 const view = (t: CommentThread): ThreadView => ({
@@ -81,27 +76,41 @@ const view = (t: CommentThread): ThreadView => ({
 	error: false
 });
 
-/** Append what is not already there: a keyed list dies on one repeated id. */
-function fresh<T extends { id: string }>(have: T[], incoming: T[]): T[] {
-	const seen = new Set(have.map((c) => c.id));
-	return incoming.filter((c) => !seen.has(c.id) && seen.add(c.id));
+/** What of `incoming` is not already in `have`, by id: a keyed list dies on one repeated id. */
+function fresh<T>(have: T[], incoming: T[], id: (x: T) => string): T[] {
+	const seen = new Set(have.map(id));
+	return incoming.filter((x) => !seen.has(id(x)) && seen.add(id(x)));
 }
 
-const freshThreads = (have: ThreadView[], incoming: ThreadView[]) => {
-	const seen = new Set(have.map((v) => v.comment.id));
-	return incoming.filter((v) => !seen.has(v.comment.id) && seen.add(v.comment.id));
-};
+const threadId = (v: ThreadView) => v.comment.id;
+const commentId = (c: Comment) => c.id;
 
 /** The comments belong to a session that is gone, so only a reload helps. */
-const needsReload = (e: unknown) => {
-	const kind = api.commentsErrorKind(e);
-	return kind === 'account_changed' || kind === 'stale_token';
-};
+const needsReload = (e: unknown) => api.commentsErrorKind(e) === 'account_changed';
+
+/** A read failed: the reload screen if the session is gone, else `onOther` and a toast. */
+function readFailed(e: unknown, onOther: () => void) {
+	if (needsReload(e)) {
+		comments.status = 'reload';
+		return;
+	}
+	onOther();
+	toast.error(t('toasts.could_not_load_comments'));
+}
+
+/** Empty the list (before a load or a sort switch). */
+function clearList() {
+	comments.threads = [];
+	comments.continuation = undefined;
+	comments.loadingMore = false;
+	comments.moreError = false;
+	comments.acting = {};
+}
 
 function apply(page: api.CommentsPage) {
 	comments.state = page.state;
 	if (page.header) comments.header = page.header;
-	comments.threads = freshThreads([], page.threads.map(view));
+	comments.threads = fresh([], page.threads.map(view), threadId);
 	comments.continuation = page.continuation;
 	comments.status = 'ready';
 }
@@ -118,12 +127,7 @@ export async function loadComments(videoId: string, force = false) {
 	comments.videoId = videoId;
 	comments.epoch = auth.epoch;
 	comments.header = undefined;
-	comments.threads = [];
-	comments.continuation = undefined;
-	comments.loadingMore = false;
-	comments.moreError = false;
-	comments.acting = {};
-	comments.touched = {};
+	clearList();
 	comments.hidden = {};
 	comments.confirmDelete = null;
 	comments.draft = emptyBox();
@@ -143,12 +147,7 @@ export async function loadComments(videoId: string, force = false) {
 		apply(page);
 	} catch (e) {
 		if (g !== gen) return;
-		if (needsReload(e)) {
-			comments.status = 'reload';
-		} else {
-			comments.status = 'error';
-			toast.error(t('toasts.could_not_load_comments'));
-		}
+		readFailed(e, () => (comments.status = 'error'));
 	}
 }
 
@@ -162,17 +161,12 @@ export async function loadMoreComments() {
 	try {
 		const page = await api.getCommentsMore(token);
 		if (g !== gen || comments.continuation !== token) return; // stale
-		comments.threads = [...comments.threads, ...freshThreads(comments.threads, page.threads.map(view))];
+		comments.threads = [...comments.threads, ...fresh(comments.threads, page.threads.map(view), threadId)];
 		comments.continuation = page.threads.length ? page.continuation : undefined;
 	} catch (e) {
 		if (g !== gen) return;
-		if (needsReload(e)) {
-			comments.status = 'reload';
-		} else {
-			// Stop auto-loading and offer a retry: retrying a visible sentinel by itself would spin.
-			comments.moreError = true;
-			toast.error(t('toasts.could_not_load_comments'));
-		}
+		// Stop auto-loading and offer a retry: retrying a visible sentinel by itself would spin.
+		readFailed(e, () => (comments.moreError = true));
 	} finally {
 		if (g === gen) comments.loadingMore = false;
 	}
@@ -186,11 +180,7 @@ export async function setCommentSort(key: 'top' | 'newest') {
 	// What to put back if the switch fails: the old order is still the truth.
 	const prev = { threads: comments.threads, continuation: comments.continuation, state: comments.state };
 	comments.status = 'loading';
-	comments.threads = [];
-	comments.continuation = undefined;
-	comments.loadingMore = false;
-	comments.moreError = false;
-	comments.acting = {};
+	clearList();
 	try {
 		const page = await api.getCommentsMore(sort.token);
 		if (g !== gen) return;
@@ -204,12 +194,7 @@ export async function setCommentSort(key: 'top' | 'newest') {
 		}
 	} catch (e) {
 		if (g !== gen) return;
-		if (needsReload(e)) {
-			comments.status = 'reload';
-			return;
-		}
-		Object.assign(comments, prev, { status: 'ready' });
-		toast.error(t('toasts.could_not_load_comments'));
+		readFailed(e, () => Object.assign(comments, prev, { status: 'ready' }));
 	}
 }
 
@@ -233,17 +218,12 @@ export async function loadMoreReplies(v: ThreadView) {
 	try {
 		const page = await api.getCommentReplies(token);
 		if (g !== gen || v.repliesToken !== token) return; // stale
-		v.replies = [...v.replies, ...fresh(v.replies, page.replies)];
+		v.replies = [...v.replies, ...fresh(v.replies, page.replies, commentId)];
 		// An empty page ends the thread's replies, whatever token it carries.
 		v.repliesToken = page.replies.length ? page.continuation : undefined;
 	} catch (e) {
 		if (g !== gen) return;
-		if (needsReload(e)) {
-			comments.status = 'reload';
-		} else {
-			v.error = true;
-			toast.error(t('toasts.could_not_load_comments'));
-		}
+		readFailed(e, () => (v.error = true));
 	} finally {
 		if (g === gen) v.loading = false;
 	}
@@ -259,9 +239,9 @@ const VOTE_AFTER: Record<CommentAction, CommentVote> = {
 	undislike: 'neutral'
 };
 
-/** Does this comment get like/dislike buttons? Only if the response offered it an action (so never
- *  signed out) or the viewer has voted on it here. Replies are no different from comments. */
-export const canAct = (c: Comment) => c.actions.length > 0 || !!comments.touched[c.id];
+/** Does this comment get like/dislike buttons? Only if the response offered it an action, so
+ *  never signed out. Replies are no different from comments. */
+export const canAct = (c: Comment) => c.actions.length > 0;
 
 export const isActing = (c: Comment) => !!comments.acting[c.id];
 
@@ -285,12 +265,11 @@ export async function actOnComment(c: Comment, action: CommentAction) {
 	const g = gen;
 	const prev = { vote: c.vote, actions: c.actions };
 	comments.acting[c.id] = true;
-	comments.touched[c.id] = true;
 	c.vote = VOTE_AFTER[action];
 	try {
 		const out = await api.commentAction(c.id, action);
 		if (g !== gen) return;
-		// What Rust says is on offer now, which may be nothing (no token for the way back).
+		// What Rust says is on offer now.
 		c.vote = out.vote;
 		c.actions = out.actions;
 	} catch (e) {
@@ -320,12 +299,10 @@ export async function actOnComment(c: Comment, action: CommentAction) {
 // A post, reply or edit waits for the answer and keeps its text on failure; a delete hides the
 // row at once and puts it back on failure. Not reloaded after a write: reads lag behind writes.
 
-const emptyDraft = () => emptyBox();
-
 /** The comment is gone on YouTube's side (404): drop it, and anything open on it. */
 function dropGone(id: string) {
 	removeComment(id);
-	if (comments.draft.target?.id === id) comments.draft = emptyDraft();
+	if (comments.draft.target?.id === id) comments.draft = emptyBox();
 	toast.error(t('toasts.comment_gone'));
 }
 
@@ -345,54 +322,24 @@ function findComment(id: string): Comment | undefined {
 	}
 }
 
-/** A write failed: nothing is lost (the text stays in its box) and the user is told in our words. */
-function writeFailed(e: unknown, box: Box) {
+/** A write failed: the text stays in its box and the user is told in our words. */
+function writeFailed(e: unknown) {
 	const kind = api.commentsErrorKind(e);
 	if (needsReload(e)) {
 		comments.status = 'reload'; // the comments and their commands belong to a session that is gone
 		return;
 	}
 	if (kind === 'busy') return;
-	if (kind === 'uncertain') {
-		box.uncertain = true;
-		toast.error(t('toasts.comment_write_uncertain'));
-		return;
-	}
-	toast.error(t(kind === 'rejected' ? 'toasts.comment_write_rejected' : 'toasts.comment_write_failed'));
-}
-
-/** Show the list again from the top, in the current sort, drafts kept. */
-export async function reloadComments() {
-	const videoId = comments.videoId;
-	if (!videoId) return;
-	const sort = comments.header?.sorts.find((s) => s.selected);
-	if (!sort) {
-		await loadComments(videoId, true);
-		return;
-	}
-	const g = ++gen;
-	comments.status = 'loading';
-	comments.threads = [];
-	comments.continuation = undefined;
-	comments.loadingMore = false;
-	comments.moreError = false;
-	comments.acting = {};
-	comments.hidden = {};
-	comments.create.uncertain = false;
-	comments.draft.uncertain = false;
-	try {
-		const page = await api.getCommentsMore(sort.token);
-		if (g !== gen) return;
-		apply(page);
-	} catch (e) {
-		if (g !== gen) return;
-		if (needsReload(e)) {
-			comments.status = 'reload';
-		} else {
-			comments.status = 'error';
-			toast.error(t('toasts.could_not_load_comments'));
-		}
-	}
+	// `uncertain`: a post or reply may have gone through. The text stays; the user checks first.
+	toast.error(
+		t(
+			kind === 'uncertain'
+				? 'toasts.comment_write_unconfirmed'
+				: kind === 'rejected'
+					? 'toasts.comment_write_rejected'
+					: 'toasts.comment_write_failed'
+		)
+	);
 }
 
 /** Post what is in the top comment box. */
@@ -402,20 +349,23 @@ export async function submitCreate() {
 	if (!text || box.pending || !comments.header?.composer) return;
 	const s = session;
 	box.pending = true;
-	box.uncertain = false;
 	try {
 		const posted = await api.commentCreate(text);
 		if (s !== session) return;
 		box.text = '';
-		const row = view(posted ? posted : { comment: localComment(text), replies: [] });
-		// The comment may be listed already (the answer carried it, and so did a read since).
-		if (!comments.threads.some((v) => v.comment.id === row.comment.id)) {
-			comments.threads = [row, ...comments.threads];
+		if (!posted) {
+			// The answer did not carry it: it shows up on the next load.
+			toast.success(t('toasts.comment_posted'));
+			return;
+		}
+		// The comment may be listed already (a read since carried it).
+		if (!comments.threads.some((v) => v.comment.id === posted.comment.id)) {
+			comments.threads = [view(posted), ...comments.threads];
 		}
 		if (comments.state === 'empty') comments.state = 'ok';
 	} catch (e) {
 		if (s !== session) return;
-		writeFailed(e, box);
+		writeFailed(e);
 	} finally {
 		if (s === session) box.pending = false;
 	}
@@ -423,44 +373,19 @@ export async function submitCreate() {
 
 export function openReply(c: Comment) {
 	if (comments.draft.pending) return;
-	comments.draft = { ...emptyDraft(), target: { kind: 'reply', id: c.id } };
+	comments.draft = { ...emptyBox(), target: { kind: 'reply', id: c.id } };
 }
 
 export function openEdit(c: Comment) {
 	if (comments.draft.pending) return;
 	// What the edit dialog pre-fills when the response had it plainly, else the text on screen.
-	comments.draft = { ...emptyDraft(), text: c.edit_text ?? c.text, target: { kind: 'edit', id: c.id } };
+	comments.draft = { ...emptyBox(), text: c.edit_text ?? c.text, target: { kind: 'edit', id: c.id } };
 }
 
 /** Close the inline composer, restoring nothing: an edit's original text was never touched. */
 export function cancelDraft() {
 	if (comments.draft.pending) return;
-	comments.draft = emptyDraft();
-}
-
-let localCount = 0;
-
-/** A row for a comment that was just sent when the answer did not carry it: the viewer's own,
- *  with the text that was sent. No actions, so no buttons, until the next read replaces it. */
-function localComment(text: string): Comment {
-	const me = auth.account;
-	return {
-		id: `local-${++localCount}`,
-		text,
-		author: {
-			name: me?.name || t('comments.you'),
-			avatar: me?.thumbnail ?? undefined,
-			verified: false,
-			is_creator: false,
-			is_artist: false
-		},
-		published: t('comments.just_now'),
-		actions: [],
-		hearted: false,
-		pinned: false,
-		own: true,
-		writes: []
-	};
+	comments.draft = emptyBox();
 }
 
 /** The thread a comment is on screen in, as the comment or as one of its replies. */
@@ -475,17 +400,19 @@ export async function submitDraft() {
 	if (!target || !text || d.pending) return;
 	const s = session;
 	d.pending = true;
-	d.uncertain = false;
 	try {
 		if (target.kind === 'reply') {
 			const posted = await api.commentReply(target.id, text);
 			if (s !== session) return;
-			comments.draft = emptyDraft();
-			// Under its thread, open, from the answer or from what was sent.
+			comments.draft = emptyBox();
+			if (!posted) {
+				toast.success(t('toasts.comment_posted'));
+				return;
+			}
+			// Under its thread, open.
 			const v = threadOf(target.id);
 			if (v) {
-				const row = posted ?? localComment(text);
-				if (!v.replies.some((r) => r.id === row.id)) v.replies = [...v.replies, row];
+				if (!v.replies.some((r) => r.id === posted.id)) v.replies = [...v.replies, posted];
 				v.open = true;
 			}
 		} else {
@@ -497,12 +424,12 @@ export async function submitDraft() {
 				c.text = text;
 				c.edit_text = text;
 			}
-			comments.draft = emptyDraft();
+			comments.draft = emptyBox();
 		}
 	} catch (e) {
 		if (s !== session) return;
 		if (api.commentsErrorKind(e) === 'gone') dropGone(target.id);
-		else writeFailed(e, d);
+		else writeFailed(e);
 	} finally {
 		if (s === session) d.pending = false;
 	}
@@ -516,9 +443,10 @@ export const cancelDelete = () => {
 	comments.confirmDelete = null;
 };
 
-/** The viewer confirmed: hide the row, send the delete, and put it back if it fails. The comment
- *  is passed in because the dialog closes on the same click that confirms it. */
-export async function confirmDelete(c: Comment | null) {
+/** The viewer confirmed: close the dialog, hide the row, send the delete, and put the row back
+ *  if it fails. A delete of a comment that is already gone succeeds in Rust. */
+export async function confirmDelete() {
+	const c = comments.confirmDelete;
 	comments.confirmDelete = null;
 	if (!c) return;
 	const s = session;
@@ -529,16 +457,8 @@ export async function confirmDelete(c: Comment | null) {
 		removeComment(c.id);
 	} catch (e) {
 		if (s !== session) return;
-		const kind = api.commentsErrorKind(e);
-		if (needsReload(e)) {
-			delete comments.hidden[c.id];
-			comments.status = 'reload';
-		} else if (kind === 'gone') {
-			// Already gone is what a delete is for: nothing to say.
-			removeComment(c.id);
-		} else {
-			delete comments.hidden[c.id];
-			if (kind !== 'busy') toast.error(t('toasts.comment_delete_failed'));
-		}
+		delete comments.hidden[c.id];
+		if (needsReload(e)) comments.status = 'reload';
+		else if (api.commentsErrorKind(e) !== 'busy') toast.error(t('toasts.comment_delete_failed'));
 	}
 }

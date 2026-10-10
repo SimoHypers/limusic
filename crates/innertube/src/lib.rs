@@ -19,20 +19,16 @@ pub use clients::{
     Clients, YouTubeClient, LYRICS_TIMED_CLIENT, MAIN_CLIENT, METADATA_CLIENT,
     STREAM_FALLBACK_ORDER, UPLOAD_FALLBACK_ORDER,
 };
-pub use comments_session::{ActionError, ActionTicket, CommentsSession, Provenance};
+pub use comments_session::{ActionError, CommentsSession, Provenance};
 pub use models::browse::{
     AlbumPage, ArtistCarousel, ArtistPage, BrowseItem, HistoryGroup, HomePage, Mood, MoodSection,
     PlaylistContinuation, PlaylistPage, PlaylistSort, QuerySuggestion, SearchResults,
     SearchSuggestions, Section, SortMenu,
 };
-pub use models::comment_write::{
-    CommentWrite, Composer, WriteCommand, WriteCommands, COMMENT_CREATE_PATH, COMMENT_REPLY_PATH,
-    COMMENT_UPDATE_PATH, COMMENT_UPDATE_REPLY_PATH,
-};
+pub use models::comment_write::{CommentWrite, WriteCommand};
 pub use models::comments::{
-    available_actions, own_comment_probe, parse_written_comment, ActionTokens, Comment,
-    CommentAction, CommentAuthor, CommentReplies, CommentSort, CommentSortKey, CommentThread,
-    CommentsHeader, CommentsPage, CommentsState, VoteState,
+    parse_written_comment, Comment, CommentAction, CommentReplies, CommentSortKey, CommentThread,
+    CommentsPage, CommentsState, VoteState,
 };
 pub use models::context::Locale;
 pub use models::lyrics::{PlainLyrics, TimedLyricLine};

@@ -776,25 +776,22 @@ pub async fn get_home_more(state: St<'_>, token: String) -> Result<HomePage, Str
     state.it.home_continuation(client, &token).await.map_err(|e| e.to_string())
 }
 
-/// Why a comments command failed, as a stable word the UI words itself. Details go to the debug log.
+//// Why a comments command failed, as a stable word the UI words itself. Details go to the debug log.
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommentsError {
-    /// The account changed or signed out since these comments were read: reload them.
+    /// The comments belong to a session that is gone (another account, signed out, or a token
+    /// from before the last reload): reload them.
     AccountChanged,
-    /// A token this session does not know: forgotten, or from before the last reload.
-    StaleToken,
     /// Another action on the same comment is still running.
     Busy,
-    /// The comment does not offer that action.
-    Unavailable,
     /// YouTube answered and did not accept it.
     Rejected,
     /// YouTube answered 404: the comment no longer exists.
     Gone,
     /// A post or reply that may have gone through (`Error::WriteUncertain`).
     Uncertain,
-    /// Anything else: network, refusals, an unreadable answer.
+    /// Anything else: network, refusals, an unreadable answer, an action not on offer.
     Failed,
 }
 
@@ -803,30 +800,24 @@ impl CommentsError {
     fn of(e: &innertube::Error) -> Self {
         tracing::debug!(error = %e, "comments command failed");
         match e {
+            innertube::Error::AccountChanged => CommentsError::AccountChanged,
             innertube::Error::ActionRejected => CommentsError::Rejected,
             innertube::Error::WriteUncertain => CommentsError::Uncertain,
             _ => CommentsError::Failed,
         }
     }
-}
 
-impl CommentsError {
     /// [`Self::of`] for a request about one comment, where a 404 means it is gone. `kind` names
     /// the request in the log.
     fn of_comment(e: &innertube::Error, kind: &'static str) -> Self {
-        if e.is_not_found() && !may_be_a_wrong_path(kind) {
+        if e.is_not_found() {
             tracing::debug!(kind, "comment request: the comment no longer exists (404)");
             CommentsError::Gone
         } else {
-            tracing::debug!(kind, error = %e, "comment request failed");
+            tracing::debug!(kind, "comment request failed");
             Self::of(e)
         }
     }
-}
-
-/// Writes whose 404 is not taken to mean gone.
-fn may_be_a_wrong_path(kind: &str) -> bool {
-    matches!(kind, "reply" | "edit_reply")
 }
 
 impl From<String> for CommentsError {
@@ -834,6 +825,16 @@ impl From<String> for CommentsError {
     fn from(e: String) -> Self {
         tracing::debug!(error = %e, "comments command failed");
         CommentsError::Failed
+    }
+}
+
+impl From<ActionError> for CommentsError {
+    fn from(e: ActionError) -> Self {
+        match e {
+            ActionError::Unknown => CommentsError::AccountChanged,
+            ActionError::Busy => CommentsError::Busy,
+            ActionError::Unavailable => CommentsError::Failed,
+        }
     }
 }
 
@@ -865,7 +866,7 @@ fn comments_token_origin(
 ) -> Result<(Provenance, bool), CommentsError> {
     let origin = state.comments.lock().unwrap().provenance(token);
     match origin {
-        None => Err(CommentsError::StaleToken),
+        None => Err(CommentsError::AccountChanged),
         Some(Provenance::Anonymous) => Ok((Provenance::Anonymous, false)),
         Some(Provenance::Account(who)) => {
             if state.it.comments_identity().as_deref() == Some(who.as_str()) {
@@ -931,14 +932,7 @@ pub async fn comment_action(
     // Nobody signed in (any more) is the same as a changed account: reload the comments.
     let client = require_login(&state).map_err(|_| CommentsError::AccountChanged)?;
     let identity = state.it.comments_identity().ok_or(CommentsError::AccountChanged)?;
-    let ticket =
-        state.comments.lock().unwrap().begin_action(&identity, &comment_id, action).map_err(
-            |e| match e {
-                ActionError::Unknown => CommentsError::StaleToken,
-                ActionError::Busy => CommentsError::Busy,
-                ActionError::Unavailable => CommentsError::Unavailable,
-            },
-        )?;
+    let ticket = state.comments.lock().unwrap().begin_action(&identity, &comment_id, action)?;
     let sent = state.it.comment_action(client, ticket.token(), action.name()).await;
     // Under the identity it was sent as, whoever is active now.
     let accepted = sent.is_ok().then_some(ticket.resulting_vote);
@@ -961,17 +955,9 @@ pub async fn comment_action(
 fn comment_text(text: &str) -> Result<&str, CommentsError> {
     let text = text.trim();
     if text.is_empty() {
-        Err(CommentsError::Unavailable)
+        Err(CommentsError::Failed)
     } else {
         Ok(text)
-    }
-}
-
-fn write_denied(e: ActionError) -> CommentsError {
-    match e {
-        ActionError::Unknown => CommentsError::StaleToken,
-        ActionError::Busy => CommentsError::Busy,
-        ActionError::Unavailable => CommentsError::Unavailable,
     }
 }
 
@@ -985,40 +971,34 @@ async fn write_on_comment(
     // Nobody signed in (any more) is the same as a changed account: reload the comments.
     let client = require_login(state).map_err(|_| CommentsError::AccountChanged)?;
     let identity = state.it.comments_identity().ok_or(CommentsError::AccountChanged)?;
-    let ticket = state
-        .comments
-        .lock()
-        .unwrap()
-        .begin_write(&identity, comment_id, write)
-        .map_err(write_denied)?;
-    let kind = ticket.command().log_kind(write);
-    let sent = state
-        .it
-        .comment_write(client, ticket.command(), kind, text, write != CommentWrite::Reply)
-        .await;
+    let ticket = state.comments.lock().unwrap().begin_write(&identity, comment_id, write)?;
+    let replayable = write != CommentWrite::Reply;
+    let sent = state.it.comment_write(client, ticket.command(), text, replayable).await;
     // Under the identity it was sent as. A delete that went through, and a 404, forget the comment.
-    let gone = !may_be_a_wrong_path(kind)
-        && sent.as_ref().err().is_some_and(innertube::Error::is_not_found);
+    let gone = sent.as_ref().err().is_some_and(innertube::Error::is_not_found);
     state.comments.lock().unwrap().finish_write(
         &identity,
         comment_id,
         gone || (sent.is_ok() && write == CommentWrite::Delete),
     );
-    let answer = sent.map_err(|e| CommentsError::of_comment(&e, kind))?;
+    let answer = sent.map_err(|e| CommentsError::of_comment(&e, ticket.command().log_kind()))?;
     Ok((answer, identity))
 }
 
-/// Logs the key names under a just-written comment that came back without Edit or Delete.
-fn log_written_menu(kind: &'static str, comment: &Comment, answer: &serde_json::Value) {
-    let offered = |w| comment.writes.contains(&w);
-    if comment.own && !offered(CommentWrite::Edit) && !offered(CommentWrite::Delete) {
-        tracing::debug!(
-            kind,
-            probe = %innertube::own_comment_probe(answer)
-                .unwrap_or_else(|| "no commentViewModel in the answer".into()),
-            "written comment has no menu"
-        );
+/// The comment a post or reply put on the page, if its answer carried it: remembered under the
+/// identity that wrote it, so it can be acted on at once.
+fn remember_written(
+    state: &AppState,
+    kind: &'static str,
+    identity: String,
+    answer: &serde_json::Value,
+) -> Option<CommentThread> {
+    let thread = innertube::parse_written_comment(answer);
+    if let Some(thread) = &thread {
+        state.comments.lock().unwrap().remember_thread(&Provenance::Account(identity), thread);
     }
+    tracing::debug!(kind, found = thread.is_some(), "comment write: the comment in the answer");
+    thread
 }
 
 /// Post a top-level comment on the track on screen. Returns it when the answer carried it.
@@ -1030,28 +1010,14 @@ pub async fn comment_create(
     let text = comment_text(&text)?;
     let client = require_login(&state).map_err(|_| CommentsError::AccountChanged)?;
     let identity = state.it.comments_identity().ok_or(CommentsError::AccountChanged)?;
-    let ticket = state.comments.lock().unwrap().begin_create(&identity).map_err(write_denied)?;
-    let sent = state.it.comment_write(client, ticket.command(), "create", Some(text), false).await;
+    let ticket = state.comments.lock().unwrap().begin_create(&identity)?;
+    let sent = state.it.comment_write(client, ticket.command(), Some(text), false).await;
     state.comments.lock().unwrap().finish_create(&identity);
-    if let Err(e) = &sent {
-        tracing::debug!(kind = "create", error = %e, "comment request failed");
-    }
     let answer = sent.map_err(|e| CommentsError::of(&e))?;
-    let thread = innertube::parse_written_comment(&answer);
-    if let Some(thread) = &thread {
-        log_written_menu("create", &thread.comment, &answer);
-        let who = Provenance::Account(identity);
-        state.comments.lock().unwrap().remember_thread(&who, thread);
-    }
-    tracing::debug!(
-        kind = "create",
-        found = thread.is_some(),
-        "comment write: the posted comment in the answer"
-    );
-    Ok(thread)
+    Ok(remember_written(&state, "create", identity, &answer))
 }
 
-/// Reply to a comment. Returns the reply when the answer carried it (see [`comment_create`]).
+/// Reply to a comment. Returns the reply when the answer carried it.
 #[tauri::command]
 pub async fn comment_reply(
     state: St<'_>,
@@ -1061,17 +1027,7 @@ pub async fn comment_reply(
     let text = comment_text(&text)?;
     let (answer, identity) =
         write_on_comment(&state, &comment_id, CommentWrite::Reply, Some(text)).await?;
-    let thread = innertube::parse_written_comment(&answer);
-    if let Some(thread) = &thread {
-        log_written_menu("reply", &thread.comment, &answer);
-        state.comments.lock().unwrap().remember_thread(&Provenance::Account(identity), thread);
-    }
-    tracing::debug!(
-        kind = "reply",
-        found = thread.is_some(),
-        "comment write: the posted reply in the answer"
-    );
-    Ok(thread.map(|t| t.comment))
+    Ok(remember_written(&state, "reply", identity, &answer).map(|t| t.comment))
 }
 
 /// Replace the text of one of the viewer's own comments.

@@ -9,7 +9,7 @@ use crate::models::browse::{
     PlaylistContinuation, PlaylistPage, PlaylistSort, SearchResults, SearchSuggestions,
 };
 use crate::models::comment_write::WriteCommand;
-use crate::models::comments::{self, CommentReplies, CommentsPage, ViewerSummary};
+use crate::models::comments::{self, CommentReplies, CommentsPage};
 use crate::models::context::Context;
 use crate::models::lyrics::{self, PlainLyrics, TimedLyricLine};
 use crate::models::metadata::{
@@ -18,7 +18,7 @@ use crate::models::metadata::{
 use crate::models::player::{
     ContentPlaybackContext, PlaybackContext, PlayerBody, PlayerResponse, ServiceIntegrityDimensions,
 };
-use crate::transport::{Error, InnerTube};
+use crate::transport::{enum_like, Error, InnerTube};
 
 /// Search filter params (opaque base64). context/08.
 pub const FILTER_SONG: &str = "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D";
@@ -280,13 +280,10 @@ impl InnerTube {
                     // Nothing about the request or the account is logged.
                     tracing::debug!("signed-in comments read refused, redoing it anonymously");
                 }
-                Err(e) => return Err(comments_error(e)),
+                Err(e) => return Err(e),
             }
         }
-        let mut page =
-            self.comments_first_page(client, video_id, false).await.map_err(comments_error)?;
-        page.read_as_account = false;
-        Ok(page)
+        self.comments_first_page(client, video_id, false).await
     }
 
     /// The tab lookup and the first page, both sent the same way (`as_account`).
@@ -316,10 +313,7 @@ impl InnerTube {
         let value = self.next_continuation(client, &token, as_account).await?;
         let page = comments::parse_comments_page(&value, true);
         if as_account {
-            log_account_read("first page", &ViewerSummary::of_page(&page));
-            log_viewer_state_gaps(&value, &page);
-            log_own_comment_commands("first page", &value, page_comments(&page));
-            log_reply_commands(&value, &page);
+            log_own_comment_commands("first page", page_comments(&page));
         }
         Ok(page)
     }
@@ -333,15 +327,12 @@ impl InnerTube {
         token: &str,
         as_account: bool,
     ) -> Result<CommentsPage, Error> {
-        let value =
-            self.next_continuation(client, token, as_account).await.map_err(comments_error)?;
+        let value = self.next_continuation(client, token, as_account).await?;
         // A sort switch answers with a header and a body, a page with the body alone.
         let mut page = comments::parse_comments_page(&value, false);
         page.read_as_account = as_account;
         if as_account {
-            log_account_read("continuation", &ViewerSummary::of_page(&page));
-            log_own_comment_commands("continuation", &value, page_comments(&page));
-            log_reply_commands(&value, &page);
+            log_own_comment_commands("continuation", page_comments(&page));
         }
         Ok(page)
     }
@@ -354,13 +345,10 @@ impl InnerTube {
         token: &str,
         as_account: bool,
     ) -> Result<CommentReplies, Error> {
-        let value =
-            self.next_continuation(client, token, as_account).await.map_err(comments_error)?;
-        let mut replies = comments::parse_comment_replies(&value);
-        replies.read_as_account = as_account;
+        let value = self.next_continuation(client, token, as_account).await?;
+        let replies = comments::parse_comment_replies(&value);
         if as_account {
-            log_account_read("replies", &ViewerSummary::of_replies(&replies));
-            log_own_comment_commands("replies", &value, replies.replies.iter());
+            log_own_comment_commands("replies", replies.replies.iter());
         }
         Ok(replies)
     }
@@ -409,67 +397,10 @@ impl InnerTube {
             context: Context,
             actions: Vec<String>,
         }
-        let path = COMMENT_ACTION_PATH;
         let body =
             ActionBody { context: self.context_for(client), actions: vec![token.to_owned()] };
-        let value = match self.post(path, client, &body, true).await {
-            Ok(value) => value,
-            Err(e) => {
-                if let Error::Http(h) = &e {
-                    tracing::debug!(
-                        kind,
-                        path,
-                        status = ?h.status(),
-                        request_keys = "context, actions",
-                        "comment action request failed"
-                    );
-                }
-                return Err(e);
-            }
-        };
-        let answer = answer_verdict(&value);
-        match answer.verdict {
-            Verdict::Succeeded => Ok(value),
-            Verdict::Rejected => {
-                tracing::debug!(kind, path, status = %answer.status, feedback = %answer.feedback, "comment action rejected");
-                Err(Error::ActionRejected)
-            }
-            Verdict::Missing => {
-                // A delete's answer has no status; its `actions[]` carries a `removeCommentAction`.
-                let marker = missing_ok && has_action(&value, "removeCommentAction");
-                let popup = has_action(&value, "openPopupAction");
-                if marker {
-                    tracing::debug!(
-                        kind,
-                        path,
-                        marker = "removeCommentAction",
-                        fallback_used = false,
-                        popup_present = popup,
-                        "comment action succeeded"
-                    );
-                    Ok(value)
-                } else if missing_ok {
-                    // HTTP 200, no status, no error, no marker: accepted, and logged as the fallback.
-                    tracing::debug!(
-                        kind,
-                        path,
-                        fallback_used = true,
-                        popup_present = popup,
-                        shape = %write_answer_shape(&value).0,
-                        "comment action answer has no status or marker; accepted"
-                    );
-                    Ok(value)
-                } else {
-                    tracing::debug!(
-                        kind,
-                        path,
-                        shape = %write_answer_shape(&value).0,
-                        "comment action answer has no status"
-                    );
-                    Err(Error::ActionRejected)
-                }
-            }
-        }
+        let value = self.post(COMMENT_ACTION_PATH, client, &body, true).await?;
+        accept_answer(kind, value, missing_ok)
     }
 
     /// Replays a write command from a signed-in read, with `text` in the command's text field.
@@ -479,31 +410,21 @@ impl InnerTube {
         &self,
         client: &YouTubeClient,
         command: &WriteCommand,
-        kind: &'static str,
         text: Option<&str>,
         replayable: bool,
     ) -> Result<serde_json::Value, Error> {
+        let kind = command.log_kind();
         let (path, body) = match command {
-            // A `performCommentActionEndpoint` token: the same replay as a vote.
             WriteCommand::Action(token) => {
                 return match self.send_action(client, token, kind, true).await {
                     // A token replay is a delete: a 404 means it is already gone.
-                    Err(e) if e.is_not_found() => {
-                        tracing::debug!(
-                            kind,
-                            "comment write: 404 on a replayable write, already gone"
-                        );
-                        Ok(serde_json::Value::Null)
-                    }
+                    Err(e) if e.is_not_found() => Ok(serde_json::Value::Null),
                     other => other,
                 };
             }
-            WriteCommand::Endpoint { path, payload } => {
+            WriteCommand::Endpoint { path, payload, text_field, .. } => {
                 if !crate::models::comment_write::is_plain_comment_path(path) {
-                    tracing::debug!(
-                        kind,
-                        "comment write refused: the path is not a plain comment path"
-                    );
+                    tracing::debug!(kind, "comment write refused: not a plain comment path");
                     return Err(Error::Other("Not a comment path.".into()));
                 }
                 let mut body = serde_json::Map::new();
@@ -513,39 +434,17 @@ impl InnerTube {
                     body.entry(key.clone()).or_insert_with(|| value.clone());
                 }
                 if let Some(text) = text {
-                    body.insert(command.text_field().into(), text.into());
+                    body.insert((*text_field).into(), text.into());
                 }
                 (path.as_str(), serde_json::Value::Object(body))
             }
         };
-        let sent = if replayable {
-            self.post(path, client, &body, true).await
+        let value = if replayable {
+            self.post(path, client, &body, true).await?
         } else {
-            self.post_write(path, client, &body, true).await
+            self.post_write(path, client, &body, true).await?
         };
-        match sent {
-            Ok(value) => {
-                log_write_answer(kind, path, &value);
-                let answer = answer_verdict(&value);
-                match answer.verdict {
-                    Verdict::Rejected => {
-                        tracing::debug!(kind, path, status = %answer.status, feedback = %answer.feedback, "comment write rejected");
-                        return Err(Error::ActionRejected);
-                    }
-                    Verdict::Missing => {
-                        tracing::debug!(kind, path, "comment write answer has no status; accepted")
-                    }
-                    Verdict::Succeeded => {}
-                }
-                Ok(value)
-            }
-            Err(e) => {
-                if let Error::Http(h) = &e {
-                    tracing::debug!(kind, path, status = ?h.status(), "comment write request failed");
-                }
-                Err(e)
-            }
-        }
+        accept_answer(kind, value, true)
     }
 
     /// Whether a comments request can go out as the account right now.
@@ -563,9 +462,7 @@ impl InnerTube {
     ) -> Result<serde_json::Value, Error> {
         if as_account {
             if !self.can_read_as_account(client) {
-                return Err(Error::Other(
-                    "The signed-in account changed. Reload the comments.".into(),
-                ));
+                return Err(Error::AccountChanged);
             }
             self.post_no_heal("next", client, &build(self.context_for(client)), true).await
         } else {
@@ -1461,14 +1358,6 @@ fn custom_thumbnail_key() -> serde_json::Value {
     })
 }
 
-/// Whether `actions[]` has an entry with this key (names only: the entry's contents are never read).
-fn has_action(value: &serde_json::Value, key: &str) -> bool {
-    value
-        .get("actions")
-        .and_then(serde_json::Value::as_array)
-        .is_some_and(|actions| actions.iter().any(|a| a.get(key).is_some()))
-}
-
 /// What a comment action's or write's answer says about itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Verdict {
@@ -1479,188 +1368,65 @@ enum Verdict {
     Missing,
 }
 
-struct Answer {
-    verdict: Verdict,
-    /// The status and feedback enums, only if they look like enums: they are what gets logged.
-    status: String,
-    feedback: String,
-}
-
 /// Read an answer to a comment action or write: `STATUS_SUCCEEDED` in `actionResults[0]` (a vote)
 /// or `actionResult` (an edit) succeeds; another status or a top-level `error` is a rejection;
-/// none is `Missing`, for the caller to decide.
-fn answer_verdict(value: &serde_json::Value) -> Answer {
-    use serde_json::Value;
-    fn enum_like(v: Option<&str>) -> String {
-        match v {
-            None => "missing".into(),
-            Some(s) if s.len() <= 64 && s.bytes().all(|b| b.is_ascii_uppercase() || b == b'_') => {
-                s.into()
-            }
-            Some(_) => "unexpected".into(),
-        }
-    }
+/// none is `Missing`, for the caller to decide. Also the status, as it may be logged.
+fn answer_verdict(value: &serde_json::Value) -> (Verdict, &str) {
     let result = value.pointer("/actionResults/0").or_else(|| value.get("actionResult"));
-    let field = |name: &str| result.and_then(|r| r.get(name)).and_then(Value::as_str);
-    let status = enum_like(field("status"));
-    let verdict = if value.get("error").is_some() {
-        Verdict::Rejected
-    } else {
-        match field("status") {
-            Some("STATUS_SUCCEEDED") => Verdict::Succeeded,
-            Some(_) => Verdict::Rejected,
-            None => Verdict::Missing,
-        }
+    let status = result.and_then(|r| r.get("status")).and_then(serde_json::Value::as_str);
+    let verdict = match status {
+        _ if value.get("error").is_some() => Verdict::Rejected,
+        Some("STATUS_SUCCEEDED") => Verdict::Succeeded,
+        Some(_) => Verdict::Rejected,
+        None => Verdict::Missing,
     };
-    Answer { verdict, status, feedback: enum_like(field("feedback")) }
+    (verdict, status.map_or("missing", |s| enum_like(s).unwrap_or("unexpected")))
 }
 
-/// The shape of a write's answer, as one string: the key names of the object, of EVERY entry of
-/// `actions[]` and of `actionResult`, the kinds of payload in `frameworkUpdates`' mutations (with
-/// counts), and the `actionResult.status` enum: no id, text or token. Also whether an action is a
-/// `runAttestationCommand`.
-fn write_answer_shape(value: &serde_json::Value) -> (String, bool) {
-    use serde_json::Value;
-    let names = |v: Option<&Value>| -> String {
-        v.and_then(Value::as_object)
-            .map(|o| o.keys().cloned().collect::<Vec<_>>().join(","))
-            .filter(|names| !names.is_empty())
-            .unwrap_or_else(|| "-".into())
-    };
-    let actions =
-        value.get("actions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
-    let per_action: Vec<String> = actions.iter().map(|a| format!("[{}]", names(Some(a)))).collect();
-
-    let mutations = value
-        .pointer("/frameworkUpdates/entityBatchUpdate/mutations")
-        .and_then(Value::as_array)
-        .map(Vec::as_slice)
-        .unwrap_or_default();
-    let mut kinds = std::collections::BTreeMap::<&str, usize>::new();
-    for payload in mutations.iter().filter_map(|m| m.get("payload")?.as_object()) {
-        for kind in payload.keys() {
-            *kinds.entry(kind).or_default() += 1;
+/// The answer, unless it is a rejection. `missing_ok`: an answer with no status is accepted.
+fn accept_answer(
+    kind: &'static str,
+    value: serde_json::Value,
+    missing_ok: bool,
+) -> Result<serde_json::Value, Error> {
+    match answer_verdict(&value) {
+        (Verdict::Succeeded, _) => Ok(value),
+        (Verdict::Missing, _) if missing_ok => Ok(value),
+        (_, status) => {
+            tracing::debug!(kind, status, "comment action rejected");
+            Err(Error::ActionRejected)
         }
-    }
-    let kinds: Vec<String> = kinds.iter().map(|(k, n)| format!("{k}x{n}")).collect();
-    let status = value
-        .pointer("/actionResult/status")
-        .and_then(Value::as_str)
-        .filter(|s| s.len() <= 48 && s.bytes().all(|b| b.is_ascii_uppercase() || b == b'_'))
-        .unwrap_or("-");
-
-    let shape = format!(
-        "keys={} actions={} action_result_keys={} action_result_status={status} mutations={} payloads={}",
-        names(Some(value)),
-        if per_action.is_empty() { "-".into() } else { per_action.join(" ") },
-        names(value.get("actionResult")),
-        mutations.len(),
-        if kinds.is_empty() { "-".into() } else { kinds.join(",") },
-    );
-    let attestation = actions.iter().any(|a| a.get("runAttestationCommand").is_some());
-    (shape, attestation)
-}
-
-fn log_write_answer(kind: &'static str, path: &str, value: &serde_json::Value) {
-    let (shape, attestation) = write_answer_shape(value);
-    tracing::debug!(kind, path, shape = %shape, "comment write answered");
-    // YouTube asks the client to run BotGuard attestation after a post. It is not run here: this
-    // only says that it was asked, so a later rejection can be read against it.
-    if attestation {
-        tracing::debug!(
-            "comment write answer asks for attestation (runAttestationCommand); not run"
-        );
-    }
-}
-
-/// One line per signed-in page: how many comments offer Reply, and, if any does not, the key names
-/// of the first comment's reply command and where a path would come from (see `reply_probe`).
-fn log_reply_commands(value: &serde_json::Value, page: &CommentsPage) {
-    let all = || page.threads.iter().flat_map(|t| std::iter::once(&t.comment).chain(&t.replies));
-    let total = all().count();
-    if total == 0 {
-        return;
-    }
-    let offered = all().filter(|c| c.writes.contains(&crate::CommentWrite::Reply)).count();
-    if offered == total {
-        tracing::debug!(offered, total, "reply offered on every comment");
-    } else {
-        tracing::debug!(
-            offered,
-            total,
-            probe = %comments::reply_probe_of_page(value).unwrap_or_default(),
-            "reply not offered on every comment"
-        );
     }
 }
 
 /// Every comment on a page, top-level and inline replies.
-fn page_comments(page: &CommentsPage) -> impl Iterator<Item = &comments::Comment> + Clone {
+fn page_comments(page: &CommentsPage) -> impl Iterator<Item = &comments::Comment> {
     page.threads.iter().flat_map(|t| std::iter::once(&t.comment).chain(&t.replies))
 }
 
-/// One line per signed-in page (`kind`: the first page, a continuation, or a replies page) that
-/// has a comment of the viewer's own: how many, how many offer edit and delete, and (key names and
-/// types only, via `own_comment_probe`) what command-like nodes and menu items sit under the
-/// first one. Replies are comments like any other, so a replies page gets the same line: when an
-/// own reply has no Edit, this is what shows why.
+/// One line per signed-in page that has the viewer's own comments: how many, and how many of them
+/// offer edit and delete. Counts only.
 fn log_own_comment_commands<'a>(
     kind: &'static str,
-    value: &serde_json::Value,
-    comments: impl Iterator<Item = &'a comments::Comment> + Clone,
+    comments: impl Iterator<Item = &'a comments::Comment>,
 ) {
-    let own = comments.clone().filter(|c| c.own).count();
-    if own == 0 {
-        return;
+    let (mut own, mut with_edit, mut with_delete) = (0, 0, 0);
+    for c in comments.filter(|c| c.own) {
+        own += 1;
+        with_edit += usize::from(c.commands.edit.is_some());
+        with_delete += usize::from(c.commands.delete.is_some());
     }
-    tracing::debug!(
-        kind,
-        own,
-        with_edit = comments.clone().filter(|c| c.own && c.commands.edit.is_some()).count(),
-        with_delete = comments.filter(|c| c.own && c.commands.delete.is_some()).count(),
-        paths = %comments::own_comment_probe(value).unwrap_or_default(),
-        "own comment commands"
-    );
-}
-
-/// One debug line per page read as the account, so a log that shows nothing from the comments
-/// code means the filter never reached it, not that everything was found. Counts only.
-fn log_account_read(kind: &'static str, summary: &ViewerSummary) {
-    tracing::debug!(kind, summary = %summary, "comments read as the account");
-}
-
-/// A page read as the account whose comments carry no vote, or a vote but no action: say so once
-/// per page, with the JSON paths and value types that were checked and no values (see
-/// `viewer_state_probe`), so a missing button can be diagnosed from a log line.
-fn log_viewer_state_gaps(value: &serde_json::Value, page: &CommentsPage) {
-    if page.threads.is_empty() {
-        return;
-    }
-    if page.threads.iter().all(|t| t.comment.vote.is_none()) {
-        tracing::debug!(paths = %comments::viewer_state_probe(value), "signed-in page without viewer state");
-    } else if page.threads.iter().all(|t| t.comment.actions.is_empty()) {
-        tracing::debug!(paths = %comments::viewer_state_probe(value), "signed-in page without like/dislike actions");
+    if own > 0 {
+        tracing::debug!(kind, own, with_edit, with_delete, "own comment commands");
     }
 }
-
-/// A refused comments request, worded so it never reads as "session expired".
-const COMMENTS_REFUSED: &str = "YouTube refused the request for comments.";
 
 /// A 401/403: YouTube said no to this request.
 fn is_refusal(e: &Error) -> bool {
     matches!(e, Error::Http(h) if h.status().is_some_and(|s| s == 401 || s == 403))
 }
 
-/// A refusal or `SessionExpired` on a comments read is a plain failure, never a sign-in prompt.
-fn comments_error(e: Error) -> Error {
-    if is_refusal(&e) || matches!(e, Error::SessionExpired) {
-        Error::Other(COMMENTS_REFUSED.into())
-    } else {
-        e
-    }
-}
-
-/// Playlist edit/delete want the raw playlistId; browse gives it `VL`-prefixed. context/01.
+// Playlist edit/delete want the raw playlistId; browse gives it `VL`-prefixed. context/01.
 fn strip_vl(id: &str) -> &str {
     id.strip_prefix("VL").unwrap_or(id)
 }
@@ -1764,6 +1530,7 @@ mod tests {
     // --- comments reads: as the account without the healer, never a token across the line ---
 
     use crate::clients::{Clients, METADATA_CLIENT};
+    use crate::models::comment_write::{REPLY_EDIT_TEXT_FIELD, TEXT_FIELD};
     use crate::models::comments::CommentsState;
     use crate::test_server::{MockServer, Seen};
     use crate::transport::Session;
@@ -1814,6 +1581,11 @@ mod tests {
             "a comments request must never wake the healer"
         );
         assert!(it.is_logged_in(), "and the session is untouched");
+    }
+
+    /// A refusal comes back as the HTTP error it was, never as an expired session.
+    fn is_plain_refusal(e: &Error) -> bool {
+        is_refusal(e) && !matches!(e, Error::SessionExpired)
     }
 
     #[tokio::test]
@@ -1907,8 +1679,7 @@ mod tests {
         let server = MockServer::start(|_| (403, "{}".into()));
         let it = it_against(&server, true);
         let err = it.comments(&web(), "vid").await.unwrap_err();
-        assert!(matches!(&err, Error::Other(m) if m == COMMENTS_REFUSED), "{err:?}");
-        assert!(!err.to_string().to_lowercase().contains("session"));
+        assert!(is_plain_refusal(&err), "{err:?}");
         assert_eq!(server.requests().len(), 2, "one account attempt, one anonymous");
         no_heal(&it).await;
     }
@@ -1936,8 +1707,7 @@ mod tests {
             let page = it.comments_continuation(&web(), "tok-account", true).await;
             let replies = it.comment_replies(&web(), "tok-account", true).await;
             for err in [page.unwrap_err(), replies.unwrap_err()] {
-                assert!(matches!(&err, Error::Other(m) if m == COMMENTS_REFUSED), "{err:?}");
-                assert!(!err.to_string().to_lowercase().contains("session"));
+                assert!(is_plain_refusal(&err), "{err:?}");
             }
             assert_eq!(server.requests().len(), 2, "one request each, no retry");
             assert!(server.requests().iter().all(as_account));
@@ -1955,30 +1725,44 @@ mod tests {
         assert!(!anon.read_as_account);
         let acct = it.comments_continuation(&web(), "tok-account", true).await.unwrap();
         assert!(acct.read_as_account);
-        let replies = it.comment_replies(&web(), "tok-account", true).await.unwrap();
-        assert!(replies.read_as_account);
+        it.comment_replies(&web(), "tok-account", true).await.unwrap();
         let sent = server.requests();
         assert!(!as_account(&sent[0]) && as_account(&sent[1]) && as_account(&sent[2]));
     }
 
     /// The session went away between the first page and a later one: the account's token is not
-    /// sent anonymously, and nothing goes out at all.
+    /// sent anonymously, nothing goes out, and the caller is told the account changed.
     #[tokio::test]
     async fn an_account_token_without_the_account_is_an_error_and_sends_nothing() {
         let server = MockServer::start(|_| (200, PAGE.to_owned()));
         let it = it_against(&server, false);
         let err = it.comments_continuation(&web(), "tok-account", true).await.unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        assert!(matches!(err, Error::AccountChanged), "{err:?}");
         assert!(server.requests().is_empty());
     }
 
     // --- comment writes ----------------------------------------------------------------------
 
-    fn endpoint(path: &str, payload: serde_json::Value) -> WriteCommand {
+    /// An `Endpoint` command as a read would build it, sending its text as `commentText`.
+    fn endpoint(path: &str, kind: &'static str, payload: serde_json::Value) -> WriteCommand {
         WriteCommand::Endpoint {
             path: path.to_owned(),
             payload: payload.as_object().cloned().unwrap_or_default(),
+            text_field: TEXT_FIELD,
+            kind,
         }
+    }
+
+    fn create() -> WriteCommand {
+        endpoint("comment/create_comment", "create", json!({ "createCommentParams": "P" }))
+    }
+
+    fn edit() -> WriteCommand {
+        endpoint("comment/update_comment", "edit", json!({ "updateCommentParams": "P" }))
+    }
+
+    fn delete() -> WriteCommand {
+        WriteCommand::Action("fixture-token".into())
     }
 
     /// The request as the server sees it: the server-issued fields and the text, the context ours
@@ -1990,9 +1774,10 @@ mod tests {
         let it = it_against(&server, true);
         let cmd = endpoint(
             "comment/create_comment",
+            "create",
             json!({ "createCommentParams": "fixture-params", "context": "must-not-win" }),
         );
-        it.comment_write(&web(), &cmd, "create", Some("hello"), false).await.unwrap();
+        it.comment_write(&web(), &cmd, Some("hello"), false).await.unwrap();
         let sent = server.requests();
         assert_eq!(sent.len(), 1);
         assert!(sent[0].path.starts_with("/youtubei/v1/comment/create_comment?"));
@@ -2019,8 +1804,8 @@ mod tests {
         ] {
             let server = MockServer::start(move |_: &Seen| (status, reply.to_owned()));
             let it = it_against(&server, true);
-            let cmd = endpoint("comment/x", json!({ "p": "secret-params" }));
-            let got = it.comment_write(&web(), &cmd, "reply", Some("secret text"), false).await;
+            let cmd = endpoint("comment/x", "reply", json!({ "p": "secret-params" }));
+            let got = it.comment_write(&web(), &cmd, Some("secret text"), false).await;
             assert_eq!(got.is_ok(), ok, "{status} {reply}");
             if let Err(e) = &got {
                 for shown in [e.to_string(), format!("{e:?}")] {
@@ -2031,66 +1816,14 @@ mod tests {
         }
     }
 
-    /// Never sent twice: a lost answer to a post is `WriteUncertain` after exactly one request,
-    /// while a delete (replayable) takes the ordinary path.
+    /// Never sent twice: a lost answer to a post is `WriteUncertain` after exactly one request.
     #[tokio::test]
     async fn a_lost_answer_to_a_post_is_uncertain_and_never_resent() {
         let server = MockServer::start(|_: &Seen| (0, String::new())); // hang up
         let it = it_against(&server, true);
-        let cmd = endpoint("comment/create_comment", json!({ "createCommentParams": "P" }));
-        let got = it.comment_write(&web(), &cmd, "create", Some("hello"), false).await;
+        let got = it.comment_write(&web(), &create(), Some("hello"), false).await;
         assert!(matches!(got, Err(Error::WriteUncertain)), "{got:?}");
         assert_eq!(server.requests().len(), 1, "exactly one request");
-    }
-
-    /// The log line for a write's answer names keys and kinds only, whatever is in it.
-    #[test]
-    fn the_write_answer_shape_lists_keys_and_kinds_and_never_values() {
-        let answer = json!({
-            "responseContext": { "visitorData": "secret-visitor" },
-            "actions": [
-                { "clickTrackingParams": "secret-click", "runAttestationCommand": { "ids": ["secret"] } },
-                { "createCommentAction": { "contents": { "text": "secret text" } } },
-            ],
-            "actionResult": { "status": "STATUS_SUCCEEDED", "detail": "secret detail" },
-            "frameworkUpdates": { "entityBatchUpdate": { "mutations": [
-                { "entityKey": "secret-key", "payload": { "commentEntityPayload": { "x": "secret" } } },
-                { "entityKey": "secret-key2", "payload": { "commentEntityPayload": {} } },
-                { "entityKey": "secret-key3", "payload": { "engagementToolbarStateEntityPayload": {} } },
-            ] } },
-        });
-        let (shape, attestation) = write_answer_shape(&answer);
-        assert!(attestation);
-        assert!(
-            shape.contains(
-                "actions=[clickTrackingParams,runAttestationCommand] [createCommentAction]"
-            ),
-            "{shape}"
-        );
-        assert!(
-            shape
-                .contains("action_result_keys=detail,status action_result_status=STATUS_SUCCEEDED"),
-            "{shape}"
-        );
-        assert!(
-            shape.contains(
-                "mutations=3 payloads=commentEntityPayloadx2,engagementToolbarStateEntityPayloadx1"
-            ),
-            "{shape}"
-        );
-        assert!(!shape.contains("secret"), "{shape}");
-
-        // Nothing there, or not the shape expected: still a line, never a failure.
-        let (bare, attestation) = write_answer_shape(&json!({}));
-        assert!(!attestation);
-        assert_eq!(
-            bare,
-            "keys=- actions=- action_result_keys=- action_result_status=- mutations=0 payloads=-"
-        );
-        write_answer_shape(&json!(null));
-        write_answer_shape(
-            &json!({ "actions": 5, "actionResult": [], "frameworkUpdates": { "entityBatchUpdate": { "mutations": [1, null] } } }),
-        );
     }
 
     /// A path that is not a plain `comment/…` one never reaches the network, even in a command
@@ -2114,7 +1847,7 @@ mod tests {
             "",
         ] {
             let got = it
-                .comment_write(&web(), &endpoint(path, json!({})), "edit", Some("t"), false)
+                .comment_write(&web(), &endpoint(path, "edit", json!({})), Some("t"), false)
                 .await;
             assert!(matches!(got, Err(Error::Other(_))), "{path}: {got:?}");
         }
@@ -2128,15 +1861,7 @@ mod tests {
             (200, r#"{"actionResults":[{"status":"STATUS_SUCCEEDED"}]}"#.into())
         });
         let it = it_against(&server, true);
-        it.comment_write(
-            &web(),
-            &WriteCommand::Action("fixture-token".into()),
-            "delete",
-            None,
-            true,
-        )
-        .await
-        .unwrap();
+        it.comment_write(&web(), &delete(), None, true).await.unwrap();
         let sent = server.requests();
         assert!(sent[0].path.starts_with(&format!("/youtubei/v1/{COMMENT_ACTION_PATH}")));
         let body: serde_json::Value = serde_json::from_str(&sent[0].body).unwrap();
@@ -2147,13 +1872,13 @@ mod tests {
 
     #[test]
     fn success_is_a_succeeded_status_in_either_answer_shape() {
+        let verdict = |v: &serde_json::Value| answer_verdict(v).0;
         // `actionResults: [..]` (a like) and `actionResult: {..}` (an edit).
         let like = json!({ "actionResults": [{ "status": "STATUS_SUCCEEDED", "feedback": "FEEDBACK_LIKE" }] });
         let edit = json!({ "actionResult": { "status": "STATUS_SUCCEEDED", "feedbackText": { "runs": [] } } });
         for ok in [&like, &edit] {
-            assert_eq!(answer_verdict(ok).verdict, Verdict::Succeeded, "{ok}");
+            assert_eq!(answer_verdict(ok), (Verdict::Succeeded, "STATUS_SUCCEEDED"), "{ok}");
         }
-        assert_eq!(answer_verdict(&like).feedback, "FEEDBACK_LIKE");
 
         // A different status is a rejection in either shape, and so is a top-level error, even
         // beside a success.
@@ -2163,13 +1888,13 @@ mod tests {
             json!({ "actionResults": [{ "status": "nope" }] }),
             json!({ "error": { "code": 400 }, "actionResult": { "status": "STATUS_SUCCEEDED" } }),
         ] {
-            assert_eq!(answer_verdict(&rejected).verdict, Verdict::Rejected, "{rejected}");
+            assert_eq!(verdict(&rejected), Verdict::Rejected, "{rejected}");
         }
-        // The plural array wins when both are there, and only its first entry is our answer.
+        // The plural array wins when both are there, and only its first entry is the answer.
         let both = json!({ "actionResults": [{ "status": "STATUS_FAILED" }], "actionResult": { "status": "STATUS_SUCCEEDED" } });
-        assert_eq!(answer_verdict(&both).verdict, Verdict::Rejected);
+        assert_eq!(verdict(&both), Verdict::Rejected);
         let late = json!({ "actionResults": [{ "status": "STATUS_FAILED" }, { "status": "STATUS_SUCCEEDED" }] });
-        assert_eq!(answer_verdict(&late).verdict, Verdict::Rejected);
+        assert_eq!(verdict(&late), Verdict::Rejected);
 
         // No status to read: missing, for the caller to decide.
         for missing in [
@@ -2183,15 +1908,15 @@ mod tests {
             json!({ "actionResult": { "feedbackText": "x" } }),
             json!({ "responseContext": {} }),
         ] {
-            assert_eq!(answer_verdict(&missing).verdict, Verdict::Missing, "{missing}");
+            assert_eq!(answer_verdict(&missing), (Verdict::Missing, "missing"), "{missing}");
         }
-        // Only known enum words are echoed for the log.
-        let odd = answer_verdict(&json!({ "actionResult": { "status": "STATUS_secret value" } }));
-        assert_eq!((odd.status.as_str(), odd.verdict), ("unexpected", Verdict::Rejected));
+        // Only enum-like words are echoed for the log.
+        let odd = json!({ "actionResult": { "status": "STATUS_secret value" } });
+        assert_eq!(answer_verdict(&odd), (Verdict::Rejected, "unexpected"));
     }
 
-    /// Both answer shapes through a real request, for a vote, a post, a reply, an edit and a
-    /// delete; and what a missing status means for each.
+    /// Both answer shapes through a real request, for a vote, a write and a delete; and what a
+    /// missing status means for each.
     #[tokio::test]
     async fn every_action_and_write_accepts_either_shape_and_handles_a_missing_status() {
         const PLURAL: &str = r#"{"actionResults":[{"status":"STATUS_SUCCEEDED"}]}"#;
@@ -2199,16 +1924,12 @@ mod tests {
             r#"{"actionResult":{"status":"STATUS_SUCCEEDED","feedbackText":{}}}"#;
         const FAILED: &str = r#"{"actionResult":{"status":"STATUS_FAILED"}}"#;
         const NONE: &str = r#"{"responseContext":{},"trackingParams":"x"}"#;
-        let endpoint_cmd =
-            || endpoint("comment/update_comment", json!({ "updateCommentParams": "P" }));
-        let token_cmd = || WriteCommand::Action("fixture-token".into());
 
-        for (reply, vote, post, delete) in [
+        for (reply, vote, write, del) in [
             (PLURAL, "ok", "ok", "ok"),
             (SINGULAR, "ok", "ok", "ok"),
             (FAILED, "rejected", "rejected", "rejected"),
-            // No status: a vote is a rejection; a post, reply, edit or delete is accepted (and
-            // the answer's shape logged).
+            // No status: a vote is a rejection; a write or a delete is accepted.
             (NONE, "rejected", "ok", "ok"),
         ] {
             let server = MockServer::start(move |_: &Seen| (200, reply.to_owned()));
@@ -2219,16 +1940,12 @@ mod tests {
                 Err(Error::WriteUncertain) => "uncertain",
                 Err(_) => "other",
             };
-            let got_vote = label(it.comment_action(&web(), "T", "like").await.map(|()| ()));
-            let got_post = label(
-                it.comment_write(&web(), &endpoint_cmd(), "edit", Some("t"), false)
-                    .await
-                    .map(|_| ()),
-            );
-            let got_delete = label(
-                it.comment_write(&web(), &token_cmd(), "delete", None, true).await.map(|_| ()),
-            );
-            assert_eq!((got_vote, got_post, got_delete), (vote, post, delete), "{reply}");
+            let got_vote = label(it.comment_action(&web(), "T", "like").await);
+            let got_write =
+                label(it.comment_write(&web(), &edit(), Some("t"), false).await.map(|_| ()));
+            let got_delete =
+                label(it.comment_write(&web(), &delete(), None, true).await.map(|_| ()));
+            assert_eq!((got_vote, got_write, got_delete), (vote, write, del), "{reply}");
         }
     }
 
@@ -2239,14 +1956,12 @@ mod tests {
     async fn an_edit_is_retried_and_never_uncertain_while_a_post_is_sent_once() {
         let server = MockServer::start(|_: &Seen| (0, String::new())); // hang up
         let it = it_against(&server, true);
-        let edit = endpoint("comment/update_comment", json!({ "updateCommentParams": "P" }));
-        let got = it.comment_write(&web(), &edit, "edit", Some("t"), true).await;
+        let got = it.comment_write(&web(), &edit(), Some("t"), true).await;
         assert!(matches!(&got, Err(Error::Http(_))), "{got:?}");
         assert!(server.requests().len() > 1, "the edit was not retried");
 
         let before = server.requests().len();
-        let create = endpoint("comment/create_comment", json!({ "createCommentParams": "P" }));
-        let got = it.comment_write(&web(), &create, "create", Some("t"), false).await;
+        let got = it.comment_write(&web(), &create(), Some("t"), false).await;
         assert!(matches!(got, Err(Error::WriteUncertain)), "{got:?}");
         assert_eq!(server.requests().len() - before, 1, "a post is sent exactly once");
     }
@@ -2263,11 +1978,13 @@ mod tests {
                 )
             });
             let it = it_against(&server, true);
-            let edit = endpoint(
-                crate::models::comment_write::COMMENT_UPDATE_REPLY_PATH,
-                json!({ "updateReplyParams": "P" }),
-            );
-            let got = it.comment_write(&web(), &edit, "edit_reply", Some("new text"), true).await;
+            let edit = WriteCommand::Endpoint {
+                path: crate::models::comment_write::COMMENT_UPDATE_REPLY_PATH.into(),
+                payload: json!({ "updateReplyParams": "P" }).as_object().cloned().unwrap(),
+                text_field: REPLY_EDIT_TEXT_FIELD,
+                kind: "edit_reply",
+            };
+            let got = it.comment_write(&web(), &edit, Some("new text"), true).await;
             assert!(
                 matches!(&got, Err(Error::Http(e)) if e.status().map(|s| s.as_u16()) == Some(status)),
                 "{got:?}"
@@ -2278,38 +1995,30 @@ mod tests {
             let body: serde_json::Value = serde_json::from_str(&sent[0].body).unwrap();
             let mut keys: Vec<&str> =
                 body.as_object().unwrap().keys().map(String::as_str).collect();
-            keys.sort();
+            keys.sort_unstable();
             assert_eq!(keys, ["context", "replyText", "updateReplyParams"]);
-            assert_eq!(body[crate::models::comment_write::REPLY_EDIT_TEXT_FIELD], "new text");
+            assert_eq!(body[REPLY_EDIT_TEXT_FIELD], "new text");
         }
     }
 
-    /// A delete's answer: no status, no mutations, `actions` with a `removeCommentAction`
-    /// (success) and an `openPopupAction` (the web client's toast, ignored). The marker is what
-    /// counts; without it a 200 with no status and no error is accepted as the fallback.
+    /// A delete's answer has no status (it carries a `removeCommentAction` and the web client's
+    /// toast): accepted, as is a bare 200; an `error` is not. A vote with the same answer still
+    /// needs a status.
     #[tokio::test]
-    async fn a_delete_answer_with_remove_comment_action_is_the_success_marker() {
-        let live = r#"{"responseContext":{},"actions":[
+    async fn a_delete_answer_without_a_status_is_accepted() {
+        let answer = r#"{"responseContext":{},"actions":[
             {"clickTrackingParams":"x","removeCommentAction":{"actionResult":{"status":"STATUS_SUCCEEDED"}}},
             {"clickTrackingParams":"y","openPopupAction":{"popup":{}}}]}"#;
         let popup_only = r#"{"responseContext":{},"actions":[{"clickTrackingParams":"y","openPopupAction":{}}]}"#;
         let bare = r#"{"responseContext":{}}"#;
         let failed = r#"{"actions":[{"removeCommentAction":{}}],"error":{"code":400}}"#;
-        let token = || WriteCommand::Action("fixture-token".into());
-        for (reply, ok) in [(live, true), (popup_only, true), (bare, true), (failed, false)] {
+        for (reply, ok) in [(answer, true), (popup_only, true), (bare, true), (failed, false)] {
             let server = MockServer::start(move |_: &Seen| (200, reply.to_owned()));
             let it = it_against(&server, true);
-            let got = it.comment_write(&web(), &token(), "delete", None, true).await;
+            let got = it.comment_write(&web(), &delete(), None, true).await;
             assert_eq!(got.is_ok(), ok, "{reply}");
         }
-        // The marker is read from actions[] only, whatever else is in the answer, and a vote
-        // (which never takes the marker or the fallback) still needs a status.
-        let v: serde_json::Value = serde_json::from_str(live).unwrap();
-        assert!(has_action(&v, "removeCommentAction") && has_action(&v, "openPopupAction"));
-        assert!(!has_action(&json!({ "removeCommentAction": {} }), "removeCommentAction"));
-        assert!(!has_action(&json!({ "actions": [1, null, "x"] }), "removeCommentAction"));
-        assert!(!has_action(&json!(null), "removeCommentAction"));
-        let server = MockServer::start(move |_: &Seen| (200, live.to_owned()));
+        let server = MockServer::start(move |_: &Seen| (200, answer.to_owned()));
         let it = it_against(&server, true);
         assert!(matches!(it.comment_action(&web(), "T", "like").await, Err(Error::ActionRejected)));
     }
@@ -2318,55 +2027,35 @@ mod tests {
     /// be pressed again), a rejection is a rejection, and none of them is `uncertain`.
     #[tokio::test]
     async fn a_delete_succeeds_on_a_404_and_is_never_uncertain() {
-        let token = || WriteCommand::Action("fixture-token".into());
         // 404: already gone, so done.
         let server = MockServer::start(|_: &Seen| (404, "{}".into()));
         let it = it_against(&server, true);
-        let got = it.comment_write(&web(), &token(), "delete", None, true).await;
+        let got = it.comment_write(&web(), &delete(), None, true).await;
         assert!(matches!(got, Ok(serde_json::Value::Null)), "{got:?}");
         assert_eq!(server.requests().len(), 1);
 
         // The same 404 on an edit is an error (the comment is gone, the edit did not happen).
         let it = it_against(&server, true);
-        let edit = endpoint("comment/update_comment", json!({ "updateCommentParams": "P" }));
-        let got = it.comment_write(&web(), &edit, "edit", Some("t"), true).await;
+        let got = it.comment_write(&web(), &edit(), Some("t"), true).await;
         assert!(matches!(&got, Err(e) if e.is_not_found()), "{got:?}");
 
         // A 500 (what a dead connection looks like after the retries) is a plain failure.
-        for status in [500] {
-            let server = MockServer::start(move |_: &Seen| (status, "{}".into()));
-            let it = it_against(&server, true);
-            let got = it.comment_write(&web(), &token(), "delete", None, true).await;
-            assert!(matches!(&got, Err(Error::Http(_))), "{status}: {got:?}");
-            assert!(!matches!(got, Err(Error::WriteUncertain)));
-        }
-        // A rejected status is a rejection, in both shapes.
+        let server = MockServer::start(|_: &Seen| (500, "{}".into()));
+        let it = it_against(&server, true);
+        let got = it.comment_write(&web(), &delete(), None, true).await;
+        assert!(matches!(&got, Err(Error::Http(_))), "{got:?}");
+
+        // A rejected status is a rejection, in both shapes, and so is an `error` with no status.
         for reply in [
             r#"{"actionResult":{"status":"STATUS_FAILED"}}"#,
             r#"{"actionResults":[{"status":"STATUS_FAILED"}]}"#,
+            r#"{"error":{"code":400}}"#,
         ] {
             let server = MockServer::start(move |_: &Seen| (200, reply.to_owned()));
             let it = it_against(&server, true);
-            let got = it.comment_write(&web(), &token(), "delete", None, true).await;
+            let got = it.comment_write(&web(), &delete(), None, true).await;
             assert!(matches!(got, Err(Error::ActionRejected)), "{reply}");
         }
-        // A 200 with an `error` is a rejection even with no status.
-        let server = MockServer::start(|_: &Seen| (200, r#"{"error":{"code":400}}"#.into()));
-        let it = it_against(&server, true);
-        let got = it.comment_write(&web(), &token(), "delete", None, true).await;
-        assert!(matches!(got, Err(Error::ActionRejected)));
-    }
-
-    /// A rejected answer from an endpoint write, in either shape, is `ActionRejected`.
-    #[tokio::test]
-    async fn a_failed_status_in_the_singular_shape_rejects_a_post() {
-        let server = MockServer::start(|_: &Seen| {
-            (200, r#"{"actionResult":{"status":"STATUS_FAILED"}}"#.to_owned())
-        });
-        let it = it_against(&server, true);
-        let cmd = endpoint("comment/create_comment", json!({ "createCommentParams": "P" }));
-        let got = it.comment_write(&web(), &cmd, "create", Some("t"), false).await;
-        assert!(matches!(got, Err(Error::ActionRejected)), "{got:?}");
     }
 
     /// The request as the server sees it, and what each answer turns into. The token is in the

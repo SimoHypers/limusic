@@ -604,13 +604,11 @@ export interface CommentsPage {
 	/** Next page of top-level comments; absent is the end of the list. */
 	continuation?: string;
 	state: CommentsState;
-	read_as_account: boolean;
 }
 
 export interface CommentReplies {
 	replies: Comment[];
 	continuation?: string;
-	read_as_account: boolean;
 }
 
 /** What a comment looks like after YouTube accepted an action on it. */
@@ -620,30 +618,14 @@ export interface CommentActionOutcome {
 }
 
 /** Why a comments command failed: `CommentsError` in `src-tauri/src/commands.rs`. */
-export type CommentsErrorKind =
-	| 'account_changed'
-	| 'stale_token'
-	| 'busy'
-	| 'unavailable'
-	| 'rejected'
-	| 'gone'
-	| 'uncertain'
-	| 'failed';
-
-const COMMENTS_ERROR_KINDS: readonly string[] = [
-	'account_changed',
-	'stale_token',
-	'busy',
-	'unavailable',
-	'rejected',
-	'gone',
-	'uncertain',
-	'failed'
-];
+const COMMENTS_ERROR_KINDS = ['account_changed', 'busy', 'rejected', 'gone', 'uncertain', 'failed'] as const;
+export type CommentsErrorKind = (typeof COMMENTS_ERROR_KINDS)[number];
 
 /** The kind out of whatever a comments command rejected with; anything unrecognised is `failed`. */
 export const commentsErrorKind = (e: unknown): CommentsErrorKind =>
-	typeof e === 'string' && COMMENTS_ERROR_KINDS.includes(e) ? (e as CommentsErrorKind) : 'failed';
+	typeof e === 'string' && (COMMENTS_ERROR_KINDS as readonly string[]).includes(e)
+		? (e as CommentsErrorKind)
+		: 'failed';
 
 export const getComments = (videoId: string) => invoke<CommentsPage>('get_comments', { videoId });
 /** The next page of comments, or the same comments in another order (a sort token). */

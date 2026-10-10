@@ -65,6 +65,9 @@ pub enum Error {
     /// [`InnerTube::post_write`].
     #[error("The request may have reached YouTube.")]
     WriteUncertain,
+    /// The signed-in account changed since the comments were read.
+    #[error("The signed-in account changed.")]
+    AccountChanged,
     /// A comment action or write answered 200 without success.
     #[error("YouTube did not accept that action.")]
     ActionRejected,
@@ -87,25 +90,16 @@ impl Error {
 /// comment request: they name the field YouTube did not take.
 async fn log_comment_refusal(path: &str, resp: reqwest::Response) {
     let value: serde_json::Value = resp.json().await.unwrap_or_default();
-    let error = value.get("error");
-    let status =
-        error.and_then(|e| e.get("status")).and_then(serde_json::Value::as_str).map_or("-", |s| {
-            let enum_like = s.len() <= 64
-                && s.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_');
-            if enum_like {
-                s
-            } else {
-                "unexpected"
-            }
-        });
-    let message: String = error
-        .and_then(|e| e.get("message"))
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("-")
-        .chars()
-        .take(200)
-        .collect();
+    let field = |k: &str| value.pointer(&format!("/error/{k}")).and_then(serde_json::Value::as_str);
+    let status = field("status").map_or("-", |s| enum_like(s).unwrap_or("unexpected"));
+    let message: String = field("message").unwrap_or("-").chars().take(200).collect();
     tracing::debug!(path, error_status = status, error_message = %message, "comment request answered 400");
+}
+
+/// `s` if it looks like an enum value (`STATUS_SUCCEEDED`), safe to log.
+pub(crate) fn enum_like(s: &str) -> Option<&str> {
+    (s.len() <= 64 && s.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_'))
+        .then_some(s)
 }
 
 /// Session state, set once at startup / login. context/01 §mutable session state.

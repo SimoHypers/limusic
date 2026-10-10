@@ -11,11 +11,9 @@
 		label,
 		submitLabel,
 		pending = false,
-		uncertain = false,
 		focus = false,
 		onsubmit,
-		oncancel,
-		onreload
+		oncancel
 	}: {
 		value?: string;
 		placeholder: string;
@@ -23,13 +21,10 @@
 		label: string;
 		submitLabel: string;
 		pending?: boolean;
-		/** The last send may have gone through and its answer was lost. */
-		uncertain?: boolean;
 		/** Take the keyboard focus when it appears (an inline reply or edit). */
 		focus?: boolean;
 		onsubmit: () => void;
 		oncancel?: () => void;
-		onreload?: () => void;
 	} = $props();
 
 	let ref = $state<HTMLTextAreaElement | null>(null);
@@ -62,15 +57,7 @@
 		class="min-h-16 text-sm"
 		{onkeydown}
 	/>
-	{#if uncertain}
-		<p role="status" class="text-xs text-muted-foreground">{t('comments.write_uncertain')}</p>
-	{/if}
 	<div class="flex items-center justify-end gap-2">
-		{#if uncertain && onreload}
-			<Button variant="secondary" size="sm" disabled={pending} onclick={onreload}>
-				{t('comments.reload')}
-			</Button>
-		{/if}
 		{#if oncancel}
 			<Button variant="ghost" size="sm" disabled={pending} onclick={oncancel}>
 				{t('common.cancel')}

@@ -21,7 +21,6 @@
 		isActing,
 		openEdit,
 		openReply,
-		reloadComments,
 		requestDelete,
 		shownCount,
 		submitDraft
@@ -47,9 +46,9 @@
 
 	const author = $derived(comment.author);
 
-	// Like and dislike buttons: only for a comment the response offered an action on (never signed
-	// out) or one the viewer has voted on here. A lit button's action undoes its vote, an unlit
-	// one's casts it; one that is not on offer stays visible but disabled, and says why.
+	// Like and dislike buttons, only for a comment the response offered an action on (never signed
+	// out). A lit button's action undoes its vote, an unlit one's casts it; one not on offer is
+	// disabled.
 	const count = $derived(shownCount(comment));
 	const acting = $derived(isActing(comment));
 	const liked = $derived(comment.vote === 'liked');
@@ -58,28 +57,8 @@
 	const dislikeAction = $derived<CommentAction>(disliked ? 'undislike' : 'dislike');
 	const likeOffered = $derived(comment.actions.includes(likeAction));
 	const dislikeOffered = $derived(comment.actions.includes(dislikeAction));
-	// While a request is in flight the actions are in transit, not missing: keep the normal label.
-	const likeLabel = $derived(
-		liked
-			? likeOffered || acting
-				? t('comments.remove_like')
-				: t('comments.liked_locked')
-			: likeOffered || acting
-				? t('comments.like')
-				: t('comments.like_unavailable')
-	);
-	const dislikeLabel = $derived(
-		disliked
-			? dislikeOffered || acting
-				? t('comments.remove_dislike')
-				: t('comments.disliked_locked')
-			: dislikeOffered || acting
-				? t('comments.dislike')
-				: t('comments.dislike_unavailable')
-	);
 	// The inline composer (a reply under this comment, or an edit in place of its text) belongs to
-	// this row when the draft names it. Only the viewer's own comments can be edited or deleted,
-	// and only when the response offered it; nothing is shown signed out.
+	// this row when the draft names it.
 	const draft = $derived(comments.draft);
 	const editing = $derived(draft.target?.kind === 'edit' && draft.target.id === comment.id);
 	const replying = $derived(draft.target?.kind === 'reply' && draft.target.id === comment.id);
@@ -93,7 +72,22 @@
 		'inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground enabled:hover:text-foreground disabled:cursor-default disabled:opacity-50 aria-pressed:text-primary aria-pressed:disabled:opacity-100 focus-visible:outline-2 focus-visible:outline-ring';
 </script>
 
-<div class="flex gap-3 px-4 py-2.5" data-row>
+{#snippet composer()}
+	<CommentComposer
+		bind:value={comments.draft.text}
+		placeholder={editing
+			? t('comments.edit_label')
+			: (comment.reply_placeholder ?? t('comments.reply_placeholder'))}
+		label={editing ? t('comments.edit_label') : t('comments.reply_placeholder')}
+		submitLabel={editing ? t('comments.save') : t('comments.post_reply')}
+		pending={draft.pending}
+		focus
+		onsubmit={submitDraft}
+		oncancel={cancelDraft}
+	/>
+{/snippet}
+
+<div class="flex gap-3 px-4 py-2.5">
 	<!-- after:hidden: the shadcn avatar's blended hairline is a pseudo-element per row. -->
 	<Avatar class="{reply ? 'size-6' : 'size-8'} after:hidden">
 		{#if author.avatar}<AvatarImage src={thumb(author.avatar, 64)} alt="" />{/if}
@@ -129,20 +123,7 @@
 			{#if comment.published}<span class="text-muted-foreground">{comment.published}</span>{/if}
 		</div>
 		{#if editing}
-			<div class="mt-1">
-				<CommentComposer
-					bind:value={comments.draft.text}
-					placeholder={t('comments.edit_label')}
-					label={t('comments.edit_label')}
-					submitLabel={t('comments.save')}
-					pending={draft.pending}
-					uncertain={draft.uncertain}
-					focus
-					onsubmit={submitDraft}
-					oncancel={cancelDraft}
-					onreload={reloadComments}
-				/>
-			</div>
+			<div class="mt-1">{@render composer()}</div>
 		{:else}
 			<p
 				class="mt-1 text-sm break-words whitespace-pre-wrap {long && !expanded ? 'line-clamp-5' : ''}"
@@ -165,7 +146,7 @@
 						type="button"
 						class={vote}
 						aria-pressed={liked}
-						aria-label={likeLabel}
+						aria-label={liked ? t('comments.remove_like') : t('comments.like')}
 						disabled={acting || !likeOffered}
 						onclick={() => actOnComment(comment, likeAction)}
 					>
@@ -176,7 +157,7 @@
 						type="button"
 						class={vote}
 						aria-pressed={disliked}
-						aria-label={dislikeLabel}
+						aria-label={disliked ? t('comments.remove_dislike') : t('comments.dislike')}
 						disabled={acting || !dislikeOffered}
 						onclick={() => actOnComment(comment, dislikeAction)}
 					>
@@ -234,20 +215,7 @@
 			{/if}
 		</div>
 		{#if replying}
-			<div class="mt-2">
-				<CommentComposer
-					bind:value={comments.draft.text}
-					placeholder={comment.reply_placeholder ?? t('comments.reply_placeholder')}
-					label={t('comments.reply_placeholder')}
-					submitLabel={t('comments.post_reply')}
-					pending={draft.pending}
-					uncertain={draft.uncertain}
-					focus
-					onsubmit={submitDraft}
-					oncancel={cancelDraft}
-					onreload={reloadComments}
-				/>
-			</div>
+			<div class="mt-2">{@render composer()}</div>
 		{/if}
 		{@render children?.()}
 	</div>

@@ -2,8 +2,7 @@
 //! token, and each comment's vote, action tokens and write commands per account identity. Plain
 //! data; the app clears it on every auth change and track change.
 
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::hash::Hash;
+use std::collections::{HashMap, HashSet};
 
 use crate::models::comment_write::{CommentWrite, WriteCommand, WriteCommands};
 use crate::models::comments::{
@@ -34,8 +33,8 @@ impl std::fmt::Debug for Provenance {
 /// Why an action was not sent. Plain reasons for the caller to word; never a token.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActionError {
-    /// Nothing is remembered for this comment under this identity (never loaded, evicted, or
-    /// loaded as someone else).
+    /// Nothing is remembered for this comment under this identity (never loaded, or loaded as
+    /// someone else).
     Unknown,
     /// The previous action on this comment has not finished.
     Busy,
@@ -55,42 +54,6 @@ impl ActionTicket {
         &self.token
     }
 }
-
-/// A map that forgets its oldest key first once it is over `cap`.
-struct Bounded<K, V> {
-    map: HashMap<K, V>,
-    order: VecDeque<K>,
-    cap: usize,
-}
-
-impl<K: Clone + Eq + Hash, V> Bounded<K, V> {
-    fn new(cap: usize) -> Self {
-        Bounded { map: HashMap::new(), order: VecDeque::new(), cap }
-    }
-
-    fn insert(&mut self, key: K, value: V) {
-        if self.map.insert(key.clone(), value).is_none() {
-            self.order.push_back(key);
-        }
-        while self.map.len() > self.cap {
-            match self.order.pop_front() {
-                Some(oldest) => {
-                    self.map.remove(&oldest);
-                }
-                None => break,
-            }
-        }
-    }
-
-    fn clear(&mut self) {
-        self.map.clear();
-        self.order.clear();
-    }
-}
-
-/// How much of each is kept. A page is ~20 comments, so this is dozens of pages of both.
-const MAX_TOKENS: usize = 512;
-const MAX_COMMENTS: usize = 1500;
 
 struct Entry {
     vote: Option<VoteState>,
@@ -113,31 +76,17 @@ impl WriteTicket {
     }
 }
 
+#[derive(Default)]
 pub struct CommentsSession {
-    tokens: Bounded<String, Provenance>,
-    comments: Bounded<(String, String), Entry>,
+    tokens: HashMap<String, Provenance>,
+    comments: HashMap<(String, String), Entry>,
     busy: HashSet<(String, String)>,
     /// The command that posts a top-level comment on the track on screen, and who it was issued
     /// to. Replaced by every page read as an account that carries one.
     composer: Option<(String, WriteCommand)>,
 }
 
-impl Default for CommentsSession {
-    fn default() -> Self {
-        Self::with_caps(MAX_TOKENS, MAX_COMMENTS)
-    }
-}
-
 impl CommentsSession {
-    fn with_caps(tokens: usize, comments: usize) -> Self {
-        CommentsSession {
-            tokens: Bounded::new(tokens),
-            comments: Bounded::new(comments),
-            busy: HashSet::new(),
-            composer: None,
-        }
-    }
-
     /// Forget everything: a sign-in, sign-out, account or channel switch, a heal that changed the
     /// session, or a different track.
     pub fn clear(&mut self) {
@@ -163,10 +112,7 @@ impl CommentsSession {
             self.tokens.insert(token.to_owned(), provenance.clone());
         }
         for thread in &page.threads {
-            self.remember_comment(provenance, &thread.comment);
-            for reply in &thread.replies {
-                self.remember_comment(provenance, reply);
-            }
+            self.remember_thread(provenance, thread);
         }
     }
 
@@ -209,7 +155,7 @@ impl CommentsSession {
 
     /// Who issued `token`. `None` for a token this session never handed out (or has forgotten).
     pub fn provenance(&self, token: &str) -> Option<Provenance> {
-        self.tokens.map.get(token).cloned()
+        self.tokens.get(token).cloned()
     }
 
     /// Approve `action` on a comment for `identity` if [`available_actions`] offers it, and mark
@@ -221,7 +167,7 @@ impl CommentsSession {
         action: CommentAction,
     ) -> Result<ActionTicket, ActionError> {
         let key = (identity.to_owned(), comment_id.to_owned());
-        let entry = self.comments.map.get(&key).ok_or(ActionError::Unknown)?;
+        let entry = self.comments.get(&key).ok_or(ActionError::Unknown)?;
         if self.busy.contains(&key) {
             return Err(ActionError::Busy);
         }
@@ -244,7 +190,7 @@ impl CommentsSession {
         let key = (identity.to_owned(), comment_id.to_owned());
         self.busy.remove(&key);
         let vote = accepted?;
-        let entry = self.comments.map.get_mut(&key)?;
+        let entry = self.comments.get_mut(&key)?;
         entry.vote = Some(vote);
         Some((vote, available_actions(entry.vote, &entry.tokens)))
     }
@@ -261,7 +207,7 @@ impl CommentsSession {
         write: CommentWrite,
     ) -> Result<WriteTicket, ActionError> {
         let key = (identity.to_owned(), comment_id.to_owned());
-        let entry = self.comments.map.get(&key).ok_or(ActionError::Unknown)?;
+        let entry = self.comments.get(&key).ok_or(ActionError::Unknown)?;
         if self.busy.contains(&key) {
             return Err(ActionError::Busy);
         }
@@ -276,7 +222,7 @@ impl CommentsSession {
         let key = (identity.to_owned(), comment_id.to_owned());
         self.busy.remove(&key);
         if removed {
-            self.comments.map.remove(&key);
+            self.comments.remove(&key);
         }
     }
 
@@ -285,7 +231,7 @@ impl CommentsSession {
     pub fn forget(&mut self, identity: &str, comment_id: &str) {
         let key = (identity.to_owned(), comment_id.to_owned());
         self.busy.remove(&key);
-        self.comments.map.remove(&key);
+        self.comments.remove(&key);
     }
 
     /// Approve posting a top-level comment for `identity`: only with the command the page read as
@@ -309,10 +255,10 @@ impl CommentsSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::comments::tests::{load, replies_write_page, vote_page, write_page};
     use crate::models::comments::{parse_comment_replies, parse_comments_page};
     use CommentAction::*;
 
-    const SIGNED_IN: &str = include_str!("../tests/fixtures/comments/signed_in_synthetic.json");
     const INITIAL: &str = include_str!("../tests/fixtures/comments/initial_pinned_hearted.json");
     const REPLIES: &str = include_str!("../tests/fixtures/comments/replies.json");
 
@@ -321,25 +267,18 @@ mod tests {
     }
 
     fn signed_in_page() -> CommentsPage {
-        let mut page = parse_comments_page(&serde_json::from_str(SIGNED_IN).unwrap(), false);
-        page.read_as_account = true;
-        page
+        parse_comments_page(&vote_page(), false)
     }
 
-    fn comment_id(page: &CommentsPage, ends_with: &str) -> String {
-        page.threads
-            .iter()
-            .find(|t| t.comment.text.ends_with(ends_with))
-            .unwrap_or_else(|| panic!("no {ends_with}"))
-            .comment
-            .id
-            .clone()
+    fn comment_id(page: &CommentsPage, id: &str) -> String {
+        assert!(page.threads.iter().any(|t| t.comment.id == id), "no {id}");
+        id.to_owned()
     }
 
     #[test]
     fn every_token_handed_out_remembers_who_it_was_issued_to() {
         let mut s = CommentsSession::default();
-        let page = parse_comments_page(&serde_json::from_str(INITIAL).unwrap(), true);
+        let page = parse_comments_page(&load(INITIAL), true);
         s.remember_page(&Provenance::Anonymous, &page);
         let next = page.continuation.clone().unwrap();
         assert_eq!(s.provenance(&next), Some(Provenance::Anonymous));
@@ -351,7 +290,7 @@ mod tests {
         assert_eq!(s.provenance("never-issued"), None);
 
         // The same session can hold tokens of two identities, each remembered as its own.
-        let mut replies_page = parse_comment_replies(&serde_json::from_str(REPLIES).unwrap());
+        let mut replies_page = parse_comment_replies(&load(REPLIES));
         replies_page.continuation = Some("tok-more-replies".into());
         s.remember_replies(&account("a"), &replies_page);
         assert_eq!(s.provenance("tok-more-replies"), Some(account("a")));
@@ -383,7 +322,11 @@ mod tests {
             assert!(!shown.contains(WHO), "the identity reached Debug output: {shown}");
             assert!(!shown.contains("fixture-token"), "a token reached Debug output");
         }
-        assert_eq!(ticket.token(), "fixture-token-like-1", "and the ticket still has its token");
+        assert_eq!(
+            ticket.token(),
+            "fixture-token-like-neutral",
+            "and the ticket still has its token"
+        );
     }
 
     #[test]
@@ -435,7 +378,7 @@ mod tests {
         let neutral = comment_id(&page, "neutral");
         assert_eq!(s.begin_action("a", &neutral, Unlike).err(), Some(ActionError::Unavailable));
         let t = s.begin_action("a", &neutral, Like).ok().unwrap();
-        assert_eq!(t.token(), "fixture-token-like-1");
+        assert_eq!(t.token(), "fixture-token-like-neutral");
         assert_eq!(t.resulting_vote, VoteState::Liked);
         let (vote, next) = s.finish_action("a", &neutral, Some(t.resulting_vote)).unwrap();
         assert_eq!(vote, VoteState::Liked);
@@ -443,12 +386,12 @@ mod tests {
 
         // Liked -> disliked is the single `dislike` request, with its own token: no unlike first.
         let t = s.begin_action("a", &neutral, Dislike).ok().unwrap();
-        assert_eq!(t.token(), "fixture-token-dislike-1");
+        assert_eq!(t.token(), "fixture-token-dislike-neutral");
         assert_eq!(t.resulting_vote, VoteState::Disliked);
         s.finish_action("a", &neutral, Some(t.resulting_vote)).unwrap();
         // ...and back: disliked -> liked is the single `like` request.
         let t = s.begin_action("a", &neutral, Like).ok().unwrap();
-        assert_eq!(t.token(), "fixture-token-like-1");
+        assert_eq!(t.token(), "fixture-token-like-neutral");
         s.finish_action("a", &neutral, None);
 
         // A comment with only a like token: dislike is unavailable, never faked in two steps.
@@ -488,14 +431,8 @@ mod tests {
         assert_eq!(vote, VoteState::Liked);
     }
 
-    const WRITES: &str = include_str!("../tests/fixtures/comments/signed_in_write_synthetic.json");
-    const REPLIES_WRITES: &str =
-        include_str!("../tests/fixtures/comments/signed_in_replies_write_synthetic.json");
-
     fn writes_page() -> CommentsPage {
-        let mut page = parse_comments_page(&serde_json::from_str(WRITES).unwrap(), true);
-        page.read_as_account = true;
-        page
+        parse_comments_page(&write_page(), true)
     }
 
     fn command_path(t: &WriteTicket) -> String {
@@ -552,14 +489,12 @@ mod tests {
             s.begin_write("a", &bare, CommentWrite::Edit),
             Err(ActionError::Unavailable)
         ));
-        // A reply with no `createReplyParams` is not offered; one with no apiUrl is (constant path).
-        let none = comment_id(&page, "reply_empty_payload");
+        // A comment with no reply button cannot be replied to.
+        let none = comment_id(&page, "no_reply");
         assert!(matches!(
             s.begin_write("a", &none, CommentWrite::Reply),
             Err(ActionError::Unavailable)
         ));
-        let no_path = comment_id(&page, "reply_no_api_url");
-        assert!(s.begin_write("a", &no_path, CommentWrite::Reply).is_ok());
     }
 
     #[test]
@@ -591,11 +526,11 @@ mod tests {
     #[test]
     fn replies_are_remembered_with_their_commands_under_the_reading_identity() {
         let mut s = CommentsSession::default();
-        let mut replies = parse_comment_replies(&serde_json::from_str(REPLIES_WRITES).unwrap());
-        replies.continuation = Some("fixture-more-replies".into());
+        let replies = parse_comment_replies(&replies_write_page());
         s.remember_replies(&account("a"), &replies);
-        let id = |text: &str| {
-            replies.replies.iter().find(|c| c.text.ends_with(text)).unwrap().id.clone()
+        let id = |id: &str| {
+            assert!(replies.replies.iter().any(|c| c.id == id), "no {id}");
+            id.to_owned()
         };
         for own in [id("own_reply"), id("nested_own_reply")] {
             for w in [CommentWrite::Edit, CommentWrite::Delete] {
@@ -642,34 +577,12 @@ mod tests {
         let mut s = CommentsSession::default();
         s.remember_page(&account("a"), &writes_page());
         let t = s.begin_create("a").ok().unwrap();
-        assert_eq!(command_path(&t), crate::COMMENT_CREATE_PATH);
+        assert_eq!(command_path(&t), crate::models::comment_write::COMMENT_CREATE_PATH);
         assert!(matches!(s.begin_create("a"), Err(ActionError::Busy)));
         s.finish_create("a");
         assert!(s.begin_create("a").is_ok());
         s.clear();
         s.finish_create("a");
         assert!(matches!(s.begin_create("a"), Err(ActionError::Unknown)));
-    }
-
-    #[test]
-    fn both_maps_are_bounded_and_forget_the_oldest_first() {
-        let mut s = CommentsSession::with_caps(3, 2);
-        for n in 0..5 {
-            s.tokens.insert(format!("t{n}"), Provenance::Anonymous);
-        }
-        assert_eq!(s.provenance("t0"), None);
-        assert_eq!(s.provenance("t1"), None);
-        for n in 2..5 {
-            assert!(s.provenance(&format!("t{n}")).is_some());
-        }
-        assert_eq!(s.tokens.map.len(), 3);
-
-        let page = signed_in_page();
-        s.remember_page(&account("a"), &page);
-        assert_eq!(s.comments.map.len(), 2, "capped");
-        // Re-inserting a key already there does not grow the order queue.
-        let before = s.comments.order.len();
-        s.remember_page(&account("a"), &page);
-        assert_eq!(s.comments.order.len(), before);
     }
 }
