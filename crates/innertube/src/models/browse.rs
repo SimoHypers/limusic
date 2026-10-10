@@ -1765,6 +1765,21 @@ mod tests {
         assert!(parse_playlist_suggestions(&json!({})).items.is_empty());
     }
 
+    /// A real first batch (captured 2026-10-11 off a 49-track playlist, trimmed to two rows and
+    /// scrubbed): each row's add button carries a copy of the row, and the shelf's Refresh is a
+    /// `reloadContinuationData`.
+    #[test]
+    fn parses_a_captured_suggestions_shelf() {
+        let root: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/playlist_suggestions_shelf.json"
+        ))
+        .unwrap();
+        let batch = parse_playlist_suggestions(&root);
+        assert_eq!(batch.items.len(), 2);
+        assert!(batch.items.iter().all(|s| !s.title.is_empty() && !s.artists.is_empty()));
+        assert_eq!(batch.refresh.as_deref(), Some("CONTINUATION_SCRUBBED"));
+    }
+
     /// What the "Edit playlist" dialog prefills from. Both fields have to survive the round trip:
     /// a description read back as `None` is one the dialog would offer to overwrite with nothing.
     #[test]

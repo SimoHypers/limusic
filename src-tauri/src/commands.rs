@@ -991,15 +991,20 @@ pub async fn get_playlist_more(
     state.it.playlist_continuation(client, &token).await.map_err(|e| e.to_string())
 }
 
-/// A batch of the suggestions shelf under a playlist you own (#395). `token` is the page's
-/// `suggestions`, or the previous batch's `refresh`.
+/// A batch of suggestions for a playlist you own (#395). `token` is the page's `suggestions`, the
+/// previous batch's `refresh`, or nothing (see `InnerTube::playlist_suggestions`).
 #[tauri::command]
 pub async fn get_playlist_suggestions(
     state: St<'_>,
-    token: String,
+    playlist_id: String,
+    token: Option<String>,
 ) -> Result<PlaylistSuggestions, String> {
     let client = metadata_client(&state)?;
-    state.it.playlist_suggestions(client, &token).await.map_err(|e| e.to_string())
+    state
+        .it
+        .playlist_suggestions(client, &playlist_id, token.as_deref())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// An album page. `id` is the album browseId (`MPRE…`).

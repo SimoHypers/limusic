@@ -1200,11 +1200,17 @@
 				{/if}
 			</div>
 			<!-- After the last row, so only once every page is in, and not under a filter's matches,
-			     which it would read as part of. Outside the list's wrapper so a re-sort doesn't dim it. -->
-			{#if editable && pl.suggestions && !pl.continuation && !filtering}
+			     which it would read as part of. Outside the list's wrapper so a re-sort doesn't dim it.
+			     Every playlist of yours on YouTube: one with no shelf of its own gets its radio's. -->
+			{#if editable && !isLocalList && !pl.continuation && !filtering}
 				<div class="px-4 pb-6">
 					{#key id}
-						<PlaylistSuggestions token={pl.suggestions} onadd={addSuggestion} />
+						<PlaylistSuggestions
+							playlistId={id}
+							token={pl.suggestions}
+							current={() => pl?.items ?? []}
+							onadd={addSuggestion}
+						/>
 					{/key}
 				</div>
 			{/if}

@@ -648,19 +648,44 @@ impl InnerTube {
         Ok(browse::parse_playlist_continuation(&value))
     }
 
-    /// The "Suggestions" shelf under a playlist you own (#395), from `PlaylistPage::suggestions`
-    /// or a previous batch's `refresh`. YouTube's picks, not rows the user asked for, so both the
-    /// blocklist and "hide music videos" apply.
+    /// Suggestions for a playlist you own (#395). `token` is the page's `suggestions`, a previous
+    /// batch's `refresh`, or `None` when the page offered no shelf.
+    ///
+    /// YouTube Music's own shelf first. It answers nothing at all for a playlist past 100 tracks
+    /// (a Premium promo and no rows, checked live on a 122- and a 189-track one, 2026-10-11), so an
+    /// empty shelf, or none, falls back to the playlist's radio. That barely repeats the playlist
+    /// (5 of 49 rows on the 122-track one), and the caller drops those few. YouTube's picks, not
+    /// rows the user asked for, so the blocklist and "hide music videos" apply to both.
     pub async fn playlist_suggestions(
         &self,
         client: &YouTubeClient,
-        token: &str,
+        playlist_id: &str,
+        token: Option<&str>,
     ) -> Result<PlaylistSuggestions, Error> {
-        let value = self.browse_continuation(client, token).await?;
-        let mut batch = browse::parse_playlist_suggestions(&value);
-        self.drop_video_songs(&mut batch.items);
-        self.drop_blocked_songs(&mut batch.items, None);
-        Ok(batch)
+        let after = match token.map(|t| (t, t.strip_prefix(RADIO_MARK))) {
+            Some((_, Some(video))) => Some(video).filter(|v| !v.is_empty()),
+            Some((shelf, None)) => {
+                let value = self.browse_continuation(client, shelf).await?;
+                let mut batch = browse::parse_playlist_suggestions(&value);
+                self.drop_video_songs(&mut batch.items);
+                self.drop_blocked_songs(&mut batch.items, None);
+                if !batch.items.is_empty() {
+                    // A shelf with no Refresh of its own hands the next one to the radio.
+                    batch.refresh.get_or_insert_with(|| RADIO_MARK.to_owned());
+                    return Ok(batch);
+                }
+                None
+            }
+            None => None,
+        };
+        // The radio continues past a window the way autoplay extends one: ask again from its last
+        // track (`extend_queue_radio`).
+        let radio = format!("RDAMPL{}", playlist_id.strip_prefix("VL").unwrap_or(playlist_id));
+        let next = self.next(client, after, Some(&radio)).await?;
+        Ok(PlaylistSuggestions {
+            refresh: next.items.last().map(|s| format!("{RADIO_MARK}{}", s.video_id)),
+            items: next.items,
+        })
     }
 
     // --- lyrics (context/08 §lyrics; browseId comes from `next`) -----------------------------
@@ -1123,6 +1148,11 @@ impl InnerTube {
         Ok(())
     }
 }
+
+/// Starts a `PlaylistSuggestions::refresh` that continues the playlist's radio rather than YouTube's
+/// own shelf, followed by the track the next window starts from (nothing: from the top). A shelf
+/// token is base64, so it can never start with this.
+const RADIO_MARK: &str = "radio:";
 
 /// Where custom playlist artwork goes up. Not a `youtubei/v1` endpoint: it is Google's generic
 /// resumable uploader, sitting on `music.youtube.com` under its own path. context/01.

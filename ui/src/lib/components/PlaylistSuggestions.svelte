@@ -11,15 +11,21 @@
 	import { openAddToPlaylist, playback, toast } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
 
-	// YouTube Music's "Suggestions" shelf under a playlist you own (#395). Inline at the foot of the
-	// list rather than in a dialog: a pick lands in the rows right above it, so you watch the
-	// playlist grow as you go, and nothing covers what you are building.
+	// Suggestions under a playlist you own (#395): YouTube Music's own shelf, or the playlist's
+	// radio where YouTube has none (past 100 tracks). Inline at the foot of the list rather than in
+	// a dialog: a pick lands in the rows right above it, so you watch the playlist grow as you go,
+	// and nothing covers what you are building.
 	let {
+		playlistId,
 		token,
+		current,
 		onadd
 	}: {
+		playlistId: string;
 		/** `PlaylistPage.suggestions`. Read when the shelf first scrolls near, not at mount. */
-		token: string;
+		token?: string;
+		/** The playlist's rows, so a suggestion it already holds is skipped. */
+		current: () => SongItem[];
 		/** Puts the song in the playlist. Answers whether it stuck. */
 		onadd: (song: SongItem) => Promise<boolean>;
 	} = $props();
@@ -29,10 +35,18 @@
 	// How long a picked row shows "Added" before it folds away: long enough to read, short enough
 	// that picking down the list never waits on it.
 	const LINGER_MS = 450;
+	// Rows on the shelf at once. YouTube's own shelf comes in sevens; a radio window is ~50.
+	const SHOW = 10;
 
 	// Raw: every write reassigns, and the rows go to TrackRow and `onadd` as plain objects.
 	let items = $state.raw<SongItem[]>([]);
-	let refresh: string | undefined;
+	// Fetched and not shown yet, so Refresh deals out the rest of a radio window before it asks
+	// YouTube for another.
+	let pool: SongItem[] = [];
+	// Everything fetched so far: radio windows overlap, and a Refresh should never repeat a row.
+	const seen = new Set<string>();
+	// Where the next fetch picks up: the last batch's `refresh`, or `token` before the first.
+	let cursor: string | undefined;
 	let loading = $state(false);
 	let failed = $state(false);
 	let fetched = $state(false);
@@ -41,14 +55,28 @@
 	// Rows showing "Added" while they linger.
 	const picked = new SvelteSet<string>();
 
+	async function refill() {
+		// A window can be all rows already seen or already in the playlist. A couple more tries
+		// reach fresh ones; the cap keeps a radio that has run dry from asking forever.
+		for (let tries = 0; tries < 3 && !pool.length; tries++) {
+			const got = await api.getPlaylistSuggestions(playlistId, cursor ?? token);
+			const have = new Set(current().map((s) => s.video_id));
+			pool = got.items.filter((s) => !seen.has(s.video_id) && !have.has(s.video_id));
+			for (const s of got.items) seen.add(s.video_id);
+			const stuck = !got.refresh || got.refresh === cursor;
+			cursor = got.refresh ?? cursor;
+			if (stuck) break;
+		}
+	}
+
 	async function load() {
 		if (loading) return;
 		loading = true;
 		failed = false;
 		try {
-			const next = await api.getPlaylistSuggestions(refresh ?? token);
-			items = next.items;
-			refresh = next.refresh;
+			if (!pool.length) await refill();
+			items = pool.slice(0, SHOW);
+			pool = pool.slice(SHOW);
 			picked.clear();
 			batch++;
 		} catch {

@@ -272,7 +272,8 @@ export interface PlaylistPage {
 	collaborative: boolean;
 	/** Absent on lists YouTube will not reorder: albums, its own radio mixes, On Repeat. */
 	sortMenu?: SortMenu;
-	/** Token for YouTube's suggestions shelf (`getPlaylistSuggestions`). Playlists you own only. */
+	/** YouTube's own suggestions shelf (`getPlaylistSuggestions`), on playlists you own under 100
+	 *  tracks. The rest get suggestions all the same, from the playlist's radio. */
 	suggestions?: string;
 }
 export interface PlaylistContinuation {
@@ -605,9 +606,9 @@ export const setPlaylistSort = (playlistId: string, sort: ServerSort) =>
 	invoke<void>('set_playlist_sort', { playlistId, sort });
 export const getPlaylistMore = (token: string) =>
 	invoke<PlaylistContinuation>('get_playlist_more', { token });
-/** `token` is `PlaylistPage.suggestions`, or the last batch's `refresh`. */
-export const getPlaylistSuggestions = (token: string) =>
-	invoke<PlaylistSuggestions>('get_playlist_suggestions', { token });
+/** `token` is `PlaylistPage.suggestions`, the last batch's `refresh`, or nothing at all. */
+export const getPlaylistSuggestions = (playlistId: string, token?: string) =>
+	invoke<PlaylistSuggestions>('get_playlist_suggestions', { playlistId, token });
 /**
  * videoId → the ids of the playlists you own that hold it. Read straight from local SQLite, so it
  * answers instantly and is empty until `syncPlaylistIndex` has filled it in at least once.
