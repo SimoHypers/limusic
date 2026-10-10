@@ -134,7 +134,7 @@
 				<span
 					class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"
 				>
-					<HugeiconsIcon icon={LayerAddIcon} class="h-4 w-4" />
+					<HugeiconsIcon icon={LayerAddIcon} strokeWidth={2} class="h-4 w-4" />
 				</span>
 				<div class="min-w-0">
 					<h2 class="truncate font-heading text-xl font-bold tracking-tight">
