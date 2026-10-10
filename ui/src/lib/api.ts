@@ -632,7 +632,7 @@ export interface CommentActionOutcome {
  *  - `unavailable`: the comment does not offer that action.
  *  - `rejected`: YouTube answered and did not accept the action.
  *  - `gone`: YouTube says the comment no longer exists (a 404 on a request about it): drop it.
- *  - `uncertain`: a write whose outcome is unknown (the answer was lost): it may have been
+ *  - `uncertain`: a post or reply whose outcome is unknown (the answer was lost): it may have been
  *    posted, so offer a reload and never resend by itself.
  *  - `failed`: anything else (network, refusals).
  */

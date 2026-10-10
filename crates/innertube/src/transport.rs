@@ -61,8 +61,9 @@ pub enum Error {
     SessionExpired,
     #[error("This track is already in the playlist.")]
     AlreadyInPlaylist,
-    /// A comment write whose outcome is unknown: the request may have reached YouTube and only the
-    /// answer was lost, so it may have been posted. Never retried automatically.
+    /// A post or reply whose outcome is unknown: the request may have reached YouTube and only the
+    /// answer was lost, so it may have been posted. Never retried automatically. (An edit and a
+    /// delete are idempotent: they are retried and never come back as this.)
     #[error("The request may have reached YouTube.")]
     WriteUncertain,
     /// A comment action that came back 200 without `STATUS_SUCCEEDED`. A variant of its own so
@@ -430,8 +431,8 @@ impl InnerTube {
         self.post_inner(path, client, body, set_login, false, true).await
     }
 
-    /// [`InnerTube::post`] for a write that is not idempotent (posting, replying, editing a
-    /// comment): it is never sent twice by this layer. The ordinary retry on a connect error or
+    /// [`InnerTube::post`] for a write that is not idempotent (posting a comment, replying): it is
+    /// never sent twice by this layer. The ordinary retry on a connect error or
     /// timeout would post a duplicate whenever the request reached YouTube and only the answer was
     /// lost. A refusal (401/403) is still healed and re-sent, since the server rejected that
     /// request without acting on it.

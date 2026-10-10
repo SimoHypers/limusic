@@ -327,7 +327,9 @@ export async function actOnComment(c: Comment, action: CommentAction) {
 //
 // No optimistic insert for a post, reply or edit (YouTube may refuse the text): the composer shows
 // a pending state and keeps its text if anything goes wrong. A delete hides the row at once and
-// puts it back if it fails. Rust never resends a write; a lost answer is `uncertain`.
+// puts it back if it fails. Rust never resends a post or a reply, and a lost answer to one is
+// `uncertain`; an edit and a delete are idempotent, so the transport retries them and a final
+// failure is a plain one (the row keeps its text, the composer keeps the new one, a toast says so).
 //
 // After a post or a reply the list is NOT reloaded: YouTube's reads are not consistent right
 // after a write (a reload 0.26 s later did not have the comment). The row comes from the

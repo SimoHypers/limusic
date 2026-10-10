@@ -501,6 +501,8 @@ mod tests {
     }
 
     const WRITES: &str = include_str!("../tests/fixtures/comments/signed_in_write_synthetic.json");
+    const REPLIES_WRITES: &str =
+        include_str!("../tests/fixtures/comments/signed_in_replies_write_synthetic.json");
 
     fn writes_page() -> CommentsPage {
         let mut page = parse_comments_page(&serde_json::from_str(WRITES).unwrap(), true);
@@ -593,6 +595,40 @@ mod tests {
         s.finish_write("a", &own, true);
         assert!(matches!(s.begin_write("a", &own, CommentWrite::Edit), Err(ActionError::Unknown)));
         assert!(matches!(s.begin_action("a", &own, Like), Err(ActionError::Unknown)));
+    }
+
+    /// A replies page is remembered under the identity that read it, nested replies included:
+    /// the viewer's own reply can be edited and deleted, someone else's cannot, and another
+    /// identity gets nothing.
+    #[test]
+    fn replies_are_remembered_with_their_commands_under_the_reading_identity() {
+        let mut s = CommentsSession::default();
+        let mut replies = parse_comment_replies(&serde_json::from_str(REPLIES_WRITES).unwrap());
+        replies.continuation = Some("fixture-more-replies".into());
+        s.remember_replies(&account("a"), &replies);
+        let id = |text: &str| {
+            replies.replies.iter().find(|c| c.text.ends_with(text)).unwrap().id.clone()
+        };
+        for own in [id("own_reply"), id("nested_own_reply")] {
+            for w in [CommentWrite::Edit, CommentWrite::Delete] {
+                assert!(s.begin_write("a", &own, w).is_ok(), "{own} {w:?}");
+                s.finish_write("a", &own, false);
+                assert!(matches!(s.begin_write("b", &own, w), Err(ActionError::Unknown)));
+            }
+        }
+        for other in [id("other_reply"), id("nested_other_reply")] {
+            assert!(matches!(
+                s.begin_write("a", &other, CommentWrite::Edit),
+                Err(ActionError::Unavailable)
+            ));
+            assert!(matches!(
+                s.begin_write("a", &other, CommentWrite::Delete),
+                Err(ActionError::Unavailable)
+            ));
+            assert!(s.begin_write("a", &other, CommentWrite::Reply).is_ok());
+            s.finish_write("a", &other, false);
+        }
+        assert_eq!(s.provenance("fixture-more-replies"), Some(account("a")));
     }
 
     #[test]

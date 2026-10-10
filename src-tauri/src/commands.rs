@@ -796,8 +796,10 @@ pub enum CommentsError {
     /// YouTube answered 404 for a request about one comment: it no longer exists (it was
     /// deleted, here or elsewhere). The UI drops the row.
     Gone,
-    /// A comment write whose outcome is unknown: the request may have reached YouTube and only
+    /// A post or reply whose outcome is unknown: the request may have reached YouTube and only
     /// the answer was lost, so it may have been posted. Never retried; the UI offers a reload.
+    /// Only create and reply come back as this: an edit and a delete are idempotent, retried by
+    /// the transport, and a final failure is a plain `Failed`.
     Uncertain,
     /// Anything else: network, refusals, an unreadable answer.
     Failed,
@@ -982,8 +984,9 @@ pub async fn comment_action(
 // `innertube::WriteCommand`), looked up here under the active account: nothing is built from
 // what the UI sends but the text and the id of the comment. They are the user's own actions, so
 // they go the ordinary authenticated way (healer included), need a login, and are refused for a
-// command issued to another account or channel. Posting, replying and editing are never sent
-// twice (`InnerTube::comment_write`); a lost answer comes back as `uncertain`.
+// command issued to another account or channel. Posting and replying are never sent twice
+// (`InnerTube::comment_write`); a lost answer comes back as `uncertain`. An edit and a delete
+// are idempotent, so they take the ordinary path, retries included.
 
 /// The text of a comment about to be sent: trimmed, and not empty. YouTube's own limit is not
 /// ours to guess at; a response that names none leaves it to YouTube.
@@ -1020,10 +1023,11 @@ async fn write_on_comment(
         .unwrap()
         .begin_write(&identity, comment_id, write)
         .map_err(write_denied)?;
-    // Only a delete may be sent again by the transport.
+    // An edit (the same text twice gives the same result) and a delete may be sent again by the
+    // transport; a reply may not.
     let sent = state
         .it
-        .comment_write(client, ticket.command(), write.name(), text, write == CommentWrite::Delete)
+        .comment_write(client, ticket.command(), write.name(), text, write != CommentWrite::Reply)
         .await;
     // Under the identity it was sent as, whoever is active now. A delete that went through, and
     // a comment YouTube says is gone (404), are forgotten.
@@ -1036,6 +1040,21 @@ async fn write_on_comment(
     );
     let answer = sent.map_err(|e| CommentsError::of_comment(&e, write.name()))?;
     Ok((answer, identity))
+}
+
+/// A comment the viewer just wrote, from an answer: if it has no Edit or Delete (the answer's
+/// toolbar surface carried no menu, or the comment came from its entity alone), say so once, with
+/// the key names and types under it. They then appear on it after the next read.
+fn log_written_menu(kind: &'static str, comment: &Comment, answer: &serde_json::Value) {
+    let offered = |w| comment.writes.contains(&w);
+    if comment.own && !offered(CommentWrite::Edit) && !offered(CommentWrite::Delete) {
+        tracing::debug!(
+            kind,
+            probe = %innertube::own_comment_probe(answer)
+                .unwrap_or_else(|| "no commentViewModel in the answer".into()),
+            "written comment has no menu"
+        );
+    }
 }
 
 /// Post a new top-level comment on the track whose comments are on screen. Returns the comment
@@ -1059,6 +1078,7 @@ pub async fn comment_create(
     let answer = sent.map_err(|e| CommentsError::of(&e))?;
     let thread = innertube::parse_written_comment(&answer);
     if let Some(thread) = &thread {
+        log_written_menu("create", &thread.comment, &answer);
         // Its own tokens and commands, so it can be liked, edited and deleted right away.
         let who = Provenance::Account(identity);
         state.comments.lock().unwrap().remember_thread(&who, thread);
@@ -1083,6 +1103,7 @@ pub async fn comment_reply(
         write_on_comment(&state, &comment_id, CommentWrite::Reply, Some(text)).await?;
     let thread = innertube::parse_written_comment(&answer);
     if let Some(thread) = &thread {
+        log_written_menu("reply", &thread.comment, &answer);
         state.comments.lock().unwrap().remember_thread(&Provenance::Account(identity), thread);
     }
     tracing::debug!(

@@ -30,9 +30,9 @@ pub use models::comment_write::{
     COMMENT_UPDATE_PATH,
 };
 pub use models::comments::{
-    available_actions, parse_written_comment, ActionTokens, Comment, CommentAction, CommentAuthor,
-    CommentReplies, CommentSort, CommentSortKey, CommentThread, CommentsHeader, CommentsPage,
-    CommentsState, VoteState,
+    available_actions, own_comment_probe, parse_written_comment, ActionTokens, Comment,
+    CommentAction, CommentAuthor, CommentReplies, CommentSort, CommentSortKey, CommentThread,
+    CommentsHeader, CommentsPage, CommentsState, VoteState,
 };
 pub use models::context::Locale;
 pub use models::lyrics::{PlainLyrics, TimedLyricLine};

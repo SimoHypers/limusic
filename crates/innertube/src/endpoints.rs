@@ -330,7 +330,7 @@ impl InnerTube {
         if as_account {
             log_account_read("first page", &ViewerSummary::of_page(&page));
             log_viewer_state_gaps(&value, &page);
-            log_own_comment_commands(&value, &page);
+            log_own_comment_commands("first page", &value, page_comments(&page));
             log_reply_commands(&value, &page);
         }
         Ok(page)
@@ -356,7 +356,7 @@ impl InnerTube {
         page.read_as_account = as_account;
         if as_account {
             log_account_read("continuation", &ViewerSummary::of_page(&page));
-            log_own_comment_commands(&value, &page);
+            log_own_comment_commands("continuation", &value, page_comments(&page));
             log_reply_commands(&value, &page);
         }
         Ok(page)
@@ -376,6 +376,7 @@ impl InnerTube {
         replies.read_as_account = as_account;
         if as_account {
             log_account_read("replies", &ViewerSummary::of_replies(&replies));
+            log_own_comment_commands("replies", &value, replies.replies.iter());
         }
         Ok(replies)
     }
@@ -503,16 +504,18 @@ impl InnerTube {
     /// are sent as they were; `text` is added as `commentText` for the ones that take it. `kind`
     /// (`create`, `reply`, `edit`, `delete`) names it in the logs, next to the path it went to.
     ///
-    /// `replayable` says whether sending it twice is harmless. Posting, replying and editing are
-    /// not (a retry after a lost answer would post twice), so those go through
-    /// [`InnerTube::post_write`], which never retries and reports a lost answer as
-    /// `Error::WriteUncertain`; only a delete passes `true` and takes the ordinary path. A user's
-    /// own action, so the healer may run on a refusal, like `rate`.
+    /// `replayable` says whether sending it twice is harmless. Posting and replying are not (a
+    /// retry after a lost answer would post twice), so those go through [`InnerTube::post_write`],
+    /// which never retries and reports a lost answer as `Error::WriteUncertain`. An edit (setting
+    /// the same text twice gives the same result) and a delete pass `true` and take the ordinary
+    /// path, retries included. A user's own action, so the healer may run on a refusal, like
+    /// `rate`.
     ///
     /// Success is HTTP 200 with no `error` and no status other than `STATUS_SUCCEEDED` (in
     /// `actionResults[0]` or `actionResult`). An answer with no status at all is accepted for
-    /// every write, delete included, and its shape is logged. A replayable write (a delete) that
-    /// gets a 404 has nothing left to do: the comment is already gone, so that is success too.
+    /// every write, delete included, and its shape is logged. A delete (a token replay) that gets
+    /// a 404 has nothing left to do: the comment is already gone, so that is success too. A 404 on
+    /// an edit is not: the edit did not happen.
     /// The shape of the answer (key names only) is logged at debug level. Neither the command,
     /// the params nor the text appear in an error or a log line.
     ///
@@ -531,9 +534,9 @@ impl InnerTube {
             // A `performCommentActionEndpoint` token: the same replay as a vote.
             WriteCommand::Action(token) => {
                 return match self.send_action(client, token, kind, true).await {
-                    // Idempotent: a 404 means the comment is already gone, which is what the
-                    // delete was for.
-                    Err(e) if replayable && e.is_not_found() => {
+                    // A token replay is the delete, which is idempotent: a 404 means the comment
+                    // is already gone, which is what it was for.
+                    Err(e) if e.is_not_found() => {
                         tracing::debug!(
                             kind,
                             "comment write: 404 on a replayable write, already gone"
@@ -1652,20 +1655,30 @@ fn log_reply_commands(value: &serde_json::Value, page: &CommentsPage) {
     }
 }
 
-/// One line per signed-in page that has a comment of the viewer's own: how many, how many offer
-/// edit and delete, and (key names and types only, via `own_comment_probe`) what command-like
-/// nodes sit under the first one. Edit and delete are UNVERIFIED, so this is what tells the
-/// shape to look for when they are missing.
-fn log_own_comment_commands(value: &serde_json::Value, page: &CommentsPage) {
-    let all = || page.threads.iter().flat_map(|t| std::iter::once(&t.comment).chain(&t.replies));
-    let own = all().filter(|c| c.own).count();
+/// Every comment on a page, top-level and inline replies.
+fn page_comments(page: &CommentsPage) -> impl Iterator<Item = &comments::Comment> + Clone {
+    page.threads.iter().flat_map(|t| std::iter::once(&t.comment).chain(&t.replies))
+}
+
+/// One line per signed-in page (`kind`: the first page, a continuation, or a replies page) that
+/// has a comment of the viewer's own: how many, how many offer edit and delete, and (key names and
+/// types only, via `own_comment_probe`) what command-like nodes and menu items sit under the
+/// first one. Replies are comments like any other, so a replies page gets the same line: when an
+/// own reply has no Edit, this is what shows why.
+fn log_own_comment_commands<'a>(
+    kind: &'static str,
+    value: &serde_json::Value,
+    comments: impl Iterator<Item = &'a comments::Comment> + Clone,
+) {
+    let own = comments.clone().filter(|c| c.own).count();
     if own == 0 {
         return;
     }
     tracing::debug!(
+        kind,
         own,
-        with_edit = all().filter(|c| c.own && c.commands.edit.is_some()).count(),
-        with_delete = all().filter(|c| c.own && c.commands.delete.is_some()).count(),
+        with_edit = comments.clone().filter(|c| c.own && c.commands.edit.is_some()).count(),
+        with_delete = comments.filter(|c| c.own && c.commands.delete.is_some()).count(),
         paths = %comments::own_comment_probe(value).unwrap_or_default(),
         "own comment commands"
     );
@@ -2283,6 +2296,25 @@ mod tests {
         }
     }
 
+    /// An edit is idempotent, so it takes the ordinary path: the transport retries a dropped
+    /// connection, and a final failure is a plain failure, never `uncertain` (a post or a reply
+    /// still is, and is still sent once).
+    #[tokio::test]
+    async fn an_edit_is_retried_and_never_uncertain_while_a_post_is_sent_once() {
+        let server = MockServer::start(|_: &Seen| (0, String::new())); // hang up
+        let it = it_against(&server, true);
+        let edit = endpoint("comment/update_comment", json!({ "updateCommentParams": "P" }));
+        let got = it.comment_write(&web(), &edit, "edit", Some("t"), true).await;
+        assert!(matches!(&got, Err(Error::Http(_))), "{got:?}");
+        assert!(server.requests().len() > 1, "the edit was not retried");
+
+        let before = server.requests().len();
+        let create = endpoint("comment/create_comment", json!({ "createCommentParams": "P" }));
+        let got = it.comment_write(&web(), &create, "create", Some("t"), false).await;
+        assert!(matches!(got, Err(Error::WriteUncertain)), "{got:?}");
+        assert_eq!(server.requests().len() - before, 1, "a post is sent exactly once");
+    }
+
     /// The live answer to a delete: no status, no mutations, `actions` with a `removeCommentAction`
     /// (success) and an `openPopupAction` (the web client's toast, ignored). The marker is what
     /// counts; without it a 200 with no status and no error is accepted as the fallback.
@@ -2325,11 +2357,10 @@ mod tests {
         assert!(matches!(got, Ok(serde_json::Value::Null)), "{got:?}");
         assert_eq!(server.requests().len(), 1);
 
-        // The same 404 on a write that is not replayable is an error (the comment is gone, the
-        // edit did not happen), as is any other failure.
+        // The same 404 on an edit is an error (the comment is gone, the edit did not happen).
         let it = it_against(&server, true);
         let edit = endpoint("comment/update_comment", json!({ "updateCommentParams": "P" }));
-        let got = it.comment_write(&web(), &edit, "edit", Some("t"), false).await;
+        let got = it.comment_write(&web(), &edit, "edit", Some("t"), true).await;
         assert!(matches!(&got, Err(e) if e.is_not_found()), "{got:?}");
 
         // A 500 (what a dead connection looks like after the retries) is a plain failure.

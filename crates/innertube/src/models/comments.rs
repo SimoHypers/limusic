@@ -581,7 +581,7 @@ impl std::fmt::Display for ViewerSummary {
 /// For the debug line that says why edit/delete is or is not offered: the command-like key paths
 /// and value types under the first of the viewer's own comments in a response. `None` when the
 /// response has no comment of the viewer's. Key names and types only.
-pub(crate) fn own_comment_probe(root: &Value) -> Option<String> {
+pub fn own_comment_probe(root: &Value) -> Option<String> {
     let entities = Entities::new(root);
     find_all(root, "commentViewModel").into_iter().find_map(|vm| {
         let entity = entities.get(str_of(vm, "commentKey"), "commentEntityPayload")?;
@@ -723,6 +723,9 @@ mod tests {
     const TABS: &str = include_str!("../../tests/fixtures/comments/next_tabs.json");
     /// SYNTHETIC (see the note inside it): not a live signed-in capture.
     const SIGNED_IN: &str = include_str!("../../tests/fixtures/comments/signed_in_synthetic.json");
+    /// SYNTHETIC: a replies page in the live structure, with own and other replies, one nested.
+    const REPLIES_WRITES: &str =
+        include_str!("../../tests/fixtures/comments/signed_in_replies_write_synthetic.json");
     /// SYNTHETIC too: write commands, with ASSUMED shapes for edit and delete.
     const WRITES: &str =
         include_str!("../../tests/fixtures/comments/signed_in_write_synthetic.json");
@@ -1342,6 +1345,76 @@ mod tests {
         ] {
             assert!(parse_written_comment(&answer).is_none(), "{answer}");
         }
+    }
+
+    /// Replies are parsed like any comment: on a replies page, and for the inline nested levels,
+    /// the viewer's own get Edit and Delete from their menu, and someone else's do not.
+    #[test]
+    fn a_replies_page_offers_edit_and_delete_on_the_viewers_own_replies_only() {
+        use CommentWrite::*;
+        let replies = parse_comment_replies(&load(REPLIES_WRITES));
+        // The nested replies of "other_reply" follow it, flattened.
+        let order: Vec<&str> = replies.replies.iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(
+            order,
+            [
+                "Synthetic reply own_reply",
+                "Synthetic reply other_reply",
+                "Synthetic reply nested_own_reply",
+                "Synthetic reply nested_other_reply"
+            ]
+        );
+        let writes: Vec<(bool, Vec<CommentWrite>)> =
+            replies.replies.iter().map(|c| (c.own, c.writes.clone())).collect();
+        assert_eq!(
+            writes,
+            [
+                (true, vec![Reply, Edit, Delete]),
+                (false, vec![Reply]),
+                (true, vec![Reply, Edit, Delete]),
+                (false, vec![Reply]),
+            ]
+        );
+        assert_eq!(replies.continuation.as_deref(), Some("fixture-more-replies"));
+        assert_eq!(replies.replies[0].edit_text.as_deref(), Some("Synthetic editable reply 1"));
+        // The diagnostic finds the first own reply's menu on a replies page too.
+        let probe = own_comment_probe(&load(REPLIES_WRITES)).expect("an own reply");
+        assert!(probe.contains("menu: item[0]: edit, icon=EDIT, item[1]: delete, icon=DELETE, item[2]: other, icon=FLAG"), "{probe}");
+    }
+
+    /// A comment or reply inserted from a write's answer has its menu parsed exactly like a read's,
+    /// if the answer's toolbar surface carries one (so Edit and Delete are there at once); if it
+    /// does not, it has none until the next read.
+    #[test]
+    fn a_written_comment_takes_edit_and_delete_from_its_surface_in_the_answer() {
+        use CommentWrite::*;
+        let doc = load(WRITES);
+        let body = doc["onResponseReceivedEndpoints"][1]["reloadContinuationItemsCommand"]
+            ["continuationItems"]
+            .as_array()
+            .unwrap();
+        let answer_for = |key: &str| {
+            let thread = body
+                .iter()
+                .find(|i| {
+                    i["commentThreadRenderer"]["commentViewModel"]["commentViewModel"]["commentKey"]
+                        == key
+                })
+                .unwrap()
+                .clone();
+            json!({ "actions": [{ "createCommentAction": { "contents": thread } }],
+                    "frameworkUpdates": doc["frameworkUpdates"].clone() })
+        };
+        let with_menu =
+            parse_written_comment(&answer_for("fixture-own_full-comment")).unwrap().comment;
+        assert_eq!(with_menu.writes, [Reply, Edit, Delete]);
+        assert!(with_menu.commands.edit.is_some() && with_menu.commands.delete.is_some());
+        // A surface with no menu items: only Reply, and the diagnostic can say so.
+        let no_menu =
+            parse_written_comment(&answer_for("fixture-own_bare-comment")).unwrap().comment;
+        assert_eq!(no_menu.writes, [Reply]);
+        let probe = own_comment_probe(&answer_for("fixture-own_bare-comment")).unwrap();
+        assert!(probe.contains("menu: no items"), "{probe}");
     }
 
     #[test]
