@@ -61,6 +61,10 @@ pub enum Error {
     SessionExpired,
     #[error("This track is already in the playlist.")]
     AlreadyInPlaylist,
+    /// A comment write whose outcome is unknown: the request may have reached YouTube and only the
+    /// answer was lost, so it may have been posted. Never retried automatically.
+    #[error("The request may have reached YouTube.")]
+    WriteUncertain,
     /// A comment action that came back 200 without `STATUS_SUCCEEDED`. A variant of its own so
     /// the app can tell "YouTube said no" from "the request failed" without reading a message.
     #[error("YouTube did not accept that action.")]
@@ -400,7 +404,7 @@ impl InnerTube {
         body: &B,
         set_login: bool,
     ) -> Result<serde_json::Value, Error> {
-        self.post_inner(path, client, body, set_login, true).await
+        self.post_inner(path, client, body, set_login, true, true).await
     }
 
     /// [`InnerTube::post`] for a request the user did not ask for and that must never put the
@@ -415,11 +419,41 @@ impl InnerTube {
         body: &B,
         set_login: bool,
     ) -> Result<serde_json::Value, Error> {
-        self.post_inner(path, client, body, set_login, false).await
+        self.post_inner(path, client, body, set_login, false, true).await
     }
 
-    /// `heal` is whether a 401/403 on a signed-in request may wake the healer. Always `true` for
-    /// [`InnerTube::post`], so its behaviour is the same as before the flag existed.
+    /// [`InnerTube::post`] for a write that is not idempotent (posting, replying, editing a
+    /// comment): it is never sent twice by this layer. The ordinary retry on a connect error or
+    /// timeout would post a duplicate whenever the request reached YouTube and only the answer was
+    /// lost. A refusal (401/403) is still healed and re-sent, since the server rejected that
+    /// request without acting on it.
+    ///
+    /// A failure that leaves open whether the write happened (the connection died or timed out
+    /// after the request went out, or the answer could not be read) is `Error::WriteUncertain`.
+    /// A connect failure means nothing was sent, so it stays a plain error.
+    pub(crate) async fn post_write<B: Serialize>(
+        &self,
+        path: &str,
+        client: &YouTubeClient,
+        body: &B,
+        set_login: bool,
+    ) -> Result<serde_json::Value, Error> {
+        match self.post_inner(path, client, body, set_login, true, false).await {
+            Err(Error::Http(e)) if e.status().is_none() && !e.is_connect() && !e.is_builder() => {
+                tracing::debug!(
+                    timeout = e.is_timeout(),
+                    decode = e.is_decode(),
+                    "comment write outcome unknown"
+                );
+                Err(Error::WriteUncertain)
+            }
+            other => other,
+        }
+    }
+
+    /// `heal` is whether a 401/403 on a signed-in request may wake the healer, and `retry`
+    /// whether a connect error or timeout is sent again. Both are `true` for [`InnerTube::post`],
+    /// so its behaviour is the same as before the flags existed.
     async fn post_inner<B: Serialize>(
         &self,
         path: &str,
@@ -427,6 +461,7 @@ impl InnerTube {
         body: &B,
         set_login: bool,
         heal: bool,
+        retry: bool,
     ) -> Result<serde_json::Value, Error> {
         // `path` may already carry query params (e.g. browse continuations); chain accordingly.
         let sep = if path.contains('?') { '&' } else { '?' };
@@ -457,7 +492,11 @@ impl InnerTube {
                     return Ok(resp.json().await?);
                 }
                 // Retry only on connect/timeout (transient), matching Metrolist's IOException filter.
-                Err(e) if attempt < 3 && (e.is_timeout() || e.is_connect() || e.is_request()) => {
+                Err(e)
+                    if retry
+                        && attempt < 3
+                        && (e.is_timeout() || e.is_connect() || e.is_request()) =>
+                {
                     tracing::warn!(attempt, error = %e, "retrying InnerTube POST {path}");
                     tokio::time::sleep(delay).await;
                     delay *= 2;
@@ -886,6 +925,58 @@ mod tests {
         assert_ne!(base, it(Some("SAPISID=a"), None).comments_identity(), "no channel selected");
         let shown = base.unwrap();
         assert_eq!(shown.len(), 40, "a sha1 hex digest, not the secret");
+    }
+
+    /// A write is never sent twice by the transport, and a lost answer is "uncertain", not a plain
+    /// failure. The control is the ordinary `post`, which does retry the same hang-up.
+    #[tokio::test]
+    async fn a_write_is_sent_once_and_a_lost_answer_is_uncertain() {
+        let server = crate::test_server::MockServer::start(|_| (0, String::new())); // hang up
+        let it = signed_in_against(&server);
+        let clients = crate::clients::Clients::bundled();
+        let web = clients.get(crate::clients::METADATA_CLIENT).unwrap();
+
+        let got = it.post_write("comment/x", web, &serde_json::json!({}), true).await;
+        assert!(matches!(got, Err(Error::WriteUncertain)), "{got:?}");
+        assert_eq!(server.requests().len(), 1, "exactly one request, no retry");
+
+        // Control: the ordinary path retries the very same failure (3 attempts).
+        let before = server.requests().len();
+        let _ = it.post("comment/x", web, &serde_json::json!({}), true).await;
+        assert!(server.requests().len() - before > 1, "post() was expected to retry");
+    }
+
+    /// What is and is not uncertain: an answer that arrived is never uncertain unless it is
+    /// unreadable (it was a 200, so the write may have happened); nothing sent is a plain error.
+    #[tokio::test]
+    async fn only_an_unknown_outcome_is_uncertain() {
+        let clients = crate::clients::Clients::bundled();
+        let web = clients.get(crate::clients::METADATA_CLIENT).unwrap();
+
+        let refused = crate::test_server::MockServer::start(|_| (500, "{}".into()));
+        let it = signed_in_against(&refused);
+        let got = it.post_write("comment/x", web, &serde_json::json!({}), true).await;
+        assert!(matches!(got, Err(Error::Http(_))), "a 500 is a plain failure: {got:?}");
+        assert_eq!(refused.requests().len(), 1);
+
+        let garbled = crate::test_server::MockServer::start(|_| (200, "not json".into()));
+        let it = signed_in_against(&garbled);
+        let got = it.post_write("comment/x", web, &serde_json::json!({}), true).await;
+        assert!(matches!(got, Err(Error::WriteUncertain)), "accepted but unreadable: {got:?}");
+
+        let ok = crate::test_server::MockServer::start(|_| (200, r#"{"ok":1}"#.into()));
+        let it = signed_in_against(&ok);
+        assert!(it.post_write("comment/x", web, &serde_json::json!({}), true).await.is_ok());
+
+        // Nothing listening: the request was never sent, so it is not uncertain.
+        let dead = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            format!("http://{}/youtubei/v1/", l.local_addr().unwrap())
+        };
+        let mut it = signed_in_against(&ok);
+        it.set_base_url(&dead);
+        let got = it.post_write("comment/x", web, &serde_json::json!({}), true).await;
+        assert!(matches!(got, Err(Error::Http(_))), "a connect failure sent nothing: {got:?}");
     }
 
     #[test]

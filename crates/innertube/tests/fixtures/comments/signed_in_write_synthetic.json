@@ -1,0 +1,1437 @@
+{
+ "_synthetic": "SYNTHETIC fixture: youtubei.js v18.1.0 structure for the comment box and reply button, and the menu structure of a live signed-in response (menuCommand...menuRenderer.items[] with an update dialog for edit and a confirm dialog for delete) filled with placeholders. The reply button's endpoint contents are assumed. Not a live capture.",
+ "onResponseReceivedEndpoints": [
+  {
+   "reloadContinuationItemsCommand": {
+    "slot": "RELOAD_CONTINUATION_SLOT_HEADER",
+    "continuationItems": [
+     {
+      "commentsHeaderRenderer": {
+       "countText": {
+        "runs": [
+         {
+          "text": "9"
+         },
+         {
+          "text": " Comments"
+         }
+        ]
+       },
+       "createRenderer": {
+        "commentSimpleboxRenderer": {
+         "placeholderText": {
+          "runs": [
+           {
+            "text": "Add a comment..."
+           }
+          ]
+         },
+         "submitButton": {
+          "buttonRenderer": {
+           "serviceEndpoint": {
+            "clickTrackingParams": "fixture-click",
+            "commandMetadata": {
+             "webCommandMetadata": {
+              "sendPost": true,
+              "apiUrl": "/youtubei/v1/comment/create_comment"
+             }
+            },
+            "createCommentEndpoint": {
+             "createCommentParams": "fixture-create-params-1"
+            }
+           }
+          }
+         },
+         "cancelButton": {
+          "buttonRenderer": {}
+         }
+        }
+       },
+       "sortMenu": {
+        "sortFilterSubMenuRenderer": {
+         "subMenuItems": [
+          {
+           "title": "Top",
+           "selected": true,
+           "continuation": {
+            "reloadContinuationData": {
+             "continuation": "fixture-sort-top"
+            }
+           }
+          },
+          {
+           "title": "Newest",
+           "selected": false,
+           "continuation": {
+            "reloadContinuationData": {
+             "continuation": "fixture-sort-new"
+            }
+           }
+          }
+         ]
+        }
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "reloadContinuationItemsCommand": {
+    "slot": "RELOAD_CONTINUATION_SLOT_BODY",
+    "continuationItems": [
+     {
+      "commentThreadRenderer": {
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "fixture-other-comment",
+         "toolbarStateKey": "fixture-other-state",
+         "toolbarSurfaceKey": "fixture-other-surface",
+         "commentSurfaceKey": "fixture-other-surface-comment",
+         "sharedKey": "fixture-shared",
+         "commentId": "FixtureWrite1"
+        }
+       }
+      }
+     },
+     {
+      "commentThreadRenderer": {
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "fixture-own_full-comment",
+         "toolbarStateKey": "fixture-own_full-state",
+         "toolbarSurfaceKey": "fixture-own_full-surface",
+         "commentSurfaceKey": "fixture-own_full-surface-comment",
+         "sharedKey": "fixture-shared",
+         "commentId": "FixtureWrite2"
+        }
+       }
+      }
+     },
+     {
+      "commentThreadRenderer": {
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "fixture-own_bare-comment",
+         "toolbarStateKey": "fixture-own_bare-state",
+         "toolbarSurfaceKey": "fixture-own_bare-surface",
+         "commentSurfaceKey": "fixture-own_bare-surface-comment",
+         "sharedKey": "fixture-shared",
+         "commentId": "FixtureWrite3"
+        }
+       }
+      }
+     },
+     {
+      "commentThreadRenderer": {
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "fixture-own_delete_only-comment",
+         "toolbarStateKey": "fixture-own_delete_only-state",
+         "toolbarSurfaceKey": "fixture-own_delete_only-surface",
+         "commentSurfaceKey": "fixture-own_delete_only-surface-comment",
+         "sharedKey": "fixture-shared",
+         "commentId": "FixtureWrite4"
+        }
+       }
+      }
+     },
+     {
+      "commentThreadRenderer": {
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "fixture-own_edit_no_api_url-comment",
+         "toolbarStateKey": "fixture-own_edit_no_api_url-state",
+         "toolbarSurfaceKey": "fixture-own_edit_no_api_url-surface",
+         "commentSurfaceKey": "fixture-own_edit_no_api_url-surface-comment",
+         "sharedKey": "fixture-shared",
+         "commentId": "FixtureWrite5"
+        }
+       }
+      }
+     },
+     {
+      "commentThreadRenderer": {
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "fixture-own_edit_hostile_api_url-comment",
+         "toolbarStateKey": "fixture-own_edit_hostile_api_url-state",
+         "toolbarSurfaceKey": "fixture-own_edit_hostile_api_url-surface",
+         "commentSurfaceKey": "fixture-own_edit_hostile_api_url-surface-comment",
+         "sharedKey": "fixture-shared",
+         "commentId": "FixtureWrite6"
+        }
+       }
+      }
+     },
+     {
+      "commentThreadRenderer": {
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "fixture-own_edit_no_params-comment",
+         "toolbarStateKey": "fixture-own_edit_no_params-state",
+         "toolbarSurfaceKey": "fixture-own_edit_no_params-surface",
+         "commentSurfaceKey": "fixture-own_edit_no_params-surface-comment",
+         "sharedKey": "fixture-shared",
+         "commentId": "FixtureWrite7"
+        }
+       }
+      }
+     },
+     {
+      "commentThreadRenderer": {
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "fixture-bad_reply_path-comment",
+         "toolbarStateKey": "fixture-bad_reply_path-state",
+         "toolbarSurfaceKey": "fixture-bad_reply_path-surface",
+         "commentSurfaceKey": "fixture-bad_reply_path-surface-comment",
+         "sharedKey": "fixture-shared",
+         "commentId": "FixtureWrite8"
+        }
+       }
+      }
+     },
+     {
+      "commentThreadRenderer": {
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "fixture-no_reply_dialog-comment",
+         "toolbarStateKey": "fixture-no_reply_dialog-state",
+         "toolbarSurfaceKey": "fixture-no_reply_dialog-surface",
+         "commentSurfaceKey": "fixture-no_reply_dialog-surface-comment",
+         "sharedKey": "fixture-shared",
+         "commentId": "FixtureWrite9"
+        }
+       }
+      }
+     },
+     {
+      "commentThreadRenderer": {
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "fixture-missing-comment",
+         "toolbarStateKey": "x",
+         "toolbarSurfaceKey": "x",
+         "commentSurfaceKey": "x"
+        }
+       }
+      }
+     },
+     {
+      "continuationItemRenderer": {
+       "continuationEndpoint": {
+        "continuationCommand": {
+         "token": "fixture-continuation-1"
+        }
+       }
+      }
+     }
+    ]
+   }
+  }
+ ],
+ "frameworkUpdates": {
+  "entityBatchUpdate": {
+   "mutations": [
+    {
+     "entityKey": "fixture-other-comment",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-other-comment",
+       "properties": {
+        "commentId": "FixtureWrite1",
+        "content": {
+         "content": "Synthetic write other"
+        },
+        "publishedTime": "1 day ago",
+        "replyLevel": 0
+       },
+       "author": {
+        "channelId": "UCfixturesynthetic0000000",
+        "displayName": "@synthetic1",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCreator": false,
+        "isArtist": false,
+        "isCurrentUser": false
+       },
+       "toolbar": {
+        "likeCountNotliked": "1",
+        "likeCountLiked": "2",
+        "replyCount": ""
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-other-state",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-other-state",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-other-surface",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-other-surface",
+       "isEngagementToolbar": true,
+       "replyCommand": {
+        "innertubeCommand": {
+         "clickTrackingParams": "fixture-click",
+         "createCommentReplyDialogEndpoint": {
+          "dialog": {
+           "commentReplyDialogRenderer": {
+            "placeholderText": {
+             "runs": [
+              {
+               "text": "Add a reply..."
+              }
+             ]
+            },
+            "replyButton": {
+             "buttonRenderer": {
+              "serviceEndpoint": {
+               "clickTrackingParams": "fixture-click",
+               "commandMetadata": {
+                "webCommandMetadata": {
+                 "sendPost": true,
+                 "apiUrl": "/youtubei/v1/comment/create_comment_reply"
+                }
+               },
+               "createCommentReplyEndpoint": {
+                "createReplyParams": "fixture-reply-params-1"
+               }
+              }
+             }
+            },
+            "cancelButton": {
+             "buttonRenderer": {}
+            }
+           }
+          }
+         }
+        }
+       },
+       "menuCommand": {
+        "innertubeCommand": {
+         "menuEndpoint": {
+          "menu": {
+           "menuRenderer": {
+            "items": [
+             {
+              "menuNavigationItemRenderer": {
+               "text": {
+                "runs": [
+                 {
+                  "text": "Report"
+                 }
+                ]
+               },
+               "icon": {
+                "iconType": "FLAG"
+               },
+               "navigationEndpoint": {
+                "reportCommentEndpoint": {}
+               }
+              }
+             },
+             {
+              "menuNavigationItemRenderer": {
+               "text": {
+                "runs": [
+                 {
+                  "text": "Edit"
+                 }
+                ]
+               },
+               "icon": {
+                "iconType": "EDIT"
+               },
+               "navigationEndpoint": {
+                "clickTrackingParams": "fixture-click",
+                "updateCommentDialogEndpoint": {
+                 "dialog": {
+                  "commentDialogRenderer": {
+                   "editableText": {
+                    "runs": [
+                     {
+                      "text": "Synthetic editable text 1"
+                     }
+                    ]
+                   },
+                   "submitButton": {
+                    "buttonRenderer": {
+                     "serviceEndpoint": {
+                      "updateCommentEndpoint": {
+                       "updateCommentParams": "fixture-edit-params-1"
+                      },
+                      "commandMetadata": {
+                       "webCommandMetadata": {
+                        "sendPost": true,
+                        "apiUrl": "/youtubei/v1/comment/update_comment"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             },
+             {
+              "menuNavigationItemRenderer": {
+               "text": {
+                "runs": [
+                 {
+                  "text": "Delete"
+                 }
+                ]
+               },
+               "icon": {
+                "iconType": "DELETE"
+               },
+               "navigationEndpoint": {
+                "clickTrackingParams": "fixture-click",
+                "confirmDialogEndpoint": {
+                 "content": {
+                  "confirmDialogRenderer": {
+                   "confirmButton": {
+                    "buttonRenderer": {
+                     "serviceEndpoint": {
+                      "performCommentActionEndpoint": {
+                       "action": "fixture-delete-token-1"
+                      }
+                     }
+                    }
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             }
+            ]
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-own_full-comment",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-own_full-comment",
+       "properties": {
+        "commentId": "FixtureWrite2",
+        "content": {
+         "content": "Synthetic write own_full"
+        },
+        "publishedTime": "1 day ago",
+        "replyLevel": 0
+       },
+       "author": {
+        "channelId": "UCfixturesynthetic0000000",
+        "displayName": "@synthetic2",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCreator": false,
+        "isArtist": false,
+        "isCurrentUser": true
+       },
+       "toolbar": {
+        "likeCountNotliked": "1",
+        "likeCountLiked": "2",
+        "replyCount": ""
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-own_full-state",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-own_full-state",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-own_full-surface",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-own_full-surface",
+       "isEngagementToolbar": true,
+       "replyCommand": {
+        "innertubeCommand": {
+         "clickTrackingParams": "fixture-click",
+         "createCommentReplyDialogEndpoint": {
+          "dialog": {
+           "commentReplyDialogRenderer": {
+            "placeholderText": {
+             "runs": [
+              {
+               "text": "Add a reply..."
+              }
+             ]
+            },
+            "replyButton": {
+             "buttonRenderer": {
+              "serviceEndpoint": {
+               "clickTrackingParams": "fixture-click",
+               "commandMetadata": {
+                "webCommandMetadata": {
+                 "sendPost": true,
+                 "apiUrl": "/youtubei/v1/comment/create_comment_reply"
+                }
+               },
+               "createCommentReplyEndpoint": {
+                "createReplyParams": "fixture-reply-params-2"
+               }
+              }
+             }
+            },
+            "cancelButton": {
+             "buttonRenderer": {}
+            }
+           }
+          }
+         }
+        }
+       },
+       "menuCommand": {
+        "innertubeCommand": {
+         "menuEndpoint": {
+          "menu": {
+           "menuRenderer": {
+            "items": [
+             {
+              "menuNavigationItemRenderer": {
+               "text": {
+                "runs": [
+                 {
+                  "text": "Edit"
+                 }
+                ]
+               },
+               "icon": {
+                "iconType": "EDIT"
+               },
+               "navigationEndpoint": {
+                "clickTrackingParams": "fixture-click",
+                "updateCommentDialogEndpoint": {
+                 "dialog": {
+                  "commentDialogRenderer": {
+                   "editableText": {
+                    "runs": [
+                     {
+                      "text": "Synthetic editable text 2"
+                     }
+                    ]
+                   },
+                   "submitButton": {
+                    "buttonRenderer": {
+                     "serviceEndpoint": {
+                      "updateCommentEndpoint": {
+                       "updateCommentParams": "fixture-edit-params-2"
+                      },
+                      "commandMetadata": {
+                       "webCommandMetadata": {
+                        "sendPost": true,
+                        "apiUrl": "/youtubei/v1/comment/update_comment"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             },
+             {
+              "menuNavigationItemRenderer": {
+               "text": {
+                "runs": [
+                 {
+                  "text": "Delete"
+                 }
+                ]
+               },
+               "icon": {
+                "iconType": "DELETE"
+               },
+               "navigationEndpoint": {
+                "clickTrackingParams": "fixture-click",
+                "confirmDialogEndpoint": {
+                 "content": {
+                  "confirmDialogRenderer": {
+                   "confirmButton": {
+                    "buttonRenderer": {
+                     "serviceEndpoint": {
+                      "performCommentActionEndpoint": {
+                       "action": "fixture-delete-token-2"
+                      }
+                     }
+                    }
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             },
+             {
+              "menuNavigationItemRenderer": {
+               "text": {
+                "runs": [
+                 {
+                  "text": "Report"
+                 }
+                ]
+               },
+               "icon": {
+                "iconType": "FLAG"
+               },
+               "navigationEndpoint": {
+                "reportCommentEndpoint": {}
+               }
+              }
+             }
+            ]
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-own_bare-comment",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-own_bare-comment",
+       "properties": {
+        "commentId": "FixtureWrite3",
+        "content": {
+         "content": "Synthetic write own_bare"
+        },
+        "publishedTime": "1 day ago",
+        "replyLevel": 0
+       },
+       "author": {
+        "channelId": "UCfixturesynthetic0000000",
+        "displayName": "@synthetic3",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCreator": false,
+        "isArtist": false,
+        "isCurrentUser": true
+       },
+       "toolbar": {
+        "likeCountNotliked": "1",
+        "likeCountLiked": "2",
+        "replyCount": ""
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-own_bare-state",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-own_bare-state",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-own_bare-surface",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-own_bare-surface",
+       "isEngagementToolbar": true,
+       "replyCommand": {
+        "innertubeCommand": {
+         "clickTrackingParams": "fixture-click",
+         "createCommentReplyDialogEndpoint": {
+          "dialog": {
+           "commentReplyDialogRenderer": {
+            "placeholderText": {
+             "runs": [
+              {
+               "text": "Add a reply..."
+              }
+             ]
+            },
+            "replyButton": {
+             "buttonRenderer": {
+              "serviceEndpoint": {
+               "clickTrackingParams": "fixture-click",
+               "commandMetadata": {
+                "webCommandMetadata": {
+                 "sendPost": true,
+                 "apiUrl": "/youtubei/v1/comment/create_comment_reply"
+                }
+               },
+               "createCommentReplyEndpoint": {
+                "createReplyParams": "fixture-reply-params-3"
+               }
+              }
+             }
+            },
+            "cancelButton": {
+             "buttonRenderer": {}
+            }
+           }
+          }
+         }
+        }
+       },
+       "menuCommand": {
+        "innertubeCommand": {
+         "menuEndpoint": {
+          "menu": {
+           "menuRenderer": {
+            "items": []
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-own_delete_only-comment",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-own_delete_only-comment",
+       "properties": {
+        "commentId": "FixtureWrite4",
+        "content": {
+         "content": "Synthetic write own_delete_only"
+        },
+        "publishedTime": "1 day ago",
+        "replyLevel": 0
+       },
+       "author": {
+        "channelId": "UCfixturesynthetic0000000",
+        "displayName": "@synthetic4",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCreator": false,
+        "isArtist": false,
+        "isCurrentUser": true
+       },
+       "toolbar": {
+        "likeCountNotliked": "1",
+        "likeCountLiked": "2",
+        "replyCount": ""
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-own_delete_only-state",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-own_delete_only-state",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-own_delete_only-surface",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-own_delete_only-surface",
+       "isEngagementToolbar": true,
+       "replyCommand": {
+        "innertubeCommand": {
+         "clickTrackingParams": "fixture-click",
+         "createCommentReplyDialogEndpoint": {
+          "dialog": {
+           "commentReplyDialogRenderer": {
+            "placeholderText": {
+             "runs": [
+              {
+               "text": "Add a reply..."
+              }
+             ]
+            },
+            "replyButton": {
+             "buttonRenderer": {
+              "serviceEndpoint": {
+               "clickTrackingParams": "fixture-click",
+               "commandMetadata": {
+                "webCommandMetadata": {
+                 "sendPost": true,
+                 "apiUrl": "/youtubei/v1/comment/create_comment_reply"
+                }
+               },
+               "createCommentReplyEndpoint": {
+                "createReplyParams": "fixture-reply-params-4"
+               }
+              }
+             }
+            },
+            "cancelButton": {
+             "buttonRenderer": {}
+            }
+           }
+          }
+         }
+        }
+       },
+       "menuCommand": {
+        "innertubeCommand": {
+         "menuEndpoint": {
+          "menu": {
+           "menuRenderer": {
+            "items": [
+             {
+              "menuNavigationItemRenderer": {
+               "text": {
+                "runs": [
+                 {
+                  "text": "Delete"
+                 }
+                ]
+               },
+               "icon": {
+                "iconType": "DELETE"
+               },
+               "navigationEndpoint": {
+                "clickTrackingParams": "fixture-click",
+                "confirmDialogEndpoint": {
+                 "content": {
+                  "confirmDialogRenderer": {
+                   "confirmButton": {
+                    "buttonRenderer": {
+                     "serviceEndpoint": {
+                      "performCommentActionEndpoint": {
+                       "action": "fixture-delete-token-4"
+                      }
+                     }
+                    }
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             }
+            ]
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-own_edit_no_api_url-comment",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-own_edit_no_api_url-comment",
+       "properties": {
+        "commentId": "FixtureWrite5",
+        "content": {
+         "content": "Synthetic write own_edit_no_api_url"
+        },
+        "publishedTime": "1 day ago",
+        "replyLevel": 0
+       },
+       "author": {
+        "channelId": "UCfixturesynthetic0000000",
+        "displayName": "@synthetic5",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCreator": false,
+        "isArtist": false,
+        "isCurrentUser": true
+       },
+       "toolbar": {
+        "likeCountNotliked": "1",
+        "likeCountLiked": "2",
+        "replyCount": ""
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-own_edit_no_api_url-state",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-own_edit_no_api_url-state",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-own_edit_no_api_url-surface",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-own_edit_no_api_url-surface",
+       "isEngagementToolbar": true,
+       "replyCommand": {
+        "innertubeCommand": {
+         "clickTrackingParams": "fixture-click",
+         "createCommentReplyDialogEndpoint": {
+          "dialog": {
+           "commentReplyDialogRenderer": {
+            "placeholderText": {
+             "runs": [
+              {
+               "text": "Add a reply..."
+              }
+             ]
+            },
+            "replyButton": {
+             "buttonRenderer": {
+              "serviceEndpoint": {
+               "clickTrackingParams": "fixture-click",
+               "commandMetadata": {
+                "webCommandMetadata": {
+                 "sendPost": true,
+                 "apiUrl": "/youtubei/v1/comment/create_comment_reply"
+                }
+               },
+               "createCommentReplyEndpoint": {
+                "createReplyParams": "fixture-reply-params-5"
+               }
+              }
+             }
+            },
+            "cancelButton": {
+             "buttonRenderer": {}
+            }
+           }
+          }
+         }
+        }
+       },
+       "menuCommand": {
+        "innertubeCommand": {
+         "menuEndpoint": {
+          "menu": {
+           "menuRenderer": {
+            "items": [
+             {
+              "menuNavigationItemRenderer": {
+               "text": {
+                "runs": [
+                 {
+                  "text": "Edit"
+                 }
+                ]
+               },
+               "icon": {
+                "iconType": "EDIT"
+               },
+               "navigationEndpoint": {
+                "clickTrackingParams": "fixture-click",
+                "updateCommentDialogEndpoint": {
+                 "dialog": {
+                  "commentDialogRenderer": {
+                   "editableText": {
+                    "runs": [
+                     {
+                      "text": "Synthetic editable text 5"
+                     }
+                    ]
+                   },
+                   "submitButton": {
+                    "buttonRenderer": {
+                     "serviceEndpoint": {
+                      "updateCommentEndpoint": {
+                       "updateCommentParams": "fixture-edit-params-5"
+                      }
+                     }
+                    }
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             }
+            ]
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-own_edit_hostile_api_url-comment",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-own_edit_hostile_api_url-comment",
+       "properties": {
+        "commentId": "FixtureWrite6",
+        "content": {
+         "content": "Synthetic write own_edit_hostile_api_url"
+        },
+        "publishedTime": "1 day ago",
+        "replyLevel": 0
+       },
+       "author": {
+        "channelId": "UCfixturesynthetic0000000",
+        "displayName": "@synthetic6",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCreator": false,
+        "isArtist": false,
+        "isCurrentUser": true
+       },
+       "toolbar": {
+        "likeCountNotliked": "1",
+        "likeCountLiked": "2",
+        "replyCount": ""
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-own_edit_hostile_api_url-state",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-own_edit_hostile_api_url-state",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-own_edit_hostile_api_url-surface",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-own_edit_hostile_api_url-surface",
+       "isEngagementToolbar": true,
+       "replyCommand": {
+        "innertubeCommand": {
+         "clickTrackingParams": "fixture-click",
+         "createCommentReplyDialogEndpoint": {
+          "dialog": {
+           "commentReplyDialogRenderer": {
+            "placeholderText": {
+             "runs": [
+              {
+               "text": "Add a reply..."
+              }
+             ]
+            },
+            "replyButton": {
+             "buttonRenderer": {
+              "serviceEndpoint": {
+               "clickTrackingParams": "fixture-click",
+               "commandMetadata": {
+                "webCommandMetadata": {
+                 "sendPost": true,
+                 "apiUrl": "/youtubei/v1/comment/create_comment_reply"
+                }
+               },
+               "createCommentReplyEndpoint": {
+                "createReplyParams": "fixture-reply-params-6"
+               }
+              }
+             }
+            },
+            "cancelButton": {
+             "buttonRenderer": {}
+            }
+           }
+          }
+         }
+        }
+       },
+       "menuCommand": {
+        "innertubeCommand": {
+         "menuEndpoint": {
+          "menu": {
+           "menuRenderer": {
+            "items": [
+             {
+              "menuNavigationItemRenderer": {
+               "text": {
+                "runs": [
+                 {
+                  "text": "Edit"
+                 }
+                ]
+               },
+               "icon": {
+                "iconType": "EDIT"
+               },
+               "navigationEndpoint": {
+                "clickTrackingParams": "fixture-click",
+                "updateCommentDialogEndpoint": {
+                 "dialog": {
+                  "commentDialogRenderer": {
+                   "editableText": {
+                    "runs": [
+                     {
+                      "text": "Synthetic editable text 6"
+                     }
+                    ]
+                   },
+                   "submitButton": {
+                    "buttonRenderer": {
+                     "serviceEndpoint": {
+                      "updateCommentEndpoint": {
+                       "updateCommentParams": "fixture-edit-params-6"
+                      },
+                      "commandMetadata": {
+                       "webCommandMetadata": {
+                        "sendPost": true,
+                        "apiUrl": "https://evil.example/youtubei/v1/comment/x"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             }
+            ]
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-own_edit_no_params-comment",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-own_edit_no_params-comment",
+       "properties": {
+        "commentId": "FixtureWrite7",
+        "content": {
+         "content": "Synthetic write own_edit_no_params"
+        },
+        "publishedTime": "1 day ago",
+        "replyLevel": 0
+       },
+       "author": {
+        "channelId": "UCfixturesynthetic0000000",
+        "displayName": "@synthetic7",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCreator": false,
+        "isArtist": false,
+        "isCurrentUser": true
+       },
+       "toolbar": {
+        "likeCountNotliked": "1",
+        "likeCountLiked": "2",
+        "replyCount": ""
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-own_edit_no_params-state",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-own_edit_no_params-state",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-own_edit_no_params-surface",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-own_edit_no_params-surface",
+       "isEngagementToolbar": true,
+       "replyCommand": {
+        "innertubeCommand": {
+         "clickTrackingParams": "fixture-click",
+         "createCommentReplyDialogEndpoint": {
+          "dialog": {
+           "commentReplyDialogRenderer": {
+            "placeholderText": {
+             "runs": [
+              {
+               "text": "Add a reply..."
+              }
+             ]
+            },
+            "replyButton": {
+             "buttonRenderer": {
+              "serviceEndpoint": {
+               "clickTrackingParams": "fixture-click",
+               "commandMetadata": {
+                "webCommandMetadata": {
+                 "sendPost": true,
+                 "apiUrl": "/youtubei/v1/comment/create_comment_reply"
+                }
+               },
+               "createCommentReplyEndpoint": {
+                "createReplyParams": "fixture-reply-params-7"
+               }
+              }
+             }
+            },
+            "cancelButton": {
+             "buttonRenderer": {}
+            }
+           }
+          }
+         }
+        }
+       },
+       "menuCommand": {
+        "innertubeCommand": {
+         "menuEndpoint": {
+          "menu": {
+           "menuRenderer": {
+            "items": [
+             {
+              "menuNavigationItemRenderer": {
+               "text": {
+                "runs": [
+                 {
+                  "text": "Edit"
+                 }
+                ]
+               },
+               "icon": {
+                "iconType": "EDIT"
+               },
+               "navigationEndpoint": {
+                "clickTrackingParams": "fixture-click",
+                "updateCommentDialogEndpoint": {
+                 "dialog": {
+                  "commentDialogRenderer": {
+                   "editableText": {
+                    "runs": [
+                     {
+                      "text": "Synthetic editable text 7"
+                     }
+                    ]
+                   },
+                   "submitButton": {
+                    "buttonRenderer": {
+                     "serviceEndpoint": {
+                      "updateCommentEndpoint": {},
+                      "commandMetadata": {
+                       "webCommandMetadata": {
+                        "sendPost": true,
+                        "apiUrl": "/youtubei/v1/comment/update_comment"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             }
+            ]
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-bad_reply_path-comment",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-bad_reply_path-comment",
+       "properties": {
+        "commentId": "FixtureWrite8",
+        "content": {
+         "content": "Synthetic write bad_reply_path"
+        },
+        "publishedTime": "1 day ago",
+        "replyLevel": 0
+       },
+       "author": {
+        "channelId": "UCfixturesynthetic0000000",
+        "displayName": "@synthetic8",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCreator": false,
+        "isArtist": false,
+        "isCurrentUser": false
+       },
+       "toolbar": {
+        "likeCountNotliked": "1",
+        "likeCountLiked": "2",
+        "replyCount": ""
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-bad_reply_path-state",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-bad_reply_path-state",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-bad_reply_path-surface",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-bad_reply_path-surface",
+       "isEngagementToolbar": true,
+       "replyCommand": {
+        "innertubeCommand": {
+         "clickTrackingParams": "fixture-click",
+         "createCommentReplyDialogEndpoint": {
+          "dialog": {
+           "commentReplyDialogRenderer": {
+            "placeholderText": {
+             "runs": [
+              {
+               "text": "Add a reply..."
+              }
+             ]
+            },
+            "replyButton": {
+             "buttonRenderer": {
+              "serviceEndpoint": {
+               "clickTrackingParams": "fixture-click",
+               "commandMetadata": {
+                "webCommandMetadata": {
+                 "sendPost": true,
+                 "apiUrl": "/youtubei/v1/browse"
+                }
+               },
+               "createCommentReplyEndpoint": {
+                "createReplyParams": "fixture-reply-params-8"
+               }
+              }
+             }
+            },
+            "cancelButton": {
+             "buttonRenderer": {}
+            }
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-no_reply_dialog-comment",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "fixture-no_reply_dialog-comment",
+       "properties": {
+        "commentId": "FixtureWrite9",
+        "content": {
+         "content": "Synthetic write no_reply_dialog"
+        },
+        "publishedTime": "1 day ago",
+        "replyLevel": 0
+       },
+       "author": {
+        "channelId": "UCfixturesynthetic0000000",
+        "displayName": "@synthetic9",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/fixture-avatar=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCreator": false,
+        "isArtist": false,
+        "isCurrentUser": false
+       },
+       "toolbar": {
+        "likeCountNotliked": "1",
+        "likeCountLiked": "2",
+        "replyCount": ""
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-no_reply_dialog-state",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "fixture-no_reply_dialog-state",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "fixture-no_reply_dialog-surface",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarSurfaceEntityPayload": {
+       "key": "fixture-no_reply_dialog-surface",
+       "isEngagementToolbar": true,
+       "replyCommand": {
+        "innertubeCommand": {}
+       }
+      }
+     }
+    }
+   ]
+  }
+ }
+}

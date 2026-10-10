@@ -12,6 +12,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 
+use crate::models::comment_write::{CommentWrite, WriteCommand, WriteCommands};
 use crate::models::comments::{
     available_actions, ActionTokens, Comment, CommentAction, CommentReplies, CommentsPage,
     VoteState,
@@ -101,12 +102,31 @@ const MAX_COMMENTS: usize = 1500;
 struct Entry {
     vote: Option<VoteState>,
     tokens: ActionTokens,
+    writes: WriteCommands,
+}
+
+/// What stands in for a comment id in the busy set while the top-level comment is being posted.
+const COMPOSER: &str = "\0composer";
+
+/// A write approved to be sent: the server-issued command to replay. Not `Debug`, as it holds
+/// params or a token.
+pub struct WriteTicket {
+    command: WriteCommand,
+}
+
+impl WriteTicket {
+    pub fn command(&self) -> &WriteCommand {
+        &self.command
+    }
 }
 
 pub struct CommentsSession {
     tokens: Bounded<String, Provenance>,
     comments: Bounded<(String, String), Entry>,
     busy: HashSet<(String, String)>,
+    /// The command that posts a top-level comment on the track on screen, and who it was issued
+    /// to. Replaced by every page read as an account that carries one.
+    composer: Option<(String, WriteCommand)>,
 }
 
 impl Default for CommentsSession {
@@ -121,6 +141,7 @@ impl CommentsSession {
             tokens: Bounded::new(tokens),
             comments: Bounded::new(comments),
             busy: HashSet::new(),
+            composer: None,
         }
     }
 
@@ -130,11 +151,17 @@ impl CommentsSession {
         self.tokens.clear();
         self.comments.clear();
         self.busy.clear();
+        self.composer = None;
     }
 
     /// Remember a page just handed to the UI: where each of its tokens came from and, for a page
     /// read as an account, each comment's vote and action tokens.
     pub fn remember_page(&mut self, provenance: &Provenance, page: &CommentsPage) {
+        if let (Provenance::Account(identity), Some(create)) =
+            (provenance, page.header.as_ref().and_then(|h| h.create.as_ref()))
+        {
+            self.composer = Some((identity.clone(), create.clone()));
+        }
         let sort_tokens = page.header.iter().flat_map(|h| h.sorts.iter()).map(|s| s.token.as_str());
         let thread_tokens = page.threads.iter().filter_map(|t| t.replies_token.as_deref());
         for token in
@@ -147,6 +174,15 @@ impl CommentsSession {
             for reply in &thread.replies {
                 self.remember_comment(provenance, reply);
             }
+        }
+    }
+
+    /// A comment (and its replies) a write put on the page: its tokens and commands are kept like
+    /// any read's, under the identity that wrote it.
+    pub fn remember_thread(&mut self, provenance: &Provenance, thread: &crate::CommentThread) {
+        self.remember_comment(provenance, &thread.comment);
+        for reply in &thread.replies {
+            self.remember_comment(provenance, reply);
         }
     }
 
@@ -168,7 +204,14 @@ impl CommentsSession {
         if self.busy.contains(&key) {
             return;
         }
-        self.comments.insert(key, Entry { vote: comment.vote, tokens: comment.tokens.clone() });
+        self.comments.insert(
+            key,
+            Entry {
+                vote: comment.vote,
+                tokens: comment.tokens.clone(),
+                writes: comment.commands.clone(),
+            },
+        );
     }
 
     /// Who issued `token`. `None` for a token this session never handed out (or has forgotten).
@@ -216,6 +259,54 @@ impl CommentsSession {
         let entry = self.comments.map.get_mut(&key)?;
         entry.vote = Some(vote);
         Some((vote, available_actions(entry.vote, &entry.tokens)))
+    }
+}
+
+impl CommentsSession {
+    /// Approve a reply, edit or delete of a comment for the account `identity`: only if the
+    /// response issued that command to this identity. Marks the comment busy until
+    /// [`Self::finish_write`].
+    pub fn begin_write(
+        &mut self,
+        identity: &str,
+        comment_id: &str,
+        write: CommentWrite,
+    ) -> Result<WriteTicket, ActionError> {
+        let key = (identity.to_owned(), comment_id.to_owned());
+        let entry = self.comments.map.get(&key).ok_or(ActionError::Unknown)?;
+        if self.busy.contains(&key) {
+            return Err(ActionError::Busy);
+        }
+        let command = entry.writes.get(write).ok_or(ActionError::Unavailable)?.clone();
+        self.busy.insert(key);
+        Ok(WriteTicket { command })
+    }
+
+    /// The write is over. A delete that YouTube accepted forgets the comment, so nothing can be
+    /// sent for it again; anything else leaves it as it was.
+    pub fn finish_write(&mut self, identity: &str, comment_id: &str, removed: bool) {
+        let key = (identity.to_owned(), comment_id.to_owned());
+        self.busy.remove(&key);
+        if removed {
+            self.comments.map.remove(&key);
+        }
+    }
+
+    /// Approve posting a top-level comment for `identity`: only with the command the page read as
+    /// that identity carried. One post at a time.
+    pub fn begin_create(&mut self, identity: &str) -> Result<WriteTicket, ActionError> {
+        let command = match &self.composer {
+            Some((who, command)) if who == identity => command.clone(),
+            _ => return Err(ActionError::Unknown),
+        };
+        if !self.busy.insert((identity.to_owned(), COMPOSER.to_owned())) {
+            return Err(ActionError::Busy);
+        }
+        Ok(WriteTicket { command })
+    }
+
+    pub fn finish_create(&mut self, identity: &str) {
+        self.busy.remove(&(identity.to_owned(), COMPOSER.to_owned()));
     }
 }
 
@@ -399,6 +490,112 @@ mod tests {
         s.remember_page(&account("a"), &page);
         let (vote, _) = s.finish_action("a", &id, Some(t.resulting_vote)).unwrap();
         assert_eq!(vote, VoteState::Liked);
+    }
+
+    const WRITES: &str = include_str!("../tests/fixtures/comments/signed_in_write_synthetic.json");
+
+    fn writes_page() -> CommentsPage {
+        let mut page = parse_comments_page(&serde_json::from_str(WRITES).unwrap(), true);
+        page.read_as_account = true;
+        page
+    }
+
+    fn command_path(t: &WriteTicket) -> String {
+        match t.command() {
+            WriteCommand::Endpoint { path, .. } => path.clone(),
+            WriteCommand::Action(_) => "action".into(),
+        }
+    }
+
+    /// The same rule as for votes: a command issued to one account or channel is never replayed
+    /// as another, and an anonymous read caches none.
+    #[test]
+    fn write_commands_are_only_usable_by_the_identity_they_were_issued_to() {
+        let mut s = CommentsSession::default();
+        let page = writes_page();
+        s.remember_page(&account("a:1"), &page);
+        let own = comment_id(&page, "own_full");
+        for other in ["b:1", "a:2", ""] {
+            assert!(matches!(
+                s.begin_write(other, &own, CommentWrite::Edit),
+                Err(ActionError::Unknown)
+            ));
+            assert!(matches!(s.begin_create(other), Err(ActionError::Unknown)), "{other}");
+        }
+        let t = s.begin_write("a:1", &own, CommentWrite::Edit).ok().unwrap();
+        assert_eq!(command_path(&t), "comment/update_comment");
+        s.finish_write("a:1", &own, false);
+        assert!(s.begin_create("a:1").is_ok());
+
+        let mut anon = CommentsSession::default();
+        anon.remember_page(&Provenance::Anonymous, &page);
+        assert!(matches!(
+            anon.begin_write("a:1", &own, CommentWrite::Edit),
+            Err(ActionError::Unknown)
+        ));
+        assert!(matches!(anon.begin_create("a:1"), Err(ActionError::Unknown)));
+    }
+
+    #[test]
+    fn only_the_commands_the_response_carried_are_approved() {
+        let mut s = CommentsSession::default();
+        let page = writes_page();
+        s.remember_page(&account("a"), &page);
+        // A comment that is not the viewer's has a reply command and nothing else, even though
+        // edit and delete are in its menu.
+        let other = comment_id(&page, "other");
+        assert!(s.begin_write("a", &other, CommentWrite::Reply).is_ok());
+        s.finish_write("a", &other, false);
+        for w in [CommentWrite::Edit, CommentWrite::Delete] {
+            assert!(matches!(s.begin_write("a", &other, w), Err(ActionError::Unavailable)));
+        }
+        let bare = comment_id(&page, "own_bare");
+        assert!(matches!(
+            s.begin_write("a", &bare, CommentWrite::Edit),
+            Err(ActionError::Unavailable)
+        ));
+        let bad = comment_id(&page, "bad_reply_path");
+        assert!(matches!(
+            s.begin_write("a", &bad, CommentWrite::Reply),
+            Err(ActionError::Unavailable)
+        ));
+    }
+
+    #[test]
+    fn a_write_holds_its_comment_busy_and_a_delete_forgets_it() {
+        let mut s = CommentsSession::default();
+        let page = writes_page();
+        s.remember_page(&account("a"), &page);
+        let own = comment_id(&page, "own_full");
+
+        let first = s.begin_write("a", &own, CommentWrite::Edit).ok().unwrap();
+        assert!(matches!(s.begin_write("a", &own, CommentWrite::Delete), Err(ActionError::Busy)));
+        assert!(
+            matches!(s.begin_action("a", &own, Like), Err(ActionError::Busy)),
+            "votes share the lock"
+        );
+        s.finish_write("a", &own, false);
+        drop(first);
+
+        let t = s.begin_write("a", &own, CommentWrite::Delete).ok().unwrap();
+        assert!(matches!(t.command(), WriteCommand::Action(_)));
+        s.finish_write("a", &own, true);
+        assert!(matches!(s.begin_write("a", &own, CommentWrite::Edit), Err(ActionError::Unknown)));
+        assert!(matches!(s.begin_action("a", &own, Like), Err(ActionError::Unknown)));
+    }
+
+    #[test]
+    fn posting_is_one_at_a_time_and_clearing_forgets_the_composer() {
+        let mut s = CommentsSession::default();
+        s.remember_page(&account("a"), &writes_page());
+        let t = s.begin_create("a").ok().unwrap();
+        assert_eq!(command_path(&t), crate::COMMENT_CREATE_PATH);
+        assert!(matches!(s.begin_create("a"), Err(ActionError::Busy)));
+        s.finish_create("a");
+        assert!(s.begin_create("a").is_ok());
+        s.clear();
+        s.finish_create("a");
+        assert!(matches!(s.begin_create("a"), Err(ActionError::Unknown)));
     }
 
     #[test]

@@ -558,7 +558,18 @@ export interface Comment {
 	reply_count?: string;
 	hearted: boolean;
 	pinned: boolean;
+	/** The viewer's own comment. */
+	own: boolean;
+	/** What the edit dialog pre-fills, when the response had it plainly; edit `text` otherwise. */
+	edit_text?: string;
+	/** What the viewer can write on it: exactly what the response offered. `reply` on a comment
+	 *  that took replies, `edit` and `delete` only on one's own and only if found. Empty signed out. */
+	writes: CommentWrite[];
+	/** The reply box's placeholder, if the response sent one. */
+	reply_placeholder?: string;
 }
+
+export type CommentWrite = 'reply' | 'edit' | 'delete';
 
 export type CommentVote = 'neutral' | 'liked' | 'disliked';
 export type CommentAction = 'like' | 'unlike' | 'dislike' | 'undislike';
@@ -582,6 +593,8 @@ export interface CommentsHeader {
 	/** The short count ("7.8K"). */
 	count_text?: string;
 	sorts: CommentSort[];
+	/** The comment box. Present only when the response carried a way to post (signed in). */
+	composer?: { placeholder?: string };
 }
 
 /** `disabled` covers both "turned off" and "could not be read": either way, nothing to show. */
@@ -618,6 +631,8 @@ export interface CommentActionOutcome {
  *  - `busy`: another action on that comment is still running; ignore.
  *  - `unavailable`: the comment does not offer that action.
  *  - `rejected`: YouTube answered and did not accept the action.
+ *  - `uncertain`: a write whose outcome is unknown (the answer was lost): it may have been
+ *    posted, so offer a reload and never resend by itself.
  *  - `failed`: anything else (network, refusals).
  */
 export type CommentsErrorKind =
@@ -626,6 +641,7 @@ export type CommentsErrorKind =
 	| 'busy'
 	| 'unavailable'
 	| 'rejected'
+	| 'uncertain'
 	| 'failed';
 
 const COMMENTS_ERROR_KINDS: readonly string[] = [
@@ -634,6 +650,7 @@ const COMMENTS_ERROR_KINDS: readonly string[] = [
 	'busy',
 	'unavailable',
 	'rejected',
+	'uncertain',
 	'failed'
 ];
 
@@ -651,6 +668,19 @@ export const getCommentReplies = (token: string) =>
  *  that comment's own `actions`; the token never reaches the UI. */
 export const commentAction = (commentId: string, action: CommentAction) =>
 	invoke<CommentActionOutcome>('comment_action', { commentId, action });
+/** Post a top-level comment on the track whose comments are loaded. Needs the header's
+ *  `composer`. Never retried by Rust: a lost answer rejects with `uncertain`. Resolves with the
+ *  posted comment when YouTube's answer carried it, otherwise `null` (show a row of your own). */
+export const commentCreate = (text: string) =>
+	invoke<CommentThread | null>('comment_create', { text });
+/** Reply to a comment that offers `reply`. Resolves with the reply as for `commentCreate`. */
+export const commentReply = (commentId: string, text: string) =>
+	invoke<Comment | null>('comment_reply', { commentId, text });
+/** Replace the text of one of the viewer's own comments (one that offers `edit`). */
+export const commentEdit = (commentId: string, text: string) =>
+	invoke<void>('comment_edit', { commentId, text });
+/** Delete one of the viewer's own comments (one that offers `delete`). */
+export const commentDelete = (commentId: string) => invoke<void>('comment_delete', { commentId });
 /**
  * On Repeat is the app's own playlist (Rust builds it from this machine's play counts), so its
  * title and subtitle are our English rather than YouTube's, and Rust cannot translate them: the

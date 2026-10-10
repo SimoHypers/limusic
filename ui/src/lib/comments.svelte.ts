@@ -33,6 +33,18 @@ export interface ThreadView {
 	error: boolean;
 }
 
+/** A composer's text and what it is waiting for. */
+interface Box {
+	text: string;
+	pending: boolean;
+	/** The last write may have gone through and the answer was lost: say so, offer a reload. */
+	uncertain: boolean;
+}
+
+function emptyBox(): Box & { target: null } {
+	return { text: '', pending: false, uncertain: false, target: null };
+}
+
 export const comments = $state({
 	videoId: null as string | null,
 	/** `error` is a failed request (retry), `reload` a session that changed under the comments
@@ -51,11 +63,22 @@ export const comments = $state({
 	acting: {} as Record<string, boolean>,
 	/** Comments the viewer has voted on in this panel, by id. Their buttons stay (disabled if the
 	 *  reverse action is not on offer) instead of vanishing, which would look like a lost vote. */
-	touched: {} as Record<string, boolean>
+	touched: {} as Record<string, boolean>,
+	/** Comments hidden since their deletion was confirmed (back again if it fails). */
+	hidden: {} as Record<string, boolean>,
+	/** The comment waiting for the viewer to confirm its deletion. */
+	confirmDelete: null as Comment | null,
+	/** The one inline composer under a comment: a reply, or an edit of the viewer's own comment. */
+	draft: emptyBox() as Box & { target: { kind: 'reply' | 'edit'; id: string } | null },
+	/** The comment box at the top of the panel. */
+	create: emptyBox() as Box
 });
 
 /** Bumped on every (re)load and sort switch; a response from an older one is dropped. */
 let gen = 0;
+/** Bumped only by a (re)load of the track: what a write was started under. A sort switch or a
+ *  refresh after posting must not strand the composer that caused it in its pending state. */
+let session = 0;
 
 const view = (t: CommentThread): ThreadView => ({
 	comment: t.comment,
@@ -109,6 +132,11 @@ export async function loadComments(videoId: string, force = false) {
 	comments.moreError = false;
 	comments.acting = {};
 	comments.touched = {};
+	comments.hidden = {};
+	comments.confirmDelete = null;
+	comments.draft = emptyBox();
+	comments.create = emptyBox();
+	session++;
 	comments.state = 'ok';
 	// A local file has no YouTube comments to ask for.
 	if (api.isLocalId(videoId)) {
@@ -288,5 +316,221 @@ export async function actOnComment(c: Comment, action: CommentAction) {
 		}
 	} finally {
 		if (g === gen) delete comments.acting[c.id];
+	}
+}
+
+// --- writing: post, reply, edit, delete -------------------------------------------------------
+//
+// No optimistic insert for a post, reply or edit (YouTube may refuse the text): the composer shows
+// a pending state and keeps its text if anything goes wrong. A delete hides the row at once and
+// puts it back if it fails. Rust never resends a write; a lost answer is `uncertain`.
+//
+// After a post or a reply the list is NOT reloaded: YouTube's reads are not consistent right
+// after a write (a reload 0.26 s later did not have the comment). The row comes from the
+// answer when it carried the comment, and otherwise is built here from the text that was sent,
+// until the next read.
+
+const emptyDraft = () => emptyBox();
+
+/** Every comment on screen, top-level and replies. */
+function findComment(id: string): Comment | undefined {
+	for (const v of comments.threads) {
+		if (v.comment.id === id) return v.comment;
+		const reply = v.replies.find((r) => r.id === id);
+		if (reply) return reply;
+	}
+}
+
+/** A write failed: nothing is lost (the text stays in its box) and the user is told in our words. */
+function writeFailed(e: unknown, box: Box) {
+	const kind = api.commentsErrorKind(e);
+	if (needsReload(e)) {
+		comments.status = 'reload'; // the comments and their commands belong to a session that is gone
+		return;
+	}
+	if (kind === 'busy') return;
+	if (kind === 'uncertain') {
+		box.uncertain = true;
+		toast.error(t('toasts.comment_write_uncertain'));
+		return;
+	}
+	toast.error(t(kind === 'rejected' ? 'toasts.comment_write_rejected' : 'toasts.comment_write_failed'));
+}
+
+/**
+ * Show the list again from the top, in the current sort, drafts kept. Not used right after a
+ * write (see above): it is the reload button of an `uncertain` write, where the point is to
+ * check what YouTube has.
+ */
+export async function reloadComments() {
+	const videoId = comments.videoId;
+	if (!videoId) return;
+	const sort = comments.header?.sorts.find((s) => s.selected);
+	if (!sort) {
+		await loadComments(videoId, true);
+		return;
+	}
+	const g = ++gen;
+	comments.status = 'loading';
+	comments.threads = [];
+	comments.continuation = undefined;
+	comments.loadingMore = false;
+	comments.moreError = false;
+	comments.acting = {};
+	comments.hidden = {};
+	comments.create.uncertain = false;
+	comments.draft.uncertain = false;
+	try {
+		const page = await api.getCommentsMore(sort.token);
+		if (g !== gen) return;
+		apply(page);
+	} catch (e) {
+		if (g !== gen) return;
+		if (needsReload(e)) {
+			comments.status = 'reload';
+		} else {
+			comments.status = 'error';
+			toast.error(t('toasts.could_not_load_comments'));
+		}
+	}
+}
+
+/** Post what is in the top comment box. */
+export async function submitCreate() {
+	const box = comments.create;
+	const text = box.text.trim();
+	if (!text || box.pending || !comments.header?.composer) return;
+	const s = session;
+	box.pending = true;
+	box.uncertain = false;
+	try {
+		const posted = await api.commentCreate(text);
+		if (s !== session) return;
+		box.text = '';
+		const row = view(posted ? posted : { comment: localComment(text), replies: [] });
+		// The comment may be listed already (the answer carried it, and so did a read since).
+		if (!comments.threads.some((v) => v.comment.id === row.comment.id)) {
+			comments.threads = [row, ...comments.threads];
+		}
+		if (comments.state === 'empty') comments.state = 'ok';
+	} catch (e) {
+		if (s !== session) return;
+		writeFailed(e, box);
+	} finally {
+		if (s === session) box.pending = false;
+	}
+}
+
+export function openReply(c: Comment) {
+	if (comments.draft.pending) return;
+	comments.draft = { ...emptyDraft(), target: { kind: 'reply', id: c.id } };
+}
+
+export function openEdit(c: Comment) {
+	if (comments.draft.pending) return;
+	// What the edit dialog pre-fills when the response had it plainly, else the text on screen.
+	comments.draft = { ...emptyDraft(), text: c.edit_text ?? c.text, target: { kind: 'edit', id: c.id } };
+}
+
+/** Close the inline composer, restoring nothing: an edit's original text was never touched. */
+export function cancelDraft() {
+	if (comments.draft.pending) return;
+	comments.draft = emptyDraft();
+}
+
+let localCount = 0;
+
+/** A row for a comment that was just sent when the answer did not carry it: the viewer's own,
+ *  with the text that was sent. No actions, so no buttons, until the next read replaces it. */
+function localComment(text: string): Comment {
+	const me = auth.account;
+	return {
+		id: `local-${++localCount}`,
+		text,
+		author: {
+			name: me?.name || t('comments.you'),
+			avatar: me?.thumbnail ?? undefined,
+			verified: false,
+			is_creator: false,
+			is_artist: false
+		},
+		published: t('comments.just_now'),
+		actions: [],
+		hearted: false,
+		pinned: false,
+		own: true,
+		writes: []
+	};
+}
+
+/** The thread a comment is on screen in, as the comment or as one of its replies. */
+const threadOf = (id: string) =>
+	comments.threads.find((v) => v.comment.id === id || v.replies.some((r) => r.id === id));
+
+/** Send what is in the inline composer: a reply, or the edited text of an own comment. */
+export async function submitDraft() {
+	const d = comments.draft;
+	const target = d.target;
+	const text = d.text.trim();
+	if (!target || !text || d.pending) return;
+	const s = session;
+	d.pending = true;
+	d.uncertain = false;
+	try {
+		if (target.kind === 'reply') {
+			const posted = await api.commentReply(target.id, text);
+			if (s !== session) return;
+			comments.draft = emptyDraft();
+			// Under its thread, open, from the answer or from what was sent.
+			const v = threadOf(target.id);
+			if (v) {
+				const row = posted ?? localComment(text);
+				if (!v.replies.some((r) => r.id === row.id)) v.replies = [...v.replies, row];
+				v.open = true;
+			}
+		} else {
+			await api.commentEdit(target.id, text);
+			if (s !== session) return;
+			// The text YouTube accepted is the text that was sent: update the row in place.
+			const c = findComment(target.id);
+			if (c) {
+				c.text = text;
+				c.edit_text = text;
+			}
+			comments.draft = emptyDraft();
+		}
+	} catch (e) {
+		if (s !== session) return;
+		writeFailed(e, d);
+	} finally {
+		if (s === session) d.pending = false;
+	}
+}
+
+/** Ask the viewer to confirm deleting a comment (the dialog is in the panel). */
+export const requestDelete = (c: Comment) => {
+	comments.confirmDelete = c;
+};
+export const cancelDelete = () => {
+	comments.confirmDelete = null;
+};
+
+/** The viewer confirmed: hide the row, send the delete, and put it back if it fails. The comment
+ *  is passed in because the dialog closes on the same click that confirms it. */
+export async function confirmDelete(c: Comment | null) {
+	comments.confirmDelete = null;
+	if (!c) return;
+	const s = session;
+	comments.hidden[c.id] = true;
+	try {
+		await api.commentDelete(c.id);
+		if (s !== session) return;
+		comments.threads = comments.threads.filter((v) => v.comment.id !== c.id);
+		for (const v of comments.threads) v.replies = v.replies.filter((r) => r.id !== c.id);
+	} catch (e) {
+		if (s !== session) return;
+		delete comments.hidden[c.id];
+		if (needsReload(e)) comments.status = 'reload';
+		else if (api.commentsErrorKind(e) !== 'busy') toast.error(t('toasts.comment_delete_failed'));
 	}
 }

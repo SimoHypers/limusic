@@ -4,13 +4,29 @@
 	import {
 		CheckmarkBadge01Icon,
 		FavouriteIcon,
+		ArrowTurnBackwardIcon,
+		Delete02Icon,
+		PencilEdit02Icon,
 		Pin02Icon,
 		ThumbsDownIcon,
 		ThumbsUpIcon
 	} from '@hugeicons/core-free-icons';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import type { Comment, CommentAction } from '$lib/api';
-	import { actOnComment, canAct, isActing, shownCount } from '$lib/comments.svelte';
+	import {
+		actOnComment,
+		cancelDraft,
+		canAct,
+		comments,
+		isActing,
+		openEdit,
+		openReply,
+		reloadComments,
+		requestDelete,
+		shownCount,
+		submitDraft
+	} from '$lib/comments.svelte';
+	import CommentComposer from './CommentComposer.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import { thumb } from '$lib/thumb';
 
@@ -61,6 +77,17 @@
 				? t('comments.dislike')
 				: t('comments.dislike_unavailable')
 	);
+	// The inline composer (a reply under this comment, or an edit in place of its text) belongs to
+	// this row when the draft names it. Only the viewer's own comments can be edited or deleted,
+	// and only when the response offered it; nothing is shown signed out.
+	const draft = $derived(comments.draft);
+	const editing = $derived(draft.target?.kind === 'edit' && draft.target.id === comment.id);
+	const replying = $derived(draft.target?.kind === 'reply' && draft.target.id === comment.id);
+	const canReply = $derived(comment.writes.includes('reply'));
+	const canEdit = $derived(comment.writes.includes('edit'));
+	const canDelete = $derived(comment.writes.includes('delete'));
+	const writeLink =
+		'inline-flex cursor-pointer items-center gap-1 text-xs text-muted-foreground enabled:hover:text-foreground disabled:cursor-default disabled:opacity-50';
 	// Colour only: no transition on a row in a scrolling list (docs/UI-PERFORMANCE.md).
 	const vote =
 		'inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground enabled:hover:text-foreground disabled:cursor-default disabled:opacity-50 aria-pressed:text-primary aria-pressed:disabled:opacity-100 focus-visible:outline-2 focus-visible:outline-ring';
@@ -101,18 +128,35 @@
 			{/if}
 			{#if comment.published}<span class="text-muted-foreground">{comment.published}</span>{/if}
 		</div>
-		<p
-			class="mt-1 text-sm break-words whitespace-pre-wrap {long && !expanded ? 'line-clamp-5' : ''}"
-		>
-			{comment.text}
-		</p>
-		{#if long}
-			<button
-				class="mt-0.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
-				onclick={() => (expanded = !expanded)}
+		{#if editing}
+			<div class="mt-1">
+				<CommentComposer
+					bind:value={comments.draft.text}
+					placeholder={t('comments.edit_label')}
+					label={t('comments.edit_label')}
+					submitLabel={t('comments.save')}
+					pending={draft.pending}
+					uncertain={draft.uncertain}
+					focus
+					onsubmit={submitDraft}
+					oncancel={cancelDraft}
+					onreload={reloadComments}
+				/>
+			</div>
+		{:else}
+			<p
+				class="mt-1 text-sm break-words whitespace-pre-wrap {long && !expanded ? 'line-clamp-5' : ''}"
 			>
-				{expanded ? t('comments.show_less') : t('comments.show_more')}
-			</button>
+				{comment.text}
+			</p>
+			{#if long}
+				<button
+					class="mt-0.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+					onclick={() => (expanded = !expanded)}
+				>
+					{expanded ? t('comments.show_less') : t('comments.show_more')}
+				</button>
+			{/if}
 		{/if}
 		<div class="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
 			{#if canAct(comment)}
@@ -154,7 +198,57 @@
 					<span class="sr-only">{t('comments.hearted')}</span>
 				</span>
 			{/if}
+			{#if canReply}
+				<button
+					type="button"
+					class={writeLink}
+					disabled={draft.pending}
+					onclick={() => openReply(comment)}
+				>
+					<HugeiconsIcon icon={ArrowTurnBackwardIcon} class="h-3.5 w-3.5" />
+					{t('comments.reply')}
+				</button>
+			{/if}
+			{#if canEdit}
+				<button
+					type="button"
+					class={vote}
+					aria-label={t('comments.edit')}
+					title={t('comments.edit')}
+					disabled={draft.pending}
+					onclick={() => openEdit(comment)}
+				>
+					<HugeiconsIcon icon={PencilEdit02Icon} class="h-3.5 w-3.5" />
+				</button>
+			{/if}
+			{#if canDelete}
+				<button
+					type="button"
+					class={vote}
+					aria-label={t('comments.delete')}
+					title={t('comments.delete')}
+					onclick={() => requestDelete(comment)}
+				>
+					<HugeiconsIcon icon={Delete02Icon} class="h-3.5 w-3.5" />
+				</button>
+			{/if}
 		</div>
+		{#if replying}
+			<div class="mt-2">
+				<CommentComposer
+					bind:value={comments.draft.text}
+					placeholder={comment.reply_placeholder ?? t('comments.reply_placeholder')}
+					label={t('comments.reply_placeholder')}
+					submitLabel={t('comments.post_reply')}
+					pending={draft.pending}
+					uncertain={draft.uncertain}
+					focus
+					onsubmit={submitDraft}
+					oncancel={cancelDraft}
+					onreload={reloadComments}
+				/>
+			</div>
+		{/if}
 		{@render children?.()}
 	</div>
 </div>

@@ -8,6 +8,7 @@ use crate::models::browse::{
     self, AlbumPage, ArtistPage, BrowseItem, HistoryGroup, HomePage, MoodSection,
     PlaylistContinuation, PlaylistPage, PlaylistSort, SearchResults, SearchSuggestions,
 };
+use crate::models::comment_write::WriteCommand;
 use crate::models::comments::{self, CommentReplies, CommentsPage, ViewerSummary};
 use crate::models::context::Context;
 use crate::models::lyrics::{self, PlainLyrics, TimedLyricLine};
@@ -329,6 +330,7 @@ impl InnerTube {
         if as_account {
             log_account_read("first page", &ViewerSummary::of_page(&page));
             log_viewer_state_gaps(&value, &page);
+            log_own_comment_commands(&value, &page);
         }
         Ok(page)
     }
@@ -353,6 +355,7 @@ impl InnerTube {
         page.read_as_account = as_account;
         if as_account {
             log_account_read("continuation", &ViewerSummary::of_page(&page));
+            log_own_comment_commands(&value, &page);
         }
         Ok(page)
     }
@@ -420,6 +423,73 @@ impl InnerTube {
                         request_keys = "context, actions",
                         "comment action request failed"
                     );
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// Replay a command the server issued for writing a comment (see `WriteCommand`): post a
+    /// comment, reply, edit or delete. The command and its params came from a signed-in read and
+    /// are sent as they were; `text` is added as `commentText` for the ones that take it.
+    ///
+    /// `replayable` says whether sending it twice is harmless. Posting, replying and editing are
+    /// not (a retry after a lost answer would post twice), so those go through
+    /// [`InnerTube::post_write`], which never retries and reports a lost answer as
+    /// `Error::WriteUncertain`; only a delete passes `true` and takes the ordinary path. A user's
+    /// own action, so the healer may run on a refusal, like `rate`.
+    ///
+    /// Success is HTTP 200 with no `error` and no failed `actionResults` entry; what a live answer
+    /// looks like beyond that is UNVERIFIED, so its shape (key names only) is logged at debug level.
+    /// Neither the command, the params nor the text appear in an error or a log line.
+    ///
+    /// Returns the answer, for the caller to look for the comment it put on the page
+    /// (`parse_written_comment`); a token replay has no answer to look at and returns `Null`.
+    pub async fn comment_write(
+        &self,
+        client: &YouTubeClient,
+        command: &WriteCommand,
+        text: Option<&str>,
+        replayable: bool,
+    ) -> Result<serde_json::Value, Error> {
+        let (path, body) = match command {
+            // A `performCommentActionEndpoint` token: the same replay as a vote.
+            WriteCommand::Action(token) => {
+                return self.comment_action(client, token).await.map(|()| serde_json::Value::Null)
+            }
+            WriteCommand::Endpoint { path, payload } => {
+                // The path is glued onto the fixed base URL as text, so it must be a plain
+                // `comment/…` path whoever built the command. Nothing is sent otherwise.
+                if !crate::models::comment_write::is_plain_comment_path(path) {
+                    tracing::debug!("comment write refused: the path is not a plain comment path");
+                    return Err(Error::Other("Not a comment path.".into()));
+                }
+                let mut body = serde_json::Map::new();
+                body.insert("context".into(), serde_json::to_value(self.context_for(client))?);
+                for (key, value) in payload {
+                    // What the server issued never replaces the context.
+                    body.entry(key.clone()).or_insert_with(|| value.clone());
+                }
+                if let Some(text) = text {
+                    body.insert("commentText".into(), text.into());
+                }
+                (path.as_str(), serde_json::Value::Object(body))
+            }
+        };
+        let sent = if replayable {
+            self.post(path, client, &body, true).await
+        } else {
+            self.post_write(path, client, &body, true).await
+        };
+        match sent {
+            Ok(value) => {
+                log_write_answer(&value);
+                check_write_response(&value)?;
+                Ok(value)
+            }
+            Err(e) => {
+                if let Error::Http(h) = &e {
+                    tracing::debug!(status = ?h.status(), "comment write request failed");
                 }
                 Err(e)
             }
@@ -1370,6 +1440,101 @@ fn check_comment_action(value: &serde_json::Value) -> Result<(), Error> {
     Err(Error::ActionRejected)
 }
 
+/// The answer to a comment write. Only what is known to mean failure counts as one: a top-level
+/// `error`, or an `actionResults` entry that is not `STATUS_SUCCEEDED`. Anything else is accepted.
+/// UNVERIFIED against a live answer.
+fn check_write_response(value: &serde_json::Value) -> Result<(), Error> {
+    let failed_result =
+        value.get("actionResults").and_then(serde_json::Value::as_array).is_some_and(|r| {
+            r.iter().any(|a| {
+                a.get("status").and_then(serde_json::Value::as_str) != Some("STATUS_SUCCEEDED")
+            })
+        });
+    if value.get("error").is_some() || failed_result {
+        tracing::debug!("comment write rejected");
+        return Err(Error::ActionRejected);
+    }
+    Ok(())
+}
+
+/// The shape of a write's answer, as one string: the key names of the object, of EVERY entry of
+/// `actions[]` and of `actionResult`, the kinds of payload in `frameworkUpdates`' mutations (with
+/// counts), and the `actionResult.status` enum. Key names, counts and one enum: no id, text or
+/// token, so that a first live post can be understood from one log line. Also whether an action
+/// is a `runAttestationCommand`.
+fn write_answer_shape(value: &serde_json::Value) -> (String, bool) {
+    use serde_json::Value;
+    let names = |v: Option<&Value>| -> String {
+        v.and_then(Value::as_object)
+            .map(|o| o.keys().cloned().collect::<Vec<_>>().join(","))
+            .filter(|names| !names.is_empty())
+            .unwrap_or_else(|| "-".into())
+    };
+    let actions =
+        value.get("actions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+    let per_action: Vec<String> = actions.iter().map(|a| format!("[{}]", names(Some(a)))).collect();
+
+    let mutations = value
+        .pointer("/frameworkUpdates/entityBatchUpdate/mutations")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let mut kinds = std::collections::BTreeMap::<&str, usize>::new();
+    for payload in mutations.iter().filter_map(|m| m.get("payload")?.as_object()) {
+        for kind in payload.keys() {
+            *kinds.entry(kind).or_default() += 1;
+        }
+    }
+    let kinds: Vec<String> = kinds.iter().map(|(k, n)| format!("{k}x{n}")).collect();
+    let status = value
+        .pointer("/actionResult/status")
+        .and_then(Value::as_str)
+        .filter(|s| s.len() <= 48 && s.bytes().all(|b| b.is_ascii_uppercase() || b == b'_'))
+        .unwrap_or("-");
+
+    let shape = format!(
+        "keys={} actions={} action_result_keys={} action_result_status={status} mutations={} payloads={}",
+        names(Some(value)),
+        if per_action.is_empty() { "-".into() } else { per_action.join(" ") },
+        names(value.get("actionResult")),
+        mutations.len(),
+        if kinds.is_empty() { "-".into() } else { kinds.join(",") },
+    );
+    let attestation = actions.iter().any(|a| a.get("runAttestationCommand").is_some());
+    (shape, attestation)
+}
+
+fn log_write_answer(value: &serde_json::Value) {
+    let (shape, attestation) = write_answer_shape(value);
+    tracing::debug!(shape = %shape, "comment write answered");
+    // YouTube asks the client to run BotGuard attestation after a post. It is not run here: this
+    // only says that it was asked, so a later rejection can be read against it.
+    if attestation {
+        tracing::debug!(
+            "comment write answer asks for attestation (runAttestationCommand); not run"
+        );
+    }
+}
+
+/// One line per signed-in page that has a comment of the viewer's own: how many, how many offer
+/// edit and delete, and (key names and types only, via `own_comment_probe`) what command-like
+/// nodes sit under the first one. Edit and delete are UNVERIFIED, so this is what tells the
+/// shape to look for when they are missing.
+fn log_own_comment_commands(value: &serde_json::Value, page: &CommentsPage) {
+    let all = || page.threads.iter().flat_map(|t| std::iter::once(&t.comment).chain(&t.replies));
+    let own = all().filter(|c| c.own).count();
+    if own == 0 {
+        return;
+    }
+    tracing::debug!(
+        own,
+        with_edit = all().filter(|c| c.own && c.commands.edit.is_some()).count(),
+        with_delete = all().filter(|c| c.own && c.commands.delete.is_some()).count(),
+        paths = %comments::own_comment_probe(value).unwrap_or_default(),
+        "own comment commands"
+    );
+}
+
 /// One debug line per page read as the account, so a log that shows nothing from the comments
 /// code means the filter never reached it, not that everything was found. Counts only.
 fn log_account_read(kind: &'static str, summary: &ViewerSummary) {
@@ -1720,6 +1885,169 @@ mod tests {
         let err = it.comments_continuation(&web(), "tok-account", true).await.unwrap_err();
         assert!(matches!(err, Error::Other(_)));
         assert!(server.requests().is_empty());
+    }
+
+    // --- comment writes ----------------------------------------------------------------------
+
+    fn endpoint(path: &str, payload: serde_json::Value) -> WriteCommand {
+        WriteCommand::Endpoint {
+            path: path.to_owned(),
+            payload: payload.as_object().cloned().unwrap_or_default(),
+        }
+    }
+
+    /// The request as the server sees it: the server-issued fields and the text, the context ours
+    /// (a payload can never replace it), the path the command named, and the account's headers.
+    #[tokio::test]
+    async fn a_write_replays_the_servers_command_with_the_text() {
+        let server =
+            MockServer::start(|_| (200, r#"{"actions":[{"createCommentAction":{}}]}"#.into()));
+        let it = it_against(&server, true);
+        let cmd = endpoint(
+            "comment/create_comment",
+            json!({ "createCommentParams": "fixture-params", "context": "must-not-win" }),
+        );
+        it.comment_write(&web(), &cmd, Some("hello"), false).await.unwrap();
+        let sent = server.requests();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].path.starts_with("/youtubei/v1/comment/create_comment?"));
+        let body: serde_json::Value = serde_json::from_str(&sent[0].body).unwrap();
+        assert_eq!(body["createCommentParams"], "fixture-params");
+        assert_eq!(body["commentText"], "hello");
+        assert!(body["context"].is_object(), "the context is ours: {body}");
+        assert!(as_account(&sent[0]));
+        assert!(sent[0].header("authorization").is_some_and(|a| a.starts_with("SAPISIDHASH ")));
+    }
+
+    /// The answers: a clean 200 is accepted; an `error`, a failed result, or a non-200 is not; and
+    /// none of them carries the params or the text in what comes back.
+    #[tokio::test]
+    async fn write_answers_are_checked_and_errors_never_hold_the_params_or_text() {
+        for (status, reply, ok) in [
+            (200, r#"{"actions":[{"createCommentAction":{}}]}"#, true),
+            (200, r#"{}"#, true),
+            (200, r#"{"error":{"code":400}}"#, false),
+            (200, r#"{"actionResults":[{"status":"STATUS_FAILED"}]}"#, false),
+            (200, r#"{"actionResults":[{"status":"STATUS_SUCCEEDED"}]}"#, true),
+            (400, r#"{}"#, false),
+            (500, r#"{}"#, false),
+        ] {
+            let server = MockServer::start(move |_: &Seen| (status, reply.to_owned()));
+            let it = it_against(&server, true);
+            let cmd = endpoint("comment/x", json!({ "p": "secret-params" }));
+            let got = it.comment_write(&web(), &cmd, Some("secret text"), false).await;
+            assert_eq!(got.is_ok(), ok, "{status} {reply}");
+            if let Err(e) = &got {
+                for shown in [e.to_string(), format!("{e:?}")] {
+                    assert!(!shown.contains("secret"), "{shown}");
+                }
+            }
+            assert_eq!(server.requests().len(), 1);
+        }
+    }
+
+    /// Never sent twice: a lost answer to a post is `WriteUncertain` after exactly one request,
+    /// while a delete (replayable) takes the ordinary path.
+    #[tokio::test]
+    async fn a_lost_answer_to_a_post_is_uncertain_and_never_resent() {
+        let server = MockServer::start(|_: &Seen| (0, String::new())); // hang up
+        let it = it_against(&server, true);
+        let cmd = endpoint("comment/create_comment", json!({ "createCommentParams": "P" }));
+        let got = it.comment_write(&web(), &cmd, Some("hello"), false).await;
+        assert!(matches!(got, Err(Error::WriteUncertain)), "{got:?}");
+        assert_eq!(server.requests().len(), 1, "exactly one request");
+    }
+
+    /// The log line for a write's answer names keys and kinds only, whatever is in it.
+    #[test]
+    fn the_write_answer_shape_lists_keys_and_kinds_and_never_values() {
+        let answer = json!({
+            "responseContext": { "visitorData": "secret-visitor" },
+            "actions": [
+                { "clickTrackingParams": "secret-click", "runAttestationCommand": { "ids": ["secret"] } },
+                { "createCommentAction": { "contents": { "text": "secret text" } } },
+            ],
+            "actionResult": { "status": "STATUS_SUCCEEDED", "detail": "secret detail" },
+            "frameworkUpdates": { "entityBatchUpdate": { "mutations": [
+                { "entityKey": "secret-key", "payload": { "commentEntityPayload": { "x": "secret" } } },
+                { "entityKey": "secret-key2", "payload": { "commentEntityPayload": {} } },
+                { "entityKey": "secret-key3", "payload": { "engagementToolbarStateEntityPayload": {} } },
+            ] } },
+        });
+        let (shape, attestation) = write_answer_shape(&answer);
+        assert!(attestation);
+        assert!(
+            shape.contains(
+                "actions=[clickTrackingParams,runAttestationCommand] [createCommentAction]"
+            ),
+            "{shape}"
+        );
+        assert!(
+            shape
+                .contains("action_result_keys=detail,status action_result_status=STATUS_SUCCEEDED"),
+            "{shape}"
+        );
+        assert!(
+            shape.contains(
+                "mutations=3 payloads=commentEntityPayloadx2,engagementToolbarStateEntityPayloadx1"
+            ),
+            "{shape}"
+        );
+        assert!(!shape.contains("secret"), "{shape}");
+
+        // Nothing there, or not the shape expected: still a line, never a failure.
+        let (bare, attestation) = write_answer_shape(&json!({}));
+        assert!(!attestation);
+        assert_eq!(
+            bare,
+            "keys=- actions=- action_result_keys=- action_result_status=- mutations=0 payloads=-"
+        );
+        write_answer_shape(&json!(null));
+        write_answer_shape(
+            &json!({ "actions": 5, "actionResult": [], "frameworkUpdates": { "entityBatchUpdate": { "mutations": [1, null] } } }),
+        );
+    }
+
+    /// A path that is not a plain `comment/…` one never reaches the network, even in a command
+    /// that was built by hand: the host, scheme and port are the fixed base's alone.
+    #[tokio::test]
+    async fn a_hostile_command_path_sends_nothing() {
+        let server = MockServer::start(|_: &Seen| (200, "{}".into()));
+        let it = it_against(&server, true);
+        for path in [
+            "../browse",
+            "comment/../browse",
+            "comment//x",
+            "comment/x?y=1",
+            "comment/x#frag",
+            "https://evil.example/comment/x",
+            "//evil.example/comment/x",
+            "evil.example/comment/x",
+            "comment/x@evil.example",
+            "comment/%2e%2e/x",
+            "browse",
+            "",
+        ] {
+            let got = it.comment_write(&web(), &endpoint(path, json!({})), Some("t"), false).await;
+            assert!(matches!(got, Err(Error::Other(_))), "{path}: {got:?}");
+        }
+        assert!(server.requests().is_empty(), "something was sent");
+    }
+
+    /// A delete that is a perform-action token is the same replay as a vote.
+    #[tokio::test]
+    async fn an_action_token_write_goes_to_the_perform_action_path() {
+        let server = MockServer::start(|_: &Seen| {
+            (200, r#"{"actionResults":[{"status":"STATUS_SUCCEEDED"}]}"#.into())
+        });
+        let it = it_against(&server, true);
+        it.comment_write(&web(), &WriteCommand::Action("fixture-token".into()), None, true)
+            .await
+            .unwrap();
+        let sent = server.requests();
+        assert!(sent[0].path.starts_with(&format!("/youtubei/v1/{COMMENT_ACTION_PATH}")));
+        let body: serde_json::Value = serde_json::from_str(&sent[0].body).unwrap();
+        assert_eq!(body["actions"], json!(["fixture-token"]));
     }
 
     // --- comment actions ---------------------------------------------------------------------

@@ -4,9 +4,10 @@
 use std::sync::Arc;
 
 use innertube::{
-    ActionError, AlbumPage, ArtistPage, BrowseItem, CommentAction, CommentReplies, CommentsPage,
-    HistoryGroup, HomePage, MoodSection, PlaylistContinuation, PlaylistPage, PlaylistSort,
-    Provenance, Rating, SearchResults, SearchSuggestions, SongItem, VoteState,
+    ActionError, AlbumPage, ArtistPage, BrowseItem, Comment, CommentAction, CommentReplies,
+    CommentThread, CommentWrite, CommentsPage, HistoryGroup, HomePage, MoodSection,
+    PlaylistContinuation, PlaylistPage, PlaylistSort, Provenance, Rating, SearchResults,
+    SearchSuggestions, SongItem, VoteState,
 };
 use tauri::{Emitter, Manager, State};
 
@@ -792,6 +793,9 @@ pub enum CommentsError {
     Unavailable,
     /// YouTube answered the action and did not accept it.
     Rejected,
+    /// A comment write whose outcome is unknown: the request may have reached YouTube and only
+    /// the answer was lost, so it may have been posted. Never retried; the UI offers a reload.
+    Uncertain,
     /// Anything else: network, refusals, an unreadable answer.
     Failed,
 }
@@ -803,6 +807,7 @@ impl CommentsError {
         tracing::debug!(error = %e, "comments command failed");
         match e {
             innertube::Error::ActionRejected => CommentsError::Rejected,
+            innertube::Error::WriteUncertain => CommentsError::Uncertain,
             _ => CommentsError::Failed,
         }
     }
@@ -943,6 +948,124 @@ pub async fn comment_action(
         vote: ticket.resulting_vote,
         actions: after.map(|(_, actions)| actions).unwrap_or_default(),
     })
+}
+
+// --- writing comments --------------------------------------------------------------------
+//
+// Post, reply, edit and delete replay a command the signed-in read issued for exactly that (see
+// `innertube::WriteCommand`), looked up here under the active account: nothing is built from
+// what the UI sends but the text and the id of the comment. They are the user's own actions, so
+// they go the ordinary authenticated way (healer included), need a login, and are refused for a
+// command issued to another account or channel. Posting, replying and editing are never sent
+// twice (`InnerTube::comment_write`); a lost answer comes back as `uncertain`.
+
+/// The text of a comment about to be sent: trimmed, and not empty. YouTube's own limit is not
+/// ours to guess at; a response that names none leaves it to YouTube.
+fn comment_text(text: &str) -> Result<&str, CommentsError> {
+    let text = text.trim();
+    if text.is_empty() {
+        Err(CommentsError::Unavailable)
+    } else {
+        Ok(text)
+    }
+}
+
+fn write_denied(e: ActionError) -> CommentsError {
+    match e {
+        ActionError::Unknown => CommentsError::StaleToken,
+        ActionError::Busy => CommentsError::Busy,
+        ActionError::Unavailable => CommentsError::Unavailable,
+    }
+}
+
+/// Reply, edit or delete one comment. The answer is returned for a reply to be looked at.
+async fn write_on_comment(
+    state: &Arc<AppState>,
+    comment_id: &str,
+    write: CommentWrite,
+    text: Option<&str>,
+) -> Result<(serde_json::Value, String), CommentsError> {
+    // Nobody signed in (any more) is the same as a changed account: reload the comments.
+    let client = require_login(state).map_err(|_| CommentsError::AccountChanged)?;
+    let identity = state.it.comments_identity().ok_or(CommentsError::AccountChanged)?;
+    let ticket = state
+        .comments
+        .lock()
+        .unwrap()
+        .begin_write(&identity, comment_id, write)
+        .map_err(write_denied)?;
+    // Only a delete may be sent again by the transport.
+    let sent =
+        state.it.comment_write(client, ticket.command(), text, write == CommentWrite::Delete).await;
+    // Under the identity it was sent as, whoever is active now.
+    state.comments.lock().unwrap().finish_write(
+        &identity,
+        comment_id,
+        sent.is_ok() && write == CommentWrite::Delete,
+    );
+    sent.map(|answer| (answer, identity)).map_err(|e| CommentsError::of(&e))
+}
+
+/// Post a new top-level comment on the track whose comments are on screen. Returns the comment
+/// when the answer carried it, built by the same parser as a read; `None` otherwise, and the UI
+/// shows a row of its own for the text it sent. Nothing is reloaded: reads right after a write
+/// do not reliably include it yet.
+#[tauri::command]
+pub async fn comment_create(
+    state: St<'_>,
+    text: String,
+) -> Result<Option<CommentThread>, CommentsError> {
+    let text = comment_text(&text)?;
+    let client = require_login(&state).map_err(|_| CommentsError::AccountChanged)?;
+    let identity = state.it.comments_identity().ok_or(CommentsError::AccountChanged)?;
+    let ticket = state.comments.lock().unwrap().begin_create(&identity).map_err(write_denied)?;
+    let sent = state.it.comment_write(client, ticket.command(), Some(text), false).await;
+    state.comments.lock().unwrap().finish_create(&identity);
+    let answer = sent.map_err(|e| CommentsError::of(&e))?;
+    let thread = innertube::parse_written_comment(&answer);
+    if let Some(thread) = &thread {
+        // Its own tokens and commands, so it can be liked, edited and deleted right away.
+        let who = Provenance::Account(identity);
+        state.comments.lock().unwrap().remember_thread(&who, thread);
+    }
+    tracing::debug!(found = thread.is_some(), "comment write: the posted comment in the answer");
+    Ok(thread)
+}
+
+/// Reply to a comment. Returns the reply when the answer carried it (see [`comment_create`]).
+#[tauri::command]
+pub async fn comment_reply(
+    state: St<'_>,
+    comment_id: String,
+    text: String,
+) -> Result<Option<Comment>, CommentsError> {
+    let text = comment_text(&text)?;
+    let (answer, identity) =
+        write_on_comment(&state, &comment_id, CommentWrite::Reply, Some(text)).await?;
+    let thread = innertube::parse_written_comment(&answer);
+    if let Some(thread) = &thread {
+        state.comments.lock().unwrap().remember_thread(&Provenance::Account(identity), thread);
+    }
+    tracing::debug!(found = thread.is_some(), "comment write: the posted reply in the answer");
+    Ok(thread.map(|t| t.comment))
+}
+
+/// Replace the text of one of the viewer's own comments.
+#[tauri::command]
+pub async fn comment_edit(
+    state: St<'_>,
+    comment_id: String,
+    text: String,
+) -> Result<(), CommentsError> {
+    write_on_comment(&state, &comment_id, CommentWrite::Edit, Some(comment_text(&text)?)).await?;
+    Ok(())
+}
+
+/// Delete one of the viewer's own comments.
+#[tauri::command]
+pub async fn comment_delete(state: St<'_>, comment_id: String) -> Result<(), CommentsError> {
+    write_on_comment(&state, &comment_id, CommentWrite::Delete, None).await?;
+    Ok(())
 }
 
 #[tauri::command]

@@ -11,6 +11,10 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::comment_write::{
+    command_probe, create_command, menu_commands, menu_probe, reply_command, CommentWrite,
+    Composer, MenuCommands, WriteCommand, WriteCommands,
+};
 use super::metadata::find_all;
 
 /// Which of the two sorts a header entry switches to. Identified by position (Top first, Newest
@@ -35,6 +39,11 @@ pub struct CommentsHeader {
     /// The short count YouTube prints ("7.8K"), display only.
     pub count_text: Option<String>,
     pub sorts: Vec<CommentSort>,
+    /// The comment box, only when the response carried a command to post with (signed in).
+    pub composer: Option<Composer>,
+    /// That command. Never serialized: it stays in Rust.
+    #[serde(skip)]
+    pub create: Option<WriteCommand>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -189,6 +198,20 @@ pub struct Comment {
     /// Never serialized. Kept on the type so the command layer can cache them in Rust.
     #[serde(skip)]
     pub tokens: ActionTokens,
+    /// The viewer's own comment (`author.isCurrentUser`).
+    pub own: bool,
+    /// What the edit dialog pre-fills (`editableText`), when the response had it in a plain shape;
+    /// the UI edits `text` otherwise.
+    pub edit_text: Option<String>,
+    /// What the viewer can write on it: exactly the commands the response carried. Reply on any
+    /// comment that offered it; edit and delete only on one's own, and only if found (UNVERIFIED,
+    /// see `comment_write`). Empty read anonymously.
+    pub writes: Vec<CommentWrite>,
+    /// The reply box's placeholder, if the response sent one.
+    pub reply_placeholder: Option<String>,
+    /// The commands behind `writes`. Never serialized.
+    #[serde(skip)]
+    pub commands: WriteCommands,
     /// Display string, `None` when there are no replies.
     pub reply_count: Option<String>,
     pub hearted: bool,
@@ -377,7 +400,11 @@ fn parse_header(h: &Value) -> CommentsHeader {
             })
         })
         .collect();
-    CommentsHeader { count_text, sorts }
+    let (composer, create) = match create_command(h) {
+        Some((composer, create)) => (Some(composer), Some(create)),
+        None => (None, None),
+    };
+    CommentsHeader { count_text, sorts, composer, create }
 }
 
 /// A `continuationItemRenderer`'s token. A normal page's trailing item keeps it under
@@ -428,10 +455,21 @@ fn parse_comment(vm: &Value, pinned: bool, entities: &Entities) -> Option<Commen
     };
     let like_key =
         if vote == Some(VoteState::Liked) { "likeCountLiked" } else { "likeCountNotliked" };
-    let tokens = entities
-        .get(str_of(vm, "toolbarSurfaceKey"), "engagementToolbarSurfaceEntityPayload")
-        .map(ActionTokens::from_surface)
-        .unwrap_or_default();
+    let surface =
+        entities.get(str_of(vm, "toolbarSurfaceKey"), "engagementToolbarSurfaceEntityPayload");
+    let tokens = surface.map(ActionTokens::from_surface).unwrap_or_default();
+    let own = author.get("isCurrentUser").and_then(Value::as_bool).unwrap_or(false);
+    let (reply_placeholder, reply) = match surface.and_then(reply_command) {
+        Some((placeholder, command)) => (placeholder, Some(command)),
+        None => (None, None),
+    };
+    // Edit and delete: the viewer's own comment's menu, by structure, and nowhere else.
+    let menu = match (own, surface) {
+        (true, Some(surface)) => menu_commands(surface),
+        _ => MenuCommands::default(),
+    };
+    let edit_text = menu.edit_text;
+    let commands = WriteCommands { reply, edit: menu.edit, delete: menu.delete };
     let flag = |k: &str| author.get(k).and_then(Value::as_bool).unwrap_or(false);
 
     Some(Comment {
@@ -452,6 +490,11 @@ fn parse_comment(vm: &Value, pinned: bool, entities: &Entities) -> Option<Commen
         vote,
         actions: available_actions(vote, &tokens),
         tokens,
+        own,
+        edit_text,
+        writes: commands.offered(),
+        reply_placeholder,
+        commands,
         reply_count: non_empty(toolbar.and_then(|t| t.get("replyCount"))),
         hearted: state.and_then(|s| str_of(s, "heartState")) == Some("TOOLBAR_HEART_STATE_HEARTED"),
         pinned,
@@ -523,6 +566,65 @@ impl std::fmt::Display for ViewerSummary {
             self.offer_undislike
         )
     }
+}
+
+/// For the debug line that says why edit/delete is or is not offered: the command-like key paths
+/// and value types under the first of the viewer's own comments in a response. `None` when the
+/// response has no comment of the viewer's. Key names and types only.
+pub(crate) fn own_comment_probe(root: &Value) -> Option<String> {
+    let entities = Entities::new(root);
+    find_all(root, "commentViewModel").into_iter().find_map(|vm| {
+        let entity = entities.get(str_of(vm, "commentKey"), "commentEntityPayload")?;
+        if entity.pointer("/author/isCurrentUser").and_then(Value::as_bool) != Some(true) {
+            return None;
+        }
+        let surface =
+            entities.get(str_of(vm, "toolbarSurfaceKey"), "engagementToolbarSurfaceEntityPayload");
+        let comment_surface =
+            entities.get(str_of(vm, "commentSurfaceKey"), "commentSurfaceEntityPayload");
+        let roots: Vec<(&str, &Value)> = [
+            ("surface", surface),
+            ("commentSurface", comment_surface),
+            ("comment", Some(entity)),
+            ("viewModel", Some(vm)),
+        ]
+        .into_iter()
+        .filter_map(|(label, v)| Some((label, v?)))
+        .collect();
+        let menu = surface.map_or_else(|| "menu: no surface".to_owned(), menu_probe);
+        Some(format!("{}; {menu}", command_probe(&roots)))
+    })
+}
+
+/// The comment a write put on the page, if its answer carries it: the thread itself
+/// (`commentThreadRenderer`, with its entities in `frameworkUpdates`), or failing that just the
+/// viewer's own comment entity in the answer's mutations, which gives the row with no actions or
+/// write commands until the next read. `None` when the answer holds neither, and the caller shows
+/// a local row instead. Never reloads anything. UNVERIFIED which of these a live answer holds;
+/// what keys an answer has is logged at debug level.
+pub fn parse_written_comment(root: &Value) -> Option<CommentThread> {
+    let entities = Entities::new(root);
+    if let Some(thread) =
+        find_all(root, "commentThreadRenderer").into_iter().find_map(|t| parse_thread(t, &entities))
+    {
+        return Some(thread);
+    }
+    let mutations = root.pointer("/frameworkUpdates/entityBatchUpdate/mutations")?.as_array()?;
+    mutations.iter().find_map(|m| {
+        let key = m.get("entityKey")?.as_str()?;
+        let payload = m.pointer("/payload/commentEntityPayload")?;
+        if payload.pointer("/author/isCurrentUser").and_then(Value::as_bool) != Some(true) {
+            return None;
+        }
+        // The same view-model keys a read has, as far as the entity itself names them.
+        let vm = serde_json::json!({
+            "commentKey": key,
+            "toolbarStateKey": payload.pointer("/properties/toolbarStateKey"),
+            "commentId": payload.pointer("/properties/commentId"),
+        });
+        let comment = parse_comment(&vm, false, &entities)?;
+        Some(CommentThread { comment, replies_token: None, replies: Vec::new() })
+    })
 }
 
 /// JSON PATHS and value TYPES (never values) of what the viewer-state parse depends on, for the
@@ -599,6 +701,9 @@ mod tests {
     const TABS: &str = include_str!("../../tests/fixtures/comments/next_tabs.json");
     /// SYNTHETIC (see the note inside it): not a live signed-in capture.
     const SIGNED_IN: &str = include_str!("../../tests/fixtures/comments/signed_in_synthetic.json");
+    /// SYNTHETIC too: write commands, with ASSUMED shapes for edit and delete.
+    const WRITES: &str =
+        include_str!("../../tests/fixtures/comments/signed_in_write_synthetic.json");
 
     fn load(s: &str) -> Value {
         serde_json::from_str(s).expect("fixture is valid JSON")
@@ -986,6 +1091,220 @@ mod tests {
         let replies = parse_comment_replies(&load(SIGNED_IN));
         assert_eq!(ViewerSummary::of_replies(&replies).comments, 8);
         assert_eq!(ViewerSummary::of_replies(&CommentReplies::default()), ViewerSummary::default());
+    }
+
+    fn writes_page() -> CommentsPage {
+        parse_comments_page(&load(WRITES), true)
+    }
+
+    fn writes_of(page: &CommentsPage, name: &str) -> (bool, Vec<CommentWrite>) {
+        let c = &page
+            .threads
+            .iter()
+            .find(|t| t.comment.text.ends_with(name))
+            .unwrap_or_else(|| panic!("no {name}"))
+            .comment;
+        (c.own, c.writes.clone())
+    }
+
+    /// Reply wherever the response carried a reply button with a usable path; edit and delete
+    /// only on the viewer's own comments, and only where a command was found.
+    #[test]
+    fn writes_follow_the_commands_the_response_carried() {
+        use CommentWrite::*;
+        let page = writes_page();
+        assert_eq!(page.threads.len(), 9, "the thread whose entity is missing is skipped");
+        let want = [
+            // Edit and delete are in this one's menu too, but it is not the viewer's own.
+            ("other", false, vec![Reply]),
+            ("own_full", true, vec![Reply, Edit, Delete]),
+            ("own_bare", true, vec![Reply]),
+            ("own_delete_only", true, vec![Reply, Delete]),
+            // The update command names no path (or a hostile one): edit still, on the fallback.
+            ("own_edit_no_api_url", true, vec![Reply, Edit]),
+            ("own_edit_hostile_api_url", true, vec![Reply, Edit]),
+            // An update button with no params is not an edit.
+            ("own_edit_no_params", true, vec![Reply]),
+            // A reply button naming a path outside comment/ offers nothing.
+            ("bad_reply_path", false, vec![]),
+            ("no_reply_dialog", false, vec![]),
+        ];
+        for (name, own, writes) in want {
+            assert_eq!(writes_of(&page, name), (own, writes), "{name}");
+        }
+    }
+
+    #[test]
+    fn the_write_commands_are_the_servers_and_stay_in_rust() {
+        let page = writes_page();
+        let by = |name: &str| {
+            &page.threads.iter().find(|t| t.comment.text.ends_with(name)).unwrap().comment
+        };
+        let own = by("own_full");
+        match own.commands.reply.as_ref().unwrap() {
+            WriteCommand::Endpoint { path, payload } => {
+                assert_eq!(path, "comment/create_comment_reply");
+                assert_eq!(payload["createReplyParams"], "fixture-reply-params-2");
+            }
+            other => panic!("{other:?}"),
+        }
+        match own.commands.edit.as_ref().unwrap() {
+            WriteCommand::Endpoint { path, payload } => {
+                assert_eq!(path, "comment/update_comment");
+                assert_eq!(payload.len(), 1, "only the update params are replayed");
+                assert_eq!(payload["updateCommentParams"], "fixture-edit-params-2");
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(own.edit_text.as_deref(), Some("Synthetic editable text 2"));
+        // Delete is the confirm button's action token, replayed like a vote.
+        assert_eq!(
+            own.commands.delete,
+            Some(WriteCommand::Action("fixture-delete-token-2".into()))
+        );
+        assert!(by("own_bare").commands.edit.is_none() && by("own_bare").edit_text.is_none());
+        // The named path wins when it is a plain comment path; otherwise the constant is used.
+        let path = |name: &str| match by(name).commands.edit.as_ref().unwrap() {
+            WriteCommand::Endpoint { path, .. } => path.clone(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(path("own_edit_no_api_url"), crate::models::comment_write::COMMENT_UPDATE_PATH);
+        assert_eq!(
+            path("own_edit_hostile_api_url"),
+            crate::models::comment_write::COMMENT_UPDATE_PATH
+        );
+        assert_eq!(own.reply_placeholder.as_deref(), Some("Add a reply..."));
+
+        // The UI is sent which writes are offered and nothing that could replay one.
+        let sent = serde_json::to_string(&page).unwrap();
+        assert!(sent.contains("\"writes\":[\"reply\",\"edit\",\"delete\"]"), "{sent}");
+        // Params and tokens are in neither the serialized page nor Debug output (the endpoint
+        // path, which is not secret, may show in Debug but never reaches the UI).
+        for secret in [
+            "fixture-reply-params",
+            "fixture-edit-params",
+            "fixture-delete",
+            "fixture-create-params",
+        ] {
+            assert!(!sent.contains(secret), "`{secret}` reached the serialized page");
+            assert!(!format!("{page:?}").contains(secret), "`{secret}` reached Debug output");
+        }
+        assert!(!sent.contains("update_comment") && !sent.contains("create_comment"));
+    }
+
+    #[test]
+    fn the_composer_comes_from_the_header_and_only_when_it_can_post() {
+        let header = writes_page().header.unwrap();
+        assert_eq!(
+            header.composer.as_ref().unwrap().placeholder.as_deref(),
+            Some("Add a comment...")
+        );
+        match header.create.as_ref().unwrap() {
+            WriteCommand::Endpoint { path, payload } => {
+                assert_eq!(path, crate::models::comment_write::COMMENT_CREATE_PATH);
+                assert_eq!(payload["createCommentParams"], "fixture-create-params-1");
+            }
+            other => panic!("{other:?}"),
+        }
+        // The anonymous captures have a comment box with no submit button: no composer, no
+        // commands, and nothing to write on any comment.
+        let anon = parse_comments_page(&load(INITIAL), true);
+        let header = anon.header.unwrap();
+        assert!(header.composer.is_none() && header.create.is_none());
+        assert!(anon.threads.iter().all(|t| t.comment.writes.is_empty() && !t.comment.own));
+        assert!(!serde_json::to_string(&header).unwrap().contains("createCommentParams"));
+    }
+
+    /// The diagnostics line for a missing edit/delete: key paths and types of the viewer's own
+    /// comment's command-like nodes, never a value, and nothing at all without an own comment.
+    #[test]
+    fn the_own_comment_probe_lists_command_keys_and_types_only() {
+        let probe = own_comment_probe(&load(WRITES)).expect("the page has an own comment");
+        assert!(probe.contains("surface/menuCommand: object"), "{probe}");
+        assert!(probe.contains("menuNavigationItemRenderer"), "{probe}");
+        assert!(probe.contains("updateCommentEndpoint: object"), "{probe}");
+        assert!(probe.contains("performCommentActionEndpoint: object"), "{probe}");
+        // What the structure matched, and the icon enums.
+        assert!(
+            probe.contains("menu: item[0]: edit, icon=EDIT, item[1]: delete, icon=DELETE, item[2]: other, icon=FLAG"),
+            "{probe}"
+        );
+        for value in ["fixture", "Synthetic", "update_comment", "@synthetic", "Edit", "Delete"] {
+            assert!(!probe.contains(value), "the probe leaks `{value}`: {probe}");
+        }
+        assert_eq!(own_comment_probe(&load(INITIAL)), None, "no own comment, no line");
+    }
+
+    /// What a write's answer can hold, by what is in it. The shapes are SYNTHETIC: no live answer
+    /// is known to carry the comment (a live create answer has `actions` with an attestation
+    /// command and a `frameworkUpdates`), which is why a local row is the last resort.
+    fn own_entity(key: &str, id: &str, text: &str, own: bool) -> Value {
+        json!({ "entityKey": key, "payload": { "commentEntityPayload": {
+            "key": key,
+            "properties": { "commentId": id, "content": { "content": text }, "publishedTime": "now",
+                            "toolbarStateKey": format!("{key}-state") },
+            "author": { "displayName": "@me", "channelId": "UCfixtureme", "isCurrentUser": own },
+            "toolbar": { "likeCountNotliked": "", "likeCountLiked": "1", "replyCount": "" } } } })
+    }
+
+    #[test]
+    fn a_written_comment_is_the_answers_thread_when_it_carries_one() {
+        let answer = json!({
+            "actions": [{ "createCommentAction": { "contents": { "commentThreadRenderer": {
+                "commentViewModel": { "commentViewModel": {
+                    "commentKey": "k1", "toolbarStateKey": "k1-state", "toolbarSurfaceKey": "k1-surface",
+                    "commentId": "NewOne" } } } } } }],
+            "frameworkUpdates": { "entityBatchUpdate": { "mutations": [
+                own_entity("k1", "NewOne", "hello there", true),
+                { "entityKey": "k1-state", "payload": { "engagementToolbarStateEntityPayload": {
+                    "key": "k1-state", "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT" } } },
+                { "entityKey": "k1-surface", "payload": { "engagementToolbarSurfaceEntityPayload": {
+                    "likeCommand": { "innertubeCommand": { "performCommentActionEndpoint": { "action": "L" } } } } } },
+            ] } },
+        });
+        let thread = parse_written_comment(&answer).unwrap();
+        let c = &thread.comment;
+        assert_eq!((c.id.as_str(), c.text.as_str(), c.own), ("NewOne", "hello there", true));
+        assert_eq!(c.vote, Some(VoteState::Neutral));
+        // Only the like command was in the answer, so only like is on offer.
+        assert_eq!(c.actions, [CommentAction::Like]);
+        assert!(thread.replies.is_empty() && thread.replies_token.is_none());
+    }
+
+    /// No thread in the answer, but the viewer's own comment entity: the row, with nothing to
+    /// click until the next read gives it commands.
+    #[test]
+    fn a_written_comment_falls_back_to_the_answers_own_entity() {
+        let answer = json!({
+            "actions": [{ "runAttestationCommand": {} }],
+            "frameworkUpdates": { "entityBatchUpdate": { "mutations": [
+                own_entity("someone", "Other", "not mine", false),
+                own_entity("mine", "Mine", "my text", true),
+            ] } },
+        });
+        let c = parse_written_comment(&answer).unwrap().comment;
+        assert_eq!((c.id.as_str(), c.text.as_str(), c.own), ("Mine", "my text", true));
+        assert!(c.actions.is_empty() && c.writes.is_empty() && c.edit_text.is_none());
+    }
+
+    #[test]
+    fn an_answer_without_the_comment_gives_none() {
+        for answer in [
+            json!({}),
+            json!(null),
+            json!({ "actions": [{ "runAttestationCommand": {} }] }),
+            // Entities, but none the viewer's own, or none that parses.
+            json!({ "frameworkUpdates": { "entityBatchUpdate": { "mutations": [
+                own_entity("a", "A", "x", false)] } } }),
+            json!({ "frameworkUpdates": { "entityBatchUpdate": { "mutations": [
+                { "entityKey": "z", "payload": { "commentEntityPayload": { "author": { "isCurrentUser": true } } } }] } } }),
+            json!({ "frameworkUpdates": 5 }),
+            // A thread renderer whose entity is not in the answer.
+            json!({ "actions": [{ "x": { "commentThreadRenderer": { "commentViewModel": { "commentViewModel": {
+                "commentKey": "gone" } } } } }] }),
+        ] {
+            assert!(parse_written_comment(&answer).is_none(), "{answer}");
+        }
     }
 
     #[test]

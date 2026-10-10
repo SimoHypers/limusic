@@ -5,18 +5,25 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import * as Tabs from '$lib/components/ui/tabs';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
+	import type { Comment } from '$lib/api';
 	import {
+		cancelDelete,
 		comments,
+		confirmDelete,
 		loadComments,
 		loadMoreComments,
 		loadMoreReplies,
+		reloadComments,
 		setCommentSort,
+		submitCreate,
 		toggleReplies,
 		type ThreadView
 	} from '$lib/comments.svelte';
 	import { auth, playback } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import CommentRow from './CommentRow.svelte';
+	import CommentComposer from './CommentComposer.svelte';
 
 	// Only mounted while a comments surface is on screen (the docked panel or the player view's
 	// tab), so nothing is fetched for a track nobody opened comments on. Reopened on the same
@@ -32,6 +39,13 @@
 	});
 
 	let scroller = $state<HTMLElement | null>(null);
+
+	// The dialog closes on the click that confirms it, which clears the request in the state: keep
+	// the comment it was opened for until it is sent.
+	let toDelete = $state<Comment | null>(null);
+	$effect(() => {
+		if (comments.confirmDelete) toDelete = comments.confirmDelete;
+	});
 
 	// Pages arrive ~20 at a time, so a sentinel at the foot is enough: no windowing. Keyed on the
 	// thread count below, because a sentinel that stays in view after a short page would otherwise
@@ -84,7 +98,7 @@
 		{#if v.open}
 			<div class="-mx-4 mt-1 pl-6">
 				{#each v.replies as r (r.id)}
-					<CommentRow comment={r} reply />
+					{#if !comments.hidden[r.id]}<CommentRow comment={r} reply />{/if}
 				{/each}
 				{#if v.loading}
 					<div class="px-4 py-2"><Skeleton class="h-3 w-1/2 rounded" /></div>
@@ -127,6 +141,21 @@
 	{/if}
 
 	<div class="min-h-0 flex-1 overflow-y-auto" bind:this={scroller}>
+		<!-- The comment box: only when the response carried a way to post (signed in). -->
+		{#if comments.header?.composer && (comments.status === 'ready' || comments.status === 'loading')}
+			<div class="border-b px-4 py-3">
+				<CommentComposer
+					bind:value={comments.create.text}
+					placeholder={comments.header.composer.placeholder ?? t('comments.add_placeholder')}
+					label={t('comments.composer_label')}
+					submitLabel={t('comments.post')}
+					pending={comments.create.pending}
+					uncertain={comments.create.uncertain}
+					onsubmit={submitCreate}
+					onreload={reloadComments}
+				/>
+			</div>
+		{/if}
 		{#if comments.status === 'idle' || comments.status === 'loading'}
 			{@render skeletons()}
 		{:else if comments.status === 'reload'}
@@ -157,9 +186,11 @@
 			<p class="px-6 py-10 text-center text-sm text-muted-foreground">{t('comments.empty')}</p>
 		{:else}
 			{#each comments.threads as v (v.comment.id)}
-				<CommentRow comment={v.comment}>
-					{@render replies(v)}
-				</CommentRow>
+				{#if !comments.hidden[v.comment.id]}
+					<CommentRow comment={v.comment}>
+						{@render replies(v)}
+					</CommentRow>
+				{/if}
 			{/each}
 			{#if comments.loadingMore}
 				{@render skeletons()}
@@ -177,3 +208,23 @@
 		{/if}
 	</div>
 </div>
+
+<AlertDialog.Root
+	open={!!comments.confirmDelete}
+	onOpenChange={(open) => {
+		if (!open) cancelDelete();
+	}}
+>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>{t('comments.delete_title')}</AlertDialog.Title>
+			<AlertDialog.Description>{t('comments.delete_desc')}</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel>{t('common.cancel')}</AlertDialog.Cancel>
+			<AlertDialog.Action onclick={() => confirmDelete(toDelete)}>
+				{t('common.delete')}
+			</AlertDialog.Action>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>

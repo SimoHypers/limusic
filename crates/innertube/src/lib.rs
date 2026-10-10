@@ -25,10 +25,13 @@ pub use models::browse::{
     PlaylistContinuation, PlaylistPage, PlaylistSort, QuerySuggestion, SearchResults,
     SearchSuggestions, Section, SortMenu,
 };
+pub use models::comment_write::{
+    CommentWrite, Composer, WriteCommand, WriteCommands, COMMENT_CREATE_PATH, COMMENT_UPDATE_PATH,
+};
 pub use models::comments::{
-    available_actions, ActionTokens, Comment, CommentAction, CommentAuthor, CommentReplies,
-    CommentSort, CommentSortKey, CommentThread, CommentsHeader, CommentsPage, CommentsState,
-    VoteState,
+    available_actions, parse_written_comment, ActionTokens, Comment, CommentAction, CommentAuthor,
+    CommentReplies, CommentSort, CommentSortKey, CommentThread, CommentsHeader, CommentsPage,
+    CommentsState, VoteState,
 };
 pub use models::context::Locale;
 pub use models::lyrics::{PlainLyrics, TimedLyricLine};

@@ -63,6 +63,10 @@ impl MockServer {
                 let req = Seen { path, headers, body: String::from_utf8_lossy(&body).into_owned() };
                 let (status, reply) = respond(&req);
                 log.lock().unwrap().push(req);
+                // Status 0 hangs up without answering: a request that was received and never replied to.
+                if status == 0 {
+                    continue;
+                }
                 let _ = write!(
                     stream,
                     "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}",
