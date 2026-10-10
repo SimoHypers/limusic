@@ -387,6 +387,7 @@ export const setRepeat = (mode: RepeatMode) => invoke<void>('set_repeat', { mode
 export const togglePause = () => invoke<void>('toggle_pause');
 export const seek = (position: number) => invoke<void>('seek', { position });
 export const setVolume = (volume: number) => invoke<void>('set_volume', { volume });
+export const setKaraoke = (enabled: boolean) => invoke<void>('set_karaoke', { enabled });
 /** Tempo (0.25–2.0) + pitch (−12..=12 semitones). Not persisted: resets on restart. */
 export const setPlaybackParams = (speed: number, semitones: number) =>
 	invoke<void>('set_playback_params', { speed, semitones });
@@ -877,6 +878,8 @@ export const onDuration = (cb: (d: number) => void): Promise<UnlistenFn> =>
 /** Echo of every `set_volume`, so a second window's slider can't drift from what you hear. */
 export const onVolume = (cb: (v: number) => void): Promise<UnlistenFn> =>
 	listen<number>('volume', (e) => cb(e.payload));
+export const onKaraoke = (cb: (v: boolean) => void): Promise<UnlistenFn> =>
+	listen<boolean>('karaoke', (e) => cb(e.payload));
 export const onPlaybackState = (cb: (s: 'playing' | 'paused') => void): Promise<UnlistenFn> =>
 	listen<'playing' | 'paused'>('playback-state', (e) => cb(e.payload));
 export const onPlaybackError = (cb: (msg: string) => void): Promise<UnlistenFn> =>

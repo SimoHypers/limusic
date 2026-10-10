@@ -212,6 +212,14 @@ pub async fn set_playback_params(state: St<'_>, speed: f64, semitones: i32) -> R
     state.player.set_speed(speed).map_err(|e| e.to_string())
 }
 
+/// Vocal reduction. Session-only on purpose, never persisted, resets on restart like tempo/pitch.
+#[tauri::command]
+pub async fn set_karaoke(state: St<'_>, enabled: bool) -> Result<(), String> {
+    state.player.set_karaoke(enabled).map_err(|e| e.to_string())?;
+    let _ = state.app.emit("karaoke", enabled);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
     Ok(state.queue_snapshot().await)

@@ -36,6 +36,8 @@ export const playback = $state({
 	// 1.0 / 0 every launch and so does this, so the two can't drift apart.
 	speed: 1,
 	semitones: 0,
+	// Session-only: mpv starts without it every launch.
+	karaoke: false,
 	// Rating of the current track — seeded from its real `likeStatus` on each change, then
 	// optimistic on toggle. Owned here rather than in `ratings` below because the mini player is a
 	// separate webview with its own module instance: the backend reseed is what keeps them agreeing.
@@ -937,6 +939,16 @@ export function setTempoPitch(speed: number, semitones: number) {
 	});
 }
 
+export function toggleKaraoke() {
+	const previous = playback.karaoke;
+	const next = !previous;
+	playback.karaoke = next;
+	api.setKaraoke(next).catch((e) => {
+		playback.karaoke = previous;
+		toast.error(String(e));
+	});
+}
+
 // Mute *is* volume 0 — no separate flag, so dragging the slider off zero un-mutes for free and the
 // icon can't disagree with what you hear. Remembers the level to come back to; falls back to 100
 // when the user dragged to zero themselves (nothing was remembered).
@@ -1554,6 +1566,9 @@ export function initApp(mini = false): () => void {
 			// Muted from elsewhere (the global hotkey): remember the level, so unmuting here restores it.
 			if (v === 0 && playback.volume > 0) preMute = playback.volume;
 			playback.volume = v;
+		}),
+		api.onKaraoke((enabled) => {
+			playback.karaoke = enabled;
 		}),
 		api.onPlaybackError((msg) => toast.error(msg)),
 		api.onPlaybackNotice((msg) => toast(msg)), // auto-skipped an unplayable track

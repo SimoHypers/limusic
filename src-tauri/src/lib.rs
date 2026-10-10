@@ -845,6 +845,7 @@ pub fn run() {
             commands::seek,
             commands::set_volume,
             commands::set_playback_params,
+            commands::set_karaoke,
             commands::get_queue,
             commands::get_playback,
             commands::video_stream,

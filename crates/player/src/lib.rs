@@ -103,15 +103,22 @@ fn is_ao_init_failed(e: &libmpv2::Error) -> bool {
     }
 }
 
+#[derive(Clone, Copy, Default)]
+struct AfState {
+    gain_db: Option<f64>,
+    semitones: i32,
+    karaoke: bool,
+}
+
 /// The player. Wraps `Arc<Mpv>` (Send+Sync); an event loop runs on a dedicated OS thread per deck
 /// and pumps [`PlayerEvent`]s into a channel taken once via [`Player::take_events`].
 pub struct Player {
     decks: Arc<Decks>,
     events: Option<UnboundedReceiver<PlayerEvent>>,
-    /// `(loudness gain dB, pitch semitones)`. mpv's `af` is one global chain, so the two things
+    /// `(loudness gain dB, pitch semitones, karaoke)`. mpv's `af` is one global chain, so the things
     /// that write to it have to be re-applied together: a bare `set_property("af", ...)` from
-    /// either one would drop the other's filter.
-    af: Mutex<(Option<f64>, i32)>,
+    /// either one would drop the others' filters.
+    af: Mutex<AfState>,
 }
 
 /// One mpv instance plays one file at a time, so an *overlap* needs a second decoder and a second
@@ -128,6 +135,7 @@ struct Decks {
     active: AtomicUsize,
     /// Crossfade length in milliseconds; 0 is off.
     crossfade_ms: AtomicU64,
+    af_chain: Mutex<String>,
     /// The volume slider's percent, so a fade can scale the user's own level instead of
     /// overwriting it.
     volume: AtomicI64,
@@ -336,6 +344,7 @@ impl Player {
             b: OnceLock::new(),
             active: AtomicUsize::new(0),
             crossfade_ms: AtomicU64::new(0),
+            af_chain: Mutex::new(String::new()),
             volume: AtomicI64::new(100),
             preloaded: AtomicBool::new(false),
             preload_gen: AtomicU64::new(0),
@@ -352,7 +361,7 @@ impl Player {
             wid: AtomicI64::new(0),
         });
         spawn_deck_events(&a, 0, decks.clone())?;
-        Ok(Player { decks, events: Some(rx), af: Mutex::new((None, 0)) })
+        Ok(Player { decks, events: Some(rx), af: Mutex::new(AfState::default()) })
     }
 
     /// The deck the app is hearing. Every command below acts on this one.
@@ -662,7 +671,7 @@ impl Player {
     // round-trip (a few ms) and the filter chain reinits mid-stream. If that ever clicks audibly,
     // keep one labelled filter (`af=@gain:lavfi=[volume=0dB]`) and retune it with `af-command`.
     pub fn set_gain(&self, gain_db: Option<f64>) -> Result<(), Error> {
-        self.af.lock().unwrap().0 = gain_db;
+        self.af.lock().unwrap().gain_db = gain_db;
         self.apply_af()
     }
 
@@ -681,27 +690,52 @@ impl Player {
     // Windows/macOS build ever turns up without it.
     pub fn set_pitch(&self, semitones: i32) -> Result<(), Error> {
         let wanted = semitones.clamp(-12, 12);
-        let previous = std::mem::replace(&mut self.af.lock().unwrap().1, wanted);
+        let previous = std::mem::replace(&mut self.af.lock().unwrap().semitones, wanted);
         if let Err(e) = self.apply_af() {
             // No librubberband in this build: mpv rejects the *whole* chain, loudness gain
             // included, so put the old value back rather than leave every later set_gain failing.
             // (mpv never applied the bad chain, so this restores what is already playing.)
-            self.af.lock().unwrap().1 = previous;
+            self.af.lock().unwrap().semitones = previous;
             let _ = self.apply_af();
             return Err(if wanted == 0 { e } else { Error::NoPitchFilter });
         }
         Ok(())
     }
 
+    /// Toggle vocal reduction (karaoke).
+    pub fn set_karaoke(&self, on: bool) -> Result<(), Error> {
+        let previous = {
+            let mut state = self.af.lock().unwrap();
+            let prev = state.karaoke;
+            state.karaoke = on;
+            prev
+        };
+        if let Err(e) = self.apply_af() {
+            self.af.lock().unwrap().karaoke = previous;
+            let _ = self.apply_af();
+            return Err(e);
+        }
+        Ok(())
+    }
+
     fn apply_af(&self) -> Result<(), Error> {
-        let (gain_db, semitones) = *self.af.lock().unwrap();
-        self.mpv().set_property("af", af_chain(gain_db, semitones).as_str())?;
+        let AfState { gain_db, semitones, karaoke } = *self.af.lock().unwrap();
+        let chain = af_chain(gain_db, semitones, karaoke);
+        *self.decks.af_chain.lock().unwrap() = chain.clone();
+        self.mpv().set_property("af", chain.as_str())?;
         Ok(())
     }
 }
 
-/// The whole `af` chain: loudness gain, then pitch. Empty when neither is in play, so the default
-/// path stays exactly the filterless one it was before pitch existed.
+/// For every FFT bin it measures how well left and right agree in level and phase (coherence c, from -1 to 1)
+/// and attenuates the bin by pow(max(c,0), 0.5), so centre-panned content (the lead vocal) is reduced
+/// while hard-panned instruments, ambience and stereo width survive. It only acts between 150 Hz and 8 kHz
+/// so bass and cymbals stay. Window 2048 adds ~32 ms of latency. Tuning knobs: the exponent 0.5
+/// (lower = stronger but more artifacts), the band edges 150/8000, win_size.
+const KARAOKE_FILTER: &str = r#"lavfi=[aformat=channel_layouts=stereo,afftfilt=real='st(0,real(b,0));st(1,imag(b,0));st(2,real(b,1));st(3,imag(b,1));st(4,(ld(0)*ld(2)+ld(1)*ld(3))/((ld(0)*ld(0)+ld(1)*ld(1)+ld(2)*ld(2)+ld(3)*ld(3))/2+1e-9));re*(1-pow(max(ld(4),0),0.5)*gte(b*sr/2048,150)*lte(b*sr/2048,8000))':imag='st(0,real(b,0));st(1,imag(b,0));st(2,real(b,1));st(3,imag(b,1));st(4,(ld(0)*ld(2)+ld(1)*ld(3))/((ld(0)*ld(0)+ld(1)*ld(1)+ld(2)*ld(2)+ld(3)*ld(3))/2+1e-9));im*(1-pow(max(ld(4),0),0.5)*gte(b*sr/2048,150)*lte(b*sr/2048,8000))':win_size=2048:overlap=0.75]"#;
+
+/// The whole `af` chain: loudness gain, then karaoke, then pitch. Empty when none is in play, so the default
+/// path stays exactly the filterless one it was before filters existed.
 ///
 /// A positive gain carries a limiter: lifting a quiet track pushes its peaks past full scale, and
 /// without one they would clip at the output. Its threshold is full scale (`limit=1`), so it only
@@ -711,7 +745,7 @@ impl Player {
 /// `latency=1` is essential for gapless playback: alimiter looks 5 ms ahead, and latency
 /// compensation trims that initial delay and drains the same number of buffered samples at EOF
 /// instead of dropping the outgoing tail when mpv rebuilds the graph for the next playlist entry.
-fn af_chain(gain_db: Option<f64>, semitones: i32) -> String {
+fn af_chain(gain_db: Option<f64>, semitones: i32, karaoke: bool) -> String {
     let mut chain = Vec::new();
     match gain_db {
         Some(g) if g > 0.0 => {
@@ -719,6 +753,9 @@ fn af_chain(gain_db: Option<f64>, semitones: i32) -> String {
         }
         Some(g) => chain.push(format!("lavfi=[volume={g}dB]")),
         None => {}
+    }
+    if karaoke {
+        chain.push(KARAOKE_FILTER.to_owned());
     }
     if semitones != 0 {
         // Semitones → frequency multiplier (equal temperament).
@@ -1012,6 +1049,11 @@ fn start_crossfade(decks: &Arc<Decks>, from: usize, fade: f64) {
     if let Ok(speed) = out.get_property::<String>("speed") {
         let _ = incoming.set_property("speed", speed.as_str());
     }
+    if let Ok(chain) = decks.af_chain.lock() {
+        if let Err(e) = incoming.set_property("af", chain.as_str()) {
+            tracing::warn!(error = %e, "crossfade incoming deck refused af chain");
+        }
+    }
     decks.preloaded.store(false, Ordering::Release);
     // Read before `fading` goes up, which is what lets a cancel bump it: taken afterwards, a
     // cancel landing in between would be captured as the current value and never noticed.
@@ -1198,16 +1240,32 @@ mod tests {
     #[test]
     fn gain_and_pitch_share_one_chain() {
         // The bug this exists for: either setter clobbering the other's filter.
-        assert_eq!(af_chain(None, 0), "");
-        assert_eq!(af_chain(Some(-3.5), 0), "lavfi=[volume=-3.5dB]");
+        assert_eq!(af_chain(None, 0, false), "");
+        assert_eq!(af_chain(Some(-3.5), 0, false), "lavfi=[volume=-3.5dB]");
         assert_eq!(
-            af_chain(Some(4.0), 0),
+            af_chain(Some(4.0), 0, false),
             "lavfi=[volume=4dB,alimiter=limit=1:level=disabled:latency=1]"
         );
-        assert_eq!(af_chain(None, 12), "rubberband=pitch-scale=2");
-        assert_eq!(af_chain(Some(-6.0), -12), "lavfi=[volume=-6dB],rubberband=pitch-scale=0.5");
+        assert_eq!(af_chain(None, 12, false), "rubberband=pitch-scale=2");
+        assert_eq!(
+            af_chain(Some(-6.0), -12, false),
+            "lavfi=[volume=-6dB],rubberband=pitch-scale=0.5"
+        );
         // One semitone up is the twelfth root of two.
-        assert!(af_chain(None, 1).ends_with("1.0594630943592953"));
+        assert!(af_chain(None, 1, false).ends_with("1.0594630943592953"));
+    }
+
+    #[test]
+    fn karaoke_filter_chain() {
+        assert_eq!(af_chain(None, 0, true), super::KARAOKE_FILTER);
+        assert_eq!(
+            af_chain(Some(-3.5), 2, true),
+            format!(
+                "lavfi=[volume=-3.5dB],{},rubberband=pitch-scale={}",
+                super::KARAOKE_FILTER,
+                2f64.powf(2.0 / 12.0)
+            )
+        );
     }
 
     /// Everything above is string-building; this drives a real libmpv and reads `af` back out of
@@ -1339,6 +1397,36 @@ mod tests {
         // 4. A boosted track: mpv (and its ffmpeg) must accept the limiter, or the gain is lost.
         p.set_gain(Some(6.0)).unwrap();
         assert!(af().contains("alimiter"), "boost went in without its limiter: {}", af());
+    }
+
+    #[test]
+    fn mpv_keeps_karaoke_through_gain_and_pitch_changes() {
+        use super::Player;
+
+        let dir = std::env::temp_dir().join("limusic-karaoke-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = Player::new(dir.to_str().unwrap()).expect("libmpv");
+        let af = || p.mpv().get_property::<String>("af").unwrap();
+
+        p.set_karaoke(true).unwrap();
+        assert!(!af().is_empty(), "af empty after set_karaoke(true)");
+        assert!(af().contains("afftfilt"), "karaoke missing: {}", af());
+
+        p.set_gain(Some(-3.0)).unwrap();
+        p.set_pitch(2).unwrap();
+        let current = af();
+        assert!(current.contains("volume=-3dB"), "gain dropped: {}", current);
+        assert!(current.contains("afftfilt"), "karaoke dropped: {}", current);
+        assert!(current.contains("rubberband"), "pitch dropped: {}", current);
+
+        p.set_karaoke(false).unwrap();
+        let restored = af();
+        assert!(!restored.contains("afftfilt"), "karaoke left behind: {}", restored);
+        assert!(restored.contains("volume=-3dB"), "gain lost on karaoke off: {}", restored);
+        assert!(restored.contains("rubberband"), "pitch lost on karaoke off: {}", restored);
+
+        p.set_pitch(0).unwrap();
+        p.set_gain(None).unwrap();
     }
 
     /// Issue #306: loading over a paused track must not return while that track is still loaded,

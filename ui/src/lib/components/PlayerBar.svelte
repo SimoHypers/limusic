@@ -10,6 +10,7 @@
 		RepeatOne01Icon,
 		Queue01Icon,
 		Mic01Icon,
+		Mic02Icon,
 		VolumeHighIcon,
 		VolumeMute02Icon,
 		FavouriteIcon,
@@ -32,6 +33,7 @@
 		dragVolume,
 		openAddToPlaylist,
 		openMiniPlayer,
+		toggleKaraoke,
 		toggleMute,
 		toggleNowPlayingRating,
 		wheelVolume
@@ -372,6 +374,16 @@
 		<div class="flex items-center gap-0.5">
 			<Button variant="ghost" size="icon-sm" onclick={openMiniPlayer} aria-label={t('player.mini_player')}>
 				<HugeiconsIcon icon={MinimizeScreenIcon} class="h-5 w-5" />
+			</Button>
+			<Button
+				variant={playback.karaoke ? 'secondary' : 'ghost'}
+				size="icon-sm"
+				onclick={toggleKaraoke}
+				aria-label={t('player.karaoke')}
+				title={t('player.karaoke')}
+				aria-pressed={playback.karaoke}
+			>
+				<HugeiconsIcon icon={Mic02Icon} class="h-5 w-5 {playback.karaoke ? 'text-primary' : ''}" />
 			</Button>
 			<Button
 				variant={lyricsOpen ? 'secondary' : 'ghost'}
