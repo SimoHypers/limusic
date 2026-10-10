@@ -193,7 +193,12 @@
 											showAlt={added}
 											class="h-3.5 w-3.5"
 										/>
-										{added ? t('library.suggestion_added') : t('common.add')}
+										<!-- Trimmed to cap height so it centres on the glyphs, not on a line box
+										     that carries descender space below them: untrimmed, the word sat ~1.5px
+										     above the plus. Fonts change per theme, so no fixed nudge. -->
+										<span class="[text-box:trim-both_cap_alphabetic]">
+											{added ? t('library.suggestion_added') : t('common.add')}
+										</span>
 									</button>
 								{/snippet}
 							</TrackRow>
