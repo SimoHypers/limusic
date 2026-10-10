@@ -1,6 +1,6 @@
 use std::path::Path;
 use std::cmp::min;
-use num_complex::Complex32;
+use realfft::num_complex::Complex32;
 use crate::stft::Stft;
 
 #[derive(Debug, Clone, Copy)]
@@ -143,11 +143,18 @@ impl MdxModel {
             let outputs = self.session.run(ort::inputs! { input_name.as_str() => tensor })?;
 
             let pred = if denoise {
+                let data = {
+                    let (_, d) = outputs[0].try_extract_tensor::<f32>()?;
+                    d.to_vec()
+                };
+                drop(outputs);
                 let neg_input_data: Vec<f32> = input_data.iter().map(|&x| -x).collect();
                 let neg_tensor = ort::value::Tensor::from_array((vec![1usize, 4, dim_f, dim_t], neg_input_data))?;
                 let outputs_neg = self.session.run(ort::inputs! { input_name.as_str() => neg_tensor })?;
-                let (_, data) = outputs[0].try_extract_tensor::<f32>()?;
-                let (_, data_neg) = outputs_neg[0].try_extract_tensor::<f32>()?;
+                let data_neg = {
+                    let (_, d_neg) = outputs_neg[0].try_extract_tensor::<f32>()?;
+                    d_neg.to_vec()
+                };
                 let mut p = vec![0.0f32; data.len()];
                 for idx in 0..data.len() {
                     p[idx] = 0.5 * data[idx] - 0.5 * data_neg[idx];

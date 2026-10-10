@@ -10,6 +10,7 @@ ort = "=2.0.0-rc.13"
 symphonia = { version = "0.5", features = ["mp3", "flac", "wav", "aac", "ogg"] }
 rubato = "0.14"
 hound = "3.5"
+realfft = "3.5"
 
 [[example]]
 name = "inspect"

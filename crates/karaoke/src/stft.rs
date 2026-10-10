@@ -60,8 +60,8 @@ impl Stft {
 
         let mut planner = RealFftPlanner::<f32>::new();
         let r2c = planner.plan_fft_forward(self.n_fft);
-        let mut input_buf = r2c.make_input_vector();
-        let mut output_buf = r2c.make_output_vector();
+        let mut input_buf = r2c.make_input_vec();
+        let mut output_buf = r2c.make_output_vec();
 
         for t in 0..num_frames {
             let start = t * self.hop;
@@ -84,8 +84,8 @@ impl Stft {
 
         let mut planner = RealFftPlanner::<f32>::new();
         let c2r = planner.plan_fft_inverse(self.n_fft);
-        let mut c_in = c2r.make_input_vector();
-        let mut r_out = c2r.make_output_vector();
+        let mut c_in = c2r.make_input_vec();
+        let mut r_out = c2r.make_output_vec();
 
         let nyquist = self.n_fft / 2;
 
