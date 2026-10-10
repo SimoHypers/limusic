@@ -18,12 +18,23 @@ use crate::models::comments::{
 };
 
 /// Who a token was issued to.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Provenance {
     /// An anonymous read.
     Anonymous,
     /// A read as the account whose [`crate::InnerTube::comments_identity`] this is.
     Account(String),
+}
+
+/// The identity is a hash of the account's secret, so `Debug` (a stray `{:?}` in a log line) says
+/// only that there is one.
+impl std::fmt::Debug for Provenance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Provenance::Anonymous => f.write_str("Anonymous"),
+            Provenance::Account(_) => f.write_str("Account(<redacted>)"),
+        }
+    }
 }
 
 /// Why an action was not sent. Plain reasons for the caller to word; never a token.
@@ -258,6 +269,34 @@ mod tests {
         s.remember_replies(&account("a"), &replies_page);
         assert_eq!(s.provenance("tok-more-replies"), Some(account("a")));
         assert_eq!(s.provenance(&next), Some(Provenance::Anonymous));
+    }
+
+    /// Neither the identity hash nor an action token can reach a log line through `Debug`.
+    #[test]
+    fn debug_output_redacts_the_identity_and_the_tokens() {
+        const WHO: &str = "0123456789abcdef-identity-hash";
+        assert_eq!(format!("{:?}", Provenance::Account(WHO.into())), "Account(<redacted>)");
+        assert_eq!(format!("{:?}", Provenance::Anonymous), "Anonymous");
+
+        let mut s = CommentsSession::default();
+        let page = signed_in_page();
+        let prov = account(WHO);
+        s.remember_page(&prov, &page);
+        let id = comment_id(&page, "neutral");
+        let ticket = s.begin_action(WHO, &id, Like).ok().unwrap();
+        // The page (which carries every token) and anything holding the provenance, however it is
+        // formatted, including pretty-printed and inside an Option.
+        for shown in [
+            format!("{prov:?}"),
+            format!("{:#?}", Some(&prov)),
+            format!("{:?}", s.provenance(page.continuation.as_deref().unwrap())),
+            format!("{page:?}"),
+            format!("{:#?}", page.threads[0].comment),
+        ] {
+            assert!(!shown.contains(WHO), "the identity reached Debug output: {shown}");
+            assert!(!shown.contains("fixture-token"), "a token reached Debug output");
+        }
+        assert_eq!(ticket.token(), "fixture-token-like-1", "and the ticket still has its token");
     }
 
     #[test]
