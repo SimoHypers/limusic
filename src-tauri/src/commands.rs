@@ -775,6 +775,47 @@ pub async fn get_home_more(state: St<'_>, token: String) -> Result<HomePage, Str
     state.it.home_continuation(client, &token).await.map_err(|e| e.to_string())
 }
 
+/// Why a comments command failed, as a stable word the UI maps to its own text. The UI never
+/// shows a string from Rust for these: a message from here is English, may name a URL, and is not
+/// what a user can act on. What went wrong is logged at debug level instead.
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommentsError {
+    /// The signed-in account (or channel) is not the one these comments were read as, or nobody
+    /// is signed in any more. The comments have to be reloaded.
+    AccountChanged,
+    /// A token this session does not know: forgotten, or from before the last reload.
+    StaleToken,
+    /// Another action on the same comment is still running.
+    Busy,
+    /// The comment does not offer that action (no token for it in its current state).
+    Unavailable,
+    /// YouTube answered the action and did not accept it.
+    Rejected,
+    /// Anything else: network, refusals, an unreadable answer.
+    Failed,
+}
+
+impl CommentsError {
+    /// Classify an innertube error, logging what it was. The text of these errors holds no token
+    /// (tokens travel in request bodies only) and no account data.
+    fn of(e: &innertube::Error) -> Self {
+        tracing::debug!(error = %e, "comments command failed");
+        match e {
+            innertube::Error::ActionRejected => CommentsError::Rejected,
+            _ => CommentsError::Failed,
+        }
+    }
+}
+
+impl From<String> for CommentsError {
+    /// The helpers shared with the other commands report plain strings; here that is a failure.
+    fn from(e: String) -> Self {
+        tracing::debug!(error = %e, "comments command failed");
+        CommentsError::Failed
+    }
+}
+
 /// First page of comments for a video: the token lookup and the first request both happen here, so
 /// the UI only ever holds tokens this returned. Comments off comes back as a `Disabled` page, not
 /// an error.
@@ -784,17 +825,17 @@ pub async fn get_home_more(state: St<'_>, token: String) -> Result<HomePage, Str
 /// Every token on the page is remembered here with who it was issued to; the action tokens stay
 /// here and are never sent to the UI. A new track starts a new set.
 #[tauri::command]
-pub async fn get_comments(state: St<'_>, video_id: String) -> Result<CommentsPage, String> {
+pub async fn get_comments(state: St<'_>, video_id: String) -> Result<CommentsPage, CommentsError> {
     let client = metadata_client(&state)?;
     state.comments.lock().unwrap().clear();
     let before = state.it.comments_identity();
-    let page = state.it.comments(client, &video_id).await.map_err(|e| e.to_string())?;
+    let page = state.it.comments(client, &video_id).await.map_err(|e| CommentsError::of(&e))?;
     let provenance = if page.read_as_account {
         // Whoever signed in at the start of the read is who it was read as: if that changed
         // meanwhile, the page and its tokens belong to nobody the app has now.
         match (before, state.it.comments_identity()) {
             (Some(was), Some(is)) if was == is => Provenance::Account(is),
-            _ => return Err(COMMENTS_ACCOUNT_CHANGED.into()),
+            _ => return Err(CommentsError::AccountChanged),
         }
     } else {
         Provenance::Anonymous
@@ -803,21 +844,22 @@ pub async fn get_comments(state: St<'_>, video_id: String) -> Result<CommentsPag
     Ok(page)
 }
 
-const COMMENTS_ACCOUNT_CHANGED: &str = "The signed-in account changed. Reload the comments.";
-
 /// How a token handed to the UI may be sent back: the way it was issued, or not at all. An
 /// anonymous token goes anonymously; an account's goes as that account if it is still the active
 /// one, and otherwise nothing is sent and the UI is told to reload.
-fn comments_token_origin(state: &Arc<AppState>, token: &str) -> Result<(Provenance, bool), String> {
+fn comments_token_origin(
+    state: &Arc<AppState>,
+    token: &str,
+) -> Result<(Provenance, bool), CommentsError> {
     let origin = state.comments.lock().unwrap().provenance(token);
     match origin {
-        None => Err("These comments have changed. Reload them.".into()),
+        None => Err(CommentsError::StaleToken),
         Some(Provenance::Anonymous) => Ok((Provenance::Anonymous, false)),
         Some(Provenance::Account(who)) => {
             if state.it.comments_identity().as_deref() == Some(who.as_str()) {
                 Ok((Provenance::Account(who), true))
             } else {
-                Err(COMMENTS_ACCOUNT_CHANGED.into())
+                Err(CommentsError::AccountChanged)
             }
         }
     }
@@ -826,25 +868,34 @@ fn comments_token_origin(state: &Arc<AppState>, token: &str) -> Result<(Provenan
 /// Next page of comments, or the same comments in another order: pagination tokens and the
 /// header's sort tokens both load through here.
 #[tauri::command]
-pub async fn get_comments_more(state: St<'_>, token: String) -> Result<CommentsPage, String> {
+pub async fn get_comments_more(
+    state: St<'_>,
+    token: String,
+) -> Result<CommentsPage, CommentsError> {
     let client = metadata_client(&state)?;
     let (provenance, as_account) = comments_token_origin(&state, &token)?;
     let page = state
         .it
         .comments_continuation(client, &token, as_account)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| CommentsError::of(&e))?;
     state.comments.lock().unwrap().remember_page(&provenance, &page);
     Ok(page)
 }
 
 /// A page of one thread's replies, with the token for the next page when there is one.
 #[tauri::command]
-pub async fn get_comment_replies(state: St<'_>, token: String) -> Result<CommentReplies, String> {
+pub async fn get_comment_replies(
+    state: St<'_>,
+    token: String,
+) -> Result<CommentReplies, CommentsError> {
     let client = metadata_client(&state)?;
     let (provenance, as_account) = comments_token_origin(&state, &token)?;
-    let replies =
-        state.it.comment_replies(client, &token, as_account).await.map_err(|e| e.to_string())?;
+    let replies = state
+        .it
+        .comment_replies(client, &token, as_account)
+        .await
+        .map_err(|e| CommentsError::of(&e))?;
     state.comments.lock().unwrap().remember_replies(&provenance, &replies);
     Ok(replies)
 }
@@ -870,26 +921,24 @@ pub async fn comment_action(
     state: St<'_>,
     comment_id: String,
     action: CommentAction,
-) -> Result<CommentActionOutcome, String> {
-    let client = require_login(&state)?;
-    let identity =
-        state.it.comments_identity().ok_or_else(|| "Sign in first to use this.".to_owned())?;
-    let ticket = state
-        .comments
-        .lock()
-        .unwrap()
-        .begin_action(&identity, &comment_id, action)
-        .map_err(|e| match e {
-            ActionError::Unknown => "These comments have changed. Reload them.".to_owned(),
-            ActionError::Busy => "Another action on this comment is still running.".to_owned(),
-            ActionError::Unavailable => "That action is not available for this comment.".to_owned(),
-        })?;
+) -> Result<CommentActionOutcome, CommentsError> {
+    // Nobody signed in (any more) is the same as a changed account: reload the comments.
+    let client = require_login(&state).map_err(|_| CommentsError::AccountChanged)?;
+    let identity = state.it.comments_identity().ok_or(CommentsError::AccountChanged)?;
+    let ticket =
+        state.comments.lock().unwrap().begin_action(&identity, &comment_id, action).map_err(
+            |e| match e {
+                ActionError::Unknown => CommentsError::StaleToken,
+                ActionError::Busy => CommentsError::Busy,
+                ActionError::Unavailable => CommentsError::Unavailable,
+            },
+        )?;
     let sent = state.it.comment_action(client, ticket.token()).await;
     // Under the identity it was sent as, whoever is active now: a switch mid-request leaves the
     // answer where it belongs and the new account's comments untouched.
     let accepted = sent.is_ok().then_some(ticket.resulting_vote);
     let after = state.comments.lock().unwrap().finish_action(&identity, &comment_id, accepted);
-    sent.map_err(|e| e.to_string())?;
+    sent.map_err(|e| CommentsError::of(&e))?;
     Ok(CommentActionOutcome {
         vote: ticket.resulting_vote,
         actions: after.map(|(_, actions)| actions).unwrap_or_default(),

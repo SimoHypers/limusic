@@ -1367,7 +1367,7 @@ fn check_comment_action(value: &serde_json::Value) -> Result<(), Error> {
         feedback = enum_like(field("feedback")),
         "comment action rejected"
     );
-    Err(Error::Other("YouTube did not accept that action.".into()))
+    Err(Error::ActionRejected)
 }
 
 /// One debug line per page read as the account, so a log that shows nothing from the comments
@@ -1739,7 +1739,7 @@ mod tests {
             json!([]),
         ] {
             assert!(
-                matches!(check_comment_action(&rejected), Err(Error::Other(_))),
+                matches!(check_comment_action(&rejected), Err(Error::ActionRejected)),
                 "a 200 without STATUS_SUCCEEDED is a rejection: {rejected}"
             );
         }

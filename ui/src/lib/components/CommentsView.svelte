@@ -14,7 +14,7 @@
 		toggleReplies,
 		type ThreadView
 	} from '$lib/comments.svelte';
-	import { playback } from '$lib/player.svelte';
+	import { auth, playback } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import CommentRow from './CommentRow.svelte';
 
@@ -22,8 +22,12 @@
 	// tab), so nothing is fetched for a track nobody opened comments on. Reopened on the same
 	// track, `loadComments` is a no-op.
 	const videoId = $derived(playback.now?.videoId);
+	// Also re-runs on a sign-in, sign-out or account switch (`auth.epoch`): this panel sits outside
+	// the page the layout remounts on it, so it has to notice by itself that what it holds belongs
+	// to whoever was signed in before. `loadComments` starts over when the epoch differs.
 	$effect(() => {
 		const id = videoId;
+		void auth.epoch;
 		if (id) untrack(() => loadComments(id));
 	});
 
@@ -125,6 +129,17 @@
 	<div class="min-h-0 flex-1 overflow-y-auto" bind:this={scroller}>
 		{#if comments.status === 'idle' || comments.status === 'loading'}
 			{@render skeletons()}
+		{:else if comments.status === 'reload'}
+			<div class="flex flex-col items-center gap-3 px-6 py-10 text-center">
+				<p class="text-sm text-muted-foreground">{t('comments.reload_needed')}</p>
+				<Button
+					variant="secondary"
+					size="sm"
+					onclick={() => videoId && loadComments(videoId, true)}
+				>
+					{t('comments.reload')}
+				</Button>
+			</div>
 		{:else if comments.status === 'error'}
 			<div class="flex flex-col items-center gap-3 px-6 py-10 text-center">
 				<p class="text-sm text-muted-foreground">{t('comments.load_failed')}</p>

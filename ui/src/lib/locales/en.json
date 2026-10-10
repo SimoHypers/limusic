@@ -971,7 +971,18 @@
 		"creator": "Creator",
 		"artist": "Artist",
 		"show_more": "Show more",
-		"show_less": "Show less"
+		"show_less": "Show less",
+		"vote": "Your vote",
+		"like": "Like",
+		"remove_like": "Remove like",
+		"dislike": "Dislike",
+		"remove_dislike": "Remove dislike",
+		"liked_locked": "Liked. Reload the comments to change your vote.",
+		"disliked_locked": "Disliked. Reload the comments to change your vote.",
+		"like_unavailable": "Liking isn't available for this comment",
+		"dislike_unavailable": "Disliking isn't available for this comment",
+		"reload_needed": "These comments are out of date. Reload them to continue.",
+		"reload": "Reload"
 	},
 	"sort": {
 		"label": "Sort",
@@ -1000,6 +1011,8 @@
 		"could_not_load_playlist": "Could not load that playlist — try opening it instead",
 		"could_not_load_more": "Could not load more",
 		"could_not_load_comments": "Could not load comments",
+		"comment_action_rejected": "YouTube didn't accept that. Your vote wasn't changed.",
+		"comment_action_failed": "Couldn't update your vote. Try again.",
 		"could_not_copy_link": "Could not copy the link. Select it and press Ctrl+C.",
 		"browser_failed": "Couldn't open the browser: {error}",
 		"update_failed": "Update failed: {error}",

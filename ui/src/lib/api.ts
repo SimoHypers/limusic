@@ -544,12 +544,24 @@ export interface Comment {
 	text: string;
 	author: CommentAuthor;
 	published?: string;
+	/** The count as it reads for the viewer's current vote. */
 	like_count?: string;
-	liked: boolean;
+	/** The count if the viewer has not liked it / if they have. Display strings, either may be
+	 *  absent (YouTube sends none for zero): never add one to a count, swap between these. */
+	like_count_notliked?: string;
+	like_count_liked?: string;
+	/** The viewer's vote; absent when the response carried none (read anonymously). */
+	vote?: CommentVote;
+	/** What the viewer can do to this comment now. Empty means static: no buttons. The only
+	 *  thing the like/dislike buttons go by (never `CommentsPage.read_as_account`). */
+	actions: CommentAction[];
 	reply_count?: string;
 	hearted: boolean;
 	pinned: boolean;
 }
+
+export type CommentVote = 'neutral' | 'liked' | 'disliked';
+export type CommentAction = 'like' | 'unlike' | 'dislike' | 'undislike';
 
 export interface CommentThread {
 	comment: Comment;
@@ -582,12 +594,52 @@ export interface CommentsPage {
 	/** Next page of top-level comments; absent is the end of the list. */
 	continuation?: string;
 	state: CommentsState;
+	/** The request was sent as the signed-in account. Not "viewer state is present": go by each
+	 *  comment's `vote` and `actions`. */
+	read_as_account: boolean;
 }
 
 export interface CommentReplies {
 	replies: Comment[];
 	continuation?: string;
+	read_as_account: boolean;
 }
+
+/** What a comment looks like after YouTube accepted an action on it. */
+export interface CommentActionOutcome {
+	vote: CommentVote;
+	actions: CommentAction[];
+}
+
+/**
+ * Why a comments command failed. Rust sends one of these words and never a message, so the UI
+ * words every failure itself.
+ *  - `account_changed` / `stale_token`: the comments belong to a session that is gone; reload.
+ *  - `busy`: another action on that comment is still running; ignore.
+ *  - `unavailable`: the comment does not offer that action.
+ *  - `rejected`: YouTube answered and did not accept the action.
+ *  - `failed`: anything else (network, refusals).
+ */
+export type CommentsErrorKind =
+	| 'account_changed'
+	| 'stale_token'
+	| 'busy'
+	| 'unavailable'
+	| 'rejected'
+	| 'failed';
+
+const COMMENTS_ERROR_KINDS: readonly string[] = [
+	'account_changed',
+	'stale_token',
+	'busy',
+	'unavailable',
+	'rejected',
+	'failed'
+];
+
+/** The kind out of whatever a comments command rejected with; anything unrecognised is `failed`. */
+export const commentsErrorKind = (e: unknown): CommentsErrorKind =>
+	typeof e === 'string' && COMMENTS_ERROR_KINDS.includes(e) ? (e as CommentsErrorKind) : 'failed';
 
 export const getComments = (videoId: string) => invoke<CommentsPage>('get_comments', { videoId });
 /** The next page of comments, or the same comments in another order (a sort token). */
@@ -595,6 +647,10 @@ export const getCommentsMore = (token: string) =>
 	invoke<CommentsPage>('get_comments_more', { token });
 export const getCommentReplies = (token: string) =>
 	invoke<CommentReplies>('get_comment_replies', { token });
+/** Like, unlike, dislike or undislike one comment, as the signed-in account. Only an action in
+ *  that comment's own `actions`; the token never reaches the UI. */
+export const commentAction = (commentId: string, action: CommentAction) =>
+	invoke<CommentActionOutcome>('comment_action', { commentId, action });
 /**
  * On Repeat is the app's own playlist (Rust builds it from this machine's play counts), so its
  * title and subtitle are our English rather than YouTube's, and Rust cannot translate them: the

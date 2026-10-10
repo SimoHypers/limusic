@@ -61,6 +61,10 @@ pub enum Error {
     SessionExpired,
     #[error("This track is already in the playlist.")]
     AlreadyInPlaylist,
+    /// A comment action that came back 200 without `STATUS_SUCCEEDED`. A variant of its own so
+    /// the app can tell "YouTube said no" from "the request failed" without reading a message.
+    #[error("YouTube did not accept that action.")]
+    ActionRejected,
     #[error(
         "YouTube Music only allows custom playlist art on accounts with a verified phone number."
     )]
