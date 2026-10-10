@@ -197,7 +197,9 @@
 		"remove_dislike": "Bỏ không thích",
 		"add_to_playlist": "Thêm vào danh sách phát",
 		"pin_to_top": "Ghim lên đầu",
-		"unpin": "Bỏ ghim"
+		"unpin": "Bỏ ghim",
+		"song": "Bài hát",
+		"video": "Video"
 	},
 	"home": {
 		"good_morning": "Chào buổi sáng",
@@ -369,7 +371,9 @@
 			"discord_status": "Trạng thái",
 			"discord_card": "Thẻ",
 			"discord_links": "Có thể nhấp",
-			"discord_buttons": "Nút bấm"
+			"discord_buttons": "Nút bấm",
+			"colors": "Màu sắc",
+			"interface": "Giao diện"
 		},
 		"general": {
 			"language": "Ngôn ngữ giao diện",
@@ -421,7 +425,7 @@
 			"tabbed_player_hint": "Bật để hiển thị dưới dạng thẻ tab và chuyển đổi bằng nút trên thanh điều khiển. Tắt để mở bảng phụ bên cạnh giúp bạn xem cùng lúc cả hai.",
 			"artwork_background": "Hình nền ảnh bìa",
 			"artwork_background_hint": "Làm mờ ảnh bìa bài hát đang phát làm nền trình phát. Tắt để giữ nền đơn sắc.",
-			"artwork_accent": "Thích ứng màu theo ảnh bìa",
+			"artwork_accent": "Đổi màu theo ảnh bìa",
 			"artwork_accent_hint": "Đổi màu ứng dụng theo ảnh bìa bài hát đang phát: màu nhấn, bề mặt và viền. Tắt để giữ nguyên màu sắc của chủ đề đã chọn.",
 			"reset_theme_hint": "Xoá các tuỳ chỉnh về màu sắc, độ bo góc và phông chữ. Giữ nguyên cấu hình sẵn có.",
 			"interface_font_label": "Phông chữ giao diện",
@@ -435,7 +439,19 @@
 			"app_icon_hint": "Tệp PNG sẽ thay thế biểu tượng trên khay hệ thống, cửa sổ này và menu Alt-Tab. Lối tắt, trình quản lý tệp và thanh tác vụ Windows vẫn giữ biểu tượng gốc.",
 			"app_icon_pick": "Chọn…",
 			"app_icon_dialog": "Chọn biểu tượng ứng dụng",
-			"app_icon_filter": "Hình ảnh PNG"
+			"app_icon_filter": "Hình ảnh PNG",
+			"stage_player": "Bố cục trình phát mới",
+			"stage_player_hint": "Tên bài hát, nghệ sĩ và album nằm dưới ảnh bìa; hàng đợi và lời bài hát hiển thị trong một cột dọc; toàn bộ giao diện được chiếu sáng bằng tông màu của ảnh bìa. Chọn 'Tắt' sẽ giữ nguyên bố cục gốc.",
+			"mode": "Sáng hoặc tối",
+			"mode_hint": "'Hệ thống' sẽ tự động đồng bộ theo cài đặt giao diện sáng/tối của thiết bị.",
+			"mode_light": "Sáng",
+			"mode_dark": "Tối",
+			"mode_system": "Hệ thống",
+			"accent_hint": "Nút bấm, thanh thời lượng và bất cứ thứ gì đang được chọn.",
+			"accent_theme": "Màu nhấn của chủ đề",
+			"accent_artwork_note": "Khi phát nhạc, màu nhấn được trích xuất từ ảnh bìa bài hát. Tắt mục 'Đổi màu theo ảnh bìa' để thấy thay đổi này.",
+			"preview": "Xem trước",
+			"preview_hint": "Thanh trượt và bộ chọn màu sẽ hiển thị tại đây khi bạn kéo, và ứng dụng sẽ áp dụng thay đổi khi bạn thả tay."
 		},
 		"playback": {
 			"audio_quality": "Chất lượng âm thanh",
@@ -733,7 +749,8 @@
 			"zoom_in": "Phóng to",
 			"zoom_out": "Thu nhỏ",
 			"reset_zoom": "Đặt lại kích thước giao diện",
-			"show_this_list": "Hiển thị danh sách này"
+			"show_this_list": "Hiển thị danh sách này",
+			"quit_app": "Thoát Limusic"
 		},
 		"tempo_pitch": {
 			"title": "Điều khiển tốc độ & cao độ",
