@@ -86,6 +86,33 @@ impl Error {
     }
 }
 
+/// YouTube's own `error.status` (an enum such as `INVALID_ARGUMENT`) and `error.message` from a
+/// 400 answer to a comment request, at debug level: they say which field it did not take, and
+/// hold no user data. The status is kept only if it is enum-like, the message is cut at 200
+/// characters, and nothing else of the answer is logged.
+async fn log_comment_refusal(path: &str, resp: reqwest::Response) {
+    let value: serde_json::Value = resp.json().await.unwrap_or_default();
+    let error = value.get("error");
+    let status =
+        error.and_then(|e| e.get("status")).and_then(serde_json::Value::as_str).map_or("-", |s| {
+            let enum_like = s.len() <= 64
+                && s.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_');
+            if enum_like {
+                s
+            } else {
+                "unexpected"
+            }
+        });
+    let message: String = error
+        .and_then(|e| e.get("message"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("-")
+        .chars()
+        .take(200)
+        .collect();
+    tracing::debug!(path, error_status = status, error_message = %message, "comment request answered 400");
+}
+
 /// Session state, set once at startup / login. context/01 §mutable session state.
 #[derive(Debug, Clone, Default)]
 pub struct Session {
@@ -486,14 +513,21 @@ impl InnerTube {
             // Rebuild headers on every iteration so retried requests use the updated session cookie.
             let headers = self.headers(client, set_login);
 
-            let res = self
-                .http
-                .post(&url)
-                .headers(headers)
-                .body(body.clone())
-                .send()
-                .await
-                .and_then(|r| r.error_for_status());
+            let res = match self.http.post(&url).headers(headers).body(body.clone()).send().await {
+                // A comment request YouTube found malformed: its answer names what it did not
+                // take, so that is logged before the answer is dropped.
+                Ok(resp)
+                    if resp.status() == reqwest::StatusCode::BAD_REQUEST
+                        && path.starts_with("comment/") =>
+                {
+                    let Some(e) = resp.error_for_status_ref().err() else {
+                        unreachable!("400 is an error status")
+                    };
+                    log_comment_refusal(path, resp).await;
+                    Err(e)
+                }
+                other => other.and_then(|r| r.error_for_status()),
+            };
 
             match res {
                 Ok(resp) => {

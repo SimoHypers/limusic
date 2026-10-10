@@ -501,8 +501,11 @@ impl InnerTube {
 
     /// Replay a command the server issued for writing a comment (see `WriteCommand`): post a
     /// comment, reply, edit or delete. The command and its params came from a signed-in read and
-    /// are sent as they were; `text` is added as `commentText` for the ones that take it. `kind`
-    /// (`create`, `reply`, `edit`, `delete`) names it in the logs, next to the path it went to.
+    /// are sent as they were; `text` is added for the ones that take it, as `commentText` or, for a
+    /// reply's edit, the unverified `replyText` (`WriteCommand::text_field`). `kind`
+    /// (`create`, `reply`, `edit`, `edit_reply`, `delete`) names it in the logs, next to the path it
+    /// went to. A 400 also logs YouTube's own `error.status` and `error.message` (the transport
+    /// does, for any `comment/…` path), so a field the server did not take can be named.
     ///
     /// `replayable` says whether sending it twice is harmless. Posting and replying are not (a
     /// retry after a lost answer would post twice), so those go through [`InnerTube::post_write`],
@@ -563,7 +566,7 @@ impl InnerTube {
                     body.entry(key.clone()).or_insert_with(|| value.clone());
                 }
                 if let Some(text) = text {
-                    body.insert("commentText".into(), text.into());
+                    body.insert(command.text_field().into(), text.into());
                 }
                 (path.as_str(), serde_json::Value::Object(body))
             }
@@ -2313,6 +2316,39 @@ mod tests {
         let got = it.comment_write(&web(), &create, "create", Some("t"), false).await;
         assert!(matches!(got, Err(Error::WriteUncertain)), "{got:?}");
         assert_eq!(server.requests().len() - before, 1, "a post is sent exactly once");
+    }
+
+    /// A reply's edit goes out as `{context, replyText, updateReplyParams}` to its path, by the
+    /// ordinary (retrying) path; a 404 or a 400 there is an ordinary error, never success.
+    #[tokio::test]
+    async fn a_reply_edit_sends_update_reply_params_and_a_refusal_is_an_error() {
+        for status in [404, 400] {
+            let server = MockServer::start(move |_: &Seen| {
+                (
+                    status,
+                    r#"{"error":{"code":400,"message":"m","status":"INVALID_ARGUMENT"}}"#.into(),
+                )
+            });
+            let it = it_against(&server, true);
+            let edit = endpoint(
+                crate::models::comment_write::COMMENT_UPDATE_REPLY_PATH,
+                json!({ "updateReplyParams": "P" }),
+            );
+            let got = it.comment_write(&web(), &edit, "edit_reply", Some("new text"), true).await;
+            assert!(
+                matches!(&got, Err(Error::Http(e)) if e.status().map(|s| s.as_u16()) == Some(status)),
+                "{got:?}"
+            );
+            let sent = server.requests();
+            assert_eq!(sent.len(), 1, "a refusal is not retried");
+            assert!(sent[0].path.starts_with("/youtubei/v1/comment/update_comment_reply?"));
+            let body: serde_json::Value = serde_json::from_str(&sent[0].body).unwrap();
+            let mut keys: Vec<&str> =
+                body.as_object().unwrap().keys().map(String::as_str).collect();
+            keys.sort();
+            assert_eq!(keys, ["context", "replyText", "updateReplyParams"]);
+            assert_eq!(body[crate::models::comment_write::REPLY_EDIT_TEXT_FIELD], "new text");
+        }
     }
 
     /// The live answer to a delete: no status, no mutations, `actions` with a `removeCommentAction`

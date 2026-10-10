@@ -1,5 +1,5 @@
 {
- "_synthetic": "SYNTHETIC fixture: a replies page in the structure of a live signed-in response (reply button with createReplyParams and no apiUrl; menu items for edit and delete) filled with placeholders. Not a live capture.",
+ "_synthetic": "SYNTHETIC fixture: a replies page in the structure of a live signed-in response (reply button with createReplyParams and no apiUrl; menu items for a reply's edit and delete) filled with placeholders. Not a live capture.",
  "onResponseReceivedEndpoints": [
   {
    "appendContinuationItemsAction": {
@@ -186,9 +186,9 @@
                },
                "navigationEndpoint": {
                 "clickTrackingParams": "fixture-click",
-                "updateCommentDialogEndpoint": {
+                "updateCommentReplyDialogEndpoint": {
                  "dialog": {
-                  "commentDialogRenderer": {
+                  "commentReplyDialogRenderer": {
                    "editableText": {
                     "runs": [
                      {
@@ -196,20 +196,24 @@
                      }
                     ]
                    },
-                   "submitButton": {
+                   "replyButton": {
                     "buttonRenderer": {
                      "serviceEndpoint": {
+                      "clickTrackingParams": "fixture-click",
+                      "updateCommentReplyEndpoint": {
+                       "updateReplyParams": "fixture-edit-reply-params-3"
+                      },
                       "commandMetadata": {
                        "webCommandMetadata": {
                         "sendPost": true,
-                        "apiUrl": "/youtubei/v1/comment/update_comment"
+                        "apiUrl": "/youtubei/v1/comment/update_comment_reply"
                        }
-                      },
-                      "updateCommentEndpoint": {
-                       "updateCommentParams": "fixture-edit-params-3"
                       }
                      }
                     }
+                   },
+                   "cancelButton": {
+                    "buttonRenderer": {}
                    }
                   }
                  }
@@ -487,9 +491,9 @@
                },
                "navigationEndpoint": {
                 "clickTrackingParams": "fixture-click",
-                "updateCommentDialogEndpoint": {
+                "updateCommentReplyDialogEndpoint": {
                  "dialog": {
-                  "commentDialogRenderer": {
+                  "commentReplyDialogRenderer": {
                    "editableText": {
                     "runs": [
                      {
@@ -497,20 +501,18 @@
                      }
                     ]
                    },
-                   "submitButton": {
+                   "replyButton": {
                     "buttonRenderer": {
                      "serviceEndpoint": {
-                      "commandMetadata": {
-                       "webCommandMetadata": {
-                        "sendPost": true,
-                        "apiUrl": "/youtubei/v1/comment/update_comment"
-                       }
-                      },
-                      "updateCommentEndpoint": {
-                       "updateCommentParams": "fixture-edit-params-1"
+                      "clickTrackingParams": "fixture-click",
+                      "updateCommentReplyEndpoint": {
+                       "updateReplyParams": "fixture-edit-reply-params-1"
                       }
                      }
                     }
+                   },
+                   "cancelButton": {
+                    "buttonRenderer": {}
                    }
                   }
                  }

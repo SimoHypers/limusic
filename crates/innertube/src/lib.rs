@@ -27,7 +27,7 @@ pub use models::browse::{
 };
 pub use models::comment_write::{
     CommentWrite, Composer, WriteCommand, WriteCommands, COMMENT_CREATE_PATH, COMMENT_REPLY_PATH,
-    COMMENT_UPDATE_PATH,
+    COMMENT_UPDATE_PATH, COMMENT_UPDATE_REPLY_PATH,
 };
 pub use models::comments::{
     available_actions, own_comment_probe, parse_written_comment, ActionTokens, Comment,

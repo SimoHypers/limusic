@@ -18,8 +18,11 @@
 //!   it (VERIFIED): `engagementToolbarSurfaceEntityPayload.menuCommand…menuRenderer.items[]`, an
 //!   item whose `navigationEndpoint` opens an `updateCommentDialogEndpoint` (edit) or a
 //!   `confirmDialogEndpoint` (delete). Delete replays the confirm button's action token; edit
-//!   sends `{context, commentText, updateCommentParams}`. What a successful edit or delete answer
-//!   looks like is not known (UNVERIFIED).
+//!   sends `{context, commentText, updateCommentParams}`. A reply's Edit is a different dialog
+//!   (VERIFIED live): `updateCommentReplyDialogEndpoint`, whose `commentReplyDialogRenderer`
+//!   `replyButton` carries `updateCommentReplyEndpoint.updateReplyParams`; it sends
+//!   `{context, replyText, updateReplyParams}` (the text field is UNVERIFIED, see
+//!   [`REPLY_EDIT_TEXT_FIELD`]).
 //!
 //! Every command is opaque and stays in Rust: `Debug` prints no payload and no token, and none of
 //! these types is serialized to the UI.
@@ -68,6 +71,42 @@ pub enum WriteCommand {
     Action(String),
     /// `path` (under `/youtubei/v1/`, always `comment/…`) and the endpoint's own fields.
     Endpoint { path: String, payload: Map<String, Value> },
+}
+
+/// The body field for the text of every write that takes one, except a reply's edit. VERIFIED
+/// live for create, reply and a comment's edit.
+pub const TEXT_FIELD: &str = "commentText";
+
+/// The body field for the new text of a reply's edit (`comment/update_comment_reply`).
+/// UNVERIFIED: inferred from naming, not from a reference (youtubei.js v18.1.0 has no edit).
+/// `commentText` there was refused live with 400 `INVALID_ARGUMENT`. One field is sent; nothing
+/// tries other names at runtime.
+pub const REPLY_EDIT_TEXT_FIELD: &str = "replyText";
+
+impl WriteCommand {
+    /// The body field this write's text goes in: [`REPLY_EDIT_TEXT_FIELD`] for a reply's edit
+    /// (`updateReplyParams`), [`TEXT_FIELD`] for everything else.
+    pub fn text_field(&self) -> &'static str {
+        match self {
+            WriteCommand::Endpoint { payload, .. } if payload.contains_key("updateReplyParams") => {
+                REPLY_EDIT_TEXT_FIELD
+            }
+            _ => TEXT_FIELD,
+        }
+    }
+
+    /// The name of a write in log lines: [`CommentWrite::name`], except that editing a reply
+    /// (`updateReplyParams`) is `edit_reply`, so the two edits can be told apart.
+    pub fn log_kind(&self, write: CommentWrite) -> &'static str {
+        match self {
+            WriteCommand::Endpoint { payload, .. }
+                if write == CommentWrite::Edit && payload.contains_key("updateReplyParams") =>
+            {
+                "edit_reply"
+            }
+            _ => write.name(),
+        }
+    }
 }
 
 impl fmt::Debug for WriteCommand {
@@ -285,6 +324,49 @@ const MAX_DEPTH: usize = 24;
 /// A live response so far carries `commandMetadata.webCommandMetadata.apiUrl` for it, which wins.
 pub const COMMENT_UPDATE_PATH: &str = "comment/update_comment";
 
+/// Where editing a REPLY goes when its button's command names no plain `comment/…` path.
+/// UNVERIFIED, and not from a reference (youtubei.js v18.1.0 has no edit at all): inferred from
+/// the naming of the verified paths `comment/create_comment_reply` and `comment/update_comment`.
+/// A path the response does name always wins. A 404 on it is never taken to mean the reply is
+/// gone: it may be this path that is wrong.
+pub const COMMENT_UPDATE_REPLY_PATH: &str = "comment/update_comment_reply";
+
+/// One of the two edit dialogs a menu item can open, by exact structure (both VERIFIED live).
+struct EditShape {
+    /// Its name in log lines.
+    kind: &'static str,
+    /// Under the item's `navigationEndpoint`: the dialog renderer.
+    dialog: &'static str,
+    /// Under the dialog: the button's service endpoint.
+    button: &'static str,
+    /// The endpoint and its params field, under that service endpoint's command.
+    endpoint: &'static str,
+    field: &'static str,
+    /// The path when the command names no usable one (UNVERIFIED, both).
+    fallback: &'static str,
+}
+
+const EDIT_SHAPES: [EditShape; 2] = [
+    // A top-level comment.
+    EditShape {
+        kind: "edit",
+        dialog: "/updateCommentDialogEndpoint/dialog/commentDialogRenderer",
+        button: "/submitButton/buttonRenderer/serviceEndpoint",
+        endpoint: "updateCommentEndpoint",
+        field: "updateCommentParams",
+        fallback: COMMENT_UPDATE_PATH,
+    },
+    // A reply.
+    EditShape {
+        kind: "edit_reply",
+        dialog: "/updateCommentReplyDialogEndpoint/dialog/commentReplyDialogRenderer",
+        button: "/replyButton/buttonRenderer/serviceEndpoint",
+        endpoint: "updateCommentReplyEndpoint",
+        field: "updateReplyParams",
+        fallback: COMMENT_UPDATE_REPLY_PATH,
+    },
+];
+
 /// What the viewer's own comment's menu offered.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct MenuCommands {
@@ -311,20 +393,30 @@ fn item_renderer(item: &Value) -> Option<&Value> {
     item.as_object()?.values().find(|v| v.get("navigationEndpoint").is_some())
 }
 
-/// Edit, by structure (VERIFIED live): the item's `navigationEndpoint` is an
-/// `updateCommentDialogEndpoint` whose `commentDialogRenderer.submitButton…serviceEndpoint` holds an
-/// `updateCommentEndpoint` with an `updateCommentParams` string. Sent as `{context, commentText,
-/// updateCommentParams}` to the path that command names, or to [`COMMENT_UPDATE_PATH`] when it
-/// names none (UNVERIFIED fallback; which one was used is logged at debug level).
-fn edit_of(navigation: &Value) -> Option<(WriteCommand, Option<String>)> {
-    let dialog = unwrap_command(navigation)
-        .pointer("/updateCommentDialogEndpoint/dialog/commentDialogRenderer")?;
-    let service = dialog.pointer("/submitButton/buttonRenderer/serviceEndpoint")?;
+/// Edit, by structure (VERIFIED live), in one of two shapes ([`EDIT_SHAPES`]):
+/// - a comment: the item's `navigationEndpoint` is an `updateCommentDialogEndpoint` whose
+///   `commentDialogRenderer.submitButton…serviceEndpoint` holds an `updateCommentEndpoint` with an
+///   `updateCommentParams` string; sent as `{context, commentText, updateCommentParams}`;
+/// - a reply: an `updateCommentReplyDialogEndpoint` whose
+///   `commentReplyDialogRenderer.replyButton…serviceEndpoint` holds an `updateCommentReplyEndpoint`
+///   with an `updateReplyParams` string; sent as `{context, replyText, updateReplyParams}`
+///   ([`REPLY_EDIT_TEXT_FIELD`]).
+///
+/// To the path that command names, or to the shape's constant when it names none (UNVERIFIED
+/// fallbacks; which one was used is logged at debug level). The dialog's `editableText` is the
+/// prefill. Returns the shape's log name too.
+fn edit_of(navigation: &Value) -> Option<(WriteCommand, Option<String>, &'static str)> {
+    EDIT_SHAPES.iter().find_map(|shape| edit_in(navigation, shape))
+}
+
+fn edit_in(
+    navigation: &Value,
+    shape: &EditShape,
+) -> Option<(WriteCommand, Option<String>, &'static str)> {
+    let dialog = unwrap_command(navigation).pointer(shape.dialog)?;
+    let service = dialog.pointer(shape.button)?;
     let data = unwrap_command(service);
-    let params = data
-        .pointer("/updateCommentEndpoint/updateCommentParams")?
-        .as_str()
-        .filter(|p| !p.is_empty())?;
+    let params = data.get(shape.endpoint)?.get(shape.field)?.as_str().filter(|p| !p.is_empty())?;
     // The command that holds the endpoint names its path; `service` itself is also tried in case
     // there is a wrapper in between.
     let named = [data, service]
@@ -332,16 +424,14 @@ fn edit_of(navigation: &Value) -> Option<(WriteCommand, Option<String>)> {
         .find_map(|c| c.pointer("/commandMetadata/webCommandMetadata/apiUrl")?.as_str());
     let (path, source) = match named.map(comment_path) {
         Some(Some(path)) => (path, "apiUrl"),
-        Some(None) => {
-            (COMMENT_UPDATE_PATH.to_owned(), "constant (the apiUrl was not a comment path)")
-        }
-        None => (COMMENT_UPDATE_PATH.to_owned(), "constant (no apiUrl)"),
+        Some(None) => (shape.fallback.to_owned(), "constant (the apiUrl was not a comment path)"),
+        None => (shape.fallback.to_owned(), "constant (no apiUrl)"),
     };
     // A path that passed `comment_path` or is our constant: not secret.
-    tracing::debug!(source, path = %path, "edit command path");
-    let payload =
-        Map::from_iter([("updateCommentParams".to_owned(), Value::String(params.into()))]);
-    Some((WriteCommand::Endpoint { path, payload }, editable_text(dialog.get("editableText"))))
+    tracing::debug!(kind = shape.kind, source, path = %path, "edit command path");
+    let payload = Map::from_iter([(shape.field.to_owned(), Value::String(params.into()))]);
+    let text = editable_text(dialog.get("editableText"));
+    Some((WriteCommand::Endpoint { path, payload }, text, shape.kind))
 }
 
 /// Delete, by structure (VERIFIED live): the item's `navigationEndpoint` is a `confirmDialogEndpoint`
@@ -385,7 +475,7 @@ pub(crate) fn menu_commands(surface: &Value) -> MenuCommands {
             continue;
         };
         if out.edit.is_none() {
-            if let Some((edit, text)) = edit_of(nav) {
+            if let Some((edit, text, _)) = edit_of(nav) {
                 out.edit = Some(edit);
                 out.edit_text = text;
                 continue;
@@ -399,7 +489,7 @@ pub(crate) fn menu_commands(surface: &Value) -> MenuCommands {
 }
 
 /// One entry per menu item for the debug line that says why edit or delete is missing: which kind
-/// the structure matched (`edit`, `delete`, `other`) and the item's `icon.iconType` enum when it
+/// the structure matched (`edit`, `edit_reply`, `delete`, `other`) and the item's `icon.iconType` enum when it
 /// is a plain enum string. Enum values only; no text, id or token.
 pub(crate) fn menu_probe(surface: &Value) -> String {
     let items = menu_items(surface);
@@ -413,9 +503,12 @@ pub(crate) fn menu_probe(surface: &Value) -> String {
             let renderer = item_renderer(item);
             let nav = renderer.and_then(|r| r.get("navigationEndpoint"));
             let kind = match nav {
-                Some(n) if edit_of(n).is_some() => "edit",
-                Some(n) if delete_of(n).is_some() => "delete",
-                _ => "other",
+                Some(n) => match edit_of(n) {
+                    Some((_, _, kind)) => kind,
+                    None if delete_of(n).is_some() => "delete",
+                    None => "other",
+                },
+                None => "other",
             };
             let icon = renderer
                 .and_then(|r| r.pointer("/icon/iconType"))
@@ -725,6 +818,22 @@ mod tests {
         json!({ "menuNavigationItemRenderer": renderer })
     }
 
+    /// A reply's Edit, in the live structure (SYNTHETIC values on a VERIFIED shape).
+    fn reply_edit_item(icon: Option<&str>, api_url: Option<&str>, params: Value) -> Value {
+        let mut service = json!({ "updateCommentReplyEndpoint": { "updateReplyParams": params } });
+        if let Some(url) = api_url {
+            service["commandMetadata"] = json!({ "webCommandMetadata": { "apiUrl": url } });
+        }
+        let mut renderer = json!({ "navigationEndpoint": { "updateCommentReplyDialogEndpoint": {
+            "dialog": { "commentReplyDialogRenderer": {
+                "editableText": { "runs": [{ "text": "old " }, { "text": "reply" }] },
+                "replyButton": { "buttonRenderer": { "serviceEndpoint": service } } } } } } });
+        if let Some(icon) = icon {
+            renderer["icon"] = json!({ "iconType": icon });
+        }
+        json!({ "menuNavigationItemRenderer": renderer })
+    }
+
     fn delete_item(icon: Option<&str>, action: Value) -> Value {
         let mut renderer = json!({ "navigationEndpoint": { "confirmDialogEndpoint": { "content": {
             "confirmDialogRenderer": { "confirmButton": { "buttonRenderer": { "serviceEndpoint": {
@@ -791,6 +900,72 @@ mod tests {
         );
     }
 
+    /// A reply's Edit is its own dialog: `updateReplyParams` is sent (nothing else from the
+    /// endpoint), to the path the command names when it is plain, else to the unverified
+    /// constant; `editableText` is the prefill. A half of one shape and a half of the other is
+    /// not an edit.
+    #[test]
+    fn a_replys_edit_is_matched_by_its_own_dialog_structure() {
+        let edit = |item: Value| menu_commands(&menu(vec![item]));
+        let got = edit(reply_edit_item(Some("EDIT"), None, json!("ER1")));
+        let Some(WriteCommand::Endpoint { path, payload }) = &got.edit else { panic!("edit") };
+        assert_eq!(path, COMMENT_UPDATE_REPLY_PATH);
+        assert_eq!(payload.len(), 1, "only updateReplyParams is sent");
+        assert_eq!(payload["updateReplyParams"], "ER1");
+        assert_eq!(got.edit_text.as_deref(), Some("old reply"), "editableText runs");
+        assert_eq!(got.edit.as_ref().unwrap().log_kind(CommentWrite::Edit), "edit_reply");
+        let path_of = |item: Value| match edit(item).edit {
+            Some(WriteCommand::Endpoint { path, .. }) => path,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            path_of(reply_edit_item(
+                None,
+                Some("/youtubei/v1/comment/update_reply_v2"),
+                json!("E")
+            )),
+            "comment/update_reply_v2"
+        );
+        for hostile in ["/youtubei/v1/browse", "https://evil.example/youtubei/v1/comment/x"] {
+            assert_eq!(
+                path_of(reply_edit_item(None, Some(hostile), json!("E"))),
+                COMMENT_UPDATE_REPLY_PATH,
+                "{hostile}"
+            );
+        }
+        // No params, empty params, or the shapes mixed up: no edit.
+        let mixed = [
+            json!({ "menuNavigationItemRenderer": { "navigationEndpoint": {
+                "updateCommentReplyDialogEndpoint": { "dialog": { "commentReplyDialogRenderer": {
+                    "replyButton": { "buttonRenderer": { "serviceEndpoint": {
+                        "updateCommentEndpoint": { "updateCommentParams": "E" } } } } } } } } } }),
+            json!({ "menuNavigationItemRenderer": { "navigationEndpoint": {
+                "updateCommentReplyDialogEndpoint": { "dialog": { "commentReplyDialogRenderer": {
+                    "replyButton": { "buttonRenderer": { "serviceEndpoint": {
+                        "createCommentReplyEndpoint": { "createReplyParams": "E" } } } } } } } } } }),
+            json!({ "menuNavigationItemRenderer": { "navigationEndpoint": {
+                "updateCommentDialogEndpoint": { "dialog": { "commentDialogRenderer": {
+                    "submitButton": { "buttonRenderer": { "serviceEndpoint": {
+                        "updateCommentReplyEndpoint": { "updateReplyParams": "E" } } } } } } } } } }),
+        ];
+        for item in [reply_edit_item(None, None, json!("")), reply_edit_item(None, None, json!(7))]
+            .into_iter()
+            .chain(mixed)
+        {
+            assert_eq!(edit(item.clone()), MenuCommands::default(), "{item}");
+        }
+        // The two edits have their own names in the logs; everything else is the write's name.
+        let comment_edit = edit(edit_item(None, None, json!("E"))).edit.unwrap();
+        assert_eq!(comment_edit.log_kind(CommentWrite::Edit), "edit");
+        assert_eq!(WriteCommand::Action("t".into()).log_kind(CommentWrite::Delete), "delete");
+        // Only a reply's edit takes its text in another field.
+        let reply_edit = edit(reply_edit_item(None, None, json!("E"))).edit.unwrap();
+        assert_eq!(reply_edit.text_field(), REPLY_EDIT_TEXT_FIELD);
+        assert_eq!(comment_edit.text_field(), TEXT_FIELD);
+        let reply = reply_command(&reply_button(reply_service(None, json!("R")))).unwrap().1;
+        assert_eq!(reply.text_field(), TEXT_FIELD);
+    }
+
     #[test]
     fn anything_that_does_not_match_the_structure_offers_nothing() {
         for surface in [
@@ -824,11 +999,12 @@ mod tests {
             json!({ "menuNavigationItemRenderer": { "icon": { "iconType": "not an enum!" },
                 "text": { "runs": [{ "text": "secret label" }] }, "navigationEndpoint": {} } }),
             json!({ "menuNavigationItemRenderer": { "navigationEndpoint": {} } }),
+            reply_edit_item(Some("EDIT"), None, json!("secret-reply-params")),
         ]);
         let probe = menu_probe(&surface);
         assert_eq!(
             probe,
-            "menu: item[0]: edit, icon=EDIT, item[1]: delete, icon=DELETE, item[2]: other, icon=unexpected, item[3]: other, icon=none"
+            "menu: item[0]: edit, icon=EDIT, item[1]: delete, icon=DELETE, item[2]: other, icon=unexpected, item[3]: other, icon=none, item[4]: edit_reply, icon=EDIT"
         );
         assert!(!probe.contains("secret"));
         assert_eq!(menu_probe(&json!({})), "menu: no items");

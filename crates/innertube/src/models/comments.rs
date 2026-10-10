@@ -1377,9 +1377,27 @@ mod tests {
         );
         assert_eq!(replies.continuation.as_deref(), Some("fixture-more-replies"));
         assert_eq!(replies.replies[0].edit_text.as_deref(), Some("Synthetic editable reply 1"));
+        // A reply's Edit is its own dialog (`updateCommentReplyEndpoint.updateReplyParams`): the
+        // first own reply names no path (the constant), the nested one does.
+        let edit = |i: usize| match &replies.replies[i].commands.edit {
+            Some(WriteCommand::Endpoint { path, payload }) => {
+                assert_eq!(payload.len(), 1, "only updateReplyParams is sent");
+                (path.clone(), payload["updateReplyParams"].as_str().unwrap().to_owned())
+            }
+            other => panic!("{other:?}"),
+        };
+        let reply_path = crate::models::comment_write::COMMENT_UPDATE_REPLY_PATH;
+        assert_eq!(edit(0), (reply_path.to_owned(), "fixture-edit-reply-params-1".to_owned()));
+        assert_eq!(edit(2), (reply_path.to_owned(), "fixture-edit-reply-params-3".to_owned()));
+        assert_eq!(
+            replies.replies[0].commands.edit.as_ref().unwrap().log_kind(CommentWrite::Edit),
+            "edit_reply"
+        );
+        assert!(replies.replies[1].commands.edit.is_none());
+        assert!(replies.replies[3].commands.edit.is_none());
         // The diagnostic finds the first own reply's menu on a replies page too.
         let probe = own_comment_probe(&load(REPLIES_WRITES)).expect("an own reply");
-        assert!(probe.contains("menu: item[0]: edit, icon=EDIT, item[1]: delete, icon=DELETE, item[2]: other, icon=FLAG"), "{probe}");
+        assert!(probe.contains("menu: item[0]: edit_reply, icon=EDIT, item[1]: delete, icon=DELETE, item[2]: other, icon=FLAG"), "{probe}");
     }
 
     /// A comment or reply inserted from a write's answer has its menu parsed exactly like a read's,

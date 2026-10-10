@@ -822,12 +822,13 @@ impl CommentsError {
     /// [`Self::of`] for a request about one specific comment, where a 404 means it is gone.
     /// `kind` (`like`, `reply`, `edit`, `delete`, ...) names the request in the log.
     ///
-    /// Except for a reply: it goes to a path that is inferred rather than named by a response
-    /// (`COMMENT_REPLY_PATH`), so a 404 there may be the path and says nothing about the comment.
-    /// It is an ordinary failure, with the path and status in the log (`comment write request
-    /// failed`), and the parent row stays.
+    /// Except for a reply and the edit of a reply (`edit_reply`): they go to a path that may be
+    /// inferred rather than named by a response (`COMMENT_REPLY_PATH`,
+    /// `COMMENT_UPDATE_REPLY_PATH`), so a 404 there may be the path and says nothing about the
+    /// comment. It is an ordinary failure, with the path and status in the log (`comment write
+    /// request failed`), and the row stays as it was.
     fn of_comment(e: &innertube::Error, kind: &'static str) -> Self {
-        if e.is_not_found() && kind != "reply" {
+        if e.is_not_found() && !may_be_a_wrong_path(kind) {
             tracing::debug!(kind, "comment request: the comment no longer exists (404)");
             CommentsError::Gone
         } else {
@@ -835,6 +836,11 @@ impl CommentsError {
             Self::of(e)
         }
     }
+}
+
+/// A write whose path may be our inferred constant, so a 404 on it does not mean the comment is gone.
+fn may_be_a_wrong_path(kind: &str) -> bool {
+    matches!(kind, "reply" | "edit_reply")
 }
 
 impl From<String> for CommentsError {
@@ -1023,22 +1029,24 @@ async fn write_on_comment(
         .unwrap()
         .begin_write(&identity, comment_id, write)
         .map_err(write_denied)?;
+    // `edit` or `edit_reply` for an edit, so the two can be told apart in the logs.
+    let kind = ticket.command().log_kind(write);
     // An edit (the same text twice gives the same result) and a delete may be sent again by the
     // transport; a reply may not.
     let sent = state
         .it
-        .comment_write(client, ticket.command(), write.name(), text, write != CommentWrite::Reply)
+        .comment_write(client, ticket.command(), kind, text, write != CommentWrite::Reply)
         .await;
     // Under the identity it was sent as, whoever is active now. A delete that went through, and
-    // a comment YouTube says is gone (404), are forgotten.
-    let gone = write != CommentWrite::Reply
+    // a comment YouTube says is gone (404), are forgotten; not on a path that may be inferred.
+    let gone = !may_be_a_wrong_path(kind)
         && sent.as_ref().err().is_some_and(innertube::Error::is_not_found);
     state.comments.lock().unwrap().finish_write(
         &identity,
         comment_id,
         gone || (sent.is_ok() && write == CommentWrite::Delete),
     );
-    let answer = sent.map_err(|e| CommentsError::of_comment(&e, write.name()))?;
+    let answer = sent.map_err(|e| CommentsError::of_comment(&e, kind))?;
     Ok((answer, identity))
 }
 
