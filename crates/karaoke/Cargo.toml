@@ -1,0 +1,18 @@
+[package]
+name = "karaoke"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+ort = "=2.0.0-rc.13"
+symphonia = { version = "0.5", features = ["mp3", "flac", "wav", "aac", "ogg"] }
+rubato = "0.14"
+hound = "3.5"
+
+[[example]]
+name = "inspect"
+
+[[example]]
+name = "separate"
