@@ -152,6 +152,18 @@ impl MdxModel {
         denoise: bool,
         progress: &mut dyn FnMut(usize, usize),
     ) -> anyhow::Result<[Vec<f32>; 2]> {
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        self.separate_cancellable(mix, overlap, denoise, &cancel, progress)
+    }
+
+    pub fn separate_cancellable(
+        &mut self,
+        mix: [&[f32]; 2],
+        overlap: f32,
+        denoise: bool,
+        cancel: &std::sync::atomic::AtomicBool,
+        mut progress: impl FnMut(usize, usize),
+    ) -> anyhow::Result<[Vec<f32>; 2]> {
         let n_fft = self.params.n_fft;
         let hop = self.params.hop;
         let dim_f = self.params.dim_f;
@@ -194,6 +206,9 @@ impl MdxModel {
         let n_bins = self.stft.n_bins();
 
         for (chunk_idx, &(start, end)) in chunks.iter().enumerate() {
+            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                anyhow::bail!("cancelled");
+            }
             let n = end - start;
             let mut chunk_l = vec![0.0f32; chunk_size];
             let mut chunk_r = vec![0.0f32; chunk_size];
