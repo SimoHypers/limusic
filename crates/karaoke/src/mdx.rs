@@ -45,6 +45,33 @@ impl Default for LoadOptions {
     }
 }
 
+impl LoadOptions {
+    pub fn auto() -> LoadOptions {
+        Self::auto_with_cpu_percent(crate::device::DEFAULT_CPU_PERCENT)
+    }
+
+    pub fn auto_with_cpu_percent(percent: u32) -> LoadOptions {
+        #[cfg(feature = "directml")]
+        {
+            let adapters = crate::device::list_adapters();
+            if let Some(a) = crate::device::pick_gpu(
+                &adapters,
+                crate::device::MIN_DISCRETE_VRAM_MB,
+            ) {
+                tracing::info!("{}", crate::device::describe(a));
+                return LoadOptions {
+                    device: Device::DirectMl { device_id: a.index },
+                    intra_threads: None,
+                };
+            }
+        }
+        LoadOptions {
+            device: Device::Cpu,
+            intra_threads: Some(crate::device::cpu_threads_for_percent(percent)),
+        }
+    }
+}
+
 pub struct MdxModel {
     session: ort::session::Session,
     params: MdxParams,
@@ -89,6 +116,32 @@ impl MdxModel {
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         let stft = Stft::new(params.n_fft, params.hop);
         Ok(Self { session, params, stft })
+    }
+
+    pub fn load_auto(model_path: &Path, params: MdxParams) -> anyhow::Result<(Self, Device)> {
+        Self::load_auto_with_cpu_percent(model_path, params, crate::device::DEFAULT_CPU_PERCENT)
+    }
+
+    pub fn load_auto_with_cpu_percent(model_path: &Path, params: MdxParams, percent: u32) -> anyhow::Result<(Self, Device)> {
+        let opts = LoadOptions::auto_with_cpu_percent(percent);
+        let device = opts.device;
+        match Self::load(model_path, params, opts) {
+            Ok(model) => Ok((model, device)),
+            Err(e) => {
+                match device {
+                    Device::DirectMl { .. } => {
+                        tracing::warn!(error = %e, "DirectML model load failed, falling back to CPU");
+                        let cpu_opts = LoadOptions {
+                            device: Device::Cpu,
+                            intra_threads: Some(crate::device::cpu_threads_for_percent(percent)),
+                        };
+                        let model = Self::load(model_path, params, cpu_opts)?;
+                        Ok((model, Device::Cpu))
+                    }
+                    Device::Cpu => Err(e),
+                }
+            }
+        }
     }
 
     /// mix: two channels (left, right), 44100 Hz. Returns the PRIMARY stem (for Inst_HQ_3 this is the instrumental), two channels, same length as the input.

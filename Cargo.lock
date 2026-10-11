@@ -3277,6 +3277,8 @@ dependencies = [
  "realfft",
  "rubato",
  "symphonia",
+ "tracing",
+ "windows 0.61.3",
 ]
 
 [[package]]

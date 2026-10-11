@@ -18,7 +18,7 @@ fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 4 {
         eprintln!(
-            "Usage: cargo run -p karaoke --example separate -- <input_audio> <model.onnx> <output.wav> [--overlap <f32>] [--denoise]"
+            "Usage: cargo run -p karaoke --example separate -- <input_audio> <model.onnx> <output.wav> [--overlap <f32>] [--denoise] [--gpu] [--gpu-id <i32>] [--threads <usize>] [--cpu-percent <u32>] [--auto]"
         );
         std::process::exit(1);
     }
@@ -32,6 +32,8 @@ fn main() -> Result<()> {
     let mut gpu = false;
     let mut gpu_id = 0i32;
     let mut threads: Option<usize> = None;
+    let mut cpu_percent: Option<u32> = None;
+    let mut auto = false;
 
     let mut i = 4;
     while i < args.len() {
@@ -68,6 +70,18 @@ fn main() -> Result<()> {
                 } else {
                     anyhow::bail!("--threads requires a value");
                 }
+            }
+            "--cpu-percent" => {
+                if i + 1 < args.len() {
+                    cpu_percent = Some(args[i + 1].parse().context("Invalid cpu-percent value")?);
+                    i += 2;
+                } else {
+                    anyhow::bail!("--cpu-percent requires a value");
+                }
+            }
+            "--auto" => {
+                auto = true;
+                i += 1;
             }
             other => {
                 anyhow::bail!("Unknown argument: {}", other);
@@ -209,20 +223,60 @@ fn main() -> Result<()> {
 
     let audio_duration = resampled_l.len() as f64 / 44100.0;
 
-    let device = if gpu {
-        karaoke::mdx::Device::DirectMl { device_id: gpu_id }
+    let mut model = if auto {
+        eprintln!("Loading MDX model with auto device selection from: {}", model_path);
+        let (m, d) = if let Some(p) = cpu_percent {
+            MdxModel::load_auto_with_cpu_percent(Path::new(model_path), MdxParams::default(), p)
+        } else {
+            MdxModel::load_auto(Path::new(model_path), MdxParams::default())
+        }.context("Failed to load MDX model")?;
+        match d {
+            karaoke::mdx::Device::DirectMl { device_id } => {
+                let adapters = karaoke::device::list_adapters();
+                let desc = adapters
+                    .iter()
+                    .find(|a| a.index == device_id)
+                    .map(|a| karaoke::device::describe(a))
+                    .unwrap_or_else(|| format!("device id {}", device_id));
+                eprintln!("Used device: DirectMl ({})", desc);
+            }
+            karaoke::mdx::Device::Cpu => {
+                let p = cpu_percent.unwrap_or(karaoke::device::DEFAULT_CPU_PERCENT);
+                let n = threads.unwrap_or_else(|| karaoke::device::cpu_threads_for_percent(p));
+                eprintln!("Used device: Cpu (threads: {})", n);
+            }
+        }
+        m
     } else {
-        karaoke::mdx::Device::Cpu
-    };
-    let load_opts = karaoke::mdx::LoadOptions {
-        device,
-        intra_threads: threads,
-    };
+        let device = if gpu {
+            karaoke::mdx::Device::DirectMl { device_id: gpu_id }
+        } else {
+            karaoke::mdx::Device::Cpu
+        };
+        let n = if let Some(p) = cpu_percent {
+            karaoke::device::cpu_threads_for_percent(p)
+        } else if let Some(t) = threads {
+            t
+        } else {
+            karaoke::device::cpu_threads_for_percent(karaoke::device::DEFAULT_CPU_PERCENT)
+        };
+        let load_opts = karaoke::mdx::LoadOptions {
+            device,
+            intra_threads: Some(n),
+        };
 
-    eprintln!("Device: {:?}, Threads: {:?}", device, threads);
-    eprintln!("Loading MDX model from: {}", model_path);
-    let mut model = MdxModel::load(Path::new(model_path), MdxParams::default(), load_opts)
-        .context("Failed to load MDX model")?;
+        match device {
+            karaoke::mdx::Device::DirectMl { device_id } => {
+                eprintln!("Used device: DirectMl (device id {})", device_id);
+            }
+            karaoke::mdx::Device::Cpu => {
+                eprintln!("Used device: Cpu (threads: {})", n);
+            }
+        }
+        eprintln!("Loading MDX model from: {}", model_path);
+        MdxModel::load(Path::new(model_path), MdxParams::default(), load_opts)
+            .context("Failed to load MDX model")?
+    };
 
     // Measure wall-clock time of separation
     eprintln!("Running separation...");

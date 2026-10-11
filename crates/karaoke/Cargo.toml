@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+tracing = { workspace = true }
 ort = "=2.0.0-rc.13"
 symphonia = { version = "0.5", features = ["mp3", "flac", "wav", "aac", "ogg"] }
 rubato = "0.14"
@@ -15,8 +16,14 @@ realfft = "3.5"
 [features]
 directml = ["ort/directml"]
 
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dxgi", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D12"] }
+
 [[example]]
 name = "inspect"
 
 [[example]]
 name = "separate"
+
+[[example]]
+name = "devices"
