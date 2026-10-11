@@ -13,6 +13,7 @@ mod http;
 mod import;
 #[cfg(target_os = "linux")]
 mod inhibit;
+mod karaoke_model;
 mod lastfm;
 mod listenbrainz;
 mod listentogether;
@@ -631,6 +632,10 @@ pub fn run() {
                 tracing::warn!(errors = ?reg_res.errors, "some global hotkeys could not be registered on startup");
             }
 
+            // Karaoke model manager
+            let karaoke_model_mgr = Arc::new(karaoke_model::ModelManager::new(&data_dir));
+            app.manage(karaoke_model_mgr);
+
             // A custom app icon (#173) has to be pushed at each surface every launch, since only
             // the .exe/.desktop icon is baked in and that one we can't touch. Guarded, rather than
             // unconditional: with no custom icon there is nothing to restore, and on Windows
@@ -874,6 +879,9 @@ pub fn run() {
             commands::close_mini,
             commands::set_mini_compact,
             commands::show_main,
+            commands::karaoke_model_status,
+            commands::karaoke_model_download,
+            commands::karaoke_model_cancel,
             commands::take_launch_args,
             commands::get_home,
             commands::get_home_more,

@@ -2370,6 +2370,32 @@ pub fn theater_fullscreen(window: tauri::WebviewWindow, on: bool) -> Result<(), 
     }
 }
 
+/// Get the status of the karaoke separation model.
+#[tauri::command]
+pub fn karaoke_model_status(manager: State<'_, Arc<crate::karaoke_model::ModelManager>>) -> crate::karaoke_model::ModelStatus {
+    manager.status()
+}
+
+/// Download the karaoke separation model asynchronously.
+#[tauri::command]
+pub async fn karaoke_model_download(
+    app: tauri::AppHandle,
+    manager: State<'_, Arc<crate::karaoke_model::ModelManager>>,
+) -> Result<(), String> {
+    let mgr = manager.inner().clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = mgr.download(&app).await;
+    });
+    Ok(())
+}
+
+/// Cancel an ongoing karaoke model download.
+#[tauri::command]
+pub fn karaoke_model_cancel(manager: State<'_, Arc<crate::karaoke_model::ModelManager>>) -> Result<(), String> {
+    manager.cancel_download();
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

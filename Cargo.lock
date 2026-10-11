@@ -3512,6 +3512,7 @@ dependencies = [
  "rustypipe-botguard",
  "serde",
  "serde_json",
+ "sha2",
  "souvlaki",
  "strsim",
  "tauri",
