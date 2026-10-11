@@ -2386,7 +2386,8 @@ impl AppState {
                 return;
             }
         };
-        let was_playing = !self.player.is_idle();
+        let was_paused = self.player.is_paused();
+        let was_playing = !was_paused && !self.player.is_idle();
         let pos = self.current_position();
         let stream_url = mpv_stream_url(&data);
         let karaoke_on = self.karaoke_active();
@@ -2401,7 +2402,9 @@ impl AppState {
             self.emit_error(&item.video_id, &e.to_string());
             return;
         }
-        if was_playing {
+        if was_paused {
+            let _ = self.player.pause();
+        } else if was_playing {
             let _ = self.player.play();
         }
         {

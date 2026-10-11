@@ -552,6 +552,11 @@ impl Player {
         self.mpv().get_property::<bool>("idle-active").unwrap_or(true)
     }
 
+    /// True when mpv is currently paused.
+    pub fn is_paused(&self) -> bool {
+        self.mpv().get_property::<bool>("pause").unwrap_or(false)
+    }
+
     pub fn play(&self) -> Result<(), Error> {
         self.mpv().set_property("pause", false)?;
         Ok(())

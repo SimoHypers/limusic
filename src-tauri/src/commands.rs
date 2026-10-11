@@ -214,8 +214,23 @@ pub async fn set_playback_params(state: St<'_>, speed: f64, semitones: i32) -> R
 
 /// Vocal reduction. Session-only on purpose, never persisted, resets on restart like tempo/pitch.
 #[tauri::command]
-pub async fn set_karaoke(state: St<'_>, enabled: bool) -> Result<(), String> {
-    state.player.set_karaoke(enabled).map_err(|e| e.to_string())?;
+pub async fn set_karaoke(
+    state: St<'_>,
+    models: State<'_, Arc<crate::karaoke_model::ModelManager>>,
+    enabled: bool,
+) -> Result<(), String> {
+    if enabled && !models.is_installed() {
+        let _ = state.app.emit("karaoke-status", &serde_json::json!({
+            "videoId": "",
+            "state": "needs-model"
+        }));
+        let _ = state.app.emit("karaoke", false);
+        return Ok(());
+    }
+    if let Err(e) = state.set_karaoke_active(enabled).await {
+        let _ = state.app.emit("karaoke", false);
+        return Err(e);
+    }
     let _ = state.app.emit("karaoke", enabled);
     Ok(())
 }
