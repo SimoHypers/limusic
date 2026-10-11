@@ -2396,6 +2396,36 @@ pub fn karaoke_model_cancel(manager: State<'_, Arc<crate::karaoke_model::ModelMa
     Ok(())
 }
 
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KaraokeEngineStatus {
+    pub enabled: bool,
+    pub model_installed: bool,
+    pub cache_bytes: u64,
+}
+
+/// Get the status of the background karaoke engine.
+#[tauri::command]
+pub fn karaoke_engine_status(
+    engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
+    models: State<'_, Arc<crate::karaoke_model::ModelManager>>,
+) -> Result<KaraokeEngineStatus, String> {
+    Ok(KaraokeEngineStatus {
+        enabled: engine.is_enabled(),
+        model_installed: models.is_installed(),
+        cache_bytes: engine.cache_bytes(),
+    })
+}
+
+/// Clear the karaoke instrumental cache.
+#[tauri::command]
+pub fn karaoke_clear_cache(
+    engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
+) -> Result<(), String> {
+    engine.clear_cache();
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -14,6 +14,7 @@ mod import;
 #[cfg(target_os = "linux")]
 mod inhibit;
 mod karaoke_model;
+mod karaoke;
 mod lastfm;
 mod listenbrainz;
 mod listentogether;
@@ -634,7 +635,11 @@ pub fn run() {
 
             // Karaoke model manager
             let karaoke_model_mgr = Arc::new(karaoke_model::ModelManager::new(&data_dir));
-            app.manage(karaoke_model_mgr);
+            app.manage(karaoke_model_mgr.clone());
+
+            // Karaoke engine
+            let karaoke_engine = karaoke::KaraokeEngine::new(handle.clone(), &data_dir, karaoke_model_mgr.clone());
+            app.manage(karaoke_engine);
 
             // A custom app icon (#173) has to be pushed at each surface every launch, since only
             // the .exe/.desktop icon is baked in and that one we can't touch. Guarded, rather than
@@ -882,6 +887,8 @@ pub fn run() {
             commands::karaoke_model_status,
             commands::karaoke_model_download,
             commands::karaoke_model_cancel,
+            commands::karaoke_engine_status,
+            commands::karaoke_clear_cache,
             commands::take_launch_args,
             commands::get_home,
             commands::get_home_more,

@@ -3495,6 +3495,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "innertube",
+ "karaoke",
  "ksni",
  "libc",
  "lindera",

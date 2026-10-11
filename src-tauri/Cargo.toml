@@ -16,7 +16,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["net", "io-util"] }
+tokio = { workspace = true, features = ["net", "io-util", "sync"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = { workspace = true }
@@ -45,6 +45,7 @@ http-body-util = "0.1"
 
 innertube = { path = "../crates/innertube" }
 player = { path = "../crates/player" }
+karaoke = { path = "../crates/karaoke" }
 souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
 # Listen Together: shared wire types + WebSocket client (wss via rustls). context/19.
 listen-protocol = { workspace = true }
@@ -89,6 +90,7 @@ windows = { version = "0.61", features = [
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
+karaoke = { path = "../crates/karaoke", features = ["directml"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The music video's GL surface under the webview (nativevideo.rs). Same version tauri pulls in.

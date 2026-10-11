@@ -12,12 +12,29 @@ use libmpv2::Mpv;
 pub fn decode_to_wav(
     input: &str,
     out_wav: &Path,
+    headers: &std::collections::HashMap<String, String>,
     cancel: &AtomicBool,
 ) -> anyhow::Result<()> {
     unsafe {
         libc::setlocale(libc::LC_NUMERIC, c"C".as_ptr());
     }
     let mpv = Mpv::new().map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    if let Some(ua) = headers.get("User-Agent").or_else(|| headers.get("user-agent")) {
+        mpv.set_property("user-agent", ua.as_str()).map_err(|e| anyhow::anyhow!("{}", e))?;
+    }
+    let fields: String = headers
+        .iter()
+        .filter(|(k, _)| !k.eq_ignore_ascii_case("user-agent") && !k.eq_ignore_ascii_case("http-proxy"))
+        .map(|(k, v)| format!("{k}: {v}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    if !fields.is_empty() {
+        mpv.set_property("http-header-fields", fields.as_str()).map_err(|e| anyhow::anyhow!("{}", e))?;
+    }
+    if let Some(proxy) = headers.get("http-proxy").or_else(|| headers.get("HTTP-PROXY")) {
+        mpv.set_property("http-proxy", proxy.as_str()).map_err(|e| anyhow::anyhow!("{}", e))?;
+    }
 
     mpv.set_property("vid", "no").map_err(|e| anyhow::anyhow!("{}", e))?;
     mpv.set_property("ao", "pcm").map_err(|e| anyhow::anyhow!("{}", e))?;
