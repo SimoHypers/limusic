@@ -16,7 +16,7 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { hexToHsv, isLight } from './color';
 import { artworkAccent, toAccent, warmAccent } from './artcolor';
-import { allowFontFile } from './api';
+import { allowFontFile, getMatugenTheme, onMatugenThemeChanged } from './api';
 
 export type ThemeId =
 	| 'default'
@@ -79,6 +79,7 @@ const APPEARANCE_KEY = 'appearance';
 const PALETTE_CLASSES = THEMES.map((t) => `theme-${t.id}`);
 /** Set on <html> while the artwork tint is live; the fill rules in layout.css hang off it. */
 const TINT_CLASS = 'art-tint';
+const MATUGEN_STYLE_ID = 'limusic-matugen';
 const ACCENT_VARS = ['--primary', '--primary-foreground', '--accent', '--accent-foreground'];
 const CUSTOM_VARS = ['--hue', '--radius', '--font-sans', '--font-heading'];
 // Same two neutrals the preset accent themes pick between.
@@ -434,6 +435,32 @@ export function prewarmArtworkAccent(url: string | undefined | null): void {
 }
 
 /** Apply the stored theme + customization on startup (defaults to the default palette, no overrides). */
+function applyMatugenTheme(css: string | null): void {
+	let style = document.getElementById(MATUGEN_STYLE_ID) as HTMLStyleElement | null;
+	if (!css) { style?.remove(); document.documentElement.classList.remove('matugen-theme'); readBack(); return; }
+	if (!style) { style = document.createElement('style'); style.id = MATUGEN_STYLE_ID; document.head.append(style); }
+	style.textContent = css;
+	document.documentElement.classList.add('matugen-theme');
+	readBack();
+}
+
+export async function loadMatugenTheme(): Promise<void> {
+	try { applyMatugenTheme(await getMatugenTheme()); } catch { applyMatugenTheme(null); }
+}
+
+let matugenListening = false;
+async function initMatugen(): Promise<void> {
+	if (matugenListening) return;
+	matugenListening = true;
+	let latestEvent: string | null | undefined;
+	await onMatugenThemeChanged((css) => {
+		latestEvent = css;
+		applyMatugenTheme(css);
+	});
+	const css = await getMatugenTheme().catch(() => null);
+	if (latestEvent === undefined) applyMatugenTheme(css);
+}
+
 export function initTheme(): void {
 	const stored = localStorage.getItem(KEY);
 	theme.id = THEMES.some((t) => t.id === stored) ? (stored as ThemeId) : 'default';
@@ -478,6 +505,7 @@ export function initTheme(): void {
 		// unparseable — keep the defaults
 	}
 	apply();
+	initMatugen();
 	// Async (each file needs its URL granted first), so the app paints in the fallback font for a
 	// frame or two before a loaded font swaps in.
 	if (custom.fontFiles.length) registerFontFiles();
