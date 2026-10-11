@@ -16,6 +16,9 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 mod video;
 pub use video::{GlDisplay, Thumbnail, VideoRenderer};
 
+mod decode;
+pub use decode::decode_to_wav;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("mpv: {0}")]

@@ -4751,6 +4751,8 @@ checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 name = "player"
 version = "1.2.0"
 dependencies = [
+ "anyhow",
+ "hound",
  "libc",
  "libmpv2",
  "libmpv2-sys",
