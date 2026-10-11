@@ -29,6 +29,9 @@ fn main() -> Result<()> {
 
     let mut overlap = 0.25f32;
     let mut denoise = false;
+    let mut gpu = false;
+    let mut gpu_id = 0i32;
+    let mut threads: Option<usize> = None;
 
     let mut i = 4;
     while i < args.len() {
@@ -44,6 +47,27 @@ fn main() -> Result<()> {
             "--denoise" => {
                 denoise = true;
                 i += 1;
+            }
+            "--gpu" => {
+                gpu = true;
+                i += 1;
+            }
+            "--gpu-id" => {
+                gpu = true;
+                if i + 1 < args.len() {
+                    gpu_id = args[i + 1].parse().context("Invalid GPU ID value")?;
+                    i += 2;
+                } else {
+                    anyhow::bail!("--gpu-id requires a value");
+                }
+            }
+            "--threads" => {
+                if i + 1 < args.len() {
+                    threads = Some(args[i + 1].parse().context("Invalid threads value")?);
+                    i += 2;
+                } else {
+                    anyhow::bail!("--threads requires a value");
+                }
             }
             other => {
                 anyhow::bail!("Unknown argument: {}", other);
@@ -185,9 +209,19 @@ fn main() -> Result<()> {
 
     let audio_duration = resampled_l.len() as f64 / 44100.0;
 
-    // Load MDX model with default parameters
+    let device = if gpu {
+        karaoke::mdx::Device::DirectMl { device_id: gpu_id }
+    } else {
+        karaoke::mdx::Device::Cpu
+    };
+    let load_opts = karaoke::mdx::LoadOptions {
+        device,
+        intra_threads: threads,
+    };
+
+    eprintln!("Device: {:?}, Threads: {:?}", device, threads);
     eprintln!("Loading MDX model from: {}", model_path);
-    let mut model = MdxModel::load(Path::new(model_path), MdxParams::default())
+    let mut model = MdxModel::load(Path::new(model_path), MdxParams::default(), load_opts)
         .context("Failed to load MDX model")?;
 
     // Measure wall-clock time of separation
@@ -200,7 +234,8 @@ fn main() -> Result<()> {
             overlap,
             denoise,
             &mut |curr, total| {
-                eprintln!("Progress: chunk {} / {}", curr, total);
+                let elapsed = start_time.elapsed().as_secs_f64();
+                eprintln!("chunk {}/{} t={:.1}s", curr, total, elapsed);
             },
         )
         .context("Separation failed")?;

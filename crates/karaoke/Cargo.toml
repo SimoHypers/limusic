@@ -12,6 +12,9 @@ rubato = "0.14"
 hound = "3.5"
 realfft = "3.5"
 
+[features]
+directml = ["ort/directml"]
+
 [[example]]
 name = "inspect"
 

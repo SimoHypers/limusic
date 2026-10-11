@@ -24,6 +24,27 @@ impl Default for MdxParams {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum Device {
+    Cpu,
+    DirectMl { device_id: i32 },
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct LoadOptions {
+    pub device: Device,
+    pub intra_threads: Option<usize>,
+}
+
+impl Default for LoadOptions {
+    fn default() -> Self {
+        Self {
+            device: Device::Cpu,
+            intra_threads: None,
+        }
+    }
+}
+
 pub struct MdxModel {
     session: ort::session::Session,
     params: MdxParams,
@@ -31,9 +52,41 @@ pub struct MdxModel {
 }
 
 impl MdxModel {
-    pub fn load(model_path: &Path, params: MdxParams) -> anyhow::Result<Self> {
-        let session = ort::session::Session::builder()?
-            .commit_from_file(model_path)?;
+    pub fn load(model_path: &Path, params: MdxParams, opts: LoadOptions) -> anyhow::Result<Self> {
+        let mut builder = ort::session::Session::builder()
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        if let Some(n) = opts.intra_threads {
+            builder = builder
+                .with_intra_threads(n)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        }
+        match opts.device {
+            Device::Cpu => {}
+            Device::DirectMl { device_id } => {
+                #[cfg(not(feature = "directml"))]
+                {
+                    let _ = device_id;
+                    anyhow::bail!("Karaoke crate was built without the 'directml' feature");
+                }
+                #[cfg(feature = "directml")]
+                {
+                    builder = builder
+                        .with_memory_pattern(false)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?
+                        .with_parallel_execution(false)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?
+                        .with_execution_providers([
+                            ort::ep::DirectML::default()
+                                .with_device_id(device_id)
+                                .build(),
+                        ])
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                }
+            }
+        }
+        let session = builder
+            .commit_from_file(model_path)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         let stft = Stft::new(params.n_fft, params.hop);
         Ok(Self { session, params, stft })
     }
