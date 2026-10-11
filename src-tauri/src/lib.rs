@@ -640,6 +640,7 @@ pub fn run() {
             // Karaoke engine
             let karaoke_engine = karaoke::KaraokeEngine::new(handle.clone(), &data_dir, karaoke_model_mgr.clone());
             app.manage(karaoke_engine);
+            app_state.spawn_karaoke_listener();
 
             // A custom app icon (#173) has to be pushed at each surface every launch, since only
             // the .exe/.desktop icon is baked in and that one we can't touch. Guarded, rather than
