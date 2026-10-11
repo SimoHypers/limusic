@@ -527,19 +527,31 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
     // Second flex column holds subtitle runs: "Artist • Album • duration" (• separated).
     let subtitle_runs = flex_runs(node, 1);
     let (artists, album, duration) = split_subtitle(subtitle_runs);
+    // A music video has no album column at all: YouTube writes the view count into the subtitle
+    // itself ("Artist • 21M views • 4:51") and stops at two columns. Every album read below needs
+    // a column past the subtitle, because that is where an audio row keeps its album, so none of
+    // them ever runs on a video and the count is taken for a release. "Hide videos in search" is
+    // off by default, so the row reaches the queue, and from there Discord's third line, the OS
+    // media session and the scrobble.
+    //
+    // Gated on the row's own `musicVideoType` rather than on the shape of the text: a release
+    // named after a number is ordinary ("1989 (Deluxe)", "13", "24 Songs", "5SOS5"), and every
+    // count-shaped test drops those. A video is not on a release at all, which is what makes
+    // dropping it safe — and it is also why the reads below still run for a video row rather than
+    // being skipped: a linked column is proof of a release wherever it turns up.
+    let is_video = is_video_row(node);
+    let album = album.filter(|_| !is_video).or_else(|| album_column(node)).or_else(|| {
+        // An artist page's top songs put the play count in that column and the album in a fourth
+        // one (#377), so past the third column, take whichever links an album page.
+        (3..flex.map_or(0, Vec::len))
+            .find_map(|i| flex_runs(node, i).and_then(|r| album_from_runs(r)))
+    });
     // Playlist/album rows keep the length in a fixed column instead of the subtitle. context/08.
     // Some rows carry it in the third *flex* column instead — the slot the album name and the
     // play count share. `play_count` rejects the duration shape (a count never carries a colon),
     // so read it the other way: a duration-shaped, unlinked third column is the length.
     let duration =
         duration.or_else(|| fixed_column_text(node)).or_else(|| flex_column_duration(node));
-    // …and the album in a column of its own rather than in the subtitle runs. An artist page's top
-    // songs put the play count in that column and the album in a fourth one (#377), so past it,
-    // take whichever column links an album page.
-    let album = album.or_else(|| album_column(node)).or_else(|| {
-        (3..flex.map_or(0, Vec::len))
-            .find_map(|i| flex_runs(node, i).and_then(|r| album_from_runs(r)))
-    });
     let artist_id = subtitle_runs.and_then(|r| first_artist_id(r));
     // Only when this row's own menu offers the remove action. Every playlist row carries a
     // playlistSetVideoId, including rows on a playlist you can't edit (live-checked 2026-08-23),
@@ -575,7 +587,7 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
         queued_end: false,
         queued_from: None,
         autoplay: false,
-        is_video: is_video_row(node),
+        is_video,
         counterpart: None,
         is_upload: is_upload_row(node),
         explicit: is_explicit(node),
@@ -1498,6 +1510,41 @@ mod tests {
         assert_eq!(song.play_count.as_deref(), Some("1.2B"));
         assert_eq!(song.album.as_deref(), Some("The Album"));
         assert_eq!(song.album_id.as_deref(), Some("MPREalbum1"));
+    }
+
+    // A music video row has no third column to put an album in, so the count in its subtitle lands in
+    // `album` and rides out to Discord, MPRIS and the scrobble as if it named a release. The shape
+    // is lifted verbatim from a live `FILTER_VIDEO` row.
+    #[test]
+    fn a_video_row_view_count_is_not_the_album() {
+        let row = json!({
+            "playlistItemData": { "videoId": "4iSvoQNfrrk" },
+            "overlay": { "musicItemThumbnailOverlayRenderer": { "content": {
+                "musicPlayButtonRenderer": { "playNavigationEndpoint": { "watchEndpoint": {
+                    "videoId": "4iSvoQNfrrk",
+                    "watchEndpointMusicSupportedConfigs": { "watchEndpointMusicConfig": {
+                        "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                    } }
+                } } }
+            } } },
+            "flexColumns": [
+                { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Caramel" }] } } },
+                { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [
+                    { "text": "Sleep Token",
+                      "navigationEndpoint": { "browseEndpoint": { "browseId": "UCsleeptoken" } } },
+                    { "text": " • " },
+                    { "text": "21M views" },
+                    { "text": " • " },
+                    { "text": "4:51" }
+                ] } } }
+            ]
+        });
+        let song = parse_list_item(&row).unwrap();
+        assert!(song.is_video);
+        assert_eq!(song.artists, "Sleep Token");
+        assert_eq!(song.duration.as_deref(), Some("4:51"));
+        assert_eq!(song.album, None, "the view count is not a release");
+        assert_eq!(song.play_count, None, "the count is in the subtitle, not a column");
     }
 
     // #274 again, the other half: with `hl=ko` a row YouTube stripped the artist from reads
