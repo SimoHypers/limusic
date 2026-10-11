@@ -25,7 +25,8 @@ export type ThemeId =
 	| 'caffeine'
 	| 'neon'
 	| 'breeze'
-	| 'amoled';
+	| 'amoled'
+	| 'everforest';
 
 // `color` is just the picker swatch.
 type Theme = { id: ThemeId; label: string; color: string };
@@ -37,7 +38,8 @@ export const THEMES: Theme[] = [
 	{ id: 'caffeine', label: 'Caffeine', color: 'oklch(0.4341 0.0392 41.9938)' },
 	{ id: 'neon', label: 'Neon', color: 'oklch(0.6726 0.2904 341.4084)' },
 	{ id: 'breeze', label: 'Breeze', color: 'oklch(0.7227 0.1920 149.5793)' },
-	{ id: 'amoled', label: 'AMOLED', color: 'oklch(0 0 0)' }
+	{ id: 'amoled', label: 'AMOLED', color: 'oklch(0 0 0)' },
+	{ id: 'everforest', label: 'Everforest', color: 'oklch(0.665 0.145 133.5)' }
 ];
 
 // A removed accent preset falls back to the default palette, carrying its colour over as a custom
