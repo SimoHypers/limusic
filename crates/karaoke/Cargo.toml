@@ -12,6 +12,7 @@ symphonia = { version = "0.5", features = ["mp3", "flac", "wav", "aac", "ogg"] }
 rubato = "0.14"
 hound = "3.5"
 realfft = "3.5"
+flacenc = "0.4"
 
 [features]
 directml = ["ort/directml"]
@@ -27,3 +28,6 @@ name = "separate"
 
 [[example]]
 name = "devices"
+
+[[example]]
+name = "cache_test"
