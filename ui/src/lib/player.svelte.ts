@@ -58,6 +58,30 @@ export const karaokeStatus = $state({
 	message: undefined as string | undefined
 });
 
+const karaokeByTrack = $state<
+	Record<
+		string,
+		{
+			state: 'off' | 'needs-model' | 'preparing' | 'ready' | 'error';
+			progress?: number;
+			message?: string;
+		}
+	>
+>({});
+
+function syncKaraokeStatus() {
+	const entry = playback.now?.videoId ? karaokeByTrack[playback.now.videoId] : undefined;
+	if (entry) {
+		karaokeStatus.state = entry.state;
+		karaokeStatus.progress = entry.progress;
+		karaokeStatus.message = entry.message;
+	} else {
+		karaokeStatus.state = playback.karaoke ? 'preparing' : 'off';
+		karaokeStatus.progress = undefined;
+		karaokeStatus.message = undefined;
+	}
+}
+
 export const karaokeModel = $state({
 	installed: false,
 	downloading: false,
@@ -979,9 +1003,8 @@ export function toggleKaraoke() {
 	const next = !previous;
 	playback.karaoke = next;
 	if (!next) {
-		karaokeStatus.state = 'off';
-		karaokeStatus.progress = undefined;
-		karaokeStatus.message = undefined;
+		for (const k in karaokeByTrack) delete karaokeByTrack[k];
+		syncKaraokeStatus();
 	}
 	api.setKaraoke(next).catch((e) => {
 		playback.karaoke = previous;
@@ -1539,13 +1562,9 @@ export function initApp(mini = false): () => void {
 	started = true;
 	const subs = [
 		api.onNowPlaying((n) => {
-			if (playback.now?.videoId !== n.videoId) {
-				karaokeStatus.state = playback.karaoke ? 'preparing' : 'off';
-				karaokeStatus.progress = undefined;
-				karaokeStatus.message = undefined;
-			}
 			playback.now = n;
 			playback.rating = n.rating ?? 'indifferent'; // the track's real rating when known
+			syncKaraokeStatus();
 			// Feeds Shortcuts recency and the community shelf's artist seed. Every play lands here,
 			// gapless advances included, so it's the one hook that sees them all.
 			pl.touchPick(personal, n.videoId);
@@ -1615,23 +1634,35 @@ export function initApp(mini = false): () => void {
 		api.onKaraoke((enabled) => {
 			playback.karaoke = enabled;
 			if (!enabled) {
-				karaokeStatus.state = 'off';
-				karaokeStatus.progress = undefined;
-				karaokeStatus.message = undefined;
+				for (const k in karaokeByTrack) delete karaokeByTrack[k];
+				syncKaraokeStatus();
 			}
 		}),
 		api.onKaraokeStatus((e) => {
 			if (e.state === 'needs-model') {
 				karaokeConsent.open = true;
-				karaokeStatus.state = e.state;
-				karaokeStatus.progress = e.progress;
-				karaokeStatus.message = e.message;
-				return;
+				if (!e.videoId) {
+					karaokeStatus.state = e.state;
+					karaokeStatus.progress = e.progress;
+					karaokeStatus.message = e.message;
+					return;
+				}
 			}
-			if (playback.now?.videoId && e.videoId && playback.now.videoId === e.videoId) {
-				karaokeStatus.state = e.state;
-				karaokeStatus.progress = e.progress;
-				karaokeStatus.message = e.message;
+			if (e.videoId) {
+				if (!karaokeByTrack[e.videoId]) {
+					const keys = Object.keys(karaokeByTrack);
+					if (keys.length >= 10) {
+						delete karaokeByTrack[keys[0]];
+					}
+				}
+				karaokeByTrack[e.videoId] = {
+					state: e.state,
+					progress: e.progress,
+					message: e.message
+				};
+				if (playback.now?.videoId === e.videoId) {
+					syncKaraokeStatus();
+				}
 			}
 		}),
 		api.onKaraokeModel((e) => {
