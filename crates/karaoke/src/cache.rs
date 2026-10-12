@@ -172,9 +172,9 @@ impl InstrumentalCache {
 
         let total_bytes = self.total_size();
         if removed > 0 {
-            tracing::info!(target: "karaoke::cache", removed, freed_bytes, total_bytes, "karaoke cache evict removed={0} freed_bytes={1} total_bytes={2}", removed, freed_bytes, total_bytes);
+            tracing::info!(target: "karaoke::cache", removed, freed_bytes, total_bytes, "karaoke cache evict");
         } else {
-            tracing::debug!(target: "karaoke::cache", removed, freed_bytes, total_bytes, "karaoke cache evict removed={0} freed_bytes={1} total_bytes={2}", removed, freed_bytes, total_bytes);
+            tracing::debug!(target: "karaoke::cache", removed, freed_bytes, total_bytes, "karaoke cache evict");
         }
 
         Ok(freed_bytes)

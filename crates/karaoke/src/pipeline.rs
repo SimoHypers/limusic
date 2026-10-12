@@ -42,7 +42,7 @@ pub fn prepare_instrumental(
     progress: &mut dyn FnMut(usize, usize),
 ) -> Result<PathBuf> {
     if let Some(cached_path) = cache.get(track_id) {
-        tracing::info!(target: "karaoke::pipeline", video_id = %track_id, "karaoke cache hit video_id={}", track_id);
+        tracing::info!(target: "karaoke::pipeline", video_id = %track_id, "karaoke cache hit");
         return Ok(cached_path);
     }
 
@@ -61,7 +61,7 @@ pub fn prepare_instrumental(
     let start_decode = std::time::Instant::now();
     decode_to_wav(&wav_path)?;
     let decode_ms = start_decode.elapsed().as_millis();
-    tracing::debug!(target: "karaoke::pipeline", video_id = %track_id, decode_ms, "karaoke stage decode decode_ms={}", decode_ms);
+    tracing::debug!(target: "karaoke::pipeline", video_id = %track_id, decode_ms, "karaoke stage decode");
 
     if cancel.load(std::sync::atomic::Ordering::Relaxed) {
         anyhow::bail!("cancelled");
@@ -126,7 +126,7 @@ pub fn prepare_instrumental(
     let start_separate = std::time::Instant::now();
     let [sep_l, sep_r] = separator.separate_pcm([&left, &right], cancel, progress)?;
     let separate_ms = start_separate.elapsed().as_millis();
-    tracing::debug!(target: "karaoke::pipeline", video_id = %track_id, separate_ms, "karaoke stage separate separate_ms={}", separate_ms);
+    tracing::debug!(target: "karaoke::pipeline", video_id = %track_id, separate_ms, "karaoke stage separate");
 
     if cancel.load(std::sync::atomic::Ordering::Relaxed) {
         anyhow::bail!("cancelled");
@@ -143,7 +143,7 @@ pub fn prepare_instrumental(
         cache.format(),
     );
     let encode_ms = start_encode.elapsed().as_millis();
-    tracing::debug!(target: "karaoke::pipeline", video_id = %track_id, encode_ms, "karaoke stage encode encode_ms={}", encode_ms);
+    tracing::debug!(target: "karaoke::pipeline", video_id = %track_id, encode_ms, "karaoke stage encode");
 
     if let Err(e) = write_res {
         let tmp_res_path = match result_path.file_name() {

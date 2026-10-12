@@ -124,7 +124,7 @@ impl KaraokeEngine {
 
                     if let Some(req) = shared_guard.desired.next_pending(|id| worker_cache.get(id).is_some()) {
                         if let Some(_path) = worker_cache.get(&req.video_id) {
-                            tracing::info!(target: "app_lib::karaoke", video_id = %req.video_id, "karaoke cache hit video_id={}", req.video_id);
+                            tracing::info!(target: "app_lib::karaoke", video_id = %req.video_id, "karaoke cache hit");
                             let _ = worker_app.emit("karaoke-status", &serde_json::json!({
                                 "videoId": &req.video_id,
                                 "state": "ready"
@@ -140,7 +140,7 @@ impl KaraokeEngine {
                             match karaoke::mdx::MdxModel::load_auto(&worker_models.model_path(), MdxParams::default()) {
                                 Ok((m, dev)) => {
                                     let load_ms = start_load.elapsed().as_millis();
-                                    tracing::info!(target: "app_lib::karaoke", load_ms, device = ?dev, "karaoke model loaded load_ms={0} device={1:?}", load_ms, dev);
+                                    tracing::info!(target: "app_lib::karaoke", load_ms, device = ?dev, "karaoke model loaded");
                                     model = Some(m);
                                 }
                                 Err(e) => {
@@ -150,7 +150,7 @@ impl KaraokeEngine {
                                     }
                                     let err_str = e.to_string();
                                     let msg = sanitize_error(&err_str);
-                                    tracing::warn!(target: "app_lib::karaoke", error = %err_str, "karaoke model load failed error={}", err_str);
+                                    tracing::warn!(target: "app_lib::karaoke", error = %err_str, "karaoke model load failed");
                                     let _ = worker_app.emit("karaoke-status", &serde_json::json!({
                                         "state": "error",
                                         "message": msg
@@ -166,7 +166,7 @@ impl KaraokeEngine {
                         shared_guard.running = Some((req.video_id.clone(), cancel.clone()));
                         drop(shared_guard);
 
-                        tracing::info!(target: "app_lib::karaoke", video_id = %req.video_id, "karaoke prepare start video_id={0}", req.video_id);
+                        tracing::info!(target: "app_lib::karaoke", video_id = %req.video_id, "karaoke prepare start");
 
                         let mut throttle = crate::karaoke_model::ProgressThrottle::new(Duration::from_millis(250));
                         let video_id_clone = req.video_id.clone();
@@ -206,10 +206,10 @@ impl KaraokeEngine {
                             Err(e) => {
                                 let err_str = e.to_string();
                                 if err_str.contains("cancelled") {
-                                    tracing::warn!(target: "app_lib::karaoke", video_id = %req.video_id, "karaoke prepare cancelled video_id={}", req.video_id);
+                                    tracing::warn!(target: "app_lib::karaoke", video_id = %req.video_id, "karaoke prepare cancelled");
                                     // Cancelled, do nothing
                                 } else {
-                                    tracing::warn!(target: "app_lib::karaoke", video_id = %req.video_id, error = %err_str, "karaoke prepare failed video_id={0} error={1}", req.video_id, err_str);
+                                    tracing::warn!(target: "app_lib::karaoke", video_id = %req.video_id, error = %err_str, "karaoke prepare failed");
                                     let msg = sanitize_error(&err_str);
                                     let _ = worker_app.emit("karaoke-status", &serde_json::json!({
                                         "videoId": &req.video_id,
@@ -263,7 +263,7 @@ impl KaraokeEngine {
             return;
         }
         let ids: Vec<&str> = reqs.iter().map(|r| r.video_id.as_str()).collect();
-        tracing::info!(target: "app_lib::karaoke", ?ids, "karaoke wants updated ids={:?}", ids);
+        tracing::info!(target: "app_lib::karaoke", ?ids, "karaoke wants updated");
         let removed = shared.desired.replace(reqs);
         if let Some((ref running_id, ref cancel)) = shared.running {
             if removed.contains(running_id) {

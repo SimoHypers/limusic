@@ -1731,20 +1731,29 @@ impl AppState {
     /// loaded but the queue is non-empty, load the current track (applying any resume position);
     /// otherwise just toggle mpv. Keeps the UI's single play/pause button working after a restart.
     pub async fn resume_or_toggle(self: &std::sync::Arc<Self>) {
+        tracing::debug!(target: "app_lib::state", idle = self.player.is_idle(), paused = self.player.is_paused(), "resume_or_toggle entry");
         if self.lt.is_guest().await {
+            tracing::debug!(target: "app_lib::state", "resume_or_toggle exit: guest");
             return; // guest playback is host-driven
         }
         if self.player.is_idle() {
+            tracing::debug!(target: "app_lib::state", "resume_or_toggle: player is idle");
+            tracing::debug!(target: "app_lib::state", "resume_or_toggle: queue lock acquire before");
             let (idx, has_items) = {
                 let q = self.queue.lock().await;
+                tracing::debug!(target: "app_lib::state", "resume_or_toggle: queue lock acquired");
                 (q.current, !q.items.is_empty())
             };
+            tracing::debug!(target: "app_lib::state", has_items, idx, "resume_or_toggle: queue lock released");
             if has_items {
+                tracing::debug!(target: "app_lib::state", idx, "resume_or_toggle exit: play_index");
                 self.play_index(idx).await;
                 return;
             }
         }
+        tracing::debug!(target: "app_lib::state", "resume_or_toggle: player toggle before");
         let _ = self.player.toggle();
+        tracing::debug!(target: "app_lib::state", "resume_or_toggle exit");
     }
 
     /// Jump to a specific queue index.
@@ -2188,23 +2197,32 @@ impl AppState {
     /// waterfall fails again on the event pump (and used to wedge until a manual skip).
     /// ponytail: at most 3 removals per prime so a network outage can't eat the whole queue.
     async fn prime_lookahead(self: &std::sync::Arc<Self>, gen: u64) {
-        // A guest plays whatever the host announces next, and a primed entry would let mpv move on
-        // by itself into a track the room may not be playing.
+        tracing::debug!(target: "app_lib::state", gen, "prime_lookahead entry");
         if self.lt.is_guest().await {
+            tracing::debug!(target: "app_lib::state", "prime_lookahead exit: guest");
             return;
         }
         for _ in 0..3 {
+            tracing::debug!(target: "app_lib::state", "prime_lookahead: queue lock acquire before (next_idx)");
             let next_idx = {
                 let q = self.queue.lock().await;
-                // Repeat-one primes nothing: mpv loops the file itself (next_index → None).
-                let Some(next) = next_index(q.items.len(), q.current, q.repeat) else { return };
+                tracing::debug!(target: "app_lib::state", "prime_lookahead: queue lock acquired (next_idx)");
+                let Some(next) = next_index(q.items.len(), q.current, q.repeat) else {
+                    tracing::debug!(target: "app_lib::state", "prime_lookahead exit: no next index");
+                    return;
+                };
                 if q.lookahead_loaded == Some(next) {
+                    tracing::debug!(target: "app_lib::state", next, "prime_lookahead exit: already primed");
                     return; // already primed
                 }
                 next
             };
+            tracing::debug!(target: "app_lib::state", next_idx, "prime_lookahead: queue lock released (next_idx)");
+
+            tracing::debug!(target: "app_lib::state", next_idx, "prime_lookahead: queue lock acquire before (item info)");
             let (next_video, next_title, next_upload, next_secs) = {
                 let q = self.queue.lock().await;
+                tracing::debug!(target: "app_lib::state", "prime_lookahead: queue lock acquired (item info)");
                 match q.items.get(next_idx) {
                     Some(item) => (
                         item.video_id.clone(),
@@ -2212,43 +2230,51 @@ impl AppState {
                         item.is_upload,
                         parse_duration_ms(item.duration.as_deref()) / 1000,
                     ),
-                    None => return,
+                    None => {
+                        tracing::debug!(target: "app_lib::state", "prime_lookahead exit: item not found");
+                        return;
+                    }
                 }
             };
+            tracing::debug!(target: "app_lib::state", next_idx, "prime_lookahead: queue lock released (item info)");
+
+            tracing::debug!(target: "app_lib::state", video_id = %next_video, "prime_lookahead: resolve before");
             match self.resolve(&next_video, next_upload, next_secs).await {
                 Ok(d) => {
+                    tracing::debug!(target: "app_lib::state", video_id = %next_video, "prime_lookahead: resolve ok");
                     self.enqueue_lookahead(gen, next_idx, &next_video, d).await;
+                    tracing::debug!(target: "app_lib::state", gen, "prime_lookahead exit: success");
                     return;
                 }
                 Err(e) => {
+                    tracing::debug!(target: "app_lib::state", video_id = %next_video, error = %e, "prime_lookahead: resolve err");
                     if e.affects_every_track() {
-                        // The next track is fine; we just cannot reach YouTube. Removing it here
-                        // would delete a good row from the persisted queue, and the retry loop
-                        // would do it again to the row that moved up. Leave the queue alone and
-                        // let the next prime try again.
                         tracing::warn!(video_id = %next_video, error = %e, "lookahead resolve failed, leaving the queue alone");
+                        tracing::debug!(target: "app_lib::state", "prime_lookahead exit: affects every track");
                         return;
                     }
                     tracing::warn!(video_id = %next_video, error = %e, "lookahead resolve failed, dropping from queue");
                     if self.generation.load(Ordering::SeqCst) != gen {
+                        tracing::debug!(target: "app_lib::state", "prime_lookahead exit: generation mismatch");
                         return;
                     }
-                    // The queue can shift under a resolve — only remove the slot if it still
-                    // holds the track that failed. (Also refuses next_idx == current, i.e. the
-                    // single-item repeat-all case, via remove_from_queue's own guard.)
+                    tracing::debug!(target: "app_lib::state", "prime_lookahead: queue lock acquire before (same check)");
                     let same = {
                         let q = self.queue.lock().await;
+                        tracing::debug!(target: "app_lib::state", "prime_lookahead: queue lock acquired (same check)");
                         q.items.get(next_idx).map(|i| i.video_id == next_video).unwrap_or(false)
                     };
+                    tracing::debug!(target: "app_lib::state", same, "prime_lookahead: queue lock released (same check)");
                     if !same {
+                        tracing::debug!(target: "app_lib::state", "prime_lookahead exit: queue shifted");
                         return;
                     }
-                    // Box::pin: remove_from_queue can itself re-prime (async recursion).
                     Box::pin(self.remove_from_queue(next_idx)).await;
                     self.emit_skip(&next_title, skip_reason(&e));
                 }
             }
         }
+        tracing::debug!(target: "app_lib::state", gen, "prime_lookahead exit");
     }
 
     /// Second half of [`Self::prime_lookahead`]: hand the resolved stream to mpv and record it.
@@ -2259,23 +2285,18 @@ impl AppState {
         next_video: &str,
         data: PlaybackData,
     ) {
+        tracing::debug!(target: "app_lib::state", gen, next_idx, video_id = %next_video, "enqueue_lookahead entry");
         if self.generation.load(Ordering::SeqCst) != gen {
+            tracing::debug!(target: "app_lib::state", "enqueue_lookahead exit: generation mismatch");
             return;
         }
+        tracing::debug!(target: "app_lib::state", "enqueue_lookahead: queue lock acquire before");
         let mut q = self.queue.lock().await;
-        // The queue can change under a resolve (a guest add inserts at current+1) — enqueueing
-        // then would gaplessly play the wrong song. Verify the slot still holds the same track.
+        tracing::debug!(target: "app_lib::state", "enqueue_lookahead: queue lock acquired");
         if q.items.get(next_idx).map(|i| i.video_id != next_video).unwrap_or(true) {
             tracing::debug!(index = next_idx, "queue changed during lookahead resolve — dropped");
             return;
         }
-        // Another prime already claimed this slot while we resolved. Two run concurrently at the
-        // autoplay trigger point — `start_current` spawns `extend_queue_radio` (which primes after
-        // extending) and its caller primes right after, both on the same generation, so the
-        // pre-resolve "already primed" check in `prime_lookahead` can't see the other one. Appending
-        // again leaves a *duplicate* entry in mpv's playlist, and since the queue advances one index
-        // per end-file, that offsets mpv from `current` for the rest of the session: the dup replays
-        // while the UI shows the track after it.
         if q.lookahead_loaded == Some(next_idx) {
             tracing::debug!(
                 index = next_idx,
@@ -2283,8 +2304,6 @@ impl AppState {
             );
             return;
         }
-        // Headers are global in mpv; the direct-URL clients need none beyond UA, which the
-        // current track already set. Just append the URL.
         let stream_url = mpv_stream_url(&data);
         let karaoke_on = self.karaoke_active();
         let is_karaoke = karaoke_on && self.karaoke_engine().and_then(|e| e.ready_path(next_video)).is_some();
@@ -2296,20 +2315,30 @@ impl AppState {
 
         let mut req2 = None;
         if karaoke_on {
+            tracing::debug!(target: "app_lib::state", "enqueue_lookahead: dropping queue lock before next2 info");
+            drop(q);
+            tracing::debug!(target: "app_lib::state", "enqueue_lookahead: queue lock acquire before next2 info");
             let next2_info = {
                 let q = self.queue.lock().await;
+                tracing::debug!(target: "app_lib::state", "enqueue_lookahead: queue lock acquired for next2 info");
                 next_index(q.items.len(), next_idx, q.repeat).and_then(|idx| {
                     q.items.get(idx).map(|item| (idx, item.video_id.clone(), item.is_upload, parse_duration_ms(item.duration.as_deref()) / 1000))
                 })
             };
+            tracing::debug!(target: "app_lib::state", "enqueue_lookahead: queue lock released for next2 info");
             if let Some((next2_idx, next2_video, next2_upload, next2_secs)) = next2_info {
+                tracing::debug!(target: "app_lib::state", video_id = %next2_video, "enqueue_lookahead: resolve next2 before");
                 if let Ok(d2) = self.resolve(&next2_video, next2_upload, next2_secs).await {
+                    tracing::debug!(target: "app_lib::state", video_id = %next2_video, "enqueue_lookahead: resolve next2 ok");
                     if self.generation.load(Ordering::SeqCst) == gen {
                         let stream_url2 = mpv_stream_url(&d2);
+                        tracing::debug!(target: "app_lib::state", "enqueue_lookahead: queue lock acquire before same2 check");
                         let same2 = {
                             let q = self.queue.lock().await;
+                            tracing::debug!(target: "app_lib::state", "enqueue_lookahead: queue lock acquired same2 check");
                             q.items.get(next2_idx).map(|i| i.video_id == next2_video).unwrap_or(false)
                         };
+                        tracing::debug!(target: "app_lib::state", same2, "enqueue_lookahead: queue lock released same2 check");
                         if same2 {
                             req2 = Some(crate::karaoke::PrepareRequest {
                                 video_id: next2_video,
@@ -2320,13 +2349,19 @@ impl AppState {
                     }
                 }
             }
+            tracing::debug!(target: "app_lib::state", "enqueue_lookahead: queue lock re-acquire before enqueue");
+            q = self.queue.lock().await;
+            tracing::debug!(target: "app_lib::state", "enqueue_lookahead: queue lock re-acquired");
         }
 
         let url = self.play_url(next_video, &data);
+        tracing::debug!(target: "app_lib::state", video_id = %next_video, "enqueue_lookahead: player.enqueue before");
         if let Err(e) = self.player.enqueue(&url) {
             tracing::warn!(error = %e, "enqueue lookahead failed");
+            tracing::debug!(target: "app_lib::state", "enqueue_lookahead exit: player.enqueue err");
             return;
         }
+        tracing::debug!(target: "app_lib::state", "enqueue_lookahead: player.enqueue ok");
         q.lookahead_loaded = Some(next_idx);
         q.lookahead_client = Some(data.stream_client.clone());
         q.lookahead_loudness_db = Some(data.loudness_db);
@@ -2335,14 +2370,12 @@ impl AppState {
         q.karaoke_next2 = req2;
         q.lookahead_is_karaoke = is_karaoke;
         self.karaoke_push_wants(&q);
-        // Same backfill as start_current: a gapless advance emits this item straight from the
-        // queue, so the repair has to land before it becomes the current track.
         if let Some(qi) = q.items.get_mut(next_idx) {
             backfill_metadata(qi, data.duration.as_deref(), data.artists.as_deref(), data.is_video);
-            // Resolved now, minutes early, so the picture is there the moment the track starts.
             self.attach_video(&qi.video_id, qi.is_video, &stream_url);
         }
         tracing::debug!(index = next_idx, "gapless lookahead primed");
+        tracing::debug!(target: "app_lib::state", gen, next_idx, "enqueue_lookahead exit");
     }
 
     async fn current_item(&self) -> Option<SongItem> {
@@ -2406,20 +2439,28 @@ impl AppState {
     }
 
     pub async fn reload_current_source(self: &std::sync::Arc<Self>) {
+        tracing::debug!(target: "app_lib::state", "reload_current_source entry");
         let gen = self.generation.load(Ordering::SeqCst);
-        let Some(item) = self.current_item().await else { return };
+        let Some(item) = self.current_item().await else {
+            tracing::debug!(target: "app_lib::state", "reload_current_source exit: no current item");
+            return;
+        };
+        tracing::debug!(target: "app_lib::state", video_id = %item.video_id, "reload_current_source: resolve before");
         let resolved = self.resolve(
             &item.video_id,
             item.is_upload,
             parse_duration_ms(item.duration.as_deref()) / 1000,
         ).await;
+        tracing::debug!(target: "app_lib::state", video_id = %item.video_id, "reload_current_source: resolve after");
         if self.generation.load(Ordering::SeqCst) != gen {
+            tracing::debug!(target: "app_lib::state", "reload_current_source exit: generation mismatch");
             return;
         }
         let data = match resolved {
             Ok(d) => d,
             Err(e) => {
                 tracing::warn!(error = %e, "reload_current_source resolve failed");
+                tracing::debug!(target: "app_lib::state", "reload_current_source exit: resolve err");
                 return;
             }
         };
@@ -2435,17 +2476,26 @@ impl AppState {
             headers: data.headers.clone(),
         };
         let play_u = self.play_url(&item.video_id, &data);
+        tracing::debug!(target: "app_lib::state", video_id = %item.video_id, "reload_current_source: player.load before");
         if let Err(e) = self.player.load(&play_u, &data.headers, self.track_gain(data.loudness_db), Some(pos)) {
             self.emit_error(&item.video_id, &e.to_string());
+            tracing::debug!(target: "app_lib::state", "reload_current_source exit: player.load err");
             return;
         }
+        tracing::debug!(target: "app_lib::state", video_id = %item.video_id, "reload_current_source: player.load ok");
         if was_paused {
+            tracing::debug!(target: "app_lib::state", "reload_current_source: player.pause before");
             let _ = self.player.pause();
+            tracing::debug!(target: "app_lib::state", "reload_current_source: player.pause after");
         } else if was_playing {
+            tracing::debug!(target: "app_lib::state", "reload_current_source: player.play before");
             let _ = self.player.play();
+            tracing::debug!(target: "app_lib::state", "reload_current_source: player.play after");
         }
+        tracing::debug!(target: "app_lib::state", "reload_current_source: queue lock acquire before");
         {
             let mut q = self.queue.lock().await;
+            tracing::debug!(target: "app_lib::state", "reload_current_source: queue lock acquired");
             q.lookahead_loaded = None;
             q.lookahead_is_karaoke = false;
             q.karaoke_cur = Some(req);
@@ -2454,30 +2504,40 @@ impl AppState {
             q.current_is_karaoke = is_karaoke;
             self.karaoke_push_wants(&q);
         }
+        tracing::debug!(target: "app_lib::state", "reload_current_source: queue lock released");
         self.prime_lookahead(gen).await;
+        tracing::debug!(target: "app_lib::state", "reload_current_source exit");
     }
 
     pub async fn set_karaoke_active(self: &std::sync::Arc<Self>, on: bool) -> Result<(), String> {
+        tracing::debug!(target: "app_lib::state", on, "set_karaoke_active entry");
         if on && crate::http::has_proxy() {
+            tracing::debug!(target: "app_lib::state", "set_karaoke_active exit: proxy configured");
             return Err("karaoke is not available while a proxy is configured".to_string());
         }
         let Some(engine) = self.karaoke_engine() else {
+            tracing::debug!(target: "app_lib::state", "set_karaoke_active exit: engine not available");
             return Err("karaoke engine not available".to_string());
         };
         if on {
             engine.set_enabled(true);
+            tracing::debug!(target: "app_lib::state", "set_karaoke_active: queue lock acquire before");
             let should_reload = {
                 let q = self.queue.lock().await;
+                tracing::debug!(target: "app_lib::state", "set_karaoke_active: queue lock acquired");
                 self.karaoke_push_wants(&q);
                 q.items.get(q.current).map_or(false, |item| !q.current_is_karaoke && engine.ready_path(&item.video_id).is_some())
             };
+            tracing::debug!(target: "app_lib::state", should_reload, "set_karaoke_active: queue lock released");
             if should_reload {
                 self.reload_current_source().await;
             }
         } else {
             engine.set_enabled(false);
+            tracing::debug!(target: "app_lib::state", "set_karaoke_active: queue lock acquire before (off)");
             let was_karaoke = {
                 let mut q = self.queue.lock().await;
+                tracing::debug!(target: "app_lib::state", "set_karaoke_active: queue lock acquired (off)");
                 q.karaoke_cur = None;
                 q.karaoke_next = None;
                 q.karaoke_next2 = None;
@@ -2486,10 +2546,12 @@ impl AppState {
                 q.current_is_karaoke = false;
                 wc
             };
+            tracing::debug!(target: "app_lib::state", was_karaoke, "set_karaoke_active: queue lock released (off)");
             if was_karaoke {
                 self.reload_current_source().await;
             }
         }
+        tracing::debug!(target: "app_lib::state", on, "set_karaoke_active exit");
         Ok(())
     }
 
@@ -2520,11 +2582,15 @@ impl AppState {
     }
 
     async fn on_karaoke_ready(self: &std::sync::Arc<Self>, video_id: &str) {
+        tracing::debug!(target: "app_lib::state", video_id = %video_id, "on_karaoke_ready entry");
         if !self.karaoke_active() {
+            tracing::debug!(target: "app_lib::state", video_id = %video_id, "on_karaoke_ready exit: karaoke not active");
             return;
         }
+        tracing::debug!(target: "app_lib::state", video_id = %video_id, "on_karaoke_ready: queue lock acquire before");
         let (is_current, is_next, primed, lookahead_karaoke) = {
             let q = self.queue.lock().await;
+            tracing::debug!(target: "app_lib::state", video_id = %video_id, "on_karaoke_ready: queue lock acquired");
             let current_id = q.items.get(q.current).map(|i| i.video_id.as_str());
             let next_id = q.lookahead_loaded.and_then(|idx| q.items.get(idx)).map(|i| i.video_id.as_str());
             (
@@ -2534,18 +2600,24 @@ impl AppState {
                 q.lookahead_is_karaoke,
             )
         };
+        tracing::debug!(target: "app_lib::state", video_id = %video_id, is_current, is_next, primed, lookahead_karaoke, "on_karaoke_ready: queue lock released");
         if is_current {
+            tracing::debug!(target: "app_lib::state", video_id = %video_id, "on_karaoke_ready: reloading current source");
             self.reload_current_source().await;
         } else if is_next && primed && !lookahead_karaoke {
             let gen = self.generation.load(Ordering::SeqCst);
+            tracing::debug!(target: "app_lib::state", video_id = %video_id, "on_karaoke_ready: queue lock acquire before clear playlist");
             {
                 let mut q = self.queue.lock().await;
+                tracing::debug!(target: "app_lib::state", video_id = %video_id, "on_karaoke_ready: queue lock acquired clear playlist");
                 q.lookahead_loaded = None;
                 q.lookahead_is_karaoke = false;
                 let _ = self.player.clear_playlist();
             }
+            tracing::debug!(target: "app_lib::state", video_id = %video_id, "on_karaoke_ready: queue lock released clear playlist");
             self.prime_lookahead(gen).await;
         }
+        tracing::debug!(target: "app_lib::state", video_id = %video_id, "on_karaoke_ready exit");
     }
 
     // --- events (context/11 UI contract) ----------------------------------------------------
