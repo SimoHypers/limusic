@@ -66,7 +66,7 @@ export const karaokeModel = $state({
 	error: undefined as string | undefined
 });
 
-export let karaokeConsentOpen = $state(false);
+export const karaokeConsent = $state({ open: false });
 
 export function confirmKaraokeModelDownload() {
 	karaokeModel.error = undefined;
@@ -77,14 +77,14 @@ export function confirmKaraokeModelDownload() {
 }
 
 export function cancelKaraokeModelDownload() {
-	karaokeConsentOpen = false;
+	karaokeConsent.open = false;
 	api.karaokeModelCancel().catch((e) => {
 		toast.error(String(e));
 	});
 }
 
 export function dismissKaraokeConsent() {
-	karaokeConsentOpen = false;
+	karaokeConsent.open = false;
 }
 
 /**
@@ -1539,6 +1539,11 @@ export function initApp(mini = false): () => void {
 	started = true;
 	const subs = [
 		api.onNowPlaying((n) => {
+			if (playback.now?.videoId !== n.videoId) {
+				karaokeStatus.state = playback.karaoke ? 'preparing' : 'off';
+				karaokeStatus.progress = undefined;
+				karaokeStatus.message = undefined;
+			}
 			playback.now = n;
 			playback.rating = n.rating ?? 'indifferent'; // the track's real rating when known
 			// Feeds Shortcuts recency and the community shelf's artist seed. Every play lands here,
@@ -1617,7 +1622,7 @@ export function initApp(mini = false): () => void {
 		}),
 		api.onKaraokeStatus((e) => {
 			if (e.state === 'needs-model') {
-				karaokeConsentOpen = true;
+				karaokeConsent.open = true;
 				karaokeStatus.state = e.state;
 				karaokeStatus.progress = e.progress;
 				karaokeStatus.message = e.message;
@@ -1639,7 +1644,7 @@ export function initApp(mini = false): () => void {
 				karaokeModel.installed = true;
 				karaokeModel.downloading = false;
 				karaokeModel.error = undefined;
-				karaokeConsentOpen = false;
+				karaokeConsent.open = false;
 				playback.karaoke = true;
 				api.setKaraoke(true).catch((err) => {
 					playback.karaoke = false;
@@ -1651,7 +1656,7 @@ export function initApp(mini = false): () => void {
 			} else if (e.state === 'cancelled') {
 				karaokeModel.downloading = false;
 				karaokeModel.error = undefined;
-				karaokeConsentOpen = false;
+				karaokeConsent.open = false;
 			}
 		}),
 		api.onPlaybackError((msg) => toast.error(msg)),

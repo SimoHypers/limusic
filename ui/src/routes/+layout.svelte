@@ -41,6 +41,7 @@
 	import ListenTogether from '$lib/components/ListenTogether.svelte';
 	import LinkDialog from '$lib/components/LinkDialog.svelte';
 	import ImportDialog from '$lib/components/ImportDialog.svelte';
+	import KaraokeConsentDialog from '$lib/components/KaraokeConsentDialog.svelte';
 	import { handleImportDrop, initImport } from '$lib/import.svelte';
 	import MiniPlayer from '$lib/components/MiniPlayer.svelte';
 	import NowPlaying from '$lib/components/NowPlaying.svelte';
@@ -325,6 +326,7 @@
 	<ListenTogether />
 	<LinkDialog />
 	<ImportDialog />
+	<KaraokeConsentDialog />
 
 	<!-- The two notification banners below run at z-[100]. Dialogs and menus sit at z-50 and portal to
 	     <body>, so a z-50 banner loses the tie on DOM order and hides behind an open modal. -->

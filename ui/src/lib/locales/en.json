@@ -1,4 +1,16 @@
 {
+	"karaoke": {
+		"consent": {
+			"title": "Download AI Vocal Removal Model",
+			"desc": "Karaoke uses an AI model (UVR MDX-Net) that must be downloaded once (about {size}). It is stored locally and works offline afterwards. Preparing a song takes from about 15 seconds (discrete GPU) to a few minutes (CPU) and the result is cached on disk."
+		},
+		"download": "Download",
+		"cancel": "Cancel",
+		"retry": "Retry",
+		"not_now": "Not now",
+		"preparing": "Preparing karaoke version…",
+		"active": "Karaoke on"
+	},
 	"selection": {
 		"actions": "Selected track actions",
 		"count": "{count} selected",

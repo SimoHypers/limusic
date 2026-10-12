@@ -28,6 +28,7 @@
 	import {
 		np,
 		playback,
+		karaokeStatus,
 		commitVolume,
 		cycleRepeat,
 		dragVolume,
@@ -77,6 +78,16 @@
 
 	const shuffleOn = $derived(playback.queue.shuffle ?? false);
 	const repeat = $derived(playback.queue.repeat ?? 'off');
+
+	const karaokeTooltip = $derived(
+		!playback.karaoke
+			? t('player.karaoke')
+			: karaokeStatus.state === 'preparing'
+				? t('karaoke.preparing')
+				: karaokeStatus.state === 'error'
+					? karaokeStatus.message || t('player.karaoke')
+					: t('karaoke.active')
+	);
 
 	// The current track was appended by autoplay → show the subtle ∞ badge next to the title.
 	// Matched against the now-playing videoId so a transient queue/now-playing mismatch (mid
@@ -380,10 +391,26 @@
 				size="icon-sm"
 				onclick={toggleKaraoke}
 				aria-label={t('player.karaoke')}
-				title={t('player.karaoke')}
+				title={karaokeTooltip}
 				aria-pressed={playback.karaoke}
 			>
-				<HugeiconsIcon icon={Mic02Icon} class="h-5 w-5 {playback.karaoke ? 'text-primary' : ''}" />
+				{#if playback.karaoke && karaokeStatus.state === 'preparing'}
+					{#if karaokeStatus.progress !== undefined}
+						<svg class="h-5 w-5 -rotate-90" viewBox="0 0 24 24">
+							<circle cx="12" cy="12" r="9" class="stroke-muted" stroke-width="2" fill="none" />
+							<circle cx="12" cy="12" r="9" class="stroke-primary" stroke-width="2" fill="none" stroke-dasharray="56.548" stroke-dashoffset={56.548 * (1 - karaokeStatus.progress)} stroke-linecap="round" />
+						</svg>
+					{:else}
+						<div class="h-4 w-4 animate-spin rounded-full border-2 border-muted border-t-primary"></div>
+					{/if}
+				{:else if playback.karaoke && karaokeStatus.state === 'error'}
+					<div class="relative flex items-center justify-center">
+						<HugeiconsIcon icon={Mic02Icon} class="h-5 w-5 text-destructive" />
+						<span class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-destructive"></span>
+					</div>
+				{:else}
+					<HugeiconsIcon icon={Mic02Icon} class="h-5 w-5 {playback.karaoke ? 'text-primary' : ''}" />
+				{/if}
 			</Button>
 			<Button
 				variant={lyricsOpen ? 'secondary' : 'ghost'}
