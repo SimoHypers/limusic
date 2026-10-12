@@ -40,6 +40,14 @@ fn sanitize_error(err: &str) -> String {
     sanitized
 }
 
+fn evict_desired(cache: &InstrumentalCache, desired: &DesiredSet) {
+    let keep: Vec<PathBuf> = desired.ids()
+        .iter()
+        .filter_map(|id| cache.get(id))
+        .collect();
+    let _ = cache.evict(&keep);
+}
+
 #[allow(dead_code)]
 impl KaraokeEngine {
     pub fn new(app: AppHandle, data_dir: &Path, models: Arc<ModelManager>) -> Arc<Self> {
@@ -123,6 +131,7 @@ impl KaraokeEngine {
                             }));
                             let _ = worker_ready_tx.send(req.video_id.clone());
                             shared_guard.desired.complete(&req.video_id);
+                            evict_desired(&worker_cache, &shared_guard.desired);
                             continue;
                         }
 
@@ -192,6 +201,7 @@ impl KaraokeEngine {
                                 }));
                                 let _ = worker_ready_tx.send(req.video_id.clone());
                                 shared_guard.desired.complete(&req.video_id);
+                                evict_desired(&worker_cache, &shared_guard.desired);
                             }
                             Err(e) => {
                                 let err_str = e.to_string();
@@ -260,6 +270,7 @@ impl KaraokeEngine {
                 cancel.store(true, Ordering::SeqCst);
             }
         }
+        evict_desired(&self.cache, &shared.desired);
         condvar.notify_one();
     }
 

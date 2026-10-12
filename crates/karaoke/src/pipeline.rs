@@ -159,7 +159,7 @@ pub fn prepare_instrumental(
         return Err(e);
     }
 
-    let _ = cache.evict(Some(&result_path));
+    let _ = cache.evict(&[result_path.clone()]);
 
     let total_ms = start_total.elapsed().as_millis();
     let rtf = if audio_seconds > 0.0 { (total_ms as f64 / 1000.0) / audio_seconds } else { 0.0 };

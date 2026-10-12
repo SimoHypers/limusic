@@ -310,6 +310,7 @@ struct QueueState {
     lookahead_loaded: Option<usize>,
     karaoke_cur: Option<crate::karaoke::PrepareRequest>,
     karaoke_next: Option<crate::karaoke::PrepareRequest>,
+    karaoke_next2: Option<crate::karaoke::PrepareRequest>,
     lookahead_is_karaoke: bool,
     current_is_karaoke: bool,
     /// Which client served the currently-loaded track (for the WEB_REMIX-403 feedback). context/06.
@@ -1857,6 +1858,8 @@ impl AppState {
             // lets a single-item repeat-all queue re-prime itself instead of "already primed".)
             q.lookahead_loaded = None;
             q.karaoke_cur = q.karaoke_next.take();
+            q.karaoke_next = q.karaoke_next2.take();
+            q.karaoke_next2 = None;
             q.current_is_karaoke = q.lookahead_is_karaoke;
             q.lookahead_is_karaoke = false;
             self.karaoke_push_wants(&q);
@@ -2137,6 +2140,7 @@ impl AppState {
             q.current_loudness_db = data.loudness_db;
             q.karaoke_cur = Some(req);
             q.karaoke_next = None;
+            q.karaoke_next2 = None;
             q.current_is_karaoke = is_karaoke;
             self.karaoke_push_wants(&q);
             // Fresh play → fresh history state (context/01 §registerPlayback).
@@ -2289,6 +2293,35 @@ impl AppState {
             url: stream_url.clone(),
             headers: data.headers.clone(),
         };
+
+        let mut req2 = None;
+        if karaoke_on {
+            let next2_info = {
+                let q = self.queue.lock().await;
+                next_index(q.items.len(), next_idx, q.repeat).and_then(|idx| {
+                    q.items.get(idx).map(|item| (idx, item.video_id.clone(), item.is_upload, parse_duration_ms(item.duration.as_deref()) / 1000))
+                })
+            };
+            if let Some((next2_idx, next2_video, next2_upload, next2_secs)) = next2_info {
+                if let Ok(d2) = self.resolve(&next2_video, next2_upload, next2_secs).await {
+                    if self.generation.load(Ordering::SeqCst) == gen {
+                        let stream_url2 = mpv_stream_url(&d2);
+                        let same2 = {
+                            let q = self.queue.lock().await;
+                            q.items.get(next2_idx).map(|i| i.video_id == next2_video).unwrap_or(false)
+                        };
+                        if same2 {
+                            req2 = Some(crate::karaoke::PrepareRequest {
+                                video_id: next2_video,
+                                url: stream_url2,
+                                headers: d2.headers.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
         let url = self.play_url(next_video, &data);
         if let Err(e) = self.player.enqueue(&url) {
             tracing::warn!(error = %e, "enqueue lookahead failed");
@@ -2299,6 +2332,7 @@ impl AppState {
         q.lookahead_loudness_db = Some(data.loudness_db);
         q.lookahead_playback_ping = data.playback_ping.clone();
         q.karaoke_next = Some(req);
+        q.karaoke_next2 = req2;
         q.lookahead_is_karaoke = is_karaoke;
         self.karaoke_push_wants(&q);
         // Same backfill as start_current: a gapless advance emits this item straight from the
@@ -2363,6 +2397,9 @@ impl AppState {
                 if let Some(ref next) = q.karaoke_next {
                     reqs.push(next.clone());
                 }
+                if let Some(ref next2) = q.karaoke_next2 {
+                    reqs.push(next2.clone());
+                }
                 engine.want(reqs);
             }
         }
@@ -2413,6 +2450,7 @@ impl AppState {
             q.lookahead_is_karaoke = false;
             q.karaoke_cur = Some(req);
             q.karaoke_next = None;
+            q.karaoke_next2 = None;
             q.current_is_karaoke = is_karaoke;
             self.karaoke_push_wants(&q);
         }
@@ -2442,6 +2480,7 @@ impl AppState {
                 let mut q = self.queue.lock().await;
                 q.karaoke_cur = None;
                 q.karaoke_next = None;
+                q.karaoke_next2 = None;
                 q.lookahead_is_karaoke = false;
                 let wc = q.current_is_karaoke;
                 q.current_is_karaoke = false;

@@ -13,13 +13,15 @@ pub struct DesiredSet {
 }
 
 impl DesiredSet {
+    pub const MAX_DESIRED: usize = 3;
+
     pub fn replace(&mut self, reqs: Vec<PrepareRequest>) -> Vec<String> {
         let mut new_items = Vec::new();
         let mut seen = HashSet::new();
         for r in reqs {
             if seen.insert(r.video_id.clone()) {
                 new_items.push(r);
-                if new_items.len() >= 2 {
+                if new_items.len() >= Self::MAX_DESIRED {
                     break;
                 }
             }
@@ -72,18 +74,34 @@ mod tests {
         let r2 = PrepareRequest { video_id: "v2".into(), url: "u2".into(), headers: HashMap::new() };
         let r3 = PrepareRequest { video_id: "v1".into(), url: "u1".into(), headers: HashMap::new() };
         let r4 = PrepareRequest { video_id: "v3".into(), url: "u3".into(), headers: HashMap::new() };
+        let r6 = PrepareRequest { video_id: "v4".into(), url: "u4".into(), headers: HashMap::new() };
 
-        let removed = set.replace(vec![r1.clone(), r2.clone(), r3, r4]);
-        assert_eq!(set.len(), 2);
-        assert_eq!(set.ids(), vec!["v1".to_string(), "v2".to_string()]);
+        let removed = set.replace(vec![r1.clone(), r2.clone(), r3, r4, r6]);
+        assert_eq!(set.len(), 3);
+        assert_eq!(set.ids(), vec!["v1".to_string(), "v2".to_string(), "v3".to_string()]);
         assert!(removed.is_empty());
 
-        let r5 = PrepareRequest { video_id: "v3".into(), url: "u3".into(), headers: HashMap::new() };
+        let r5 = PrepareRequest { video_id: "v5".into(), url: "u5".into(), headers: HashMap::new() };
         let removed2 = set.replace(vec![r5]);
         assert_eq!(set.len(), 1);
-        assert_eq!(set.ids(), vec!["v3".to_string()]);
+        assert_eq!(set.ids(), vec!["v5".to_string()]);
         assert!(removed2.contains(&"v1".to_string()));
         assert!(removed2.contains(&"v2".to_string()));
+        assert!(removed2.contains(&"v3".to_string()));
+    }
+
+    #[test]
+    fn test_desired_set_max_desired_3() {
+        let mut set = DesiredSet::default();
+        let r1 = PrepareRequest { video_id: "v1".into(), url: "u1".into(), headers: HashMap::new() };
+        let r2 = PrepareRequest { video_id: "v2".into(), url: "u2".into(), headers: HashMap::new() };
+        let r3 = PrepareRequest { video_id: "v3".into(), url: "u3".into(), headers: HashMap::new() };
+        let r4 = PrepareRequest { video_id: "v4".into(), url: "u4".into(), headers: HashMap::new() };
+
+        set.replace(vec![r1, r2, r3, r4]);
+        assert_eq!(set.len(), 3);
+        assert_eq!(set.ids(), vec!["v1".to_string(), "v2".to_string(), "v3".to_string()]);
+        assert!(!set.contains("v4"));
     }
 
     #[test]

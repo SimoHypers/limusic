@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use anyhow::Result;
 use crate::cache_codec::CacheFormat;
 
@@ -118,7 +118,7 @@ impl InstrumentalCache {
         total
     }
 
-    pub fn evict(&self, keep: Option<&Path>) -> Result<u64> {
+    pub fn evict(&self, keep: &[PathBuf]) -> Result<u64> {
         let mut files: Vec<(PathBuf, u64, std::time::SystemTime)> = Vec::new();
         if let Ok(entries) = fs::read_dir(&self.dir) {
             for entry in entries.flatten() {
@@ -147,14 +147,20 @@ impl InstrumentalCache {
             if current_size <= self.max_bytes {
                 break;
             }
-            if let Some(k) = keep {
+            let mut protected = false;
+            for k in keep {
                 if let (Ok(p_canon), Ok(k_canon)) = (path.canonicalize(), k.canonicalize()) {
                     if p_canon == k_canon {
-                        continue;
+                        protected = true;
+                        break;
                     }
-                } else if path == k {
-                    continue;
+                } else if path == *k {
+                    protected = true;
+                    break;
                 }
+            }
+            if protected {
+                continue;
             }
 
             if fs::remove_file(&path).is_ok() {
@@ -244,10 +250,43 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(10));
         fs::write(&p2, b"12345678901234567890")?;
 
-        cache.evict(Some(&p1))?;
+        cache.evict(&[p1.clone()])?;
 
         assert!(p1.exists(), "p1 should be kept because it was specified in keep");
         assert!(!p2.exists(), "p2 should be evicted");
+
+        let _ = fs::remove_dir_all(&tmp);
+        Ok(())
+    }
+
+    #[test]
+    fn test_cache_eviction_multiple_protected() -> Result<()> {
+        let tmp = std::env::temp_dir().join("limusic_cache_test_evict_multi");
+        if tmp.exists() {
+            let _ = fs::remove_dir_all(&tmp);
+        }
+
+        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 10)?;
+
+        let p_old = cache.path_for("old");
+        let p1 = cache.path_for("track1");
+        let p2 = cache.path_for("track2");
+        let p3 = cache.path_for("track3");
+
+        fs::write(&p_old, b"12345678901234567890")?;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        fs::write(&p1, b"1234567890")?;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        fs::write(&p2, b"1234567890")?;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        fs::write(&p3, b"1234567890")?;
+
+        cache.evict(&[p1.clone(), p2.clone(), p3.clone()])?;
+
+        assert!(p1.exists(), "p1 should survive");
+        assert!(p2.exists(), "p2 should survive");
+        assert!(p3.exists(), "p3 should survive");
+        assert!(!p_old.exists(), "older unprotected file should be evicted");
 
         let _ = fs::remove_dir_all(&tmp);
         Ok(())
