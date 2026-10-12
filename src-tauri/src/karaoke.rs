@@ -98,7 +98,7 @@ impl KaraokeEngine {
                 loop {
                     if !shared_guard.enabled {
                         if model.is_some() {
-                            tracing::info!(target: "app_lib::karaoke", reason = "disabled", "karaoke model unloaded reason=disabled");
+                            tracing::info!(target: "app_lib::karaoke", reason = "disabled", "karaoke model unloaded");
                             model = None;
                         }
                         notified_needs_model = false;
@@ -108,7 +108,7 @@ impl KaraokeEngine {
 
                     if !worker_models.is_installed() {
                         if model.is_some() {
-                            tracing::info!(target: "app_lib::karaoke", reason = "error", "karaoke model unloaded reason=error");
+                            tracing::info!(target: "app_lib::karaoke", reason = "error", "karaoke model unloaded");
                             model = None;
                         }
                         if !notified_needs_model {
@@ -145,7 +145,7 @@ impl KaraokeEngine {
                                 }
                                 Err(e) => {
                                     if model.is_some() {
-                                        tracing::info!(target: "app_lib::karaoke", reason = "error", "karaoke model unloaded reason=error");
+                                        tracing::info!(target: "app_lib::karaoke", reason = "error", "karaoke model unloaded");
                                         model = None;
                                     }
                                     let err_str = e.to_string();
@@ -225,7 +225,7 @@ impl KaraokeEngine {
                         shared_guard = guard;
                         if timeout_result.timed_out() {
                             if model.is_some() {
-                                tracing::info!(target: "app_lib::karaoke", reason = "idle", "karaoke model unloaded reason=idle");
+                                tracing::info!(target: "app_lib::karaoke", reason = "idle", "karaoke model unloaded");
                                 model = None;
                             }
                         }
@@ -262,7 +262,21 @@ impl KaraokeEngine {
         if !shared.enabled {
             return;
         }
-        let ids: Vec<&str> = reqs.iter().map(|r| r.video_id.as_str()).collect();
+        let current_ids = shared.desired.ids();
+        let mut new_ids = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for r in &reqs {
+            if seen.insert(r.video_id.clone()) {
+                new_ids.push(r.video_id.clone());
+                if new_ids.len() >= DesiredSet::MAX_DESIRED {
+                    break;
+                }
+            }
+        }
+        if current_ids == new_ids {
+            return;
+        }
+        let ids: Vec<&str> = new_ids.iter().map(|s| s.as_str()).collect();
         tracing::info!(target: "app_lib::karaoke", ?ids, "karaoke wants updated");
         let removed = shared.desired.replace(reqs);
         if let Some((ref running_id, ref cancel)) = shared.running {

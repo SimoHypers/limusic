@@ -175,8 +175,7 @@ pub fn prepare_instrumental(
         audio_seconds,
         rtf,
         bytes,
-        "karaoke prepare done video_id={0} decode_ms={1} separate_ms={2} encode_ms={3} total_ms={4} audio_seconds={5:.2} rtf={6:.3} bytes={7}",
-        track_id, decode_ms, separate_ms, encode_ms, total_ms, audio_seconds, rtf, bytes
+        "karaoke prepare done"
     );
 
     Ok(result_path)
