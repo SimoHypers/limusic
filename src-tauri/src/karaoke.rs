@@ -88,113 +88,137 @@ impl KaraokeEngine {
                 let mut shared_guard = lock.lock().unwrap();
 
                 loop {
-                    while shared_guard.enabled {
-                        if !worker_models.is_installed() {
-                            if !notified_needs_model {
-                                let _ = worker_app.emit("karaoke-status", &serde_json::json!({"state": "needs-model"}));
-                                notified_needs_model = true;
-                            }
-                            shared_guard.desired.clear();
-                            shared_guard = condvar.wait(shared_guard).unwrap();
+                    if !shared_guard.enabled {
+                        if model.is_some() {
+                            tracing::info!(target: "app_lib::karaoke", reason = "disabled", "karaoke model unloaded reason=disabled");
+                            model = None;
+                        }
+                        notified_needs_model = false;
+                        shared_guard = condvar.wait(shared_guard).unwrap();
+                        continue;
+                    }
+
+                    if !worker_models.is_installed() {
+                        if model.is_some() {
+                            tracing::info!(target: "app_lib::karaoke", reason = "error", "karaoke model unloaded reason=error");
+                            model = None;
+                        }
+                        if !notified_needs_model {
+                            let _ = worker_app.emit("karaoke-status", &serde_json::json!({"state": "needs-model"}));
+                            notified_needs_model = true;
+                        }
+                        shared_guard.desired.clear();
+                        shared_guard = condvar.wait(shared_guard).unwrap();
+                        continue;
+                    } else {
+                        notified_needs_model = false;
+                    }
+
+                    if let Some(req) = shared_guard.desired.next_pending(|id| worker_cache.get(id).is_some()) {
+                        if let Some(_path) = worker_cache.get(&req.video_id) {
+                            tracing::info!(target: "app_lib::karaoke", video_id = %req.video_id, "karaoke cache hit video_id={}", req.video_id);
+                            let _ = worker_app.emit("karaoke-status", &serde_json::json!({
+                                "videoId": &req.video_id,
+                                "state": "ready"
+                            }));
+                            let _ = worker_ready_tx.send(req.video_id.clone());
+                            shared_guard.desired.complete(&req.video_id);
                             continue;
-                        } else {
-                            notified_needs_model = false;
                         }
 
-                        if let Some(req) = shared_guard.desired.next_pending(|id| worker_cache.get(id).is_some()) {
-                            if let Some(_path) = worker_cache.get(&req.video_id) {
+                        if model.is_none() {
+                            let start_load = std::time::Instant::now();
+                            match karaoke::mdx::MdxModel::load_auto(&worker_models.model_path(), MdxParams::default()) {
+                                Ok((m, dev)) => {
+                                    let load_ms = start_load.elapsed().as_millis();
+                                    tracing::info!(target: "app_lib::karaoke", load_ms, device = ?dev, "karaoke model loaded load_ms={0} device={1:?}", load_ms, dev);
+                                    model = Some(m);
+                                }
+                                Err(e) => {
+                                    if model.is_some() {
+                                        tracing::info!(target: "app_lib::karaoke", reason = "error", "karaoke model unloaded reason=error");
+                                        model = None;
+                                    }
+                                    let err_str = e.to_string();
+                                    let msg = sanitize_error(&err_str);
+                                    tracing::warn!(target: "app_lib::karaoke", error = %err_str, "karaoke model load failed error={}", err_str);
+                                    let _ = worker_app.emit("karaoke-status", &serde_json::json!({
+                                        "state": "error",
+                                        "message": msg
+                                    }));
+                                    shared_guard.desired.clear();
+                                    shared_guard = condvar.wait(shared_guard).unwrap();
+                                    continue;
+                                }
+                            }
+                        }
+
+                        let cancel = Arc::new(AtomicBool::new(false));
+                        shared_guard.running = Some((req.video_id.clone(), cancel.clone()));
+                        drop(shared_guard);
+
+                        tracing::info!(target: "app_lib::karaoke", video_id = %req.video_id, "karaoke prepare start video_id={0}", req.video_id);
+
+                        let mut throttle = crate::karaoke_model::ProgressThrottle::new(Duration::from_millis(250));
+                        let video_id_clone = req.video_id.clone();
+                        let app_clone = worker_app.clone();
+
+                        let res = karaoke::pipeline::prepare_instrumental(
+                            &worker_cache,
+                            &req.video_id,
+                            model.as_mut().unwrap(),
+                            &mut |wav| player::decode_to_wav(&req.url, wav, &req.headers, &cancel),
+                            &cancel,
+                            &mut |i, n| {
+                                if throttle.should_emit() {
+                                    let progress = if n > 0 { i as f64 / n as f64 } else { 0.0 };
+                                    let _ = app_clone.emit("karaoke-status", &serde_json::json!({
+                                        "videoId": &video_id_clone,
+                                        "state": "preparing",
+                                        "progress": progress
+                                    }));
+                                }
+                            },
+                        );
+
+                        shared_guard = lock.lock().unwrap();
+                        shared_guard.running = None;
+
+                        match res {
+                            Ok(_) => {
                                 let _ = worker_app.emit("karaoke-status", &serde_json::json!({
                                     "videoId": &req.video_id,
                                     "state": "ready"
                                 }));
                                 let _ = worker_ready_tx.send(req.video_id.clone());
                                 shared_guard.desired.complete(&req.video_id);
-                                continue;
                             }
-
-                            if model.is_none() {
-                                match karaoke::mdx::MdxModel::load_auto(&worker_models.model_path(), MdxParams::default()) {
-                                    Ok((m, dev)) => {
-                                        tracing::info!(device = ?dev, "karaoke model loaded");
-                                        model = Some(m);
-                                    }
-                                    Err(e) => {
-                                        let msg = sanitize_error(&e.to_string());
-                                        let _ = worker_app.emit("karaoke-status", &serde_json::json!({
-                                            "state": "error",
-                                            "message": msg
-                                        }));
-                                        shared_guard.desired.clear();
-                                        shared_guard = condvar.wait(shared_guard).unwrap();
-                                        continue;
-                                    }
-                                }
-                            }
-
-                            let cancel = Arc::new(AtomicBool::new(false));
-                            shared_guard.running = Some((req.video_id.clone(), cancel.clone()));
-                            drop(shared_guard);
-
-                            let mut throttle = crate::karaoke_model::ProgressThrottle::new(Duration::from_millis(250));
-                            let video_id_clone = req.video_id.clone();
-                            let app_clone = worker_app.clone();
-
-                            let res = karaoke::pipeline::prepare_instrumental(
-                                &worker_cache,
-                                &req.video_id,
-                                model.as_mut().unwrap(),
-                                &mut |wav| player::decode_to_wav(&req.url, wav, &req.headers, &cancel),
-                                &cancel,
-                                &mut |i, n| {
-                                    if throttle.should_emit() {
-                                        let progress = if n > 0 { i as f64 / n as f64 } else { 0.0 };
-                                        let _ = app_clone.emit("karaoke-status", &serde_json::json!({
-                                            "videoId": &video_id_clone,
-                                            "state": "preparing",
-                                            "progress": progress
-                                        }));
-                                    }
-                                },
-                            );
-
-                            shared_guard = lock.lock().unwrap();
-                            shared_guard.running = None;
-
-                            match res {
-                                Ok(_) => {
+                            Err(e) => {
+                                let err_str = e.to_string();
+                                if err_str.contains("cancelled") {
+                                    tracing::warn!(target: "app_lib::karaoke", video_id = %req.video_id, "karaoke prepare cancelled video_id={}", req.video_id);
+                                    // Cancelled, do nothing
+                                } else {
+                                    tracing::warn!(target: "app_lib::karaoke", video_id = %req.video_id, error = %err_str, "karaoke prepare failed video_id={0} error={1}", req.video_id, err_str);
+                                    let msg = sanitize_error(&err_str);
                                     let _ = worker_app.emit("karaoke-status", &serde_json::json!({
                                         "videoId": &req.video_id,
-                                        "state": "ready"
+                                        "state": "error",
+                                        "message": msg
                                     }));
-                                    let _ = worker_ready_tx.send(req.video_id.clone());
                                     shared_guard.desired.complete(&req.video_id);
                                 }
-                                Err(e) => {
-                                    let err_str = e.to_string();
-                                    if err_str.contains("cancelled") {
-                                        // Cancelled, do nothing
-                                    } else {
-                                        let msg = sanitize_error(&err_str);
-                                        let _ = worker_app.emit("karaoke-status", &serde_json::json!({
-                                            "videoId": &req.video_id,
-                                            "state": "error",
-                                            "message": msg
-                                        }));
-                                        shared_guard.desired.complete(&req.video_id);
-                                    }
-                                }
                             }
-                        } else {
-                            shared_guard = condvar.wait(shared_guard).unwrap();
                         }
-                    }
-
-                    if !shared_guard.enabled {
-                        if model.is_some() {
-                            model = None;
+                    } else {
+                        let (guard, timeout_result) = condvar.wait_timeout(shared_guard, Duration::from_secs(30)).unwrap();
+                        shared_guard = guard;
+                        if timeout_result.timed_out() {
+                            if model.is_some() {
+                                tracing::info!(target: "app_lib::karaoke", reason = "idle", "karaoke model unloaded reason=idle");
+                                model = None;
+                            }
                         }
-                        notified_needs_model = false;
-                        shared_guard = condvar.wait(shared_guard).unwrap();
                     }
                 }
             })
@@ -228,6 +252,8 @@ impl KaraokeEngine {
         if !shared.enabled {
             return;
         }
+        let ids: Vec<&str> = reqs.iter().map(|r| r.video_id.as_str()).collect();
+        tracing::info!(target: "app_lib::karaoke", ?ids, "karaoke wants updated ids={:?}", ids);
         let removed = shared.desired.replace(reqs);
         if let Some((ref running_id, ref cancel)) = shared.running {
             if removed.contains(running_id) {

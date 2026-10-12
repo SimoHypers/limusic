@@ -185,7 +185,7 @@ fn init_logging(dir: &std::path::Path) {
 
     let filter = || {
         tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "info,app_lib=debug".into())
+            .unwrap_or_else(|_| "info,app_lib=debug,ort=warn,flacenc=warn".into())
     };
     let path = dir.join("limusic.log");
     let _ = std::fs::rename(&path, dir.join("limusic.log.1"));

@@ -42,6 +42,7 @@ pub fn prepare_instrumental(
     progress: &mut dyn FnMut(usize, usize),
 ) -> Result<PathBuf> {
     if let Some(cached_path) = cache.get(track_id) {
+        tracing::info!(target: "karaoke::pipeline", video_id = %track_id, "karaoke cache hit video_id={}", track_id);
         return Ok(cached_path);
     }
 
@@ -49,13 +50,18 @@ pub fn prepare_instrumental(
         anyhow::bail!("cancelled");
     }
 
+    let start_total = std::time::Instant::now();
+
     let wav_path = cache.tmp_wav_path(track_id);
     if let Some(p) = wav_path.parent() {
         fs::create_dir_all(p)?;
     }
     let _guard = TmpWavGuard(wav_path.clone());
 
+    let start_decode = std::time::Instant::now();
     decode_to_wav(&wav_path)?;
+    let decode_ms = start_decode.elapsed().as_millis();
+    tracing::debug!(target: "karaoke::pipeline", video_id = %track_id, decode_ms, "karaoke stage decode decode_ms={}", decode_ms);
 
     if cancel.load(std::sync::atomic::Ordering::Relaxed) {
         anyhow::bail!("cancelled");
@@ -115,12 +121,18 @@ pub fn prepare_instrumental(
         anyhow::bail!("cancelled");
     }
 
+    let audio_seconds = left.len() as f64 / 44100.0;
+
+    let start_separate = std::time::Instant::now();
     let [sep_l, sep_r] = separator.separate_pcm([&left, &right], cancel, progress)?;
+    let separate_ms = start_separate.elapsed().as_millis();
+    tracing::debug!(target: "karaoke::pipeline", video_id = %track_id, separate_ms, "karaoke stage separate separate_ms={}", separate_ms);
 
     if cancel.load(std::sync::atomic::Ordering::Relaxed) {
         anyhow::bail!("cancelled");
     }
 
+    let start_encode = std::time::Instant::now();
     let result_path = cache.path_for(track_id);
     let write_res = write_cached(
         &result_path,
@@ -130,6 +142,8 @@ pub fn prepare_instrumental(
         },
         cache.format(),
     );
+    let encode_ms = start_encode.elapsed().as_millis();
+    tracing::debug!(target: "karaoke::pipeline", video_id = %track_id, encode_ms, "karaoke stage encode encode_ms={}", encode_ms);
 
     if let Err(e) = write_res {
         let tmp_res_path = match result_path.file_name() {
@@ -146,6 +160,24 @@ pub fn prepare_instrumental(
     }
 
     let _ = cache.evict(Some(&result_path));
+
+    let total_ms = start_total.elapsed().as_millis();
+    let rtf = if audio_seconds > 0.0 { (total_ms as f64 / 1000.0) / audio_seconds } else { 0.0 };
+    let bytes = std::fs::metadata(&result_path).map(|m| m.len()).unwrap_or(0);
+
+    tracing::info!(
+        target: "karaoke::pipeline",
+        video_id = %track_id,
+        decode_ms,
+        separate_ms,
+        encode_ms,
+        total_ms,
+        audio_seconds,
+        rtf,
+        bytes,
+        "karaoke prepare done video_id={0} decode_ms={1} separate_ms={2} encode_ms={3} total_ms={4} audio_seconds={5:.2} rtf={6:.3} bytes={7}",
+        track_id, decode_ms, separate_ms, encode_ms, total_ms, audio_seconds, rtf, bytes
+    );
 
     Ok(result_path)
 }

@@ -140,7 +140,8 @@ impl InstrumentalCache {
         files.sort_by(|a, b| a.2.cmp(&b.2));
 
         let mut current_size: u64 = files.iter().map(|f| f.1).sum();
-        let mut freed = 0;
+        let mut freed_bytes = 0;
+        let mut removed = 0;
 
         for (path, size, _) in files {
             if current_size <= self.max_bytes {
@@ -158,11 +159,19 @@ impl InstrumentalCache {
 
             if fs::remove_file(&path).is_ok() {
                 current_size = current_size.saturating_sub(size);
-                freed += size;
+                freed_bytes += size;
+                removed += 1;
             }
         }
 
-        Ok(freed)
+        let total_bytes = self.total_size();
+        if removed > 0 {
+            tracing::info!(target: "karaoke::cache", removed, freed_bytes, total_bytes, "karaoke cache evict removed={0} freed_bytes={1} total_bytes={2}", removed, freed_bytes, total_bytes);
+        } else {
+            tracing::debug!(target: "karaoke::cache", removed, freed_bytes, total_bytes, "karaoke cache evict removed={0} freed_bytes={1} total_bytes={2}", removed, freed_bytes, total_bytes);
+        }
+
+        Ok(freed_bytes)
     }
 
     pub fn clear(&self) -> Result<()> {
