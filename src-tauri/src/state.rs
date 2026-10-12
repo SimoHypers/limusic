@@ -4615,6 +4615,20 @@ pub fn saved_crossfade(db: &Db) -> Option<f64> {
     Some(secs.filter(|s| s.is_finite()).unwrap_or(5.0).clamp(1.0, 10.0))
 }
 
+/// Karaoke cache size limit in megabytes (default 2048, valid range 512..=20480).
+pub fn saved_karaoke_cache_limit_mb(db: &Db) -> u64 {
+    let mb = db.get_setting("karaoke_cache_limit_mb")
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(2048);
+    mb.clamp(512, 20480)
+}
+
+pub fn set_saved_karaoke_cache_limit_mb(db: &Db, mb: u64) -> u64 {
+    let clamped = mb.clamp(512, 20480);
+    db.set_setting("karaoke_cache_limit_mb", &clamped.to_string());
+    clamped
+}
+
 /// How far into a track a play counts (context/01 §registerPlayback): halfway, capped at 30s.
 /// `duration` is mpv's, which is 0.0 until it reports one, so an unknown length means the full 30s.
 fn history_threshold(duration: f64) -> f64 {

@@ -32,7 +32,7 @@ pub fn sanitize_track_id(track_id: &str) -> String {
 pub struct InstrumentalCache {
     dir: PathBuf,
     format: CacheFormat,
-    max_bytes: u64,
+    max_bytes: std::sync::atomic::AtomicU64,
 }
 
 impl InstrumentalCache {
@@ -65,11 +65,15 @@ impl InstrumentalCache {
             }
         }
 
-        Ok(Self { dir, format, max_bytes })
+        Ok(Self { dir, format, max_bytes: std::sync::atomic::AtomicU64::new(max_bytes) })
     }
 
     pub fn format(&self) -> CacheFormat {
         self.format
+    }
+
+    pub fn set_max_bytes(&self, max_bytes: u64) {
+        self.max_bytes.store(max_bytes, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn path_for(&self, track_id: &str) -> PathBuf {
@@ -99,6 +103,16 @@ impl InstrumentalCache {
         None
     }
 
+    pub fn contains(&self, track_id: &str) -> bool {
+        let path = self.path_for(track_id);
+        if path.exists() {
+            if let Ok(meta) = fs::metadata(&path) {
+                return meta.len() > 0;
+            }
+        }
+        false
+    }
+
     pub fn total_size(&self) -> u64 {
         let mut total = 0;
         if let Ok(entries) = fs::read_dir(&self.dir) {
@@ -119,6 +133,7 @@ impl InstrumentalCache {
     }
 
     pub fn evict(&self, keep: &[PathBuf]) -> Result<u64> {
+        let max_bytes = self.max_bytes.load(std::sync::atomic::Ordering::SeqCst);
         let mut files: Vec<(PathBuf, u64, std::time::SystemTime)> = Vec::new();
         if let Ok(entries) = fs::read_dir(&self.dir) {
             for entry in entries.flatten() {
@@ -144,7 +159,7 @@ impl InstrumentalCache {
         let mut removed = 0;
 
         for (path, size, _) in files {
-            if current_size <= self.max_bytes {
+            if current_size <= max_bytes {
                 break;
             }
             let mut protected = false;
@@ -180,20 +195,29 @@ impl InstrumentalCache {
         Ok(freed_bytes)
     }
 
-    pub fn clear(&self) -> Result<()> {
+    pub fn clear(&self) -> Result<u64> {
         if let Ok(entries) = fs::read_dir(&self.dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_file() {
                     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                        if ext.eq_ignore_ascii_case("flac") || ext.eq_ignore_ascii_case("opus") {
+                        if ext.eq_ignore_ascii_case("flac") || ext.eq_ignore_ascii_case("opus") || ext.eq_ignore_ascii_case("tmp") {
                             let _ = fs::remove_file(&path);
                         }
                     }
                 }
             }
         }
-        Ok(())
+        let tmp_dir = self.dir.join("tmp");
+        if let Ok(entries) = fs::read_dir(&tmp_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    let _ = fs::remove_file(&path);
+                }
+            }
+        }
+        Ok(self.total_size())
     }
 }
 
@@ -311,6 +335,21 @@ mod tests {
 
         assert!(!stale_sub_tmp.exists(), "Stale sub tmp file should be removed by new()");
         assert!(!stale_root_tmp.exists(), "Stale root tmp file should be removed by new()");
+
+        let _ = fs::remove_dir_all(&tmp);
+        Ok(())
+    }
+
+    #[test]
+    fn test_cache_set_max_bytes() -> Result<()> {
+        let tmp = std::env::temp_dir().join("limusic_cache_test_set_max");
+        if tmp.exists() {
+            let _ = fs::remove_dir_all(&tmp);
+        }
+
+        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 100)?;
+        cache.set_max_bytes(200);
+        assert_eq!(cache.max_bytes.load(std::sync::atomic::Ordering::SeqCst), 200);
 
         let _ = fs::remove_dir_all(&tmp);
         Ok(())

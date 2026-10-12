@@ -890,6 +890,8 @@ pub fn run() {
             commands::karaoke_model_cancel,
             commands::karaoke_engine_status,
             commands::karaoke_clear_cache,
+            commands::karaoke_cache_limit_mb,
+            commands::karaoke_set_cache_limit_mb,
             commands::take_launch_args,
             commands::get_home,
             commands::get_home_more,

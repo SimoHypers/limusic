@@ -405,6 +405,14 @@ export interface KaraokeStatusEvent {
 	progress?: number;
 	message?: string;
 }
+export interface KaraokeQueueSlot {
+	videoId: string;
+	state: 'ready' | 'preparing' | 'queued' | 'error';
+	progress?: number;
+}
+export interface KaraokeQueueEvent {
+	slots: KaraokeQueueSlot[];
+}
 export type KaraokeModelEvent =
 	| { state: 'downloading'; downloaded: number; total: number }
 	| { state: 'ready' }
@@ -910,6 +918,8 @@ export const onKaraoke = (cb: (v: boolean) => void): Promise<UnlistenFn> =>
 	listen<boolean>('karaoke', (e) => cb(e.payload));
 export const onKaraokeStatus = (cb: (s: KaraokeStatusEvent) => void): Promise<UnlistenFn> =>
 	listen<KaraokeStatusEvent>('karaoke-status', (e) => cb(e.payload));
+export const onKaraokeQueue = (cb: (e: KaraokeQueueEvent) => void): Promise<UnlistenFn> =>
+	listen<KaraokeQueueEvent>('karaoke-queue', (e) => cb(e.payload));
 export const onKaraokeModel = (cb: (m: KaraokeModelEvent) => void): Promise<UnlistenFn> =>
 	listen<KaraokeModelEvent>('karaoke-model', (e) => cb(e.payload));
 export const onPlaybackState = (cb: (s: 'playing' | 'paused') => void): Promise<UnlistenFn> =>

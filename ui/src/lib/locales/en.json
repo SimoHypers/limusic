@@ -9,7 +9,18 @@
 		"retry": "Retry",
 		"not_now": "Not now",
 		"preparing": "Preparing karaoke version…",
-		"active": "Karaoke on"
+		"active": "Karaoke on",
+		"slot": {
+			"now": "Now",
+			"next": "Next",
+			"after": "After that"
+		},
+		"state": {
+			"ready": "ready",
+			"preparing": "preparing",
+			"queued": "queued",
+			"error": "error"
+		}
 	},
 	"selection": {
 		"actions": "Selected track actions",

@@ -2441,6 +2441,26 @@ pub fn karaoke_clear_cache(
     Ok(())
 }
 
+/// Get the karaoke cache limit in megabytes.
+#[tauri::command]
+pub fn karaoke_cache_limit_mb(
+    state: State<'_, Arc<AppState>>,
+) -> u64 {
+    crate::state::saved_karaoke_cache_limit_mb(&state.db)
+}
+
+/// Set the karaoke cache limit in megabytes.
+#[tauri::command]
+pub fn karaoke_set_cache_limit_mb(
+    state: State<'_, Arc<AppState>>,
+    engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
+    mb: u64,
+) -> Result<u64, String> {
+    let clamped = crate::state::set_saved_karaoke_cache_limit_mb(&state.db, mb);
+    engine.set_cache_limit_mb(clamped);
+    Ok(clamped)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

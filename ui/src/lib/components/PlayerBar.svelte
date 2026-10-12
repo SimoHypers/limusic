@@ -29,6 +29,7 @@
 		np,
 		playback,
 		karaokeStatus,
+		karaokeQueue,
 		commitVolume,
 		cycleRepeat,
 		dragVolume,
@@ -49,12 +50,14 @@
 		onToggleQueue,
 		queueOpen,
 		onToggleLyrics,
-		lyricsOpen
+		lyricsOpen,
+		compact = false
 	}: {
 		onToggleQueue: () => void;
 		queueOpen: boolean;
 		onToggleLyrics: () => void;
 		lyricsOpen: boolean;
+		compact?: boolean;
 	} = $props();
 
 	// Pop the heart once when the user favourites (not when un-favouriting). Reset on animation end
@@ -79,15 +82,35 @@
 	const shuffleOn = $derived(playback.queue.shuffle ?? false);
 	const repeat = $derived(playback.queue.repeat ?? 'off');
 
-	const karaokeTooltip = $derived(
-		!playback.karaoke
+	const karaokeTooltip = $derived.by(() => {
+		const base = !playback.karaoke
 			? t('player.karaoke')
 			: karaokeStatus.state === 'preparing'
 				? t('karaoke.preparing')
 				: karaokeStatus.state === 'error'
 					? karaokeStatus.message || t('player.karaoke')
-					: t('karaoke.active')
-	);
+					: t('karaoke.active');
+
+		if (!playback.karaoke || karaokeQueue.slots.length === 0) return base;
+
+		const parts = karaokeQueue.slots.map((slot, i) => {
+			const slotLabel = i === 0 ? t('karaoke.slot.now') : i === 1 ? t('karaoke.slot.next') : t('karaoke.slot.after');
+			let stateDesc = '';
+			if (slot.state === 'ready') {
+				stateDesc = t('karaoke.state.ready');
+			} else if (slot.state === 'preparing') {
+				const pct = slot.progress !== undefined ? ` ${Math.round(slot.progress * 100)}%` : '';
+				stateDesc = `${t('karaoke.state.preparing')}${pct}`;
+			} else if (slot.state === 'queued') {
+				stateDesc = t('karaoke.state.queued');
+			} else if (slot.state === 'error') {
+				stateDesc = t('karaoke.state.error');
+			}
+			return `${slotLabel}: ${stateDesc}`;
+		});
+
+		return `${base}\n${parts.join(' · ')}`;
+	});
 
 	// The current track was appended by autoplay → show the subtle ∞ badge next to the title.
 	// Matched against the now-playing videoId so a transient queue/now-playing mismatch (mid
@@ -386,32 +409,56 @@
 			<Button variant="ghost" size="icon-sm" onclick={openMiniPlayer} aria-label={t('player.mini_player')}>
 				<HugeiconsIcon icon={MinimizeScreenIcon} class="h-5 w-5" />
 			</Button>
-			<Button
-				variant={playback.karaoke ? 'secondary' : 'ghost'}
-				size="icon-sm"
-				onclick={toggleKaraoke}
-				aria-label={t('player.karaoke')}
-				title={karaokeTooltip}
-				aria-pressed={playback.karaoke}
-			>
-				{#if playback.karaoke && karaokeStatus.state === 'preparing'}
-					{#if karaokeStatus.progress !== undefined}
-						<svg class="h-5 w-5 -rotate-90" viewBox="0 0 24 24">
-							<circle cx="12" cy="12" r="9" class="stroke-muted" stroke-width="2" fill="none" />
-							<circle cx="12" cy="12" r="9" class="stroke-primary" stroke-width="2" fill="none" stroke-dasharray="56.548" stroke-dashoffset={56.548 * (1 - karaokeStatus.progress)} stroke-linecap="round" />
-						</svg>
+			<div class="flex items-center gap-1.5" title={karaokeTooltip}>
+				<Button
+					variant={playback.karaoke ? 'secondary' : 'ghost'}
+					size="icon-sm"
+					onclick={toggleKaraoke}
+					aria-label={t('player.karaoke')}
+					title={karaokeTooltip}
+					aria-pressed={playback.karaoke}
+				>
+					{#if playback.karaoke && karaokeStatus.state === 'preparing'}
+						{#if karaokeStatus.progress !== undefined}
+							<svg class="h-5 w-5 -rotate-90" viewBox="0 0 24 24">
+								<circle cx="12" cy="12" r="9" class="stroke-muted" stroke-width="2" fill="none" />
+								<circle cx="12" cy="12" r="9" class="stroke-primary" stroke-width="2" fill="none" stroke-dasharray="56.548" stroke-dashoffset={56.548 * (1 - karaokeStatus.progress)} stroke-linecap="round" />
+							</svg>
+						{:else}
+							<div class="h-4 w-4 animate-spin rounded-full border-2 border-muted border-t-primary"></div>
+						{/if}
+					{:else if playback.karaoke && karaokeStatus.state === 'error'}
+						<div class="relative flex items-center justify-center">
+							<HugeiconsIcon icon={Mic02Icon} class="h-5 w-5 text-destructive" />
+							<span class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-destructive"></span>
+						</div>
 					{:else}
-						<div class="h-4 w-4 animate-spin rounded-full border-2 border-muted border-t-primary"></div>
+						<HugeiconsIcon icon={Mic02Icon} class="h-5 w-5 {playback.karaoke ? 'text-primary' : ''}" />
 					{/if}
-				{:else if playback.karaoke && karaokeStatus.state === 'error'}
-					<div class="relative flex items-center justify-center">
-						<HugeiconsIcon icon={Mic02Icon} class="h-5 w-5 text-destructive" />
-						<span class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-destructive"></span>
+				</Button>
+				{#if !compact && playback.karaoke && karaokeQueue.slots.length > 0}
+					<div class="flex flex-col gap-[3px]" aria-label={karaokeTooltip}>
+						{#each karaokeQueue.slots as slot}
+							{#if slot.state === 'ready'}
+								<span class="h-1.5 w-1.5 rounded-full bg-primary" title=""></span>
+							{:else if slot.state === 'preparing'}
+								{#if slot.progress !== undefined}
+									<svg class="h-1.5 w-1.5 -rotate-90" viewBox="0 0 12 12">
+										<circle cx="6" cy="6" r="4.5" class="stroke-muted" stroke-width="1.5" fill="none" />
+										<circle cx="6" cy="6" r="4.5" class="stroke-primary" stroke-width="1.5" fill="none" stroke-dasharray="28.27" stroke-dashoffset={28.27 * (1 - slot.progress)} stroke-linecap="round" />
+									</svg>
+								{:else}
+									<span class="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" title=""></span>
+								{/if}
+							{:else if slot.state === 'queued'}
+								<span class="h-1.5 w-1.5 rounded-full border border-muted-foreground/60 bg-transparent" title=""></span>
+							{:else if slot.state === 'error'}
+								<span class="h-1.5 w-1.5 rounded-full bg-destructive" title=""></span>
+							{/if}
+						{/each}
 					</div>
-				{:else}
-					<HugeiconsIcon icon={Mic02Icon} class="h-5 w-5 {playback.karaoke ? 'text-primary' : ''}" />
 				{/if}
-			</Button>
+			</div>
 			<Button
 				variant={lyricsOpen ? 'secondary' : 'ghost'}
 				size="icon-sm"

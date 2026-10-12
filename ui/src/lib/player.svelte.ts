@@ -58,6 +58,8 @@ export const karaokeStatus = $state({
 	message: undefined as string | undefined
 });
 
+export const karaokeQueue = $state<{ slots: api.KaraokeQueueSlot[] }>({ slots: [] });
+
 const karaokeByTrack = $state<
 	Record<
 		string,
@@ -1004,6 +1006,7 @@ export function toggleKaraoke() {
 	playback.karaoke = next;
 	if (!next) {
 		for (const k in karaokeByTrack) delete karaokeByTrack[k];
+		karaokeQueue.slots = [];
 		syncKaraokeStatus();
 	}
 	api.setKaraoke(next).catch((e) => {
@@ -1635,8 +1638,12 @@ export function initApp(mini = false): () => void {
 			playback.karaoke = enabled;
 			if (!enabled) {
 				for (const k in karaokeByTrack) delete karaokeByTrack[k];
+				karaokeQueue.slots = [];
 				syncKaraokeStatus();
 			}
+		}),
+		api.onKaraokeQueue((e) => {
+			karaokeQueue.slots = e.slots;
 		}),
 		api.onKaraokeStatus((e) => {
 			if (e.state === 'needs-model') {

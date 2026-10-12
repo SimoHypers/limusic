@@ -3336,6 +3336,7 @@ dependencies = [
  "ort",
  "realfft",
  "rubato",
+ "serde",
  "symphonia",
  "tracing",
  "windows 0.61.3",

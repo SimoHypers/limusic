@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+serde = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 ort = "=2.0.0-rc.13"

@@ -148,3 +148,88 @@ mod tests {
         assert_eq!(set.ids(), vec!["v2".to_string(), "v1".to_string()]);
     }
 }
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Slot {
+    pub video_id: String,
+    pub state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<f64>,
+}
+
+pub fn build_slots(
+    desired_ids: &[String],
+    running: Option<(&str, f64)>,
+    failed: &HashSet<String>,
+    is_cached: impl Fn(&str) -> bool,
+) -> Vec<Slot> {
+    desired_ids.iter().map(|id| {
+        if failed.contains(id) {
+            Slot {
+                video_id: id.clone(),
+                state: "error".to_string(),
+                progress: None,
+            }
+        } else if is_cached(id) {
+            Slot {
+                video_id: id.clone(),
+                state: "ready".to_string(),
+                progress: None,
+            }
+        } else if let Some((r_id, prog)) = running {
+            if r_id == id {
+                Slot {
+                    video_id: id.clone(),
+                    state: "preparing".to_string(),
+                    progress: Some(prog),
+                }
+            } else {
+                Slot {
+                    video_id: id.clone(),
+                    state: "queued".to_string(),
+                    progress: None,
+                }
+            }
+        } else {
+            Slot {
+                video_id: id.clone(),
+                state: "queued".to_string(),
+                progress: None,
+            }
+        }
+    }).collect()
+}
+
+#[cfg(test)]
+mod slot_tests {
+    use super::*;
+
+    #[test]
+    fn test_build_slots() {
+        let desired = vec!["v1".to_string(), "v2".to_string(), "v3".to_string()];
+        let mut failed = HashSet::new();
+        failed.insert("v3".to_string());
+
+        let slots = build_slots(
+            &desired,
+            Some(("v2", 0.5)),
+            &failed,
+            |id| id == "v1",
+        );
+
+        assert_eq!(slots.len(), 3);
+        assert_eq!(slots[0].video_id, "v1");
+        assert_eq!(slots[0].state, "ready");
+        assert_eq!(slots[0].progress, None);
+
+        assert_eq!(slots[1].video_id, "v2");
+        assert_eq!(slots[1].state, "preparing");
+        assert_eq!(slots[1].progress, Some(0.5));
+
+        assert_eq!(slots[2].video_id, "v3");
+        assert_eq!(slots[2].state, "error");
+        assert_eq!(slots[2].progress, None);
+    }
+}
+
