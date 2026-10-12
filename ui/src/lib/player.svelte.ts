@@ -52,6 +52,41 @@ export const playback = $state({
  */
 export const np = $state({ open: false, tab: 'queue' as 'queue' | 'lyrics' });
 
+export const karaokeStatus = $state({
+	state: 'off' as 'off' | 'needs-model' | 'preparing' | 'ready' | 'error',
+	progress: undefined as number | undefined,
+	message: undefined as string | undefined
+});
+
+export const karaokeModel = $state({
+	installed: false,
+	downloading: false,
+	downloaded: 0,
+	total: 0,
+	error: undefined as string | undefined
+});
+
+export let karaokeConsentOpen = $state(false);
+
+export function confirmKaraokeModelDownload() {
+	karaokeModel.error = undefined;
+	api.karaokeModelDownload().catch((e) => {
+		karaokeModel.error = String(e);
+		toast.error(String(e));
+	});
+}
+
+export function cancelKaraokeModelDownload() {
+	karaokeConsentOpen = false;
+	api.karaokeModelCancel().catch((e) => {
+		toast.error(String(e));
+	});
+}
+
+export function dismissKaraokeConsent() {
+	karaokeConsentOpen = false;
+}
+
 /**
  * Backend settings the app has to know outside the settings modal (which holds the rest in its own
  * local state). Hydrated once in `initApp`; the modal writes here too, so a toggle takes effect
@@ -943,6 +978,11 @@ export function toggleKaraoke() {
 	const previous = playback.karaoke;
 	const next = !previous;
 	playback.karaoke = next;
+	if (!next) {
+		karaokeStatus.state = 'off';
+		karaokeStatus.progress = undefined;
+		karaokeStatus.message = undefined;
+	}
 	api.setKaraoke(next).catch((e) => {
 		playback.karaoke = previous;
 		toast.error(String(e));
@@ -1569,6 +1609,50 @@ export function initApp(mini = false): () => void {
 		}),
 		api.onKaraoke((enabled) => {
 			playback.karaoke = enabled;
+			if (!enabled) {
+				karaokeStatus.state = 'off';
+				karaokeStatus.progress = undefined;
+				karaokeStatus.message = undefined;
+			}
+		}),
+		api.onKaraokeStatus((e) => {
+			if (e.state === 'needs-model') {
+				karaokeConsentOpen = true;
+				karaokeStatus.state = e.state;
+				karaokeStatus.progress = e.progress;
+				karaokeStatus.message = e.message;
+				return;
+			}
+			if (playback.now?.videoId && e.videoId && playback.now.videoId === e.videoId) {
+				karaokeStatus.state = e.state;
+				karaokeStatus.progress = e.progress;
+				karaokeStatus.message = e.message;
+			}
+		}),
+		api.onKaraokeModel((e) => {
+			if (e.state === 'downloading') {
+				karaokeModel.downloading = true;
+				karaokeModel.downloaded = e.downloaded;
+				karaokeModel.total = e.total;
+				karaokeModel.error = undefined;
+			} else if (e.state === 'ready') {
+				karaokeModel.installed = true;
+				karaokeModel.downloading = false;
+				karaokeModel.error = undefined;
+				karaokeConsentOpen = false;
+				playback.karaoke = true;
+				api.setKaraoke(true).catch((err) => {
+					playback.karaoke = false;
+					toast.error(String(err));
+				});
+			} else if (e.state === 'error') {
+				karaokeModel.downloading = false;
+				karaokeModel.error = e.message;
+			} else if (e.state === 'cancelled') {
+				karaokeModel.downloading = false;
+				karaokeModel.error = undefined;
+				karaokeConsentOpen = false;
+			}
 		}),
 		api.onPlaybackError((msg) => toast.error(msg)),
 		api.onPlaybackNotice((msg) => toast(msg)), // auto-skipped an unplayable track
@@ -1608,6 +1692,13 @@ export function initApp(mini = false): () => void {
 	const teardown = () => subs.forEach((u) => u.then((f) => f()));
 	api.getQueue()
 		.then((q) => (playback.queue = q))
+		.catch(() => {});
+	api.karaokeModelStatus()
+		.then((s) => {
+			karaokeModel.installed = s.installed;
+			karaokeModel.downloading = s.downloading;
+			karaokeModel.total = s.sizeBytes;
+		})
 		.catch(() => {});
 	// The events above are fire-and-forget, and this window missed every one that already fired:
 	// on a cold start the backend restores the queue before the UI subscribes, and the mini player

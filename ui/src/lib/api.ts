@@ -388,6 +388,34 @@ export const togglePause = () => invoke<void>('toggle_pause');
 export const seek = (position: number) => invoke<void>('seek', { position });
 export const setVolume = (volume: number) => invoke<void>('set_volume', { volume });
 export const setKaraoke = (enabled: boolean) => invoke<void>('set_karaoke', { enabled });
+export interface ModelStatus {
+	installed: boolean;
+	downloading: boolean;
+	sizeBytes: number;
+	path?: string;
+}
+export interface KaraokeEngineStatus {
+	enabled: boolean;
+	modelInstalled: boolean;
+	cacheBytes: number;
+}
+export interface KaraokeStatusEvent {
+	videoId: string;
+	state: 'off' | 'needs-model' | 'preparing' | 'ready' | 'error';
+	progress?: number;
+	message?: string;
+}
+export type KaraokeModelEvent =
+	| { state: 'downloading'; downloaded: number; total: number }
+	| { state: 'ready' }
+	| { state: 'cancelled' }
+	| { state: 'error'; message: string };
+
+export const karaokeModelStatus = () => invoke<ModelStatus>('karaoke_model_status');
+export const karaokeModelDownload = () => invoke<void>('karaoke_model_download');
+export const karaokeModelCancel = () => invoke<void>('karaoke_model_cancel');
+export const karaokeEngineStatus = () => invoke<KaraokeEngineStatus>('karaoke_engine_status');
+export const karaokeClearCache = () => invoke<void>('karaoke_clear_cache');
 /** Tempo (0.25–2.0) + pitch (−12..=12 semitones). Not persisted: resets on restart. */
 export const setPlaybackParams = (speed: number, semitones: number) =>
 	invoke<void>('set_playback_params', { speed, semitones });
@@ -880,6 +908,10 @@ export const onVolume = (cb: (v: number) => void): Promise<UnlistenFn> =>
 	listen<number>('volume', (e) => cb(e.payload));
 export const onKaraoke = (cb: (v: boolean) => void): Promise<UnlistenFn> =>
 	listen<boolean>('karaoke', (e) => cb(e.payload));
+export const onKaraokeStatus = (cb: (s: KaraokeStatusEvent) => void): Promise<UnlistenFn> =>
+	listen<KaraokeStatusEvent>('karaoke-status', (e) => cb(e.payload));
+export const onKaraokeModel = (cb: (m: KaraokeModelEvent) => void): Promise<UnlistenFn> =>
+	listen<KaraokeModelEvent>('karaoke-model', (e) => cb(e.payload));
 export const onPlaybackState = (cb: (s: 'playing' | 'paused') => void): Promise<UnlistenFn> =>
 	listen<'playing' | 'paused'>('playback-state', (e) => cb(e.payload));
 export const onPlaybackError = (cb: (msg: string) => void): Promise<UnlistenFn> =>
