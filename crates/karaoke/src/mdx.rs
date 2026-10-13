@@ -130,7 +130,7 @@ impl MdxModel {
             Err(e) => {
                 match device {
                     Device::DirectMl { .. } => {
-                        tracing::warn!(error = %e, "DirectML model load failed, falling back to CPU");
+                        tracing::warn!(error = %crate::sanitize_error(&e.to_string()), "DirectML model load failed, falling back to CPU");
                         let cpu_opts = LoadOptions {
                             device: Device::Cpu,
                             intra_threads: Some(crate::device::cpu_threads_for_percent(percent)),

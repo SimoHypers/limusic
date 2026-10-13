@@ -33,17 +33,7 @@ pub struct KaraokeEngine {
     ready_tx: tokio::sync::broadcast::Sender<String>,
 }
 
-fn sanitize_error(err: &str) -> String {
-    let mut sanitized = err.to_string();
-    while let Some(start) = sanitized.find("http://").or_else(|| sanitized.find("https://")) {
-        let end = sanitized[start..]
-            .find(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == ')')
-            .map(|e| start + e)
-            .unwrap_or(sanitized.len());
-        sanitized.replace_range(start..end, "[url]");
-    }
-    sanitized
-}
+
 
 fn emit_queue(app: &AppHandle, shared: &Shared, cache: &InstrumentalCache) {
     if !shared.enabled {
@@ -77,7 +67,7 @@ impl KaraokeEngine {
         let cache = match InstrumentalCache::new(cache_dir, CacheFormat::Flac, max_bytes) {
             Ok(c) => Arc::new(c),
             Err(e) => {
-                tracing::warn!(error = %e, "failed to create karaoke cache, falling back to temp dir");
+                tracing::warn!(error = %karaoke::sanitize_error(&e.to_string()), "failed to create karaoke cache, falling back to temp dir");
                 let fallback = std::env::temp_dir().join("limusic-karaoke-cache");
                 Arc::new(InstrumentalCache::new(fallback, CacheFormat::Flac, max_bytes).unwrap())
             }
@@ -181,8 +171,8 @@ impl KaraokeEngine {
                                         model = None;
                                     }
                                     let err_str = e.to_string();
-                                    let msg = sanitize_error(&err_str);
-                                    tracing::warn!(target: "app_lib::karaoke", error = %err_str, "karaoke model load failed");
+                                    let msg = karaoke::sanitize_error(&err_str);
+                                    tracing::warn!(target: "app_lib::karaoke", error = %msg, "karaoke model load failed");
                                     let _ = worker_app.emit("karaoke-status", &serde_json::json!({
                                         "state": "error",
                                         "message": msg
@@ -216,6 +206,7 @@ impl KaraokeEngine {
                             &req.video_id,
                             model.as_mut().unwrap(),
                             &mut |wav| player::decode_to_wav(&req.url, wav, &req.headers, &cancel),
+                            req.expected_secs,
                             &cancel,
                             &mut |i, n| {
                                 if throttle.should_emit() {
@@ -258,8 +249,12 @@ impl KaraokeEngine {
                                     tracing::warn!(target: "app_lib::karaoke", video_id = %req.video_id, "karaoke prepare cancelled");
                                     emit_queue(&worker_app, &shared_guard, &worker_cache);
                                 } else {
-                                    tracing::warn!(target: "app_lib::karaoke", video_id = %req.video_id, error = %err_str, "karaoke prepare failed");
-                                    let msg = sanitize_error(&err_str);
+                                    let msg = if err_str.contains("incomplete download") {
+                                        "Download was incomplete, will retry".to_string()
+                                    } else {
+                                        karaoke::sanitize_error(&err_str)
+                                    };
+                                    tracing::warn!(target: "app_lib::karaoke", video_id = %req.video_id, error = %msg, "karaoke prepare failed");
                                     let _ = worker_app.emit("karaoke-status", &serde_json::json!({
                                         "videoId": &req.video_id,
                                         "state": "error",

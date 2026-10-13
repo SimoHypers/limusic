@@ -2107,10 +2107,13 @@ impl AppState {
         let stream_url = mpv_stream_url(&data);
         let karaoke_on = self.karaoke_active();
         let is_karaoke = karaoke_on && self.karaoke_engine().and_then(|e| e.ready_path(&item.video_id)).is_some();
+        let dur_secs = parse_duration_ms(item.duration.as_deref()) / 1000;
+        let expected_secs = if dur_secs > 0 { Some(dur_secs as f64) } else { None };
         let req = crate::karaoke::PrepareRequest {
             video_id: item.video_id.clone(),
             url: stream_url.clone(),
             headers: data.headers.clone(),
+            expected_secs,
         };
         let play_u = self.play_url(&item.video_id, &data);
         if let Err(e) =
@@ -2288,10 +2291,15 @@ impl AppState {
         let stream_url = mpv_stream_url(&data);
         let karaoke_on = self.karaoke_active();
         let is_karaoke = karaoke_on && self.karaoke_engine().and_then(|e| e.ready_path(next_video)).is_some();
+        let dur_secs = q.items.get(next_idx)
+            .map(|item| parse_duration_ms(item.duration.as_deref()) / 1000)
+            .unwrap_or(0);
+        let expected_secs = if dur_secs > 0 { Some(dur_secs as f64) } else { None };
         let req = crate::karaoke::PrepareRequest {
             video_id: next_video.to_string(),
             url: stream_url.clone(),
             headers: data.headers.clone(),
+            expected_secs,
         };
 
         let mut req2 = None;
@@ -2314,10 +2322,12 @@ impl AppState {
                                 q.items.get(next2_idx).map(|i| i.video_id == next2_video).unwrap_or(false)
                             };
                             if same2 {
+                                let expected_secs2 = if next2_secs > 0 { Some(next2_secs as f64) } else { None };
                                 req2 = Some(crate::karaoke::PrepareRequest {
                                     video_id: next2_video,
                                     url: stream_url2,
                                     headers: d2.headers.clone(),
+                                    expected_secs: expected_secs2,
                                 });
                             }
                         }
@@ -2437,10 +2447,13 @@ impl AppState {
         let stream_url = mpv_stream_url(&data);
         let karaoke_on = self.karaoke_active();
         let is_karaoke = karaoke_on && self.karaoke_engine().and_then(|e| e.ready_path(&item.video_id)).is_some();
+        let dur_secs = parse_duration_ms(item.duration.as_deref()) / 1000;
+        let expected_secs = if dur_secs > 0 { Some(dur_secs as f64) } else { None };
         let req = crate::karaoke::PrepareRequest {
             video_id: item.video_id.clone(),
             url: stream_url.clone(),
             headers: data.headers.clone(),
+            expected_secs,
         };
         let play_u = self.play_url(&item.video_id, &data);
         if let Err(e) = self.player.load(&play_u, &data.headers, self.track_gain(data.loudness_db), Some(pos)) {

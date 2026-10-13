@@ -38,6 +38,7 @@ pub fn prepare_instrumental(
     track_id: &str,
     separator: &mut dyn Separator,
     decode_to_wav: &mut dyn FnMut(&Path) -> Result<()>,
+    expected_secs: Option<f64>,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(usize, usize),
 ) -> Result<PathBuf> {
@@ -122,6 +123,19 @@ pub fn prepare_instrumental(
     }
 
     let audio_seconds = left.len() as f64 / 44100.0;
+
+    if let Some(e) = expected_secs {
+        if e > 20.0 && audio_seconds < e * 0.9 && (e - audio_seconds) > 5.0 {
+            tracing::warn!(
+                target: "karaoke::pipeline",
+                video_id = %track_id,
+                audio_seconds,
+                expected_secs = e,
+                "decoded audio is shorter than expected (incomplete download)"
+            );
+            anyhow::bail!("decoded audio is shorter than expected (incomplete download)");
+        }
+    }
 
     let start_separate = std::time::Instant::now();
     let [sep_l, sep_r] = separator.separate_pcm([&left, &right], cancel, progress)?;
@@ -242,13 +256,13 @@ mod tests {
             progress_calls += 1;
         };
 
-        let p1 = prepare_instrumental(&cache, track_id, &mut separator, &mut decode_to_wav, &cancel, &mut progress)?;
+        let p1 = prepare_instrumental(&cache, track_id, &mut separator, &mut decode_to_wav, None, &cancel, &mut progress)?;
         assert!(p1.exists());
         assert_eq!(decode_calls.get(), 1);
         assert_eq!(separator.calls, 1);
         assert!(!cache.tmp_wav_path(track_id).exists());
 
-        let p2 = prepare_instrumental(&cache, track_id, &mut separator, &mut decode_to_wav, &cancel, &mut progress)?;
+        let p2 = prepare_instrumental(&cache, track_id, &mut separator, &mut decode_to_wav, None, &cancel, &mut progress)?;
         assert_eq!(p1, p2);
         assert_eq!(decode_calls.get(), 1);
         assert_eq!(separator.calls, 1);
@@ -273,7 +287,7 @@ mod tests {
         };
         let mut progress = |_, _| {};
 
-        let res = prepare_instrumental(&cache, track_id, &mut separator, &mut decode_to_wav, &cancel, &mut progress);
+        let res = prepare_instrumental(&cache, track_id, &mut separator, &mut decode_to_wav, None, &cancel, &mut progress);
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("cancelled"));
 
@@ -304,7 +318,7 @@ mod tests {
         };
         let mut progress = |_, _| {};
 
-        let res = prepare_instrumental(&cache, track_id, &mut separator, &mut decode_to_wav, &cancel, &mut progress);
+        let res = prepare_instrumental(&cache, track_id, &mut separator, &mut decode_to_wav, None, &cancel, &mut progress);
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("decode error"));
 
@@ -314,6 +328,65 @@ mod tests {
             let entries: Vec<_> = fs::read_dir(&tmp_dir)?.flatten().collect();
             assert!(entries.is_empty(), "tmp dir must be empty after error");
         }
+
+        let _ = fs::remove_dir_all(&tmp);
+        Ok(())
+    }
+
+    #[test]
+    fn test_pipeline_incomplete_download() -> Result<()> {
+        let tmp = std::env::temp_dir().join("limusic_pipeline_incomplete");
+        if tmp.exists() {
+            let _ = fs::remove_dir_all(&tmp);
+        }
+
+        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024)?;
+        let track_id = "test_incomplete";
+        let cancel = AtomicBool::new(false);
+        let mut separator = FakeSeparator { calls: 0 };
+        let mut decode_to_wav = |wav_path: &Path| -> Result<()> {
+            let spec = WavSpec {
+                channels: 2,
+                sample_rate: 44100,
+                bits_per_sample: 32,
+                sample_format: SampleFormat::Float,
+            };
+            let mut writer = WavWriter::create(wav_path, spec)?;
+            for i in 0..(30 * 44100) {
+                let t = i as f32 / 44100.0;
+                writer.write_sample(t.sin())?;
+                writer.write_sample(-t.sin())?;
+            }
+            writer.finalize()?;
+            Ok(())
+        };
+        let mut progress = |_, _| {};
+
+        let res = prepare_instrumental(&cache, track_id, &mut separator, &mut decode_to_wav, Some(100.0), &cancel, &mut progress);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("incomplete"));
+        assert!(!cache.path_for(track_id).exists());
+
+        let track_id_ok = "test_ok";
+        let mut decode_to_wav_ok = |wav_path: &Path| -> Result<()> {
+            let spec = WavSpec {
+                channels: 2,
+                sample_rate: 44100,
+                bits_per_sample: 32,
+                sample_format: SampleFormat::Float,
+            };
+            let mut writer = WavWriter::create(wav_path, spec)?;
+            for i in 0..(98 * 44100) {
+                let t = i as f32 / 44100.0;
+                writer.write_sample(t.sin())?;
+                writer.write_sample(-t.sin())?;
+            }
+            writer.finalize()?;
+            Ok(())
+        };
+        let res_ok = prepare_instrumental(&cache, track_id_ok, &mut separator, &mut decode_to_wav_ok, Some(100.0), &cancel, &mut progress);
+        assert!(res_ok.is_ok());
+        assert!(cache.path_for(track_id_ok).exists());
 
         let _ = fs::remove_dir_all(&tmp);
         Ok(())

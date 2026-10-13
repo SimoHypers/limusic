@@ -39,7 +39,7 @@ impl ModelManager {
     pub fn new(data_dir: &Path) -> Self {
         let dir = data_dir.join("models");
         if let Err(e) = std::fs::create_dir_all(&dir) {
-            tracing::warn!(error = %e, "failed to create karaoke models directory");
+            tracing::warn!(error = %karaoke::sanitize_error(&e.to_string()), "failed to create karaoke models directory");
         } else {
             // Delete any leftover *.part files in it.
             if let Ok(entries) = std::fs::read_dir(&dir) {
@@ -161,7 +161,7 @@ impl ModelManager {
             .send()
             .await
             .map_err(|e| {
-                let msg = sanitize_error(&e.to_string());
+                let msg = karaoke::sanitize_error(&e.to_string());
                 let _ = app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
                 msg
             })?;
@@ -178,7 +178,7 @@ impl ModelManager {
             .unwrap_or(MODEL_SIZE);
 
         let mut file = tokio::fs::File::create(part_path).await.map_err(|e| {
-            let msg = sanitize_error(&e.to_string());
+            let msg = karaoke::sanitize_error(&e.to_string());
             let _ = app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
             msg
         })?;
@@ -202,13 +202,13 @@ impl ModelManager {
             }
 
             let chunk = chunk_result.map_err(|e| {
-                let msg = sanitize_error(&e.to_string());
+                let msg = karaoke::sanitize_error(&e.to_string());
                 let _ = app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
                 msg
             })?;
 
             file.write_all(&chunk).await.map_err(|e| {
-                let msg = sanitize_error(&e.to_string());
+                let msg = karaoke::sanitize_error(&e.to_string());
                 let _ = app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
                 msg
             })?;
@@ -225,7 +225,7 @@ impl ModelManager {
         }
 
         file.flush().await.map_err(|e| {
-            let msg = sanitize_error(&e.to_string());
+            let msg = karaoke::sanitize_error(&e.to_string());
             let _ = app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
             msg
         })?;
@@ -253,14 +253,14 @@ impl ModelManager {
         // On Windows, remove existing final file first
         if final_path.exists() {
             if let Err(e) = std::fs::remove_file(final_path) {
-                let msg = sanitize_error(&e.to_string());
+                let msg = karaoke::sanitize_error(&e.to_string());
                 let _ = app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
                 return Err(msg);
             }
         }
 
         if let Err(e) = tokio::fs::rename(part_path, final_path).await {
-            let msg = sanitize_error(&e.to_string());
+            let msg = karaoke::sanitize_error(&e.to_string());
             let _ = app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
             return Err(msg);
         }
@@ -270,18 +270,7 @@ impl ModelManager {
     }
 }
 
-/// Helper to sanitize error messages (removes URLs and potential credentials).
-fn sanitize_error(err: &str) -> String {
-    let mut sanitized = err.to_string();
-    while let Some(start) = sanitized.find("http://").or_else(|| sanitized.find("https://")) {
-        let end = sanitized[start..]
-            .find(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == ')')
-            .map(|i| start + i)
-            .unwrap_or(sanitized.len());
-        sanitized.replace_range(start..end, "[url]");
-    }
-    sanitized
-}
+
 
 /// Pure helper for progress throttling.
 pub struct ProgressThrottle {
