@@ -26,10 +26,11 @@
 	import { Alert, AlertDescription } from '$lib/components/ui/alert';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Popover from '$lib/components/ui/popover';
+	import * as Select from '$lib/components/ui/select';
 	import { HELP_COMBO } from '$lib/shortcuts';
 	import { copyText } from '$lib/clipboard';
 	import * as api from '$lib/api';
-	import { blocked, prefs, refreshView, setAutoplay, ui, toast, unblockArtist } from '$lib/player.svelte';
+	import { blocked, karaokeConsent, karaokeModel, cancelKaraokeModelDownload, prefs, refreshView, setAutoplay, ui, toast, unblockArtist } from '$lib/player.svelte';
 	import { win } from '$lib/win.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import AppearanceSettings from '$lib/components/AppearanceSettings.svelte';
@@ -197,12 +198,89 @@
 		}
 	}
 
+	let karaokeCacheLimit = $state(2048);
+	let karaokeCacheBytes = $state(0);
+	let clearCacheConfirm = $state(false);
+	let clearCacheTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	function formatCacheSize(bytes: number): string {
+		if (bytes < 1024) return '0 KB';
+		const kb = bytes / 1024;
+		if (kb < 1024) return `${kb.toFixed(1)} KB`;
+		const mb = kb / 1024;
+		if (mb < 1024) return `${mb.toFixed(1)} MB`;
+		const gb = mb / 1024;
+		return `${gb.toFixed(1)} GB`;
+	}
+
+	async function clearKaraokeCache() {
+		if (!clearCacheConfirm) {
+			clearCacheConfirm = true;
+			if (clearCacheTimeout) clearTimeout(clearCacheTimeout);
+			clearCacheTimeout = setTimeout(() => {
+				clearCacheConfirm = false;
+			}, 3000);
+			return;
+		}
+		if (clearCacheTimeout) clearTimeout(clearCacheTimeout);
+		clearCacheConfirm = false;
+		try {
+			await api.karaokeClearCache();
+			const status = await api.karaokeEngineStatus();
+			karaokeCacheBytes = status.cacheBytes;
+			toast.success(t('karaoke.settings.cleared'));
+		} catch (e) {
+			toast.error(String(e));
+		}
+	}
+
+	const karaokeCacheOptions = $derived.by(() => {
+		const base = [
+			{ value: '1024', label: '1 GB' },
+			{ value: '2048', label: '2 GB' },
+			{ value: '5120', label: '5 GB' },
+			{ value: '10240', label: '10 GB' }
+		];
+		const curStr = String(karaokeCacheLimit);
+		if (!base.some((o) => o.value === curStr)) {
+			return [
+				...base,
+				{ value: curStr, label: t('karaoke.settings.cache_custom', { n: karaokeCacheLimit }) }
+			];
+		}
+		return base;
+	});
+
+	async function setKaraokeCacheLimit(valStr: string) {
+		const val = Number(valStr);
+		const prev = karaokeCacheLimit;
+		karaokeCacheLimit = val;
+		try {
+			const res = await api.karaokeSetCacheLimitMb(val);
+			karaokeCacheLimit = res;
+		} catch (e) {
+			karaokeCacheLimit = prev;
+			toast.error(String(e));
+		}
+	}
+
 	async function load() {
 		try {
-			const [s, c] = await Promise.all([api.getSettings(), api.getStreamClients()]);
+			const [s, c, m, cacheLimit, engineStatus] = await Promise.all([
+				api.getSettings(),
+				api.getStreamClients(),
+				api.karaokeModelStatus(),
+				api.karaokeCacheLimitMb(),
+				api.karaokeEngineStatus()
+			]);
 			settings = s;
 			clients = c;
 			proxyInput = s.proxy ?? '';
+			karaokeModel.installed = m.installed;
+			karaokeModel.downloading = m.downloading;
+			karaokeModel.total = m.sizeBytes;
+			karaokeCacheLimit = cacheLimit;
+			karaokeCacheBytes = engineStatus.cacheBytes;
 		} catch (e) {
 			toast.error(String(e));
 		}
@@ -687,6 +765,31 @@
 								{@render row({ title: t('settings.general.stream_clients'), below: clientList })}
 							</div>
 						</section>
+						<section class={GROUP}>
+							<h3 class={LABEL}>{t('karaoke.settings.title')}</h3>
+							<div class={CARD}>
+								{@render row({
+									title: t('karaoke.settings.model'),
+									desc: t('karaoke.settings.model_desc'),
+									control: karaokeModelControl
+								})}
+								{@render row({
+									title: t('karaoke.settings.cache_limit'),
+									desc: t('karaoke.settings.cache_limit_desc'),
+									control: karaokeCacheLimitControl
+								})}
+								{@render row({
+									title: t('karaoke.settings.cache_format'),
+									desc: t('karaoke.settings.cache_format_desc'),
+									control: karaokeCacheFormatControl
+								})}
+								{@render row({
+									title: t('karaoke.settings.cache_used'),
+									desc: t('karaoke.settings.cache_used_desc'),
+									control: karaokeCacheUsedControl
+								})}
+							</div>
+						</section>
 					{:else if tab === 'hotkeys'}
 						<GlobalHotkeysSettings />
 					{:else if tab === 'data'}
@@ -1074,4 +1177,68 @@
 
 {#snippet changelog()}
 	<Changelog current={version} />
+{/snippet}
+
+{#snippet karaokeModelControl()}
+	{@const sizeStr = karaokeModel.total > 0 ? `${(karaokeModel.total / 1048576).toFixed(1)} MB` : '66.8 MB'}
+	{@const downloadedStr = (karaokeModel.downloaded / 1048576).toFixed(1)}
+	{@const totalStr = (karaokeModel.total / 1048576).toFixed(1)}
+	<div class="flex items-center gap-3">
+		<span class="text-xs text-muted-foreground">
+			{#if karaokeModel.installed}
+				{t('karaoke.settings.model_installed', { size: sizeStr })}
+			{:else if karaokeModel.downloading}
+				{downloadedStr} / {totalStr} MB
+			{:else}
+				{t('karaoke.settings.model_missing')}
+			{/if}
+		</span>
+		{#if !karaokeModel.installed && !karaokeModel.downloading}
+			<Button size="sm" onclick={() => (karaokeConsent.open = true)}>
+				{t('karaoke.download')}
+			</Button>
+		{:else if karaokeModel.downloading}
+			<Button variant="outline" size="sm" onclick={cancelKaraokeModelDownload}>
+				{t('karaoke.cancel')}
+			</Button>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet karaokeCacheLimitControl()}
+	<Select.Root
+		type="single"
+		value={String(karaokeCacheLimit)}
+		onValueChange={setKaraokeCacheLimit}
+	>
+		<Select.Trigger class="w-40 shrink-0" aria-label={t('karaoke.settings.cache_limit')}>
+			<span class="flex-1 truncate text-left">
+				{karaokeCacheOptions.find((o) => o.value === String(karaokeCacheLimit))?.label ?? `${karaokeCacheLimit} MB`}
+			</span>
+		</Select.Trigger>
+		<Select.Content>
+			{#each karaokeCacheOptions as opt (opt.value)}
+				<Select.Item value={opt.value} label={opt.label}>{opt.label}</Select.Item>
+			{/each}
+		</Select.Content>
+	</Select.Root>
+{/snippet}
+
+{#snippet karaokeCacheFormatControl()}
+	<span class="text-xs text-muted-foreground">{t('karaoke.settings.cache_format_value')}</span>
+{/snippet}
+
+{#snippet karaokeCacheUsedControl()}
+	<div class="flex items-center gap-3">
+		<span class="text-xs text-muted-foreground">
+			{formatCacheSize(karaokeCacheBytes)}
+		</span>
+		<Button
+			variant={clearCacheConfirm ? 'destructive' : 'outline'}
+			size="sm"
+			onclick={clearKaraokeCache}
+		>
+			{clearCacheConfirm ? t('karaoke.settings.clear_confirm') : t('karaoke.settings.clear')}
+		</Button>
+	</div>
 {/snippet}

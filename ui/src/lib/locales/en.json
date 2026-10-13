@@ -20,6 +20,25 @@
 			"preparing": "preparing",
 			"queued": "queued",
 			"error": "error"
+		},
+		"settings": {
+			"title": "Karaoke",
+			"title_hint": "Vocal removal settings",
+			"model": "AI model",
+			"model_desc": "Used to remove vocals. Downloaded once, works offline.",
+			"model_installed": "Installed ({size})",
+			"model_missing": "Not installed",
+			"cache_limit": "Cache size limit",
+			"cache_limit_desc": "Prepared karaoke versions are cached on disk. The oldest ones are removed when the limit is exceeded.",
+			"cache_custom": "Custom ({n} MB)",
+			"cache_format": "Cache format",
+			"cache_format_value": "FLAC (lossless)",
+			"cache_format_desc": "Smaller lossy formats are planned.",
+			"cache_used": "Cache in use",
+			"cache_used_desc": "Space taken by prepared karaoke versions.",
+			"clear": "Clear cache",
+			"clear_confirm": "Click again to confirm",
+			"cleared": "Cache cleared"
 		}
 	},
 	"selection": {
