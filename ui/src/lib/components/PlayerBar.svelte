@@ -48,12 +48,16 @@
 		queueOpen,
 		onToggleLyrics,
 		lyricsOpen,
+		onToggleComments,
+		commentsOpen,
 		compact = false
 	}: {
 		onToggleQueue: () => void;
 		queueOpen: boolean;
 		onToggleLyrics: () => void;
 		lyricsOpen: boolean;
+		onToggleComments: () => void;
+		commentsOpen: boolean;
 		compact?: boolean;
 	} = $props();
 
