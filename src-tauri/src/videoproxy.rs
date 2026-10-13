@@ -165,6 +165,7 @@ async fn handle(
             return Err(StatusCode::BAD_GATEWAY);
         }
         Ok(Err(e)) => {
+            let e = e.without_url();
             tracing::debug!(video_id, error = %e, "video proxy: upstream failed");
             return Err(StatusCode::BAD_GATEWAY);
         }
