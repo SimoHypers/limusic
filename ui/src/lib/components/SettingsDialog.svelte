@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick, untrack, type Snippet } from 'svelte';
+	import { tick, untrack, onDestroy, type Snippet } from 'svelte';
 	import { save } from '@tauri-apps/plugin-dialog';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
@@ -125,6 +125,7 @@
 				tab = 'scrobbling';
 				ui.settingsFocus = null;
 				load();
+				loadKaraoke();
 			} else if (ui.settingsFocus) {
 				tab = 'playback';
 				const id = `settings-${ui.settingsFocus}`;
@@ -132,8 +133,10 @@
 				load().then(tick).then(() => {
 					document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 				});
+				loadKaraoke();
 			} else {
 				load();
+				loadKaraoke();
 			}
 			updateResult = null;
 		});
@@ -251,6 +254,10 @@
 		return base;
 	});
 
+	onDestroy(() => {
+		if (clearCacheTimeout) clearTimeout(clearCacheTimeout);
+	});
+
 	async function setKaraokeCacheLimit(valStr: string) {
 		const val = Number(valStr);
 		const prev = karaokeCacheLimit;
@@ -258,29 +265,57 @@
 		try {
 			const res = await api.karaokeSetCacheLimitMb(val);
 			karaokeCacheLimit = res;
+			try {
+				const status = await api.karaokeEngineStatus();
+				karaokeCacheBytes = status.cacheBytes;
+			} catch (e) {
+				console.warn(e);
+			}
 		} catch (e) {
 			karaokeCacheLimit = prev;
 			toast.error(String(e));
 		}
 	}
 
-	async function load() {
+	async function loadKaraoke() {
 		try {
-			const [s, c, m, cacheLimit, engineStatus] = await Promise.all([
-				api.getSettings(),
-				api.getStreamClients(),
+			const [modelRes, limitRes, statusRes] = await Promise.allSettled([
 				api.karaokeModelStatus(),
 				api.karaokeCacheLimitMb(),
 				api.karaokeEngineStatus()
 			]);
+			if (modelRes.status === 'fulfilled') {
+				const m = modelRes.value;
+				karaokeModel.installed = m.installed;
+				karaokeModel.downloading = m.downloading;
+				karaokeModel.total = m.sizeBytes;
+			} else {
+				console.warn(modelRes.reason);
+			}
+			if (limitRes.status === 'fulfilled') {
+				karaokeCacheLimit = limitRes.value;
+			} else {
+				console.warn(limitRes.reason);
+			}
+			if (statusRes.status === 'fulfilled') {
+				karaokeCacheBytes = statusRes.value.cacheBytes;
+			} else {
+				console.warn(statusRes.reason);
+			}
+		} catch (e) {
+			console.warn(e);
+		}
+	}
+
+	async function load() {
+		try {
+			const [s, c] = await Promise.all([
+				api.getSettings(),
+				api.getStreamClients()
+			]);
 			settings = s;
 			clients = c;
 			proxyInput = s.proxy ?? '';
-			karaokeModel.installed = m.installed;
-			karaokeModel.downloading = m.downloading;
-			karaokeModel.total = m.sizeBytes;
-			karaokeCacheLimit = cacheLimit;
-			karaokeCacheBytes = engineStatus.cacheBytes;
 		} catch (e) {
 			toast.error(String(e));
 		}
