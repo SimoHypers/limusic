@@ -1,8 +1,8 @@
-use std::fs::{self, File};
-use std::path::Path;
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use flacenc::component::BitRepr;
 use flacenc::error::Verify;
+use std::fs::{self, File};
+use std::path::Path;
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::DecoderOptions;
 use symphonia::core::errors::Error as SymphoniaError;
@@ -94,7 +94,8 @@ pub fn write_cached(path: &Path, pcm: &Pcm, format: CacheFormat) -> Result<()> {
             };
 
             fs::write(&tmp_path, bv.as_slice()).context("Failed to write temporary cache file")?;
-            fs::rename(&tmp_path, path).context("Failed to rename temporary cache file to target")?;
+            fs::rename(&tmp_path, path)
+                .context("Failed to rename temporary cache file to target")?;
         }
     }
     Ok(())
@@ -116,9 +117,11 @@ pub fn read_cached(path: &Path) -> Result<Pcm> {
         .context("Failed to probe FLAC format")?;
 
     let mut format = probed.format;
-    let track = format.default_track().ok_or_else(|| anyhow!("No audio track found in FLAC cache"))?;
+    let track =
+        format.default_track().ok_or_else(|| anyhow!("No audio track found in FLAC cache"))?;
     let track_id = track.id;
-    let sample_rate = track.codec_params.sample_rate.ok_or_else(|| anyhow!("Sample rate not found"))?;
+    let sample_rate =
+        track.codec_params.sample_rate.ok_or_else(|| anyhow!("Sample rate not found"))?;
     let n_frames = track.codec_params.n_frames.map(|n| n as usize);
 
     let mut decoder = symphonia::default::get_codecs()
@@ -131,7 +134,9 @@ pub fn read_cached(path: &Path) -> Result<Pcm> {
     loop {
         let packet = match format.next_packet() {
             Ok(packet) => packet,
-            Err(SymphoniaError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            Err(SymphoniaError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                break
+            }
             Err(SymphoniaError::ResetRequired) => continue,
             Err(e) => return Err(e.into()),
         };
@@ -198,10 +203,7 @@ mod tests {
             right.push(0.5 * (2.0 * PI * 660.0 * t).sin());
         }
 
-        let pcm_in = Pcm {
-            sample_rate,
-            channels: [left, right],
-        };
+        let pcm_in = Pcm { sample_rate, channels: [left, right] };
 
         let tmp_dir = std::env::temp_dir();
         let flac_path = tmp_dir.join("limusic_test_cache.flac");
@@ -250,10 +252,7 @@ mod tests {
     fn test_cache_format_opus() {
         let tmp_dir = std::env::temp_dir();
         let dummy_path = tmp_dir.join("limusic_test_cache.opus");
-        let pcm = Pcm {
-            sample_rate: 44100,
-            channels: [vec![0.0; 100], vec![0.0; 100]],
-        };
+        let pcm = Pcm { sample_rate: 44100, channels: [vec![0.0; 100], vec![0.0; 100]] };
         let res = write_cached(&dummy_path, &pcm, CacheFormat::Opus);
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("Opus cache format is not available"));
@@ -272,10 +271,7 @@ mod tests {
             right.push(-1.2 * (2.0 * PI * 660.0 * t).sin());
         }
 
-        let pcm_in = Pcm {
-            sample_rate,
-            channels: [left, right],
-        };
+        let pcm_in = Pcm { sample_rate, channels: [left, right] };
 
         let tmp_dir = std::env::temp_dir();
         let flac_path = tmp_dir.join("limusic_peak_test.flac");
@@ -294,12 +290,24 @@ mod tests {
             let expected_r = pcm_in.channels[1][i] / 1.2;
             let err_l = (pcm_out.channels[0][i] - expected_l).abs();
             let err_r = (pcm_out.channels[1][i] - expected_r).abs();
-            if err_l > max_err_l { max_err_l = err_l; }
-            if err_r > max_err_r { max_err_r = err_r; }
+            if err_l > max_err_l {
+                max_err_l = err_l;
+            }
+            if err_r > max_err_r {
+                max_err_r = err_r;
+            }
         }
 
-        assert!(max_err_l < 1.0 / 16384.0, "Left peak norm max error {} exceeds threshold", max_err_l);
-        assert!(max_err_r < 1.0 / 16384.0, "Right peak norm max error {} exceeds threshold", max_err_r);
+        assert!(
+            max_err_l < 1.0 / 16384.0,
+            "Left peak norm max error {} exceeds threshold",
+            max_err_l
+        );
+        assert!(
+            max_err_r < 1.0 / 16384.0,
+            "Right peak norm max error {} exceeds threshold",
+            max_err_r
+        );
 
         let _ = fs::remove_file(&flac_path);
         Ok(())

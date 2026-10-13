@@ -1,4 +1,4 @@
-use realfft::{RealFftPlanner, num_complex::Complex32};
+use realfft::{num_complex::Complex32, RealFftPlanner};
 
 pub struct Stft {
     n_fft: usize,
@@ -90,7 +90,7 @@ impl Stft {
         let nyquist = self.n_fft / 2;
 
         for t in 0..frames {
-            let spec_slice = &spec[t * n_bins .. (t + 1) * n_bins];
+            let spec_slice = &spec[t * n_bins..(t + 1) * n_bins];
             c_in.copy_from_slice(spec_slice);
 
             c_in[0].im = 0.0;

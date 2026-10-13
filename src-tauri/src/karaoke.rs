@@ -5,12 +5,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+use crate::karaoke_model::ModelManager;
 use karaoke::cache::InstrumentalCache;
 use karaoke::cache_codec::CacheFormat;
 use karaoke::jobs::DesiredSet;
 pub use karaoke::jobs::PrepareRequest;
 use karaoke::mdx::MdxParams;
-use crate::karaoke_model::ModelManager;
 use tauri::{AppHandle, Emitter, Manager};
 
 struct Shared {
@@ -32,8 +32,6 @@ pub struct KaraokeEngine {
     ready_tx: tokio::sync::broadcast::Sender<String>,
 }
 
-
-
 fn emit_queue(app: &AppHandle, shared: &Shared, cache: &InstrumentalCache) {
     if !shared.enabled {
         let _ = app.emit("karaoke-queue", &serde_json::json!({ "slots": [] }));
@@ -41,15 +39,19 @@ fn emit_queue(app: &AppHandle, shared: &Shared, cache: &InstrumentalCache) {
     }
     let desired_ids = shared.desired.ids();
     let running = shared.running.as_ref().map(|(id, _, _)| (id.as_str(), shared.last_progress));
-    let slots = karaoke::jobs::build_slots(&desired_ids, running, shared.desired.failed_ids(), |id| cache.contains(id));
+    let slots =
+        karaoke::jobs::build_slots(&desired_ids, running, shared.desired.failed_ids(), |id| {
+            cache.contains(id)
+        });
     let _ = app.emit("karaoke-queue", &serde_json::json!({ "slots": slots }));
 }
 
-fn evict_desired(cache: &InstrumentalCache, desired_ids: &[String], announced_ready: &mut std::collections::HashSet<String>) {
-    let keep: Vec<PathBuf> = desired_ids
-        .iter()
-        .filter_map(|id| cache.get(id))
-        .collect();
+fn evict_desired(
+    cache: &InstrumentalCache,
+    desired_ids: &[String],
+    announced_ready: &mut std::collections::HashSet<String>,
+) {
+    let keep: Vec<PathBuf> = desired_ids.iter().filter_map(|id| cache.get(id)).collect();
     let _ = cache.evict(&keep);
     announced_ready.retain(|id| cache.contains(id));
 }
@@ -58,7 +60,8 @@ fn evict_desired(cache: &InstrumentalCache, desired_ids: &[String], announced_re
 impl KaraokeEngine {
     pub fn new(app: AppHandle, data_dir: &Path, models: Arc<ModelManager>) -> Arc<Self> {
         let cache_dir = data_dir.join("karaoke-cache");
-        let limit_mb = app.try_state::<Arc<crate::state::AppState>>()
+        let limit_mb = app
+            .try_state::<Arc<crate::state::AppState>>()
             .map(|st| crate::state::saved_karaoke_cache_limit_mb(&st.db))
             .unwrap_or(2048)
             .clamp(512, 20480);
@@ -86,13 +89,7 @@ impl KaraokeEngine {
             Condvar::new(),
         ));
 
-        let engine = Arc::new(Self {
-            app,
-            models,
-            cache,
-            shared: shared.clone(),
-            ready_tx,
-        });
+        let engine = Arc::new(Self { app, models, cache, shared: shared.clone(), ready_tx });
 
         let worker_app = engine.app.clone();
         let worker_models = engine.models.clone();
@@ -336,10 +333,13 @@ impl KaraokeEngine {
         for id in &new_ids {
             if self.cache.contains(id) {
                 if shared.announced_ready.insert(id.clone()) {
-                    let _ = self.app.emit("karaoke-status", &serde_json::json!({
-                        "videoId": id,
-                        "state": "ready"
-                    }));
+                    let _ = self.app.emit(
+                        "karaoke-status",
+                        &serde_json::json!({
+                            "videoId": id,
+                            "state": "ready"
+                        }),
+                    );
                     let _ = self.ready_tx.send(id.clone());
                 }
             }
@@ -429,10 +429,13 @@ impl KaraokeEngine {
             for id in shared.desired.ids() {
                 if self.cache.contains(&id) {
                     if shared.announced_ready.insert(id.clone()) {
-                        let _ = self.app.emit("karaoke-status", &serde_json::json!({
-                            "videoId": &id,
-                            "state": "ready"
-                        }));
+                        let _ = self.app.emit(
+                            "karaoke-status",
+                            &serde_json::json!({
+                                "videoId": &id,
+                                "state": "ready"
+                            }),
+                        );
                         let _ = self.ready_tx.send(id.clone());
                     }
                 }

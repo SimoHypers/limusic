@@ -91,18 +91,48 @@ mod tests {
     #[test]
     fn test_desired_set_replace_and_dedup() {
         let mut set = DesiredSet::default();
-        let r1 = PrepareRequest { video_id: "v1".into(), url: "u1".into(), headers: HashMap::new(), expected_secs: None };
-        let r2 = PrepareRequest { video_id: "v2".into(), url: "u2".into(), headers: HashMap::new(), expected_secs: None };
-        let r3 = PrepareRequest { video_id: "v1".into(), url: "u1".into(), headers: HashMap::new(), expected_secs: None };
-        let r4 = PrepareRequest { video_id: "v3".into(), url: "u3".into(), headers: HashMap::new(), expected_secs: None };
-        let r6 = PrepareRequest { video_id: "v4".into(), url: "u4".into(), headers: HashMap::new(), expected_secs: None };
+        let r1 = PrepareRequest {
+            video_id: "v1".into(),
+            url: "u1".into(),
+            headers: HashMap::new(),
+            expected_secs: None,
+        };
+        let r2 = PrepareRequest {
+            video_id: "v2".into(),
+            url: "u2".into(),
+            headers: HashMap::new(),
+            expected_secs: None,
+        };
+        let r3 = PrepareRequest {
+            video_id: "v1".into(),
+            url: "u1".into(),
+            headers: HashMap::new(),
+            expected_secs: None,
+        };
+        let r4 = PrepareRequest {
+            video_id: "v3".into(),
+            url: "u3".into(),
+            headers: HashMap::new(),
+            expected_secs: None,
+        };
+        let r6 = PrepareRequest {
+            video_id: "v4".into(),
+            url: "u4".into(),
+            headers: HashMap::new(),
+            expected_secs: None,
+        };
 
         let removed = set.replace(vec![r1.clone(), r2.clone(), r3, r4, r6]);
         assert_eq!(set.len(), 3);
         assert_eq!(set.ids(), vec!["v1".to_string(), "v2".to_string(), "v3".to_string()]);
         assert!(removed.is_empty());
 
-        let r5 = PrepareRequest { video_id: "v5".into(), url: "u5".into(), headers: HashMap::new(), expected_secs: None };
+        let r5 = PrepareRequest {
+            video_id: "v5".into(),
+            url: "u5".into(),
+            headers: HashMap::new(),
+            expected_secs: None,
+        };
         let removed2 = set.replace(vec![r5]);
         assert_eq!(set.len(), 1);
         assert_eq!(set.ids(), vec!["v5".to_string()]);
@@ -114,10 +144,30 @@ mod tests {
     #[test]
     fn test_desired_set_max_desired_3() {
         let mut set = DesiredSet::default();
-        let r1 = PrepareRequest { video_id: "v1".into(), url: "u1".into(), headers: HashMap::new(), expected_secs: None };
-        let r2 = PrepareRequest { video_id: "v2".into(), url: "u2".into(), headers: HashMap::new(), expected_secs: None };
-        let r3 = PrepareRequest { video_id: "v3".into(), url: "u3".into(), headers: HashMap::new(), expected_secs: None };
-        let r4 = PrepareRequest { video_id: "v4".into(), url: "u4".into(), headers: HashMap::new(), expected_secs: None };
+        let r1 = PrepareRequest {
+            video_id: "v1".into(),
+            url: "u1".into(),
+            headers: HashMap::new(),
+            expected_secs: None,
+        };
+        let r2 = PrepareRequest {
+            video_id: "v2".into(),
+            url: "u2".into(),
+            headers: HashMap::new(),
+            expected_secs: None,
+        };
+        let r3 = PrepareRequest {
+            video_id: "v3".into(),
+            url: "u3".into(),
+            headers: HashMap::new(),
+            expected_secs: None,
+        };
+        let r4 = PrepareRequest {
+            video_id: "v4".into(),
+            url: "u4".into(),
+            headers: HashMap::new(),
+            expected_secs: None,
+        };
 
         set.replace(vec![r1, r2, r3, r4]);
         assert_eq!(set.len(), 3);
@@ -128,8 +178,18 @@ mod tests {
     #[test]
     fn test_desired_set_next_pending() {
         let mut set = DesiredSet::default();
-        let r1 = PrepareRequest { video_id: "v1".into(), url: "u1".into(), headers: HashMap::new(), expected_secs: None };
-        let r2 = PrepareRequest { video_id: "v2".into(), url: "u2".into(), headers: HashMap::new(), expected_secs: None };
+        let r1 = PrepareRequest {
+            video_id: "v1".into(),
+            url: "u1".into(),
+            headers: HashMap::new(),
+            expected_secs: None,
+        };
+        let r2 = PrepareRequest {
+            video_id: "v2".into(),
+            url: "u2".into(),
+            headers: HashMap::new(),
+            expected_secs: None,
+        };
         set.replace(vec![r1, r2]);
 
         let next = set.next_pending(|id| id == "v1");
@@ -143,8 +203,18 @@ mod tests {
     #[test]
     fn test_desired_set_complete_and_clear() {
         let mut set = DesiredSet::default();
-        let r1 = PrepareRequest { video_id: "v1".into(), url: "u1".into(), headers: HashMap::new(), expected_secs: None };
-        let r2 = PrepareRequest { video_id: "v2".into(), url: "u2".into(), headers: HashMap::new(), expected_secs: None };
+        let r1 = PrepareRequest {
+            video_id: "v1".into(),
+            url: "u1".into(),
+            headers: HashMap::new(),
+            expected_secs: None,
+        };
+        let r2 = PrepareRequest {
+            video_id: "v2".into(),
+            url: "u2".into(),
+            headers: HashMap::new(),
+            expected_secs: None,
+        };
         set.replace(vec![r1, r2]);
 
         assert!(set.contains("v1"));
@@ -159,8 +229,18 @@ mod tests {
     #[test]
     fn test_desired_set_clear_failed() {
         let mut set = DesiredSet::default();
-        let r1 = PrepareRequest { video_id: "v1".into(), url: "u1".into(), headers: HashMap::new(), expected_secs: None };
-        let r2 = PrepareRequest { video_id: "v2".into(), url: "u2".into(), headers: HashMap::new(), expected_secs: None };
+        let r1 = PrepareRequest {
+            video_id: "v1".into(),
+            url: "u1".into(),
+            headers: HashMap::new(),
+            expected_secs: None,
+        };
+        let r2 = PrepareRequest {
+            video_id: "v2".into(),
+            url: "u2".into(),
+            headers: HashMap::new(),
+            expected_secs: None,
+        };
         set.replace(vec![r1, r2]);
 
         set.fail("v1");
@@ -179,8 +259,18 @@ mod tests {
     #[test]
     fn test_desired_set_reorder() {
         let mut set = DesiredSet::default();
-        let r1 = PrepareRequest { video_id: "v1".into(), url: "u1".into(), headers: HashMap::new(), expected_secs: None };
-        let r2 = PrepareRequest { video_id: "v2".into(), url: "u2".into(), headers: HashMap::new(), expected_secs: None };
+        let r1 = PrepareRequest {
+            video_id: "v1".into(),
+            url: "u1".into(),
+            headers: HashMap::new(),
+            expected_secs: None,
+        };
+        let r2 = PrepareRequest {
+            video_id: "v2".into(),
+            url: "u2".into(),
+            headers: HashMap::new(),
+            expected_secs: None,
+        };
         set.replace(vec![r1.clone(), r2.clone()]);
         assert_eq!(set.ids(), vec!["v1".to_string(), "v2".to_string()]);
 
@@ -205,41 +295,28 @@ pub fn build_slots(
     failed: &HashSet<String>,
     is_cached: impl Fn(&str) -> bool,
 ) -> Vec<Slot> {
-    desired_ids.iter().map(|id| {
-        if failed.contains(id) {
-            Slot {
-                video_id: id.clone(),
-                state: "error".to_string(),
-                progress: None,
-            }
-        } else if is_cached(id) {
-            Slot {
-                video_id: id.clone(),
-                state: "ready".to_string(),
-                progress: None,
-            }
-        } else if let Some((r_id, prog)) = running {
-            if r_id == id {
-                Slot {
-                    video_id: id.clone(),
-                    state: "preparing".to_string(),
-                    progress: Some(prog),
+    desired_ids
+        .iter()
+        .map(|id| {
+            if failed.contains(id) {
+                Slot { video_id: id.clone(), state: "error".to_string(), progress: None }
+            } else if is_cached(id) {
+                Slot { video_id: id.clone(), state: "ready".to_string(), progress: None }
+            } else if let Some((r_id, prog)) = running {
+                if r_id == id {
+                    Slot {
+                        video_id: id.clone(),
+                        state: "preparing".to_string(),
+                        progress: Some(prog),
+                    }
+                } else {
+                    Slot { video_id: id.clone(), state: "queued".to_string(), progress: None }
                 }
             } else {
-                Slot {
-                    video_id: id.clone(),
-                    state: "queued".to_string(),
-                    progress: None,
-                }
+                Slot { video_id: id.clone(), state: "queued".to_string(), progress: None }
             }
-        } else {
-            Slot {
-                video_id: id.clone(),
-                state: "queued".to_string(),
-                progress: None,
-            }
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -252,12 +329,7 @@ mod slot_tests {
         let mut failed = HashSet::new();
         failed.insert("v3".to_string());
 
-        let slots = build_slots(
-            &desired,
-            Some(("v2", 0.5)),
-            &failed,
-            |id| id == "v1",
-        );
+        let slots = build_slots(&desired, Some(("v2", 0.5)), &failed, |id| id == "v1");
 
         assert_eq!(slots.len(), 3);
         assert_eq!(slots[0].video_id, "v1");
@@ -273,4 +345,3 @@ mod slot_tests {
         assert_eq!(slots[2].progress, None);
     }
 }
-

@@ -51,11 +51,7 @@ impl ModelManager {
                 }
             }
         }
-        Self {
-            dir,
-            busy: AtomicBool::new(false),
-            cancel: AtomicBool::new(false),
-        }
+        Self { dir, busy: AtomicBool::new(false), cancel: AtomicBool::new(false) }
     }
 
     fn override_path() -> Option<PathBuf> {
@@ -95,17 +91,9 @@ impl ModelManager {
     pub fn status(&self) -> ModelStatus {
         let installed = self.is_installed();
         let downloading = self.busy.load(Ordering::SeqCst);
-        let path = if installed {
-            Some(self.model_path().to_string_lossy().into_owned())
-        } else {
-            None
-        };
-        ModelStatus {
-            installed,
-            downloading,
-            size_bytes: MODEL_SIZE,
-            path,
-        }
+        let path =
+            if installed { Some(self.model_path().to_string_lossy().into_owned()) } else { None };
+        ModelStatus { installed, downloading, size_bytes: MODEL_SIZE, path }
     }
 
     pub fn cancel_download(&self) {
@@ -155,31 +143,28 @@ impl ModelManager {
         final_path: &Path,
     ) -> Result<(), String> {
         let client = crate::http::client();
-        let response = client
-            .get(MODEL_URL)
-            .header("User-Agent", "Limusic")
-            .send()
-            .await
-            .map_err(|e| {
+        let response =
+            client.get(MODEL_URL).header("User-Agent", "Limusic").send().await.map_err(|e| {
                 let msg = karaoke::sanitize_error(&e.to_string());
-                let _ = app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
+                let _ = app
+                    .emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
                 msg
             })?;
 
         if !response.status().is_success() {
             let status_code = response.status();
             let msg = format!("download failed with status {status_code}");
-            let _ = app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
+            let _ =
+                app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
             return Err(msg);
         }
 
-        let total = response
-            .content_length()
-            .unwrap_or(MODEL_SIZE);
+        let total = response.content_length().unwrap_or(MODEL_SIZE);
 
         let mut file = tokio::fs::File::create(part_path).await.map_err(|e| {
             let msg = karaoke::sanitize_error(&e.to_string());
-            let _ = app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
+            let _ =
+                app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
             msg
         })?;
 
@@ -203,13 +188,15 @@ impl ModelManager {
 
             let chunk = chunk_result.map_err(|e| {
                 let msg = karaoke::sanitize_error(&e.to_string());
-                let _ = app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
+                let _ = app
+                    .emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
                 msg
             })?;
 
             file.write_all(&chunk).await.map_err(|e| {
                 let msg = karaoke::sanitize_error(&e.to_string());
-                let _ = app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
+                let _ = app
+                    .emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
                 msg
             })?;
 
@@ -226,7 +213,8 @@ impl ModelManager {
 
         file.flush().await.map_err(|e| {
             let msg = karaoke::sanitize_error(&e.to_string());
-            let _ = app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
+            let _ =
+                app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
             msg
         })?;
         drop(file);
@@ -239,14 +227,16 @@ impl ModelManager {
 
         if downloaded != MODEL_SIZE {
             let msg = format!("model file size mismatch: got {downloaded}, expected {MODEL_SIZE}");
-            let _ = app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
+            let _ =
+                app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
             return Err(msg);
         }
 
         let hash_result = format!("{:x}", hasher.finalize());
         if !hash_result.eq_ignore_ascii_case(MODEL_SHA256) {
             let msg = "model file is corrupted (checksum mismatch)".to_string();
-            let _ = app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
+            let _ =
+                app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
             return Err(msg);
         }
 
@@ -254,14 +244,16 @@ impl ModelManager {
         if final_path.exists() {
             if let Err(e) = std::fs::remove_file(final_path) {
                 let msg = karaoke::sanitize_error(&e.to_string());
-                let _ = app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
+                let _ = app
+                    .emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
                 return Err(msg);
             }
         }
 
         if let Err(e) = tokio::fs::rename(part_path, final_path).await {
             let msg = karaoke::sanitize_error(&e.to_string());
-            let _ = app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
+            let _ =
+                app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
             return Err(msg);
         }
 
@@ -269,8 +261,6 @@ impl ModelManager {
         Ok(())
     }
 }
-
-
 
 /// Pure helper for progress throttling.
 pub struct ProgressThrottle {
@@ -280,10 +270,7 @@ pub struct ProgressThrottle {
 
 impl ProgressThrottle {
     pub fn new(interval: Duration) -> Self {
-        Self {
-            interval,
-            last_emitted: Instant::now() - interval - Duration::from_secs(1),
-        }
+        Self { interval, last_emitted: Instant::now() - interval - Duration::from_secs(1) }
     }
 
     pub fn should_emit(&mut self) -> bool {

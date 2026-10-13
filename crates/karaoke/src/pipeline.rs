@@ -1,10 +1,10 @@
+use crate::cache::InstrumentalCache;
+use crate::cache_codec::{write_cached, Pcm};
+use crate::mdx::MdxModel;
+use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
-use anyhow::{Context, Result};
-use crate::cache::InstrumentalCache;
-use crate::cache_codec::{Pcm, write_cached};
-use crate::mdx::MdxModel;
 
 pub trait Separator {
     fn separate_pcm(
@@ -68,7 +68,8 @@ pub fn prepare_instrumental(
         anyhow::bail!("cancelled");
     }
 
-    let mut reader = hound::WavReader::open(&wav_path).context("Failed to open temporary WAV file")?;
+    let mut reader =
+        hound::WavReader::open(&wav_path).context("Failed to open temporary WAV file")?;
     let spec = reader.spec();
     if spec.sample_rate != 44100 {
         anyhow::bail!("Required sample rate 44100 Hz, got {} Hz", spec.sample_rate);
@@ -150,10 +151,7 @@ pub fn prepare_instrumental(
     let result_path = cache.path_for(track_id);
     let write_res = write_cached(
         &result_path,
-        &Pcm {
-            sample_rate: 44100,
-            channels: [sep_l, sep_r],
-        },
+        &Pcm { sample_rate: 44100, channels: [sep_l, sep_r] },
         cache.format(),
     );
     let encode_ms = start_encode.elapsed().as_millis();
@@ -200,7 +198,7 @@ mod tests {
     use super::*;
     use crate::cache::InstrumentalCache;
     use crate::cache_codec::CacheFormat;
-    use hound::{WavSpec, WavWriter, SampleFormat};
+    use hound::{SampleFormat, WavSpec, WavWriter};
     use std::cell::Cell;
 
     struct FakeSeparator {
@@ -256,13 +254,29 @@ mod tests {
             progress_calls += 1;
         };
 
-        let p1 = prepare_instrumental(&cache, track_id, &mut separator, &mut decode_to_wav, None, &cancel, &mut progress)?;
+        let p1 = prepare_instrumental(
+            &cache,
+            track_id,
+            &mut separator,
+            &mut decode_to_wav,
+            None,
+            &cancel,
+            &mut progress,
+        )?;
         assert!(p1.exists());
         assert_eq!(decode_calls.get(), 1);
         assert_eq!(separator.calls, 1);
         assert!(!cache.tmp_wav_path(track_id).exists());
 
-        let p2 = prepare_instrumental(&cache, track_id, &mut separator, &mut decode_to_wav, None, &cancel, &mut progress)?;
+        let p2 = prepare_instrumental(
+            &cache,
+            track_id,
+            &mut separator,
+            &mut decode_to_wav,
+            None,
+            &cancel,
+            &mut progress,
+        )?;
         assert_eq!(p1, p2);
         assert_eq!(decode_calls.get(), 1);
         assert_eq!(separator.calls, 1);
@@ -282,12 +296,18 @@ mod tests {
         let track_id = "test_cancel";
         let cancel = AtomicBool::new(true);
         let mut separator = FakeSeparator { calls: 0 };
-        let mut decode_to_wav = |_wav_path: &Path| -> Result<()> {
-            Ok(())
-        };
+        let mut decode_to_wav = |_wav_path: &Path| -> Result<()> { Ok(()) };
         let mut progress = |_, _| {};
 
-        let res = prepare_instrumental(&cache, track_id, &mut separator, &mut decode_to_wav, None, &cancel, &mut progress);
+        let res = prepare_instrumental(
+            &cache,
+            track_id,
+            &mut separator,
+            &mut decode_to_wav,
+            None,
+            &cancel,
+            &mut progress,
+        );
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("cancelled"));
 
@@ -318,7 +338,15 @@ mod tests {
         };
         let mut progress = |_, _| {};
 
-        let res = prepare_instrumental(&cache, track_id, &mut separator, &mut decode_to_wav, None, &cancel, &mut progress);
+        let res = prepare_instrumental(
+            &cache,
+            track_id,
+            &mut separator,
+            &mut decode_to_wav,
+            None,
+            &cancel,
+            &mut progress,
+        );
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("decode error"));
 
@@ -362,7 +390,15 @@ mod tests {
         };
         let mut progress = |_, _| {};
 
-        let res = prepare_instrumental(&cache, track_id, &mut separator, &mut decode_to_wav, Some(100.0), &cancel, &mut progress);
+        let res = prepare_instrumental(
+            &cache,
+            track_id,
+            &mut separator,
+            &mut decode_to_wav,
+            Some(100.0),
+            &cancel,
+            &mut progress,
+        );
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("incomplete"));
         assert!(!cache.path_for(track_id).exists());
@@ -384,7 +420,15 @@ mod tests {
             writer.finalize()?;
             Ok(())
         };
-        let res_ok = prepare_instrumental(&cache, track_id_ok, &mut separator, &mut decode_to_wav_ok, Some(100.0), &cancel, &mut progress);
+        let res_ok = prepare_instrumental(
+            &cache,
+            track_id_ok,
+            &mut separator,
+            &mut decode_to_wav_ok,
+            Some(100.0),
+            &cancel,
+            &mut progress,
+        );
         assert!(res_ok.is_ok());
         assert!(cache.path_for(track_id_ok).exists());
 

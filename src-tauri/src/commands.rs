@@ -239,10 +239,13 @@ pub async fn set_karaoke(
     enabled: bool,
 ) -> Result<(), String> {
     if enabled && !models.is_installed() {
-        let _ = state.app.emit("karaoke-status", &serde_json::json!({
-            "videoId": "",
-            "state": "needs-model"
-        }));
+        let _ = state.app.emit(
+            "karaoke-status",
+            &serde_json::json!({
+                "videoId": "",
+                "state": "needs-model"
+            }),
+        );
         let _ = state.app.emit("karaoke", false);
         return Ok(());
     }
@@ -2739,7 +2742,9 @@ pub fn theater_fullscreen(window: tauri::WebviewWindow, on: bool) -> Result<(), 
 
 /// Get the status of the karaoke separation model.
 #[tauri::command]
-pub fn karaoke_model_status(manager: State<'_, Arc<crate::karaoke_model::ModelManager>>) -> crate::karaoke_model::ModelStatus {
+pub fn karaoke_model_status(
+    manager: State<'_, Arc<crate::karaoke_model::ModelManager>>,
+) -> crate::karaoke_model::ModelStatus {
     manager.status()
 }
 
@@ -2758,7 +2763,9 @@ pub async fn karaoke_model_download(
 
 /// Cancel an ongoing karaoke model download.
 #[tauri::command]
-pub fn karaoke_model_cancel(manager: State<'_, Arc<crate::karaoke_model::ModelManager>>) -> Result<(), String> {
+pub fn karaoke_model_cancel(
+    manager: State<'_, Arc<crate::karaoke_model::ModelManager>>,
+) -> Result<(), String> {
     manager.cancel_download();
     Ok(())
 }
@@ -2808,9 +2815,7 @@ pub async fn karaoke_retry_failed(
 
 /// Get the karaoke cache limit in megabytes.
 #[tauri::command]
-pub fn karaoke_cache_limit_mb(
-    state: State<'_, Arc<AppState>>,
-) -> u64 {
+pub fn karaoke_cache_limit_mb(state: State<'_, Arc<AppState>>) -> u64 {
     crate::state::saved_karaoke_cache_limit_mb(&state.db)
 }
 

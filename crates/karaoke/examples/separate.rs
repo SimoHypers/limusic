@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use hound::{SampleFormat, WavSpec, WavWriter};
 use karaoke::mdx::{MdxModel, MdxParams};
-use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
+use rubato::{
+    Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+};
 use std::env;
 use std::fs::File;
 use std::path::Path;
@@ -103,9 +105,7 @@ fn main() -> Result<()> {
         .context("Failed to probe audio format")?;
 
     let mut format = probed.format;
-    let track = format
-        .default_track()
-        .ok_or_else(|| anyhow::anyhow!("No audio track found"))?;
+    let track = format.default_track().ok_or_else(|| anyhow::anyhow!("No audio track found"))?;
     let track_id = track.id;
     let sample_rate = track
         .codec_params
@@ -162,10 +162,7 @@ fn main() -> Result<()> {
     }
 
     let original_duration = channels_l.len() as f64 / sample_rate as f64;
-    eprintln!(
-        "Decoded {} Hz, stereo, duration: {:.2}s",
-        sample_rate, original_duration
-    );
+    eprintln!("Decoded {} Hz, stereo, duration: {:.2}s", sample_rate, original_duration);
 
     // Resample to 44100 Hz with rubato if sample rate differs
     let (resampled_l, resampled_r) = if sample_rate != 44100 {
@@ -177,14 +174,9 @@ fn main() -> Result<()> {
             oversampling_factor: 256,
             window: WindowFunction::BlackmanHarris,
         };
-        let mut resampler = SincFixedIn::<f32>::new(
-            44100.0 / sample_rate as f64,
-            2.0,
-            params,
-            1024,
-            2,
-        )
-        .context("Failed to create resampler")?;
+        let mut resampler =
+            SincFixedIn::<f32>::new(44100.0 / sample_rate as f64, 2.0, params, 1024, 2)
+                .context("Failed to create resampler")?;
 
         let chunk_size = resampler.input_frames_next();
         let mut out_l = Vec::new();
@@ -229,7 +221,8 @@ fn main() -> Result<()> {
             MdxModel::load_auto_with_cpu_percent(Path::new(model_path), MdxParams::default(), p)
         } else {
             MdxModel::load_auto(Path::new(model_path), MdxParams::default())
-        }.context("Failed to load MDX model")?;
+        }
+        .context("Failed to load MDX model")?;
         match d {
             karaoke::mdx::Device::DirectMl { device_id } => {
                 let adapters = karaoke::device::list_adapters();
@@ -260,10 +253,7 @@ fn main() -> Result<()> {
         } else {
             karaoke::device::cpu_threads_for_percent(karaoke::device::DEFAULT_CPU_PERCENT)
         };
-        let load_opts = karaoke::mdx::LoadOptions {
-            device,
-            intra_threads: Some(n),
-        };
+        let load_opts = karaoke::mdx::LoadOptions { device, intra_threads: Some(n) };
 
         match device {
             karaoke::mdx::Device::DirectMl { device_id } => {
@@ -283,15 +273,10 @@ fn main() -> Result<()> {
     let start_time = Instant::now();
 
     let separated = model
-        .separate(
-            [&resampled_l, &resampled_r],
-            overlap,
-            denoise,
-            &mut |curr, total| {
-                let elapsed = start_time.elapsed().as_secs_f64();
-                eprintln!("chunk {}/{} t={:.1}s", curr, total, elapsed);
-            },
-        )
+        .separate([&resampled_l, &resampled_r], overlap, denoise, &mut |curr, total| {
+            let elapsed = start_time.elapsed().as_secs_f64();
+            eprintln!("chunk {}/{} t={:.1}s", curr, total, elapsed);
+        })
         .context("Separation failed")?;
 
     let processing_time = start_time.elapsed().as_secs_f64();

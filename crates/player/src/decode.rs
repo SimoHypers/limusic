@@ -25,12 +25,15 @@ pub fn decode_to_wav(
     }
     let fields: String = headers
         .iter()
-        .filter(|(k, _)| !k.eq_ignore_ascii_case("user-agent") && !k.eq_ignore_ascii_case("http-proxy"))
+        .filter(|(k, _)| {
+            !k.eq_ignore_ascii_case("user-agent") && !k.eq_ignore_ascii_case("http-proxy")
+        })
         .map(|(k, v)| format!("{k}: {v}"))
         .collect::<Vec<_>>()
         .join(",");
     if !fields.is_empty() {
-        mpv.set_property("http-header-fields", fields.as_str()).map_err(|e| anyhow::anyhow!("{}", e))?;
+        mpv.set_property("http-header-fields", fields.as_str())
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
     }
     if let Some(proxy) = headers.get("http-proxy").or_else(|| headers.get("HTTP-PROXY")) {
         mpv.set_property("http-proxy", proxy.as_str()).map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -38,9 +41,7 @@ pub fn decode_to_wav(
 
     mpv.set_property("vid", "no").map_err(|e| anyhow::anyhow!("{}", e))?;
     mpv.set_property("ao", "pcm").map_err(|e| anyhow::anyhow!("{}", e))?;
-    let path_str = out_wav
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("invalid output path"))?;
+    let path_str = out_wav.to_str().ok_or_else(|| anyhow::anyhow!("invalid output path"))?;
     mpv.set_property("ao-pcm-file", path_str).map_err(|e| anyhow::anyhow!("{}", e))?;
     mpv.set_property("ao-pcm-waveheader", "yes").map_err(|e| anyhow::anyhow!("{}", e))?;
     mpv.set_property("audio-samplerate", 44100_i64).map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -76,7 +77,8 @@ pub fn decode_to_wav(
                 match reason as i32 {
                     0 => break, // EOF
                     other if other == 4 => {
-                        result = Err(anyhow::anyhow!("mpv decoding failed with error reason {other}"));
+                        result =
+                            Err(anyhow::anyhow!("mpv decoding failed with error reason {other}"));
                         break;
                     }
                     other => {

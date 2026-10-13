@@ -402,10 +402,10 @@ impl InnerTube {
                         && attempt < 3
                         && (e.is_timeout() || e.is_connect() || e.is_request()) =>
                 {
-                        let e = e.without_url();
-                        tracing::warn!(attempt, error = %e, "retrying InnerTube POST {path}");
-                        tokio::time::sleep(delay).await;
-                        delay *= 2;
+                    let e = e.without_url();
+                    tracing::warn!(attempt, error = %e, "retrying InnerTube POST {path}");
+                    tokio::time::sleep(delay).await;
+                    delay *= 2;
                 }
                 // Signed in and Google says "no credential" (401) or "not for you" (403): the
                 // stored cookie has gone stale. Most of these are survivable: the healer

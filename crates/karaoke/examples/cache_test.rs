@@ -7,7 +7,9 @@ use std::time::Instant;
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
-        eprintln!("Usage: cargo run --release -p karaoke --example cache_test -- <in.wav> <out.flac>");
+        eprintln!(
+            "Usage: cargo run --release -p karaoke --example cache_test -- <in.wav> <out.flac>"
+        );
         std::process::exit(1);
     }
 
@@ -60,19 +62,18 @@ fn main() -> Result<()> {
         }
     }
 
-    let pcm = Pcm {
-        sample_rate,
-        channels: [left, right],
-    };
+    let pcm = Pcm { sample_rate, channels: [left, right] };
 
-    let input_size = std::fs::metadata(in_wav_path).context("Failed to get input WAV metadata")?.len();
+    let input_size =
+        std::fs::metadata(in_wav_path).context("Failed to get input WAV metadata")?.len();
 
     println!("Encoding to FLAC: {}", out_flac_path.display());
     let encode_start = Instant::now();
     write_cached(&out_flac_path, &pcm, CacheFormat::Flac)?;
     let encode_time = encode_start.elapsed();
 
-    let output_size = std::fs::metadata(&out_flac_path).context("Failed to get output FLAC metadata")?.len();
+    let output_size =
+        std::fs::metadata(&out_flac_path).context("Failed to get output FLAC metadata")?.len();
     let ratio = output_size as f64 / input_size as f64;
 
     println!("Input size: {} bytes", input_size);

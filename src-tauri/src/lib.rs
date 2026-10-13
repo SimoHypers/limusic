@@ -13,8 +13,8 @@ mod http;
 mod import;
 #[cfg(target_os = "linux")]
 mod inhibit;
-mod karaoke_model;
 mod karaoke;
+mod karaoke_model;
 mod lastfm;
 mod listenbrainz;
 mod listentogether;

@@ -1,7 +1,7 @@
-use std::path::Path;
-use std::cmp::min;
-use realfft::num_complex::Complex32;
 use crate::stft::Stft;
+use realfft::num_complex::Complex32;
+use std::cmp::min;
+use std::path::Path;
 
 #[derive(Debug, Clone, Copy)]
 pub struct MdxParams {
@@ -14,13 +14,7 @@ pub struct MdxParams {
 
 impl Default for MdxParams {
     fn default() -> Self {
-        Self {
-            n_fft: 6144,
-            hop: 1024,
-            dim_f: 3072,
-            dim_t: 256,
-            compensate: 1.035,
-        }
+        Self { n_fft: 6144, hop: 1024, dim_f: 3072, dim_t: 256, compensate: 1.035 }
     }
 }
 
@@ -38,10 +32,7 @@ pub struct LoadOptions {
 
 impl Default for LoadOptions {
     fn default() -> Self {
-        Self {
-            device: Device::Cpu,
-            intra_threads: None,
-        }
+        Self { device: Device::Cpu, intra_threads: None }
     }
 }
 
@@ -54,10 +45,8 @@ impl LoadOptions {
         #[cfg(feature = "directml")]
         {
             let adapters = crate::device::list_adapters();
-            if let Some(a) = crate::device::pick_gpu(
-                &adapters,
-                crate::device::MIN_DISCRETE_VRAM_MB,
-            ) {
+            if let Some(a) = crate::device::pick_gpu(&adapters, crate::device::MIN_DISCRETE_VRAM_MB)
+            {
                 tracing::info!("{}", crate::device::describe(a));
                 return LoadOptions {
                     device: Device::DirectMl { device_id: a.index },
@@ -80,12 +69,10 @@ pub struct MdxModel {
 
 impl MdxModel {
     pub fn load(model_path: &Path, params: MdxParams, opts: LoadOptions) -> anyhow::Result<Self> {
-        let mut builder = ort::session::Session::builder()
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        let mut builder =
+            ort::session::Session::builder().map_err(|e| anyhow::anyhow!(e.to_string()))?;
         if let Some(n) = opts.intra_threads {
-            builder = builder
-                .with_intra_threads(n)
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            builder = builder.with_intra_threads(n).map_err(|e| anyhow::anyhow!(e.to_string()))?;
         }
         match opts.device {
             Device::Cpu => {}
@@ -102,18 +89,15 @@ impl MdxModel {
                         .map_err(|e| anyhow::anyhow!(e.to_string()))?
                         .with_parallel_execution(false)
                         .map_err(|e| anyhow::anyhow!(e.to_string()))?
-                        .with_execution_providers([
-                            ort::ep::DirectML::default()
-                                .with_device_id(device_id)
-                                .build(),
-                        ])
+                        .with_execution_providers([ort::ep::DirectML::default()
+                            .with_device_id(device_id)
+                            .build()])
                         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 }
             }
         }
-        let session = builder
-            .commit_from_file(model_path)
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        let session =
+            builder.commit_from_file(model_path).map_err(|e| anyhow::anyhow!(e.to_string()))?;
         let stft = Stft::new(params.n_fft, params.hop);
         Ok(Self { session, params, stft })
     }
@@ -122,25 +106,27 @@ impl MdxModel {
         Self::load_auto_with_cpu_percent(model_path, params, crate::device::DEFAULT_CPU_PERCENT)
     }
 
-    pub fn load_auto_with_cpu_percent(model_path: &Path, params: MdxParams, percent: u32) -> anyhow::Result<(Self, Device)> {
+    pub fn load_auto_with_cpu_percent(
+        model_path: &Path,
+        params: MdxParams,
+        percent: u32,
+    ) -> anyhow::Result<(Self, Device)> {
         let opts = LoadOptions::auto_with_cpu_percent(percent);
         let device = opts.device;
         match Self::load(model_path, params, opts) {
             Ok(model) => Ok((model, device)),
-            Err(e) => {
-                match device {
-                    Device::DirectMl { .. } => {
-                        tracing::warn!(error = %crate::sanitize_error(&e.to_string()), "DirectML model load failed, falling back to CPU");
-                        let cpu_opts = LoadOptions {
-                            device: Device::Cpu,
-                            intra_threads: Some(crate::device::cpu_threads_for_percent(percent)),
-                        };
-                        let model = Self::load(model_path, params, cpu_opts)?;
-                        Ok((model, Device::Cpu))
-                    }
-                    Device::Cpu => Err(e),
+            Err(e) => match device {
+                Device::DirectMl { .. } => {
+                    tracing::warn!(error = %crate::sanitize_error(&e.to_string()), "DirectML model load failed, falling back to CPU");
+                    let cpu_opts = LoadOptions {
+                        device: Device::Cpu,
+                        intra_threads: Some(crate::device::cpu_threads_for_percent(percent)),
+                    };
+                    let model = Self::load(model_path, params, cpu_opts)?;
+                    Ok((model, Device::Cpu))
                 }
-            }
+                Device::Cpu => Err(e),
+            },
         }
     }
 
@@ -223,7 +209,8 @@ impl MdxModel {
                     if n == 1 {
                         1.0
                     } else {
-                        0.5 - 0.5 * (2.0 * std::f32::consts::PI * (k as f32) / ((n - 1) as f32)).cos()
+                        0.5 - 0.5
+                            * (2.0 * std::f32::consts::PI * (k as f32) / ((n - 1) as f32)).cos()
                     }
                 } else {
                     1.0
@@ -237,15 +224,16 @@ impl MdxModel {
             for c in 0..4 {
                 for f in 0..dim_f {
                     for t in 0..dim_t {
-                        let cplx = if t < self.stft.frames(chunk_size) && t * n_bins + f < spec_l.len() {
-                            match c {
-                                0 | 1 => spec_l[t * n_bins + f],
-                                2 | 3 => spec_r[t * n_bins + f],
-                                _ => Complex32::new(0.0, 0.0),
-                            }
-                        } else {
-                            Complex32::new(0.0, 0.0)
-                        };
+                        let cplx =
+                            if t < self.stft.frames(chunk_size) && t * n_bins + f < spec_l.len() {
+                                match c {
+                                    0 | 1 => spec_l[t * n_bins + f],
+                                    2 | 3 => spec_r[t * n_bins + f],
+                                    _ => Complex32::new(0.0, 0.0),
+                                }
+                            } else {
+                                Complex32::new(0.0, 0.0)
+                            };
                         let val = if f < 3 {
                             0.0
                         } else {
@@ -260,7 +248,10 @@ impl MdxModel {
                 }
             }
 
-            let tensor = ort::value::Tensor::from_array((vec![1usize, 4, dim_f, dim_t], input_data.clone()))?;
+            let tensor = ort::value::Tensor::from_array((
+                vec![1usize, 4, dim_f, dim_t],
+                input_data.clone(),
+            ))?;
             let outputs = self.session.run(ort::inputs! { input_name.as_str() => tensor })?;
 
             let pred = if denoise {
@@ -270,8 +261,12 @@ impl MdxModel {
                 };
                 drop(outputs);
                 let neg_input_data: Vec<f32> = input_data.iter().map(|&x| -x).collect();
-                let neg_tensor = ort::value::Tensor::from_array((vec![1usize, 4, dim_f, dim_t], neg_input_data))?;
-                let outputs_neg = self.session.run(ort::inputs! { input_name.as_str() => neg_tensor })?;
+                let neg_tensor = ort::value::Tensor::from_array((
+                    vec![1usize, 4, dim_f, dim_t],
+                    neg_input_data,
+                ))?;
+                let outputs_neg =
+                    self.session.run(ort::inputs! { input_name.as_str() => neg_tensor })?;
                 let data_neg = {
                     let (_, d_neg) = outputs_neg[0].try_extract_tensor::<f32>()?;
                     d_neg.to_vec()
@@ -338,7 +333,13 @@ impl MdxModel {
 mod tests {
     use super::*;
 
-    fn test_chunk_bookkeeping(l: usize, n_fft: usize, hop: usize, dim_t: usize, overlap: f32) -> (usize, bool) {
+    fn test_chunk_bookkeeping(
+        l: usize,
+        n_fft: usize,
+        hop: usize,
+        dim_t: usize,
+        overlap: f32,
+    ) -> (usize, bool) {
         let chunk_size = hop * (dim_t - 1);
         let trim = n_fft / 2;
         let gen_size = chunk_size - 2 * trim;
@@ -364,7 +365,8 @@ mod tests {
                     if n == 1 {
                         1.0
                     } else {
-                        0.5 - 0.5 * (2.0 * std::f32::consts::PI * (k as f32) / ((n - 1) as f32)).cos()
+                        0.5 - 0.5
+                            * (2.0 * std::f32::consts::PI * (k as f32) / ((n - 1) as f32)).cos()
                     }
                 } else {
                     1.0

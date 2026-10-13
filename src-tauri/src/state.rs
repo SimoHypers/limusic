@@ -2160,7 +2160,8 @@ impl AppState {
             .map(|(_, pos)| pos);
         let stream_url = mpv_stream_url(&data);
         let karaoke_on = self.karaoke_active();
-        let is_karaoke = karaoke_on && self.karaoke_engine().and_then(|e| e.ready_path(&item.video_id)).is_some();
+        let is_karaoke = karaoke_on
+            && self.karaoke_engine().and_then(|e| e.ready_path(&item.video_id)).is_some();
         let dur_secs = parse_duration_ms(item.duration.as_deref()) / 1000;
         let expected_secs = if dur_secs > 0 { Some(dur_secs as f64) } else { None };
         let req = crate::karaoke::PrepareRequest {
@@ -2344,8 +2345,11 @@ impl AppState {
         // current track already set. Just append the URL.
         let stream_url = mpv_stream_url(&data);
         let karaoke_on = self.karaoke_active();
-        let is_karaoke = karaoke_on && self.karaoke_engine().and_then(|e| e.ready_path(next_video)).is_some();
-        let dur_secs = q.items.get(next_idx)
+        let is_karaoke =
+            karaoke_on && self.karaoke_engine().and_then(|e| e.ready_path(next_video)).is_some();
+        let dur_secs = q
+            .items
+            .get(next_idx)
             .map(|item| parse_duration_ms(item.duration.as_deref()) / 1000)
             .unwrap_or(0);
         let expected_secs = if dur_secs > 0 { Some(dur_secs as f64) } else { None };
@@ -2362,7 +2366,14 @@ impl AppState {
             let next2_info = {
                 let q = self.queue.lock().await;
                 next_index(q.items.len(), next_idx, q.repeat).and_then(|idx| {
-                    q.items.get(idx).map(|item| (idx, item.video_id.clone(), item.is_upload, parse_duration_ms(item.duration.as_deref()) / 1000))
+                    q.items.get(idx).map(|item| {
+                        (
+                            idx,
+                            item.video_id.clone(),
+                            item.is_upload,
+                            parse_duration_ms(item.duration.as_deref()) / 1000,
+                        )
+                    })
                 })
             };
             if let Some((next2_idx, next2_video, next2_upload, next2_secs)) = next2_info {
@@ -2373,10 +2384,14 @@ impl AppState {
                             let stream_url2 = mpv_stream_url(&d2);
                             let same2 = {
                                 let q = self.queue.lock().await;
-                                q.items.get(next2_idx).map(|i| i.video_id == next2_video).unwrap_or(false)
+                                q.items
+                                    .get(next2_idx)
+                                    .map(|i| i.video_id == next2_video)
+                                    .unwrap_or(false)
                             };
                             if same2 {
-                                let expected_secs2 = if next2_secs > 0 { Some(next2_secs as f64) } else { None };
+                                let expected_secs2 =
+                                    if next2_secs > 0 { Some(next2_secs as f64) } else { None };
                                 req2 = Some(crate::karaoke::PrepareRequest {
                                     video_id: next2_video,
                                     url: stream_url2,
@@ -2480,11 +2495,13 @@ impl AppState {
     pub async fn reload_current_source(self: &std::sync::Arc<Self>) {
         let gen = self.generation.load(Ordering::SeqCst);
         let Some(item) = self.current_item().await else { return };
-        let resolved = self.resolve(
-            &item.video_id,
-            item.is_upload,
-            parse_duration_ms(item.duration.as_deref()) / 1000,
-        ).await;
+        let resolved = self
+            .resolve(
+                &item.video_id,
+                item.is_upload,
+                parse_duration_ms(item.duration.as_deref()) / 1000,
+            )
+            .await;
         if self.generation.load(Ordering::SeqCst) != gen {
             return;
         }
@@ -2500,7 +2517,8 @@ impl AppState {
         let pos = self.current_position();
         let stream_url = mpv_stream_url(&data);
         let karaoke_on = self.karaoke_active();
-        let is_karaoke = karaoke_on && self.karaoke_engine().and_then(|e| e.ready_path(&item.video_id)).is_some();
+        let is_karaoke = karaoke_on
+            && self.karaoke_engine().and_then(|e| e.ready_path(&item.video_id)).is_some();
         let dur_secs = parse_duration_ms(item.duration.as_deref()) / 1000;
         let expected_secs = if dur_secs > 0 { Some(dur_secs as f64) } else { None };
         let req = crate::karaoke::PrepareRequest {
@@ -2510,7 +2528,9 @@ impl AppState {
             expected_secs,
         };
         let play_u = self.play_url(&item.video_id, &data);
-        if let Err(e) = self.player.load(&play_u, &data.headers, self.track_gain(data.loudness_db), Some(pos)) {
+        if let Err(e) =
+            self.player.load(&play_u, &data.headers, self.track_gain(data.loudness_db), Some(pos))
+        {
             self.emit_error(&item.video_id, &e.to_string());
             return;
         }
@@ -2543,7 +2563,9 @@ impl AppState {
             let should_reload = {
                 let q = self.queue.lock().await;
                 self.karaoke_push_wants(&q);
-                q.items.get(q.current).map_or(false, |item| !q.current_is_karaoke && engine.ready_path(&item.video_id).is_some())
+                q.items.get(q.current).map_or(false, |item| {
+                    !q.current_is_karaoke && engine.ready_path(&item.video_id).is_some()
+                })
             };
             if should_reload {
                 self.reload_current_source().await;
@@ -2582,10 +2604,35 @@ impl AppState {
 
         let (cur_info, next_info, next2_info) = {
             let q = self.queue.lock().await;
-            let cur = q.items.get(q.current).map(|item| (item.video_id.clone(), item.is_upload, parse_duration_ms(item.duration.as_deref()) / 1000));
+            let cur = q.items.get(q.current).map(|item| {
+                (
+                    item.video_id.clone(),
+                    item.is_upload,
+                    parse_duration_ms(item.duration.as_deref()) / 1000,
+                )
+            });
             let next_idx = next_index(q.items.len(), q.current, q.repeat);
-            let next = next_idx.and_then(|n_idx| q.items.get(n_idx).map(|item| (n_idx, item.video_id.clone(), item.is_upload, parse_duration_ms(item.duration.as_deref()) / 1000)));
-            let next2 = next_idx.and_then(|n_idx| next_index(q.items.len(), n_idx, q.repeat)).and_then(|n2_idx| q.items.get(n2_idx).map(|item| (item.video_id.clone(), item.is_upload, parse_duration_ms(item.duration.as_deref()) / 1000)));
+            let next = next_idx.and_then(|n_idx| {
+                q.items.get(n_idx).map(|item| {
+                    (
+                        n_idx,
+                        item.video_id.clone(),
+                        item.is_upload,
+                        parse_duration_ms(item.duration.as_deref()) / 1000,
+                    )
+                })
+            });
+            let next2 = next_idx
+                .and_then(|n_idx| next_index(q.items.len(), n_idx, q.repeat))
+                .and_then(|n2_idx| {
+                    q.items.get(n2_idx).map(|item| {
+                        (
+                            item.video_id.clone(),
+                            item.is_upload,
+                            parse_duration_ms(item.duration.as_deref()) / 1000,
+                        )
+                    })
+                });
             (cur, next, next2)
         };
 
@@ -2673,7 +2720,8 @@ impl AppState {
         let (is_current, is_next, primed, lookahead_karaoke) = {
             let q = self.queue.lock().await;
             let current_id = q.items.get(q.current).map(|i| i.video_id.as_str());
-            let next_id = q.lookahead_loaded.and_then(|idx| q.items.get(idx)).map(|i| i.video_id.as_str());
+            let next_id =
+                q.lookahead_loaded.and_then(|idx| q.items.get(idx)).map(|i| i.video_id.as_str());
             (
                 current_id == Some(video_id) && !q.current_is_karaoke,
                 next_id == Some(video_id),
@@ -3137,7 +3185,9 @@ impl AppState {
         tauri::async_runtime::spawn(async move {
             match it.register_playback(&client, &ping.url, &cpn, None).await {
                 Ok(()) => tracing::debug!(client = %ping.client, "watch-history ping sent"),
-                Err(e) => tracing::warn!(error = %karaoke::sanitize_error(&e.to_string()), "watch-history ping failed"),
+                Err(e) => {
+                    tracing::warn!(error = %karaoke::sanitize_error(&e.to_string()), "watch-history ping failed")
+                }
             }
         });
     }
@@ -4780,7 +4830,8 @@ pub fn saved_crossfade(db: &Db) -> Option<f64> {
 
 /// Karaoke cache size limit in megabytes (default 2048, valid range 512..=20480).
 pub fn saved_karaoke_cache_limit_mb(db: &Db) -> u64 {
-    let mb = db.get_setting("karaoke_cache_limit_mb")
+    let mb = db
+        .get_setting("karaoke_cache_limit_mb")
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(2048);
     mb.clamp(512, 20480)

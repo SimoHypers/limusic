@@ -1,7 +1,7 @@
+use crate::cache_codec::CacheFormat;
+use anyhow::Result;
 use std::fs::{self, File};
 use std::path::PathBuf;
-use anyhow::Result;
-use crate::cache_codec::CacheFormat;
 
 fn fnv1a_64(s: &str) -> u64 {
     let mut hash: u64 = 0xcbf29ce484222325;
@@ -142,7 +142,8 @@ impl InstrumentalCache {
                     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                         if ext.eq_ignore_ascii_case("flac") || ext.eq_ignore_ascii_case("opus") {
                             if let Ok(meta) = fs::metadata(&path) {
-                                let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                                let modified =
+                                    meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
                                 files.push((path, meta.len(), modified));
                             }
                         }
@@ -201,7 +202,10 @@ impl InstrumentalCache {
                 let path = entry.path();
                 if path.is_file() {
                     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                        if ext.eq_ignore_ascii_case("flac") || ext.eq_ignore_ascii_case("opus") || ext.eq_ignore_ascii_case("tmp") {
+                        if ext.eq_ignore_ascii_case("flac")
+                            || ext.eq_ignore_ascii_case("opus")
+                            || ext.eq_ignore_ascii_case("tmp")
+                        {
                             let _ = fs::remove_file(&path);
                         }
                     }

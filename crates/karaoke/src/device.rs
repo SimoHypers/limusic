@@ -17,15 +17,16 @@ pub struct GpuAdapter {
 
 #[cfg(windows)]
 pub fn list_adapters() -> Vec<GpuAdapter> {
+    use windows::core::Interface;
     use windows::Win32::Graphics::Direct3D::D3D_FEATURE_LEVEL_11_0;
     use windows::Win32::Graphics::Direct3D12::{
-        D3D12CreateDevice, D3D12_FEATURE_ARCHITECTURE1, D3D12_FEATURE_DATA_ARCHITECTURE1, ID3D12Device,
+        D3D12CreateDevice, ID3D12Device, D3D12_FEATURE_ARCHITECTURE1,
+        D3D12_FEATURE_DATA_ARCHITECTURE1,
     };
     use windows::Win32::Graphics::Dxgi::{
-        CreateDXGIFactory1, DXGI_ADAPTER_DESC1, DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_ERROR_NOT_FOUND,
-        IDXGIAdapter1, IDXGIFactory1,
+        CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory1, DXGI_ADAPTER_DESC1,
+        DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_ERROR_NOT_FOUND,
     };
-    use windows::core::Interface;
 
     let mut adapters = Vec::new();
 
@@ -54,11 +55,8 @@ pub fn list_adapters() -> Vec<GpuAdapter> {
             }
         };
 
-        let name_len = desc
-            .Description
-            .iter()
-            .position(|&c| c == 0)
-            .unwrap_or(desc.Description.len());
+        let name_len =
+            desc.Description.iter().position(|&c| c == 0).unwrap_or(desc.Description.len());
         let name = String::from_utf16_lossy(&desc.Description[..name_len]);
 
         let dedicated_vram_mb = desc.DedicatedVideoMemory as u64 / (1024 * 1024);
@@ -75,19 +73,12 @@ pub fn list_adapters() -> Vec<GpuAdapter> {
                 }
             };
             let mut device: Option<ID3D12Device> = None;
-            let create_result = unsafe {
-                D3D12CreateDevice(
-                    Some(&unknown),
-                    D3D_FEATURE_LEVEL_11_0,
-                    &mut device,
-                )
-            };
+            let create_result =
+                unsafe { D3D12CreateDevice(Some(&unknown), D3D_FEATURE_LEVEL_11_0, &mut device) };
             if create_result.is_ok() {
                 if let Some(dev) = device {
-                    let mut arch = D3D12_FEATURE_DATA_ARCHITECTURE1 {
-                        NodeIndex: 0,
-                        ..Default::default()
-                    };
+                    let mut arch =
+                        D3D12_FEATURE_DATA_ARCHITECTURE1 { NodeIndex: 0, ..Default::default() };
                     let support_result = unsafe {
                         dev.CheckFeatureSupport(
                             D3D12_FEATURE_ARCHITECTURE1,
@@ -133,10 +124,7 @@ pub fn list_adapters() -> Vec<GpuAdapter> {
 
 pub const MIN_DISCRETE_VRAM_MB: u64 = 3000;
 
-pub fn pick_gpu(
-    adapters: &[GpuAdapter],
-    min_discrete_vram_mb: u64,
-) -> Option<&GpuAdapter> {
+pub fn pick_gpu(adapters: &[GpuAdapter], min_discrete_vram_mb: u64) -> Option<&GpuAdapter> {
     let mut best_discrete: Option<&GpuAdapter> = None;
     for a in adapters {
         if a.kind == GpuKind::Discrete && a.dedicated_vram_mb >= min_discrete_vram_mb {
@@ -162,18 +150,13 @@ pub fn describe(a: &GpuAdapter) -> String {
         GpuKind::Software => "Software",
         GpuKind::Unknown => "Unknown",
     };
-    format!(
-        "{} [{}, {} MB VRAM, index {}]",
-        a.name, kind_str, a.dedicated_vram_mb, a.index
-    )
+    format!("{} [{}, {} MB VRAM, index {}]", a.name, kind_str, a.dedicated_vram_mb, a.index)
 }
 
 pub const DEFAULT_CPU_PERCENT: u32 = 35;
 
 pub fn cpu_threads_for_percent(percent: u32) -> usize {
-    let logical = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1);
+    let logical = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
     let p = percent.clamp(1, 100);
     let threads = (logical as f64 * p as f64 / 100.0).round() as usize;
     std::cmp::max(1, std::cmp::min(threads, logical))
@@ -208,15 +191,13 @@ mod tests {
         assert_eq!(picked.unwrap().index, 1);
 
         // 2. discrete below the threshold gives None
-        let adapters_low_discrete = vec![
-            GpuAdapter {
-                index: 0,
-                name: "Discrete GPU 2GB".into(),
-                kind: GpuKind::Discrete,
-                dedicated_vram_mb: 2048,
-                shared_system_mb: 0,
-            },
-        ];
+        let adapters_low_discrete = vec![GpuAdapter {
+            index: 0,
+            name: "Discrete GPU 2GB".into(),
+            kind: GpuKind::Discrete,
+            dedicated_vram_mb: 2048,
+            shared_system_mb: 0,
+        }];
         let picked = pick_gpu(&adapters_low_discrete, 3000);
         assert!(picked.is_none());
 
@@ -232,15 +213,13 @@ mod tests {
         assert!(picked.is_none());
 
         // 4. software never picked
-        let adapters_software = vec![
-            GpuAdapter {
-                index: 0,
-                name: "Software GPU".into(),
-                kind: GpuKind::Software,
-                dedicated_vram_mb: 16384,
-                shared_system_mb: 0,
-            },
-        ];
+        let adapters_software = vec![GpuAdapter {
+            index: 0,
+            name: "Software GPU".into(),
+            kind: GpuKind::Software,
+            dedicated_vram_mb: 16384,
+            shared_system_mb: 0,
+        }];
         let picked = pick_gpu(&adapters_software, 3000);
         assert!(picked.is_none());
 
@@ -289,9 +268,7 @@ mod tests {
 
     #[test]
     fn test_cpu_threads_for_percent() {
-        let logical = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1);
+        let logical = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
 
         let t100 = cpu_threads_for_percent(100);
         assert_eq!(t100, logical);

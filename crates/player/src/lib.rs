@@ -1228,10 +1228,7 @@ mod tests {
             "lavfi=[volume=4dB,alimiter=limit=1:level=disabled:latency=1]"
         );
         assert_eq!(af_chain(None, 12), "rubberband=pitch-scale=2");
-        assert_eq!(
-            af_chain(Some(-6.0), -12),
-            "lavfi=[volume=-6dB],rubberband=pitch-scale=0.5"
-        );
+        assert_eq!(af_chain(Some(-6.0), -12), "lavfi=[volume=-6dB],rubberband=pitch-scale=0.5");
         // One semitone up is the twelfth root of two.
         assert!(af_chain(None, 1).ends_with("1.0594630943592953"));
     }

@@ -1,5 +1,6 @@
 use karaoke::device::{
-    cpu_threads_for_percent, describe, list_adapters, pick_gpu, DEFAULT_CPU_PERCENT, MIN_DISCRETE_VRAM_MB,
+    cpu_threads_for_percent, describe, list_adapters, pick_gpu, DEFAULT_CPU_PERCENT,
+    MIN_DISCRETE_VRAM_MB,
 };
 
 fn main() {
