@@ -11,6 +11,7 @@ pub struct PrepareRequest {
 #[derive(Clone, Debug, Default)]
 pub struct DesiredSet {
     items: Vec<PrepareRequest>,
+    failed: HashSet<String>,
 }
 
 impl DesiredSet {
@@ -31,12 +32,13 @@ impl DesiredSet {
         let new_ids: HashSet<String> = new_items.iter().map(|i| i.video_id.clone()).collect();
         let removed: Vec<String> = old_ids.difference(&new_ids).cloned().collect();
         self.items = new_items;
+        self.failed.retain(|id| new_ids.contains(id));
         removed
     }
 
     pub fn next_pending(&self, is_ready: impl Fn(&str) -> bool) -> Option<PrepareRequest> {
         for item in &self.items {
-            if !is_ready(&item.video_id) {
+            if !self.failed.contains(&item.video_id) && !is_ready(&item.video_id) {
                 return Some(item.clone());
             }
         }
@@ -45,10 +47,28 @@ impl DesiredSet {
 
     pub fn complete(&mut self, video_id: &str) {
         self.items.retain(|i| i.video_id != video_id);
+        self.failed.remove(video_id);
+    }
+
+    pub fn fail(&mut self, video_id: &str) {
+        if self.items.iter().any(|i| i.video_id == video_id) {
+            self.failed.insert(video_id.to_string());
+        }
+    }
+
+    pub fn clear_failed(&mut self) -> usize {
+        let count = self.failed.len();
+        self.failed.clear();
+        count
+    }
+
+    pub fn failed_ids(&self) -> &HashSet<String> {
+        &self.failed
     }
 
     pub fn clear(&mut self) {
         self.items.clear();
+        self.failed.clear();
     }
 
     pub fn contains(&self, video_id: &str) -> bool {
@@ -134,6 +154,26 @@ mod tests {
 
         set.clear();
         assert!(!set.contains("v2"));
+    }
+
+    #[test]
+    fn test_desired_set_clear_failed() {
+        let mut set = DesiredSet::default();
+        let r1 = PrepareRequest { video_id: "v1".into(), url: "u1".into(), headers: HashMap::new(), expected_secs: None };
+        let r2 = PrepareRequest { video_id: "v2".into(), url: "u2".into(), headers: HashMap::new(), expected_secs: None };
+        set.replace(vec![r1, r2]);
+
+        set.fail("v1");
+        let next = set.next_pending(|_| false);
+        assert!(next.is_some());
+        assert_eq!(next.unwrap().video_id, "v2");
+
+        let count = set.clear_failed();
+        assert_eq!(count, 1);
+
+        let next2 = set.next_pending(|_| false);
+        assert!(next2.is_some());
+        assert_eq!(next2.unwrap().video_id, "v1");
     }
 
     #[test]

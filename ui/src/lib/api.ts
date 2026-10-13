@@ -426,6 +426,7 @@ export const karaokeEngineStatus = () => invoke<KaraokeEngineStatus>('karaoke_en
 export const karaokeClearCache = () => invoke<void>('karaoke_clear_cache');
 export const karaokeCacheLimitMb = () => invoke<number>('karaoke_cache_limit_mb');
 export const karaokeSetCacheLimitMb = (mb: number) => invoke<number>('karaoke_set_cache_limit_mb', { mb });
+export const karaokeRetryFailed = (): Promise<void> => invoke<void>('karaoke_retry_failed');
 /** Tempo (0.25–2.0) + pitch (−12..=12 semitones). Not persisted: resets on restart. */
 export const setPlaybackParams = (speed: number, semitones: number) =>
 	invoke<void>('set_playback_params', { speed, semitones });

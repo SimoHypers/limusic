@@ -2441,6 +2441,19 @@ pub fn karaoke_clear_cache(
     Ok(())
 }
 
+/// Retry failed karaoke preparations.
+#[tauri::command]
+pub async fn karaoke_retry_failed(
+    state: St<'_>,
+    engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
+) -> Result<(), String> {
+    if !engine.is_enabled() || crate::http::has_proxy() {
+        return Ok(());
+    }
+    state.inner().clone().karaoke_retry_failed().await;
+    Ok(())
+}
+
 /// Get the karaoke cache limit in megabytes.
 #[tauri::command]
 pub fn karaoke_cache_limit_mb(

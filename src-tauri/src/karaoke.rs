@@ -20,7 +20,6 @@ struct Shared {
     running: Option<(String, Arc<AtomicBool>, u64)>, // (video_id, cancel, job_seq)
     job_seq: u64,
     last_progress: f64,
-    failed_ids: std::collections::HashSet<String>,
     announced_ready: std::collections::HashSet<String>,
 }
 
@@ -42,7 +41,7 @@ fn emit_queue(app: &AppHandle, shared: &Shared, cache: &InstrumentalCache) {
     }
     let desired_ids = shared.desired.ids();
     let running = shared.running.as_ref().map(|(id, _, _)| (id.as_str(), shared.last_progress));
-    let slots = karaoke::jobs::build_slots(&desired_ids, running, &shared.failed_ids, |id| cache.contains(id));
+    let slots = karaoke::jobs::build_slots(&desired_ids, running, shared.desired.failed_ids(), |id| cache.contains(id));
     let _ = app.emit("karaoke-queue", &serde_json::json!({ "slots": slots }));
 }
 
@@ -82,7 +81,6 @@ impl KaraokeEngine {
                 running: None,
                 job_seq: 0,
                 last_progress: 0.0,
-                failed_ids: std::collections::HashSet::new(),
                 announced_ready: std::collections::HashSet::new(),
             }),
             Condvar::new(),
@@ -260,7 +258,7 @@ impl KaraokeEngine {
                                         "state": "error",
                                         "message": msg
                                     }));
-                                    shared_guard.failed_ids.insert(req.video_id.clone());
+                                    shared_guard.desired.fail(&req.video_id);
                                     shared_guard.desired.complete(&req.video_id);
                                     emit_queue(&worker_app, &shared_guard, &worker_cache);
                                 }
@@ -291,7 +289,6 @@ impl KaraokeEngine {
         if !on {
             shared.desired.clear();
             shared.last_reqs.clear();
-            shared.failed_ids.clear();
             shared.announced_ready.clear();
             shared.last_progress = 0.0;
             if let Some((_, cancel, _)) = shared.running.take() {
@@ -334,7 +331,7 @@ impl KaraokeEngine {
         let ids: Vec<&str> = new_ids.iter().map(|s| s.as_str()).collect();
         tracing::info!(target: "app_lib::karaoke", ?ids, "karaoke wants updated");
         let removed = shared.desired.replace(reqs);
-        shared.failed_ids.clear();
+        shared.desired.clear_failed();
 
         for id in &new_ids {
             if self.cache.contains(id) {
@@ -421,7 +418,7 @@ impl KaraokeEngine {
         let freed_bytes = initial_size.saturating_sub(remaining_bytes);
 
         shared.announced_ready.clear();
-        shared.failed_ids.clear();
+        shared.desired.clear_failed();
         shared.last_progress = 0.0;
 
         let enabled = shared.enabled;
@@ -451,5 +448,14 @@ impl KaraokeEngine {
         condvar.notify_one();
 
         tracing::info!(target: "app_lib::karaoke", freed_bytes, remaining_bytes, "karaoke cache cleared");
+    }
+
+    pub fn clear_failed(&self) -> usize {
+        let (lock, condvar) = &*self.shared;
+        let mut shared = lock.lock().unwrap();
+        let count = shared.desired.clear_failed();
+        emit_queue(&self.app, &shared, &self.cache);
+        condvar.notify_one();
+        count
     }
 }

@@ -10,6 +10,7 @@
 		"not_now": "Not now",
 		"preparing": "Preparing karaoke version…",
 		"active": "Karaoke on",
+		"error_retry": "Click to retry",
 		"slot": {
 			"now": "Now",
 			"next": "Next",

@@ -38,6 +38,7 @@
 		VolumeMute02Icon
 	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
+	import KaraokeButton from './KaraokeButton.svelte';
 	import {
 		commitVolume,
 		cycleRepeat,
@@ -436,6 +437,7 @@
 				>
 					<HugeiconsIcon icon={ShuffleIcon} class="h-[18px] w-[18px]" />
 				</button>
+				<KaraokeButton size={18} />
 				<button
 					onclick={() => api.prevTrack()}
 					class="flex h-12 w-12 cursor-pointer items-center justify-center rounded-full text-foreground/90 transition-colors hover:bg-foreground/10 hover:text-foreground"

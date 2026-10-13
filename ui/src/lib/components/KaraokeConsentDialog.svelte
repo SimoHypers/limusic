@@ -31,7 +31,7 @@
 		if (!v) dismissKaraokeConsent();
 	}}
 >
-	<Dialog.Content class="gap-5 sm:max-w-md">
+	<Dialog.Content class="z-[60] gap-5 sm:max-w-md">
 		<div class="grid gap-1">
 			<Dialog.Title class="text-lg font-semibold">{t('karaoke.consent.title')}</Dialog.Title>
 			<Dialog.Description class="text-xs text-muted-foreground">

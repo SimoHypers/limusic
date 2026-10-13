@@ -1000,11 +1000,47 @@ export function setTempoPitch(speed: number, semitones: number) {
 	});
 }
 
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let retryAttempt = 0;
+let lastKaraokeTrackId: string | undefined;
+const RETRY_DELAYS = [5000, 15000, 30000, 60000];
+
+export function cancelKaraokeRetry() {
+	try {
+		if (typeof window !== 'undefined' && retryTimer) {
+			clearTimeout(retryTimer);
+			retryTimer = undefined;
+		}
+	} catch {}
+	retryAttempt = 0;
+}
+
+export function scheduleKaraokeRetry() {
+	try {
+		if (typeof window === 'undefined') return;
+		if (retryTimer) return;
+		if (retryAttempt >= RETRY_DELAYS.length) return;
+		const delay = RETRY_DELAYS[retryAttempt];
+		retryTimer = setTimeout(() => {
+			retryTimer = undefined;
+			retryAttempt++;
+			if (
+				playback.karaoke &&
+				(karaokeStatus.state === 'error' ||
+					Object.values(karaokeByTrack).some((entry) => entry.state === 'error'))
+			) {
+				retryKaraoke(false);
+			}
+		}, delay);
+	} catch {}
+}
+
 export function toggleKaraoke() {
 	const previous = playback.karaoke;
 	const next = !previous;
 	playback.karaoke = next;
 	if (!next) {
+		cancelKaraokeRetry();
 		for (const k in karaokeByTrack) delete karaokeByTrack[k];
 		karaokeQueue.slots = [];
 		syncKaraokeStatus();
@@ -1013,6 +1049,17 @@ export function toggleKaraoke() {
 		playback.karaoke = previous;
 		toast.error(String(e));
 	});
+}
+
+export async function retryKaraoke(manual = true): Promise<void> {
+	if (manual) {
+		cancelKaraokeRetry();
+	}
+	try {
+		await api.karaokeRetryFailed();
+	} catch {
+		// Never throws
+	}
 }
 
 // Mute *is* volume 0 — no separate flag, so dragging the slider off zero un-mutes for free and the
@@ -1552,6 +1599,33 @@ export function notePlaylistAdd(playlistId: string, songs: SongItem[]) {
 }
 
 let started = false;
+let onlineListenerRegistered = false;
+if (typeof window !== 'undefined' && !onlineListenerRegistered) {
+	onlineListenerRegistered = true;
+	// Automatically retry failed karaoke when network connectivity returns
+	window.addEventListener('online', () => {
+		if (
+			playback.karaoke &&
+			(karaokeStatus.state === 'error' ||
+				Object.values(karaokeByTrack).some((entry) => entry.state === 'error'))
+		) {
+			cancelKaraokeRetry();
+			try {
+				if (typeof window !== 'undefined') {
+					setTimeout(() => {
+						if (
+							playback.karaoke &&
+							(karaokeStatus.state === 'error' ||
+								Object.values(karaokeByTrack).some((entry) => entry.state === 'error'))
+						) {
+							retryKaraoke(false);
+						}
+					}, 1500);
+				}
+			} catch {}
+		}
+	});
+}
 
 /**
  * Wire the Tauri event listeners once and seed initial state. Returns a teardown fn.
@@ -1567,6 +1641,10 @@ export function initApp(mini = false): () => void {
 		api.onNowPlaying((n) => {
 			playback.now = n;
 			playback.rating = n.rating ?? 'indifferent'; // the track's real rating when known
+			if (n.videoId !== lastKaraokeTrackId) {
+				lastKaraokeTrackId = n.videoId;
+				retryAttempt = 0;
+			}
 			syncKaraokeStatus();
 			// Feeds Shortcuts recency and the community shelf's artist seed. Every play lands here,
 			// gapless advances included, so it's the one hook that sees them all.
@@ -1637,6 +1715,7 @@ export function initApp(mini = false): () => void {
 		api.onKaraoke((enabled) => {
 			playback.karaoke = enabled;
 			if (!enabled) {
+				cancelKaraokeRetry();
 				for (const k in karaokeByTrack) delete karaokeByTrack[k];
 				karaokeQueue.slots = [];
 				syncKaraokeStatus();
@@ -1669,6 +1748,12 @@ export function initApp(mini = false): () => void {
 				};
 				if (playback.now?.videoId === e.videoId) {
 					syncKaraokeStatus();
+				}
+				if (e.state === 'error' && playback.karaoke) {
+					scheduleKaraokeRetry();
+				}
+				if (e.state === 'ready' && e.videoId === playback.now?.videoId) {
+					cancelKaraokeRetry();
 				}
 			}
 		}),

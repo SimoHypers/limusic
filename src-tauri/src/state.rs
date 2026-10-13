@@ -2513,6 +2513,79 @@ impl AppState {
         Ok(())
     }
 
+    pub async fn karaoke_retry_failed(self: &std::sync::Arc<Self>) {
+        if !self.karaoke_active() {
+            return;
+        }
+        let Some(engine) = self.karaoke_engine() else {
+            return;
+        };
+        if !engine.is_enabled() {
+            return;
+        }
+        let count = engine.clear_failed();
+        tracing::debug!(target: "app_lib::karaoke", count, "karaoke retry requested");
+
+        let (cur_info, next_info, next2_info) = {
+            let q = self.queue.lock().await;
+            let cur = q.items.get(q.current).map(|item| (item.video_id.clone(), item.is_upload, parse_duration_ms(item.duration.as_deref()) / 1000));
+            let next_idx = next_index(q.items.len(), q.current, q.repeat);
+            let next = next_idx.and_then(|n_idx| q.items.get(n_idx).map(|item| (n_idx, item.video_id.clone(), item.is_upload, parse_duration_ms(item.duration.as_deref()) / 1000)));
+            let next2 = next_idx.and_then(|n_idx| next_index(q.items.len(), n_idx, q.repeat)).and_then(|n2_idx| q.items.get(n2_idx).map(|item| (item.video_id.clone(), item.is_upload, parse_duration_ms(item.duration.as_deref()) / 1000)));
+            (cur, next, next2)
+        };
+
+        if let Some((vid, upload, secs)) = cur_info {
+            if let Ok(data) = self.resolve(&vid, upload, secs).await {
+                let stream_url = mpv_stream_url(&data);
+                let expected_secs = if secs > 0 { Some(secs as f64) } else { None };
+                let req = crate::karaoke::PrepareRequest {
+                    video_id: vid,
+                    url: stream_url,
+                    headers: data.headers.clone(),
+                    expected_secs,
+                };
+                let mut q = self.queue.lock().await;
+                q.karaoke_cur = Some(req);
+            }
+        }
+
+        if let Some((next_idx, vid, upload, secs)) = next_info {
+            if let Ok(data) = self.resolve(&vid, upload, secs).await {
+                let stream_url = mpv_stream_url(&data);
+                let expected_secs = if secs > 0 { Some(secs as f64) } else { None };
+                let req = crate::karaoke::PrepareRequest {
+                    video_id: vid,
+                    url: stream_url,
+                    headers: data.headers.clone(),
+                    expected_secs,
+                };
+                let mut q = self.queue.lock().await;
+                if q.items.get(next_idx).map_or(false, |i| i.video_id == req.video_id) {
+                    q.karaoke_next = Some(req);
+                }
+            }
+        }
+
+        if let Some((vid, upload, secs)) = next2_info {
+            if let Ok(data) = self.resolve(&vid, upload, secs).await {
+                let stream_url = mpv_stream_url(&data);
+                let expected_secs = if secs > 0 { Some(secs as f64) } else { None };
+                let req = crate::karaoke::PrepareRequest {
+                    video_id: vid,
+                    url: stream_url,
+                    headers: data.headers.clone(),
+                    expected_secs,
+                };
+                let mut q = self.queue.lock().await;
+                q.karaoke_next2 = Some(req);
+            }
+        }
+
+        let q = self.queue.lock().await;
+        self.karaoke_push_wants(&q);
+    }
+
     pub fn spawn_karaoke_listener(self: &std::sync::Arc<Self>) {
         let me = self.clone();
         tauri::async_runtime::spawn(async move {
