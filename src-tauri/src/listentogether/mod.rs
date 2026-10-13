@@ -29,8 +29,9 @@ pub enum SyncCommand {
     /// Full state (after join / reconnect / request-sync): resolve current track, seek to live
     /// position, set play/pause, mirror the queue.
     ApplyState(RoomState),
+    /// `track` is `None` when the host is on something a guest can't play (a local file).
     ChangeTrack {
-        track: Track,
+        track: Option<Track>,
         position_ms: i64,
         playing: bool,
         queue: Vec<Track>,
@@ -208,7 +209,8 @@ impl LtSession {
     }
 
     /// Host: broadcast a playback action to the room. No-op unless we're the host and connected.
-    pub async fn broadcast_playback(&self, p: Playback) {
+    pub async fn broadcast_playback(&self, mut p: Playback) {
+        keep_shareable(&mut p);
         let inner = self.inner.lock().await;
         if inner.role != Role::Host {
             return;
@@ -252,6 +254,9 @@ impl LtSession {
         self.send(ClientMessage::TransferHost { user_id }).await;
     }
     pub async fn suggest(&self, track: Track) {
+        if !shareable(&track) {
+            return;
+        }
         self.send(ClientMessage::Suggest { track }).await;
     }
     /// Host: approve a suggestion. Returns its track so the caller can add it to the real playback
@@ -462,7 +467,8 @@ impl LtSession {
     }
 
     /// Handle one server message. Returns `true` if the connection should close (fatal).
-    async fn handle(&self, sm: ServerMessage) -> bool {
+    async fn handle(&self, mut sm: ServerMessage) -> bool {
+        sanitize(&mut sm);
         match sm {
             ServerMessage::Pong => return false,
 
@@ -596,6 +602,10 @@ impl LtSession {
                 // step. Stamp who added it, tell the server it's handled (notifies the guest),
                 // and hand the track to the bridge to insert at the guest boundary.
                 let mut track = suggestion.track;
+                if !shareable(&track) {
+                    self.send(ClientMessage::RejectSuggestion { id: suggestion.id }).await;
+                    return false;
+                }
                 track.queued_by = Some(suggestion.from_username.clone());
                 let title = track.title.clone();
                 self.send(ClientMessage::ApproveSuggestion { id: suggestion.id }).await;
@@ -654,8 +664,8 @@ impl LtSession {
             PlaybackKind::Play => Some(SyncCommand::Play { position_ms: p.position_ms }),
             PlaybackKind::Pause => Some(SyncCommand::Pause { position_ms: p.position_ms }),
             PlaybackKind::Seek => Some(SyncCommand::Seek { position_ms: p.position_ms }),
-            PlaybackKind::ChangeTrack => p.track.map(|track| SyncCommand::ChangeTrack {
-                track,
+            PlaybackKind::ChangeTrack => Some(SyncCommand::ChangeTrack {
+                track: p.track,
                 position_ms: p.position_ms,
                 playing: p.playing,
                 queue: p.queue.unwrap_or_default(),
@@ -718,6 +728,51 @@ impl LtSession {
     }
 }
 
+/// Whether a track may cross the wire: only a YouTube video id. Ids come from the relay and from
+/// every other member of the room, and the player resolves a `LOCAL:<path>` id straight to a file,
+/// so a peer could point us at any path. On Windows a UNC path (`\\host\share`) makes the OS
+/// connect to that host and offer the user's NTLM credentials. Outbound, the same rule keeps our
+/// local paths, and the username in them, off the relay; guests couldn't play the file anyway.
+fn shareable(t: &Track) -> bool {
+    t.id.len() == 11 && t.id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+fn keep_shareable(p: &mut Playback) {
+    p.track = p.track.take().filter(shareable);
+    if let Some(q) = &mut p.queue {
+        q.retain(shareable);
+    }
+}
+
+/// Drop every track that isn't [`shareable`] before anything reads the message. Suggestions are
+/// checked where they're handled, so a bad one can be rejected rather than left pending. No
+/// wildcard arm: a new message that carries tracks has to be decided on here.
+fn sanitize(sm: &mut ServerMessage) {
+    match sm {
+        ServerMessage::RoomCreated { state, .. }
+        | ServerMessage::JoinApproved { state, .. }
+        | ServerMessage::Reconnected { state, .. }
+        | ServerMessage::SyncState { state } => {
+            state.current_track = state.current_track.take().filter(shareable);
+            state.queue.retain(shareable);
+        }
+        ServerMessage::SyncPlayback(p) => keep_shareable(p),
+        ServerMessage::SuggestionReceived { .. }
+        | ServerMessage::Pong
+        | ServerMessage::JoinRequest { .. }
+        | ServerMessage::JoinRejected { .. }
+        | ServerMessage::UserJoined { .. }
+        | ServerMessage::UserLeft { .. }
+        | ServerMessage::UserDisconnected { .. }
+        | ServerMessage::UserReconnected { .. }
+        | ServerMessage::HostChanged { .. }
+        | ServerMessage::SuggestionApproved { .. }
+        | ServerMessage::SuggestionRejected { .. }
+        | ServerMessage::Kicked { .. }
+        | ServerMessage::Error { .. } => {}
+    }
+}
+
 /// How long one address gets to complete a TCP handshake before we move to the next.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
 
@@ -775,6 +830,41 @@ async fn connect_first(addrs: &[SocketAddr]) -> std::io::Result<TcpStream> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn track(id: &str) -> Track {
+        Track {
+            id: id.into(),
+            title: String::new(),
+            artist: String::new(),
+            thumbnail: None,
+            duration_ms: 0,
+            queued_by: None,
+        }
+    }
+
+    #[test]
+    fn only_video_ids_cross_the_wire() {
+        let mut p = Playback::new(PlaybackKind::ChangeTrack);
+        p.track = Some(track(r"LOCAL:\\evil\share\a.mp3"));
+        p.queue =
+            Some(vec![track("dQw4w9WgXcQ"), track("LOCAL:/home/me/a.mp3"), track("dQw4w9WgXc")]);
+        let mut sm = ServerMessage::SyncPlayback(p.clone());
+        sanitize(&mut sm);
+        let ServerMessage::SyncPlayback(got) = sm else { unreachable!() };
+        assert!(got.track.is_none());
+        assert_eq!(
+            got.queue.unwrap().iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            ["dQw4w9WgXcQ"]
+        );
+
+        // Outbound runs the same filter.
+        keep_shareable(&mut p);
+        assert!(p.track.is_none());
+        assert_eq!(p.queue.unwrap().len(), 1);
+
+        assert!(!shareable(&track("../../etc/pas")));
+        assert!(shareable(&track("a-B_c123456")));
+    }
 
     /// The bug: a dead address ahead of a live one used to cost a full OS SYN timeout (~127s on
     /// Linux, six minutes across Funnel's three AAAA records). It must now fall through fast.

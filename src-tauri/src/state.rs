@@ -67,6 +67,9 @@ pub struct AppState {
     /// and throws the answer away if it moved: a like landing in that ~400 ms window is newer
     /// than what YouTube was asked, and applying the stale reply would flip the heart back.
     pub rate_epoch: AtomicU64,
+    /// The comments panel's tokens and commands. Cleared by `get_comments` and on every auth
+    /// change ([`Self::clear_comments`]). Never held across an `.await`.
+    pub comments: std::sync::Mutex<innertube::CommentsSession>,
     /// A one-shot resume position `(videoId, secs)` set by `restore_queue` and consumed by the
     /// next `start_current` — applied only when that track is the one being started, so jumping to
     /// a different track first doesn't inherit the old position (context/11).
@@ -484,6 +487,7 @@ impl AppState {
             is_playing: AtomicBool::new(false),
             generation: AtomicU64::new(0),
             rate_epoch: AtomicU64::new(0),
+            comments: std::sync::Mutex::new(innertube::CommentsSession::default()),
             pending_seek: std::sync::Mutex::new(None),
             video_urls: std::sync::Mutex::new(std::collections::HashMap::new()),
             latest_position: AtomicU64::new(0),
@@ -907,6 +911,7 @@ impl AppState {
         self.sync_active_account();
         self.forget_playlist_index();
         self.it.set_data_sync_id(selected.data_sync_id.clone());
+        self.clear_comments();
         let _ = self.app.emit("auth-changed", &account);
         Ok(account)
     }
@@ -1007,6 +1012,7 @@ impl AppState {
             self.forget_playlist_index();
             let snapshot = self.account_snapshot();
             let _ = self.app.emit("account-selection-required", ());
+            self.clear_comments();
             let _ = self.app.emit("auth-changed", &snapshot);
             return Ok(snapshot);
         }
@@ -1035,6 +1041,7 @@ impl AppState {
         self.sync_active_account();
         self.forget_playlist_index();
         let snapshot = self.account_snapshot();
+        self.clear_comments();
         let _ = self.app.emit("auth-changed", &snapshot);
         Ok(snapshot)
     }
@@ -1059,6 +1066,13 @@ impl AppState {
         }
     }
 
+    /// A sign-in, sign-out, account or channel switch, or a heal that re-minted the session: the
+    /// comments' tokens belong to who was signed in before, so none of them may be used again.
+    /// Called wherever `auth-changed` is emitted.
+    fn clear_comments(&self) {
+        self.comments.lock().unwrap().clear();
+    }
+
     /// Drop the live session back to guest, leaving the saved rows alone.
     fn clear_session(&self) {
         self.it.set_cookie(None);
@@ -1067,6 +1081,7 @@ impl AppState {
         self.db.delete_setting("active_account");
         self.forget_playlist_index();
         let _ = self.db.clear_auth_identity();
+        self.clear_comments();
         let _ = self.app.emit("auth-changed", serde_json::json!({ "signedIn": false }));
     }
 
@@ -1342,8 +1357,9 @@ impl AppState {
                         q.items.iter_mut().find(|i| i.video_id == item.video_id)
                     {
                         // Search and home cards carry no album name; the radio's own row for the
-                        // same track does (#309).
+                        // same track does (#309). Nor its video twin, signed in (#442).
                         have.album = have.album.take().or(item.album);
+                        have.counterpart = have.counterpart.take().or(item.counterpart);
                     }
                 }
                 // The seed is already playing and Last.fm, Discord and the OS media widget were
@@ -1765,6 +1781,44 @@ impl AppState {
         // The next mpv tick is seconds away (a resolve has to finish first); until then
         // `current_position` would still report the outgoing track's position.
         self.latest_position.store(0f64.to_bits(), Ordering::SeqCst);
+        if self.start_current(gen).await {
+            self.prime_lookahead(gen).await;
+        }
+    }
+
+    /// The Song/Video switch (#442): play the current track's other version, from where it is. The
+    /// row trades its id for its `counterpart` and keeps the old one there, so the switch goes back
+    /// the same way. The reload is the failed-track retry's (`on_track_failed`).
+    pub async fn switch_version(self: &std::sync::Arc<Self>) {
+        if self.lt.is_guest().await {
+            self.emit_guest_hint();
+            return;
+        }
+        {
+            let mut q = self.queue.lock().await;
+            let cur = q.current;
+            let pos = self.current_position();
+            // `q.duration` doubles as the proof mpv is on this file, as in `on_track_failed`.
+            let resume = q.duration > 0.0 && pos > 1.0 && pos < q.duration;
+            let Some(item) = q.items.get_mut(cur) else { return };
+            let old = item.video_id.clone();
+            if !swap_version(item) {
+                return;
+            }
+            // A video's cut runs its own length; `backfill_metadata` reads it off `/player`.
+            item.duration = None;
+            if resume {
+                *self.pending_seek.lock().unwrap() = Some((item.video_id.clone(), pos));
+            }
+            // Un-shuffling rebuilds the queue from this copy, which would bring the old one back.
+            if let Some(orig) = q.shuffle_orig.as_mut() {
+                if let Some(o) = orig.iter_mut().find(|i| i.video_id == old) {
+                    swap_version(o);
+                }
+            }
+            q.lookahead_loaded = None;
+        }
+        let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         if self.start_current(gen).await {
             self.prime_lookahead(gen).await;
         }
@@ -2769,7 +2823,13 @@ impl AppState {
         if stream_client != "restored"
             && self.db.get_setting("track_notifications").as_deref() == Some("true")
         {
-            crate::notify::track_changed(&self.app, &item.title, &item.artists);
+            // A gapless advance or a Listen Together host's change started on its own, so with the
+            // opt-in it notifies even with Limusic in front (#94). Ceiling: the rare non-primed
+            // advance at track end comes through `start_current` like a user's pick, and stays
+            // background-only.
+            let even_focused = matches!(stream_client, "gapless" | "listen-together")
+                && self.db.get_setting("track_notifications_focused").as_deref() == Some("true");
+            crate::notify::track_changed(&self.app, &item.title, &item.artists, even_focused);
         }
         self.lastfm.set_track(item);
         // New track ⇒ let the next position tick through immediately instead of waiting out the
@@ -3473,8 +3533,14 @@ impl AppState {
                 self.apply_crossfade().await;
                 self.lt_apply_state(state).await
             }
-            SyncCommand::ChangeTrack { track, position_ms, playing, queue } => {
+            SyncCommand::ChangeTrack { track: Some(track), position_ms, playing, queue } => {
                 self.lt_apply_change_track(track, position_ms, playing, queue).await
+            }
+            // The host moved to something we can't play (a local file). Carrying on with the last
+            // song would put us out of step with the room, so wait for the next one.
+            SyncCommand::ChangeTrack { track: None, queue, .. } => {
+                let _ = self.player.pause();
+                self.lt_mirror_queue(queue).await;
             }
             SyncCommand::Play { position_ms } => self.lt_apply_play(position_ms).await,
             SyncCommand::Pause { position_ms } => self.lt_apply_pause(position_ms).await,
@@ -4230,7 +4296,7 @@ fn track_to_song(t: &Track) -> SongItem {
         thumbnail: t.thumbnail.clone(),
         set_video_id: None,
         added_by: None,
-        added_by_avatar: None,
+        added_by_avatars: Vec::new(),
         rating: None,
         queued_by: t.queued_by.clone(),
         queued: false,
@@ -4238,6 +4304,8 @@ fn track_to_song(t: &Track) -> SongItem {
         queued_from: None,
         autoplay: false,
         is_video: false,
+        // Only the host switches versions (`switch_version`), so a guest's row needs no twin.
+        counterpart: None,
         // The Listen Together wire shape carries no upload flag either; a guest could not stream
         // the host's upload anyway, so false is the right answer, not a lossy one.
         is_upload: false,
@@ -4642,6 +4710,15 @@ fn format_duration(ms: i64) -> String {
     }
 }
 
+/// Trade a row's id for its `counterpart` (#442), keeping the old one as the way back. False when
+/// there is none.
+pub(crate) fn swap_version(item: &mut SongItem) -> bool {
+    let Some(other) = item.counterpart.take() else { return false };
+    item.counterpart = Some(std::mem::replace(&mut item.video_id, other));
+    item.is_video = !item.is_video;
+    true
+}
+
 /// Fill a missing item duration from the player response's `lengthSeconds` (e.g. "167") — the
 /// exact length of the cut we stream. Never overwrites an existing duration.
 /// Repair a queue item from the `/player` response, which is the one thing every entry path (search,
@@ -4835,13 +4912,32 @@ mod tests {
         format_duration, get_url, guest_insert_index, history_threshold, is_mix, loudness_gain,
         merge_radio, next_index, parse_duration_ms, persist_fingerprint, prev_track_title, put_url,
         queue_fingerprint, radio_seed_for, retain_upcoming, shuffle_new_queue, shuffle_upcoming,
-        splice_radio_into, trim_played, unshuffled, upcoming_queued, QueueState, RepeatMode,
-        VideoUrls, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
+        splice_radio_into, swap_version, trim_played, unshuffled, upcoming_queued, QueueState,
+        RepeatMode, VideoUrls, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
     /// entry has to hit and a stale one has to miss. Getting the second one wrong hands the proxy a
     /// dead googlevideo link for hours.
+    #[test]
+    fn swap_version_goes_both_ways() {
+        let mut it = innertube::SongItem {
+            video_id: "audio".into(),
+            counterpart: Some("video".into()),
+            ..Default::default()
+        };
+        assert!(swap_version(&mut it));
+        assert_eq!((it.video_id.as_str(), it.counterpart.as_deref()), ("video", Some("audio")));
+        assert!(it.is_video);
+        assert!(swap_version(&mut it));
+        assert_eq!((it.video_id.as_str(), it.counterpart.as_deref()), ("audio", Some("video")));
+        assert!(!it.is_video);
+        // Nothing to switch to: the row is left exactly as it was.
+        let mut lone = innertube::SongItem { video_id: "a".into(), ..Default::default() };
+        assert!(!swap_version(&mut lone));
+        assert_eq!(lone.video_id, "a");
+    }
+
     #[test]
     fn a_cached_video_url_lives_then_expires() {
         let mut map = VideoUrls::new();

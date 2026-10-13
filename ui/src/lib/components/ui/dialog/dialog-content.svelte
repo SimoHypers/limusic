@@ -3,7 +3,7 @@
 	import DialogPortal from "./dialog-portal.svelte";
 	import type { Snippet } from "svelte";
 	import * as Dialog from "./index.js";
-	import { cn, type WithoutChildrenOrChild } from "$lib/utils.js";
+	import { cn, onWindowChrome, type WithoutChildrenOrChild } from "$lib/utils.js";
 	import type { ComponentProps } from "svelte";
 	import { Button } from "$lib/components/ui/button/index.js";
 	import { HugeiconsIcon } from "@hugeicons/svelte"
@@ -16,6 +16,7 @@
 		portalProps,
 		children,
 		showCloseButton = true,
+		onInteractOutside,
 		...restProps
 	}: WithoutChildrenOrChild<DialogPrimitive.ContentProps> & {
 		portalProps?: WithoutChildrenOrChild<ComponentProps<typeof DialogPortal>>;
@@ -43,6 +44,10 @@
 				className
 			)}
 			{...restProps}
+			onInteractOutside={(e) => {
+				if (onWindowChrome(e)) e.preventDefault();
+				onInteractOutside?.(e);
+			}}
 		>
 			{@render children?.()}
 			{#if showCloseButton}

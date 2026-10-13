@@ -1,0 +1,697 @@
+{
+ "continuationContents": {
+  "sectionListContinuation": {
+   "contents": [
+    {
+     "musicShelfRenderer": {
+      "autoReloadWhenEmpty": true,
+      "bottomButton": {
+       "buttonRenderer": {
+        "command": {
+         "musicShelfReloadCommand": {}
+        },
+        "style": "STYLE_WHITE_WITH_BORDER",
+        "text": {
+         "runs": [
+          {
+           "text": "Refresh"
+          }
+         ]
+        }
+       }
+      },
+      "contents": [
+       {
+        "musicResponsiveListItemRenderer": {
+         "fixedColumns": [
+          {
+           "musicResponsiveListItemFixedColumnRenderer": {
+            "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+            "size": "MUSIC_RESPONSIVE_LIST_ITEM_FIXED_COLUMN_SIZE_SMALL",
+            "text": {
+             "runs": [
+              {
+               "text": "3:10"
+              }
+             ]
+            }
+           }
+          },
+          {
+           "musicResponsiveListItemFixedColumnRenderer": {
+            "button": {
+             "buttonRenderer": {
+              "command": {
+               "playlistEditEndpoint": {
+                "actions": [
+                 {
+                  "action": "ACTION_ADD_VIDEO",
+                  "addedVideoId": "6Ca3HR6wtdo"
+                 }
+                ],
+                "clientActions": [
+                 {
+                  "musicAddSuggestionToPlaylistCommand": {
+                   "addToPlaylistCommand": {
+                    "insertShelfItemCommand": {
+                     "item": {
+                      "musicResponsiveListItemRenderer": {
+                       "fixedColumns": [
+                        {
+                         "musicResponsiveListItemFixedColumnRenderer": {
+                          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+                          "size": "MUSIC_RESPONSIVE_LIST_ITEM_FIXED_COLUMN_SIZE_SMALL",
+                          "text": {
+                           "runs": [
+                            {
+                             "text": "3:10"
+                            }
+                           ]
+                          }
+                         }
+                        }
+                       ],
+                       "flexColumns": [
+                        {
+                         "musicResponsiveListItemFlexColumnRenderer": {
+                          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+                          "text": {
+                           "runs": [
+                            {
+                             "navigationEndpoint": {
+                              "watchEndpoint": {
+                               "playlistId": "PLfixture",
+                               "videoId": "6Ca3HR6wtdo",
+                               "watchEndpointMusicSupportedConfigs": {
+                                "watchEndpointMusicConfig": {
+                                 "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                                }
+                               }
+                              }
+                             },
+                             "text": "Richter: Spring 3 (2012)"
+                            }
+                           ]
+                          }
+                         }
+                        },
+                        {
+                         "musicResponsiveListItemFlexColumnRenderer": {
+                          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+                          "text": {
+                           "runs": [
+                            {
+                             "navigationEndpoint": {
+                              "browseEndpoint": {
+                               "browseEndpointContextSupportedConfigs": {
+                                "browseEndpointContextMusicConfig": {
+                                 "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                }
+                               },
+                               "browseId": "UCfrB_Vg3Nrs2wddApqX4kfQ"
+                              }
+                             },
+                             "text": "Daniel Hope"
+                            },
+                            {
+                             "text": ", "
+                            },
+                            {
+                             "navigationEndpoint": {
+                              "browseEndpoint": {
+                               "browseEndpointContextSupportedConfigs": {
+                                "browseEndpointContextMusicConfig": {
+                                 "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                }
+                               },
+                               "browseId": "UCvUVq-qQ7MkY5xJemM6_9jw"
+                              }
+                             },
+                             "text": "Konzerthaus Kammerorchester Berlin"
+                            },
+                            {
+                             "text": " & "
+                            },
+                            {
+                             "navigationEndpoint": {
+                              "browseEndpoint": {
+                               "browseEndpointContextSupportedConfigs": {
+                                "browseEndpointContextMusicConfig": {
+                                 "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                }
+                               },
+                               "browseId": "UC0GpwAe75ZvehWK2N5tGE-w"
+                              }
+                             },
+                             "text": "André de Ridder"
+                            }
+                           ]
+                          }
+                         }
+                        },
+                        {
+                         "musicResponsiveListItemFlexColumnRenderer": {
+                          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_MEDIUM",
+                          "text": {
+                           "runs": [
+                            {
+                             "navigationEndpoint": {
+                              "browseEndpoint": {
+                               "browseEndpointContextSupportedConfigs": {
+                                "browseEndpointContextMusicConfig": {
+                                 "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                                }
+                               },
+                               "browseId": "MPREb_iUIGkFI5rEx"
+                              }
+                             },
+                             "text": "Recomposed By Max Richter: Vivaldi, The Four Seasons"
+                            }
+                           ]
+                          }
+                         }
+                        }
+                       ],
+                       "multiSelectCheckbox": {
+                        "checkboxRenderer": {
+                         "checkedState": "CHECKBOX_CHECKED_STATE_UNCHECKED",
+                         "onSelectionChangeCommand": {
+                          "updateMultiSelectStateCommand": {
+                           "multiSelectItem": "Cg8KCzZDYTNIUjZ3dGRvEgA=",
+                           "multiSelectParams": "CAISIlBMNlVrU2tFY19kVG5sdFRRZVlmTXFHWERSYlhpZFpsZWM="
+                          }
+                         }
+                        }
+                       },
+                       "playlistItemData": {
+                        "videoId": "6Ca3HR6wtdo"
+                       },
+                       "thumbnail": {
+                        "musicThumbnailRenderer": {
+                         "thumbnail": {
+                          "thumbnails": [
+                           {
+                            "height": 60,
+                            "url": "https://yt3.googleusercontent.com/3HVHuVtE7E_cr7AmJF0gbLGH2CoHPY-9mC7cC8jtUwdDLJOGFSwgDH_MpyUQlWo-hfyGKkFluSGs4EXp0g=w60-h60-s-l90-rj",
+                            "width": 60
+                           },
+                           {
+                            "height": 120,
+                            "url": "https://yt3.googleusercontent.com/3HVHuVtE7E_cr7AmJF0gbLGH2CoHPY-9mC7cC8jtUwdDLJOGFSwgDH_MpyUQlWo-hfyGKkFluSGs4EXp0g=w120-h120-s-l90-rj",
+                            "width": 120
+                           }
+                          ]
+                         },
+                         "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                         "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+                        }
+                       }
+                      }
+                     },
+                     "itemIdentifier": "6Ca3HR6wtdo",
+                     "playlistId": "PLfixture"
+                    }
+                   },
+                   "removeSuggestionCommand": {
+                    "hideEnclosingAction": {}
+                   }
+                  }
+                 }
+                ],
+                "params": "SCRUBBED",
+                "playlistId": "PLfixture"
+               }
+              },
+              "icon": {
+               "iconType": "PLAYLIST_ADD"
+              }
+             }
+            },
+            "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+            "size": "MUSIC_RESPONSIVE_LIST_ITEM_FIXED_COLUMN_SIZE_SMALL"
+           }
+          }
+         ],
+         "flexColumns": [
+          {
+           "musicResponsiveListItemFlexColumnRenderer": {
+            "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+            "text": {
+             "runs": [
+              {
+               "navigationEndpoint": {
+                "watchEndpoint": {
+                 "videoId": "6Ca3HR6wtdo",
+                 "watchEndpointMusicSupportedConfigs": {
+                  "watchEndpointMusicConfig": {
+                   "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                  }
+                 }
+                }
+               },
+               "text": "Richter: Spring 3 (2012)"
+              }
+             ]
+            }
+           }
+          },
+          {
+           "musicResponsiveListItemFlexColumnRenderer": {
+            "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+            "text": {
+             "runs": [
+              {
+               "navigationEndpoint": {
+                "browseEndpoint": {
+                 "browseEndpointContextSupportedConfigs": {
+                  "browseEndpointContextMusicConfig": {
+                   "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                  }
+                 },
+                 "browseId": "UCfrB_Vg3Nrs2wddApqX4kfQ"
+                }
+               },
+               "text": "Daniel Hope"
+              },
+              {
+               "text": ", "
+              },
+              {
+               "navigationEndpoint": {
+                "browseEndpoint": {
+                 "browseEndpointContextSupportedConfigs": {
+                  "browseEndpointContextMusicConfig": {
+                   "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                  }
+                 },
+                 "browseId": "UCvUVq-qQ7MkY5xJemM6_9jw"
+                }
+               },
+               "text": "Konzerthaus Kammerorchester Berlin"
+              },
+              {
+               "text": " & "
+              },
+              {
+               "navigationEndpoint": {
+                "browseEndpoint": {
+                 "browseEndpointContextSupportedConfigs": {
+                  "browseEndpointContextMusicConfig": {
+                   "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                  }
+                 },
+                 "browseId": "UC0GpwAe75ZvehWK2N5tGE-w"
+                }
+               },
+               "text": "André de Ridder"
+              }
+             ]
+            }
+           }
+          },
+          {
+           "musicResponsiveListItemFlexColumnRenderer": {
+            "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_MEDIUM",
+            "text": {
+             "runs": [
+              {
+               "navigationEndpoint": {
+                "browseEndpoint": {
+                 "browseEndpointContextSupportedConfigs": {
+                  "browseEndpointContextMusicConfig": {
+                   "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                  }
+                 },
+                 "browseId": "MPREb_iUIGkFI5rEx"
+                }
+               },
+               "text": "Recomposed By Max Richter: Vivaldi, The Four Seasons"
+              }
+             ]
+            }
+           }
+          }
+         ],
+         "playlistItemData": {
+          "videoId": "6Ca3HR6wtdo"
+         },
+         "thumbnail": {
+          "musicThumbnailRenderer": {
+           "thumbnail": {
+            "thumbnails": [
+             {
+              "height": 60,
+              "url": "https://yt3.googleusercontent.com/3HVHuVtE7E_cr7AmJF0gbLGH2CoHPY-9mC7cC8jtUwdDLJOGFSwgDH_MpyUQlWo-hfyGKkFluSGs4EXp0g=w60-h60-s-l90-rj",
+              "width": 60
+             },
+             {
+              "height": 120,
+              "url": "https://yt3.googleusercontent.com/3HVHuVtE7E_cr7AmJF0gbLGH2CoHPY-9mC7cC8jtUwdDLJOGFSwgDH_MpyUQlWo-hfyGKkFluSGs4EXp0g=w120-h120-s-l90-rj",
+              "width": 120
+             }
+            ]
+           },
+           "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+           "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+          }
+         }
+        }
+       },
+       {
+        "musicResponsiveListItemRenderer": {
+         "fixedColumns": [
+          {
+           "musicResponsiveListItemFixedColumnRenderer": {
+            "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+            "size": "MUSIC_RESPONSIVE_LIST_ITEM_FIXED_COLUMN_SIZE_SMALL",
+            "text": {
+             "runs": [
+              {
+               "text": "3:14"
+              }
+             ]
+            }
+           }
+          },
+          {
+           "musicResponsiveListItemFixedColumnRenderer": {
+            "button": {
+             "buttonRenderer": {
+              "command": {
+               "playlistEditEndpoint": {
+                "actions": [
+                 {
+                  "action": "ACTION_ADD_VIDEO",
+                  "addedVideoId": "Vtshvkz-gJw"
+                 }
+                ],
+                "clientActions": [
+                 {
+                  "musicAddSuggestionToPlaylistCommand": {
+                   "addToPlaylistCommand": {
+                    "insertShelfItemCommand": {
+                     "item": {
+                      "musicResponsiveListItemRenderer": {
+                       "fixedColumns": [
+                        {
+                         "musicResponsiveListItemFixedColumnRenderer": {
+                          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+                          "size": "MUSIC_RESPONSIVE_LIST_ITEM_FIXED_COLUMN_SIZE_SMALL",
+                          "text": {
+                           "runs": [
+                            {
+                             "text": "3:14"
+                            }
+                           ]
+                          }
+                         }
+                        }
+                       ],
+                       "flexColumns": [
+                        {
+                         "musicResponsiveListItemFlexColumnRenderer": {
+                          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+                          "text": {
+                           "runs": [
+                            {
+                             "navigationEndpoint": {
+                              "watchEndpoint": {
+                               "playerParams": "0gcJCTMC0OBS9m0t",
+                               "playlistId": "PLfixture",
+                               "videoId": "Vtshvkz-gJw",
+                               "watchEndpointMusicSupportedConfigs": {
+                                "watchEndpointMusicConfig": {
+                                 "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                                }
+                               }
+                              }
+                             },
+                             "text": "Minuet in A major, D. 334"
+                            }
+                           ]
+                          }
+                         }
+                        },
+                        {
+                         "musicResponsiveListItemFlexColumnRenderer": {
+                          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+                          "text": {
+                           "runs": [
+                            {
+                             "navigationEndpoint": {
+                              "browseEndpoint": {
+                               "browseEndpointContextSupportedConfigs": {
+                                "browseEndpointContextMusicConfig": {
+                                 "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                }
+                               },
+                               "browseId": "UCboIKC5jx4fUBq_77t837Vw"
+                              }
+                             },
+                             "text": "Arcadi Volodos"
+                            },
+                            {
+                             "text": " & "
+                            },
+                            {
+                             "navigationEndpoint": {
+                              "browseEndpoint": {
+                               "browseEndpointContextSupportedConfigs": {
+                                "browseEndpointContextMusicConfig": {
+                                 "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                }
+                               },
+                               "browseId": "UC7l3IFSPxafcH_GTj1VWTeg"
+                              }
+                             },
+                             "text": "Franz Schubert"
+                            }
+                           ]
+                          }
+                         }
+                        },
+                        {
+                         "musicResponsiveListItemFlexColumnRenderer": {
+                          "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_MEDIUM",
+                          "text": {
+                           "runs": [
+                            {
+                             "navigationEndpoint": {
+                              "browseEndpoint": {
+                               "browseEndpointContextSupportedConfigs": {
+                                "browseEndpointContextMusicConfig": {
+                                 "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                                }
+                               },
+                               "browseId": "MPREb_5jNjOjqB0yN"
+                              }
+                             },
+                             "text": "Schubert: Piano Sonata D.959 & Minuets D. 334, D. 335, D. 600"
+                            }
+                           ]
+                          }
+                         }
+                        }
+                       ],
+                       "multiSelectCheckbox": {
+                        "checkboxRenderer": {
+                         "checkedState": "CHECKBOX_CHECKED_STATE_UNCHECKED",
+                         "onSelectionChangeCommand": {
+                          "updateMultiSelectStateCommand": {
+                           "multiSelectItem": "Cg8KC1Z0c2h2a3otZ0p3EgA=",
+                           "multiSelectParams": "CAISIlBMNlVrU2tFY19kVG5sdFRRZVlmTXFHWERSYlhpZFpsZWM="
+                          }
+                         }
+                        }
+                       },
+                       "playlistItemData": {
+                        "videoId": "Vtshvkz-gJw"
+                       },
+                       "thumbnail": {
+                        "musicThumbnailRenderer": {
+                         "thumbnail": {
+                          "thumbnails": [
+                           {
+                            "height": 60,
+                            "url": "https://yt3.googleusercontent.com/hPc_lF_u206-q8slTC-v8nIhPuKWYYtf0nXm3UymPF42ziJcdpz4UavjQc8EQsT-oX_8CR-umlLUd1lutA=w60-h60-l90-rj",
+                            "width": 60
+                           },
+                           {
+                            "height": 120,
+                            "url": "https://yt3.googleusercontent.com/hPc_lF_u206-q8slTC-v8nIhPuKWYYtf0nXm3UymPF42ziJcdpz4UavjQc8EQsT-oX_8CR-umlLUd1lutA=w120-h120-l90-rj",
+                            "width": 120
+                           }
+                          ]
+                         },
+                         "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                         "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+                        }
+                       }
+                      }
+                     },
+                     "itemIdentifier": "Vtshvkz-gJw",
+                     "playlistId": "PLfixture"
+                    }
+                   },
+                   "removeSuggestionCommand": {
+                    "hideEnclosingAction": {}
+                   }
+                  }
+                 }
+                ],
+                "params": "SCRUBBED",
+                "playlistId": "PLfixture"
+               }
+              },
+              "icon": {
+               "iconType": "PLAYLIST_ADD"
+              }
+             }
+            },
+            "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+            "size": "MUSIC_RESPONSIVE_LIST_ITEM_FIXED_COLUMN_SIZE_SMALL"
+           }
+          }
+         ],
+         "flexColumns": [
+          {
+           "musicResponsiveListItemFlexColumnRenderer": {
+            "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+            "text": {
+             "runs": [
+              {
+               "navigationEndpoint": {
+                "watchEndpoint": {
+                 "videoId": "Vtshvkz-gJw",
+                 "watchEndpointMusicSupportedConfigs": {
+                  "watchEndpointMusicConfig": {
+                   "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                  }
+                 }
+                }
+               },
+               "text": "Minuet in A major, D. 334"
+              }
+             ]
+            }
+           }
+          },
+          {
+           "musicResponsiveListItemFlexColumnRenderer": {
+            "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH",
+            "text": {
+             "runs": [
+              {
+               "navigationEndpoint": {
+                "browseEndpoint": {
+                 "browseEndpointContextSupportedConfigs": {
+                  "browseEndpointContextMusicConfig": {
+                   "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                  }
+                 },
+                 "browseId": "UCboIKC5jx4fUBq_77t837Vw"
+                }
+               },
+               "text": "Arcadi Volodos"
+              },
+              {
+               "text": " & "
+              },
+              {
+               "navigationEndpoint": {
+                "browseEndpoint": {
+                 "browseEndpointContextSupportedConfigs": {
+                  "browseEndpointContextMusicConfig": {
+                   "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                  }
+                 },
+                 "browseId": "UC7l3IFSPxafcH_GTj1VWTeg"
+                }
+               },
+               "text": "Franz Schubert"
+              }
+             ]
+            }
+           }
+          },
+          {
+           "musicResponsiveListItemFlexColumnRenderer": {
+            "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_MEDIUM",
+            "text": {
+             "runs": [
+              {
+               "navigationEndpoint": {
+                "browseEndpoint": {
+                 "browseEndpointContextSupportedConfigs": {
+                  "browseEndpointContextMusicConfig": {
+                   "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                  }
+                 },
+                 "browseId": "MPREb_5jNjOjqB0yN"
+                }
+               },
+               "text": "Schubert: Piano Sonata D.959 & Minuets D. 334, D. 335, D. 600"
+              }
+             ]
+            }
+           }
+          }
+         ],
+         "playlistItemData": {
+          "videoId": "Vtshvkz-gJw"
+         },
+         "thumbnail": {
+          "musicThumbnailRenderer": {
+           "thumbnail": {
+            "thumbnails": [
+             {
+              "height": 60,
+              "url": "https://yt3.googleusercontent.com/hPc_lF_u206-q8slTC-v8nIhPuKWYYtf0nXm3UymPF42ziJcdpz4UavjQc8EQsT-oX_8CR-umlLUd1lutA=w60-h60-l90-rj",
+              "width": 60
+             },
+             {
+              "height": 120,
+              "url": "https://yt3.googleusercontent.com/hPc_lF_u206-q8slTC-v8nIhPuKWYYtf0nXm3UymPF42ziJcdpz4UavjQc8EQsT-oX_8CR-umlLUd1lutA=w120-h120-l90-rj",
+              "width": 120
+             }
+            ]
+           },
+           "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+           "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+          }
+         }
+        }
+       }
+      ],
+      "continuations": [
+       {
+        "reloadContinuationData": {
+         "continuation": "CONTINUATION_SCRUBBED"
+        }
+       }
+      ],
+      "shelfDivider": {
+       "musicShelfDividerRenderer": {
+        "hidden": true
+       }
+      },
+      "title": {
+       "runs": [
+        {
+         "text": "Suggestions"
+        }
+       ]
+      }
+     }
+    }
+   ],
+   "continuations": [
+    {
+     "nextContinuationData": {
+      "continuation": "CONTINUATION_SCRUBBED"
+     }
+    }
+   ]
+  }
+ }
+}

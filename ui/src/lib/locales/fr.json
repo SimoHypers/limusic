@@ -342,10 +342,8 @@
 		"themes": {
 			"interface_font": "Police de l'interface",
 			"load_font_file": "Charger une police depuis un fichier",
-			"custom_colors": "Couleurs personnalisées",
 			"primary_color": "Accent principal",
 			"background_color": "Arrière-plan",
-			"reset_theme": "Rétablir le thème par défaut",
 			"your_fonts": "Vos polices",
 			"custom_font": "Personnalisée…",
 			"font_placeholder": "Police installée sur cet ordinateur, ex. Inter",

@@ -369,10 +369,8 @@
 		"themes": {
 			"interface_font": "Czcionka interfejsu",
 			"load_font_file": "Wczytaj czcionkę z pliku",
-			"custom_colors": "Niestandardowe kolory",
 			"primary_color": "Kolor akcentu",
 			"background_color": "Tło",
-			"reset_theme": "Przywróć domyślny motyw",
 			"your_fonts": "Twoje czcionki",
 			"custom_font": "Niestandardowa…",
 			"font_placeholder": "Czcionka zainstalowana na tym komputerze, np. Inter",

@@ -111,7 +111,7 @@
 		"autoplay_notice": "Otomatik oynatma açık",
 		"clear_queue": "Sırayı Temizle",
 		"empty_queue": "Sıra boş",
-		"play_next": "Sıradakine ekle",
+		"play_next": "Bundan sonra oynat",
 		"add_to_queue": "Sıraya ekle",
 		"remove_from_queue": "Sıradan kaldır",
 		"save_to_playlist": "Çalma listesine kaydet",
@@ -148,7 +148,9 @@
 		"songs_left": "{count} şarkı kaldı",
 		"songs_left_one": "1 şarkı kaldı",
 		"queue_ends": "Sıra bu şarkıdan sonra sona erecek.",
-		"edit_scrobble": "Skropu düzenle"
+		"edit_scrobble": "Skropu düzenle",
+		"song": "Müzik",
+		"video": "Video"
 	},
 	"home": {
 		"good_morning": "Günaydın",
@@ -311,7 +313,9 @@
 			"discord_status": "Durum",
 			"discord_card": "Kart",
 			"discord_links": "Tıklanabilirlik",
-			"discord_buttons": "Düğmeler"
+			"discord_buttons": "Düğmeler",
+			"colors": "Renkler",
+			"interface": "Arayüz"
 		},
 		"general": {
 			"language": "Arayüz dili",
@@ -342,10 +346,8 @@
 		"themes": {
 			"interface_font": "Arayüz yazı tipi",
 			"load_font_file": "Dosyadan yazı tipi yükle",
-			"custom_colors": "Özel Renkler",
 			"primary_color": "Ana Vurgu Rengi",
 			"background_color": "Arka Plan",
-			"reset_theme": "Varsayılan temaya sıfırla",
 			"your_fonts": "Yazı tipleriniz",
 			"custom_font": "Özel…",
 			"font_placeholder": "Bu bilgisayarda yüklü olan yazı tipi, örn. Inter",
@@ -379,7 +381,19 @@
 			"app_icon_dialog": "Bir uygulama simgesi seçin",
 			"app_icon_filter": "PNG görsel",
 			"zoom": "Arayüz ölçeği",
-			"zoom_hint": "Penceredeki her şeyi ölçeklendirir. Yakınlaştırma kısayolları da bunu değiştirir ve uygulama yeniden başlatıldığında hatırlanır."
+			"zoom_hint": "Penceredeki her şeyi ölçeklendirir. Yakınlaştırma kısayolları da bunu değiştirir ve uygulama yeniden başlatıldığında hatırlanır.",
+			"stage_player": "Yeni oynatıcı düzeni",
+			"mode": "Aydınlık veya karanlık",
+			"mode_hint": "Sistem bilgisayarınızın ayarını takip eder ve ona göre değiştirir.",
+			"mode_light": "Aydınlık",
+			"mode_dark": "Karanlık",
+			"mode_system": "Sistem",
+			"accent_hint": "Butonlar, ilerleme çubuğu ve seçilen her şey.",
+			"accent_theme": "Temanın kendı vurgusu",
+			"preview": "Önizle",
+			"accent_artwork_note": "Bir şarkı çalarken vurgu, şarkının kapak resminden gelir. Bunu görmek için “Kapağa göre renkleri ayarla” seçeneğini kapatın.",
+			"preview_hint": "Sürüklerken kaydırma çubukları ve renk seçici burada görünür; parmağınızı bıraktığınızda uygulama buna uyum sağlar.",
+			"stage_player_hint": "Kapak resminin altında şarkının adı, sanatçısı ve albümü; tam yükseklikteki bir sütunda çalma listesi ve şarkı sözleri; ayrıca kapak resminin renkleriyle aydınlatılmış görünüm. Kapalıyken orijinal düzen korunur."
 		},
 		"playback": {
 			"audio_quality": "Ses kalitesi",
@@ -405,10 +419,10 @@
 			"blocked_artists_show_all": "Engelli {count} sanatçıyı göster",
 			"blocked_artists_show_less": "Daha az göster",
 			"blocked_artists_copy": "JSON dosyasını kopyala",
-			"lastfm_primary_artist": "Yalnızca birincil sanatçıyı scrobble et",
+			"lastfm_primary_artist": "Yalnızca birincil sanatçıyı skropla",
 			"lastfm_primary_artist_hint": "Last.fm'e yalnızca ilk kredilendirilen sanatçıyı gönderir, böylece dinlemeleriniz gerçek sanatçı sayfasına işlenir. \"&\" ile birleştirilmiş isimler bütün olarak korunur.",
 			"lastfm_primary_strict": "\"&\" ile birleştirilmiş sanatçıları da kaldır",
-			"lastfm_primary_strict_hint": "\"Future & Metro Boomin\" \"Future\" olarak scrobble edilir. Adında \"&\" geçen ikili gruplar da kısaltılır.",
+			"lastfm_primary_strict_hint": "\"Future & Metro Boomin\" \"Future\" olarak skroplanır. Adında \"&\" geçen ikili gruplar da kısaltılır.",
 			"crossfade": "Çapraz geçiş",
 			"crossfade_hint": "Her parçanın sonunu bir sonrakinin başlangıcına kademeli olarak geçirir. Parçalar çakıştığı sürede ikinci bir ses kod çözücü çalıştırır, bu yüzden biraz daha fazla bellek kullanır.",
 			"crossfade_duration": "Çapraz geçiş süresi",
@@ -429,7 +443,8 @@
 			"ambient_light_hint": "Müzik videosunun etrafındaki oynatıcı alanı, videonun renkleriyle uyumlu bir şekilde parıldar.",
 			"ambient_light_gpu_check": "Kartınıza bakın",
 			"shuffle_whole_queue_hint": "“Karıştır” seçeneği, “Sıraya Ekle” ile eklediğiniz şarkıları çalma listesiyle karıştırır. Bu seçeneği devre dışı bırakırsanız, şarkılar eklediğiniz sırayla çalınır. “Sonraki” seçeneği ise her zaman bir sonraki şarkıyı çalar.",
-			"ambient_light_gpu": "PassMark ekran kartı performans testinde 1000 puanın altında kalan durumlarda, müzik videosu oynatılırken oynatıcının görüntüsünde takılmalar yaşanabilir."
+			"ambient_light_gpu": "PassMark ekran kartı performans testinde 1000 puanın altında kalan durumlarda, müzik videosu oynatılırken oynatıcının görüntüsünde takılmalar yaşanabilir.",
+			"ambient_light": "Ambiyant aydınlık"
 		},
 		"data": {
 			"clear_cache": "Görsel ve akış önbelleğini temizle",
@@ -569,7 +584,7 @@
 			"minutes_value": "{n} dakika",
 			"minutes_hint": "Uzun parçalar, yukarıdaki yüzde değerine ulaşmadan önce bile, bu süre kadar çalındığında skroplanır. Last.fm, 4 dakikalık bir süre kullanır. 30 saniyeden kısa parçalar hiçbir zaman skroplanmaz.",
 			"split_titles": "Video başlıklarından sanatçıyı oku",
-			"minutes": "Ya da sonra",
+			"minutes": "Ya da bu süreden sonra",
 			"stat_scrobbles": "Skroplar",
 			"connect": "Bağlan",
 			"open_profile": "Last.fm profilinizi açın",
@@ -623,7 +638,12 @@
 			"section_timing": "Bir oynatmanın ne zaman sayılacağı",
 			"percent_hint": "Bir parçanın ne kadarının çalınması gerektiği. Last.fm'in kendi kuralı yarısıdır. Bu değeri artırın ki, erken atladığınız şarkılar sayılmasın.",
 			"minutes_off": "Kapalı",
-			"section_metadata": "Gönderilecekler"
+			"section_metadata": "Gönderilecekler",
+			"rule_field": "Alan",
+			"rule_enabled": "Bu kuralı kullan",
+			"rules_hint": "Gönderilen verilerde arama ve değiştirme işlemi, her bir parça üzerinde sırayla uygulanır.",
+			"find_hint": "Bir düzenli ifade (regex). Eşleşmeyi ilgili alana taşımak için bir gruba (?<artist>…), (?<title>…) veya (?<album>…) adını verin.",
+			"split_titles_hint": "Bir kanala atıf yapılan yüklemelerin başlığında genellikle gerçek sanatçının adı “Sanatçı - Şarkı” şeklinde belirtilir. Bunları o sanatçı ve şarkı olarak skropla. Bu sadece videolar için geçerlidir, şarkılar için geçerli değildir."
 		}
 	},
 	"dialogs": {
@@ -671,7 +691,8 @@
 			"zoom_out": "Uzaklaştır",
 			"reset_zoom": "Yakınlaştırmayı sıfırla",
 			"show_this_list": "Bu listeyi göster",
-			"refresh_page": "Sayfayı yenile"
+			"refresh_page": "Sayfayı yenile",
+			"quit_app": "Limusic'ten çık"
 		},
 		"tempo_pitch": {
 			"title": "Tempo ve Perde Kontrolleri",
@@ -919,7 +940,7 @@
 		"unblocked_artist": "{name} isimli sanatçının engeli kaldırıldı",
 		"added_to_shortcuts": "Kısa yollara eklendi",
 		"already_in_shortcuts": "Zaten kısayollarınızda",
-		"playing_next_one": "Sıradaki çalınıyor",
+		"playing_next_one": "Bu şarkıdan sonra oynatılacak",
 		"playing_next": "{count} şarkı sırada çalınacak",
 		"added_to_queue_one": "Kuyruğa eklendi",
 		"added_to_queue": "{count} şarkı kuyruğa eklendi",
@@ -1072,7 +1093,7 @@
 		"update": "Güncelle",
 		"updating": "Güncelleniyor…",
 		"errors": {
-			"nothing_read": "Önce bir çalma listesi seçin",
+			"nothing_read": "Önce bir çalma listesi seçin.",
 			"cooldown": "YouTube Music, Limusic’ten hızını azaltmasını istedi; bu nedenle içe aktarma işlemleri {time} tarihine kadar askıya alındı. Şu ana kadar bulunan tüm içerikler kaydedildi.",
 			"not_spotify": "Bu bir Spotify çalma listesi ya da albüm bağlantısı değil.",
 			"private": "Bu çalma listesi gizlidir, bu nedenle bağlantı kullanılarak içe aktarılamaz. Çalma listesini aktarmak için aşağıdan Spotify verilerini talep edin.",
@@ -1081,8 +1102,9 @@
 			"csv_columns": "Bu CSV dosyasında şarkı başlıklarını içeren bir sütun bulunmuyor.",
 			"spotify_changed": "Spotify, çalma listelerini paylaşma şeklini değiştirdi. Limusic’teki bir güncelleme bu sorunu çözecektir.",
 			"busy": "Bir içe aktarma işlemi hâla devam ediyor.",
-			"gone": "Bu içe aktarma artık açık değil",
-			"not_found": "Youtube Music'te bulunamadı."
+			"gone": "Bu içe aktarma artık açık değil.",
+			"not_found": "Youtube Music'te bulunamadı.",
+			"not_a_list": "Bu, bir müzik veya sanatçının bağlantısı. Bir çalma listesi veya albümün adresini yapıştırın."
 		},
 		"failed_hint": "Şu ana kadar bulunan şarkılar kaydedildi, bu sayede yeniden denediğinizde kaldığınız yerden devam edilir.",
 		"cancelled_desc": "Şu ana kadar bulunan şarkılar kaydedildi, bu sayede yeni bir içe aktarma yaptığınızda bu işlemin kaldığı yerden devam edilir.",

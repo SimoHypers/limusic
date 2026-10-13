@@ -51,7 +51,7 @@
 	} from '$lib/player.svelte';
 	import { artRoom } from '$lib/artroom.svelte';
 	import { appearance, setAppearance } from '$lib/theme.svelte';
-	import { thumb } from '$lib/thumb';
+	import { isMissingThumb, thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
 	import ArtistLine from './ArtistLine.svelte';
 	import LyricsView from './LyricsView.svelte';
@@ -286,6 +286,7 @@
 								{src}
 								alt=""
 								onerror={() => attempt++}
+								onload={(e) => isMissingThumb(e) && attempt++}
 								style={srcs[2] ? `background-image:url(${srcs[2]})` : undefined}
 								class="aspect-square w-full rounded-2xl bg-cover object-cover ring-1 ring-white/10"
 							/>

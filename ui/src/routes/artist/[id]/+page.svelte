@@ -48,6 +48,7 @@
 	let subscribed = $state(false);
 	let subBusy = $state(false);
 	let shuffleBusy = $state(false);
+	let appearsOn = $state<BrowseItem[]>([]);
 
 	const id = $derived(page.params.id ?? '');
 	const nowId = $derived(playback.now?.videoId);
@@ -67,18 +68,33 @@
 		}
 		error = null;
 		expanded = false;
+		appearsOn = getCached<BrowseItem[]>(`appears:${cid}`) ?? [];
 		try {
 			const fresh = await api.getArtist(cid);
 			if (cid !== id) return; // superseded by navigation — drop the stale response
 			artist = fresh;
 			subscribed = fresh.subscribed;
 			putCached(key, fresh);
+			if (!appearsOn.length) loadAppearsOn(cid, fresh);
 		} catch (e) {
 			if (cid !== id) return;
 			if (!hit) error = String(e);
 		} finally {
 			if (cid === id) loading = false;
 		}
+	}
+
+	// Fetched after the page paints: it costs a second browse. Releases already on the artist's own
+	// shelves (a single they co-lead) are dropped. A failure just leaves the shelf off.
+	async function loadAppearsOn(cid: string, a: ArtistPage) {
+		if (!a.topSongsId) return;
+		try {
+			const own = new Set(a.sections.flatMap((s) => s.items.map((i) => i.id)));
+			const items = await api.getArtistAppearsOn(cid, a.topSongsId);
+			if (cid !== id) return;
+			appearsOn = items.filter((i) => !own.has(i.id));
+			putCached(`appears:${cid}`, appearsOn);
+		} catch {}
 	}
 
 	$effect(() => {
@@ -325,6 +341,10 @@
 				onMore={section.moreBrowseId ? () => showMore(section) : undefined}
 			/>
 		{/each}
+
+		{#if appearsOn.length}
+			<Shelf title={t('artist.appears_on')} items={appearsOn} />
+		{/if}
 	</div>
 {/if}
 

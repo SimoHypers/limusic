@@ -148,7 +148,9 @@
 		"songs_left": "{count} canciones restantes",
 		"songs_left_one": "1 canción restante",
 		"queue_ends": "La cola termina después de esta canción.",
-		"edit_scrobble": "Editar scrobble"
+		"edit_scrobble": "Editar scrobble",
+		"song": "Canción",
+		"video": "Video"
 	},
 	"home": {
 		"good_morning": "Buenos días",
@@ -311,7 +313,9 @@
 			"discord_status": "Estado",
 			"discord_card": "Tarjeta",
 			"discord_links": "Cliqueable",
-			"discord_buttons": "Botones"
+			"discord_buttons": "Botones",
+			"colors": "Colores",
+			"interface": "Interfaz"
 		},
 		"general": {
 			"language": "Idioma de la interfaz",
@@ -342,10 +346,8 @@
 		"themes": {
 			"interface_font": "Fuente de la interfaz",
 			"load_font_file": "Cargar fuente desde archivo",
-			"custom_colors": "Colores personalizados",
 			"primary_color": "Acento principal",
 			"background_color": "Fondo",
-			"reset_theme": "Restablecer tema predeterminado",
 			"your_fonts": "Tus fuentes",
 			"custom_font": "Personalizada…",
 			"font_placeholder": "Fuente instalada en este equipo, ej. Inter",
@@ -379,7 +381,19 @@
 			"app_icon_dialog": "Elegir un icono para la aplicación",
 			"app_icon_filter": "Imagen PNG",
 			"zoom": "Escala de la interfaz",
-			"zoom_hint": "Escala todo en la ventana. Los atajos para hacer zoom también lo cambian, y se recuerda entre reinicios."
+			"zoom_hint": "Escala todo en la ventana. Los atajos para hacer zoom también lo cambian, y se recuerda entre reinicios.",
+			"stage_player": "Nuevo diseño del reproductor",
+			"stage_player_hint": "El título de la canción, el artista y el álbum aparecen bajo la imagen de portada; la cola de reproducción y la letra se sitúan en una columna de altura completa, y la vista se ilumina con los colores de la portada. La opción «Desactivado» (Off) mantiene la disposición original.",
+			"mode": "Claro o oscuro",
+			"mode_hint": "El sistema sigue la configuración de su equipo y cambia junto con ella.",
+			"mode_light": "Claro",
+			"mode_dark": "Oscuro",
+			"mode_system": "Sistema",
+			"accent_hint": "Los botones, la barra de progreso y cualquier elemento seleccionado.",
+			"accent_theme": "El acento propio del tema",
+			"accent_artwork_note": "Mientras se reproduce una canción, el color de acento se basa en su portada. Desactiva la opción «Adaptar colores a la ilustración» para verla.",
+			"preview": "Previa",
+			"preview_hint": "Los controles deslizantes y el selector de color aparecen aquí a medida que arrastras, y la aplicación responde cuando sueltas."
 		},
 		"playback": {
 			"audio_quality": "Calidad de audio",
@@ -406,9 +420,9 @@
 			"blocked_artists": "Artistas bloqueados",
 			"blocked_artists_hint": "Los artistas bloqueados se excluyen de la radio, la reproducción automática y recomendaciones. Puedes seguir reproduciendo todo en las playlists y álbumes que abras.",
 			"lastfm_primary_artist": "Scrobble solo al artista principal",
-			"lastfm_primary_artist_hint": "Envía solo al primer artista acreditado a Last.fm, para que tus reproducciones aparezcan en la página real del artista. Los nombres unidos con \"&\" se mantienen completos.",
-			"lastfm_primary_strict": "Descarta también los artistas unidos con \"&\"",
-			"lastfm_primary_strict_hint": "“Future & Metro Boomin” se scrobblea como “Future”. Los dúos con “&” en el nombre también quedan acortados.",
+			"lastfm_primary_artist_hint": "Envía solo al primer artista acreditado a Last.fm, para que tus reproducciones aparezcan en la página real del artista. Los nombres unidos con \"y\" se mantienen completos.",
+			"lastfm_primary_strict": "Descarta también los artistas unidos con \"y\"",
+			"lastfm_primary_strict_hint": "“Future y Metro Boomin” se scrobblea como “Future”. Los dúos con “y” en el nombre también quedan acortados.",
 			"crossfade": "Crossfade",
 			"crossfade_hint": "Desvanece el final de cada pista al inicio de la siguiente. Ejecuta un segundo decodificador de audio cuando las pistas se superponen, así que usa un poco más de memoria.",
 			"crossfade_duration": "Duración del crossfade",
@@ -677,7 +691,8 @@
 			"zoom_out": "Alejar",
 			"reset_zoom": "Restablecer zoom",
 			"show_this_list": "Mostrar esta lista",
-			"refresh_page": "Actualizar pagina"
+			"refresh_page": "Actualizar pagina",
+			"quit_app": "Salir de Limusic"
 		},
 		"tempo_pitch": {
 			"title": "Controles de tempo y tono",

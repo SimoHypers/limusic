@@ -374,10 +374,8 @@
 		"themes": {
 			"interface_font": "介面字型",
 			"load_font_file": "從本機檔案載入字型",
-			"custom_colors": "自訂色彩",
 			"primary_color": "主要強調色",
 			"background_color": "背景顏色",
-			"reset_theme": "重設為預設主題",
 			"your_fonts": "已載入的字型",
 			"custom_font": "自訂字型…",
 			"font_placeholder": "本機已安裝的字型名稱，例如：Inter、PingFang TC",

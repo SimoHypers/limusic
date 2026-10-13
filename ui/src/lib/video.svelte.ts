@@ -25,6 +25,14 @@ export const video = $state({
 export type Hole = { x: number; y: number; w: number; h: number };
 
 export const canVideo = () => prefs.musicVideos && !!playback.now?.isVideo;
+/** The playing track's other version (#442), read off its queue row: a radio learns it after the
+ *  track has started, so the now-playing event can't carry it. */
+export const counterpart = () => {
+	const row = playback.queue.items[playback.queue.currentIndex];
+	return row && row.video_id === playback.now?.videoId ? row.counterpart : undefined;
+};
+/** Whether the player view offers Song/Video: a video to show or hide, or a version to switch to. */
+export const canSwitch = () => prefs.musicVideos && (!!playback.now?.isVideo || !!counterpart());
 export const hasVideo = () =>
 	canVideo() && (prefs.nativeVideo ? !!videoReady[playback.now!.videoId] : !!video.url);
 export const showVideo = () => hasVideo() && video.want;

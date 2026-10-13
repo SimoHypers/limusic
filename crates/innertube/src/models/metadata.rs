@@ -42,13 +42,14 @@ pub struct SongItem {
     /// edit_playlist). Only present when the item came from a playlist page.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub set_video_id: Option<String>,
-    /// Who put this track in the playlist, on a collaborative one: the contributor's name and
-    /// avatar off the row's `contributorsAvatars`. `None` everywhere else, since an ordinary
+    /// Who put this track in the playlist, on a collaborative one: their names and one avatar per
+    /// person off the row's `contributorsAvatars`. Usually one, several on a Taste Match row that
+    /// more than one member's taste picked (#102). Empty everywhere else, since an ordinary
     /// playlist has one contributor and YouTube doesn't send the stack.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub added_by: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub added_by_avatar: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub added_by_avatars: Vec<String>,
     /// The signed-in user's rating of this track, from the row's `likeStatus`. `None` when the
     /// response didn't carry one, which the UI treats the same as [`Rating::Indifferent`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -79,6 +80,11 @@ pub struct SongItem {
     /// "hide music videos" setting; computed once here, never re-derived downstream.
     #[serde(default)]
     pub is_video: bool,
+    /// The same song's other version: the music video for an audio track, or the audio track for
+    /// a video. What the player's Song/Video switch swaps to (#442). Known only where YouTube
+    /// pairs them: an album row we swapped to its audio id, and a signed-in radio's wrapper rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub counterpart: Option<String>,
     /// One of the signed-in user's own uploads ([`is_upload_row`]). Only an authenticated client
     /// can stream these, so the orchestrator swaps in a login-only fallback chain. Issue #71.
     #[serde(default)]
@@ -286,8 +292,9 @@ pub fn parse_next(root: &Value) -> NextResult {
     let mut items = Vec::new();
     let mut rows = Vec::new();
     panel_rows(root, &mut rows);
-    for node in rows {
-        if let Some(item) = parse_panel_video(node) {
+    for (node, counterpart) in rows {
+        if let Some(mut item) = parse_panel_video(node) {
+            item.counterpart = counterpart;
             items.push(item);
         }
     }
@@ -312,17 +319,26 @@ pub fn parse_next(root: &Value) -> NextResult {
 /// `playlistPanelVideoWrapperRenderer`. A signed-in radio wraps each track's audio row together
 /// with its music-video twin (what YouTube's own Song/Video toggle switches between), so a plain
 /// [`find_all`] takes both and the queue gets every song twice. Issue #170.
-fn panel_rows<'a>(node: &'a Value, out: &mut Vec<&'a Value>) {
+///
+/// The twin's id rides along with its primary row instead, for our own Song/Video switch (#442).
+fn panel_rows<'a>(node: &'a Value, out: &mut Vec<(&'a Value, Option<String>)>) {
     match node {
         Value::Object(map) => {
+            let start = out.len();
             for (k, v) in map {
                 if k == "counterpart" {
                     continue;
                 }
                 if k == "playlistPanelVideoRenderer" {
-                    out.push(v);
+                    out.push((v, None));
                 }
                 panel_rows(v, out);
+            }
+            if let Some(twin) = map.get("counterpart").and_then(|c| find_first_str(c, "videoId")) {
+                // A wrapper holds exactly one primary row; anything else is a shape we don't know.
+                if let [(_, slot)] = &mut out[start..] {
+                    *slot = Some(twin);
+                }
             }
         }
         Value::Array(arr) => arr.iter().for_each(|e| panel_rows(e, out)),
@@ -538,10 +554,7 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
                 .map(str::to_owned)
         })
         .flatten();
-    let (added_by, added_by_avatar) = match contributor(node) {
-        Some((name, avatar)) => (Some(name), Some(avatar)),
-        None => (None, None),
-    };
+    let (added_by, added_by_avatars) = contributors(node);
     Some(SongItem {
         video_id,
         title,
@@ -555,7 +568,7 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
         thumbnail: last_thumbnail(node),
         set_video_id,
         added_by,
-        added_by_avatar,
+        added_by_avatars,
         rating: like_status(node),
         queued_by: None,
         queued: false,
@@ -563,6 +576,7 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
         queued_from: None,
         autoplay: false,
         is_video: is_video_row(node),
+        counterpart: None,
         is_upload: is_upload_row(node),
         explicit: is_explicit(node),
         library: library_toggle(node),
@@ -715,14 +729,36 @@ pub(crate) fn album_from_runs(runs: &[Value]) -> Option<String> {
 /// The track's rating from its menu's `likeStatus` (`LIKE` / `INDIFFERENT` / `DISLIKE`).
 /// Tolerant: grabs the first `likeStatus` anywhere in the node, and reads anything it doesn't
 /// recognise as unrated rather than dropping the row. context/08.
-/// The contributor who added this row, on a collaborative playlist: their display name and avatar
-/// URL. One avatar per row (whoever added it), in a stack renderer YouTube only sends there.
-fn contributor(node: &Value) -> Option<(String, String)> {
-    let stack = find_all(node, "contributorsAvatars").into_iter().next()?;
-    let avatar = find_all(stack, "avatarViewModel").into_iter().next()?;
-    let name = avatar.get("accessibilityText").and_then(Value::as_str)?;
-    let url = avatar.pointer("/image/sources/0/url").and_then(Value::as_str)?;
-    Some((name.to_owned(), url.to_owned()))
+/// Who added this row, on a collaborative playlist: their names for the tooltip and one avatar URL
+/// per person, off a stack renderer YouTube only sends there. A Taste Match row several members
+/// share stacks all of them, and a name is never required: the multi-person rows used to vanish
+/// whole because the first avatar carried none (#102). Each avatar's own `accessibilityText`
+/// first, else the stack's label.
+fn contributors(node: &Value) -> (Option<String>, Vec<String>) {
+    let Some(stack) = find_all(node, "contributorsAvatars").into_iter().next() else {
+        return (None, Vec::new());
+    };
+    let avatars = find_all(stack, "avatarViewModel");
+    let urls: Vec<String> = avatars
+        .iter()
+        .filter_map(|a| a.pointer("/image/sources/0/url").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect();
+    if urls.is_empty() {
+        return (None, urls);
+    }
+    let names: Vec<&str> =
+        avatars.iter().filter_map(|a| a.get("accessibilityText").and_then(Value::as_str)).collect();
+    let label = if names.is_empty() {
+        find_all(stack, "label")
+            .into_iter()
+            .chain(find_all(stack, "content"))
+            .find_map(Value::as_str)
+            .map(str::to_owned)
+    } else {
+        Some(names.join(", "))
+    };
+    (label, urls)
 }
 
 /// Does this row's menu carry "Remove from playlist"? The menu item is a `playlistEditEndpoint`
@@ -828,7 +864,7 @@ fn parse_panel_video(node: &Value) -> Option<SongItem> {
         thumbnail: last_thumbnail(node),
         set_video_id: None,
         added_by: None,
-        added_by_avatar: None,
+        added_by_avatars: Vec::new(),
         rating: like_status(node),
         queued_by: None,
         queued: false,
@@ -836,6 +872,7 @@ fn parse_panel_video(node: &Value) -> Option<SongItem> {
         queued_from: None,
         autoplay: false,
         is_video: is_video_row(node),
+        counterpart: None,
         is_upload: is_upload_row(node),
         // Queue-panel rows carry no badges today; asking anyway costs a map lookup and picks the
         // flag up for free if YouTube ever adds one.
@@ -1310,6 +1347,9 @@ mod tests {
         let out = parse_next(&root);
         let ids: Vec<&str> = out.items.iter().map(|i| i.video_id.as_str()).collect();
         assert_eq!(ids, ["audio1", "plain1"]);
+        // The twin is kept on its primary for the Song/Video switch (#442), and only there.
+        assert_eq!(out.items[0].counterpart.as_deref(), Some("video1"));
+        assert_eq!(out.items[1].counterpart, None);
     }
 
     // A real radio page has no automix marker — nothing to escalate to, and nothing to mistake a
@@ -1807,7 +1847,27 @@ mod tests {
         });
         let item = parse_list_item(&node).unwrap();
         assert_eq!(item.added_by.as_deref(), Some("Rajat"));
-        assert_eq!(item.added_by_avatar.as_deref(), Some("https://yt3.ggpht.com/abc=s48"));
+        assert_eq!(item.added_by_avatars, ["https://yt3.ggpht.com/abc=s48"]);
+        // A Taste Match row two members share stacks both, and the names sit on the stack: the
+        // row must keep both avatars rather than vanish for lack of a per-avatar name (#102).
+        let shared = json!({
+            "playlistItemData": { "videoId": "vid1" },
+            "flexColumns": [{ "musicResponsiveListItemFlexColumnRenderer": {
+                "text": { "runs": [{ "text": "Alpha" }] } } }],
+            "contributorsAvatars": { "avatarStackViewModel": {
+                "avatars": [
+                    { "avatarViewModel": { "image": { "sources": [{ "url": "https://yt3.ggpht.com/a=s48" }] } } },
+                    { "avatarViewModel": { "image": { "sources": [{ "url": "https://yt3.ggpht.com/b=s48" }] } } }
+                ],
+                "rendererContext": { "accessibilityContext": { "label": "Irine and Rajat" } }
+            } }
+        });
+        let item = parse_list_item(&shared).unwrap();
+        assert_eq!(
+            item.added_by_avatars,
+            ["https://yt3.ggpht.com/a=s48", "https://yt3.ggpht.com/b=s48"]
+        );
+        assert_eq!(item.added_by.as_deref(), Some("Irine and Rajat"));
         // An ordinary playlist row has no stack, so no name to draw.
         assert_eq!(
             parse_list_item(&json!({

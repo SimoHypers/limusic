@@ -1,47 +1,4 @@
 {
-	"karaoke": {
-		"consent": {
-			"title": "Download AI Vocal Removal Model",
-			"desc": "Karaoke uses an AI model (UVR MDX-Net) that must be downloaded once (about {size}). It is stored locally and works offline afterwards. Preparing a song takes from about 15 seconds (discrete GPU) to a few minutes (CPU) and the result is cached on disk."
-		},
-		"download": "Download",
-		"cancel": "Cancel",
-		"retry": "Retry",
-		"not_now": "Not now",
-		"preparing": "Preparing karaoke version…",
-		"active": "Karaoke on",
-		"error_retry": "Click to retry",
-		"slot": {
-			"now": "Now",
-			"next": "Next",
-			"after": "After that"
-		},
-		"state": {
-			"ready": "ready",
-			"preparing": "preparing",
-			"queued": "queued",
-			"error": "error"
-		},
-		"settings": {
-			"title": "Karaoke",
-			"title_hint": "Vocal removal settings",
-			"model": "AI model",
-			"model_desc": "Used to remove vocals. Downloaded once, works offline.",
-			"model_installed": "Installed ({size})",
-			"model_missing": "Not installed",
-			"cache_limit": "Cache size limit",
-			"cache_limit_desc": "Prepared karaoke versions are cached on disk. The oldest ones are removed when the limit is exceeded.",
-			"cache_custom": "Custom ({n} MB)",
-			"cache_format": "Cache format",
-			"cache_format_value": "FLAC (lossless)",
-			"cache_format_desc": "Smaller lossy formats are planned.",
-			"cache_used": "Cache in use",
-			"cache_used_desc": "Space taken by prepared karaoke versions.",
-			"clear": "Clear cache",
-			"clear_confirm": "Click again to confirm",
-			"cleared": "Cache cleared"
-		}
-	},
 	"selection": {
 		"actions": "Selected track actions",
 		"count": "{count} selected",

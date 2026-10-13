@@ -57,8 +57,9 @@
 #      trust anchors and every HTTPS load in the webview failed as "Unacceptable TLS certificate":
 #      no sign-in, no thumbnails, no music video (issue #164). Rust is unaffected, it carries
 #      rustls, so the app looks alive. Fixed by moving the gnutls stack off the library path so the
-#      host's own copy, which knows where the host's trust store is, is what loads. Conditionally:
-#      see 1e, Arch cannot serve the chain and keeps ours.
+#      host's own copy, which knows where the host's trust store is, is what loads. Conditionally,
+#      see 1e and 2a: Arch, on nettle 4.0, keeps ours, and openSUSE, on nettle 4.0 since October
+#      2026, runs its own gnutls next to our nettle 3.
 #
 # ON PRUNING. v0.2.11 pruned eight libraries and broke worse than what it fixed, so the bar is high,
 # but "never prune" is the wrong rule — defect 3 above is only fixable by pruning. What made v0.2.11
@@ -255,9 +256,16 @@ fi
 #     Moved rather than deleted, because which copy wins is a runtime decision (2a). libavformat
 #     DT_NEEDs libgnutls and libarchive DT_NEEDs libnettle.so.8, so both are load-time dependencies
 #     of the app itself: a host that cannot serve the whole chain would go from "sign-in is broken"
-#     to "does not start", which is worse than the bug being fixed. Arch is exactly that host, its
-#     nettle 4.0 is libnettle.so.9. So the copies sit in a subdirectory the loader never looks in
-#     and 2a puts it back on the path when the host comes up short.
+#     to "does not start", which is worse than the bug being fixed. So the copies sit in a
+#     subdirectory the loader never looks in and 2a puts it back on the path when the host comes up
+#     short.
+#
+#     A host on nettle 4.0 (libnettle.so.9) is short only of nettle 3 itself, for libarchive and
+#     libsrt. Both can live in one process: different sonames, and every symbol is versioned
+#     (NETTLE_8 against NETTLE_9), so neither side binds the other's. nettle/ holds a second copy of
+#     just those two, for a host where our gnutls would find no trust store: it only reads
+#     /etc/ssl/certs/ca-certificates.crt. Taking the whole stack there is what left openSUSE with
+#     zero anchors once it moved to nettle 4.0.
 #
 #     Measured against the shipped 0.6.8 AppDir in containers, trust anchors reachable by the
 #     webview's TLS stack, before -> after: openSUSE 0 -> 435, Debian 121 -> 121, Fedora 388 -> 388,
@@ -275,6 +283,8 @@ for soname in $GNUTLS_STACK; do
     echo "==> moved $(basename "$lib") into gnutls-fallback/"
   done
 done
+mkdir -p "$FALLBACK/nettle"
+cp -a "$FALLBACK"/libnettle.so.8* "$FALLBACK"/libhogweed.so.6* "$FALLBACK/nettle/"
 # p11-kit's module directory goes with it: nothing can load those without libp11-kit.so.0 anyway.
 rm -rf "$APPDIR/usr/lib/pkcs11" "$APPDIR/usr/lib64/pkcs11"
 [ -e "$FALLBACK/libgnutls.so.30" ] || {
@@ -329,23 +339,30 @@ grep -q 'gnutls-fallback' "$HOOK" || cat >> "$HOOK" <<'EOF'
 # bundle anywhere else (openSUSE) ours leaves the webview trusting nothing. The host's own gnutls
 # knows where the host's trust store is.
 #
-# That only works when the host can serve the whole chain, because a soname is loaded once per
-# process: the host's gnutls resolves libnettle.so.8 to ours if ours is on the path, and 3.8.10+
-# wants a symbol our nettle 3.9 does not have. So it is all of the host's or all of ours. Arch is
-# the "all of ours" case — nettle 4.0 there is libnettle.so.9, which cannot serve the bundled
-# libarchive and libsrt, so we put our own copies back and accept the compiled-in trust path, which
-# is the file Arch actually has. Whatever this picks, the check in scripts/appdir-foreign-check.sh
-# counts the trust anchors that come out of it.
-_gnutls_host=1
-for _so in libgnutls.so.30 libnettle.so.8 libhogweed.so.6; do
-  _found=""
+# A soname is loaded once per process, so the host's gnutls resolves libnettle.so.8 to ours if ours
+# is on the path, and 3.8.10+ wants a symbol our nettle 3.9 does not have. So:
+#   - the host has gnutls and nettle 3 (.so.8): all of the host's, nothing added;
+#   - otherwise, wherever ours finds its trust store, or the host has no gnutls: all of ours. Arch,
+#     on nettle 4.0 (.so.9) with the file ours reads;
+#   - otherwise the host's gnutls plus our nettle 3 alone, for the bundled libarchive and libsrt.
+#     openSUSE, on nettle 4.0 without that file. Our symbols are NETTLE_8 and the host's NETTLE_9,
+#     so the two never bind each other's.
+# Whatever this picks, scripts/appdir-foreign-check.sh counts the trust anchors that come out of it.
+_has() {
   for _d in /usr/lib/x86_64-linux-gnu /usr/lib64 /usr/lib /lib64 /lib/x86_64-linux-gnu; do
-    [ -e "$_d/$_so" ] && { _found=1; break; }
+    [ -e "$_d/$1" ] && return 0
   done
-  [ -n "$_found" ] || _gnutls_host=""
-done
-[ -n "$_gnutls_host" ] || export LD_LIBRARY_PATH="$APPDIR/usr/lib/gnutls-fallback${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-unset _gnutls_host _so _found _d
+  return 1
+}
+if _has libgnutls.so.30 && _has libnettle.so.8 && _has libhogweed.so.6; then
+  :
+elif [ -e /etc/ssl/certs/ca-certificates.crt ] || ! _has libgnutls.so.30; then
+  export LD_LIBRARY_PATH="$APPDIR/usr/lib/gnutls-fallback${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+else
+  export LD_LIBRARY_PATH="$APPDIR/usr/lib/gnutls-fallback/nettle${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+unset -f _has
+unset _d
 EOF
 
 # 2b. Point GStreamer at the bundled plugins. Same shape as GIO_MODULE_DIR above and for the same

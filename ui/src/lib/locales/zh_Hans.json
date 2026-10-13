@@ -386,10 +386,8 @@
 		"themes": {
 			"interface_font": "界面字体",
 			"load_font_file": "从文件加载字体",
-			"custom_colors": "自定义颜色",
 			"primary_color": "主强调色",
 			"background_color": "背景",
-			"reset_theme": "重置为默认主题",
 			"your_fonts": "你的字体",
 			"custom_font": "自定义…",
 			"font_placeholder": "此电脑上已安装的字体，例如 Inter",

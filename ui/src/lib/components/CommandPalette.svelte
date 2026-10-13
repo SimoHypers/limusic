@@ -68,7 +68,7 @@
 	});
 
 	// A modal opened off a row (right-click ▸ Add to playlist, Share) is a plain fixed layer in the
-	// layout at z-50, while this dialog portals to <body>: the z ties and DOM order decides, so the
+	// layout at z-[49] (under the titlebar, #427), while this dialog's content sits at z-50, so the
 	// modal opens behind the palette. Raising its z wouldn't be enough either, since the dialog's
 	// focus trap pulls focus straight back out of the modal's filter field. So the palette steps
 	// aside rather than fighting for the layer. Issue #218.

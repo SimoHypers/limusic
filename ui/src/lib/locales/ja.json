@@ -400,10 +400,8 @@
 		"themes": {
 			"interface_font": "インターフェースフォント",
 			"load_font_file": "ファイルからフォントを読み込む",
-			"custom_colors": "カスタムカラー",
 			"primary_color": "プライマリアクセント",
 			"background_color": "背景色",
-			"reset_theme": "デフォルトテーマに戻す",
 			"your_fonts": "フォント一覧",
 			"custom_font": "カスタム…",
 			"font_placeholder": "PCにインストールされているフォント名（例: Inter）",

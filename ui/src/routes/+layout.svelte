@@ -33,6 +33,7 @@
 	import PlayerBar from '$lib/components/PlayerBar.svelte';
 	import QueuePanel from '$lib/components/QueuePanel.svelte';
 	import LyricsPanel from '$lib/components/LyricsPanel.svelte';
+	import CommentsPanel from '$lib/components/CommentsPanel.svelte';
 	import AddToPlaylist from '$lib/components/AddToPlaylist.svelte';
 	import NewPlaylistDialog from '$lib/components/NewPlaylistDialog.svelte';
 	import SettingsDialog from '$lib/components/SettingsDialog.svelte';
@@ -51,6 +52,7 @@
 	import KeyboardShortcuts from '$lib/components/KeyboardShortcuts.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { auth, initApp, np, playback, prefs, ui } from '$lib/player.svelte';
+	import { isLocalId } from '$lib/api';
 	import { video } from '$lib/video.svelte';
 	import { win, initWin } from '$lib/win.svelte';
 	import { initZoom } from '$lib/zoom.svelte';
@@ -143,8 +145,12 @@
 	// Queue and lyrics toggle independently and both float over the page rather than docking into
 	// it — two docked columns squeezed the content down to an unusable strip. At lg+ they sit side
 	// by side over the content; narrower, they stack (see QueuePanel / LyricsPanel).
+	// Comments take the lyrics' slot rather than a third column, so the two are exclusive with each
+	// other (opening one closes the other) and everything that offsets for "the lyrics panel" counts
+	// either as that one slot.
 	let queueOpen = $state(false);
 	let lyricsOpen = $state(false);
+	let commentsOpen = $state(false);
 	// Two ways the now-playing view and these panels can divide the same two buttons, picked in
 	// settings (#62). Tabbed (the default): the view carries queue and lyrics itself, so the panels
 	// step aside for it and the bar's buttons switch its tabs. Off: these are the only owner, the
@@ -155,6 +161,19 @@
 	// whatever was open before it (#365).
 	const showQueue = $derived(queueOpen && !tabbed);
 	const showLyrics = $derived(lyricsOpen && !tabbed);
+	const showComments = $derived(commentsOpen && !tabbed);
+	// A local file has no YouTube comments, and the bar and the view hide their comments buttons for
+	// it, so nothing could close them: comments count as closed. Docked, the panel goes; tabbed, the
+	// view goes back to the tab that was open before comments. Opened again on a YouTube track as usual.
+	let tabBeforeComments = $state<'queue' | 'lyrics'>('queue');
+	$effect(() => {
+		if (np.tab !== 'comments') tabBeforeComments = np.tab;
+	});
+	$effect(() => {
+		if (!playback.now || !isLocalId(playback.now.videoId)) return;
+		commentsOpen = false;
+		if (np.tab === 'comments') np.tab = tabBeforeComments;
+	});
 
 	// "Adapt colors to artwork": re-run on every track change and on the toggle itself. The 120px
 	// cover is the one the player bar has already loaded, so this costs no extra request.
@@ -290,9 +309,16 @@
 			     parking container until the view borrows the picture. Not on Linux, where mpv draws the
 			     picture itself (prefs.nativeVideo). -->
 			{#if !prefs.nativeVideo}<VideoSurface />{/if}
-			{#if np.open && playback.now}<NowPlaying queueOpen={showQueue} lyricsOpen={showLyrics} />{/if}
+			{#if np.open && playback.now}<NowPlaying
+					queueOpen={showQueue}
+					lyricsOpen={showLyrics || showComments}
+				/>{/if}
 			<!-- Lyrics before queue: side by side over the page, lyrics on the left, queue on the right. -->
 			{#if showLyrics}<LyricsPanel onClose={() => (lyricsOpen = false)} queueOpen={showQueue} />{/if}
+			{#if showComments}<CommentsPanel
+					onClose={() => (commentsOpen = false)}
+					queueOpen={showQueue}
+				/>{/if}
 			{#if showQueue}<QueuePanel onClose={() => (queueOpen = false)} />{/if}
 		</div>
 		{#if playback.now}
@@ -304,8 +330,22 @@
 				<PlayerBar
 					onToggleQueue={() => (tabbed ? (np.tab = 'queue') : (queueOpen = !queueOpen))}
 					queueOpen={tabbed ? np.tab === 'queue' : queueOpen}
-					onToggleLyrics={() => (tabbed ? (np.tab = 'lyrics') : (lyricsOpen = !lyricsOpen))}
+					onToggleLyrics={() => {
+						if (tabbed) np.tab = 'lyrics';
+						else {
+							lyricsOpen = !lyricsOpen;
+							if (lyricsOpen) commentsOpen = false;
+						}
+					}}
 					lyricsOpen={tabbed ? np.tab === 'lyrics' : lyricsOpen}
+					onToggleComments={() => {
+						if (tabbed) np.tab = 'comments';
+						else {
+							commentsOpen = !commentsOpen;
+							if (commentsOpen) lyricsOpen = false;
+						}
+					}}
+					commentsOpen={tabbed ? np.tab === 'comments' : commentsOpen}
 				/>
 			</div>
 		{/if}
@@ -329,11 +369,13 @@
 	<KaraokeConsentDialog />
 
 	<!-- The two notification banners below run at z-[100]. Dialogs and menus sit at z-50 and portal to
-	     <body>, so a z-50 banner loses the tie on DOM order and hides behind an open modal. -->
+	     <body>, so a z-50 banner loses the tie on DOM order and hides behind an open modal. The update
+	     banner also needs pointer-events-auto: an open dialog sets `pointer-events: none` on <body>,
+	     so without it the banner shows above the modal but its buttons can't be clicked. -->
 	{#if updateState.available}
 		<div
 			transition:fly={{ y: 16, duration: 220, easing: cubicOut }}
-			class="fixed bottom-24 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-3 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
+			class="pointer-events-auto fixed bottom-24 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-3 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
 		>
 			<span>{availableMessage(updateState.available)}</span>
 			{#if updateState.canInstall}

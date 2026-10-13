@@ -27,6 +27,7 @@
 	import { personal, resetHome, saveHome } from '$lib/player.svelte';
 	import { CARD_SIZES, hiddenSections, homeIsDefault, type CardSize } from '$lib/personal';
 	import { t, type TranslationKey } from '$lib/i18n.svelte';
+	import { onWindowChrome } from '$lib/utils';
 
 	let {
 		open = $bindable(false),
@@ -175,6 +176,7 @@
 		<!-- Floats clear of the titlebar and the window's rounded corner: flush to the edge, its square
 		     corner would poke out past the window's round one. -->
 		<DialogPrimitive.Content
+			onInteractOutside={(e) => onWindowChrome(e) && e.preventDefault()}
 			class="fixed bottom-3 right-3 top-12 z-50 flex w-[25rem] max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-2xl border bg-popover text-popover-foreground shadow-2xl outline-none duration-200 data-open:animate-in data-open:fade-in-0 data-open:slide-in-from-right-8 data-closed:animate-out data-closed:fade-out-0 data-closed:slide-out-to-right-8"
 		>
 			<div class="flex items-start gap-3 border-b px-5 py-4">

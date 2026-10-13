@@ -354,6 +354,7 @@
 	const betaOn = $derived(settings.update_channel === 'beta');
 	const trayOn = $derived(settings.close_to_tray !== 'false');
 	const trackNotificationsOn = $derived(settings.track_notifications === 'true');
+	const trackNotificationsFocusedOn = $derived(settings.track_notifications_focused === 'true');
 	const autostartOn = $derived(settings.autostart === 'true');
 	const startMinimizedOn = $derived(settings.start_minimized === 'true');
 	// `native_chrome` is read-only and platform-derived (commands.rs). `overlay` is macOS, where the
@@ -458,6 +459,11 @@
 	async function setTrackNotifications(on: boolean) {
 		settings.track_notifications = on ? 'true' : 'false';
 		await api.setSetting('track_notifications', settings.track_notifications);
+	}
+
+	async function setTrackNotificationsFocused(on: boolean) {
+		settings.track_notifications_focused = on ? 'true' : 'false';
+		await api.setSetting('track_notifications_focused', settings.track_notifications_focused);
 	}
 
 	// The backend flips the real window decorations; `win.chrome` is what the SPA keys its own
@@ -674,6 +680,13 @@
 									desc: t('settings.general.track_notifications_hint'),
 									control: trackNotificationsSwitch
 								})}
+								{#if trackNotificationsOn}
+									{@render row({
+										title: t('settings.general.track_notifications_focused'),
+										desc: t('settings.general.track_notifications_focused_hint'),
+										control: trackNotificationsFocusedSwitch
+									})}
+								{/if}
 								{@render row({
 									title: t('settings.general.autostart'),
 									desc: t('settings.general.autostart_hint'),
@@ -986,6 +999,10 @@
 {#snippet trackNotificationsSwitch()}<Switch
 		checked={trackNotificationsOn}
 		onCheckedChange={setTrackNotifications}
+	/>{/snippet}
+{#snippet trackNotificationsFocusedSwitch()}<Switch
+		checked={trackNotificationsFocusedOn}
+		onCheckedChange={setTrackNotificationsFocused}
 	/>{/snippet}
 {#snippet autostartSwitch()}<Switch checked={autostartOn} onCheckedChange={setAutostart} />{/snippet}
 {#snippet startMinimizedSwitch()}<Switch checked={startMinimizedOn} onCheckedChange={setStartMinimized} />{/snippet}

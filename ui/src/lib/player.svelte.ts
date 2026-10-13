@@ -45,12 +45,12 @@ export const playback = $state({
 });
 
 /**
- * The full-window now-playing view (NowPlaying.svelte): big artwork, plus the Queue/Lyrics tabs.
+ * The full-window now-playing view (NowPlaying.svelte): big artwork, plus the Queue/Lyrics/Comments tabs.
  * It lives here rather than in the layout because starting something playing opens it, and every
  * "play this" path already goes through this module. The open has to happen at the click: a
  * gapless advance looks exactly like a user play from the `now-playing` event alone.
  */
-export const np = $state({ open: false, tab: 'queue' as 'queue' | 'lyrics' });
+export const np = $state({ open: false, tab: 'queue' as 'queue' | 'lyrics' | 'comments' });
 
 export const karaokeStatus = $state({
 	state: 'off' as 'off' | 'needs-model' | 'preparing' | 'ready' | 'error',
@@ -1588,7 +1588,7 @@ export function notePlaylistAdd(playlistId: string, songs: SongItem[]) {
 		...s,
 		set_video_id: undefined,
 		added_by: undefined,
-		added_by_avatar: undefined,
+		added_by_avatars: undefined,
 		autoplay: undefined,
 		queued: undefined,
 		queued_end: undefined,

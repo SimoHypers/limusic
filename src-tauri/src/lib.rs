@@ -133,6 +133,7 @@ fn tune_webview(win: &tauri::WebviewWindow, media: bool) {
             // WKWebView's allowsBackForwardNavigationGestures, which wry does not expose.
             settings.set_enable_back_forward_navigation_gestures(true);
         }
+        heal_lost_release(&webview);
     });
     match res {
         Ok(()) => {
@@ -140,6 +141,49 @@ fn tune_webview(win: &tauri::WebviewWindow, media: bool) {
         }
         Err(e) => tracing::warn!(label, error = %e, "webkit tuning failed (continuing)"),
     }
+}
+
+/// Hands WebKit a left-button release it never got. A titlebar drag starts a compositor move grab
+/// (tauri's `start_dragging`, run later on the GTK loop), and the grab eats the release of whichever
+/// press it caught. WebKit then still counts the button as down and turns the next press into a
+/// `pointermove`, so nothing listening for `pointerdown` sees it: after a double-click on the bar,
+/// the first click outside an open dialog didn't close it (#427). A second left press without a
+/// release in between can only mean one was lost, so it is sent first. At (-1, -1), so its
+/// `mouseup`/`click` land on `<html>` rather than on whatever is now under the old spot.
+/// `ui/perf/dragpress.py` shows both the stuck press and this fix on the system WebKitGTK.
+#[cfg(target_os = "linux")]
+fn heal_lost_release(webview: &webkit2gtk::WebView) {
+    use gtk::gdk::{self, glib::translate::ToGlibPtrMut};
+    use gtk::prelude::*;
+    use std::{cell::Cell, rc::Rc};
+
+    let held = Rc::new(Cell::new(false));
+    let on_press = held.clone();
+    webview.connect_button_press_event(move |view, e| {
+        if e.button() != 1 || e.event_type() != gdk::EventType::ButtonPress {
+            return gtk::glib::Propagation::Proceed;
+        }
+        if on_press.get() {
+            let mut release = e.clone();
+            // SAFETY: `release` is our own copy of a GdkEventButton; only plain fields change.
+            unsafe {
+                let raw: *mut gdk::ffi::GdkEventButton = release.to_glib_none_mut().0;
+                (*raw).type_ = gdk::ffi::GDK_BUTTON_RELEASE;
+                (*raw).x = -1.0;
+                (*raw).y = -1.0;
+                (*raw).state |= gdk::ffi::GDK_BUTTON1_MASK;
+            }
+            view.event(&release); // runs the release handler below, which clears `held`
+        }
+        on_press.set(true);
+        gtk::glib::Propagation::Proceed
+    });
+    webview.connect_button_release_event(move |_, e| {
+        if e.button() == 1 {
+            held.set(false);
+        }
+        gtk::glib::Propagation::Proceed
+    });
 }
 
 /// WebGL in the main window, which [`tune_webview`] turns off: the ambient light draws its glow with
@@ -163,6 +207,32 @@ pub(crate) fn set_webgl(app: &tauri::AppHandle, on: bool) {
 pub(crate) fn tune_webview_labelled(app: &tauri::AppHandle, label: &str, media: bool) {
     if let Some(win) = app.get_webview_window(label) {
         tune_webview(&win, media);
+    }
+}
+
+/// Pull the main window back onto a display if the window-state plugin restored it somewhere that
+/// no longer exists (#459). The plugin keeps a saved position when any one corner lands on a
+/// monitor, so after a layout change the window could come back with only its invisible resize
+/// border on screen and no titlebar to drag. Called from `setup`: the plugin has restored by then
+/// (it runs as the config window is built, just before), and the window is still hidden.
+///
+/// Wayland gives the app no real position and ignores `center`, which is fine: the compositor
+/// places the window there, so the bug cannot happen.
+fn keep_on_screen(w: &tauri::WebviewWindow) {
+    let (Ok(p), Ok(size)) = (w.outer_position(), w.outer_size()) else { return };
+    if mini::on_a_display(w, p, size) {
+        return;
+    }
+    tracing::info!(x = p.x, y = p.y, "main window restored off-screen, centering it");
+    // A maximized window has to come back to its normal size to move: maximizing again then fills
+    // the display it was centered on.
+    let maximized = w.is_maximized().unwrap_or(false);
+    if maximized {
+        let _ = w.unmaximize();
+    }
+    let _ = w.center();
+    if maximized {
+        let _ = w.maximize();
     }
 }
 
@@ -420,6 +490,9 @@ pub fn run() {
             let data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir());
             std::fs::create_dir_all(&data_dir).ok();
             init_logging(&data_dir);
+            if let Some(w) = app.get_webview_window("main") {
+                keep_on_screen(&w);
+            }
             let cache_dir = data_dir.join("audio-cache");
             std::fs::create_dir_all(&cache_dir).ok();
 
@@ -834,14 +907,16 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(only_ui(tauri::generate_handler![
             commands::search,
             commands::search_all,
             commands::search_suggestions,
             commands::search_cards,
             commands::search_videos,
+            commands::song,
             commands::play,
             commands::play_index,
+            commands::switch_version,
             commands::remove_from_queue,
             commands::clear_queued,
             commands::add_to_queue,
@@ -896,6 +971,14 @@ pub fn run() {
             commands::take_launch_args,
             commands::get_home,
             commands::get_home_more,
+            commands::get_comments,
+            commands::get_comments_more,
+            commands::get_comment_replies,
+            commands::comment_action,
+            commands::comment_create,
+            commands::comment_reply,
+            commands::comment_edit,
+            commands::comment_delete,
             commands::get_library,
             commands::get_library_albums,
             commands::get_library_artists,
@@ -904,6 +987,7 @@ pub fn run() {
             commands::get_history,
             commands::get_playlist,
             commands::get_playlist_more,
+            commands::get_playlist_suggestions,
             commands::playlist_index,
             commands::sync_playlist_index,
             commands::play_counts,
@@ -916,6 +1000,7 @@ pub fn run() {
             commands::remove_local_folder,
             commands::allow_font_file,
             commands::get_artist,
+            commands::get_artist_appears_on,
             commands::get_browse_grid,
             commands::get_moods,
             commands::get_mood_art,
@@ -982,7 +1067,7 @@ pub fn run() {
             commands::diagnostics_summary,
             commands::save_diagnostics,
             commands::log_ui,
-        ])
+        ]))
         .on_window_event(|window, event| {
             // Close-to-tray: ✕ hides the main window and playback keeps running; real quit is
             // the tray's Quit item (or the "close_to_tray=false" setting). Label-gated: the
@@ -1038,6 +1123,23 @@ pub fn run() {
                 mini::save_position(handle);
             }
         });
+}
+
+/// Let app commands answer only the UI's own windows. Tauri checks capabilities for plugin
+/// commands, but without an app ACL manifest an app command is open to any webview on a local
+/// origin, and the hidden cipher webview is one: its `limusicharness://` document runs YouTube's
+/// player.js. It needs no IPC, the bridge drives it through eval callbacks (`webview.rs`). The
+/// login windows load remote pages, which Tauri refuses on its own.
+fn only_ui<R: tauri::Runtime>(
+    handler: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
+) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    move |invoke| {
+        if matches!(invoke.message.webview_ref().label(), "main" | mini::LABEL) {
+            return handler(invoke);
+        }
+        invoke.resolver.reject("not allowed from this webview");
+        true
+    }
 }
 
 /// ✕ hides to tray unless the user explicitly set close_to_tray=false (unset → default on).
@@ -1168,6 +1270,38 @@ fn spawn_event_pump(
 mod tests {
     use super::{close_hides, PositionThrottle};
     use std::time::{Duration, Instant};
+
+    #[tauri::command]
+    fn ping() {}
+
+    /// The hidden cipher webview runs YouTube's player.js on a local origin, so Tauri lets it
+    /// reach app commands unless `only_ui` turns it away.
+    #[test]
+    fn app_commands_answer_only_the_ui() {
+        let app = tauri::test::mock_builder()
+            .invoke_handler(super::only_ui(tauri::generate_handler![ping]))
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        for (label, allowed) in [("main", true), ("mini", true), ("cipher", false)] {
+            let wv =
+                tauri::WebviewWindowBuilder::new(&app, label, Default::default()).build().unwrap();
+            let res = tauri::test::get_ipc_response(
+                &wv,
+                tauri::webview::InvokeRequest {
+                    cmd: "ping".into(),
+                    callback: tauri::ipc::CallbackFn(0),
+                    error: tauri::ipc::CallbackFn(1),
+                    url: if cfg!(windows) { "http://tauri.localhost" } else { "tauri://localhost" }
+                        .parse()
+                        .unwrap(),
+                    body: Default::default(),
+                    headers: Default::default(),
+                    invoke_key: tauri::test::INVOKE_KEY.into(),
+                },
+            );
+            assert_eq!(res.is_ok(), allowed, "{label}");
+        }
+    }
 
     /// `tauri.macos.conf.json` overrides the main window so macOS gets real traffic lights over the
     /// app's own titlebar (issue #65). Tauri merges platform config with RFC 7386 JSON Merge Patch,

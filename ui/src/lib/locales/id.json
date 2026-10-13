@@ -342,10 +342,8 @@
 		"themes": {
 			"interface_font": "Font antarmuka",
 			"load_font_file": "Muat font dari berkas",
-			"custom_colors": "Warna Kustom",
 			"primary_color": "Aksen Utama",
 			"background_color": "Latar Belakang",
-			"reset_theme": "Atur ulang ke tema bawaan",
 			"your_fonts": "Font Anda",
 			"custom_font": "Kustom…",
 			"font_placeholder": "Font terpasang di komputer ini, mis. Inter",

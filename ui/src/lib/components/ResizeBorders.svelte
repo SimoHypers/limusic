@@ -4,7 +4,8 @@
 	// hand the mousedown to the compositor's interactive resize. Hidden while maximized (a
 	// maximized window has no edges to grab, and neither has a fullscreen one, theater mode) and
 	// whenever a system frame is drawing its own (win.chrome), where ours would sit on top of the
-	// real ones and swallow the grab.
+	// real ones and swallow the grab. pointer-events-auto: an open dialog sets `pointer-events:
+	// none` on <body>, and resizing has to keep working under one (#427).
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { win } from '$lib/win.svelte';
 	import { ui } from '$lib/player.svelte';
@@ -43,6 +44,11 @@
 {#if !win.maximized && !ui.theaterOpen && win.chrome === 'off'}
 	{#each handles as h (h.dir)}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="fixed z-[60] {h.cls}" onmousedown={(e) => start(e, h.dir)} aria-hidden="true"></div>
+		<div
+			class="pointer-events-auto fixed z-[60] {h.cls}"
+			data-window-control
+			onmousedown={(e) => start(e, h.dir)}
+			aria-hidden="true"
+		></div>
 	{/each}
 {/if}

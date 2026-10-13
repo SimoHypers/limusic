@@ -970,25 +970,4 @@ mod tests {
             None
         );
     }
-
-    #[test]
-    fn test_redact_url() {
-        let msg = "https://x.googlevideo.com/videoplayback?ip=1.2.3.4&sig=abc";
-        let sanitized = redact_url(msg);
-        assert!(!sanitized.contains("ip="));
-        assert!(!sanitized.contains("sig="));
-        assert!(sanitized.contains("[url]"));
-    }
-}
-
-pub fn redact_url(s: &str) -> String {
-    let mut sanitized = s.to_string();
-    while let Some(start) = sanitized.find("http://").or_else(|| sanitized.find("https://")) {
-        let end = sanitized[start..]
-            .find(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == ')')
-            .map(|e| start + e)
-            .unwrap_or(sanitized.len());
-        sanitized.replace_range(start..end, "[url]");
-    }
-    sanitized
 }

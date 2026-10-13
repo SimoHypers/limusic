@@ -374,10 +374,8 @@
 		"themes": {
 			"interface_font": "Schriftart der Benutzeroberfläche",
 			"load_font_file": "Schriftart aus Datei laden",
-			"custom_colors": "Eigene Farben",
 			"primary_color": "Primäre Akzentfarbe",
 			"background_color": "Hintergrundfarbe",
-			"reset_theme": "Auf Standard-Design zurücksetzen",
 			"your_fonts": "Deine Schriftarten",
 			"custom_font": "Benutzerdefiniert…",
 			"font_placeholder": "Auf diesem Computer installierte Schriftart, z. B. Inter",

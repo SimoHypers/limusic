@@ -131,14 +131,41 @@ pub fn open_login(app: AppHandle, state: Arc<AppState>, add_account: bool) {
             Some(ua) => builder.user_agent(ua),
             None => builder,
         };
-        let res = builder.build();
-        if let Err(e) = res {
-            let _ = app2.emit("login-error", format!("Couldn't open the sign-in window: {e}"));
+        match builder.build() {
+            Ok(win) => no_webgl(&win),
+            Err(e) => {
+                let _ = app2.emit("login-error", format!("Couldn't open the sign-in window: {e}"));
+            }
         }
     });
     if let Err(e) = dispatched {
         let _ = app.emit("login-error", format!("Couldn't open the sign-in window: {e}"));
     }
+}
+
+/// WebGL off in the Google webviews, as it already is in the main window (`tune_webview`).
+///
+/// accounts.google.com opens a WebGL context the moment "Next" is clicked, and music.youtube.com
+/// opens one on load (fingerprinting, measured in WebKitGTK 2.52.5). On some Linux GPU stacks that
+/// kills the web process: the sign-in window sits on its loading bar, then goes blank (reported on
+/// CachyOS + niri, where the rest of the app ran fine because the main window has WebGL off). Both
+/// pages take the `null` context in stride and carry on. Only WebGL: the rest of the fingerprint
+/// surface stays at the defaults, so Google has less reason to call this browser unsafe.
+fn no_webgl(win: &tauri::WebviewWindow) {
+    #[cfg(target_os = "linux")]
+    {
+        use webkit2gtk::{SettingsExt, WebViewExt};
+        let res = win.with_webview(|wv| {
+            if let Some(settings) = WebViewExt::settings(&wv.inner()) {
+                settings.set_enable_webgl(false);
+            }
+        });
+        if let Err(e) = res {
+            tracing::warn!(label = win.label(), error = %e, "could not turn WebGL off");
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = win;
 }
 
 /// Re-mint the stored cookie from the login webview's own Google session, with no user
@@ -184,8 +211,9 @@ pub async fn refresh_session(app: AppHandle, state: Arc<AppState>) {
                 let _ = tx.send(());
             }
         });
-        if let Err(e) = builder.build() {
-            tracing::warn!(error = %e, "could not open the session-refresh webview");
+        match builder.build() {
+            Ok(win) => no_webgl(&win),
+            Err(e) => tracing::warn!(error = %e, "could not open the session-refresh webview"),
         }
     });
     if dispatched.is_err() {

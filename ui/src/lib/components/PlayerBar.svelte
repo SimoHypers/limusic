@@ -38,7 +38,6 @@
 	} from '$lib/player.svelte';
 	import { thumb } from '$lib/thumb';
 	import ArtistLine from './ArtistLine.svelte';
-	import KaraokeButton from './KaraokeButton.svelte';
 	import Marquee from './Marquee.svelte';
 	import TrackMenu from './TrackMenu.svelte';
 	import { t } from '$lib/i18n.svelte';
@@ -82,7 +81,6 @@
 
 	const shuffleOn = $derived(playback.queue.shuffle ?? false);
 	const repeat = $derived(playback.queue.repeat ?? 'off');
-
 
 	// The current track was appended by autoplay → show the subtle ∞ badge next to the title.
 	// Matched against the now-playing videoId so a transient queue/now-playing mismatch (mid
@@ -381,7 +379,6 @@
 			<Button variant="ghost" size="icon-sm" onclick={openMiniPlayer} aria-label={t('player.mini_player')}>
 				<HugeiconsIcon icon={MinimizeScreenIcon} class="h-5 w-5" />
 			</Button>
-			<KaraokeButton />
 			<Button
 				variant={lyricsOpen ? 'secondary' : 'ghost'}
 				size="icon-sm"

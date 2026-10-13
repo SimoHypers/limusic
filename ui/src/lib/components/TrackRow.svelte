@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { HugeiconsIcon, type IconSvgElement } from '@hugeicons/svelte';
 	import {
 		FavouriteIcon,
@@ -40,7 +41,8 @@
 		inLibraryList = false,
 		selection,
 		selectionKey,
-		lazy = false
+		lazy = false,
+		trailing
 	}: {
 		song: SongItem;
 		/** Position badge when set (playlist/queue); omitted for flat search results. */
@@ -87,6 +89,9 @@
 		 * row below.
 		 */
 		lazy?: boolean;
+		/** Last in the row, after the ⋯ (the suggestions shelf's Add). Stop the click's propagation:
+		 *  the row itself is a play button. */
+		trailing?: Snippet;
 	} = $props();
 	const selectionDescriptionId = $props.id();
 
@@ -336,15 +341,22 @@
 
 	<div class="flex shrink-0 items-center {compact ? 'gap-0.5' : 'gap-2'}">
 		<!-- Collaborative playlists only: who put this track in the list. Every row on such a page
-		     carries one, so it can't leave a hole on its neighbours. -->
-		{#if song.added_by_avatar && !compact}
-			<img
-				src={song.added_by_avatar}
-				alt=""
+		     carries one, so it can't leave a hole on its neighbours. A Taste Match row that several
+		     members share overlaps their avatars, growing leftward so the marks stay in column. -->
+		{#if song.added_by_avatars?.length && !compact}
+			<div
+				class="flex shrink-0 -space-x-1.5"
 				title={t('library.added_by', { user: song.added_by ?? '' })}
-				class="h-5 w-5 shrink-0 rounded-full object-cover"
-				loading="lazy"
-			/>
+			>
+				{#each song.added_by_avatars.slice(0, 3) as src}
+					<img
+						{src}
+						alt=""
+						class="h-5 w-5 shrink-0 rounded-full object-cover ring-2 ring-background"
+						loading="lazy"
+					/>
+				{/each}
+			</div>
 		{/if}
 		<!-- Both marks are always on, unlike the thumbs beside them: they are properties of the song,
 		     not actions, so hiding either until the pointer arrives would hide half of what it's for.
@@ -413,5 +425,6 @@
 				? ''
 				: 'invisible group-focus-within:visible group-hover:visible'}"
 		/>
+		{@render trailing?.()}
 	</div>
 </div>

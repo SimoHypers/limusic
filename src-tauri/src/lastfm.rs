@@ -28,6 +28,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use innertube::models::metadata::ArtistRun;
 use innertube::SongItem;
 use md5::{Digest, Md5};
 use tauri::Emitter;
@@ -209,6 +210,10 @@ pub struct Track {
     artists: String,
     album: Option<String>,
     is_video: bool,
+    /// Only read for the joiner between artists, see [`primary_artist`].
+    artist_runs: Vec<ArtistRun>,
+    /// The other version of this song, see [`Scrobbler::apply`].
+    counterpart: Option<String>,
 }
 
 impl From<&SongItem> for Track {
@@ -219,6 +224,8 @@ impl From<&SongItem> for Track {
             artists: item.artists.clone(),
             album: item.album.clone(),
             is_video: item.is_video,
+            artist_runs: item.artist_runs.clone(),
+            counterpart: item.counterpart.clone(),
         }
     }
 }
@@ -332,7 +339,16 @@ impl Scrobbler {
     async fn apply(&mut self, msg: Msg) {
         match msg {
             Msg::Track(t) => {
+                // The Song/Video switch (#442) is the same listen of the same song, carried on
+                // from the same place: keep its clock, or it scrobbles twice.
+                let switched = self
+                    .track
+                    .as_ref()
+                    .is_some_and(|c| t.counterpart.as_deref() == Some(c.video_id.as_str()));
                 self.track = Some(*t);
+                if switched {
+                    return;
+                }
                 self.started_at = now_secs();
                 self.duration = 0.0;
                 self.scrobbled = false;
@@ -566,7 +582,7 @@ pub fn resolve(t: &Track, cfg: &ScrobbleConfig) -> Resolved {
         }
     }
     if cfg.primary_artist {
-        r.artist = primary_artist(&r.artist, cfg.primary_strict);
+        r.artist = primary_artist(&r.artist, cfg.primary_strict, &t.artist_runs);
     }
     for (i, (rule, re)) in cfg.rules.iter().zip(&compiled).enumerate() {
         if let Some(re) = re {
@@ -641,12 +657,29 @@ fn split_title(title: &str) -> Option<(String, String)> {
 /// handling either way, YouTube Music puts features in the track title, which is also where
 /// Last.fm wants them.
 ///
+/// "&" is only YouTube's English. It answers in the app's language (#274) and joins the last two
+/// artists with that language's word: "underscores y Jane Remover" in Spanish (#439). So strict
+/// also cuts at whatever unlinked run sits between two linked artists in `runs`, which is the
+/// joiner in any language without a word list to keep up.
+///
 /// This runs on the string, not on `artist_runs`, because the runs are gone exactly where this is
 /// needed most: `backfill_metadata` clears them whenever it repairs the byline from
-/// `videoDetails.author`, and a Listen Together guest's queue never had them.
+/// `videoDetails.author`, and a Listen Together guest's queue never had them. Without runs only
+/// "&" cuts.
 // ponytail: separator scan. A real credit parser only if users report bylines it gets wrong.
-fn primary_artist(artists: &str, strict: bool) -> String {
-    let end = artists.find(|c: char| c == ',' || (strict && c == '&')).unwrap_or(artists.len());
+fn primary_artist(artists: &str, strict: bool, runs: &[ArtistRun]) -> String {
+    let mut cuts = vec![","];
+    if strict {
+        cuts.push("&");
+        let linked = |r: &ArtistRun| r.id.is_some();
+        cuts.extend(
+            runs.windows(3)
+                .filter(|w| linked(&w[0]) && !linked(&w[1]) && linked(&w[2]))
+                .map(|w| w[1].text.as_str())
+                .filter(|j| !j.trim().is_empty()),
+        );
+    }
+    let end = cuts.iter().filter_map(|c| artists.find(c)).min().unwrap_or(artists.len());
     let first = artists[..end].trim();
     if first.is_empty() {
         artists.to_owned()
@@ -871,25 +904,47 @@ fn parse_profile(body: &serde_json::Value) -> Option<Profile> {
 /// Open a URL in the user's default browser. No opener plugin in the app; three lines cover the
 /// three platforms.
 pub(crate) fn open_browser(url: &str) -> Result<(), String> {
+    let url = web_url(url)?;
+    let url = url.as_str();
     #[cfg(target_os = "linux")]
     let cmd = {
         let mut cmd = std::process::Command::new("xdg-open");
         cmd.arg(url);
         unappimage(&mut cmd);
-        cmd.spawn()
+        cmd.spawn().map(|_| ())
     };
     #[cfg(target_os = "macos")]
-    let cmd = std::process::Command::new("open").arg(url).spawn();
-    // cmd.exe re-parses its own command line, and `Command::arg` only quotes args containing
-    // spaces — so an unquoted `&` in the URL split it into a second command and the browser got
-    // `…/auth?api_key=X` with the token chopped off ("Invalid API key" once the user clicks Allow).
-    // raw_arg passes the quoted URL through verbatim.
+    let cmd = std::process::Command::new("open").arg(url).spawn().map(|_| ());
+    // ShellExecute, not `cmd /C start`: cmd.exe re-parses its command line, so a `"` in the URL
+    // ended the quoting and the rest ran as a command, and `%VAR%` expanded. ShellExecute hands the
+    // URL to the browser as one string, `&` included (the Last.fm token after it used to get
+    // chopped off).
     #[cfg(target_os = "windows")]
     let cmd = {
-        use std::os::windows::process::CommandExt;
-        std::process::Command::new("cmd").raw_arg(format!("/C start \"\" \"{url}\"")).spawn()
+        use windows::core::{w, HSTRING, PCWSTR};
+        use windows::Win32::UI::Shell::ShellExecuteW;
+        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        let file = HSTRING::from(url);
+        let h = unsafe {
+            ShellExecuteW(None, w!("open"), &file, PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL)
+        };
+        // Anything above 32 is success.
+        if h.0 as isize > 32 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
     };
-    cmd.map(|_| ()).map_err(|e| format!("Couldn't open the browser: {e}"))
+    cmd.map_err(|e| format!("Couldn't open the browser: {e}"))
+}
+
+/// Only http(s), and re-serialised: the parser percent-encodes quotes, spaces and angle brackets,
+/// so what reaches the OS is a plain URL whatever the caller passed in.
+fn web_url(url: &str) -> Result<tauri::Url, String> {
+    tauri::Url::parse(url)
+        .ok()
+        .filter(|u| matches!(u.scheme(), "http" | "https"))
+        .ok_or_else(|| "only http(s) links".to_string())
 }
 
 /// Undo the AppImage's environment for a child process.
@@ -941,6 +996,17 @@ fn now_secs() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_plain_web_urls_reach_the_browser() {
+        assert!(web_url("file:///etc/passwd").is_err());
+        assert!(web_url("javascript:alert(1)").is_err());
+        assert!(web_url("C:\\Windows\\System32\\calc.exe").is_err());
+        let u = web_url(r#"https://x.test/a"&calc&"?q="b c"#).unwrap();
+        assert!(!u.as_str().contains(['"', ' ']), "{u}");
+        let auth = "https://www.last.fm/api/auth/?api_key=K&token=T";
+        assert_eq!(web_url(auth).unwrap().as_str(), auth);
+    }
 
     /// The signature is the auth-critical path: params sorted by name, `namevalue` concat, secret
     /// appended, md5 hex. Verified against a hand-computed digest (secret is "" in test builds).
@@ -1007,19 +1073,36 @@ mod tests {
 
     #[test]
     fn primary_artist_cuts_at_commas_and_only_at_ampersands_when_strict() {
-        assert_eq!(primary_artist("Artist A, Artist B", false), "Artist A");
-        assert_eq!(primary_artist("Kendrick Lamar,SZA", false), "Kendrick Lamar");
+        assert_eq!(primary_artist("Artist A, Artist B", false, &[]), "Artist A");
+        assert_eq!(primary_artist("Kendrick Lamar,SZA", false, &[]), "Kendrick Lamar");
         // A joint act stays whole until the user opts into the strict cut.
-        assert_eq!(primary_artist("Future & Metro Boomin", false), "Future & Metro Boomin");
-        assert_eq!(primary_artist("Future & Metro Boomin", true), "Future");
-        assert_eq!(primary_artist("Simon&Garfunkel", true), "Simon");
+        assert_eq!(primary_artist("Future & Metro Boomin", false, &[]), "Future & Metro Boomin");
+        assert_eq!(primary_artist("Future & Metro Boomin", true, &[]), "Future");
+        assert_eq!(primary_artist("Simon&Garfunkel", true, &[]), "Simon");
         // Whichever separator comes first wins.
-        assert_eq!(primary_artist("A & B, C", true), "A");
-        assert_eq!(primary_artist("A, B & C", true), "A");
+        assert_eq!(primary_artist("A & B, C", true, &[]), "A");
+        assert_eq!(primary_artist("A, B & C", true, &[]), "A");
         // A lone artist, and a byline that starts with the separator, come back untouched.
-        assert_eq!(primary_artist("Delara", true), "Delara");
-        assert_eq!(primary_artist(", Artist B", true), ", Artist B");
-        assert_eq!(primary_artist("& Juliet", true), "& Juliet");
+        assert_eq!(primary_artist("Delara", true, &[]), "Delara");
+        assert_eq!(primary_artist(", Artist B", true, &[]), ", Artist B");
+        assert_eq!(primary_artist("& Juliet", true, &[]), "& Juliet");
+    }
+
+    /// #439: YouTube in Spanish writes "y" where English writes "&". The runs say which word it
+    /// used; the string alone doesn't.
+    #[test]
+    fn primary_artist_strict_cuts_at_youtubes_own_joiner() {
+        let run =
+            |text: &str, id: Option<&str>| ArtistRun { text: text.into(), id: id.map(Into::into) };
+        let runs =
+            [run("underscores", Some("UC1")), run(" y ", None), run("Jane Remover", Some("UC2"))];
+        let byline = "underscores y Jane Remover";
+        assert_eq!(primary_artist(byline, true, &runs), "underscores");
+        assert_eq!(primary_artist(byline, false, &runs), byline);
+        assert_eq!(primary_artist(byline, true, &[]), byline);
+        // Only a run between two linked artists is a joiner: an unlinked name is not.
+        let runs = [run("A", Some("UC1")), run(" y B", None)];
+        assert_eq!(primary_artist("A y B", true, &runs), "A y B");
     }
 
     #[test]
@@ -1060,6 +1143,8 @@ mod tests {
             artists: artists.into(),
             album: None,
             is_video,
+            artist_runs: Vec::new(),
+            counterpart: None,
         }
     }
 

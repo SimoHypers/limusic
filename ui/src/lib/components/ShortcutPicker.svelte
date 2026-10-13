@@ -30,7 +30,7 @@
 
 <div
 	transition:fade={{ duration: 150 }}
-	class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+	class="fixed inset-0 z-[49] flex items-center justify-center bg-black/50 p-4"
 >
 	<div
 		transition:scale={{ duration: 180, start: 0.96, easing: cubicOut }}

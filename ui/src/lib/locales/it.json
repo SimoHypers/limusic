@@ -337,10 +337,8 @@
 		"themes": {
 			"interface_font": "Carattere interfaccia",
 			"load_font_file": "Carica carattere da file",
-			"custom_colors": "Colori personalizzati",
 			"primary_color": "Colore primario",
 			"background_color": "Sfondo",
-			"reset_theme": "Ripristina tema predefinito",
 			"your_fonts": "I tuoi caratteri",
 			"custom_font": "Personalizzato…",
 			"font_placeholder": "Carattere installato su questo computer, es. Inter",

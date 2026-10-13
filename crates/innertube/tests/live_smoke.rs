@@ -758,3 +758,52 @@ async fn cipher_registries_cover_the_current_player() {
          VISIONOS alone carries playback meanwhile."
     );
 }
+
+/// Comments load for an audio track (ATV) and for a music video, and page. A track with comments
+/// turned off reads as `Disabled` and is skipped, since that is the track's choice and not a
+/// breakage. What breaks it is the response shape moving: the Comments tab token, the
+/// entity join, or the header's sort entries.
+#[tokio::test]
+async fn comments_load_for_an_audio_track_and_a_video() {
+    use innertube::{CommentSortKey, CommentsState};
+
+    let it = InnerTube::new(Session::default(), None).unwrap();
+    let vd = it.fetch_visitor_data().await.ok();
+    let it = InnerTube::new(Session { visitor_data: vd, ..Session::default() }, None).unwrap();
+    let client = Clients::bundled().get(innertube::METADATA_CLIENT).unwrap().clone();
+
+    // An ATV and a music video: each has its own thread, and the id is never remapped.
+    for (label, id) in [("ATV", "lYBUbBu4W08"), ("music video", "dQw4w9WgXcQ")] {
+        let page = it.comments(&client, id).await.expect("comments first page");
+        eprintln!("{label} {id}: {:?}, {} threads", page.state, page.threads.len());
+        if page.state == CommentsState::Disabled {
+            eprintln!("  comments are off for this track, skipping");
+            continue;
+        }
+        assert_eq!(page.state, CommentsState::Ok, "{label} has comments and none came back");
+        let header = page.header.as_ref().expect("first page carries a header");
+        let sorts: Vec<_> = header.sorts.iter().map(|s| s.key).collect();
+        assert_eq!(sorts, [CommentSortKey::Top, CommentSortKey::Newest]);
+        assert!(page
+            .threads
+            .iter()
+            .all(|t| !t.comment.text.is_empty() && !t.comment.id.is_empty()));
+
+        let token = page.continuation.clone().expect("a second page token");
+        let more =
+            it.comments_continuation(&client, &token, page.read_as_account).await.expect("page 2");
+        assert!(!more.threads.is_empty(), "page 2 came back empty");
+
+        if let Some(rt) = page.threads.iter().find_map(|t| t.replies_token.clone()) {
+            let replies =
+                it.comment_replies(&client, &rt, page.read_as_account).await.expect("replies");
+            assert!(!replies.replies.is_empty(), "replies token resolved to nothing");
+        }
+        let newest = header.sorts.iter().find(|s| s.key == CommentSortKey::Newest).unwrap();
+        let sorted = it
+            .comments_continuation(&client, &newest.token, page.read_as_account)
+            .await
+            .expect("sort switch");
+        assert!(sorted.header.as_ref().is_some_and(|h| h.sorts.iter().any(|s| s.selected)));
+    }
+}

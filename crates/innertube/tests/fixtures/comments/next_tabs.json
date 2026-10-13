@@ -1,0 +1,41 @@
+{
+ "enabledTab": {
+  "title": "Comments",
+  "content": {
+   "sectionListRenderer": {
+    "continuations": [
+     {
+      "reloadContinuationData": {
+       "continuation": "fixture-continuation-1"
+      }
+     }
+    ],
+    "targetId": "fixtureVid1"
+   }
+  }
+ },
+ "disabledTab": {
+  "title": "Comments",
+  "content": {
+   "messageRenderer": {
+    "text": {
+     "runs": [
+      {
+       "text": "Comments are turned off. "
+      },
+      {
+       "text": "Learn more",
+       "navigationEndpoint": {
+        "urlEndpoint": {
+         "url": "https://support.google.com/youtube/answer/9706180?hl=en",
+         "target": "TARGET_NEW_WINDOW"
+        }
+       }
+      }
+     ]
+    }
+   }
+  },
+  "unselectable": true
+ }
+}

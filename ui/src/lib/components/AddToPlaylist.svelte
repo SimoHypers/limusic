@@ -135,7 +135,7 @@
 {#if ui.addSongs}
 	<div
 		transition:fade={{ duration: 150 }}
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+		class="fixed inset-0 z-[49] flex items-center justify-center bg-black/50 p-4"
 		role="presentation"
 		onclick={(e) => {
 			if (e.target === e.currentTarget) close();

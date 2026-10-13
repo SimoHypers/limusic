@@ -16,6 +16,7 @@
 		Refresh03Icon,
 		MinusSignIcon,
 		SquareIcon,
+		CopyIcon,
 		Cancel01Icon,
 		MinimizeScreenIcon,
 		CameraVideoIcon,
@@ -124,12 +125,15 @@
 </script>
 
 <!-- `relative` makes this a stacking context, so the account/window dropdowns inside it are capped
-     at this z — it must outrank the panels below (LyricsPanel/QueuePanel, z-30). Theater mode is
+     at this z: it must outrank the panels below (LyricsPanel/QueuePanel, z-30). Theater mode is
      the exception: it sits at z-40 so dialogs (z-50) can open over it, so the bar has to duck
-     under it instead of the other way round. -->
+     under it instead of the other way round. Modal backdrops sit at z-[49], under this bar, so the
+     window can still be dragged and closed with a dialog open (#427). pointer-events-auto because
+     an open dialog sets `pointer-events: none` on <body>; `data-window-control` marks the buttons
+     that don't dismiss it (`onWindowChrome`). -->
 <header
 	data-tauri-drag-region
-	class="relative {ui.theaterOpen ? 'z-0' : 'z-50'} flex h-9 shrink-0 select-none items-center justify-between border-b border-border/60 bg-background"
+	class="pointer-events-auto relative {ui.theaterOpen ? 'z-0' : 'z-50'} flex h-9 shrink-0 select-none items-center justify-between border-b border-border/60 bg-background"
 >
 	<span
 		class="pointer-events-none absolute inset-x-0 text-center text-xs font-medium tracking-wide text-muted-foreground"
@@ -298,6 +302,7 @@
 
 			<button
 				class="flex h-full w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
+				data-window-control
 				onclick={() => w.minimize()}
 				aria-label={t('common.minimize')}
 			>
@@ -305,13 +310,23 @@
 			</button>
 			<button
 				class="flex h-full w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
+				data-window-control
 				onclick={() => w.toggleMaximize()}
-				aria-label={t('common.maximize')}
+				aria-label={win.maximized ? t('common.restore') : t('common.maximize')}
 			>
-				<HugeiconsIcon icon={SquareIcon} class="h-3.5 w-3.5" />
+				<!-- Maximized: the restore glyph, two overlapping squares with the front one low-left.
+				     That is CopyIcon turned half a turn. altIcon/showAlt, since `icon` is frozen at
+				     mount (#428). -->
+				<HugeiconsIcon
+					icon={SquareIcon}
+					altIcon={CopyIcon}
+					showAlt={win.maximized}
+					class="h-3.5 w-3.5 {win.maximized ? 'rotate-180' : ''}"
+				/>
 			</button>
 			<button
 				class="flex h-full w-11 items-center justify-center text-muted-foreground transition-colors hover:text-destructive"
+				data-window-control
 				onclick={() => w.close()}
 				aria-label={t('common.close')}
 			>
