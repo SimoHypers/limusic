@@ -215,12 +215,14 @@ fn main() -> Result<()> {
 
     let audio_duration = resampled_l.len() as f64 / 44100.0;
 
+    // On Windows: ORT_DYLIB_PATH = absolute path of onnxruntime.dll. Must precede any ort call.
+    let rt = karaoke::runtime::from_env().context("ONNX Runtime not available")?;
     let mut model = if auto {
         eprintln!("Loading MDX model with auto device selection from: {}", model_path);
         let (m, d) = if let Some(p) = cpu_percent {
-            MdxModel::load_auto_with_cpu_percent(Path::new(model_path), MdxParams::default(), p)
+            MdxModel::load_auto_with_cpu_percent(rt, Path::new(model_path), MdxParams::default(), p)
         } else {
-            MdxModel::load_auto(Path::new(model_path), MdxParams::default())
+            MdxModel::load_auto(rt, Path::new(model_path), MdxParams::default())
         }
         .context("Failed to load MDX model")?;
         match d {
@@ -264,7 +266,7 @@ fn main() -> Result<()> {
             }
         }
         eprintln!("Loading MDX model from: {}", model_path);
-        MdxModel::load(Path::new(model_path), MdxParams::default(), load_opts)
+        MdxModel::load(rt, Path::new(model_path), MdxParams::default(), load_opts)
             .context("Failed to load MDX model")?
     };
 

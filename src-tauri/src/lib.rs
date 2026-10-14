@@ -15,6 +15,7 @@ mod import;
 mod inhibit;
 mod karaoke;
 mod karaoke_model;
+mod karaoke_runtime;
 mod lastfm;
 mod listenbrainz;
 mod listentogether;

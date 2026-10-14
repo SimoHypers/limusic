@@ -19,6 +19,7 @@ use karaoke::cache_codec::CacheFormat;
 use karaoke::jobs::DesiredSet;
 pub use karaoke::jobs::PrepareRequest;
 use karaoke::mdx::{MdxModel, MdxParams};
+use karaoke::runtime::RuntimeReady;
 use tauri::{AppHandle, Emitter, Manager};
 
 const IDLE_UNLOAD: Duration = Duration::from_secs(30);
@@ -174,6 +175,8 @@ impl KaraokeEngine {
     }
 
     fn spawn_worker(&self) -> Result<(), String> {
+        // ONNX Runtime first: on Windows nothing may touch `ort` before it is loaded by full path.
+        let rt = crate::karaoke_runtime::ensure()?;
         self.ctx.cache.prepare().map_err(|e| format!("cache directory: {e}"))?;
         let ctx = self.ctx.clone();
         let alive = self.worker_alive.clone();
@@ -182,7 +185,7 @@ impl KaraokeEngine {
             .name("karaoke-worker".to_string())
             .spawn(move || {
                 let _exit = WorkerExit { ctx: ctx.clone(), alive };
-                worker_loop(&ctx);
+                worker_loop(&ctx, rt);
             })
             .map(|_| ())
             .map_err(|e| {
@@ -336,8 +339,8 @@ fn unload(model: &mut Option<MdxModel>, reason: &str) {
 }
 
 /// The worker. Holds the board's lock only inside `board.with` calls: never across model load,
-/// a job, file access or an emit.
-fn worker_loop(ctx: &Ctx) {
+/// a job, file access or an emit. `rt` proves ONNX Runtime was set up before any session.
+fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
     let mut model: Option<MdxModel> = None;
     let mut notified_needs_model = false;
 
@@ -376,7 +379,7 @@ fn worker_loop(ctx: &Ctx) {
         if model.is_none() {
             let start_load = std::time::Instant::now();
             let path = ctx.models.model_path();
-            match isolate(|| MdxModel::load_auto(&path, MdxParams::default())) {
+            match isolate(|| MdxModel::load_auto(rt, &path, MdxParams::default())) {
                 Ok((m, dev)) => {
                     let load_ms = start_load.elapsed().as_millis();
                     tracing::info!(target: "app_lib::karaoke", load_ms, device = ?dev, "karaoke model loaded");

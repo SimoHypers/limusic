@@ -7,6 +7,7 @@ mod flac_read;
 pub mod jobs;
 pub mod mdx;
 pub mod pipeline;
+pub mod runtime;
 pub mod stft;
 
 /// Helper to sanitize error messages (removes URLs and absolute paths).

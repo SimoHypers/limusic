@@ -10,6 +10,8 @@ fn main() -> Result<()> {
     }
     let path = &args[1];
 
+    // On Windows: ORT_DYLIB_PATH = absolute path of onnxruntime.dll. Must precede any ort call.
+    let _rt = karaoke::runtime::from_env()?;
     let mut b = Session::builder()?;
     let session = b.commit_from_file(path)?;
 

@@ -1,3 +1,4 @@
+use crate::runtime::RuntimeReady;
 use crate::stft::Stft;
 use realfft::num_complex::Complex32;
 use std::cmp::min;
@@ -42,7 +43,7 @@ impl LoadOptions {
     }
 
     pub fn auto_with_cpu_percent(percent: u32) -> LoadOptions {
-        #[cfg(feature = "directml")]
+        #[cfg(windows)]
         {
             let adapters = crate::device::list_adapters();
             if let Some(a) = crate::device::pick_gpu(&adapters, crate::device::MIN_DISCRETE_VRAM_MB)
@@ -68,7 +69,13 @@ pub struct MdxModel {
 }
 
 impl MdxModel {
-    pub fn load(model_path: &Path, params: MdxParams, opts: LoadOptions) -> anyhow::Result<Self> {
+    /// `RuntimeReady` proves ONNX Runtime was set up first (see [`crate::runtime`]).
+    pub fn load(
+        _rt: RuntimeReady,
+        model_path: &Path,
+        params: MdxParams,
+        opts: LoadOptions,
+    ) -> anyhow::Result<Self> {
         let mut builder =
             ort::session::Session::builder().map_err(|e| anyhow::anyhow!(e.to_string()))?;
         if let Some(n) = opts.intra_threads {
@@ -77,12 +84,12 @@ impl MdxModel {
         match opts.device {
             Device::Cpu => {}
             Device::DirectMl { device_id } => {
-                #[cfg(not(feature = "directml"))]
+                #[cfg(not(windows))]
                 {
                     let _ = device_id;
-                    anyhow::bail!("Karaoke crate was built without the 'directml' feature");
+                    anyhow::bail!("DirectML is only available on Windows");
                 }
-                #[cfg(feature = "directml")]
+                #[cfg(windows)]
                 {
                     builder = builder
                         .with_memory_pattern(false)
@@ -102,18 +109,23 @@ impl MdxModel {
         Ok(Self { session, params, stft })
     }
 
-    pub fn load_auto(model_path: &Path, params: MdxParams) -> anyhow::Result<(Self, Device)> {
-        Self::load_auto_with_cpu_percent(model_path, params, crate::device::DEFAULT_CPU_PERCENT)
+    pub fn load_auto(
+        rt: RuntimeReady,
+        model_path: &Path,
+        params: MdxParams,
+    ) -> anyhow::Result<(Self, Device)> {
+        Self::load_auto_with_cpu_percent(rt, model_path, params, crate::device::DEFAULT_CPU_PERCENT)
     }
 
     pub fn load_auto_with_cpu_percent(
+        rt: RuntimeReady,
         model_path: &Path,
         params: MdxParams,
         percent: u32,
     ) -> anyhow::Result<(Self, Device)> {
         let opts = LoadOptions::auto_with_cpu_percent(percent);
         let device = opts.device;
-        match Self::load(model_path, params, opts) {
+        match Self::load(rt, model_path, params, opts) {
             Ok(model) => Ok((model, device)),
             Err(e) => match device {
                 Device::DirectMl { .. } => {
@@ -122,7 +134,7 @@ impl MdxModel {
                         device: Device::Cpu,
                         intra_threads: Some(crate::device::cpu_threads_for_percent(percent)),
                     };
-                    let model = Self::load(model_path, params, cpu_opts)?;
+                    let model = Self::load(rt, model_path, params, cpu_opts)?;
                     Ok((model, Device::Cpu))
                 }
                 Device::Cpu => Err(e),

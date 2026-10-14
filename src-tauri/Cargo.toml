@@ -99,7 +99,6 @@ windows = { version = "0.61", features = [
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
-karaoke = { path = "../crates/karaoke", features = ["directml"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The music video's GL surface under the webview (nativevideo.rs). Same version tauri pulls in.
