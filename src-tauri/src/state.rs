@@ -1824,6 +1824,50 @@ impl AppState {
         }
     }
 
+    /// The music video settings changed: move the queue's rows onto the version they now pick, so
+    /// the next song follows the switch, not the setting its album was opened under (#464). The
+    /// playing row is left alone, it has its own Song/Video switch.
+    pub async fn apply_version_preference(self: &std::sync::Arc<Self>) {
+        if self.lt.is_guest().await {
+            return;
+        }
+        let video = wants_video(&self.db);
+        let stale_lookahead = {
+            let mut q = self.queue.lock().await;
+            let q = &mut *q;
+            let cur = q.current;
+            let primed_id = |q: &QueueState| {
+                q.lookahead_loaded.and_then(|i| q.items.get(i)).map(|i| i.video_id.clone())
+            };
+            let primed = primed_id(q);
+            let playing = q.items.get(cur).map(|i| i.video_id.clone());
+            let mut changed = false;
+            for (i, item) in q.items.iter_mut().enumerate() {
+                changed |= i != cur && prefer_version(item, video);
+            }
+            // Un-shuffling rebuilds the queue from this copy, which would bring the old ones back.
+            for item in q.shuffle_orig.iter_mut().flatten() {
+                changed |= Some(&item.video_id) != playing.as_ref() && prefer_version(item, video);
+            }
+            if !changed {
+                return;
+            }
+            // mpv holds the old version as the gapless next.
+            let stale = primed.is_some() && primed != primed_id(q);
+            if stale {
+                q.lookahead_loaded = None;
+                let _ = self.player.clear_playlist();
+            }
+            stale
+        };
+        self.emit_queue().await;
+        self.persist_queue().await;
+        if stale_lookahead {
+            self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
+        }
+        self.lt_broadcast_queue().await;
+    }
+
     /// Advance the queue after a track ended (EOF) or died (load error). Don't assume mpv
     /// gaplessly transitioned — ask it: if a lookahead was primed mpv is already playing the
     /// next entry (just sync pointer + UI); if mpv went idle (lookahead absent/failed, or the
@@ -4772,6 +4816,17 @@ pub(crate) fn swap_version(item: &mut SongItem) -> bool {
     true
 }
 
+/// Whether a row YouTube pairs with its other version should play the music video (#464).
+pub(crate) fn wants_video(db: &Db) -> bool {
+    db.get_setting("music_videos").as_deref() == Some("true")
+        && db.get_setting("videos_first").as_deref() != Some("false")
+}
+
+/// Put a row on the version [`wants_video`] picked. False when it is already there or has no other.
+pub(crate) fn prefer_version(item: &mut SongItem, video: bool) -> bool {
+    item.is_video != video && swap_version(item)
+}
+
 /// Fill a missing item duration from the player response's `lengthSeconds` (e.g. "167") — the
 /// exact length of the cut we stream. Never overwrites an existing duration.
 /// Repair a queue item from the `/player` response, which is the one thing every entry path (search,
@@ -4964,10 +5019,11 @@ mod tests {
     use super::{
         append_page, backfill_metadata, cache_horizon, drop_duplicates, enqueue_at,
         format_duration, get_url, guest_insert_index, history_threshold, is_mix, loudness_gain,
-        merge_radio, next_index, parse_duration_ms, persist_fingerprint, prev_track_title, put_url,
-        queue_fingerprint, radio_seed_for, retain_upcoming, shuffle_new_queue, shuffle_upcoming,
-        splice_radio_into, swap_version, trim_played, unshuffled, upcoming_queued, QueueState,
-        RepeatMode, VideoUrls, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
+        merge_radio, next_index, parse_duration_ms, persist_fingerprint, prefer_version,
+        prev_track_title, put_url, queue_fingerprint, radio_seed_for, retain_upcoming,
+        shuffle_new_queue, shuffle_upcoming, splice_radio_into, swap_version, trim_played,
+        unshuffled, upcoming_queued, QueueState, RepeatMode, VideoUrls, KEEP_PLAYED,
+        LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -4990,6 +5046,25 @@ mod tests {
         let mut lone = innertube::SongItem { video_id: "a".into(), ..Default::default() };
         assert!(!swap_version(&mut lone));
         assert_eq!(lone.video_id, "a");
+    }
+
+    #[test]
+    fn prefer_version_only_moves_rows_off_the_wanted_side() {
+        let mut it = innertube::SongItem {
+            video_id: "audio".into(),
+            counterpart: Some("video".into()),
+            ..Default::default()
+        };
+        assert!(!prefer_version(&mut it, false));
+        assert!(prefer_version(&mut it, true));
+        assert_eq!(it.video_id, "video");
+        assert!(!prefer_version(&mut it, true));
+        assert!(prefer_version(&mut it, false));
+        assert_eq!(it.video_id, "audio");
+        // A music video with nothing to switch to stays a video.
+        let mut lone =
+            innertube::SongItem { video_id: "v".into(), is_video: true, ..Default::default() };
+        assert!(!prefer_version(&mut lone, false));
     }
 
     #[test]

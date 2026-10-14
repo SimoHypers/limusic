@@ -33,11 +33,12 @@
 	import {
 		canSwitch,
 		claimVideo,
-		counterpart,
 		parkVideo,
+		pickVersion,
 		setHole,
 		showVideo,
-		video
+		video,
+		videoSide
 	} from '$lib/video.svelte';
 	import { artRoom } from '$lib/artroom.svelte';
 	import { typing } from '$lib/shortcuts';
@@ -137,26 +138,6 @@
 	const ART_SIDE = 'min(100cqw, 100cqh - 9.5rem, 44rem)';
 	const VIDEO_SIDE = 'min(100cqw, (100cqh - 9.5rem) * 16 / 9, 80rem)';
 
-	// Song/Video. With a twin to switch to (#442) it changes what plays, the way YouTube Music's
-	// does; without one it shows or hides the video this track already is. `switching` holds the
-	// side just picked while the other version resolves, which takes a second or two.
-	let switching = $state<boolean | null>(null);
-	const videoSide = $derived(switching ?? (!!playback.now?.isVideo && video.want));
-	async function pick(on: boolean) {
-		if (on === videoSide) return;
-		if (!counterpart() || on === !!playback.now?.isVideo) {
-			video.want = on;
-			return;
-		}
-		if (on) video.want = true;
-		switching = on;
-		try {
-			await api.switchVersion();
-		} finally {
-			switching = null;
-		}
-	}
-
 	// Clicking the artwork toggles playback, and flashes the action just taken over it so the click
 	// visibly did something. Read `paused` before the toggle: the backend event that flips it is a
 	// round trip away, and the icon has to be right on the frame the user clicked.
@@ -252,9 +233,9 @@
 {#snippet mode(on: boolean, label: string)}
 	<button
 		type="button"
-		onclick={() => pick(on)}
-		aria-pressed={videoSide === on}
-		class="cursor-pointer rounded-full px-4 py-1 text-sm font-medium transition-colors {videoSide ===
+		onclick={() => pickVersion(on)}
+		aria-pressed={videoSide() === on}
+		class="cursor-pointer rounded-full px-4 py-1 text-sm font-medium transition-colors {videoSide() ===
 		on
 			? 'bg-background text-foreground shadow-sm'
 			: 'text-muted-foreground hover:text-foreground'}"
@@ -324,11 +305,14 @@
 				></div>
 			{/if}
 		{:else}
+			<!-- Not while theater mode is up: it borrows the picture, and this takes it back when
+			     theater closes (the attachment re-runs on the flag). -->
 			<div
 				class="contents"
 				{@attach (box: HTMLElement) => {
+					if (ui.theaterOpen) return;
 					claimVideo(box);
-					return parkVideo;
+					return () => parkVideo(box);
 				}}
 			></div>
 		{/if}
@@ -716,7 +700,7 @@
 							     it sits over whatever frame happens to be showing. -->
 							<button
 								type="button"
-								onclick={() => pick(!videoSide)}
+								onclick={() => pickVersion(!videoSide())}
 								aria-label={showVideo() ? t('a11y.show_artwork') : t('a11y.show_video')}
 								class="absolute right-3 top-3 z-10 cursor-pointer rounded-md bg-black/40 p-1.5 text-white/70 transition-colors hover:text-white"
 							>

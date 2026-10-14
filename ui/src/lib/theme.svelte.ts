@@ -104,6 +104,9 @@ export const custom = $state<Custom>({
 export const appearance = $state({
 	/** Blur the playing track's artwork behind the now-playing view. */
 	artworkBackground: true,
+	/** Blur the cover behind a playlist's header. Sharp, a square cover stretched to the page's
+	 *  width is often too small for it and shows its pixels (#461). */
+	blurPlaylistHeader: false,
 	/** The redesigned now-playing view (title and album under the picture, a lit backdrop, a
 	 *  full-height queue/lyrics column). Opt-in while people get used to it; off is the original. */
 	stagePlayer: false,
@@ -465,6 +468,7 @@ export function initTheme(): void {
 		const saved = JSON.parse(localStorage.getItem(APPEARANCE_KEY) ?? '{}');
 		for (const k of [
 			'artworkBackground',
+			'blurPlaylistHeader',
 			'stagePlayer',
 			'tabbedPlayer',
 			'openPlayerOnPlay',

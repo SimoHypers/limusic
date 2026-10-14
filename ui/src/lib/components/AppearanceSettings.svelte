@@ -393,6 +393,11 @@
 					desc: t('settings.themes.app_icon_hint'),
 					control: appIconButtons
 				})}
+				{@render row({
+					title: t('settings.themes.blur_playlist_header'),
+					desc: t('settings.themes.blur_playlist_header_hint'),
+					control: blurHeaderSwitch
+				})}
 			</div>
 		</section>
 
@@ -643,6 +648,10 @@
 {#snippet artworkAccentSwitch()}<Switch
 		checked={appearance.artworkAccent}
 		onCheckedChange={(on) => setAppearance({ artworkAccent: on })}
+	/>{/snippet}
+{#snippet blurHeaderSwitch()}<Switch
+		checked={appearance.blurPlaylistHeader}
+		onCheckedChange={(on) => setAppearance({ blurPlaylistHeader: on })}
 	/>{/snippet}
 {#snippet stagePlayerSwitch()}<Switch
 		checked={appearance.stagePlayer}

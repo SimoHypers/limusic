@@ -105,7 +105,10 @@ fn spawn_heap_trimmer() {
 /// is entitled to probe whatever it likes.
 #[cfg(target_os = "linux")]
 fn tune_webview(win: &tauri::WebviewWindow, media: bool) {
-    use webkit2gtk::{CacheModel, SettingsExt, WebContextExt, WebViewExt};
+    use webkit2gtk::{
+        CacheModel, NetworkProxyMode, NetworkProxySettings, SettingsExt, WebContextExt, WebViewExt,
+        WebsiteDataManagerExt,
+    };
 
     let label = win.label().to_owned();
     let res = win.with_webview(move |wv| {
@@ -114,6 +117,15 @@ fn tune_webview(win: &tauri::WebviewWindow, media: bool) {
         // first should not depend on the other existing.
         if let Some(ctx) = WebViewExt::context(&webview) {
             ctx.set_cache_model(CacheModel::DocumentBrowser);
+            // The proxy setting, for what the webviews load themselves (#465). Not tauri's
+            // `proxy_url`: wry gives WebKit no bypass list, and WebKit then sends loopback through
+            // the proxy too (unlike WebView2), so the dev server and the music-video proxy would
+            // be out of reach of a remote one.
+            if let (Some(url), Some(dm)) = (http::webview_proxy(), ctx.website_data_manager()) {
+                let bypass = ["localhost", "127.0.0.0/8", "::1"];
+                let mut proxy = NetworkProxySettings::new(Some(url.as_str()), &bypass);
+                dm.set_network_proxy_settings(NetworkProxyMode::Custom, Some(&mut proxy));
+            }
         }
         if let Some(settings) = WebViewExt::settings(&webview) {
             settings.set_enable_page_cache(false);
@@ -215,7 +227,7 @@ pub(crate) fn tune_webview_labelled(app: &tauri::AppHandle, label: &str, media: 
 /// no longer exists (#459). The plugin keeps a saved position when any one corner lands on a
 /// monitor, so after a layout change the window could come back with only its invisible resize
 /// border on screen and no titlebar to drag. Called from `setup`: the plugin has restored by then
-/// (it runs as the config window is built, just before), and the window is still hidden.
+/// (it runs as the window is built, just before), and the window is still hidden.
 ///
 /// Wayland gives the app no real position and ignores `center`, which is fine: the compositor
 /// places the window there, so the bug cannot happen.
@@ -491,9 +503,6 @@ pub fn run() {
             let data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir());
             std::fs::create_dir_all(&data_dir).ok();
             init_logging(&data_dir);
-            if let Some(w) = app.get_webview_window("main") {
-                keep_on_screen(&w);
-            }
             let cache_dir = data_dir.join("audio-cache");
             std::fs::create_dir_all(&cache_dir).ok();
 
@@ -539,6 +548,14 @@ pub fn run() {
                 });
             // Before the first fetch: the shared client builds itself on first use.
             http::set_proxy(proxy.as_deref());
+            // Built here instead of from the config (`create: false`), because WebView2 only takes
+            // a proxy at creation and it isn't known until the database is open (#465).
+            if let Some(config) = app.config().app.windows.first() {
+                let w =
+                    http::proxied(tauri::WebviewWindowBuilder::from_config(&handle, config)?)
+                        .build()?;
+                keep_on_screen(&w);
+            }
             let cookie = db.get_setting("session_cookie").filter(|s| !s.is_empty());
             let data_sync_id = state::persisted_data_sync_id(&db);
             let visitor_data = db.get_setting("visitor_data").filter(|s| !s.is_empty());

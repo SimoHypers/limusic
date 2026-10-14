@@ -43,6 +43,7 @@
 	import type { BrowseItem, PlaylistPage, SongItem } from '$lib/api';
 	import { getCached, putCached, invalidateCachedPrefix } from '$lib/pagecache';
 	import { thumb } from '$lib/thumb';
+	import { appearance } from '$lib/theme.svelte';
 	import { anchorMenu, fitMenu, NO_ANCHOR } from '$lib/menu';
 	import { rowWindow } from '$lib/rows';
 	import { rowScroller } from '$lib/rows.svelte';
@@ -173,13 +174,15 @@
 	// The backdrop: a cover the playlist really has, else a random song's art. The collage isn't a
 	// cover anyone picked, and blown up behind the header it just repeats the rows below it.
 	// A playlist on this machine has the same problem: its thumbnail is only its first track's art.
-	const backdrop = $derived(
-		thumb(
+	// Blurred (#461), it is a 96px thumbnail: the 24px blur throws away everything finer, and the
+	// sharp 1200px one is what showed its pixels once stretched to the page's width.
+	const backdrop = $derived.by(() => {
+		const own =
 			pl?.cover ??
-				(pl?.thumbnail && !COLLAGE.test(pl.thumbnail) && !isLocalList ? pl.thumbnail : null),
-			1200
-		) ?? bgImage
-	);
+			(pl?.thumbnail && !COLLAGE.test(pl.thumbnail) && !isLocalList ? pl.thumbnail : null);
+		if (appearance.blurPlaylistHeader) return thumb(own ?? bgImage, 96);
+		return thumb(own, 1200) ?? bgImage;
+	});
 	// Only offer rename/delete on playlists the signed-in user actually owns (backend `owned` flag).
 	// Liked Music reports owned but can't be renamed/deleted, so exclude it explicitly.
 	const editable = $derived((pl?.owned ?? false) && !isLiked);
@@ -997,19 +1000,24 @@
 		     album page. -->
 		<div class="content-in min-h-0 flex-1 overflow-y-auto" {@attach sc.attach}>
 			<div class="relative flex min-h-[38vh] shrink-0 items-end gap-6 overflow-hidden border-b p-6">
-				{#if backdrop}
-					<img
-						src={backdrop}
-						alt=""
-						class="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
-					/>
-				{/if}
-				<!-- Fade the cover into the page so the text stays readable: solid at the bottom and on the
-				     left (behind the title), the image itself visible toward the top-right. -->
-				<div
-					class="absolute inset-0 bg-gradient-to-t from-background via-background/60 to-background/20"
-				></div>
-				<div class="absolute inset-0 bg-gradient-to-r from-background via-background/50 to-transparent"></div>
+				<!-- The backdrop and its fade share one layer (`art-wash` on the wrapper): see HomeHero. -->
+				<div class="art-wash pointer-events-none absolute inset-0 overflow-hidden">
+					{#if backdrop}
+						<img
+							src={backdrop}
+							alt=""
+							class="absolute inset-0 h-full w-full object-cover object-center"
+							class:scale-110={appearance.blurPlaylistHeader}
+							style:filter={appearance.blurPlaylistHeader ? 'blur(24px)' : undefined}
+						/>
+					{/if}
+					<!-- Fade the cover into the page so the text stays readable: solid at the bottom and on the
+					     left (behind the title), the image itself visible toward the top-right. -->
+					<div
+						class="absolute inset-0 bg-gradient-to-t from-background via-background/60 to-background/20"
+					></div>
+					<div class="absolute inset-0 bg-gradient-to-r from-background via-background/50 to-transparent"></div>
+				</div>
 				{#if isOnRepeat}
 					<div
 						class="relative flex h-40 w-40 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-lg"

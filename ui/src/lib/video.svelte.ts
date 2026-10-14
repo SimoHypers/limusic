@@ -19,7 +19,9 @@ export const video = $state({
 	url: null as string | null,
 	/** Linux: the hole the page leaves for mpv's picture, while the picture is up (see setHole).
 	 *  Viewport CSS pixels. */
-	hole: null as Hole | null
+	hole: null as Hole | null,
+	/** The Song/Video side just picked, held while the other version resolves (a second or two). */
+	switching: null as boolean | null
 });
 
 export type Hole = { x: number; y: number; w: number; h: number };
@@ -36,6 +38,27 @@ export const canSwitch = () => prefs.musicVideos && (!!playback.now?.isVideo || 
 export const hasVideo = () =>
 	canVideo() && (prefs.nativeVideo ? !!videoReady[playback.now!.videoId] : !!video.url);
 export const showVideo = () => hasVideo() && video.want;
+
+/** Which side of Song/Video is picked: the user's choice, not what is on screen. "Video" stays
+ *  picked while the picture is still loading, and the artwork stands in until it arrives. */
+export const videoSide = () => video.switching ?? (!!playback.now?.isVideo && video.want);
+
+/** Song/Video. With a twin to switch to (#442) it changes what plays, the way YouTube Music's does;
+ *  without one it shows or hides the video this track already is. */
+export async function pickVersion(on: boolean) {
+	if (on === videoSide()) return;
+	if (!counterpart() || on === !!playback.now?.isVideo) {
+		video.want = on;
+		return;
+	}
+	if (on) video.want = true;
+	video.switching = on;
+	try {
+		await api.switchVersion();
+	} finally {
+		video.switching = null;
+	}
+}
 
 // The live element and where it waits when nothing is showing it. Plain module lets: this is DOM
 // identity, nothing renders off it.
@@ -60,8 +83,11 @@ export function claimVideo(box: HTMLElement) {
 	video.shown = true;
 }
 
-/** Send it back to the parking container. Same rule: synchronous, never from an effect. */
-export function parkVideo() {
+/** Send it back to the parking container. Same rule: synchronous, never from an effect.
+ *  `box` is the holder letting go: when another view has since claimed the picture (theater mode
+ *  over the player view, either way round), it is not this one's to park. */
+export function parkVideo(box?: HTMLElement) {
+	if (node && box && node.parentNode !== box) return;
 	if (node && parking) parking.appendChild(node);
 	video.shown = false;
 }

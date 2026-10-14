@@ -267,7 +267,7 @@ pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
 /// `visitor_data`) and internal blobs (`queue_json`, `queue_index`, `queue_position`) never cross
 /// into the webview: they'd otherwise ship the login credential to the renderer on every open, and
 /// the webview can't overwrite them either.
-const UI_SETTINGS: [&str; 30] = [
+const UI_SETTINGS: [&str; 31] = [
     "volume",
     "proxy",
     "quality",
@@ -288,6 +288,7 @@ const UI_SETTINGS: [&str; 30] = [
     "update_channel",
     "lyrics_providers",
     "music_videos",
+    "videos_first",
     "ambient_light",
     "sticky_shuffle",
     "shuffle_whole_queue",
@@ -450,6 +451,10 @@ pub async fn set_setting(
     // A music video track already playing gets its picture now rather than from the next track.
     if key == "music_videos" && value == "true" {
         state.inner().attach_current_video().await;
+    }
+    // And the rest of the queue moves to the version the settings now pick.
+    if key == "music_videos" || key == "videos_first" {
+        state.inner().apply_version_preference().await;
     }
     #[cfg(target_os = "linux")]
     if key == "ambient_light" {
@@ -1355,11 +1360,11 @@ pub async fn get_album(state: St<'_>, id: String) -> Result<AlbumPage, String> {
     let client = metadata_client(&state)?;
     let mut page = state.it.album(client, &id).await.map_err(|e| e.to_string())?;
     // `album()` hands back the album audio for rows YouTube linked to a music video. With music
-    // videos on, those rows play the video, as on YouTube Music, with the song a switch away (#442).
-    if state.db.get_setting("music_videos").as_deref() == Some("true") {
-        for item in &mut page.items {
-            crate::state::swap_version(item);
-        }
+    // videos on, those rows play the video, as on YouTube Music, with the song a switch away (#442),
+    // unless `videos_first` is off: some videos carry intros and extra scenes the song doesn't (#464).
+    let video = crate::state::wants_video(&state.db);
+    for item in &mut page.items {
+        crate::state::prefer_version(item, video);
     }
     Ok(page)
 }

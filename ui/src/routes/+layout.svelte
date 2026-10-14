@@ -264,7 +264,9 @@
 	     is meant to reach every edge (#139). With a system frame (win.chrome) the compositor rounds
 	     for us, so ours would only fight it.
 	     12px, not `rounded-lg`: that resolves to --radius, which every theme sets differently, so
-	     the window corner used to change with the theme. This is the GNOME/Adwaita value (#65). -->
+	     the window corner used to change with the theme. This is the GNOME/Adwaita value (#65).
+	     Invisible while theater mode shows mpv's picture: theater is transparent over the hole, and
+	     the titlebar, sidebar or player bar under it would paint over the video. -->
 	<div
 		class="relative flex h-screen flex-col overflow-hidden text-foreground {video.hole
 			? ''
@@ -272,7 +274,7 @@
 		ui.theaterOpen ||
 		win.chrome !== 'off'
 			? ''
-			: 'rounded-[12px]'}"
+			: 'rounded-[12px]'} {ui.theaterOpen && video.hole ? 'invisible' : ''}"
 	>
 		{#if video.hole}
 			<!-- Linux: mpv draws the music video underneath the page (nativevideo.rs), so the page
@@ -281,7 +283,7 @@
 			     root's own background and <main> step aside while it is up (both paint the box). -->
 			<div
 				aria-hidden="true"
-				class="pointer-events-none absolute -z-10 rounded-2xl"
+				class="pointer-events-none visible absolute -z-10 rounded-2xl"
 				style="left:{video.hole.x}px;top:{video.hole.y}px;width:{video.hole.w}px;height:{video.hole
 					.h}px;box-shadow:0 0 0 100vmax var(--background)"
 			></div>

@@ -394,7 +394,10 @@
 			</div>
 		{/if}
 		{#if duration && !compact}
-			<span class="shrink-0 text-xs tabular-nums text-muted-foreground">{duration}</span>
+			<!-- A fixed slot, or every mark to its left moves with the digits (#463). `tabular-nums`
+			     alone isn't enough: DM Sans has no tabular figures, and 10:00 is wider in any font.
+			     5ch holds up to 59:59; an hour-long track still widens its own row. -->
+			<span class="min-w-[5ch] shrink-0 text-right text-xs tabular-nums text-muted-foreground">{duration}</span>
 		{/if}
 		{#if compact}
 			<!-- Persistent, not hover-only: a filled heart is state the row has to keep showing. -->

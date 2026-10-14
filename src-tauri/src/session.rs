@@ -131,7 +131,7 @@ pub fn open_login(app: AppHandle, state: Arc<AppState>, add_account: bool) {
             Some(ua) => builder.user_agent(ua),
             None => builder,
         };
-        match builder.build() {
+        match crate::http::proxied(builder).build() {
             Ok(win) => no_webgl(&win),
             Err(e) => {
                 let _ = app2.emit("login-error", format!("Couldn't open the sign-in window: {e}"));
@@ -211,7 +211,7 @@ pub async fn refresh_session(app: AppHandle, state: Arc<AppState>) {
                 let _ = tx.send(());
             }
         });
-        match builder.build() {
+        match crate::http::proxied(builder).build() {
             Ok(win) => no_webgl(&win),
             Err(e) => tracing::warn!(error = %e, "could not open the session-refresh webview"),
         }

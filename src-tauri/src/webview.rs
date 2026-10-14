@@ -101,7 +101,7 @@ impl Bridge {
         let label2 = label.to_string();
         let ready_slot2 = ready_slot.clone();
         app.run_on_main_thread(move || {
-            let res = WebviewWindowBuilder::new(&app2, label2, webview_url)
+            let res = crate::http::proxied(WebviewWindowBuilder::new(&app2, label2, webview_url))
                 .visible(false)
                 .inner_size(1.0, 1.0)
                 .skip_taskbar(true)
