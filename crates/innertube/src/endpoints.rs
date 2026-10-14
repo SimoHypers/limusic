@@ -608,7 +608,7 @@ impl InnerTube {
             // A failed page must not throw away the ones that worked: a short library beats an
             // error where the grid should be.
             let Ok(value) = self.browse_continuation(client, &t).await.inspect_err(|e| {
-                tracing::warn!(error = %crate::transport::redact_url(&e.to_string()), browse_id, "grid continuation failed; keeping what loaded")
+                tracing::warn!(error = %e, browse_id, "grid continuation failed; keeping what loaded")
             }) else {
                 break;
             };
@@ -791,7 +791,7 @@ impl InnerTube {
                     }
                     Ok(_) => {}
                     Err(e) => {
-                        tracing::warn!(error = %crate::transport::redact_url(&e.to_string()), "audio-playlist fetch failed; keeping MV ids")
+                        tracing::warn!(error = %e, "audio-playlist fetch failed; keeping MV ids")
                     }
                 }
             }

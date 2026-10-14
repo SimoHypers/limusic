@@ -9,6 +9,7 @@
 		RepeatIcon,
 		RepeatOne01Icon,
 		Queue01Icon,
+		Comment01Icon,
 		Mic01Icon,
 		VolumeHighIcon,
 		VolumeMute02Icon,
@@ -38,6 +39,7 @@
 	} from '$lib/player.svelte';
 	import { thumb } from '$lib/thumb';
 	import ArtistLine from './ArtistLine.svelte';
+	import KaraokeButton from './KaraokeButton.svelte';
 	import Marquee from './Marquee.svelte';
 	import TrackMenu from './TrackMenu.svelte';
 	import { t } from '$lib/i18n.svelte';
@@ -48,8 +50,7 @@
 		onToggleLyrics,
 		lyricsOpen,
 		onToggleComments,
-		commentsOpen,
-		compact = false
+		commentsOpen
 	}: {
 		onToggleQueue: () => void;
 		queueOpen: boolean;
@@ -57,7 +58,6 @@
 		lyricsOpen: boolean;
 		onToggleComments: () => void;
 		commentsOpen: boolean;
-		compact?: boolean;
 	} = $props();
 
 	// Pop the heart once when the user favourites (not when un-favouriting). Reset on animation end
@@ -379,6 +379,7 @@
 			<Button variant="ghost" size="icon-sm" onclick={openMiniPlayer} aria-label={t('player.mini_player')}>
 				<HugeiconsIcon icon={MinimizeScreenIcon} class="h-5 w-5" />
 			</Button>
+			<KaraokeButton />
 			<Button
 				variant={lyricsOpen ? 'secondary' : 'ghost'}
 				size="icon-sm"
@@ -387,6 +388,17 @@
 			>
 				<HugeiconsIcon icon={Mic01Icon} class="h-5 w-5" />
 			</Button>
+			<!-- A local file has no YouTube comment thread to open. -->
+			{#if playback.now && !api.isLocalId(playback.now.videoId)}
+				<Button
+					variant={commentsOpen ? 'secondary' : 'ghost'}
+					size="icon-sm"
+					onclick={onToggleComments}
+					aria-label={t('player.comments')}
+				>
+					<HugeiconsIcon icon={Comment01Icon} class="h-5 w-5" />
+				</Button>
+			{/if}
 			<Button
 				variant={queueOpen ? 'secondary' : 'ghost'}
 				size="icon-sm"
