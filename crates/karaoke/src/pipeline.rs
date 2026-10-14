@@ -225,7 +225,8 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024)?;
+        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024);
+        cache.prepare()?;
         let track_id = "test_track_1";
         let cancel = AtomicBool::new(false);
         let mut separator = FakeSeparator { calls: 0 };
@@ -292,7 +293,8 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024)?;
+        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024);
+        cache.prepare()?;
         let track_id = "test_cancel";
         let cancel = AtomicBool::new(true);
         let mut separator = FakeSeparator { calls: 0 };
@@ -329,7 +331,8 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024)?;
+        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024);
+        cache.prepare()?;
         let track_id = "test_err";
         let cancel = AtomicBool::new(false);
         let mut separator = FakeSeparator { calls: 0 };
@@ -368,7 +371,8 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024)?;
+        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024);
+        cache.prepare()?;
         let track_id = "test_incomplete";
         let cancel = AtomicBool::new(false);
         let mut separator = FakeSeparator { calls: 0 };

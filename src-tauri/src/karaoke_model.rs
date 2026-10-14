@@ -36,22 +36,23 @@ pub struct ModelManager {
 }
 
 impl ModelManager {
+    /// No I/O: the directory is only created when a download starts ([`Self::prepare_dir`]), so
+    /// launching the app never touches it.
     pub fn new(data_dir: &Path) -> Self {
         let dir = data_dir.join("models");
-        if let Err(e) = std::fs::create_dir_all(&dir) {
-            tracing::warn!(error = %karaoke::sanitize_error(&e.to_string()), "failed to create karaoke models directory");
-        } else {
-            // Delete any leftover *.part files in it.
-            if let Ok(entries) = std::fs::read_dir(&dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().and_then(|s| s.to_str()) == Some("part") {
-                        let _ = std::fs::remove_file(path);
-                    }
-                }
+        Self { dir, busy: AtomicBool::new(false), cancel: AtomicBool::new(false) }
+    }
+
+    /// Creates the models directory and deletes any `*.part` an interrupted download left.
+    fn prepare_dir(&self) -> std::io::Result<()> {
+        std::fs::create_dir_all(&self.dir)?;
+        for entry in std::fs::read_dir(&self.dir)?.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("part") {
+                let _ = std::fs::remove_file(path);
             }
         }
-        Self { dir, busy: AtomicBool::new(false), cancel: AtomicBool::new(false) }
+        Ok(())
     }
 
     fn override_path() -> Option<PathBuf> {
@@ -118,6 +119,13 @@ impl ModelManager {
             }
         }
         let _guard = BusyGuard(&self.busy);
+
+        if let Err(e) = self.prepare_dir() {
+            let msg = karaoke::sanitize_error(&e.to_string());
+            let _ =
+                app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
+            return Err(msg);
+        }
 
         let final_path = self.model_path();
         let part_path = final_path.with_extension(
@@ -329,6 +337,7 @@ mod tests {
         let tmp = temp_dir();
         let manager = ModelManager::new(&tmp);
         assert!(!manager.is_installed());
+        manager.prepare_dir().unwrap();
 
         let path = manager.model_path();
         std::fs::write(&path, b"short").unwrap();
@@ -350,9 +359,18 @@ mod tests {
         std::fs::write(&part_file, b"leftover").unwrap();
         assert!(part_file.exists());
 
-        let _manager = ModelManager::new(&tmp);
-        assert!(!part_file.exists(), "leftover .part file should be deleted on new()");
+        let manager = ModelManager::new(&tmp);
+        assert!(part_file.exists(), "new() must not touch the disk");
+        manager.prepare_dir().unwrap();
+        assert!(!part_file.exists(), "leftover .part file should be deleted by prepare_dir()");
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_model_manager_new_creates_nothing() {
+        let tmp = std::env::temp_dir().join(format!("limusic_test_{}", rand::random::<u64>()));
+        let _manager = ModelManager::new(&tmp);
+        assert!(!tmp.exists(), "constructing the manager at launch must not create directories");
     }
 
     #[test]
@@ -379,6 +397,7 @@ mod tests {
 
         let manager = ModelManager::new(&tmp);
         assert_eq!(manager.model_path(), manager.dir.join(MODEL_FILE_NAME));
+        manager.prepare_dir().unwrap();
 
         let path = manager.model_path();
         std::fs::write(&path, b"short").unwrap();

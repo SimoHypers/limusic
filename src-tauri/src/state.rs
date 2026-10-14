@@ -2170,7 +2170,7 @@ impl AppState {
             headers: data.headers.clone(),
             expected_secs,
         };
-        let play_u = self.play_url(&item.video_id, &data);
+        let play_u = self.play_url(&item.video_id, &stream_url);
         if let Err(e) =
             self.player.load(&play_u, &data.headers, self.track_gain(data.loudness_db), seek)
         {
@@ -2191,7 +2191,7 @@ impl AppState {
             data.artists.as_deref(),
             data.is_video,
         );
-        self.attach_video(&item.video_id, item.is_video, &stream_url);
+        self.attach_video(&item.video_id, item.is_video, &play_u);
         {
             let mut q = self.queue.lock().await;
             q.current_client = Some(data.stream_client.clone());
@@ -2409,7 +2409,7 @@ impl AppState {
             q = self.queue.lock().await;
         }
 
-        let url = self.play_url(next_video, &data);
+        let url = self.play_url(next_video, &stream_url);
         if let Err(e) = self.player.enqueue(&url) {
             tracing::warn!(error = %e, "enqueue lookahead failed");
             return;
@@ -2427,7 +2427,7 @@ impl AppState {
         if let Some(qi) = q.items.get_mut(next_idx) {
             backfill_metadata(qi, data.duration.as_deref(), data.artists.as_deref(), data.is_video);
             // Resolved now, minutes early, so the picture is there the moment the track starts.
-            self.attach_video(&qi.video_id, qi.is_video, &stream_url);
+            self.attach_video(&qi.video_id, qi.is_video, &url);
         }
         tracing::debug!(index = next_idx, "gapless lookahead primed");
     }
@@ -2463,7 +2463,10 @@ impl AppState {
         self.karaoke_engine().map_or(false, |e| e.is_enabled()) && !crate::http::has_proxy()
     }
 
-    fn play_url(&self, video_id: &str, data: &PlaybackData) -> String {
+    /// What mpv is handed for `video_id`: the prepared instrumental when karaoke has one, else
+    /// `stream_url`, the caller's one `mpv_stream_url` result. Never registers a second loopback
+    /// URL: `attach_video` keys the picture by the exact string mpv plays.
+    fn play_url(&self, video_id: &str, stream_url: &str) -> String {
         if self.karaoke_active() {
             if let Some(engine) = self.karaoke_engine() {
                 if let Some(p) = engine.ready_path(video_id) {
@@ -2471,7 +2474,7 @@ impl AppState {
                 }
             }
         }
-        mpv_stream_url(data)
+        stream_url.to_owned()
     }
 
     fn karaoke_push_wants(&self, q: &QueueState) {
@@ -2527,13 +2530,15 @@ impl AppState {
             headers: data.headers.clone(),
             expected_secs,
         };
-        let play_u = self.play_url(&item.video_id, &data);
+        let play_u = self.play_url(&item.video_id, &stream_url);
         if let Err(e) =
             self.player.load(&play_u, &data.headers, self.track_gain(data.loudness_db), Some(pos))
         {
             self.emit_error(&item.video_id, &e.to_string());
             return;
         }
+        // The picture is keyed by the file mpv plays, and that just changed.
+        self.attach_video(&item.video_id, item.is_video, &play_u);
         if was_paused {
             let _ = self.player.pause();
         } else if was_playing {
@@ -2559,7 +2564,7 @@ impl AppState {
             return Err("karaoke engine not available".to_string());
         };
         if on {
-            engine.set_enabled(true);
+            engine.set_enabled(true)?;
             let should_reload = {
                 let q = self.queue.lock().await;
                 self.karaoke_push_wants(&q);
@@ -2571,7 +2576,7 @@ impl AppState {
                 self.reload_current_source().await;
             }
         } else {
-            engine.set_enabled(false);
+            engine.set_enabled(false)?;
             let was_karaoke = {
                 let mut q = self.queue.lock().await;
                 q.karaoke_cur = None;
@@ -2687,15 +2692,15 @@ impl AppState {
         self.karaoke_push_wants(&q);
     }
 
+    /// Called right after the engine is managed (lib.rs). Without one there is nothing to listen
+    /// to: karaoke is simply unavailable, so log it and return instead of polling for it.
     pub fn spawn_karaoke_listener(self: &std::sync::Arc<Self>) {
+        let Some(engine) = self.karaoke_engine() else {
+            tracing::warn!(target: "app_lib::karaoke", "karaoke engine missing; ready events off");
+            return;
+        };
         let me = self.clone();
         tauri::async_runtime::spawn(async move {
-            let engine = loop {
-                if let Some(e) = me.karaoke_engine() {
-                    break e;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            };
             let mut rx = engine.subscribe_ready();
             loop {
                 match rx.recv().await {

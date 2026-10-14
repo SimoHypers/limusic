@@ -30,6 +30,10 @@ pub struct KaraokeEngine {
     cache: Arc<InstrumentalCache>,
     shared: Arc<(Mutex<Shared>, Condvar)>,
     ready_tx: tokio::sync::broadcast::Sender<String>,
+    /// Whether the worker thread is running. It is started, and the cache directory prepared,
+    /// the first time karaoke is turned on, never at launch: a failure there must only make
+    /// karaoke unavailable. Separate from `shared`, which the worker owns.
+    worker_started: Mutex<bool>,
 }
 
 fn emit_queue(app: &AppHandle, shared: &Shared, cache: &InstrumentalCache) {
@@ -66,14 +70,8 @@ impl KaraokeEngine {
             .unwrap_or(2048)
             .clamp(512, 20480);
         let max_bytes = limit_mb * 1024 * 1024;
-        let cache = match InstrumentalCache::new(cache_dir, CacheFormat::Flac, max_bytes) {
-            Ok(c) => Arc::new(c),
-            Err(e) => {
-                tracing::warn!(error = %karaoke::sanitize_error(&e.to_string()), "failed to create karaoke cache, falling back to temp dir");
-                let fallback = std::env::temp_dir().join("limusic-karaoke-cache");
-                Arc::new(InstrumentalCache::new(fallback, CacheFormat::Flac, max_bytes).unwrap())
-            }
-        };
+        // No I/O here: the directory is created on first enable (`spawn_worker`).
+        let cache = Arc::new(InstrumentalCache::new(cache_dir, CacheFormat::Flac, max_bytes));
 
         let (ready_tx, _) = tokio::sync::broadcast::channel(64);
         let shared = Arc::new((
@@ -89,13 +87,32 @@ impl KaraokeEngine {
             Condvar::new(),
         ));
 
-        let engine = Arc::new(Self { app, models, cache, shared: shared.clone(), ready_tx });
+        Arc::new(Self { app, models, cache, shared, ready_tx, worker_started: Mutex::new(false) })
+    }
 
-        let worker_app = engine.app.clone();
-        let worker_models = engine.models.clone();
-        let worker_cache = engine.cache.clone();
-        let worker_shared = shared.clone();
-        let worker_ready_tx = engine.ready_tx.clone();
+    /// Prepares the cache directory and starts the worker thread, once. Called when karaoke is
+    /// turned on; an error leaves karaoke unavailable and everything else untouched.
+    fn ensure_worker(&self) -> Result<(), String> {
+        let mut started = self.worker_started.lock().unwrap_or_else(|e| e.into_inner());
+        if !*started {
+            self.spawn_worker().map_err(|e| {
+                let msg = karaoke::sanitize_error(&e);
+                tracing::warn!(target: "app_lib::karaoke", error = %msg, "karaoke unavailable");
+                format!("Karaoke is unavailable: {msg}")
+            })?;
+            *started = true;
+        }
+        Ok(())
+    }
+
+    fn spawn_worker(&self) -> Result<(), String> {
+        self.cache.prepare().map_err(|e| format!("cache directory: {e}"))?;
+
+        let worker_app = self.app.clone();
+        let worker_models = self.models.clone();
+        let worker_cache = self.cache.clone();
+        let worker_shared = self.shared.clone();
+        let worker_ready_tx = self.ready_tx.clone();
 
         std::thread::Builder::new()
             .name("karaoke-worker".to_string())
@@ -274,12 +291,16 @@ impl KaraokeEngine {
                     }
                 }
             })
-            .unwrap();
-
-        engine
+            .map(|_| ())
+            .map_err(|e| format!("worker thread: {e}"))
     }
 
-    pub fn set_enabled(&self, on: bool) {
+    /// Turning on starts the worker on first use (see [`Self::ensure_worker`]); if that fails,
+    /// karaoke stays off and the error is returned for the caller to report.
+    pub fn set_enabled(&self, on: bool) -> Result<(), String> {
+        if on {
+            self.ensure_worker()?;
+        }
         let (lock, condvar) = &*self.shared;
         let mut shared = lock.lock().unwrap();
         shared.enabled = on;
@@ -297,6 +318,7 @@ impl KaraokeEngine {
             emit_queue(&self.app, &shared, &self.cache);
         }
         condvar.notify_one();
+        Ok(())
     }
 
     pub fn is_enabled(&self) -> bool {

@@ -36,9 +36,20 @@ pub struct InstrumentalCache {
 }
 
 impl InstrumentalCache {
-    pub fn new(dir: PathBuf, format: CacheFormat, max_bytes: u64) -> Result<Self> {
+    /// No I/O, so building one at launch can never fail. The directory is created, and a crashed
+    /// run's leftovers removed, by [`InstrumentalCache::prepare`] when karaoke is first used.
+    /// Nothing else waits for `prepare`: size, eviction and clearing always read the directory as
+    /// it is on disk, so a previous session's files count (and can be cleared) with karaoke off,
+    /// and a directory that does not exist yet simply holds nothing.
+    pub fn new(dir: PathBuf, format: CacheFormat, max_bytes: u64) -> Self {
+        Self { dir, format, max_bytes: std::sync::atomic::AtomicU64::new(max_bytes) }
+    }
+
+    /// Creates the cache directory and deletes temporary files a crash left behind.
+    pub fn prepare(&self) -> Result<()> {
+        let dir = &self.dir;
         let tmp_dir = dir.join("tmp");
-        fs::create_dir_all(&dir)?;
+        fs::create_dir_all(dir)?;
         fs::create_dir_all(&tmp_dir)?;
 
         // Delete any leftover files in dir/tmp
@@ -52,7 +63,7 @@ impl InstrumentalCache {
         }
 
         // Delete any *.tmp in dir (stale from a crash)
-        if let Ok(entries) = fs::read_dir(&dir) {
+        if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_file() {
@@ -65,7 +76,7 @@ impl InstrumentalCache {
             }
         }
 
-        Ok(Self { dir, format, max_bytes: std::sync::atomic::AtomicU64::new(max_bytes) })
+        Ok(())
     }
 
     pub fn format(&self) -> CacheFormat {
@@ -245,7 +256,8 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024)?;
+        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024);
+        cache.prepare()?;
         assert!(cache.get("track1").is_none());
 
         let p1 = cache.path_for("track1");
@@ -269,7 +281,8 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 20)?;
+        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 20);
+        cache.prepare()?;
 
         let p1 = cache.path_for("track1");
         let p2 = cache.path_for("track2");
@@ -294,7 +307,8 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 10)?;
+        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 10);
+        cache.prepare()?;
 
         let p_old = cache.path_for("old");
         let p1 = cache.path_for("track1");
@@ -335,10 +349,12 @@ mod tests {
         let stale_root_tmp = tmp.join("stale.flac.tmp");
         fs::write(&stale_root_tmp, b"stale")?;
 
-        let _cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024)?;
+        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024);
+        assert!(stale_sub_tmp.exists() && stale_root_tmp.exists(), "new() must not touch the disk");
 
-        assert!(!stale_sub_tmp.exists(), "Stale sub tmp file should be removed by new()");
-        assert!(!stale_root_tmp.exists(), "Stale root tmp file should be removed by new()");
+        cache.prepare()?;
+        assert!(!stale_sub_tmp.exists(), "Stale sub tmp file should be removed by prepare()");
+        assert!(!stale_root_tmp.exists(), "Stale root tmp file should be removed by prepare()");
 
         let _ = fs::remove_dir_all(&tmp);
         Ok(())
@@ -351,9 +367,61 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 100)?;
+        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 100);
         cache.set_max_bytes(200);
         assert_eq!(cache.max_bytes.load(std::sync::atomic::Ordering::SeqCst), 200);
+
+        let _ = fs::remove_dir_all(&tmp);
+        Ok(())
+    }
+
+    /// The app builds the cache at launch and only calls `prepare` when karaoke is first turned
+    /// on, so every lookup has to cope with the directory not existing yet.
+    #[test]
+    fn test_unprepared_cache_is_empty_and_harmless() -> Result<()> {
+        let tmp = std::env::temp_dir().join("limusic_cache_test_unprepared");
+        if tmp.exists() {
+            let _ = fs::remove_dir_all(&tmp);
+        }
+
+        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 100);
+        assert!(cache.get("track1").is_none());
+        assert!(!cache.contains("track1"));
+        assert_eq!(cache.total_size(), 0);
+        assert_eq!(cache.evict(&[])?, 0);
+        assert_eq!(cache.clear()?, 0);
+        assert!(!tmp.exists(), "nothing may be created before prepare()");
+        Ok(())
+    }
+
+    /// After a restart karaoke is off and `prepare` has not run, but Settings still has to see,
+    /// evict and clear what earlier sessions left on disk.
+    #[test]
+    fn test_unprepared_cache_sees_previous_session_files() -> Result<()> {
+        let tmp = std::env::temp_dir().join("limusic_cache_test_previous_session");
+        if tmp.exists() {
+            let _ = fs::remove_dir_all(&tmp);
+        }
+        // An earlier session's cache, written before this instance existed.
+        let earlier = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, u64::MAX);
+        earlier.prepare()?;
+        let old = earlier.path_for("old");
+        let new = earlier.path_for("new");
+        fs::write(&old, [0u8; 30])?;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        fs::write(&new, [0u8; 30])?;
+
+        // This launch: constructed, never prepared.
+        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, u64::MAX);
+        assert_eq!(cache.total_size(), 60, "usage counts the earlier files");
+
+        cache.set_max_bytes(40);
+        assert_eq!(cache.evict(&[])?, 30, "a lower limit evicts the oldest");
+        assert!(!old.exists() && new.exists());
+        assert_eq!(cache.total_size(), 30);
+
+        assert_eq!(cache.clear()?, 0, "clear removes the rest");
+        assert!(!new.exists());
 
         let _ = fs::remove_dir_all(&tmp);
         Ok(())
