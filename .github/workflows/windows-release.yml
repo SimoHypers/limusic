@@ -265,6 +265,15 @@ jobs:
           # places it next to the exe. Without this the app builds but won't start.
           Copy-Item "$env:MPV_DIR\libmpv-2.dll" "$env:GITHUB_WORKSPACE\src-tauri\libmpv-2.dll" -Force
 
+      # Karaoke runtime: onnxruntime.dll (DirectML build) + DirectML.dll from the official NuGet
+      # packages (pinned SHA-256), and the app-local VC++ DLLs from this runner's Visual Studio
+      # (Microsoft-signed, >= 14.44). tauri.windows.conf.json bundles src-tauri/karaoke-runtime/
+      # next to the exe; nothing from it is linked, it is loaded only when karaoke is turned on.
+      # The VC++ versions and hashes it prints are this release's record of what shipped.
+      - name: Karaoke runtime
+        shell: pwsh
+        run: ./scripts/fetch-karaoke-runtime.ps1
+
       # The gitignored src-tauri/lastfm.keys (read by build.rs) obviously isn't in the checkout —
       # recreate it from repo secrets so Windows builds scrobble too. Missing secrets are a warning,
       # not a failure: the app is fully functional without Last.fm.
@@ -306,6 +315,13 @@ jobs:
           # WiX refuses a version whose prerelease suffix isn't numeric, which -rc.1 isn't.
           BUNDLES=(); [ "$PRERELEASE" = false ] || BUNDLES=(--bundles nsis)
           tauri build "${BUNDLES[@]}" --config '{"build":{"beforeBuildCommand":""}}'   # → target/release/bundle/{nsis,msi}/
+
+      # Every load-time import is a DLL each user needs just to start the app, karaoke or not, and
+      # auto-update delivers this exe to everyone. It must import exactly the allow-list (the
+      # 1.3.0-rc.4 set): the karaoke runtime is loaded by full path only when karaoke is turned on.
+      - name: Import table check
+        shell: pwsh
+        run: ./scripts/check-windows-imports.ps1 -Exe target/release/limusic-app.exe
 
       - name: Dry run — built and signed, attaching nothing
         if: ${{ inputs.dry_run }}
