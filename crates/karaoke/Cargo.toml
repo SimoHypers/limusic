@@ -9,11 +9,14 @@ serde = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 ort = "=2.0.0-rc.13"
-symphonia = { version = "0.5", features = ["mp3", "flac", "wav", "aac", "ogg"] }
-rubato = "0.14"
 hound = "3.5"
 realfft = "3.5"
 flacenc = "0.4"
+
+[dev-dependencies]
+# Only the tests and examples decode audio (flac_read.rs, examples/separate.rs).
+symphonia = { version = "0.5", features = ["mp3", "flac", "wav", "aac", "ogg"] }
+rubato = "0.14"
 
 [features]
 directml = ["ort/directml"]

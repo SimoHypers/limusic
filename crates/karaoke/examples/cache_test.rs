@@ -1,8 +1,11 @@
 use anyhow::{Context, Result};
-use karaoke::cache_codec::{read_cached, write_cached, CacheFormat, Pcm};
+use karaoke::cache_codec::{write_cached, CacheFormat, Pcm};
 use std::env;
 use std::path::PathBuf;
 use std::time::Instant;
+
+#[path = "../src/flac_read.rs"]
+mod flac_read;
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -83,7 +86,8 @@ fn main() -> Result<()> {
 
     println!("Decoding cached FLAC: {}", out_flac_path.display());
     let decode_start = Instant::now();
-    let pcm_decoded = read_cached(&out_flac_path)?;
+    let (sample_rate, channels) = flac_read::read_flac(&out_flac_path)?;
+    let pcm_decoded = Pcm { sample_rate, channels };
     let decode_time = decode_start.elapsed();
 
     println!("Decode time: {:.2?}", decode_time);

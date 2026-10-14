@@ -1,6 +1,8 @@
 pub mod cache;
 pub mod cache_codec;
 pub mod device;
+#[cfg(test)]
+mod flac_read;
 pub mod jobs;
 pub mod mdx;
 pub mod pipeline;

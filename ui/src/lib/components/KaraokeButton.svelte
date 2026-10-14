@@ -59,10 +59,14 @@
 	>
 		{#if playback.karaoke && karaokeStatus.state === 'preparing'}
 			{#if karaokeStatus.progress !== undefined}
-				<svg style="width: {size}px; height: {size}px;" class="-rotate-90" viewBox="0 0 24 24">
-					<circle cx="12" cy="12" r="9" class="stroke-muted" stroke-width="2" fill="none" />
-					<circle cx="12" cy="12" r="9" class="stroke-primary" stroke-width="2" fill="none" stroke-dasharray="56.548" stroke-dashoffset={56.548 * (1 - karaokeStatus.progress)} stroke-linecap="round" />
-				</svg>
+				<!-- Progress ring: a conic gradient masked to a 2px band, with the mic icon inside. -->
+				<div class="relative flex items-center justify-center" style="width: {size}px; height: {size}px;">
+					<div
+						class="absolute inset-0 rounded-full"
+						style="background: conic-gradient(var(--primary) {karaokeStatus.progress * 100}%, var(--muted) 0); mask: radial-gradient(farthest-side, transparent calc(100% - 2px), var(--foreground) calc(100% - 2px));"
+					></div>
+					<HugeiconsIcon icon={Mic02Icon} size={size * 0.55} class="text-primary" />
+				</div>
 			{:else}
 				<div style="width: {size * 0.8}px; height: {size * 0.8}px;" class="animate-spin rounded-full border-2 border-muted border-t-primary"></div>
 			{/if}
@@ -82,10 +86,11 @@
 					<span class="h-1.5 w-1.5 rounded-full bg-primary" title=""></span>
 				{:else if slot.state === 'preparing'}
 					{#if slot.progress !== undefined}
-						<svg class="h-1.5 w-1.5 -rotate-90" viewBox="0 0 12 12">
-							<circle cx="6" cy="6" r="4.5" class="stroke-muted" stroke-width="1.5" fill="none" />
-							<circle cx="6" cy="6" r="4.5" class="stroke-primary" stroke-width="1.5" fill="none" stroke-dasharray="28.27" stroke-dashoffset={28.27 * (1 - slot.progress)} stroke-linecap="round" />
-						</svg>
+						<span
+							class="h-1.5 w-1.5 rounded-full"
+							style="background: conic-gradient(var(--primary) {slot.progress * 100}%, var(--muted) 0);"
+							title=""
+						></span>
 					{:else}
 						<span class="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" title=""></span>
 					{/if}
