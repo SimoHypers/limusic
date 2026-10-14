@@ -318,7 +318,6 @@ async fn upstream_get(
         StatusCode::GATEWAY_TIMEOUT
     })?;
     sent.map_err(|e| {
-        let e = e.without_url();
         tracing::debug!(error = %e, "audio proxy: upstream failed");
         StatusCode::BAD_GATEWAY
     })

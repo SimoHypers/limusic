@@ -3185,9 +3185,7 @@ impl AppState {
         tauri::async_runtime::spawn(async move {
             match it.register_playback(&client, &ping.url, &cpn, None).await {
                 Ok(()) => tracing::debug!(client = %ping.client, "watch-history ping sent"),
-                Err(e) => {
-                    tracing::warn!(error = %karaoke::sanitize_error(&e.to_string()), "watch-history ping failed")
-                }
+                Err(e) => tracing::warn!(error = %e, "watch-history ping failed"),
             }
         });
     }

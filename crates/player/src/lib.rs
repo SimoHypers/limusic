@@ -106,21 +106,15 @@ fn is_ao_init_failed(e: &libmpv2::Error) -> bool {
     }
 }
 
-#[derive(Clone, Copy, Default)]
-struct AfState {
-    gain_db: Option<f64>,
-    semitones: i32,
-}
-
 /// The player. Wraps `Arc<Mpv>` (Send+Sync); an event loop runs on a dedicated OS thread per deck
 /// and pumps [`PlayerEvent`]s into a channel taken once via [`Player::take_events`].
 pub struct Player {
     decks: Arc<Decks>,
     events: Option<UnboundedReceiver<PlayerEvent>>,
-    /// `(loudness gain dB, pitch semitones)`. mpv's `af` is one global chain, so the things
+    /// `(loudness gain dB, pitch semitones)`. mpv's `af` is one global chain, so the two things
     /// that write to it have to be re-applied together: a bare `set_property("af", ...)` from
-    /// either one would drop the others' filters.
-    af: Mutex<AfState>,
+    /// either one would drop the other's filter.
+    af: Mutex<(Option<f64>, i32)>,
 }
 
 /// One mpv instance plays one file at a time, so an *overlap* needs a second decoder and a second
@@ -137,7 +131,6 @@ struct Decks {
     active: AtomicUsize,
     /// Crossfade length in milliseconds; 0 is off.
     crossfade_ms: AtomicU64,
-    af_chain: Mutex<String>,
     /// The volume slider's percent, so a fade can scale the user's own level instead of
     /// overwriting it.
     volume: AtomicI64,
@@ -346,7 +339,6 @@ impl Player {
             b: OnceLock::new(),
             active: AtomicUsize::new(0),
             crossfade_ms: AtomicU64::new(0),
-            af_chain: Mutex::new(String::new()),
             volume: AtomicI64::new(100),
             preloaded: AtomicBool::new(false),
             preload_gen: AtomicU64::new(0),
@@ -363,7 +355,7 @@ impl Player {
             wid: AtomicI64::new(0),
         });
         spawn_deck_events(&a, 0, decks.clone())?;
-        Ok(Player { decks, events: Some(rx), af: Mutex::new(AfState::default()) })
+        Ok(Player { decks, events: Some(rx), af: Mutex::new((None, 0)) })
     }
 
     /// The deck the app is hearing. Every command below acts on this one.
@@ -678,7 +670,7 @@ impl Player {
     // round-trip (a few ms) and the filter chain reinits mid-stream. If that ever clicks audibly,
     // keep one labelled filter (`af=@gain:lavfi=[volume=0dB]`) and retune it with `af-command`.
     pub fn set_gain(&self, gain_db: Option<f64>) -> Result<(), Error> {
-        self.af.lock().unwrap().gain_db = gain_db;
+        self.af.lock().unwrap().0 = gain_db;
         self.apply_af()
     }
 
@@ -697,12 +689,12 @@ impl Player {
     // Windows/macOS build ever turns up without it.
     pub fn set_pitch(&self, semitones: i32) -> Result<(), Error> {
         let wanted = semitones.clamp(-12, 12);
-        let previous = std::mem::replace(&mut self.af.lock().unwrap().semitones, wanted);
+        let previous = std::mem::replace(&mut self.af.lock().unwrap().1, wanted);
         if let Err(e) = self.apply_af() {
             // No librubberband in this build: mpv rejects the *whole* chain, loudness gain
             // included, so put the old value back rather than leave every later set_gain failing.
             // (mpv never applied the bad chain, so this restores what is already playing.)
-            self.af.lock().unwrap().semitones = previous;
+            self.af.lock().unwrap().1 = previous;
             let _ = self.apply_af();
             return Err(if wanted == 0 { e } else { Error::NoPitchFilter });
         }
@@ -710,16 +702,14 @@ impl Player {
     }
 
     fn apply_af(&self) -> Result<(), Error> {
-        let AfState { gain_db, semitones } = *self.af.lock().unwrap();
-        let chain = af_chain(gain_db, semitones);
-        *self.decks.af_chain.lock().unwrap() = chain.clone();
-        self.mpv().set_property("af", chain.as_str())?;
+        let (gain_db, semitones) = *self.af.lock().unwrap();
+        self.mpv().set_property("af", af_chain(gain_db, semitones).as_str())?;
         Ok(())
     }
 }
 
-/// The whole `af` chain: loudness gain, then pitch. Empty when none is in play, so the default
-/// path stays exactly the filterless one it was before filters existed.
+/// The whole `af` chain: loudness gain, then pitch. Empty when neither is in play, so the default
+/// path stays exactly the filterless one it was before pitch existed.
 ///
 /// A positive gain carries a limiter: lifting a quiet track pushes its peaks past full scale, and
 /// without one they would clip at the output. Its threshold is full scale (`limit=1`), so it only
@@ -1029,11 +1019,6 @@ fn start_crossfade(decks: &Arc<Decks>, from: usize, fade: f64) {
     // tempo dialog), so a track preloaded before the user touched it would come in at 1x.
     if let Ok(speed) = out.get_property::<String>("speed") {
         let _ = incoming.set_property("speed", speed.as_str());
-    }
-    if let Ok(chain) = decks.af_chain.lock() {
-        if let Err(e) = incoming.set_property("af", chain.as_str()) {
-            tracing::warn!(error = %e, "crossfade incoming deck refused af chain");
-        }
     }
     decks.preloaded.store(false, Ordering::Release);
     // Read before `fading` goes up, which is what lets a cancel bump it: taken afterwards, a
