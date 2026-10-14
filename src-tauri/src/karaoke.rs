@@ -1,63 +1,138 @@
 //! Background karaoke engine for preparing instrumentals (current + next lookahead).
+//!
+//! Locking rules (see `karaoke::board`): playback only ever reads the lock-free enabled flag or
+//! takes the board's mutex for a few field writes. The worker holds that mutex only to take a job
+//! or publish a result; model load, inference, cache I/O and event emits all happen with it
+//! released. A panic in a job fails that job; if the worker thread dies anyway, karaoke turns
+//! itself off and reports unavailable, and playback carries on without it.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use crate::karaoke_model::ModelManager;
+use karaoke::board::{isolate, JobBoard};
 use karaoke::cache::InstrumentalCache;
 use karaoke::cache_codec::CacheFormat;
 use karaoke::jobs::DesiredSet;
 pub use karaoke::jobs::PrepareRequest;
-use karaoke::mdx::MdxParams;
+use karaoke::mdx::{MdxModel, MdxParams};
 use tauri::{AppHandle, Emitter, Manager};
 
-struct Shared {
-    enabled: bool,
-    desired: DesiredSet,
-    last_reqs: Vec<PrepareRequest>,
-    running: Option<(String, Arc<AtomicBool>, u64)>, // (video_id, cancel, job_seq)
-    job_seq: u64,
-    last_progress: f64,
-    announced_ready: std::collections::HashSet<String>,
+const IDLE_UNLOAD: Duration = Duration::from_secs(30);
+
+/// Everything the worker and the off-thread helpers need, cheap to clone.
+#[derive(Clone)]
+struct Ctx {
+    app: AppHandle,
+    models: Arc<ModelManager>,
+    cache: Arc<InstrumentalCache>,
+    board: Arc<JobBoard>,
+    ready_tx: tokio::sync::broadcast::Sender<String>,
+}
+
+impl Ctx {
+    /// Emits the queue dots. Snapshot under the lock, file checks after.
+    fn emit_queue(&self) {
+        if !self.board.is_enabled() {
+            let _ = self.app.emit("karaoke-queue", &serde_json::json!({ "slots": [] }));
+            return;
+        }
+        let (ids, running, failed) = self.board.with(|s| {
+            (
+                s.desired.ids(),
+                s.running.as_ref().map(|r| (r.video_id.clone(), s.last_progress)),
+                s.desired.failed_ids().clone(),
+            )
+        });
+        let running = running.as_ref().map(|(id, p)| (id.as_str(), *p));
+        let slots =
+            karaoke::jobs::build_slots(&ids, running, &failed, |id| self.cache.contains(id));
+        let _ = self.app.emit("karaoke-queue", &serde_json::json!({ "slots": slots }));
+    }
+
+    /// Announces `video_id` as ready once per enable.
+    fn announce_ready(&self, video_id: &str) {
+        if self.board.with(|s| s.announced_ready.insert(video_id.to_string())) {
+            let _ = self.app.emit(
+                "karaoke-status",
+                &serde_json::json!({ "videoId": video_id, "state": "ready" }),
+            );
+            let _ = self.ready_tx.send(video_id.to_string());
+        }
+    }
+
+    /// Announces every wanted track that is already cached. File checks run unlocked.
+    fn announce_cached(&self) -> HashSet<String> {
+        let ids = self.board.with(|s| s.desired.ids());
+        let ready: HashSet<String> = ids.into_iter().filter(|id| self.cache.contains(id)).collect();
+        for id in &ready {
+            self.announce_ready(id);
+        }
+        ready
+    }
+
+    /// Evicts over the limit, keeping what is wanted. All file work unlocked.
+    fn evict(&self) {
+        let ids = self.board.with(|s| s.desired.ids());
+        let keep: Vec<PathBuf> = ids.iter().filter_map(|id| self.cache.get(id)).collect();
+        let _ = self.cache.evict(&keep);
+        let announced = self.board.with(|s| s.announced_ready.clone());
+        let gone: HashSet<String> =
+            announced.into_iter().filter(|id| !self.cache.contains(id)).collect();
+        if !gone.is_empty() {
+            self.board.with(|s| s.announced_ready.retain(|id| !gone.contains(id)));
+        }
+    }
+
+    /// Eviction (when the wanted set changed) + announce + dots on a blocking thread, for callers
+    /// that must not touch the disk (playback, commands).
+    fn refresh_in_background(&self, evict: bool) {
+        let ctx = self.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            if evict {
+                ctx.evict();
+            }
+            if ctx.board.is_enabled() {
+                ctx.announce_cached();
+            }
+            ctx.emit_queue();
+        });
+    }
+}
+
+/// Dropped when the worker thread ends, which it only does by panicking outside a job: karaoke
+/// turns itself off and reports unavailable; playback never depended on it.
+struct WorkerExit {
+    ctx: Ctx,
+    alive: Arc<AtomicBool>,
+}
+
+impl Drop for WorkerExit {
+    fn drop(&mut self) {
+        self.alive.store(false, Ordering::SeqCst);
+        self.ctx.board.set_enabled(false);
+        tracing::error!(target: "app_lib::karaoke", "karaoke worker stopped; karaoke unavailable");
+        let _ = self.ctx.app.emit("karaoke", false);
+        let _ = self.ctx.app.emit(
+            "karaoke-status",
+            &serde_json::json!({ "state": "error", "message": "Karaoke stopped unexpectedly" }),
+        );
+        let _ = self.ctx.app.emit("karaoke-queue", &serde_json::json!({ "slots": [] }));
+    }
 }
 
 #[allow(dead_code)]
 pub struct KaraokeEngine {
-    app: AppHandle,
-    models: Arc<ModelManager>,
-    cache: Arc<InstrumentalCache>,
-    shared: Arc<(Mutex<Shared>, Condvar)>,
-    ready_tx: tokio::sync::broadcast::Sender<String>,
-    /// Whether the worker thread is running. It is started, and the cache directory prepared,
+    ctx: Ctx,
+    /// Whether the worker thread was started. It is started, and the cache directory prepared,
     /// the first time karaoke is turned on, never at launch: a failure there must only make
-    /// karaoke unavailable. Separate from `shared`, which the worker owns.
+    /// karaoke unavailable.
     worker_started: Mutex<bool>,
-}
-
-fn emit_queue(app: &AppHandle, shared: &Shared, cache: &InstrumentalCache) {
-    if !shared.enabled {
-        let _ = app.emit("karaoke-queue", &serde_json::json!({ "slots": [] }));
-        return;
-    }
-    let desired_ids = shared.desired.ids();
-    let running = shared.running.as_ref().map(|(id, _, _)| (id.as_str(), shared.last_progress));
-    let slots =
-        karaoke::jobs::build_slots(&desired_ids, running, shared.desired.failed_ids(), |id| {
-            cache.contains(id)
-        });
-    let _ = app.emit("karaoke-queue", &serde_json::json!({ "slots": slots }));
-}
-
-fn evict_desired(
-    cache: &InstrumentalCache,
-    desired_ids: &[String],
-    announced_ready: &mut std::collections::HashSet<String>,
-) {
-    let keep: Vec<PathBuf> = desired_ids.iter().filter_map(|id| cache.get(id)).collect();
-    let _ = cache.evict(&keep);
-    announced_ready.retain(|id| cache.contains(id));
+    /// False once the worker thread has died (see [`WorkerExit`]).
+    worker_alive: Arc<AtomicBool>,
 }
 
 #[allow(dead_code)]
@@ -72,28 +147,19 @@ impl KaraokeEngine {
         let max_bytes = limit_mb * 1024 * 1024;
         // No I/O here: the directory is created on first enable (`spawn_worker`).
         let cache = Arc::new(InstrumentalCache::new(cache_dir, CacheFormat::Flac, max_bytes));
-
         let (ready_tx, _) = tokio::sync::broadcast::channel(64);
-        let shared = Arc::new((
-            Mutex::new(Shared {
-                enabled: false,
-                desired: DesiredSet::default(),
-                last_reqs: Vec::new(),
-                running: None,
-                job_seq: 0,
-                last_progress: 0.0,
-                announced_ready: std::collections::HashSet::new(),
-            }),
-            Condvar::new(),
-        ));
-
-        Arc::new(Self { app, models, cache, shared, ready_tx, worker_started: Mutex::new(false) })
+        let ctx = Ctx { app, models, cache, board: Arc::new(JobBoard::new()), ready_tx };
+        Arc::new(Self {
+            ctx,
+            worker_started: Mutex::new(false),
+            worker_alive: Arc::new(AtomicBool::new(false)),
+        })
     }
 
     /// Prepares the cache directory and starts the worker thread, once. Called when karaoke is
     /// turned on; an error leaves karaoke unavailable and everything else untouched.
     fn ensure_worker(&self) -> Result<(), String> {
-        let mut started = self.worker_started.lock().unwrap_or_else(|e| e.into_inner());
+        let mut started = self.worker_started.lock().unwrap_or_else(PoisonError::into_inner);
         if !*started {
             self.spawn_worker().map_err(|e| {
                 let msg = karaoke::sanitize_error(&e);
@@ -101,241 +167,60 @@ impl KaraokeEngine {
                 format!("Karaoke is unavailable: {msg}")
             })?;
             *started = true;
+        } else if !self.worker_alive.load(Ordering::SeqCst) {
+            return Err("Karaoke is unavailable: it stopped unexpectedly earlier".to_string());
         }
         Ok(())
     }
 
     fn spawn_worker(&self) -> Result<(), String> {
-        self.cache.prepare().map_err(|e| format!("cache directory: {e}"))?;
-
-        let worker_app = self.app.clone();
-        let worker_models = self.models.clone();
-        let worker_cache = self.cache.clone();
-        let worker_shared = self.shared.clone();
-        let worker_ready_tx = self.ready_tx.clone();
-
+        self.ctx.cache.prepare().map_err(|e| format!("cache directory: {e}"))?;
+        let ctx = self.ctx.clone();
+        let alive = self.worker_alive.clone();
+        alive.store(true, Ordering::SeqCst);
         std::thread::Builder::new()
             .name("karaoke-worker".to_string())
             .spawn(move || {
-                let mut model: Option<karaoke::mdx::MdxModel> = None;
-                let mut notified_needs_model = false;
-
-                let (lock, condvar) = &*worker_shared;
-                let mut shared_guard = lock.lock().unwrap();
-
-                loop {
-                    if !shared_guard.enabled {
-                        if model.is_some() {
-                            tracing::info!(target: "app_lib::karaoke", reason = "disabled", "karaoke model unloaded");
-                            model = None;
-                        }
-                        notified_needs_model = false;
-                        shared_guard = condvar.wait(shared_guard).unwrap();
-                        continue;
-                    }
-
-                    if !worker_models.is_installed() {
-                        if model.is_some() {
-                            tracing::info!(target: "app_lib::karaoke", reason = "error", "karaoke model unloaded");
-                            model = None;
-                        }
-                        if !notified_needs_model {
-                            let _ = worker_app.emit("karaoke-status", &serde_json::json!({"state": "needs-model"}));
-                            notified_needs_model = true;
-                        }
-                        shared_guard.desired.clear();
-                        emit_queue(&worker_app, &shared_guard, &worker_cache);
-                        shared_guard = condvar.wait(shared_guard).unwrap();
-                        continue;
-                    } else {
-                        notified_needs_model = false;
-                    }
-
-                    if let Some(req) = shared_guard.desired.next_pending(|id| worker_cache.contains(id)) {
-                        if worker_cache.contains(&req.video_id) {
-                            tracing::info!(target: "app_lib::karaoke", video_id = %req.video_id, "karaoke cache hit");
-                            if !shared_guard.announced_ready.contains(&req.video_id) {
-                                let _ = worker_app.emit("karaoke-status", &serde_json::json!({
-                                    "videoId": &req.video_id,
-                                    "state": "ready"
-                                }));
-                                let _ = worker_ready_tx.send(req.video_id.clone());
-                                shared_guard.announced_ready.insert(req.video_id.clone());
-                            }
-                            shared_guard.desired.complete(&req.video_id);
-                            emit_queue(&worker_app, &shared_guard, &worker_cache);
-                            let desired_ids = shared_guard.desired.ids();
-                            evict_desired(&worker_cache, &desired_ids, &mut shared_guard.announced_ready);
-                            continue;
-                        }
-
-                        if model.is_none() {
-                            let start_load = std::time::Instant::now();
-                            match karaoke::mdx::MdxModel::load_auto(&worker_models.model_path(), MdxParams::default()) {
-                                Ok((m, dev)) => {
-                                    let load_ms = start_load.elapsed().as_millis();
-                                    tracing::info!(target: "app_lib::karaoke", load_ms, device = ?dev, "karaoke model loaded");
-                                    model = Some(m);
-                                }
-                                Err(e) => {
-                                    if model.is_some() {
-                                        tracing::info!(target: "app_lib::karaoke", reason = "error", "karaoke model unloaded");
-                                        model = None;
-                                    }
-                                    let err_str = e.to_string();
-                                    let msg = karaoke::sanitize_error(&err_str);
-                                    tracing::warn!(target: "app_lib::karaoke", error = %msg, "karaoke model load failed");
-                                    let _ = worker_app.emit("karaoke-status", &serde_json::json!({
-                                        "state": "error",
-                                        "message": msg
-                                    }));
-                                    shared_guard.desired.clear();
-                                    emit_queue(&worker_app, &shared_guard, &worker_cache);
-                                    shared_guard = condvar.wait(shared_guard).unwrap();
-                                    continue;
-                                }
-                            }
-                        }
-
-                        let cancel = Arc::new(AtomicBool::new(false));
-                        shared_guard.job_seq = shared_guard.job_seq.wrapping_add(1);
-                        let current_job_seq = shared_guard.job_seq;
-                        shared_guard.running = Some((req.video_id.clone(), cancel.clone(), current_job_seq));
-                        shared_guard.last_progress = 0.0;
-                        emit_queue(&worker_app, &shared_guard, &worker_cache);
-                        drop(shared_guard);
-
-                        tracing::info!(target: "app_lib::karaoke", video_id = %req.video_id, "karaoke prepare start");
-
-                        let mut throttle = crate::karaoke_model::ProgressThrottle::new(Duration::from_millis(250));
-                        let video_id_clone = req.video_id.clone();
-                        let app_clone = worker_app.clone();
-                        let shared_ref = worker_shared.clone();
-                        let worker_cache_clone = worker_cache.clone();
-
-                        let res = karaoke::pipeline::prepare_instrumental(
-                            &worker_cache,
-                            &req.video_id,
-                            model.as_mut().unwrap(),
-                            &mut |wav| player::decode_to_wav(&req.url, wav, &req.headers, &cancel),
-                            req.expected_secs,
-                            &cancel,
-                            &mut |i, n| {
-                                if throttle.should_emit() {
-                                    let progress = if n > 0 { i as f64 / n as f64 } else { 0.0 };
-                                    let (lock, _) = &*shared_ref;
-                                    let mut guard = lock.lock().unwrap();
-                                    guard.last_progress = progress;
-                                    let _ = app_clone.emit("karaoke-status", &serde_json::json!({
-                                        "videoId": &video_id_clone,
-                                        "state": "preparing",
-                                        "progress": progress
-                                    }));
-                                    emit_queue(&app_clone, &guard, &worker_cache_clone);
-                                }
-                            },
-                        );
-
-                        shared_guard = lock.lock().unwrap();
-                        shared_guard.running = None;
-                        shared_guard.last_progress = 0.0;
-
-                        match res {
-                            Ok(_) => {
-                                if !shared_guard.announced_ready.contains(&req.video_id) {
-                                    let _ = worker_app.emit("karaoke-status", &serde_json::json!({
-                                        "videoId": &req.video_id,
-                                        "state": "ready"
-                                    }));
-                                    let _ = worker_ready_tx.send(req.video_id.clone());
-                                    shared_guard.announced_ready.insert(req.video_id.clone());
-                                }
-                                shared_guard.desired.complete(&req.video_id);
-                                emit_queue(&worker_app, &shared_guard, &worker_cache);
-                                let desired_ids = shared_guard.desired.ids();
-                                evict_desired(&worker_cache, &desired_ids, &mut shared_guard.announced_ready);
-                            }
-                            Err(e) => {
-                                let err_str = e.to_string();
-                                if err_str.contains("cancelled") {
-                                    tracing::warn!(target: "app_lib::karaoke", video_id = %req.video_id, "karaoke prepare cancelled");
-                                    emit_queue(&worker_app, &shared_guard, &worker_cache);
-                                } else {
-                                    let msg = if err_str.contains("incomplete download") {
-                                        "Download was incomplete, will retry".to_string()
-                                    } else {
-                                        karaoke::sanitize_error(&err_str)
-                                    };
-                                    tracing::warn!(target: "app_lib::karaoke", video_id = %req.video_id, error = %msg, "karaoke prepare failed");
-                                    let _ = worker_app.emit("karaoke-status", &serde_json::json!({
-                                        "videoId": &req.video_id,
-                                        "state": "error",
-                                        "message": msg
-                                    }));
-                                    shared_guard.desired.fail(&req.video_id);
-                                    shared_guard.desired.complete(&req.video_id);
-                                    emit_queue(&worker_app, &shared_guard, &worker_cache);
-                                }
-                            }
-                        }
-                    } else {
-                        emit_queue(&worker_app, &shared_guard, &worker_cache);
-                        let (guard, timeout_result) = condvar.wait_timeout(shared_guard, Duration::from_secs(30)).unwrap();
-                        shared_guard = guard;
-                        if timeout_result.timed_out() {
-                            if model.is_some() {
-                                tracing::info!(target: "app_lib::karaoke", reason = "idle", "karaoke model unloaded");
-                                model = None;
-                            }
-                        }
-                    }
-                }
+                let _exit = WorkerExit { ctx: ctx.clone(), alive };
+                worker_loop(&ctx);
             })
             .map(|_| ())
-            .map_err(|e| format!("worker thread: {e}"))
+            .map_err(|e| {
+                self.worker_alive.store(false, Ordering::SeqCst);
+                format!("worker thread: {e}")
+            })
     }
 
-    /// Turning on starts the worker on first use (see [`Self::ensure_worker`]); if that fails,
-    /// karaoke stays off and the error is returned for the caller to report.
+    /// Never waits for the worker: on sets a flag and wakes it; off also cancels the running job,
+    /// and the worker unloads the model when its current step ends. Turning on starts the worker
+    /// on first use (see [`Self::ensure_worker`]); if that fails, karaoke stays off and the error
+    /// is returned for the caller to report.
     pub fn set_enabled(&self, on: bool) -> Result<(), String> {
         if on {
             self.ensure_worker()?;
         }
-        let (lock, condvar) = &*self.shared;
-        let mut shared = lock.lock().unwrap();
-        shared.enabled = on;
-        if !on {
-            shared.desired.clear();
-            shared.last_reqs.clear();
-            shared.announced_ready.clear();
-            shared.last_progress = 0.0;
-            if let Some((_, cancel, _)) = shared.running.take() {
-                cancel.store(true, Ordering::SeqCst);
-            }
-            let _ = self.app.emit("karaoke-status", &serde_json::json!({"state": "off"}));
-            let _ = self.app.emit("karaoke-queue", &serde_json::json!({ "slots": [] }));
+        self.ctx.board.set_enabled(on);
+        if on {
+            self.ctx.refresh_in_background(false);
         } else {
-            emit_queue(&self.app, &shared, &self.cache);
+            let _ = self.ctx.app.emit("karaoke-status", &serde_json::json!({"state": "off"}));
+            let _ = self.ctx.app.emit("karaoke-queue", &serde_json::json!({ "slots": [] }));
         }
-        condvar.notify_one();
         Ok(())
     }
 
+    /// Lock-free; called on every track start.
     pub fn is_enabled(&self) -> bool {
-        let (lock, _) = &*self.shared;
-        lock.lock().unwrap().enabled
+        self.ctx.board.is_enabled()
     }
 
+    /// Called by playback with the queue lock held: bookkeeping only, no disk, no waiting.
     pub fn want(&self, reqs: Vec<PrepareRequest>) {
-        let (lock, condvar) = &*self.shared;
-        let mut shared = lock.lock().unwrap();
-        if !shared.enabled {
+        if !self.ctx.board.is_enabled() {
             return;
         }
-        shared.last_reqs = reqs.clone();
-        let current_ids = shared.desired.ids();
         let mut new_ids = Vec::new();
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         for r in &reqs {
             if seen.insert(r.video_id.clone()) {
                 new_ids.push(r.video_id.clone());
@@ -344,143 +229,249 @@ impl KaraokeEngine {
                 }
             }
         }
-        if current_ids == new_ids {
-            return;
-        }
+        let deferred_cancel = self.ctx.board.with(|s| {
+            s.last_reqs = reqs.clone();
+            if s.desired.ids() == new_ids {
+                return None;
+            }
+            let removed = s.desired.replace(reqs);
+            s.desired.clear_failed();
+            s.running.as_ref().filter(|r| removed.contains(&r.video_id)).cloned().map(Some)
+        });
+        let Some(deferred_cancel) = deferred_cancel else { return };
         let ids: Vec<&str> = new_ids.iter().map(|s| s.as_str()).collect();
         tracing::info!(target: "app_lib::karaoke", ?ids, "karaoke wants updated");
-        let removed = shared.desired.replace(reqs);
-        shared.desired.clear_failed();
 
-        for id in &new_ids {
-            if self.cache.contains(id) {
-                if shared.announced_ready.insert(id.clone()) {
-                    let _ = self.app.emit(
-                        "karaoke-status",
-                        &serde_json::json!({
-                            "videoId": id,
-                            "state": "ready"
-                        }),
-                    );
-                    let _ = self.ready_tx.send(id.clone());
-                }
-            }
-        }
-
-        if let Some((ref running_id, ref cancel, running_seq)) = shared.running {
-            if removed.contains(running_id) {
-                let running_id_clone = running_id.clone();
-                let _cancel_clone = cancel.clone();
-                let shared_ref = self.shared.clone();
-                let app_handle = self.app.clone();
-                let cache_clone = self.cache.clone();
-                tracing::debug!(target: "app_lib::karaoke", video_id = %running_id_clone, "karaoke cancel deferred");
-                std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(1500));
-                    let (lock, _condvar) = &*shared_ref;
-                    let guard = lock.lock().unwrap();
-                    if let Some((ref r_id, ref c, seq)) = guard.running {
-                        if seq == running_seq && r_id == &running_id_clone {
-                            if !guard.desired.contains(&running_id_clone) {
-                                c.store(true, Ordering::SeqCst);
-                                tracing::debug!(target: "app_lib::karaoke", video_id = %running_id_clone, "karaoke cancel executed");
-                                emit_queue(&app_handle, &guard, &cache_clone);
-                            } else {
-                                tracing::debug!(target: "app_lib::karaoke", video_id = %running_id_clone, "karaoke cancel skipped (id wanted again)");
-                            }
-                        } else {
-                            tracing::debug!(target: "app_lib::karaoke", video_id = %running_id_clone, "karaoke cancel skipped (id wanted again)");
-                        }
-                    }
+        if let Some(running) = deferred_cancel {
+            // Give a quick skip-and-back a moment before throwing away work.
+            let ctx = self.ctx.clone();
+            tracing::debug!(target: "app_lib::karaoke", video_id = %running.video_id, "karaoke cancel deferred");
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(1500)).await;
+                let cancel = ctx.board.with(|s| {
+                    s.running.as_ref().is_some_and(|r| r.seq == running.seq)
+                        && !s.desired.contains(&running.video_id)
                 });
-            }
+                if cancel {
+                    running.cancel.store(true, Ordering::SeqCst);
+                    tracing::debug!(target: "app_lib::karaoke", video_id = %running.video_id, "karaoke cancel executed");
+                } else {
+                    tracing::debug!(target: "app_lib::karaoke", video_id = %running.video_id, "karaoke cancel skipped (id wanted again)");
+                }
+            });
         }
-        let desired_ids = shared.desired.ids();
-        evict_desired(&self.cache, &desired_ids, &mut shared.announced_ready);
-        emit_queue(&self.app, &shared, &self.cache);
-        condvar.notify_one();
+        self.ctx.board.notify();
+        self.ctx.refresh_in_background(true);
     }
 
     pub fn ready_path(&self, video_id: &str) -> Option<PathBuf> {
-        self.cache.get(video_id)
+        self.ctx.cache.get(video_id)
     }
 
     pub fn subscribe_ready(&self) -> tokio::sync::broadcast::Receiver<String> {
-        self.ready_tx.subscribe()
+        self.ctx.ready_tx.subscribe()
     }
 
+    /// Reads the cache directory: call off the main thread.
     pub fn cache_bytes(&self) -> u64 {
-        self.cache.total_size()
+        self.ctx.cache.total_size()
     }
 
+    /// Evicts down to the new limit: call off the main thread.
     pub fn set_cache_limit_mb(&self, mb: u64) -> u64 {
         let limit_mb = mb.clamp(512, 20480);
-        let max_bytes = limit_mb * 1024 * 1024;
-        self.cache.set_max_bytes(max_bytes);
-
-        let (lock, _) = &*self.shared;
-        let mut shared = lock.lock().unwrap();
-        let desired_ids = shared.desired.ids();
-        evict_desired(&self.cache, &desired_ids, &mut shared.announced_ready);
-        drop(shared);
-
+        self.ctx.cache.set_max_bytes(limit_mb * 1024 * 1024);
+        self.ctx.evict();
         let total_bytes = self.cache_bytes();
         tracing::info!(target: "app_lib::karaoke", limit_mb, total_bytes, "karaoke cache limit changed");
         limit_mb
     }
 
+    /// Deletes the cache: call off the main thread. Cancels the running job first, under the
+    /// lock only long enough to take it; the files go with the lock released.
     pub fn clear_cache(&self) {
-        let initial_size = self.cache.total_size();
-        let (lock, condvar) = &*self.shared;
-        let mut shared = lock.lock().unwrap();
-        if let Some((_, cancel, _)) = shared.running.take() {
-            cancel.store(true, Ordering::SeqCst);
-        }
-        let remaining_bytes = self.cache.clear().unwrap_or_else(|_| self.cache.total_size());
-        let freed_bytes = initial_size.saturating_sub(remaining_bytes);
-
-        shared.announced_ready.clear();
-        shared.desired.clear_failed();
-        shared.last_progress = 0.0;
-
-        let enabled = shared.enabled;
-        let last_reqs = shared.last_reqs.clone();
-
-        if enabled {
-            shared.desired.replace(last_reqs);
-            for id in shared.desired.ids() {
-                if self.cache.contains(&id) {
-                    if shared.announced_ready.insert(id.clone()) {
-                        let _ = self.app.emit(
-                            "karaoke-status",
-                            &serde_json::json!({
-                                "videoId": &id,
-                                "state": "ready"
-                            }),
-                        );
-                        let _ = self.ready_tx.send(id.clone());
-                    }
-                }
+        let initial_size = self.ctx.cache.total_size();
+        let enabled = self.ctx.board.with(|s| {
+            if let Some(r) = s.running.take() {
+                r.cancel.store(true, Ordering::SeqCst);
             }
-            emit_queue(&self.app, &shared, &self.cache);
+            s.announced_ready.clear();
+            s.desired.clear_failed();
+            s.last_progress = 0.0;
+            let enabled = self.ctx.board.is_enabled();
+            if enabled {
+                let last = s.last_reqs.clone();
+                s.desired.replace(last);
+            } else {
+                s.desired.clear();
+                s.last_reqs.clear();
+            }
+            enabled
+        });
+        let remaining_bytes =
+            self.ctx.cache.clear().unwrap_or_else(|_| self.ctx.cache.total_size());
+        let freed_bytes = initial_size.saturating_sub(remaining_bytes);
+        if enabled {
+            self.ctx.announce_cached();
+            self.ctx.emit_queue();
         } else {
-            shared.desired.clear();
-            shared.last_reqs.clear();
-            let _ = self.app.emit("karaoke-queue", &serde_json::json!({ "slots": [] }));
+            let _ = self.ctx.app.emit("karaoke-queue", &serde_json::json!({ "slots": [] }));
         }
-
-        drop(shared);
-        condvar.notify_one();
-
+        self.ctx.board.notify();
         tracing::info!(target: "app_lib::karaoke", freed_bytes, remaining_bytes, "karaoke cache cleared");
     }
 
     pub fn clear_failed(&self) -> usize {
-        let (lock, condvar) = &*self.shared;
-        let mut shared = lock.lock().unwrap();
-        let count = shared.desired.clear_failed();
-        emit_queue(&self.app, &shared, &self.cache);
-        condvar.notify_one();
+        let count = self.ctx.board.with(|s| s.desired.clear_failed());
+        self.ctx.board.notify();
+        self.ctx.refresh_in_background(false);
         count
+    }
+}
+
+fn unload(model: &mut Option<MdxModel>, reason: &str) {
+    if model.take().is_some() {
+        tracing::info!(target: "app_lib::karaoke", reason, "karaoke model unloaded");
+    }
+}
+
+/// The worker. Holds the board's lock only inside `board.with` calls: never across model load,
+/// a job, file access or an emit.
+fn worker_loop(ctx: &Ctx) {
+    let mut model: Option<MdxModel> = None;
+    let mut notified_needs_model = false;
+
+    loop {
+        if !ctx.board.is_enabled() {
+            unload(&mut model, "disabled");
+            notified_needs_model = false;
+            ctx.board.wait(None);
+            continue;
+        }
+
+        if !ctx.models.is_installed() {
+            unload(&mut model, "error");
+            if !notified_needs_model {
+                let _ =
+                    ctx.app.emit("karaoke-status", &serde_json::json!({"state": "needs-model"}));
+                notified_needs_model = true;
+            }
+            ctx.board.with(|s| s.desired.clear());
+            ctx.emit_queue();
+            ctx.board.wait(None);
+            continue;
+        }
+        notified_needs_model = false;
+
+        // What is cached is announced; the first wanted track that is not is the next job.
+        let ready = ctx.announce_cached();
+        let Some(req) = ctx.board.with(|s| s.desired.next_pending(|id| ready.contains(id))) else {
+            ctx.emit_queue();
+            if ctx.board.wait(Some(IDLE_UNLOAD)) {
+                unload(&mut model, "idle");
+            }
+            continue;
+        };
+
+        if model.is_none() {
+            let start_load = std::time::Instant::now();
+            let path = ctx.models.model_path();
+            match isolate(|| MdxModel::load_auto(&path, MdxParams::default())) {
+                Ok((m, dev)) => {
+                    let load_ms = start_load.elapsed().as_millis();
+                    tracing::info!(target: "app_lib::karaoke", load_ms, device = ?dev, "karaoke model loaded");
+                    model = Some(m);
+                }
+                Err(e) => {
+                    let msg = karaoke::sanitize_error(&e.to_string());
+                    tracing::warn!(target: "app_lib::karaoke", error = %msg, "karaoke model load failed");
+                    let _ = ctx.app.emit(
+                        "karaoke-status",
+                        &serde_json::json!({ "state": "error", "message": msg }),
+                    );
+                    ctx.board.with(|s| s.desired.clear());
+                    ctx.emit_queue();
+                    ctx.board.wait(None);
+                    continue;
+                }
+            }
+            // Turned off while loading: the top of the loop unloads.
+            continue;
+        }
+
+        // `None`: turned off since the check above.
+        let Some(running) = ctx.board.begin(&req.video_id) else { continue };
+        ctx.emit_queue();
+        tracing::info!(target: "app_lib::karaoke", video_id = %req.video_id, "karaoke prepare start");
+
+        let mut throttle = crate::karaoke_model::ProgressThrottle::new(Duration::from_millis(250));
+        let cancel = running.cancel.clone();
+        let Some(m) = model.as_mut() else { continue };
+        let res = isolate(|| {
+            karaoke::pipeline::prepare_instrumental(
+                &ctx.cache,
+                &req.video_id,
+                m,
+                &mut |wav| player::decode_to_wav(&req.url, wav, &req.headers, &cancel),
+                req.expected_secs,
+                &cancel,
+                &mut |i, n| {
+                    if throttle.should_emit() {
+                        let progress = if n > 0 { i as f64 / n as f64 } else { 0.0 };
+                        ctx.board.with(|s| s.last_progress = progress);
+                        let _ = ctx.app.emit(
+                            "karaoke-status",
+                            &serde_json::json!({
+                                "videoId": &req.video_id,
+                                "state": "preparing",
+                                "progress": progress
+                            }),
+                        );
+                        ctx.emit_queue();
+                    }
+                },
+            )
+        });
+        ctx.board.finish(running.seq);
+
+        match res {
+            Ok(_) => {
+                ctx.announce_ready(&req.video_id);
+                ctx.board.with(|s| s.desired.complete(&req.video_id));
+                ctx.evict();
+                ctx.emit_queue();
+            }
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("panicked") {
+                    // The session may be in any state after a panic mid-inference.
+                    unload(&mut model, "error");
+                }
+                if err_str.contains("cancelled") {
+                    tracing::warn!(target: "app_lib::karaoke", video_id = %req.video_id, "karaoke prepare cancelled");
+                    ctx.emit_queue();
+                } else {
+                    let msg = if err_str.contains("incomplete download") {
+                        "Download was incomplete, will retry".to_string()
+                    } else {
+                        karaoke::sanitize_error(&err_str)
+                    };
+                    tracing::warn!(target: "app_lib::karaoke", video_id = %req.video_id, error = %msg, "karaoke prepare failed");
+                    let _ = ctx.app.emit(
+                        "karaoke-status",
+                        &serde_json::json!({
+                            "videoId": &req.video_id,
+                            "state": "error",
+                            "message": msg
+                        }),
+                    );
+                    ctx.board.with(|s| {
+                        s.desired.fail(&req.video_id);
+                        s.desired.complete(&req.video_id);
+                    });
+                    ctx.emit_queue();
+                }
+            }
+        }
     }
 }

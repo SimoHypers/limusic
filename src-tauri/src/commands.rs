@@ -2740,12 +2740,23 @@ pub fn theater_fullscreen(window: tauri::WebviewWindow, on: bool) -> Result<(), 
     }
 }
 
+// The karaoke commands below are async so they stay off the main thread, and anything that
+// touches the disk runs in `spawn_blocking`. The ones whose return type is not a `Result` take an
+// owned `AppHandle` instead of `State<'_>`, which an async command may only borrow when it returns
+// a `Result`: that keeps every return type, and so the UI, unchanged.
+
 /// Get the status of the karaoke separation model.
 #[tauri::command]
-pub fn karaoke_model_status(
-    manager: State<'_, Arc<crate::karaoke_model::ModelManager>>,
-) -> crate::karaoke_model::ModelStatus {
-    manager.status()
+pub async fn karaoke_model_status(app: tauri::AppHandle) -> crate::karaoke_model::ModelStatus {
+    let manager = app.state::<Arc<crate::karaoke_model::ModelManager>>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || manager.status()).await.unwrap_or_else(|_| {
+        crate::karaoke_model::ModelStatus {
+            installed: false,
+            downloading: false,
+            size_bytes: crate::karaoke_model::MODEL_SIZE,
+            path: None,
+        }
+    })
 }
 
 /// Download the karaoke separation model asynchronously.
@@ -2763,7 +2774,7 @@ pub async fn karaoke_model_download(
 
 /// Cancel an ongoing karaoke model download.
 #[tauri::command]
-pub fn karaoke_model_cancel(
+pub async fn karaoke_model_cancel(
     manager: State<'_, Arc<crate::karaoke_model::ModelManager>>,
 ) -> Result<(), String> {
     manager.cancel_download();
@@ -2780,24 +2791,29 @@ pub struct KaraokeEngineStatus {
 
 /// Get the status of the background karaoke engine.
 #[tauri::command]
-pub fn karaoke_engine_status(
+pub async fn karaoke_engine_status(
     engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
     models: State<'_, Arc<crate::karaoke_model::ModelManager>>,
 ) -> Result<KaraokeEngineStatus, String> {
-    Ok(KaraokeEngineStatus {
+    let (engine, models) = (engine.inner().clone(), models.inner().clone());
+    tauri::async_runtime::spawn_blocking(move || KaraokeEngineStatus {
         enabled: engine.is_enabled(),
         model_installed: models.is_installed(),
         cache_bytes: engine.cache_bytes(),
     })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Clear the karaoke instrumental cache.
 #[tauri::command]
-pub fn karaoke_clear_cache(
+pub async fn karaoke_clear_cache(
     engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
 ) -> Result<(), String> {
-    engine.clear_cache();
-    Ok(())
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || engine.clear_cache())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Retry failed karaoke preparations.
@@ -2815,20 +2831,22 @@ pub async fn karaoke_retry_failed(
 
 /// Get the karaoke cache limit in megabytes.
 #[tauri::command]
-pub fn karaoke_cache_limit_mb(state: State<'_, Arc<AppState>>) -> u64 {
-    crate::state::saved_karaoke_cache_limit_mb(&state.db)
+pub async fn karaoke_cache_limit_mb(app: tauri::AppHandle) -> u64 {
+    crate::state::saved_karaoke_cache_limit_mb(&app.state::<Arc<AppState>>().db)
 }
 
-/// Set the karaoke cache limit in megabytes.
+/// Set the karaoke cache limit in megabytes. Eviction deletes files, so it runs off-thread.
 #[tauri::command]
-pub fn karaoke_set_cache_limit_mb(
+pub async fn karaoke_set_cache_limit_mb(
     state: State<'_, Arc<AppState>>,
     engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
     mb: u64,
 ) -> Result<u64, String> {
     let clamped = crate::state::set_saved_karaoke_cache_limit_mb(&state.db, mb);
-    engine.set_cache_limit_mb(clamped);
-    Ok(clamped)
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || engine.set_cache_limit_mb(clamped))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

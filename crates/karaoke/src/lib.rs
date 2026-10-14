@@ -1,3 +1,4 @@
+pub mod board;
 pub mod cache;
 pub mod cache_codec;
 pub mod device;
