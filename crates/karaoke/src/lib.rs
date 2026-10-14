@@ -2,6 +2,7 @@ pub mod board;
 pub mod cache;
 pub mod cache_codec;
 pub mod device;
+pub mod download;
 #[cfg(test)]
 mod flac_read;
 pub mod jobs;

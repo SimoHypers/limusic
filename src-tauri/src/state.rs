@@ -11,6 +11,7 @@ use innertube::{
     AccountIdentity, AccountInfo, AudioQuality, BlockList, Clients, InnerTube, SongItem,
     MAIN_CLIENT,
 };
+use karaoke::cache::PinSlot;
 use listen_protocol::{Playback, PlaybackKind, Track};
 use player::Player;
 use tauri::{AppHandle, Emitter, Manager};
@@ -1959,6 +1960,10 @@ impl AppState {
             q.karaoke_next = q.karaoke_next2.take();
             q.karaoke_next2 = None;
             q.current_is_karaoke = q.lookahead_is_karaoke;
+            // What was queued next is playing now: move its cache pin with it.
+            if let Some(engine) = self.karaoke_engine() {
+                engine.promote_next_pin();
+            }
             q.lookahead_is_karaoke = false;
             self.karaoke_push_wants(&q);
             q.current_client = q.lookahead_client.take();
@@ -2203,9 +2208,6 @@ impl AppState {
             .filter(|(vid, _)| *vid == item.video_id)
             .map(|(_, pos)| pos);
         let stream_url = mpv_stream_url(&data);
-        let karaoke_on = self.karaoke_active();
-        let is_karaoke = karaoke_on
-            && self.karaoke_engine().and_then(|e| e.ready_path(&item.video_id)).is_some();
         let dur_secs = parse_duration_ms(item.duration.as_deref()) / 1000;
         let expected_secs = if dur_secs > 0 { Some(dur_secs as f64) } else { None };
         let req = crate::karaoke::PrepareRequest {
@@ -2214,7 +2216,10 @@ impl AppState {
             headers: data.headers.clone(),
             expected_secs,
         };
-        let play_u = self.play_url(&item.video_id, &stream_url);
+        let play_u = self.play_url(PinSlot::Current, &item.video_id, &stream_url);
+        let is_karaoke = play_u != stream_url;
+        // `load` replaces mpv's playlist: nothing is queued next any more.
+        self.unpin_karaoke(PinSlot::Next);
         if let Err(e) =
             self.player.load(&play_u, &data.headers, self.track_gain(data.loudness_db), seek)
         {
@@ -2389,8 +2394,6 @@ impl AppState {
         // current track already set. Just append the URL.
         let stream_url = mpv_stream_url(&data);
         let karaoke_on = self.karaoke_active();
-        let is_karaoke =
-            karaoke_on && self.karaoke_engine().and_then(|e| e.ready_path(next_video)).is_some();
         let dur_secs = q
             .items
             .get(next_idx)
@@ -2453,7 +2456,8 @@ impl AppState {
             q = self.queue.lock().await;
         }
 
-        let url = self.play_url(next_video, &stream_url);
+        let url = self.play_url(PinSlot::Next, next_video, &stream_url);
+        let is_karaoke = url != stream_url;
         if let Err(e) = self.player.enqueue(&url) {
             tracing::warn!(error = %e, "enqueue lookahead failed");
             return;
@@ -2507,18 +2511,28 @@ impl AppState {
         self.karaoke_engine().map_or(false, |e| e.is_enabled()) && !crate::http::has_proxy()
     }
 
-    /// What mpv is handed for `video_id`: the prepared instrumental when karaoke has one, else
-    /// `stream_url`, the caller's one `mpv_stream_url` result. Never registers a second loopback
-    /// URL: `attach_video` keys the picture by the exact string mpv plays.
-    fn play_url(&self, video_id: &str, stream_url: &str) -> String {
+    /// What mpv is handed for `video_id` in `slot`: the prepared instrumental when karaoke has
+    /// one, pinned so eviction and "Clear cache" cannot delete it while mpv uses it; else
+    /// `stream_url`, the caller's one `mpv_stream_url` result (and the slot's pin is dropped).
+    /// Never registers a second loopback URL: `attach_video` keys the picture by the exact string
+    /// mpv plays.
+    fn play_url(&self, slot: PinSlot, video_id: &str, stream_url: &str) -> String {
         if self.karaoke_active() {
             if let Some(engine) = self.karaoke_engine() {
-                if let Some(p) = engine.ready_path(video_id) {
+                if let Some(p) = engine.pin(slot, video_id) {
                     return p.to_string_lossy().into_owned();
                 }
             }
         }
+        self.unpin_karaoke(slot);
         stream_url.to_owned()
+    }
+
+    /// `slot` holds no instrumental any more (an original stream, or nothing).
+    fn unpin_karaoke(&self, slot: PinSlot) {
+        if let Some(engine) = self.karaoke_engine() {
+            engine.unpin(slot);
+        }
     }
 
     fn karaoke_push_wants(&self, q: &QueueState) {
@@ -2563,9 +2577,6 @@ impl AppState {
         let was_playing = !was_paused && !self.player.is_idle();
         let pos = self.current_position();
         let stream_url = mpv_stream_url(&data);
-        let karaoke_on = self.karaoke_active();
-        let is_karaoke = karaoke_on
-            && self.karaoke_engine().and_then(|e| e.ready_path(&item.video_id)).is_some();
         let dur_secs = parse_duration_ms(item.duration.as_deref()) / 1000;
         let expected_secs = if dur_secs > 0 { Some(dur_secs as f64) } else { None };
         let req = crate::karaoke::PrepareRequest {
@@ -2574,7 +2585,10 @@ impl AppState {
             headers: data.headers.clone(),
             expected_secs,
         };
-        let play_u = self.play_url(&item.video_id, &stream_url);
+        let play_u = self.play_url(PinSlot::Current, &item.video_id, &stream_url);
+        let is_karaoke = play_u != stream_url;
+        // `load` replaces mpv's playlist; `prime_lookahead` below queues (and pins) the next again.
+        self.unpin_karaoke(PinSlot::Next);
         if let Err(e) =
             self.player.load(&play_u, &data.headers, self.track_gain(data.loudness_db), Some(pos))
         {
@@ -2608,6 +2622,11 @@ impl AppState {
             return Err("karaoke engine not available".to_string());
         };
         if on {
+            // The first enable loads (and on Windows hashes) the runtime: off the async runtime.
+            let preparing = engine.clone();
+            tauri::async_runtime::spawn_blocking(move || preparing.prepare())
+                .await
+                .map_err(|e| e.to_string())??;
             engine.set_enabled(true)?;
             let should_reload = {
                 let q = self.queue.lock().await;
@@ -2621,18 +2640,31 @@ impl AppState {
             }
         } else {
             engine.set_enabled(false)?;
-            let was_karaoke = {
+            let (current_was, next_was) = {
                 let mut q = self.queue.lock().await;
                 q.karaoke_cur = None;
                 q.karaoke_next = None;
                 q.karaoke_next2 = None;
+                let next_was = q.lookahead_is_karaoke;
                 q.lookahead_is_karaoke = false;
-                let wc = q.current_is_karaoke;
+                let current_was = q.current_is_karaoke;
                 q.current_is_karaoke = false;
-                wc
+                (current_was, next_was)
             };
-            if was_karaoke {
+            if current_was {
+                // Reloads the original stream and re-primes the next track from scratch.
                 self.reload_current_source().await;
+            } else if next_was {
+                // Only the queued next track is an instrumental (in mpv's playlist, or on the
+                // crossfade deck): swap it for the original stream before it starts playing.
+                let gen = self.generation.load(Ordering::SeqCst);
+                {
+                    let mut q = self.queue.lock().await;
+                    q.lookahead_loaded = None;
+                    let _ = self.player.clear_playlist();
+                }
+                self.unpin_karaoke(PinSlot::Next);
+                self.prime_lookahead(gen).await;
             }
         }
         Ok(())

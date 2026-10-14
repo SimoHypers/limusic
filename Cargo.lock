@@ -3332,12 +3332,16 @@ version = "1.3.0-rc.5"
 dependencies = [
  "anyhow",
  "flacenc",
+ "futures-util",
  "hound",
  "ort",
  "realfft",
+ "reqwest 0.12.28",
  "rubato",
  "serde",
+ "sha2",
  "symphonia",
+ "tokio",
  "tracing",
  "windows 0.61.3",
 ]

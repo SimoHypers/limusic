@@ -8,13 +8,13 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use crate::karaoke_model::ModelManager;
 use karaoke::board::{isolate, JobBoard};
-use karaoke::cache::InstrumentalCache;
+use karaoke::cache::{InstrumentalCache, PinSlot};
 use karaoke::cache_codec::CacheFormat;
 use karaoke::jobs::DesiredSet;
 pub use karaoke::jobs::PrepareRequest;
@@ -32,6 +32,8 @@ struct Ctx {
     cache: Arc<InstrumentalCache>,
     board: Arc<JobBoard>,
     ready_tx: tokio::sync::broadcast::Sender<String>,
+    /// What the loaded model runs on, for Settings: 0 not loaded yet, 1 CPU, 2 GPU (DirectML).
+    processor: Arc<AtomicU8>,
 }
 
 impl Ctx {
@@ -134,6 +136,9 @@ pub struct KaraokeEngine {
     worker_started: Mutex<bool>,
     /// False once the worker thread has died (see [`WorkerExit`]).
     worker_alive: Arc<AtomicBool>,
+    /// Why the last attempt to start karaoke failed (an en.json `karaoke.unavailable.*` key),
+    /// for [`Self::unavailable_reason`]. Cleared once karaoke starts.
+    unavailable: Mutex<Option<&'static str>>,
 }
 
 #[allow(dead_code)]
@@ -149,35 +154,84 @@ impl KaraokeEngine {
         // No I/O here: the directory is created on first enable (`spawn_worker`).
         let cache = Arc::new(InstrumentalCache::new(cache_dir, CacheFormat::Flac, max_bytes));
         let (ready_tx, _) = tokio::sync::broadcast::channel(64);
-        let ctx = Ctx { app, models, cache, board: Arc::new(JobBoard::new()), ready_tx };
+        let ctx = Ctx {
+            app,
+            models,
+            cache,
+            board: Arc::new(JobBoard::new()),
+            ready_tx,
+            processor: Arc::new(AtomicU8::new(0)),
+        };
         Arc::new(Self {
             ctx,
             worker_started: Mutex::new(false),
             worker_alive: Arc::new(AtomicBool::new(false)),
+            unavailable: Mutex::new(None),
         })
     }
 
     /// Prepares the cache directory and starts the worker thread, once. Called when karaoke is
-    /// turned on; an error leaves karaoke unavailable and everything else untouched.
+    /// turned on; an error leaves karaoke unavailable (with a reason for the UI) and everything
+    /// else untouched.
     fn ensure_worker(&self) -> Result<(), String> {
         let mut started = self.worker_started.lock().unwrap_or_else(PoisonError::into_inner);
-        if !*started {
-            self.spawn_worker().map_err(|e| {
-                let msg = karaoke::sanitize_error(&e);
-                tracing::warn!(target: "app_lib::karaoke", error = %msg, "karaoke unavailable");
-                format!("Karaoke is unavailable: {msg}")
-            })?;
-            *started = true;
+        let failure = if !*started {
+            match self.spawn_worker() {
+                Ok(()) => {
+                    *started = true;
+                    None
+                }
+                Err(failure) => Some(failure),
+            }
         } else if !self.worker_alive.load(Ordering::SeqCst) {
-            return Err("Karaoke is unavailable: it stopped unexpectedly earlier".to_string());
+            Some(("stopped", "it stopped unexpectedly earlier".to_string()))
+        } else {
+            None
+        };
+        *self.unavailable.lock().unwrap_or_else(PoisonError::into_inner) =
+            failure.as_ref().map(|(key, _)| *key);
+        match failure {
+            None => Ok(()),
+            Some((key, detail)) => {
+                let msg = karaoke::sanitize_error(&detail);
+                tracing::warn!(target: "app_lib::karaoke", reason = key, error = %msg, "karaoke unavailable");
+                Err(format!("Karaoke is unavailable: {msg}"))
+            }
         }
-        Ok(())
     }
 
-    fn spawn_worker(&self) -> Result<(), String> {
+    /// Why karaoke could not start last time it was tried (an en.json `karaoke.unavailable.*`
+    /// key), or `None`. Nothing is probed here: karaoke does no work until it is turned on.
+    pub fn unavailable_reason(&self) -> Option<&'static str> {
+        if *self.worker_started.lock().unwrap_or_else(PoisonError::into_inner)
+            && !self.worker_alive.load(Ordering::SeqCst)
+        {
+            return Some("stopped");
+        }
+        *self.unavailable.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// `"gpu"` or `"cpu"` once the model has loaded this session.
+    pub fn processor(&self) -> Option<&'static str> {
+        match self.ctx.processor.load(Ordering::SeqCst) {
+            1 => Some("cpu"),
+            2 => Some("gpu"),
+            _ => None,
+        }
+    }
+
+    /// [`Self::ensure_worker`] for callers on the async runtime, which should run it through
+    /// `spawn_blocking`: the first time, it hashes and loads the Windows runtime (~36 MB).
+    pub fn prepare(&self) -> Result<(), String> {
+        self.ensure_worker()
+    }
+
+    /// `Err((reason key, detail))`.
+    fn spawn_worker(&self) -> Result<(), (&'static str, String)> {
         // ONNX Runtime first: on Windows nothing may touch `ort` before it is loaded by full path.
-        let rt = crate::karaoke_runtime::ensure()?;
-        self.ctx.cache.prepare().map_err(|e| format!("cache directory: {e}"))?;
+        let rt =
+            crate::karaoke_runtime::ensure(&self.ctx.app).map_err(|e| (e.key(), e.to_string()))?;
+        self.ctx.cache.prepare().map_err(|e| ("load_failed", format!("cache directory: {e}")))?;
         let ctx = self.ctx.clone();
         let alive = self.worker_alive.clone();
         alive.store(true, Ordering::SeqCst);
@@ -190,7 +244,7 @@ impl KaraokeEngine {
             .map(|_| ())
             .map_err(|e| {
                 self.worker_alive.store(false, Ordering::SeqCst);
-                format!("worker thread: {e}")
+                ("load_failed", format!("worker thread: {e}"))
             })
     }
 
@@ -221,6 +275,16 @@ impl KaraokeEngine {
     pub fn want(&self, reqs: Vec<PrepareRequest>) {
         if !self.ctx.board.is_enabled() {
             return;
+        }
+        // Tracks over the length cap are never prepared (memory, see `MAX_TRACK_SECS`): say so
+        // for each, and leave them out of the queue so prefetch moves on to the next one.
+        let (too_long, reqs): (Vec<_>, Vec<_>) =
+            reqs.into_iter().partition(|r| karaoke::jobs::too_long(r.expected_secs));
+        for r in &too_long {
+            let _ = self.ctx.app.emit(
+                "karaoke-status",
+                &serde_json::json!({ "videoId": &r.video_id, "state": "too-long" }),
+            );
         }
         let mut new_ids = Vec::new();
         let mut seen = HashSet::new();
@@ -265,6 +329,22 @@ impl KaraokeEngine {
         }
         self.ctx.board.notify();
         self.ctx.refresh_in_background(true);
+    }
+
+    /// The player hands `video_id`'s instrumental to mpv in `slot`: its path, pinned so eviction
+    /// and "Clear cache" leave it alone, or `None` (slot cleared) when it is not cached.
+    pub fn pin(&self, slot: PinSlot, video_id: &str) -> Option<PathBuf> {
+        self.ctx.cache.pin(slot, video_id)
+    }
+
+    /// `slot` now holds the original stream, not an instrumental.
+    pub fn unpin(&self, slot: PinSlot) {
+        self.ctx.cache.unpin(slot);
+    }
+
+    /// Gapless/crossfade advance: the queued next track is now the current one.
+    pub fn promote_next_pin(&self) {
+        self.ctx.cache.promote_next();
     }
 
     pub fn ready_path(&self, video_id: &str) -> Option<PathBuf> {
@@ -383,6 +463,11 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
                 Ok((m, dev)) => {
                     let load_ms = start_load.elapsed().as_millis();
                     tracing::info!(target: "app_lib::karaoke", load_ms, device = ?dev, "karaoke model loaded");
+                    let processor = match dev {
+                        karaoke::mdx::Device::Cpu => 1,
+                        karaoke::mdx::Device::DirectMl { .. } => 2,
+                    };
+                    ctx.processor.store(processor, Ordering::SeqCst);
                     model = Some(m);
                 }
                 Err(e) => {
@@ -415,7 +500,11 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
                 &ctx.cache,
                 &req.video_id,
                 m,
-                &mut |wav| player::decode_to_wav(&req.url, wav, &req.headers, &cancel),
+                &mut |wav| {
+                    // A few seconds past the cap: enough for the pipeline to see "too long".
+                    let cap = Some(karaoke::jobs::MAX_TRACK_SECS + 5.0);
+                    player::decode_to_wav(&req.url, wav, &req.headers, &cancel, cap)
+                },
                 req.expected_secs,
                 &cancel,
                 &mut |i, n| {
@@ -452,6 +541,17 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
                 }
                 if err_str.contains("cancelled") {
                     tracing::warn!(target: "app_lib::karaoke", video_id = %req.video_id, "karaoke prepare cancelled");
+                    ctx.emit_queue();
+                } else if err_str == karaoke::jobs::TOO_LONG {
+                    // Not a failure to retry: the track is longer than karaoke handles.
+                    let _ = ctx.app.emit(
+                        "karaoke-status",
+                        &serde_json::json!({ "videoId": &req.video_id, "state": "too-long" }),
+                    );
+                    ctx.board.with(|s| {
+                        s.desired.fail(&req.video_id);
+                        s.desired.complete(&req.video_id);
+                    });
                     ctx.emit_queue();
                 } else {
                     let msg = if err_str.contains("incomplete download") {

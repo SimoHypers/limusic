@@ -38,13 +38,15 @@ impl Default for LoadOptions {
 }
 
 impl LoadOptions {
-    pub fn auto() -> LoadOptions {
-        Self::auto_with_cpu_percent(crate::device::DEFAULT_CPU_PERCENT)
+    pub fn auto(directml: bool) -> LoadOptions {
+        Self::auto_with_cpu_percent(crate::device::DEFAULT_CPU_PERCENT, directml)
     }
 
-    pub fn auto_with_cpu_percent(percent: u32) -> LoadOptions {
+    /// DirectML on a discrete GPU with enough VRAM when `directml` is allowed
+    /// ([`RuntimeReady::directml`]), else the CPU with `percent` of the cores.
+    pub fn auto_with_cpu_percent(percent: u32, directml: bool) -> LoadOptions {
         #[cfg(windows)]
-        {
+        if directml {
             let adapters = crate::device::list_adapters();
             if let Some(a) = crate::device::pick_gpu(&adapters, crate::device::MIN_DISCRETE_VRAM_MB)
             {
@@ -55,6 +57,8 @@ impl LoadOptions {
                 };
             }
         }
+        #[cfg(not(windows))]
+        let _ = directml;
         LoadOptions {
             device: Device::Cpu,
             intra_threads: Some(crate::device::cpu_threads_for_percent(percent)),
@@ -71,7 +75,7 @@ pub struct MdxModel {
 impl MdxModel {
     /// `RuntimeReady` proves ONNX Runtime was set up first (see [`crate::runtime`]).
     pub fn load(
-        _rt: RuntimeReady,
+        rt: RuntimeReady,
         model_path: &Path,
         params: MdxParams,
         opts: LoadOptions,
@@ -91,6 +95,9 @@ impl MdxModel {
                 }
                 #[cfg(windows)]
                 {
+                    if !rt.directml() {
+                        anyhow::bail!("DirectML is not available in this runtime");
+                    }
                     builder = builder
                         .with_memory_pattern(false)
                         .map_err(|e| anyhow::anyhow!(e.to_string()))?
@@ -105,6 +112,15 @@ impl MdxModel {
         }
         let session =
             builder.commit_from_file(model_path).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        // `onnxruntime.dll` resolves DirectML.dll by name when the session starts using it. If
+        // that is not the bundled copy the runtime pre-loaded, drop the session: the caller falls
+        // back to the CPU rather than run on an unknown DirectML build.
+        #[cfg(windows)]
+        if matches!(opts.device, Device::DirectMl { .. }) {
+            crate::runtime::check_directml_module().map_err(|e| anyhow::anyhow!(e))?;
+        }
+        #[cfg(not(windows))]
+        let _ = rt;
         let stft = Stft::new(params.n_fft, params.hop);
         Ok(Self { session, params, stft })
     }
@@ -123,7 +139,7 @@ impl MdxModel {
         params: MdxParams,
         percent: u32,
     ) -> anyhow::Result<(Self, Device)> {
-        let opts = LoadOptions::auto_with_cpu_percent(percent);
+        let opts = LoadOptions::auto_with_cpu_percent(percent, rt.directml());
         let device = opts.device;
         match Self::load(rt, model_path, params, opts) {
             Ok(model) => Ok((model, device)),

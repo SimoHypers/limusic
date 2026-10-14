@@ -17,7 +17,8 @@ fn main() {
     let cancel = AtomicBool::new(false);
     let start = Instant::now();
 
-    match player::decode_to_wav(&input, &out_wav, &std::collections::HashMap::new(), &cancel) {
+    match player::decode_to_wav(&input, &out_wav, &std::collections::HashMap::new(), &cancel, None)
+    {
         Ok(()) => {
             let elapsed = start.elapsed();
             let metadata = std::fs::metadata(&out_wav).unwrap();

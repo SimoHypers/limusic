@@ -2792,19 +2792,41 @@ pub struct KaraokeEngineStatus {
     pub enabled: bool,
     pub model_installed: bool,
     pub cache_bytes: u64,
+    /// `"ready"`, `"needs-model"` or `"unavailable"`.
+    pub availability: &'static str,
+    /// With `"unavailable"`: the en.json `karaoke.unavailable.*` key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'static str>,
+    /// `"gpu"` or `"cpu"`, once the model has loaded this session.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processor: Option<&'static str>,
 }
 
-/// Get the status of the background karaoke engine.
+/// Get the status of the background karaoke engine. Availability reflects the last attempt to
+/// turn karaoke on: nothing is probed or loaded just to answer this.
 #[tauri::command]
 pub async fn karaoke_engine_status(
     engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
     models: State<'_, Arc<crate::karaoke_model::ModelManager>>,
 ) -> Result<KaraokeEngineStatus, String> {
     let (engine, models) = (engine.inner().clone(), models.inner().clone());
-    tauri::async_runtime::spawn_blocking(move || KaraokeEngineStatus {
-        enabled: engine.is_enabled(),
-        model_installed: models.is_installed(),
-        cache_bytes: engine.cache_bytes(),
+    tauri::async_runtime::spawn_blocking(move || {
+        let model_installed = models.is_installed();
+        let reason =
+            if crate::http::has_proxy() { Some("proxy") } else { engine.unavailable_reason() };
+        let availability = match (reason, model_installed) {
+            (Some(_), _) => "unavailable",
+            (None, false) => "needs-model",
+            (None, true) => "ready",
+        };
+        KaraokeEngineStatus {
+            enabled: engine.is_enabled(),
+            model_installed,
+            cache_bytes: engine.cache_bytes(),
+            availability,
+            reason,
+            processor: engine.processor(),
+        }
     })
     .await
     .map_err(|e| e.to_string())

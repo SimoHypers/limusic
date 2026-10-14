@@ -2,7 +2,14 @@
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { SingLeftIcon } from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
-	import { playback, karaokeStatus, karaokeQueue, toggleKaraoke, retryKaraoke } from '$lib/player.svelte';
+	import {
+		playback,
+		karaokeStatus,
+		karaokeQueue,
+		karaokeAvailability,
+		toggleKaraoke,
+		retryKaraoke
+	} from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
 
 	/**
@@ -15,17 +22,22 @@
 
 	const preparing = $derived(playback.karaoke && karaokeStatus.state === 'preparing');
 	const failed = $derived(playback.karaoke && karaokeStatus.state === 'error');
+	// Karaoke is on, but this track is longer than it handles: the original plays, nothing to retry.
+	const tooLong = $derived(playback.karaoke && karaokeStatus.state === 'too-long');
+	// Karaoke can't run on this machine (runtime missing or damaged, VC++ runtime too old, proxy).
+	// Still clickable: a click retries, which is how the user checks a fix (e.g. a redist install).
+	const unavailable = $derived(!playback.karaoke && karaokeAvailability.reason !== undefined);
 
 	// Same convention as shuffle/repeat: the state is the icon colour, never a background.
-	const tone = $derived(
-		failed
-			? 'text-destructive'
-			: playback.karaoke
-				? 'text-primary'
-				: variant === 'pill'
-					? 'text-muted-foreground group-hover:text-foreground'
-					: 'text-muted-foreground'
-	);
+	const tone = $derived.by(() => {
+		if (failed) return 'text-destructive';
+		if (tooLong) return 'text-primary/50';
+		if (playback.karaoke) return 'text-primary';
+		if (unavailable) return 'text-muted-foreground/50';
+		return variant === 'pill'
+			? 'text-muted-foreground group-hover:text-foreground'
+			: 'text-muted-foreground';
+	});
 
 	// Ring around the icon while preparing: progress as a conic sweep, or a plain muted ring when
 	// no progress has been reported yet. Static either way.
@@ -36,13 +48,18 @@
 	);
 
 	const karaokeTooltip = $derived.by(() => {
+		if (unavailable && karaokeAvailability.reason) {
+			return `${t('player.karaoke')}\n${t(`karaoke.unavailable.${karaokeAvailability.reason}`)}`;
+		}
 		const base = !playback.karaoke
 			? t('player.karaoke')
 			: karaokeStatus.state === 'preparing'
 				? t('karaoke.preparing')
-				: karaokeStatus.state === 'error'
-					? karaokeStatus.message ? `${karaokeStatus.message} — ${t('karaoke.error_retry')}` : t('karaoke.error_retry')
-					: t('karaoke.active');
+				: karaokeStatus.state === 'too-long'
+					? t('karaoke.too_long')
+					: karaokeStatus.state === 'error'
+						? karaokeStatus.message ? `${karaokeStatus.message} — ${t('karaoke.error_retry')}` : t('karaoke.error_retry')
+						: t('karaoke.active');
 
 		if (!playback.karaoke || karaokeQueue.slots.length === 0) return base;
 
@@ -122,6 +139,7 @@
 		class="group relative flex size-8 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-foreground/10"
 		aria-label={t('player.karaoke')}
 		aria-pressed={playback.karaoke}
+		aria-disabled={unavailable || undefined}
 		title={karaokeTooltip}
 	>
 		{@render face('h-4 w-4', 'size-[22px]', 'h-3 w-3')}
@@ -136,6 +154,7 @@
 		{onclick}
 		aria-label={t('player.karaoke')}
 		aria-pressed={playback.karaoke}
+		aria-disabled={unavailable || undefined}
 		title={karaokeTooltip}
 	>
 		{@render face('h-5 w-5', 'size-6', 'h-3.5 w-3.5')}

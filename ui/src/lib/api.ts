@@ -410,14 +410,25 @@ export interface ModelStatus {
 	sizeBytes: number;
 	path?: string;
 }
+export type KaraokeUnavailableReason =
+	| 'not_installed'
+	| 'corrupt'
+	| 'vc_runtime'
+	| 'load_failed'
+	| 'proxy'
+	| 'stopped';
 export interface KaraokeEngineStatus {
 	enabled: boolean;
 	modelInstalled: boolean;
 	cacheBytes: number;
+	/** From the last attempt to turn karaoke on; nothing is probed just to answer. */
+	availability: 'ready' | 'needs-model' | 'unavailable';
+	reason?: KaraokeUnavailableReason;
+	processor?: 'gpu' | 'cpu';
 }
 export interface KaraokeStatusEvent {
 	videoId: string;
-	state: 'off' | 'needs-model' | 'preparing' | 'ready' | 'error';
+	state: 'off' | 'needs-model' | 'preparing' | 'ready' | 'error' | 'too-long';
 	progress?: number;
 	message?: string;
 }

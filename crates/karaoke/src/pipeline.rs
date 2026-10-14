@@ -33,12 +33,39 @@ impl Drop for TmpWavGuard {
     }
 }
 
+/// [`prepare_instrumental_with_limit`] with the standard [`crate::jobs::MAX_TRACK_SECS`] cap.
 pub fn prepare_instrumental(
     cache: &InstrumentalCache,
     track_id: &str,
     separator: &mut dyn Separator,
     decode_to_wav: &mut dyn FnMut(&Path) -> Result<()>,
     expected_secs: Option<f64>,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(usize, usize),
+) -> Result<PathBuf> {
+    prepare_instrumental_with_limit(
+        cache,
+        track_id,
+        separator,
+        decode_to_wav,
+        expected_secs,
+        crate::jobs::MAX_TRACK_SECS,
+        cancel,
+        progress,
+    )
+}
+
+/// Decodes, separates and caches `track_id`. Refuses with [`crate::jobs::TOO_LONG`] decoded audio
+/// longer than `max_secs` (the decoder is told to stop just past it, so this holds when the
+/// metadata duration was missing too).
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_instrumental_with_limit(
+    cache: &InstrumentalCache,
+    track_id: &str,
+    separator: &mut dyn Separator,
+    decode_to_wav: &mut dyn FnMut(&Path) -> Result<()>,
+    expected_secs: Option<f64>,
+    max_secs: f64,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(usize, usize),
 ) -> Result<PathBuf> {
@@ -124,6 +151,11 @@ pub fn prepare_instrumental(
     }
 
     let audio_seconds = left.len() as f64 / 44100.0;
+
+    if audio_seconds > max_secs {
+        tracing::info!(target: "karaoke::pipeline", video_id = %track_id, audio_seconds, max_secs, "karaoke skipped: track too long");
+        anyhow::bail!(crate::jobs::TOO_LONG);
+    }
 
     if let Some(e) = expected_secs {
         if e > 20.0 && audio_seconds < e * 0.9 && (e - audio_seconds) > 5.0 {
@@ -435,6 +467,54 @@ mod tests {
         );
         assert!(res_ok.is_ok());
         assert!(cache.path_for(track_id_ok).exists());
+
+        let _ = fs::remove_dir_all(&tmp);
+        Ok(())
+    }
+
+    /// Audio past the cap is refused before separation (no model work, nothing cached), with the
+    /// error the app recognises as "too long". The cap is 1 s here instead of 15 min.
+    #[test]
+    fn test_pipeline_refuses_a_track_over_the_cap() -> Result<()> {
+        let tmp = std::env::temp_dir().join("limusic_pipeline_too_long");
+        if tmp.exists() {
+            let _ = fs::remove_dir_all(&tmp);
+        }
+        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024);
+        cache.prepare()?;
+        let mut separator = FakeSeparator { calls: 0 };
+        let mut decode_to_wav = |wav_path: &Path| -> Result<()> {
+            let spec = WavSpec {
+                channels: 2,
+                sample_rate: 44100,
+                bits_per_sample: 32,
+                sample_format: SampleFormat::Float,
+            };
+            let mut writer = WavWriter::create(wav_path, spec)?;
+            for _ in 0..(2 * 44100) {
+                writer.write_sample(0.0f32)?;
+                writer.write_sample(0.0f32)?;
+            }
+            writer.finalize()?;
+            Ok(())
+        };
+        let res = prepare_instrumental_with_limit(
+            &cache,
+            "long",
+            &mut separator,
+            &mut decode_to_wav,
+            None,
+            1.0,
+            &AtomicBool::new(false),
+            &mut |_, _| {},
+        );
+        assert_eq!(res.unwrap_err().to_string(), crate::jobs::TOO_LONG);
+        assert_eq!(separator.calls, 0, "no separation for a refused track");
+        assert!(!cache.path_for("long").exists());
+
+        assert!(crate::jobs::too_long(Some(crate::jobs::MAX_TRACK_SECS + 1.0)));
+        assert!(!crate::jobs::too_long(Some(crate::jobs::MAX_TRACK_SECS)));
+        assert!(!crate::jobs::too_long(None), "unknown length: the decoder cap decides");
 
         let _ = fs::remove_dir_all(&tmp);
         Ok(())

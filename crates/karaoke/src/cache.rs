@@ -29,10 +29,23 @@ pub fn sanitize_track_id(track_id: &str) -> String {
     format!("{}-{}", sanitized, &suffix[..8])
 }
 
+/// Which file the player has handed to mpv: the one playing, or the one queued next (gapless or
+/// crossfade preload). See [`InstrumentalCache::pin`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PinSlot {
+    Current = 0,
+    Next = 1,
+}
+
 pub struct InstrumentalCache {
     dir: PathBuf,
     format: CacheFormat,
     max_bytes: std::sync::atomic::AtomicU64,
+    /// Files the player is using, by [`PinSlot`]. Eviction and [`Self::clear`] hold this lock
+    /// while they decide about and delete each file, and [`Self::pin`] takes it to hand a file
+    /// out, so a file the player got can never be deleted before (or while) mpv uses it. Held for
+    /// one file at a time: playback waits at most for one delete.
+    pins: std::sync::Mutex<[Option<PathBuf>; 2]>,
 }
 
 impl InstrumentalCache {
@@ -42,7 +55,12 @@ impl InstrumentalCache {
     /// it is on disk, so a previous session's files count (and can be cleared) with karaoke off,
     /// and a directory that does not exist yet simply holds nothing.
     pub fn new(dir: PathBuf, format: CacheFormat, max_bytes: u64) -> Self {
-        Self { dir, format, max_bytes: std::sync::atomic::AtomicU64::new(max_bytes) }
+        Self {
+            dir,
+            format,
+            max_bytes: std::sync::atomic::AtomicU64::new(max_bytes),
+            pins: std::sync::Mutex::new([None, None]),
+        }
     }
 
     /// Creates the cache directory and deletes temporary files a crash left behind.
@@ -96,6 +114,42 @@ impl InstrumentalCache {
     pub fn tmp_wav_path(&self, track_id: &str) -> PathBuf {
         let sanitized = sanitize_track_id(track_id);
         self.dir.join("tmp").join(format!("{}.wav", sanitized))
+    }
+
+    fn lock_pins(&self) -> std::sync::MutexGuard<'_, [Option<PathBuf>; 2]> {
+        self.pins.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The player is about to hand `track_id`'s instrumental to mpv in `slot`: returns its path
+    /// and pins it, or, when it is not cached, clears the slot and returns `None`. Done under the
+    /// lock eviction deletes under, so the path returned cannot be deleted before mpv opens it.
+    pub fn pin(&self, slot: PinSlot, track_id: &str) -> Option<PathBuf> {
+        let mut pins = self.lock_pins();
+        let path = self.get(track_id);
+        pins[slot as usize] = path.clone();
+        path
+    }
+
+    /// `slot` no longer holds an instrumental (the original stream was handed to mpv instead).
+    pub fn unpin(&self, slot: PinSlot) {
+        self.lock_pins()[slot as usize] = None;
+    }
+
+    /// A gapless or crossfade advance: what was queued next is now playing.
+    pub fn promote_next(&self) {
+        let mut pins = self.lock_pins();
+        pins[PinSlot::Current as usize] = pins[PinSlot::Next as usize].take();
+    }
+
+    /// Deletes `path` unless the player has it pinned. `false` if kept: pinned, or the delete
+    /// failed, which on Windows is what deleting a file another process has open does. The file
+    /// then stays until a later eviction.
+    fn remove_unless_pinned(&self, path: &std::path::Path) -> bool {
+        let pins = self.lock_pins();
+        if pins.iter().flatten().any(|p| p == path) {
+            return false;
+        }
+        fs::remove_file(path).is_ok()
     }
 
     pub fn get(&self, track_id: &str) -> Option<PathBuf> {
@@ -190,7 +244,7 @@ impl InstrumentalCache {
                 continue;
             }
 
-            if fs::remove_file(&path).is_ok() {
+            if self.remove_unless_pinned(&path) {
                 current_size = current_size.saturating_sub(size);
                 freed_bytes += size;
                 removed += 1;
@@ -213,10 +267,10 @@ impl InstrumentalCache {
                 let path = entry.path();
                 if path.is_file() {
                     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                        if ext.eq_ignore_ascii_case("flac")
-                            || ext.eq_ignore_ascii_case("opus")
-                            || ext.eq_ignore_ascii_case("tmp")
-                        {
+                        if ext.eq_ignore_ascii_case("flac") || ext.eq_ignore_ascii_case("opus") {
+                            // What is playing or queued next stays (see `pin`).
+                            let _ = self.remove_unless_pinned(&path);
+                        } else if ext.eq_ignore_ascii_case("tmp") {
                             let _ = fs::remove_file(&path);
                         }
                     }
@@ -423,6 +477,50 @@ mod tests {
         assert_eq!(cache.clear()?, 0, "clear removes the rest");
         assert!(!new.exists());
 
+        let _ = fs::remove_dir_all(&tmp);
+        Ok(())
+    }
+
+    /// What the player has handed to mpv (playing, or queued next) survives eviction and "Clear
+    /// cache", however old it is; once unpinned it goes like any other file.
+    #[test]
+    fn test_pinned_files_are_never_deleted() -> Result<()> {
+        let tmp = std::env::temp_dir().join("limusic_cache_test_pins");
+        if tmp.exists() {
+            let _ = fs::remove_dir_all(&tmp);
+        }
+        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 10);
+        cache.prepare()?;
+        let playing = cache.path_for("playing");
+        let next = cache.path_for("next");
+        let other = cache.path_for("other");
+        fs::write(&playing, [0u8; 20])?;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        fs::write(&next, [0u8; 20])?;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        fs::write(&other, [0u8; 20])?;
+
+        assert_eq!(cache.pin(PinSlot::Current, "playing"), Some(playing.clone()));
+        assert_eq!(cache.pin(PinSlot::Next, "next"), Some(next.clone()));
+        assert_eq!(cache.pin(PinSlot::Next, "not cached"), None, "nothing to pin");
+        assert_eq!(cache.pin(PinSlot::Next, "next"), Some(next.clone()));
+
+        cache.evict(&[])?;
+        assert!(playing.exists() && next.exists(), "the oldest files are pinned");
+        assert!(!other.exists(), "the only unpinned file went");
+
+        cache.clear()?;
+        assert!(playing.exists() && next.exists(), "clear keeps what is in use");
+
+        // Gapless advance: next becomes current, the old current is free.
+        cache.promote_next();
+        cache.clear()?;
+        assert!(!playing.exists(), "no longer pinned");
+        assert!(next.exists(), "now the current track");
+
+        cache.unpin(PinSlot::Current);
+        cache.clear()?;
+        assert!(!next.exists());
         let _ = fs::remove_dir_all(&tmp);
         Ok(())
     }

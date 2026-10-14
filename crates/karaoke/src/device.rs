@@ -15,24 +15,73 @@ pub struct GpuAdapter {
     pub shared_system_mb: u64,
 }
 
+/// `dxgi.dll` and `d3d12.dll` are looked up at run time, from System32 only, instead of being
+/// imported: the exe's import table has to stay exactly upstream's, so that a machine without
+/// them still starts and nothing GPU-related is loaded unless karaoke runs (this is only called
+/// when the model loads). The COM calls afterwards go through vtables and import nothing.
+#[cfg(windows)]
+pub(crate) mod sys {
+    use core::ffi::c_void;
+    use windows::core::{GUID, HRESULT, PCSTR, PCWSTR};
+    use windows::Win32::Graphics::Direct3D::D3D_FEATURE_LEVEL;
+    use windows::Win32::System::LibraryLoader::{
+        GetProcAddress, LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32,
+    };
+
+    /// `CreateDXGIFactory1(REFIID, void**)`.
+    pub type CreateDxgiFactory1 =
+        unsafe extern "system" fn(*const GUID, *mut *mut c_void) -> HRESULT;
+    /// `D3D12CreateDevice(IUnknown*, D3D_FEATURE_LEVEL, REFIID, void**)`.
+    pub type D3d12CreateDevice = unsafe extern "system" fn(
+        *mut c_void,
+        D3D_FEATURE_LEVEL,
+        *const GUID,
+        *mut *mut c_void,
+    ) -> HRESULT;
+
+    /// `name` from the System32 copy of `dll`. The module is never freed: objects created from it
+    /// outlive this call, and it is a system DLL.
+    ///
+    /// # Safety
+    /// `T` must be the function pointer type that matches the export's real signature.
+    pub unsafe fn proc<T: Copy>(dll: PCWSTR, name: PCSTR) -> Option<T> {
+        let module = unsafe { LoadLibraryExW(dll, None, LOAD_LIBRARY_SEARCH_SYSTEM32) }.ok()?;
+        let f = unsafe { GetProcAddress(module, name) }?;
+        debug_assert_eq!(std::mem::size_of::<T>(), std::mem::size_of_val(&f));
+        Some(unsafe { std::mem::transmute_copy(&f) })
+    }
+}
+
 #[cfg(windows)]
 pub fn list_adapters() -> Vec<GpuAdapter> {
-    use windows::core::Interface;
+    use windows::core::{s, w, Interface};
     use windows::Win32::Graphics::Direct3D::D3D_FEATURE_LEVEL_11_0;
     use windows::Win32::Graphics::Direct3D12::{
-        D3D12CreateDevice, ID3D12Device, D3D12_FEATURE_ARCHITECTURE1,
-        D3D12_FEATURE_DATA_ARCHITECTURE1,
+        ID3D12Device, D3D12_FEATURE_ARCHITECTURE1, D3D12_FEATURE_DATA_ARCHITECTURE1,
     };
     use windows::Win32::Graphics::Dxgi::{
-        CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory1, DXGI_ADAPTER_DESC1,
-        DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_ERROR_NOT_FOUND,
+        IDXGIAdapter1, IDXGIFactory1, DXGI_ADAPTER_DESC1, DXGI_ADAPTER_FLAG_SOFTWARE,
+        DXGI_ERROR_NOT_FOUND,
     };
 
     let mut adapters = Vec::new();
 
-    let factory: IDXGIFactory1 = match unsafe { CreateDXGIFactory1() } {
-        Ok(f) => f,
-        Err(_) => return adapters,
+    let Some(create_factory) =
+        (unsafe { sys::proc::<sys::CreateDxgiFactory1>(w!("dxgi.dll"), s!("CreateDXGIFactory1")) })
+    else {
+        return adapters;
+    };
+    // Missing on a machine without D3D12: adapters are still listed, just of unknown kind.
+    let create_device =
+        unsafe { sys::proc::<sys::D3d12CreateDevice>(w!("d3d12.dll"), s!("D3D12CreateDevice")) };
+
+    let factory: IDXGIFactory1 = {
+        let mut raw = std::ptr::null_mut();
+        let hr = unsafe { create_factory(&IDXGIFactory1::IID, &mut raw) };
+        if hr.is_err() || raw.is_null() {
+            return adapters;
+        }
+        unsafe { IDXGIFactory1::from_raw(raw) }
     };
 
     let mut i = 0;
@@ -72,28 +121,28 @@ pub fn list_adapters() -> Vec<GpuAdapter> {
                     continue;
                 }
             };
-            let mut device: Option<ID3D12Device> = None;
-            let create_result =
-                unsafe { D3D12CreateDevice(Some(&unknown), D3D_FEATURE_LEVEL_11_0, &mut device) };
-            if create_result.is_ok() {
-                if let Some(dev) = device {
-                    let mut arch =
-                        D3D12_FEATURE_DATA_ARCHITECTURE1 { NodeIndex: 0, ..Default::default() };
-                    let support_result = unsafe {
-                        dev.CheckFeatureSupport(
-                            D3D12_FEATURE_ARCHITECTURE1,
-                            &mut arch as *mut _ as *mut _,
-                            std::mem::size_of::<D3D12_FEATURE_DATA_ARCHITECTURE1>() as u32,
-                        )
-                    };
-                    if support_result.is_ok() {
-                        if arch.UMA.as_bool() {
-                            GpuKind::Integrated
-                        } else {
-                            GpuKind::Discrete
-                        }
+            let device: Option<ID3D12Device> = create_device.and_then(|create| {
+                let mut raw = std::ptr::null_mut();
+                let hr = unsafe {
+                    create(unknown.as_raw(), D3D_FEATURE_LEVEL_11_0, &ID3D12Device::IID, &mut raw)
+                };
+                (hr.is_ok() && !raw.is_null()).then(|| unsafe { ID3D12Device::from_raw(raw) })
+            });
+            if let Some(dev) = device {
+                let mut arch =
+                    D3D12_FEATURE_DATA_ARCHITECTURE1 { NodeIndex: 0, ..Default::default() };
+                let support_result = unsafe {
+                    dev.CheckFeatureSupport(
+                        D3D12_FEATURE_ARCHITECTURE1,
+                        &mut arch as *mut _ as *mut _,
+                        std::mem::size_of::<D3D12_FEATURE_DATA_ARCHITECTURE1>() as u32,
+                    )
+                };
+                if support_result.is_ok() {
+                    if arch.UMA.as_bool() {
+                        GpuKind::Integrated
                     } else {
-                        GpuKind::Unknown
+                        GpuKind::Discrete
                     }
                 } else {
                     GpuKind::Unknown
@@ -281,5 +330,16 @@ mod tests {
 
         let t500 = cpu_threads_for_percent(500);
         assert_eq!(t500, logical);
+    }
+
+    /// Runs the real run-time DXGI/D3D12 lookup. Whatever the machine has (CI runners have only
+    /// the software adapter), it must return without panicking, and indices must be in order.
+    #[cfg(windows)]
+    #[test]
+    fn listing_adapters_through_runtime_lookup_does_not_panic() {
+        let adapters = list_adapters();
+        for (i, a) in adapters.iter().enumerate() {
+            assert!(a.index >= i as i32);
+        }
     }
 }

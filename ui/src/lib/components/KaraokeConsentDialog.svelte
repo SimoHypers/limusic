@@ -9,6 +9,13 @@
 		dismissKaraokeConsent
 	} from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
+	import { openExternal } from '$lib/api';
+	import { browser } from '$app/environment';
+
+	/** The UVR project, credited as its README asks ("providing credit to UVR and its developers"). */
+	const UVR_URL = 'https://github.com/Anjok07/ultimatevocalremovergui';
+	// DirectML (and its telemetry note) only exists on Windows.
+	const IS_WINDOWS = browser && navigator.userAgent.includes('Windows');
 
 	const sizeMB = $derived(
 		karaokeModel.total > 0
@@ -38,6 +45,24 @@
 				{t('karaoke.consent.desc', { size: sizeMB })}
 			</Dialog.Description>
 		</div>
+
+		<ul class="grid list-disc gap-1 pl-4 text-xs text-muted-foreground">
+			<li>{t('karaoke.consent.source')}</li>
+			<li>
+				{t('karaoke.consent.credit')}
+				<button
+					type="button"
+					class="cursor-pointer text-foreground underline underline-offset-2 hover:text-primary"
+					onclick={() => openExternal(UVR_URL)}
+				>
+					{t('karaoke.consent.credit_link')}
+				</button>
+			</li>
+			<li>{t('karaoke.consent.redownload')}</li>
+			{#if IS_WINDOWS}
+				<li>{t('karaoke.consent.directml')}</li>
+			{/if}
+		</ul>
 
 		{#if karaokeModel.error}
 			<div class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-xs text-destructive">

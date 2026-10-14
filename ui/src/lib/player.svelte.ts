@@ -53,7 +53,7 @@ export const playback = $state({
 export const np = $state({ open: false, tab: 'queue' as 'queue' | 'lyrics' | 'comments' });
 
 export const karaokeStatus = $state({
-	state: 'off' as 'off' | 'needs-model' | 'preparing' | 'ready' | 'error',
+	state: 'off' as 'off' | 'needs-model' | 'preparing' | 'ready' | 'error' | 'too-long',
 	progress: undefined as number | undefined,
 	message: undefined as string | undefined
 });
@@ -64,7 +64,7 @@ const karaokeByTrack = $state<
 	Record<
 		string,
 		{
-			state: 'off' | 'needs-model' | 'preparing' | 'ready' | 'error';
+			state: 'off' | 'needs-model' | 'preparing' | 'ready' | 'error' | 'too-long';
 			progress?: number;
 			message?: string;
 		}
@@ -93,6 +93,26 @@ export const karaokeModel = $state({
 });
 
 export const karaokeConsent = $state({ open: false });
+
+/**
+ * Why karaoke can't run here, from the backend's last attempt to start it (`reason` is an en.json
+ * `karaoke.unavailable.*` key). Unknown until karaoke is first tried or Settings asks: nothing is
+ * probed at launch.
+ */
+export const karaokeAvailability = $state({
+	reason: undefined as api.KaraokeUnavailableReason | undefined,
+	processor: undefined as 'gpu' | 'cpu' | undefined
+});
+
+export async function refreshKaraokeAvailability(): Promise<void> {
+	try {
+		const s = await api.karaokeEngineStatus();
+		karaokeAvailability.reason = s.availability === 'unavailable' ? s.reason : undefined;
+		karaokeAvailability.processor = s.processor;
+	} catch {
+		// Status is advisory; the toggle itself still reports errors.
+	}
+}
 
 export function confirmKaraokeModelDownload() {
 	karaokeModel.error = undefined;
@@ -1045,10 +1065,16 @@ export function toggleKaraoke() {
 		karaokeQueue.slots = [];
 		syncKaraokeStatus();
 	}
-	api.setKaraoke(next).catch((e) => {
-		playback.karaoke = previous;
-		toast.error(String(e));
-	});
+	api.setKaraoke(next)
+		.then(() => {
+			if (next) karaokeAvailability.reason = undefined;
+		})
+		.catch((e) => {
+			playback.karaoke = previous;
+			toast.error(String(e));
+			// Picks up the reason, so the button can show it instead of just failing again.
+			void refreshKaraokeAvailability();
+		});
 }
 
 export async function retryKaraoke(manual = true): Promise<void> {
@@ -1725,6 +1751,8 @@ export function initApp(mini = false): () => void {
 			karaokeQueue.slots = e.slots;
 		}),
 		api.onKaraokeStatus((e) => {
+			// An error for no track in particular (karaoke itself stopped): fetch the reason.
+			if (e.state === 'error' && !e.videoId) void refreshKaraokeAvailability();
 			if (e.state === 'needs-model') {
 				karaokeConsent.open = true;
 				if (!e.videoId) {

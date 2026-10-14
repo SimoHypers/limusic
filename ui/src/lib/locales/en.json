@@ -2,7 +2,20 @@
 	"karaoke": {
 		"consent": {
 			"title": "Download AI Vocal Removal Model",
-			"desc": "Karaoke uses an AI model (UVR MDX-Net) that must be downloaded once (about {size}). It is stored locally and works offline afterwards. Preparing a song takes from about 15 seconds (discrete GPU) to a few minutes (CPU) and the result is cached on disk."
+			"desc": "Karaoke uses an AI model (UVR MDX-Net) that must be downloaded once (about {size}). It is stored locally and works offline afterwards. Preparing a song takes from about 15 seconds (discrete GPU) to a few minutes (CPU) and the result is cached on disk.",
+			"source": "Downloaded from GitHub (TRvlvr/model_repo), the model's official source.",
+			"credit": "UVR-MDX-NET-Inst_HQ_3 by Anjok07 and aufr33 (Ultimate Vocal Remover), MIT License.",
+			"credit_link": "Ultimate Vocal Remover",
+			"redownload": "To prepare a song, Limusic downloads its audio once more.",
+			"directml": "On a graphics card, karaoke runs through Microsoft DirectML, which may send usage data to Microsoft."
+		},
+		"unavailable": {
+			"not_installed": "Karaoke isn't included in this build of Limusic.",
+			"corrupt": "Karaoke's files are damaged. Reinstalling Limusic fixes this.",
+			"vc_runtime": "Karaoke needs a newer Microsoft Visual C++ Redistributable (14.44 or later).",
+			"load_failed": "Karaoke couldn't start on this computer.",
+			"proxy": "Karaoke isn't available while a proxy is set.",
+			"stopped": "Karaoke stopped unexpectedly. Restart Limusic to use it again."
 		},
 		"download": "Download",
 		"cancel": "Cancel",
@@ -11,6 +24,7 @@
 		"preparing": "Preparing karaoke version…",
 		"active": "Karaoke on: vocals removed. Click to turn off.",
 		"error_retry": "Click to retry",
+		"too_long": "This track is too long for karaoke (over 15 minutes). The original plays.",
 		"slot": {
 			"now": "Now",
 			"next": "Next",
@@ -39,7 +53,14 @@
 			"cache_used_desc": "Space taken by prepared karaoke versions.",
 			"clear": "Clear cache",
 			"clear_confirm": "Click again to confirm",
-			"cleared": "Cache cleared"
+			"cleared": "Cache cleared",
+			"status": "Status",
+			"status_desc": "Where karaoke runs, or why it can't.",
+			"processor_gpu": "Running on the graphics card",
+			"processor_cpu": "Running on the processor",
+			"not_started": "Not used yet this session",
+			"get_vc_redist": "Get it from Microsoft",
+			"credit": "Model credit"
 		}
 	},
 	"selection": {

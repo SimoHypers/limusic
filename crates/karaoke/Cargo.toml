@@ -11,6 +11,12 @@ tracing = { workspace = true }
 hound = "3.5"
 realfft = "3.5"
 flacenc = "0.4"
+# The model download (download.rs) and the SHA-256 checks. The app passes in its own reqwest client
+# (proxy, TLS), so no TLS feature here.
+reqwest = { version = "0.12", default-features = false, features = ["stream"] }
+tokio = { workspace = true, features = ["fs", "io-util"] }
+futures-util = { workspace = true }
+sha2 = "0.10"
 
 [dev-dependencies]
 # Only the tests and examples decode audio (flac_read.rs, examples/separate.rs).
@@ -27,7 +33,7 @@ ort = "=2.0.0-rc.13"
 # official DirectML build (NuGet Microsoft.ML.OnnxRuntime.DirectML 1.24.4).
 [target.'cfg(windows)'.dependencies]
 ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "tracing", "load-dynamic", "directml", "api-24"] }
-windows ={ version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dxgi", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D12"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dxgi", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D12", "Win32_System_LibraryLoader"] }
 
 [[example]]
 name = "inspect"

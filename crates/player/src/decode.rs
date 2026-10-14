@@ -14,6 +14,9 @@ pub fn decode_to_wav(
     out_wav: &Path,
     headers: &std::collections::HashMap<String, String>,
     cancel: &AtomicBool,
+    // Stop decoding after this many seconds (mpv's `end`), so a track too long to process never
+    // fills the disk with a multi-GB WAV first. `None` decodes everything.
+    max_secs: Option<f64>,
 ) -> anyhow::Result<()> {
     unsafe {
         libc::setlocale(libc::LC_NUMERIC, c"C".as_ptr());
@@ -50,6 +53,10 @@ pub fn decode_to_wav(
         mpv.set_property("audio-format", "float").map_err(|e| anyhow::anyhow!("{}", e))?;
     }
     mpv.set_property("untimed", "yes").map_err(|e| anyhow::anyhow!("{}", e))?;
+    if let Some(secs) = max_secs {
+        mpv.set_property("end", format!("{secs:.0}").as_str())
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+    }
     mpv.set_property("idle", "no").map_err(|e| anyhow::anyhow!("{}", e))?;
     mpv.set_property("cache", "no").map_err(|e| anyhow::anyhow!("{}", e))?;
     mpv.set_property("audio-display", "no").map_err(|e| anyhow::anyhow!("{}", e))?;

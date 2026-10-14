@@ -7,17 +7,20 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use futures_util::StreamExt;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
-use tokio::io::AsyncWriteExt;
 
 pub const MODEL_FILE_NAME: &str = "UVR-MDX-NET-Inst_HQ_3.onnx";
 pub const MODEL_URL: &str =
     "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/UVR-MDX-NET-Inst_HQ_3.onnx";
 pub const MODEL_SIZE: u64 = 66_759_214;
 pub const MODEL_SHA256: &str = "317554b07fe1ea5279a77f2b1520a41ea4b93432560c4ffd08792c30fddf9adc";
+/// Where the download, and GitHub's redirects for it, may go. `release-assets.githubusercontent.com`
+/// is where release downloads land today (checked 2026-10-14); `objects.githubusercontent.com` is
+/// the older asset host.
+pub const MODEL_HOSTS: &[&str] =
+    &["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"];
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,7 +35,7 @@ pub struct ModelStatus {
 pub struct ModelManager {
     dir: PathBuf,
     busy: AtomicBool,
-    cancel: AtomicBool,
+    cancel: karaoke::download::Cancel,
 }
 
 impl ModelManager {
@@ -40,19 +43,13 @@ impl ModelManager {
     /// launching the app never touches it.
     pub fn new(data_dir: &Path) -> Self {
         let dir = data_dir.join("models");
-        Self { dir, busy: AtomicBool::new(false), cancel: AtomicBool::new(false) }
+        Self { dir, busy: AtomicBool::new(false), cancel: karaoke::download::Cancel::new() }
     }
 
-    /// Creates the models directory and deletes any `*.part` an interrupted download left.
+    /// Creates the models directory. A `.part` left by an interrupted download is kept: the next
+    /// download resumes from it (and the final file is only ever the verified whole).
     fn prepare_dir(&self) -> std::io::Result<()> {
-        std::fs::create_dir_all(&self.dir)?;
-        for entry in std::fs::read_dir(&self.dir)?.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("part") {
-                let _ = std::fs::remove_file(path);
-            }
-        }
-        Ok(())
+        std::fs::create_dir_all(&self.dir)
     }
 
     fn override_path() -> Option<PathBuf> {
@@ -97,8 +94,10 @@ impl ModelManager {
         ModelStatus { installed, downloading, size_bytes: MODEL_SIZE, path }
     }
 
+    /// Stops a running download at once, even one stalled on the network. What arrived so far is
+    /// kept, and the next download resumes from it.
     pub fn cancel_download(&self) {
-        self.cancel.store(true, Ordering::SeqCst);
+        self.cancel.cancel();
     }
 
     pub async fn download(&self, app: &AppHandle) -> Result<(), String> {
@@ -109,7 +108,7 @@ impl ModelManager {
         if self.busy.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
             return Err("already downloading".to_string());
         }
-        self.cancel.store(false, Ordering::SeqCst);
+        self.cancel.reset();
 
         // Guard to ensure busy is cleared on exit
         struct BusyGuard<'a>(&'a AtomicBool);
@@ -136,137 +135,56 @@ impl ModelManager {
                 .unwrap_or_else(|| "part".to_string()),
         );
 
-        // Run the actual download logic
-        let res = self.do_download(app, &part_path, &final_path).await;
-        if res.is_err() {
-            let _ = std::fs::remove_file(&part_path);
-        }
-        res
-    }
-
-    async fn do_download(
-        &self,
-        app: &AppHandle,
-        part_path: &Path,
-        final_path: &Path,
-    ) -> Result<(), String> {
-        let client = crate::http::client();
-        let response =
-            client.get(MODEL_URL).header("User-Agent", "Limusic").send().await.map_err(|e| {
-                let msg = karaoke::sanitize_error(&e.to_string());
-                let _ = app
-                    .emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
-                msg
-            })?;
-
-        if !response.status().is_success() {
-            let status_code = response.status();
-            let msg = format!("download failed with status {status_code}");
-            let _ =
-                app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
-            return Err(msg);
-        }
-
-        let total = response.content_length().unwrap_or(MODEL_SIZE);
-
-        let mut file = tokio::fs::File::create(part_path).await.map_err(|e| {
-            let msg = karaoke::sanitize_error(&e.to_string());
-            let _ =
-                app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
-            msg
-        })?;
-
-        let mut stream = response.bytes_stream();
-        let mut downloaded: u64 = 0;
-        let mut hasher = Sha256::new();
+        let source = karaoke::download::Source {
+            url: MODEL_URL,
+            size: MODEL_SIZE,
+            sha256: MODEL_SHA256,
+            hosts: MODEL_HOSTS,
+            https_only: true,
+        };
         let mut throttle = ProgressThrottle::new(Duration::from_millis(250));
+        let emit_progress = |downloaded: u64| {
+            let _ = app.emit(
+                "karaoke-model",
+                serde_json::json!({ "state": "downloading", "downloaded": downloaded, "total": MODEL_SIZE }),
+            );
+        };
+        emit_progress(0);
+        let result = karaoke::download::fetch(
+            crate::http::client(),
+            &source,
+            &part_path,
+            &final_path,
+            karaoke::download::Timeouts::default(),
+            &self.cancel,
+            |downloaded| {
+                if throttle.should_emit() {
+                    emit_progress(downloaded);
+                }
+            },
+        )
+        .await;
 
-        // Emit initial downloading state
-        let _ = app.emit(
-            "karaoke-model",
-            serde_json::json!({ "state": "downloading", "downloaded": 0, "total": total }),
-        );
-
-        while let Some(chunk_result) = stream.next().await {
-            if self.cancel.load(Ordering::SeqCst) {
+        match result {
+            Ok(()) => {
+                emit_progress(MODEL_SIZE);
+                tracing::info!(target: "app_lib::karaoke", "karaoke model downloaded");
+                let _ = app.emit("karaoke-model", serde_json::json!({ "state": "ready" }));
+                Ok(())
+            }
+            // The `.part` stays, so the next attempt resumes instead of starting over.
+            Err(karaoke::download::Error::Cancelled) => {
                 let _ = app.emit("karaoke-model", serde_json::json!({ "state": "cancelled" }));
-                let _ = tokio::fs::remove_file(part_path).await;
-                return Err("cancelled".to_string());
+                Err("cancelled".to_string())
             }
-
-            let chunk = chunk_result.map_err(|e| {
+            Err(e) => {
                 let msg = karaoke::sanitize_error(&e.to_string());
+                tracing::warn!(target: "app_lib::karaoke", error = %msg, "karaoke model download failed");
                 let _ = app
                     .emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
-                msg
-            })?;
-
-            file.write_all(&chunk).await.map_err(|e| {
-                let msg = karaoke::sanitize_error(&e.to_string());
-                let _ = app
-                    .emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
-                msg
-            })?;
-
-            hasher.update(&chunk);
-            downloaded += chunk.len() as u64;
-
-            if throttle.should_emit() {
-                let _ = app.emit(
-                    "karaoke-model",
-                    serde_json::json!({ "state": "downloading", "downloaded": downloaded, "total": total }),
-                );
+                Err(msg)
             }
         }
-
-        file.flush().await.map_err(|e| {
-            let msg = karaoke::sanitize_error(&e.to_string());
-            let _ =
-                app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
-            msg
-        })?;
-        drop(file);
-
-        // Always emit final downloading progress before verification
-        let _ = app.emit(
-            "karaoke-model",
-            serde_json::json!({ "state": "downloading", "downloaded": downloaded, "total": total }),
-        );
-
-        if downloaded != MODEL_SIZE {
-            let msg = format!("model file size mismatch: got {downloaded}, expected {MODEL_SIZE}");
-            let _ =
-                app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
-            return Err(msg);
-        }
-
-        let hash_result = format!("{:x}", hasher.finalize());
-        if !hash_result.eq_ignore_ascii_case(MODEL_SHA256) {
-            let msg = "model file is corrupted (checksum mismatch)".to_string();
-            let _ =
-                app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
-            return Err(msg);
-        }
-
-        // On Windows, remove existing final file first
-        if final_path.exists() {
-            if let Err(e) = std::fs::remove_file(final_path) {
-                let msg = karaoke::sanitize_error(&e.to_string());
-                let _ = app
-                    .emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
-                return Err(msg);
-            }
-        }
-
-        if let Err(e) = tokio::fs::rename(part_path, final_path).await {
-            let msg = karaoke::sanitize_error(&e.to_string());
-            let _ =
-                app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
-            return Err(msg);
-        }
-
-        let _ = app.emit("karaoke-model", serde_json::json!({ "state": "ready" }));
-        Ok(())
     }
 }
 
@@ -351,18 +269,18 @@ mod tests {
     }
 
     #[test]
-    fn test_model_manager_cleanup_part() {
+    /// An interrupted download's `.part` is what the next download resumes from.
+    fn test_model_manager_keeps_part_for_resume() {
         let tmp = temp_dir();
         let models_dir = tmp.join("models");
         std::fs::create_dir_all(&models_dir).unwrap();
-        let part_file = models_dir.join("test.onnx.part");
-        std::fs::write(&part_file, b"leftover").unwrap();
-        assert!(part_file.exists());
+        let part_file = models_dir.join(format!("{MODEL_FILE_NAME}.part"));
+        std::fs::write(&part_file, b"first bytes").unwrap();
 
         let manager = ModelManager::new(&tmp);
-        assert!(part_file.exists(), "new() must not touch the disk");
         manager.prepare_dir().unwrap();
-        assert!(!part_file.exists(), "leftover .part file should be deleted by prepare_dir()");
+        assert!(part_file.exists(), "prepare_dir() must keep the partial download");
+        assert!(!manager.is_installed());
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

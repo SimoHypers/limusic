@@ -1,5 +1,29 @@
 use std::collections::{HashMap, HashSet};
 
+/// The longest track karaoke will prepare, in seconds (15 minutes).
+///
+/// The pipeline holds a whole track in memory several times over. Per stereo sample-frame:
+/// - decoding: the f32 interleaved read plus the left/right copies, 16 B;
+/// - separation: the padded mixture, result and divider buffers plus the output channels, about
+///   36 B;
+/// - encoding: the i32 interleaved samples plus the FLAC stream and its byte sink, about 20 B.
+///
+/// With the input still alive that is roughly 80-90 B per frame. At 44.1 kHz that is about
+/// 3.7 MB per second of audio, so **≈ 3.3 GB at 15 minutes**, already a lot next to a browser on
+/// an 8 GB machine. A 1-hour mix would need over 13 GB (and a 1.3 GB temporary WAV). Longer
+/// tracks are skipped (see [`too_long`]) and the decoder stops a few seconds past the cap, so a
+/// track with no known duration is refused before it can use more.
+pub const MAX_TRACK_SECS: f64 = 900.0;
+
+/// The pipeline's error for a track over [`MAX_TRACK_SECS`] (matched by the app, which shows it as
+/// "too long" rather than as a failure to retry).
+pub const TOO_LONG: &str = "track too long for karaoke";
+
+/// A track whose known duration is over [`MAX_TRACK_SECS`]: never queued for preparation.
+pub fn too_long(expected_secs: Option<f64>) -> bool {
+    expected_secs.is_some_and(|s| s > MAX_TRACK_SECS)
+}
+
 #[derive(Clone, Debug)]
 pub struct PrepareRequest {
     pub video_id: String,

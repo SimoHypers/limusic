@@ -30,7 +30,7 @@
 	import { HELP_COMBO } from '$lib/shortcuts';
 	import { copyText } from '$lib/clipboard';
 	import * as api from '$lib/api';
-	import { blocked, karaokeConsent, karaokeModel, cancelKaraokeModelDownload, prefs, refreshView, setAutoplay, ui, toast, unblockArtist } from '$lib/player.svelte';
+	import { blocked, karaokeAvailability, karaokeConsent, karaokeModel, cancelKaraokeModelDownload, prefs, refreshView, setAutoplay, ui, toast, unblockArtist } from '$lib/player.svelte';
 	import { win } from '$lib/win.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import AppearanceSettings from '$lib/components/AppearanceSettings.svelte';
@@ -201,6 +201,11 @@
 		}
 	}
 
+	// Microsoft's permalink for the latest x64 VC++ runtime (karaoke's ONNX Runtime needs >= 14.44).
+	const VC_REDIST_URL = 'https://aka.ms/vc14/vc_redist.x64.exe';
+	// Credit for the vocal-removal model, as the UVR README asks.
+	const UVR_URL = 'https://github.com/Anjok07/ultimatevocalremovergui';
+
 	let karaokeCacheLimit = $state(2048);
 	let karaokeCacheBytes = $state(0);
 	let clearCacheConfirm = $state(false);
@@ -298,7 +303,10 @@
 				console.warn(limitRes.reason);
 			}
 			if (statusRes.status === 'fulfilled') {
-				karaokeCacheBytes = statusRes.value.cacheBytes;
+				const s = statusRes.value;
+				karaokeCacheBytes = s.cacheBytes;
+				karaokeAvailability.reason = s.availability === 'unavailable' ? s.reason : undefined;
+				karaokeAvailability.processor = s.processor;
 			} else {
 				console.warn(statusRes.reason);
 			}
@@ -850,6 +858,16 @@
 									desc: t('karaoke.settings.cache_used_desc'),
 									control: karaokeCacheUsedControl
 								})}
+								{@render row({
+									title: t('karaoke.settings.status'),
+									desc: t('karaoke.settings.status_desc'),
+									control: karaokeStatusControl
+								})}
+								{@render row({
+									title: t('karaoke.settings.credit'),
+									desc: t('karaoke.consent.credit'),
+									control: karaokeCreditControl
+								})}
 							</div>
 						</section>
 					{:else if tab === 'hotkeys'}
@@ -1270,6 +1288,33 @@
 			</Button>
 		{/if}
 	</div>
+{/snippet}
+
+{#snippet karaokeStatusControl()}
+	<div class="flex items-center gap-3">
+		<span class="text-xs text-muted-foreground">
+			{#if karaokeAvailability.reason}
+				{t(`karaoke.unavailable.${karaokeAvailability.reason}`)}
+			{:else if karaokeAvailability.processor === 'gpu'}
+				{t('karaoke.settings.processor_gpu')}
+			{:else if karaokeAvailability.processor === 'cpu'}
+				{t('karaoke.settings.processor_cpu')}
+			{:else}
+				{t('karaoke.settings.not_started')}
+			{/if}
+		</span>
+		{#if karaokeAvailability.reason === 'vc_runtime'}
+			<Button variant="outline" size="sm" onclick={() => api.openExternal(VC_REDIST_URL)}>
+				{t('karaoke.settings.get_vc_redist')}
+			</Button>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet karaokeCreditControl()}
+	<Button variant="outline" size="sm" onclick={() => api.openExternal(UVR_URL)}>
+		{t('karaoke.consent.credit_link')}
+	</Button>
 {/snippet}
 
 {#snippet karaokeCacheLimitControl()}
