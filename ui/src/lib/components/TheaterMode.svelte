@@ -372,10 +372,14 @@
 				</div>
 				<div class="flex shrink-0 items-center gap-1 pt-1.5">
 					<!-- What sits beside the player, as one pill so it reads as a view switch rather than
-					     two more actions next to like. Hidden below lg, where there is no second column. -->
-					<div class="mr-1 hidden items-center gap-0.5 rounded-full bg-foreground/[0.06] p-1 lg:flex">
-						{@render column(Mic01Icon, t('player.lyrics'), lyricsShown, toggleLyrics)}
-						{@render column(Queue01Icon, t('player.queue'), queueShown, toggleQueue)}
+					     two more actions next to like. The lyrics/queue switches are hidden below lg, where
+					     there is no second column; karaoke stays, so the pill itself always shows. -->
+					<div class="mr-1 flex items-center gap-0.5 rounded-full bg-foreground/[0.06] p-1">
+						<KaraokeButton variant="pill" />
+						<div class="hidden items-center gap-0.5 lg:flex">
+							{@render column(Mic01Icon, t('player.lyrics'), lyricsShown, toggleLyrics)}
+							{@render column(Queue01Icon, t('player.queue'), queueShown, toggleQueue)}
+						</div>
 					</div>
 					{#if playback.now && !local}
 						<button
@@ -438,7 +442,6 @@
 				>
 					<HugeiconsIcon icon={ShuffleIcon} class="h-[18px] w-[18px]" />
 				</button>
-				<KaraokeButton size={18} />
 				<button
 					onclick={() => api.prevTrack()}
 					class="flex h-12 w-12 cursor-pointer items-center justify-center rounded-full text-foreground/90 transition-colors hover:bg-foreground/10 hover:text-foreground"

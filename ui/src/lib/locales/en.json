@@ -9,7 +9,7 @@
 		"retry": "Retry",
 		"not_now": "Not now",
 		"preparing": "Preparing karaoke version…",
-		"active": "Karaoke on",
+		"active": "Karaoke on: vocals removed. Click to turn off.",
 		"error_retry": "Click to retry",
 		"slot": {
 			"now": "Now",
@@ -197,7 +197,7 @@
 		"volume": "Volume",
 		"queue": "Queue",
 		"lyrics": "Lyrics",
-		"karaoke": "Reduce vocals (karaoke)",
+		"karaoke": "Karaoke: remove vocals",
 		"comments": "Comments",
 		"mini_player": "Mini Player",
 		"mini_shrink": "Shrink mini player",
