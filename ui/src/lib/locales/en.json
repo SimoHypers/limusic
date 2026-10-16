@@ -203,7 +203,8 @@
 		"remove_dislike": "Remove dislike",
 		"add_to_playlist": "Add to playlist",
 		"pin_to_top": "Pin to top",
-		"unpin": "Unpin"
+		"unpin": "Unpin",
+		"scroll_to_end": "Scroll to bottom"
 	},
 	"home": {
 		"good_morning": "Good morning",
@@ -899,6 +900,7 @@
 		"scroll_left": "Scroll left",
 		"scroll_right": "Scroll right",
 		"back_to_top": "Back to top",
+		"scroll_to_end": "Scroll to bottom",
 		"toggle_mini": "Toggle mini player",
 		"toggle_theme": "Toggle theme",
 		"explicit": "Explicit",

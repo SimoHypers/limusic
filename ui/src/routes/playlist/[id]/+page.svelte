@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
+	import { MediaQuery } from 'svelte/reactivity';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
@@ -12,6 +13,7 @@
 		Radio02Icon,
 		ArrowUpNarrowWideIcon,
 		ArrowDownWideNarrowIcon,
+		ArrowDown01Icon,
 		DashboardSquare02Icon,
 		PlayListAddIcon,
 		Share08Icon,
@@ -444,6 +446,7 @@
 		query = '';
 		applied = '';
 		searchOpened = false;
+		scrollingToEnd = false;
 		clearTimeout(filterTimer);
 		// A page that failed on the last playlist would otherwise keep this one's retry state
 		// showing, and block the filter's own walk (`loadAll` bails while it's set).
@@ -667,6 +670,38 @@
 	const win = $derived(
 		rowWindow(sc.scrollTop - sc.offsetPx, sc.viewportPx, shown.length, sc.rowPx)
 	);
+
+	const reducedMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
+	let scrollerEl = $state<HTMLElement | null>(null);
+	let scrollingToEnd = $state(false);
+
+	async function scrollToEnd() {
+		if (scrollingToEnd || !pl?.items.length || !scrollerEl) return;
+		const pid = id;
+		scrollingToEnd = true;
+		try {
+			if (pl?.continuation) {
+				await loadAll();
+				if (pid !== id) return;
+			}
+			await tick();
+			if (pid !== id || !scrollerEl?.isConnected) return;
+			const targetTop = scrollerEl.scrollHeight;
+			if (reducedMotion.current) {
+				scrollerEl.scrollTop = targetTop;
+				return;
+			}
+			const gap = targetTop - scrollerEl.scrollTop;
+			if (gap > 2 * scrollerEl.clientHeight) {
+				scrollerEl.scrollTop = targetTop - scrollerEl.clientHeight;
+			}
+			scrollerEl.scrollTo({ top: targetTop, behavior: 'smooth' });
+		} finally {
+			if (pid === id) {
+				scrollingToEnd = false;
+			}
+		}
+	}
 
 	// One page per approach to the bottom: the observer only fires when the sentinel *enters* view,
 	// so an appended page that pushes it back out is required before the next fetch. rootMargin
@@ -998,7 +1033,11 @@
 	{:else if pl}
 		<!-- One scroller for the whole page: the header scrolls away above the rows, same as the
 		     album page. -->
-		<div class="content-in min-h-0 flex-1 overflow-y-auto" {@attach sc.attach}>
+		<div
+			bind:this={scrollerEl}
+			class="content-in min-h-0 flex-1 overflow-y-auto"
+			{@attach sc.attach}
+		>
 			<div class="relative flex min-h-[38vh] shrink-0 items-end gap-6 overflow-hidden border-b p-6">
 				<!-- The backdrop and its fade share one layer (`art-wash` on the wrapper): see HomeHero. -->
 				<div class="art-wash pointer-events-none absolute inset-0 overflow-hidden">
@@ -1102,6 +1141,19 @@
 								{selection}
 								class="-ml-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition hover:bg-muted hover:text-foreground"
 							/>
+							<Button
+								variant="ghost"
+								size="icon"
+								aria-label={t('player.scroll_to_end')}
+								title={t('player.scroll_to_end')}
+								onclick={scrollToEnd}
+								disabled={!pl.items.length || scrollingToEnd}
+							>
+								<HugeiconsIcon
+									icon={ArrowDown01Icon}
+									class="h-5 w-5 text-muted-foreground {scrollingToEnd ? 'animate-pulse' : ''}"
+								/>
+							</Button>
 						</div>
 						<!-- Pushed to the far end of the header, away from the play controls. -->
 						<div class="flex items-center gap-1">
@@ -1294,6 +1346,14 @@
 			disabled={!pl?.items.length}
 		>
 			<HugeiconsIcon icon={ArrowDownWideNarrowIcon} class="h-4 w-4" /> {t('player.add_to_queue')}
+		</button>
+		<button
+			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+			onclick={() => run(scrollToEnd)}
+			disabled={!pl?.items.length || scrollingToEnd}
+		>
+			<HugeiconsIcon icon={ArrowDown01Icon} class="h-4 w-4" />
+			{scrollingToEnd ? t('common.loading') : t('player.scroll_to_end')}
 		</button>
 		<!-- On Repeat is built from local play counts, and a playlist on this machine is no YouTube
 		     playlist either: neither has a radio to seed. -->
