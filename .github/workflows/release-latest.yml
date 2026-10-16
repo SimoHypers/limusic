@@ -361,7 +361,7 @@ jobs:
           tauri build --bundles app --config '{"build":{"beforeBuildCommand":""},"bundle":{"createUpdaterArtifacts":false}}'
 
           APP=target/release/bundle/macos/limusic.app
-          BIN="$APP/Contents/MacOS/limusic"
+          BIN="$APP/Contents/MacOS/$(plutil -extract CFBundleExecutable raw "$APP/Contents/Info.plist")"
           dylibbundler -cd -of -b -x "$BIN" -d "$APP/Contents/Frameworks" -p "@executable_path/../Frameworks" -s "$(brew --prefix)/lib" < /dev/null || true
           codesign --force --deep --sign - "$APP"
 
