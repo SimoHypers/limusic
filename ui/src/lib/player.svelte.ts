@@ -667,8 +667,6 @@ export async function seedOnRepeatPick() {
  * that keeps its slot comes back where it was.
  */
 export function saveHome(patch: Partial<pl.HomeLayout>) {
-	// Spread, not a fresh object: `seen` is written by the feed, not by the panel, and rebuilding
-	// `home` from the lists the panel owns used to drop it.
 	personal.home = { ...personal.home, ...patch };
 	savePersonal();
 }
@@ -678,9 +676,9 @@ export function resetHome() {
 	savePersonal();
 }
 
-/** Remember the shelves this page of the feed carried, for Edit home. See `pl.noteSections`. */
-export function noteHomeSections(titles: string[]) {
-	if (pl.noteSections(personal, titles)) savePersonal();
+/** Carry a pre-#476 arrangement over from shelf titles to kinds. See `pl.adoptKinds`. */
+export function adoptHomeKinds(sections: { title: string; kind?: string }[]) {
+	if (pl.adoptKinds(personal, sections)) savePersonal();
 }
 
 /** Called from every card click app-wide, so only persist when the id was actually on the grid. */
@@ -1363,6 +1361,17 @@ export function refreshView() {
 	ui.epoch++;
 }
 
+/**
+ * After a language change. The page remount alone leaves the sidebar and Library on YouTube's text
+ * in the old language ("43 itens", "Playlist automática"), since the library store outlives routes.
+ */
+export function refreshLanguage() {
+	refreshView();
+	loadLibrary(true);
+	if (library.extrasLoaded) loadLibraryExtras(true);
+	if (library.uploadAlbumsLoaded) loadUploadAlbums(true);
+}
+
 export function openChannelPicker(required = false) {
 	ui.channelPickerRequired = required;
 	ui.channelIdentities = [];
@@ -1886,7 +1895,7 @@ export function initApp(mini = false): () => void {
 			// system, and on the first launch after this shipped. Put it right and refetch: the pages
 			// already on screen were painted in the stale language.
 			if (s.locale !== currentLocale.id) {
-				pushLocaleToRust(currentLocale.id).then(refreshView);
+				pushLocaleToRust(currentLocale.id).then(refreshLanguage);
 			}
 		})
 		.catch(() => {});

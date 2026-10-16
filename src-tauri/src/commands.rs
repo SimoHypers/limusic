@@ -402,6 +402,12 @@ fn native_chrome(db: &crate::db::Db) -> &'static str {
     }
 }
 
+/// GTK's `gtk-decoration-layout` (`menu:close`, `:minimize,maximize,close`), read once on the main
+/// thread in `setup`. Linux only: the titlebar draws minimize and maximize only when it names
+/// them, as GTK's own headerbars do (#481). Tiling compositors (Hyprland, sway, niri) ignore
+/// minimize and often drop maximize, and their unconfigured layout is `menu:close`.
+pub static BUTTON_LAYOUT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
 #[tauri::command]
 pub async fn get_settings(state: St<'_>) -> Result<serde_json::Value, String> {
     let mut map: serde_json::Map<String, serde_json::Value> = state
@@ -413,6 +419,9 @@ pub async fn get_settings(state: St<'_>) -> Result<serde_json::Value, String> {
         .collect();
     map.insert("native_chrome".into(), native_chrome(&state.db).into());
     map.insert("native_video".into(), crate::state::native_video().to_string().into());
+    if let Some(layout) = BUTTON_LAYOUT.get() {
+        map.insert("button_layout".into(), layout.clone().into());
+    }
     Ok(serde_json::Value::Object(map))
 }
 
@@ -771,7 +780,7 @@ pub async fn open_mini(app: tauri::AppHandle) -> Result<(), String> {
     app.run_on_main_thread(move || {
         let _ = tx.send(crate::mini::open(&handle));
     })
-        .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string())?;
     rx.await.map_err(|_| "the mini player never answered".to_string())?
 }
 
@@ -2828,8 +2837,8 @@ pub async fn karaoke_engine_status(
             processor: engine.processor(),
         }
     })
-        .await
-        .map_err(|e| e.to_string())
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Clear the karaoke instrumental cache.

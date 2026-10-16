@@ -1021,7 +1021,7 @@
 		onclose={() => (langOpen = false)}
 		onpick={(id) => {
 			langOpen = false;
-			setLocale(id).then(refreshView);
+			setLocale(id).then(refreshLanguage);
 		}}
 	/>
 {/snippet}

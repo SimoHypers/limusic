@@ -62,18 +62,9 @@ export const CARD_SIZES: CardSize[] = ['small', 'medium', 'large'];
 
 /** Everything Edit home sets. */
 export type HomeLayout = {
-	/**
-	 * Section keys, see `arrangeSections`. `seen` is every shelf home has ever shown, so Edit home
-	 * can list the ones the feed hasn't reached yet. It is the feed's, not the user's: Reset keeps it.
-	 */
+	/** Section keys, see `arrangeSections`. */
 	order: string[];
 	hidden: string[];
-	seen: string[];
-	/**
-	 * A section missing from `order` arrived after the last arrangement. On, it lands hidden instead
-	 * of shown: hiding every shelf used to be undone by the next page of the feed (#317).
-	 */
-	hideNew: boolean;
 	/** The mood chip row. */
 	chips: boolean;
 	/** The playing track's artwork behind the greeting; off, the header keeps the accent wash. */
@@ -85,8 +76,6 @@ export type HomeLayout = {
 const defaultHome = (): HomeLayout => ({
 	order: [],
 	hidden: [],
-	seen: [],
-	hideNew: false,
 	chips: true,
 	backdrop: true,
 	cards: 'medium'
@@ -140,8 +129,6 @@ export function hydrate(raw: unknown): Personal {
 		base.home = {
 			order: keys(h.order),
 			hidden: keys(h.hidden),
-			seen: keys(h.seen),
-			hideNew: flag(h.hideNew, false),
 			chips: flag(h.chips, true),
 			backdrop: flag(h.backdrop, true),
 			cards: CARD_SIZES.includes(h.cards as CardSize) ? (h.cards as CardSize) : 'medium'
@@ -357,16 +344,36 @@ export function orderLibrary(items: BrowseItem[], p: Personal): BrowseItem[] {
 // --- Home arrangement ---------------------------------------------------------------------------
 
 /**
+ * The YouTube shelves home shows, by the `kind` the innertube crate gives them (#476). Everything
+ * else YouTube sends (an artist's shelf, "Recaps", "Long listens") stays off home: the feed varies
+ * by the day and by the language, and listing whatever it sent turned Edit home into a pile of
+ * forty rows, half of them in a language the user had since switched away from.
+ *
+ * Forgotten favourites is a kind too, but home renders it as one of ours (`@forgotten`).
+ */
+export const HOME_KINDS = [
+	'listen_again',
+	'quick_picks',
+	'from_library',
+	'community',
+	'fresh_finds',
+	'albums_for_you',
+	'trending',
+	'featured_playlists',
+	'new_releases',
+	'mixed_for_you',
+	'daily_discover',
+	'music_videos'
+] as const;
+export type HomeKind = (typeof HOME_KINDS)[number];
+
+/**
  * Home's sections in the order the user put them, hidden ones included (the Edit home panel has to
- * list those to offer them back). A section YouTube only started sending after the last save has no
- * rank and sorts to the end, keeping the feed's own order among its peers.
+ * list those to offer them back). A section with no rank sorts to the end, keeping the order it
+ * arrived in among its peers.
  *
  * Sorting only, never filtering: `hiddenSections` is the other half, and the two callers need the
  * unfiltered list and the visible one respectively.
- *
- * ponytail: sections are keyed by shelf title, which is what the user sees and all YouTube gives us
- * that's stable across sessions. Two shelves sharing a title share one setting — key on
- * `moreBrowseId` if that ever shows up in the wild.
  */
 export function arrangeSections<T extends { key: string }>(sections: T[], p: Personal): T[] {
 	const ranks = new Map(p.home.order.map((key, i) => [key, i]));
@@ -376,21 +383,14 @@ export function arrangeSections<T extends { key: string }>(sections: T[], p: Per
 	return sections.slice().sort((a, b) => rank(a.key) - rank(b.key));
 }
 
-/**
- * Which sections stay off the page: the ones switched off, plus, under `hideNew`, any the last
- * arrangement didn't rank. Needs an arrangement to be new relative to, so an empty `order` hides
- * nothing extra.
- */
+/** The sections switched off. */
 export function hiddenSections(p: Personal): { has(key: string): boolean } {
-	const hidden = new Set(p.home.hidden);
-	const ranked = new Set(p.home.order);
-	const fresh = p.home.hideNew && ranked.size > 0;
-	return { has: (key) => hidden.has(key) || (fresh && !ranked.has(key)) };
+	return new Set(p.home.hidden);
 }
 
-/** Home as it ships. The feed's memory of shelves (`seen`) is not a setting, so it stays. */
+/** Home as it ships. */
 export function resetHome(p: Personal): void {
-	p.home = { ...defaultHome(), seen: p.home.seen };
+	p.home = defaultHome();
 }
 
 export function homeIsDefault(p: Personal): boolean {
@@ -399,7 +399,6 @@ export function homeIsDefault(p: Personal): boolean {
 	return (
 		!h.order.length &&
 		!h.hidden.length &&
-		h.hideNew === d.hideNew &&
 		h.chips === d.chips &&
 		h.backdrop === d.backdrop &&
 		h.cards === d.cards
@@ -407,22 +406,22 @@ export function homeIsDefault(p: Personal): boolean {
 }
 
 /**
- * Home arrives a page at a time, so at any moment the feed holds only the shelves the reader has
- * scrolled to. Edit home lists sections, and listing only the loaded ones meant the list showed
- * five entries before a scroll and fifteen after one. Remember every shelf title the feed has ever
- * rendered and the modal can offer all of them, whether or not this visit has fetched them yet.
+ * Arrangements saved before #476 keyed YouTube's shelves by their title. Rename each title the feed
+ * now pairs with a kind, so a section the user hid or moved stays that way. Only the language the
+ * feed is in can be matched; a title from any other one is left behind, and the next save from
+ * Edit home (which writes only the rows it lists) drops it.
  *
- * Returns whether anything was added, so a caller that runs on every page can skip the write.
- *
- * ponytail: newest-first, capped, so a shelf YouTube stops sending ages out instead of sitting in
- * the modal forever. No timestamps — the cap is the only thing that reads the order.
+ * Returns whether anything changed, so the caller, which runs on every page, can skip the write.
  */
-const MAX_SEEN = 40;
-export function noteSections(p: Personal, titles: string[]): boolean {
-	const have = new Set(p.home.seen);
-	const fresh = [...new Set(titles.filter((t) => t && !have.has(t)))];
-	if (!fresh.length) return false;
-	p.home.seen = [...fresh, ...p.home.seen].slice(0, MAX_SEEN);
+export function adoptKinds(p: Personal, sections: { title: string; kind?: string }[]): boolean {
+	const kinds = new Map(sections.flatMap((s) => (s.kind ? [[s.title, s.kind] as const] : [])));
+	const renames = (keys: string[]) => keys.some((k) => kinds.has(k));
+	// Writes only when something renames: the caller is an effect, and assigning an equal array
+	// still counts as a change to whatever read the old one.
+	if (!renames(p.home.order) && !renames(p.home.hidden)) return false;
+	const rename = (keys: string[]) => [...new Set(keys.map((k) => kinds.get(k) ?? k))];
+	p.home.order = rename(p.home.order);
+	p.home.hidden = rename(p.home.hidden);
 	return true;
 }
 

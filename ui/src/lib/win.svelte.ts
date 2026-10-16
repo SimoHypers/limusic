@@ -10,7 +10,14 @@ import { invoke } from '@tauri-apps/api/core';
  *  compositor does (the "system title bar" setting, Linux/Windows), `overlay` = macOS traffic
  *  lights float over our bar. Anything but `off` hides our window buttons and corner rounding.
  *  Derived in Rust (`native_chrome` in commands.rs) so the SPA needs no platform check. */
-export const win = $state({ maximized: false, chrome: 'off' as 'off' | 'on' | 'overlay' });
+export const win = $state({
+	maximized: false,
+	chrome: 'off' as 'off' | 'on' | 'overlay',
+	// Which of our window buttons the desktop's GTK layout names (Linux, `BUTTON_LAYOUT` in
+	// commands.rs, #481). Close always shows.
+	minimize: true,
+	maximize: true
+});
 
 let started = false;
 
@@ -34,6 +41,11 @@ export function initWin(): () => void {
 	getSettings()
 		.then((s) => {
 			if (s.native_chrome === 'on' || s.native_chrome === 'overlay') win.chrome = s.native_chrome;
+			const layout = s.button_layout;
+			if (layout !== undefined) {
+				win.minimize = layout.includes('minimize');
+				win.maximize = layout.includes('maximize');
+			}
 		})
 		.catch(() => {})
 		.finally(() =>

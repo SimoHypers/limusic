@@ -161,6 +161,8 @@ export interface BrowseItem {
 
 export interface HomeSection {
 	title: string;
+	/** Which of home's known sections this is (`HOME_KINDS`), in any language. Absent otherwise. */
+	kind?: string;
 	items: BrowseItem[];
 	moreBrowseId?: string;
 	moreParams?: string;
@@ -335,7 +337,10 @@ export interface AlbumPage {
 
 export interface ArtistPage {
 	name?: string;
+	/** Wide hero/banner image from the page header. */
 	thumbnail?: string;
+	/** Round channel avatar. Only channels YouTube Music doesn't treat as artists have one. */
+	avatar?: string;
 	description?: string;
 	subscribers?: string;
 	monthlyListeners?: string;
@@ -1314,3 +1319,9 @@ export const onLtState = (cb: (s: LtState) => void): Promise<UnlistenFn> =>
 	listen<LtState>('lt-state', (e) => cb(e.payload));
 export const onLtNotice = (cb: (msg: string) => void): Promise<UnlistenFn> =>
 	listen<string>('lt-notice', (e) => cb(e.payload));
+
+export const getMatugenTheme = () => invoke<string | null>('get_matugen_theme');
+export const onMatugenThemeChanged = (cb: (css: string | null) => void): Promise<UnlistenFn> =>
+	listen<string | null>('matugen-theme-changed', (event) => cb(event.payload));
+export const startMatugenWatcher = () => invoke<void>('start_matugen_watcher');
+export const stopMatugenWatcher = () => invoke<void>('stop_matugen_watcher');

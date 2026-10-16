@@ -116,7 +116,8 @@
 		id,
 		title: artist?.name ?? t('common.artist_singular'),
 		subtitle: artist?.subscribers,
-		thumbnail: artist?.thumbnail
+		// Cards elsewhere carry the round avatar; the banner is only the fallback.
+		thumbnail: artist?.avatar ?? artist?.thumbnail
 	});
 
 	// Shuffles the whole top-songs playlist (what "See all" opens), not just the 5 rows on this

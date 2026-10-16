@@ -70,6 +70,10 @@ pub struct BrowseItem {
 #[serde(rename_all = "camelCase")]
 pub struct Section {
     pub title: String,
+    /// Which of home's known sections this is, whatever language the title is in (#476). `None`
+    /// for anything else, which home leaves out; a mood chip's feed shows it all.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<&'static str>,
     pub items: Vec<BrowseItem>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub more_browse_id: Option<String>,
@@ -246,8 +250,13 @@ pub struct PlaylistSuggestions {
 #[serde(rename_all = "camelCase")]
 pub struct ArtistPage {
     pub name: Option<String>,
-    /// The wide hero/banner image from the immersive header.
+    /// The wide hero/banner image from the page header.
     pub thumbnail: Option<String>,
+    /// The round channel avatar. Only `musicVisualHeaderRenderer` (a channel YouTube Music
+    /// doesn't treat as an artist) carries one; `musicImmersiveHeaderRenderer` has the banner
+    /// alone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
     pub description: Option<String>,
     /// e.g. "32.7M subscribers" (the long form; the short one is a bare "32.7M").
     pub subscribers: Option<String>,
@@ -351,7 +360,8 @@ pub fn parse_home(root: &Value) -> HomePage {
                 more.and_then(|e| e.get("browseId")).and_then(Value::as_str).map(str::to_owned);
             let more_params =
                 more.and_then(|e| e.get("params")).and_then(Value::as_str).map(str::to_owned);
-            sections.push(Section { title, items, more_browse_id, more_params });
+            let kind = super::home_shelves::kind(&title, more_browse_id.as_deref());
+            sections.push(Section { title, kind, items, more_browse_id, more_params });
         }
     }
     HomePage { chips, sections, continuation: continuation_token(root) }
@@ -944,7 +954,9 @@ pub fn parse_artist(root: &Value, browse_id: &str) -> ArtistPage {
     let header = find_all(root, "musicImmersiveHeaderRenderer")
         .into_iter()
         .next()
-        .or_else(|| find_all(root, "musicHeaderRenderer").into_iter().next());
+        .or_else(|| find_all(root, "musicHeaderRenderer").into_iter().next())
+        // A channel YouTube Music doesn't treat as an artist answers with this one instead.
+        .or_else(|| find_all(root, "musicVisualHeaderRenderer").into_iter().next());
 
     let name = header.and_then(|h| runs_text(h.get("title")));
     let description = header.and_then(|h| runs_text(h.get("description")));
@@ -953,6 +965,7 @@ pub fn parse_artist(root: &Value, browse_id: &str) -> ArtistPage {
         .and_then(|h| h.get("thumbnail"))
         .and_then(last_thumbnail)
         .or_else(|| header.and_then(last_thumbnail));
+    let avatar = header.and_then(|h| h.get("foregroundThumbnail")).and_then(last_thumbnail);
 
     let sub = header.and_then(|h| find_all(h, "subscribeButtonRenderer").into_iter().next());
     let channel_id = sub
@@ -1007,6 +1020,7 @@ pub fn parse_artist(root: &Value, browse_id: &str) -> ArtistPage {
     ArtistPage {
         name,
         thumbnail,
+        avatar,
         description,
         subscribers,
         monthly_listeners,
@@ -1323,6 +1337,34 @@ mod tests {
         assert_eq!(parse_artist(&bare, "UCx").radio_playlist_id, None);
     }
 
+    // A channel YouTube Music doesn't treat as an artist comes back with a visual header, not an
+    // immersive one. Its banner and its round avatar are two different images.
+    #[test]
+    fn parses_a_channel_with_a_visual_header() {
+        let root = json!({ "header": { "musicVisualHeaderRenderer": {
+            "title": { "runs": [{ "text": "A Channel" }] },
+            "subscriptionButton": { "subscribeButtonRenderer": {
+                "subscribed": false,
+                "channelId": "UCchannel",
+                "subscriberCountText": { "runs": [{ "text": "1.2K" }] },
+                "longSubscriberCountText": { "runs": [{ "text": "1.2K subscribers" }] }
+            } },
+            "thumbnail": { "musicThumbnailRenderer": { "thumbnail": { "thumbnails": [
+                { "url": "https://banner/540" }, { "url": "https://banner/1440" }
+            ] } } },
+            "foregroundThumbnail": { "musicThumbnailRenderer": { "thumbnail": { "thumbnails": [
+                { "url": "https://avatar/60" }, { "url": "https://avatar/544" }
+            ] } } }
+        } } });
+        let a = parse_artist(&root, "UCx");
+        assert_eq!(a.name.as_deref(), Some("A Channel"));
+        assert_eq!(a.thumbnail.as_deref(), Some("https://banner/1440"));
+        assert_eq!(a.avatar.as_deref(), Some("https://avatar/544"));
+        assert_eq!(a.subscribers.as_deref(), Some("1.2K subscribers"));
+        assert_eq!(a.channel_id, "UCchannel");
+        assert!(!a.subscribed);
+    }
+
     // History comes back as one `musicShelfRenderer` per day, not one shelf of rows: the day title
     // is the grouping, and a shelf with nothing playable in it must not become a bare heading.
     #[test]
@@ -1447,6 +1489,8 @@ mod tests {
         assert_eq!(home.sections.len(), 3);
         let s = &home.sections[0];
         assert_eq!(s.title, "Mixed for you");
+        assert_eq!(s.kind, Some("mixed_for_you"));
+        assert_eq!(home.sections[1].kind, None, "not one of home's sections");
         assert_eq!(s.items.len(), 2);
         assert_eq!(s.items[0].kind, "playlist");
         assert_eq!(s.items[0].id, "VLPL123");

@@ -319,7 +319,7 @@
 			"about_hint": "版本資訊、軟體更新與更新日誌。",
 			"hotkeys": "全域快捷鍵",
 			"hotkeys_hint": "在系統任何角落均可控制播放的鍵盤快捷鍵。",
-			"scrobbling": "正在紀錄",
+			"scrobbling": "紀錄",
 			"scrobbling_hint": "Last.fm 紀錄的資訊，以及何時紀錄播放。"
 		},
 		"sections": {
@@ -650,7 +650,7 @@
 			"applied_edit": "您套用的編輯",
 			"applied_split": "標題拆分",
 			"applied_rule": "已套用規則：{n}",
-			"status_disconnected": "由於 Last.fm 沒有連接，因此沒有發送任何資訊。",
+			"status_disconnected": "由於找不到任何紀錄服務，因此沒有發送任何資訊。",
 			"status_paused": "紀錄已暫停。",
 			"status_skip_edit": "您的規則不會在此曲目上套用。",
 			"status_incomplete": "沒有任何資訊送出：因為缺失標題或演出者。",

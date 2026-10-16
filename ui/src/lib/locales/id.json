@@ -148,7 +148,9 @@
 		"queue_ends": "Antrean berakhir setelah lagu ini.",
 		"remove_from_this_playlist": "Hapus dari daftar putar ini",
 		"edit_scrobble": "Edit scrobble",
-		"back_to": "Kembali ke {title}"
+		"back_to": "Kembali ke {title}",
+		"song": "Lagu",
+		"video": "Video"
 	},
 	"home": {
 		"good_morning": "Selamat pagi",
@@ -254,7 +256,12 @@
 		"saved_in": "Tersimpan di",
 		"saved_in_one": "Tersimpan di {playlist}",
 		"saved_in_many": "Tersimpan di {count} daftar putar",
-		"saved_in_more": "dan {count} lainnya"
+		"saved_in_more": "dan {count} lainnya",
+		"suggestions": "Rekomendasi",
+		"suggestions_hint": "Berdasarkan isi daftar putar ini",
+		"suggestions_failed": "Tidak dapat memuat rekomendasi.",
+		"suggestion_add": "Tambahkan {title} ke daftar putar ini",
+		"suggestion_added": "Ditambahkan"
 	},
 	"local": {
 		"scanning": "Memindai folder...",
@@ -286,7 +293,7 @@
 			"discord": "Discord",
 			"discord_hint": "Tampilan kartu Rich Presence Anda.",
 			"scrobbling": "Scrobble",
-			"scrobbling_hint": "Data yang dikirim ke Last.fm, dan kapan pemutaran dihitung.",
+			"scrobbling_hint": "Data yang dikirim melalui scrobbling dan kapan pemutaran dihitung.",
 			"hotkeys": "Pintasan Global",
 			"hotkeys_hint": "Pintasan seluruh sistem untuk mengontrol pemutaran."
 		},
@@ -311,7 +318,9 @@
 			"discord_status": "Status",
 			"discord_card": "Kartu",
 			"discord_links": "Dapat diklik",
-			"discord_buttons": "Tombol"
+			"discord_buttons": "Tombol",
+			"colors": "Warna",
+			"interface": "Antarmuka"
 		},
 		"general": {
 			"language": "Bahasa antarmuka",
@@ -377,7 +386,19 @@
 			"app_icon_dialog": "Pilih ikon aplikasi",
 			"app_icon_filter": "Gambar PNG",
 			"zoom": "Skala antarmuka",
-			"zoom_hint": "Mengubah skala semua elemen jendela. Pintasan zoom juga dapat mengubahnya, dan pilihan akan diingat antar peluncuran."
+			"zoom_hint": "Mengubah skala semua elemen jendela. Pintasan zoom juga dapat mengubahnya, dan pilihan akan diingat antar peluncuran.",
+			"stage_player": "Tata letak pemutar baru",
+			"stage_player_hint": "Judul lagu, artis, dan album ditampilkan di bawah sampul, sedangkan antrean dan lirik berada dalam kolom setinggi tampilan. Warna sampul mewarnai tampilan. Nonaktifkan untuk tetap menggunakan tata letak asli.",
+			"mode": "Terang atau gelap",
+			"mode_hint": "Sistem mengikuti pengaturan komputer Anda dan berubah sesuai pengaturan tersebut.",
+			"mode_light": "Terang",
+			"mode_dark": "Gelap",
+			"mode_system": "Sistem",
+			"accent_hint": "Tombol, bilah progres, dan semua elemen yang dipilih.",
+			"accent_theme": "Warna aksen bawaan tema",
+			"accent_artwork_note": "Saat lagu diputar, warna aksen diambil dari sampulnya. Nonaktifkan Sesuaikan warna dengan sampul untuk melihat warna ini.",
+			"preview": "Pratinjau",
+			"preview_hint": "Perubahan penggeser dan pemilih warna ditampilkan di sini saat Anda menyeretnya, lalu diterapkan ke aplikasi saat Anda melepasnya."
 		},
 		"playback": {
 			"audio_quality": "Kualitas audio",
@@ -569,7 +590,7 @@
 			"enable": "Scrobble",
 			"enable_hint": "Matikan untuk menghentikan scrobble sementara tanpa memutuskan akun Anda.",
 			"now_playing": "Tampilkan apa yang diputar",
-			"now_playing_hint": "Kirim informasi trek ke Last.fm saat lagu dimulai, sehingga profil Anda menampilkannya secara langsung.",
+			"now_playing_hint": "Kirim informasi lagu saat mulai diputar agar profil Anda menampilkannya secara langsung.",
 			"section_timing": "Kapan pemutaran dihitung",
 			"percent": "Scrobble setelah",
 			"percent_value": "{n}%",
@@ -621,13 +642,23 @@
 			"applied_edit": "Hasil edit Anda",
 			"applied_split": "Pemisahan judul",
 			"applied_rule": "Aturan {n}",
-			"status_disconnected": "Last.fm belum terhubung, jadi tidak ada yang dikirim.",
+			"status_disconnected": "Tidak ada layanan scrobbling yang terhubung, sehingga tidak ada data yang dikirim.",
 			"status_paused": "Scrobble dinonaktifkan.",
 			"status_skip_edit": "Pengeditan Anda menonaktifkan scrobble untuk trek ini.",
 			"status_incomplete": "Tidak ada yang dikirim: judul atau artis tidak ditemukan.",
 			"status_short": "Terlalu pendek untuk discrobble.",
 			"status_at": "Scrobble pada {time}.",
-			"status_done": "Discrobble pada {time}."
+			"status_done": "Discrobble pada {time}.",
+			"stat_listens": "Riwayat dengar",
+			"lb_open_profile": "Buka profil ListenBrainz Anda",
+			"lb_disconnected": "Hubungkan akun ListenBrainz Anda untuk mengirim informasi lagu yang Anda putar.",
+			"lb_validating": "Sedang memeriksa token tersebut dengan ListenBrainz.",
+			"lb_token_hint": "Tempel token pengguna Anda di sini. Anda dapat menyalinnya dari halaman pengaturan ListenBrainz.",
+			"lb_open_settings": "Buka pengaturan ListenBrainz",
+			"lb_token_placeholder": "Token pengguna ListenBrainz",
+			"lb_problem_email": "Verifikasi alamat email MetaBrainz Anda agar ListenBrainz menerima riwayat dengar Anda.",
+			"lb_problem_rejected": "ListenBrainz tidak lagi menerima token ini. Hubungkan kembali dengan token baru.",
+			"lb_verify_email": "Verifikasi email"
 		}
 	},
 	"dialogs": {
@@ -675,7 +706,8 @@
 			"zoom_out": "Perkecil",
 			"reset_zoom": "Atur ulang skala",
 			"show_this_list": "Tampilkan daftar ini",
-			"refresh_page": "Segarkan halaman"
+			"refresh_page": "Segarkan halaman",
+			"quit_app": "Keluar dari Limusic"
 		},
 		"tempo_pitch": {
 			"title": "Kontrol Tempo & Nada",
@@ -760,7 +792,9 @@
 		"lastfm_connecting": "Menghubungkan ke Last.fm — klik untuk membatalkan",
 		"lastfm_scrobble_to": "Scrobble ke Last.fm",
 		"disconnect": "Putuskan",
-		"lastfm_settings": "Pengaturan scrobble"
+		"lastfm_settings": "Pengaturan scrobble",
+		"listenbrainz_connected_as": "Mengirim riwayat dengar sebagai {user}",
+		"listenbrainz_disconnected": "ListenBrainz terputus"
 	},
 	"a11y": {
 		"close": "Tutup",
@@ -969,7 +1003,8 @@
 		"playlist_partial": "Menambahkan {added} ke {playlist}; {duplicates} sudah ada di sana; {remaining} belum dikonfirmasi. {error}",
 		"remove": "Hapus dari daftar putar ini",
 		"remove_confirm": "Hapus {count} trek?",
-		"playlists_partial": "Ditambahkan ke {done} dari {total} daftar putar. {error}"
+		"playlists_partial": "Ditambahkan ke {done} dari {total} daftar putar. {error}",
+		"play_on_repeat": "Putar hanya lagu-lagu ini secara berulang"
 	},
 	"add_playlist": {
 		"confirm": "Tambahkan ke daftar putar",
@@ -1098,6 +1133,7 @@
 			"gone": "Proses impor tersebut sudah tidak aktif.",
 			"not_found": "Tidak dapat menemukan lagu tersebut di YouTube Music.",
 			"cooldown": "YouTube Music meminta Limusic untuk memperlambat proses, sehingga impor dijeda hingga {time}. Semua trek yang telah ditemukan tetap tersimpan."
-		}
+		},
+		"paste_link_hint": "Hanya tersedia sebagai video di YouTube? Tempel tautannya."
 	}
 }

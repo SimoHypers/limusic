@@ -52,11 +52,14 @@
 
 	const ids = topArtistIds(personal, COUNT + SLACK);
 
-	const src = (a: ArtistPage) => ((attempt[a.channelId] ?? 0) === 0 ? thumb(a.thumbnail, 400) : a.thumbnail);
-	const hasArt = (a: ArtistPage) => !!a.thumbnail && (attempt[a.channelId] ?? 0) < 2;
+	// A channel YouTube Music doesn't treat as an artist has a wide banner as `thumbnail` and its
+	// round avatar apart; the avatar is the one that crops to a poster.
+	const art = (a: ArtistPage) => a.avatar ?? a.thumbnail;
+	const src = (a: ArtistPage) => ((attempt[a.channelId] ?? 0) === 0 ? thumb(art(a), 400) : art(a));
+	const hasArt = (a: ArtistPage) => !!art(a) && (attempt[a.channelId] ?? 0) < 2;
 	const imgFailed = (a: ArtistPage) => {
 		const n = attempt[a.channelId] ?? 0;
-		attempt = { ...attempt, [a.channelId]: n === 0 && thumb(a.thumbnail, 400) !== a.thumbnail ? 1 : 2 };
+		attempt = { ...attempt, [a.channelId]: n === 0 && thumb(art(a), 400) !== art(a) ? 1 : 2 };
 	};
 
 	async function fetchArtist(id: string): Promise<ArtistPage | null> {
@@ -104,7 +107,7 @@
 		id: a.browseId,
 		title: a.name ?? t('common.artist_singular'),
 		subtitle: a.subscribers,
-		thumbnail: a.thumbnail
+		thumbnail: art(a)
 	});
 
 	const open = (a: Familiar) => goto(`/artist/${encodeURIComponent(a.browseId)}`);

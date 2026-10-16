@@ -110,6 +110,23 @@
 	});
 	const calm = $derived(idle && !playback.paused && !overDock);
 
+	// The dock floats over the bottom of the stage. Once it has faded out, the lyrics and the queue
+	// grow down into its room until they end as far from the bottom edge as they start from the top
+	// (the header's 5rem), instead of stopping over an empty band (#468). Not to the edge: that cut
+	// lines in half against the progress line. The picture keeps its size. Growing the columns at
+	// the bottom moves nothing already on screen, it only shows more of them. Waits out the dock's
+	// fade so the two never overlap, and gives the room back the moment the dock comes back.
+	let dockH = $state(0);
+	let roomFree = $state(false);
+	$effect(() => {
+		if (!calm) {
+			roomFree = false;
+			return;
+		}
+		const timer = setTimeout(() => (roomFree = true), 500);
+		return () => clearTimeout(timer);
+	});
+
 	function onKey(e: KeyboardEvent) {
 		wake();
 		// A dialog or menu open over this one (the palette, the shortcut sheet, a track menu) already
@@ -384,6 +401,7 @@
 		     (cqw/cqh) instead of guessing at the window. -->
 		<div
 			class="flex min-w-0 flex-1 items-center justify-center [container-type:size]"
+			style="padding-bottom:{dockH}px"
 			data-theater-pic
 		>
 			<div style="--side:{side};width:var(--side)">
@@ -533,6 +551,7 @@
 			<div
 				in:fly={{ y: 24, duration: 400, easing: cubicOut }}
 				class="flex min-h-0 min-w-0 flex-[1.2] flex-col overflow-hidden 2xl:[&_[data-line]]:text-4xl [&_*]:[scrollbar-width:none] [&_*::-webkit-scrollbar]:hidden"
+				style="padding-bottom:{roomFree ? '5rem' : `${dockH}px`}"
 			>
 				<LyricsView expanded />
 			</div>
@@ -550,6 +569,7 @@
 				class="relative z-0 flex min-h-0 shrink-0 flex-col overflow-hidden {both
 					? 'w-[22rem]'
 					: 'w-[28rem] xl:w-[34rem]'}"
+				style="padding-bottom:{roomFree ? '5rem' : `${dockH}px`}"
 			>
 				<QueueList />
 			</div>
@@ -562,7 +582,8 @@
 				type="button"
 				transition:fly={{ x: 24, duration: 350, easing: cubicOut }}
 				onclick={() => api.nextTrack()}
-				class="absolute right-8 bottom-4 z-20 flex w-80 cursor-pointer items-center gap-3 rounded-2xl border border-foreground/10 bg-background/80 p-2.5 pr-4 text-left transition-colors hover:bg-background xl:right-14"
+				style="bottom:{dockH + 16}px"
+				class="absolute right-8 z-20 flex w-80 cursor-pointer items-center gap-3 rounded-2xl border border-foreground/10 bg-background/80 p-2.5 pr-4 text-left transition-colors hover:bg-background xl:right-14"
 				aria-label="{t('player.up_next')}: {upNext.title}"
 			>
 				{#if upNext.thumbnail}
@@ -585,13 +606,14 @@
 
 	<!-- === The dock: every control on one strip along the bottom. The scrubber runs the full width,
 	     the widest thing on screen to aim at; transport in the middle, what is playing on the left,
-	     what the stage shows on the right. Fades with calm, but keeps its room, so nothing on the
-	     stage moves when it comes and goes. === -->
+	     what the stage shows on the right. Fades with calm and floats over the stage, which lends its
+	     room to the lyrics and the queue while it is gone (see `roomFree`). === -->
 	<div
 		role="group"
+		bind:clientHeight={dockH}
 		onpointerenter={() => (overDock = true)}
 		onpointerleave={() => (overDock = false)}
-		class="relative z-10 mx-auto w-full max-w-[110rem] shrink-0 px-8 pt-3 pb-7 transition-opacity duration-500 xl:px-14 {calm
+		class="absolute inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[110rem] px-8 pt-3 pb-7 transition-opacity duration-500 xl:px-14 {calm
 			? 'opacity-0'
 			: ''}"
 	>

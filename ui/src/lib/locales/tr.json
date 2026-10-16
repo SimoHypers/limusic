@@ -64,7 +64,8 @@
 		"top_result": "En iyi sonuç",
 		"all_results_for": "\"{query}\" sorgusu için bütün sonuçlar",
 		"refresh": "Yenile",
-		"videos": "Videolar"
+		"videos": "Videolar",
+		"restore": "Geri al"
 	},
 	"nav": {
 		"home": "Ana Sayfa",
@@ -150,7 +151,8 @@
 		"queue_ends": "Sıra bu şarkıdan sonra sona erecek.",
 		"edit_scrobble": "Skropu düzenle",
 		"song": "Müzik",
-		"video": "Video"
+		"video": "Video",
+		"comments": "Yorumlar"
 	},
 	"home": {
 		"good_morning": "Günaydın",
@@ -197,7 +199,8 @@
 		"subscribed": "Abone olundu",
 		"top_songs": "En popüler şarkılar",
 		"subscribe_to": "{name} isimli sanatçıyı takip et",
-		"unsubscribe_from": "{name} isimli sanatçıyı takibi bırak"
+		"unsubscribe_from": "{name} isimli sanatçıyı takibi bırak",
+		"appears_on": "Yer aldığı albümler"
 	},
 	"library": {
 		"title": "Kitaplık",
@@ -256,7 +259,13 @@
 		"saved_in_many": "{count} çalma listesine kaydedildi",
 		"saved_in_more": "ve {count} tane daha",
 		"no_subscriptions": "Henüz aboneliğiniz yok. Bir sanatçıyı buraya eklemek için sanatçının sayfasından abone olun.",
-		"subscriptions_tab": "Abonelikler"
+		"subscriptions_tab": "Abonelikler",
+		"suggestion_added": "Eklendi",
+		"suggestions": "Öneriler",
+		"suggestions_hint": "Bu çalma listesindeki şarkılar baz alınarak oluşturulur",
+		"suggestions_failed": "Öneriler yüklenemedi.",
+		"suggestion_add": "{title} parçasını bu çalma listesine ekle",
+		"saved_in_count": "{count} çalma listesi"
 	},
 	"local": {
 		"scanning": "Klasör taranıyor...",
@@ -290,7 +299,7 @@
 			"hotkeys": "Genel Klavye Kısayolları",
 			"hotkeys_hint": "Oynatmayı kontrol etmek için sistem geneli kısayollar.",
 			"scrobbling": "Skroplama",
-			"scrobbling_hint": "Last.fm’in nasıl çalıştığı ve bir dinlemenin ne zaman sayılacağı."
+			"scrobbling_hint": "Skroplamanın neleri göndereceği ve bir dinlemenin ne zaman sayılacağı."
 		},
 		"sections": {
 			"language": "Dil (Language)",
@@ -341,7 +350,9 @@
 			"track_notifications": "Şarkı bildirimleri",
 			"track_notifications_hint": "Limusic arka plandayken yeni bir şarkı başladığında bildirim göster.",
 			"start_minimized": "Başlangıçta sistem tepsisine başlat",
-			"start_minimized_hint": "Limusic sisteminle birlikte başladığında siz açana kadar tepside kalır. Kendiniz açtığınızda ise pencere her zaman gösterilir."
+			"start_minimized_hint": "Limusic sisteminle birlikte başladığında siz açana kadar tepside kalır. Kendiniz açtığınızda ise pencere her zaman gösterilir.",
+			"track_notifications_focused": "Ayrıca Limusic'i kullanırken bildirimler",
+			"track_notifications_focused_hint": "Ayrıca, Limusic penceresi aktifken bir sonraki şarkı kendiliğinden başladığında bir bildirim göster. Kendi seçtiğin şarkılarda ise böyle bir bildirim gösterilmez."
 		},
 		"themes": {
 			"interface_font": "Arayüz yazı tipi",
@@ -578,7 +589,7 @@
 			"stat_tracks": "Parçalar",
 			"enable_hint": "Hesabınızın bağlantısını kesmeden bir süreliğine skroplamayı durdurmak için bu özelliği kapatın.",
 			"now_playing": "Şu anda neyin oynatıldığını göster",
-			"now_playing_hint": "Bir parça çalmaya başladığında bunu Last.fm’e bildir, böylece profilinde anlık olarak görünür.",
+			"now_playing_hint": "Bir parça çalmaya başladığında bunu bildir, böylece profilinde anlık olarak görünür.",
 			"percent_value": "{n}%",
 			"percent": "Bu orandan sonra skropla",
 			"minutes_value": "{n} dakika",
@@ -617,7 +628,7 @@
 			"imported": "Kurallar eklendi: {rules}. Düzenlemeler eklendi: {edits}.",
 			"section_edits": "Parça düzenlemeleri",
 			"edits_hint": "Tekli parçalar için düzeltmeler, bir sonraki çalınışlarından itibaren geçerli olur.",
-			"status_disconnected": "Last.fm bağlı değil, yani hiçbir şey gönderilmiyor.",
+			"status_disconnected": "Hiçbir skroplama servisi bağlı değil, yani hiçbir şey gönderilmiyor.",
 			"status_skip_edit": "Yaptığınız düzenleme bu parçayı kapatır.",
 			"status_incomplete": "Hiçbir şey gönderilmedi: başlık ve sanatçı verisi yok.",
 			"status_at": "{time} tarihinde skroplandı.",
@@ -643,7 +654,17 @@
 			"rule_enabled": "Bu kuralı kullan",
 			"rules_hint": "Gönderilen verilerde arama ve değiştirme işlemi, her bir parça üzerinde sırayla uygulanır.",
 			"find_hint": "Bir düzenli ifade (regex). Eşleşmeyi ilgili alana taşımak için bir gruba (?<artist>…), (?<title>…) veya (?<album>…) adını verin.",
-			"split_titles_hint": "Bir kanala atıf yapılan yüklemelerin başlığında genellikle gerçek sanatçının adı “Sanatçı - Şarkı” şeklinde belirtilir. Bunları o sanatçı ve şarkı olarak skropla. Bu sadece videolar için geçerlidir, şarkılar için geçerli değildir."
+			"split_titles_hint": "Bir kanala atıf yapılan yüklemelerin başlığında genellikle gerçek sanatçının adı “Sanatçı - Şarkı” şeklinde belirtilir. Bunları o sanatçı ve şarkı olarak skropla. Bu sadece videolar için geçerlidir, şarkılar için geçerli değildir.",
+			"stat_listens": "Dinleme",
+			"lb_open_profile": "ListenBrainz profilinizi açın",
+			"lb_disconnected": "ListenBrainz hesabınızı bağlayarak dinlediğiniz şarkıları aktarın.",
+			"lb_validating": "Token ListenBrainz ile kontrol ediliyor.",
+			"lb_token_hint": "Kullanıcı tokeninizi buraya yapıştırın. Bunu ListenBrainz ayarlar sayfasından kopyalayabilirsiniz.",
+			"lb_open_settings": "ListenBrainz ayarlarını aç",
+			"lb_token_placeholder": "ListenBrainz kullanıcı tokeni",
+			"lb_verify_email": "E-postayı doğrula",
+			"lb_problem_email": "ListenBrainz'in dinlediklerinizi kabul etmesi için MetaBrainz e-posta adresinizi doğrulayın.",
+			"lb_problem_rejected": "ListenBrainz artık bu tokeni kabul etmiyor. Yeni bir token kullanarak yeniden bağlanın."
 		}
 	},
 	"dialogs": {
@@ -777,7 +798,9 @@
 		"lastfm_connecting": "Last.fm'e bağlanılıyor — iptal etmek için tıklayın",
 		"lastfm_scrobble_to": "Last.fm'e scrobble et",
 		"disconnect": "Bağlantıyı kes",
-		"lastfm_settings": "Skroplama ayarları"
+		"lastfm_settings": "Skroplama ayarları",
+		"listenbrainz_disconnected": "ListenBrainz bağlantısı kesildi",
+		"listenbrainz_connected_as": "Dinlemeler {user} olarak gönderiliyor"
 	},
 	"a11y": {
 		"close": "Kapat",
@@ -821,7 +844,8 @@
 		"collapse_sidebar": "Yan paneli daralt",
 		"show_artwork": "Kapak göster",
 		"show_video": "Video göster",
-		"zoom": "Arayüz ölçeği"
+		"zoom": "Arayüz ölçeği",
+		"close_comments": "Yorumları kapat"
 	},
 	"lyrics": {
 		"title": "Şarkı sözleri",
@@ -954,7 +978,16 @@
 		"could_not_add": "Bu eklenemedi, bunun yerine açmayı deneyin",
 		"already_in_selected": "Her şey seçilen çalma listelerinde zaten mevcut",
 		"added_to_playlists_dupes": "{count} çalma listesine eklendi. Yinelenenler atlandı: {dupes}",
-		"added_to_playlists": "{count} çalma listesine eklendi"
+		"added_to_playlists": "{count} çalma listesine eklendi",
+		"could_not_load_comments": "Yorumlar yüklenemedi",
+		"comment_action_rejected": "Youtube bunu kabul etmedi. Oyunuz değiştirilmedi.",
+		"comment_action_failed": "Oyunuz güncellenemedi. Tekrar deneyin.",
+		"comment_gone": "Bu yorum artık mevcut değil.",
+		"comment_delete_failed": "Silinemedi. Bağlantınızı kontrol edin ve tekrar deneyin.",
+		"comment_write_rejected": "YouTube bunu kabul etmedi. Metnin hâlâ duruyor.",
+		"comment_write_failed": "Gönderilemedi. Metnin hâlâ duruyor.",
+		"comment_write_unconfirmed": "Yorumunuzun yayınlanıp yayınlanmadığından emin olamadık. Tekrar göndermeden önce lütfen kontrol edin.",
+		"comment_posted": "Yayınlandı. Yorumlar yeniden yüklendiğinde görünecektir."
 	},
 	"history": {
 		"title": "Geçmiş",
@@ -986,7 +1019,8 @@
 		"playlist_partial": "{playlist} listesine {added} eklendi; {duplicates} zaten listede vardı; {remaining} onaylanmadı. {error}",
 		"remove": "Bu çalma listesinden kaldır",
 		"remove_confirm": "{count} kaldır?",
-		"playlists_partial": "{total} oynatma listesinin {done} tanesi eklendi. {error}"
+		"playlists_partial": "{total} oynatma listesinin {done} tanesi eklendi. {error}",
+		"play_on_repeat": "Tekrar modunda sadece bunları çal"
 	},
 	"errors": {
 		"unreachable": "YouTube Music'e erişilemedi. Bağlantınızı kontrol edin.",
@@ -1115,6 +1149,53 @@
 		"update_done": "Spotify'dan güncellendi: {added} eklendi, {removed} kaldırıldı",
 		"update_none": "Spotify ile zaten güncel durumdasınız",
 		"nudge_desc": "Birkaç tıklamayla çalma listelerinizi ve Beğenilen Şarkılarınızı aktarın.",
-		"nudge_title": "Spotify'dan mı geliyorsunuz?"
+		"nudge_title": "Spotify'dan mı geliyorsunuz?",
+		"paste_link_hint": "YouTube'da sadece video olarak mı var? Bağlantısını yapıştırın."
+	},
+	"comments": {
+		"title": "Yorumlar",
+		"sort_top": "En popüler",
+		"sort_newest": "En yeni",
+		"count": "{count} yorum",
+		"count_one": "1 yorum",
+		"replies": "{count} yanıt",
+		"replies_one": "1 yanıt",
+		"show_replies": "Yanıtları göster",
+		"hide_replies": "Yanıtları gizle",
+		"show_more_replies": "Daha fazla yanıt göster",
+		"load_more": "Daha fazlasını yükle",
+		"disabled": "Yorumlar devre dışı bırakıldı veya bu parça için mevcut değil.",
+		"empty": "Henüz yorum yok.",
+		"load_failed": "Yorumlar yüklenemedi.",
+		"retry": "Tekrar dene",
+		"pinned": "Sabitlenmiş",
+		"verified": "Onaylı",
+		"artist": "Sanatçı",
+		"show_more": "Daha fazlasını göster",
+		"show_less": "Daha az göster",
+		"like": "Beğen",
+		"remove_like": "Beğeniyi kaldır",
+		"dislike": "Beğenme",
+		"remove_dislike": "Beğenmemeyi kaldır",
+		"reload": "Yeniden yükle",
+		"vote": "Oyunuz",
+		"composer_label": "Bir yorum yazın",
+		"add_placeholder": "Yorum ekleyin...",
+		"reply_placeholder": "Yanıt ekleyin...",
+		"edit_label": "Yorumu düzenle",
+		"reply": "Yanıtla",
+		"edit": "Düzenle",
+		"delete": "Sil",
+		"post": "Yorum",
+		"save": "Kaydet",
+		"sending": "Gönderiliyor...",
+		"delete_title": "Yorumu silmek istediğinizden emin misiniz?",
+		"follow_current": "Şuanki parçayı göster",
+		"held": "{title} parçasının yorumları",
+		"post_reply": "Yanıtla",
+		"delete_desc": "Bu işlem geri alınamaz. Bu içeriğe yapılan tüm yanıtlar da silinecektir.",
+		"hearted": "Üretici tarafından beğenildi",
+		"creator": "Üretici",
+		"reload_needed": "Yorumlar güncel değil. Devam etmek için sayfayı yeniden yükleyin."
 	}
 }

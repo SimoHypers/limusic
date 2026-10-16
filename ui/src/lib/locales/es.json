@@ -64,7 +64,8 @@
 		"top_result": "Resultado principal",
 		"all_results_for": "Todos los resultados de \"{query}\"",
 		"refresh": "Actualizar",
-		"videos": "Videos"
+		"videos": "Videos",
+		"restore": "Restaurar"
 	},
 	"nav": {
 		"home": "Inicio",
@@ -150,7 +151,9 @@
 		"queue_ends": "La cola termina después de esta canción.",
 		"edit_scrobble": "Editar scrobble",
 		"song": "Canción",
-		"video": "Video"
+		"video": "Video",
+		"comments": "Comentarios",
+		"up_next": "A continuación"
 	},
 	"home": {
 		"good_morning": "Buenos días",
@@ -197,7 +200,8 @@
 		"subscribed": "Suscrito",
 		"top_songs": "Canciones principales",
 		"subscribe_to": "Suscribirse a {name}",
-		"unsubscribe_from": "Desuscribirse de {name}"
+		"unsubscribe_from": "Desuscribirse de {name}",
+		"appears_on": "Aparece en"
 	},
 	"library": {
 		"title": "Biblioteca",
@@ -256,7 +260,13 @@
 		"saved_in_many": "Guardada en {count} playlists",
 		"saved_in_more": "y {count} más",
 		"subscriptions_tab": "Subscripciones",
-		"no_subscriptions": "Aún no te has suscrito a nadie. Suscríbete a un artista desde su pagina y guárdalos aquí."
+		"no_subscriptions": "Aún no te has suscrito a nadie. Suscríbete a un artista desde su pagina y guárdalos aquí.",
+		"suggestions": "Sugerencias",
+		"suggestions_hint": "Basado en lo que hay en esta playlist",
+		"suggestions_failed": "No se pudieron cargar sugerencias.",
+		"suggestion_add": "Añadir {title} a esta playlist",
+		"suggestion_added": "Añadida",
+		"saved_in_count": "{count} playlists"
 	},
 	"local": {
 		"scanning": "Escaneando carpeta...",
@@ -290,7 +300,7 @@
 			"hotkeys": "Atajos globales",
 			"hotkeys_hint": "Atajos globales para controlar la reproducción.",
 			"scrobbling": "Scrobbleo",
-			"scrobbling_hint": "Lo que Last.fm obtiene y lo que cuenta como reproducción."
+			"scrobbling_hint": "Lo que el scrobbleo envía y lo que cuenta como reproducción."
 		},
 		"sections": {
 			"language": "Idioma",
@@ -341,7 +351,9 @@
 			"track_notifications": "Notificaciones de canciones",
 			"track_notifications_hint": "Muestra una notificación cuando una nueva canción empieza mientras Limusic esta en segundo plano.",
 			"start_minimized": "Iniciar en la bandeja al arrancar",
-			"start_minimized_hint": "Cuando Limusic inicia con tu sistema, se mantiene en la bandeja hasta que lo abres. Siempre se muestra la ventana al abrirlo tu mismo."
+			"start_minimized_hint": "Cuando Limusic inicia con tu sistema, se mantiene en la bandeja hasta que lo abres. Siempre se muestra la ventana al abrirlo tu mismo.",
+			"track_notifications_focused": "También al usar Limusic",
+			"track_notifications_focused_hint": "Mostrar una notificación cuando la siguiente pista comience sola con Limusic en primer plano. Las pistas que elijas manualmente nunca mostrarán notificación."
 		},
 		"themes": {
 			"interface_font": "Fuente de la interfaz",
@@ -393,7 +405,9 @@
 			"accent_theme": "El acento propio del tema",
 			"accent_artwork_note": "Mientras se reproduce una canción, el color de acento se basa en su portada. Desactiva la opción «Adaptar colores a la ilustración» para verla.",
 			"preview": "Previa",
-			"preview_hint": "Los controles deslizantes y el selector de color aparecen aquí a medida que arrastras, y la aplicación responde cuando sueltas."
+			"preview_hint": "Los controles deslizantes y el selector de color aparecen aquí a medida que arrastras, y la aplicación responde cuando sueltas.",
+			"blur_playlist_header": "Desenfocar cabecera de playlist",
+			"blur_playlist_header_hint": "Muestra la portada de la playlist desenfocada detrás de la cabecera. Suaviza las portadas que se ven pixeladas al estirarse a todo lo ancho."
 		},
 		"playback": {
 			"audio_quality": "Calidad de audio",
@@ -444,7 +458,9 @@
 			"ambient_light_gpu": "Por debajo de los 1000 puntos en la prueba de rendimiento de PassMark, la vista del reproductor podría dar tirones mientras se reproduce un video musical.",
 			"ambient_light_gpu_check": "Busca tu tarjeta gráfica",
 			"shuffle_whole_queue": "Mezclar toda la cola",
-			"shuffle_whole_queue_hint": "\"Aleatorio\" mezcla las canciones agregadas con \"Agregar a la cola\" junto con la lista actual. Si la desactivas, se reproducirán al final en el orden en que las añadiste. \"Agregar a continuación\" siempre se reproduce justo después."
+			"shuffle_whole_queue_hint": "\"Aleatorio\" mezcla las canciones agregadas con \"Agregar a la cola\" junto con la lista actual. Si la desactivas, se reproducirán al final en el orden en que las añadiste. \"Agregar a continuación\" siempre se reproduce justo después.",
+			"videos_first": "Reproducir el video primero",
+			"videos_first_hint": "Canciones de álbumes que tengan un video musical inician con el video. Desactiva esto si quieres iniciar con la canción. El interruptor de Canción/Video en el reproductor los cambia de todas formas."
 		},
 		"data": {
 			"clear_cache": "Limpiar caché de imágenes y streams",
@@ -585,7 +601,7 @@
 			"enable": "Scrobbleo",
 			"enable_hint": "Desactívalo para detener el scrobbleo sin desconectar tu cuenta.",
 			"now_playing": "Muestra que esta reproduciéndose",
-			"now_playing_hint": "Comunica la pista a Last.fm cuando empieza, para que tu perfil lo muestre en vivo.",
+			"now_playing_hint": "Anuncia cuando empieza una pista, para que tu perfil lo muestre en vivo.",
 			"section_timing": "Cuando cuenta una reproducción",
 			"percent": "Scrobble después de",
 			"percent_value": "{n}%",
@@ -628,7 +644,7 @@
 			"edits_show_less": "Mostrar menos",
 			"edit_track": "Editar esta pista",
 			"edit_hint": "Se usa cada vez que esta pista se reproduce. Deja el campo vacío para mantener la de YouTube Music.",
-			"edit_remove": "Quitar edición",
+			"edit_remove": "Restaurar",
 			"skip_track": "No Scrobblear esta pista",
 			"not_scrobbled": "Sin Scrobblear",
 			"preview_picked": "Pista seleccionada",
@@ -637,13 +653,23 @@
 			"applied_edit": "Tu edición",
 			"applied_split": "Division del título",
 			"applied_rule": "Regla {n}",
-			"status_disconnected": "Last.fm no esta conectado, nada es enviado.",
+			"status_disconnected": "Ningún servicio de scrobbleo esta conectado, nada es enviado.",
 			"status_paused": "Scrobbleo esta desactivado.",
 			"status_skip_edit": "Tu edición desactiva esta pista.",
 			"status_incomplete": "Nada es enviado: no hay título o artista.",
 			"status_short": "Muy corto para scrobblear.",
 			"status_at": "Se scrobbleará al {time}.",
-			"status_done": "Se scrobbleó al {time}."
+			"status_done": "Se scrobbleó al {time}.",
+			"stat_listens": "Escuchadas",
+			"lb_open_profile": "Abre tu perfil de ListenBrainz",
+			"lb_disconnected": "Conecta tu cuenta de ListenBrainz para enviarle lo que escuchas.",
+			"lb_validating": "Verificando ese token con ListenBrainz.",
+			"lb_token_hint": "Pega tu token de usuario aquí. Puedes copiarlo desde la pagina de configuración de ListenBrainz.",
+			"lb_open_settings": "Abrir la configuración de ListenBrainz",
+			"lb_token_placeholder": "Token de usuario de ListenBrainz",
+			"lb_problem_email": "Verifica tu correo de MetaBrainz para que ListenBrainz acepte lo que escuchas.",
+			"lb_problem_rejected": "ListenBrainz ya no acepta este token. Conéctate otra vez con uno nuevo.",
+			"lb_verify_email": "Verificar email"
 		}
 	},
 	"dialogs": {
@@ -777,7 +803,9 @@
 		"lastfm_connecting": "Conectando a Last.fm — haz clic para cancelar",
 		"lastfm_scrobble_to": "Registrar en Last.fm",
 		"disconnect": "Desconectar",
-		"lastfm_settings": "Configuración de Scrobbleo"
+		"lastfm_settings": "Configuración de Scrobbleo",
+		"listenbrainz_connected_as": "Enviando escuchados como {user}",
+		"listenbrainz_disconnected": "ListenBrainz desconectado"
 	},
 	"a11y": {
 		"close": "Cerrar",
@@ -821,7 +849,8 @@
 		"collapse_sidebar": "Contraer barra lateral",
 		"show_artwork": "Mostrar portada",
 		"show_video": "Mostrar video",
-		"zoom": "Escala de la interfaz"
+		"zoom": "Escala de la interfaz",
+		"close_comments": "Cerrar comentarios"
 	},
 	"lyrics": {
 		"title": "Letra",
@@ -954,7 +983,16 @@
 		"could_not_add": "No se pudo añadir eso. Intenta abriéndolo",
 		"added_to_playlists": "Añadido a {count} playlists",
 		"added_to_playlists_dupes": "Añadido a {count} playlists. Canciones repetidas saltadas: {dupes}",
-		"already_in_selected": "Todo ya se encuentra en las playlists seleccionadas"
+		"already_in_selected": "Todo ya se encuentra en las playlists seleccionadas",
+		"could_not_load_comments": "No se pudo cargar comentarios",
+		"comment_action_rejected": "YouTube no aceptó eso. Tu voto no se cambió.",
+		"comment_action_failed": "No se pudo actualizar tu voto. Intenta otra vez.",
+		"comment_write_rejected": "YouTube no aceptó eso. Tu texto sigue aquí.",
+		"comment_write_failed": "No se pudo enviar eso. Tu texto sigue aquí.",
+		"comment_write_unconfirmed": "No se pudo confirmar si tu comentario se publicó. Revisa antes de enviarlo otra vez.",
+		"comment_posted": "Publicado. Se mostrará la siguiente vez que los comentarios carguen.",
+		"comment_delete_failed": "No se pudo eliminar. Revisa tu conexión e intenta otra vez.",
+		"comment_gone": "Ese comentario ya no existe."
 	},
 	"history": {
 		"title": "Historial",
@@ -986,7 +1024,8 @@
 		"playlist_partial": "Se añadió {added} a {playlist}; {duplicates} ya estaban allí; {remaining} sin confirmar. {error}",
 		"remove": "Quitar de esta playlist",
 		"remove_confirm": "¿Quitar {count}?",
-		"playlists_partial": "Añadido a {done} de {total} playlists. {error}"
+		"playlists_partial": "Añadido a {done} de {total} playlists. {error}",
+		"play_on_repeat": "Reproducir solo la selección, en bucle"
 	},
 	"errors": {
 		"unreachable": "No se pudo conectar con YouTube Music. Comprueba tu conexión.",
@@ -1115,6 +1154,53 @@
 			"gone": "Esa importación ya no está activa.",
 			"not_found": "No se pudo encontrar eso en YouTube Music.",
 			"cooldown": "YouTube Music le pidió a Limusic que bajara la velocidad, así que los importes se pausaron hasta las {time}. Todo lo que se ha encontrado se conserva."
-		}
+		},
+		"paste_link_hint": "¿Solo en YouTube como un video? Pega su link."
+	},
+	"comments": {
+		"title": "Comentarios",
+		"sort_top": "Popular",
+		"sort_newest": "Recientes",
+		"count": "{count} comentarios",
+		"count_one": "1 comentario",
+		"replies": "{count} respuestas",
+		"replies_one": "1 respuesta",
+		"show_replies": "Ver respuestas",
+		"hide_replies": "Ocultar respuestas",
+		"show_more_replies": "Mostrar más respuestas",
+		"load_more": "Cargar más",
+		"disabled": "Los comentarios estas desactivados o no disponibles para esta pista.",
+		"empty": "Sin comentarios aún.",
+		"load_failed": "No se pudo cargar comentarios.",
+		"retry": "Intentar de nuevo",
+		"pinned": "Fijado",
+		"hearted": "El creador le dio un corazón",
+		"verified": "Verificado",
+		"creator": "Creador",
+		"artist": "Artista",
+		"show_more": "Mostrar más",
+		"show_less": "Mostrar menos",
+		"vote": "Tu voto",
+		"like": "Me gusta",
+		"remove_like": "Quitar me gusta",
+		"dislike": "No me gusta",
+		"remove_dislike": "Quitar no me gusta",
+		"reload_needed": "Estos comentarios están desactualizados. Recárgalos para continuar.",
+		"reload": "Recargar",
+		"composer_label": "Escribe un comentario",
+		"add_placeholder": "Añade un comentario...",
+		"reply_placeholder": "Añade una respuesta...",
+		"edit_label": "Editar tu comentario",
+		"reply": "Responder",
+		"edit": "Editar",
+		"delete": "Eliminar",
+		"post": "Comentar",
+		"post_reply": "Responder",
+		"save": "Guardar",
+		"sending": "Enviando...",
+		"delete_title": "¿Borrar este comentario?",
+		"delete_desc": "Esto no se puede deshacer. Se eliminarán también todas sus respuestas.",
+		"held": "Comentarios en {title}",
+		"follow_current": "Mostrar pista actual"
 	}
 }

@@ -21,6 +21,7 @@ mod listenbrainz;
 mod listentogether;
 mod local;
 mod lyrics;
+mod matugen;
 mod media;
 mod mini;
 #[cfg(target_os = "linux")]
@@ -315,6 +316,55 @@ fn raise_fd_limit() {
     }
 }
 
+/// The vendor of the EGL that serves the X11 display: "NVIDIA" when the proprietary driver draws
+/// the screen, "Mesa Project" when Intel or AMD does, which is a hybrid laptop's default even with
+/// the NVIDIA driver loaded (#458). WebKit's UI process opens its EGL display the same way, and
+/// the GPU behind it is the one the DMABUF renderer allocates from, so this asks the question
+/// WebKit is about to answer. `None` when there is no EGL or it will not initialize.
+#[cfg(target_os = "linux")]
+fn x11_egl_vendor() -> Option<String> {
+    use std::ffi::{c_char, c_void, CStr};
+    type GetPlatformDisplay = unsafe extern "C" fn(u32, *mut c_void, *const isize) -> *mut c_void;
+    type Initialize = unsafe extern "C" fn(*mut c_void, *mut i32, *mut i32) -> u32;
+    type Terminate = unsafe extern "C" fn(*mut c_void) -> u32;
+    type QueryString = unsafe extern "C" fn(*mut c_void, i32) -> *const c_char;
+    const EGL_PLATFORM_X11_KHR: u32 = 0x31D5;
+    const EGL_VENDOR: i32 = 0x3053;
+
+    // SAFETY: dlopen/dlsym by name, each symbol cast to its EGL 1.5 signature. Never dlclosed:
+    // WebKit loads the same library a moment later, and vendor drivers do not like being unloaded.
+    unsafe {
+        let lib = libc::dlopen(c"libEGL.so.1".as_ptr(), libc::RTLD_LAZY);
+        if lib.is_null() {
+            return None;
+        }
+        let sym = |name: &CStr| libc::dlsym(lib, name.as_ptr());
+        let syms = [
+            sym(c"eglGetPlatformDisplay"),
+            sym(c"eglInitialize"),
+            sym(c"eglTerminate"),
+            sym(c"eglQueryString"),
+        ];
+        if syms.iter().any(|s| s.is_null()) {
+            return None;
+        }
+        let get_display: GetPlatformDisplay = std::mem::transmute(syms[0]);
+        let initialize: Initialize = std::mem::transmute(syms[1]);
+        let terminate: Terminate = std::mem::transmute(syms[2]);
+        let query: QueryString = std::mem::transmute(syms[3]);
+
+        // A null native display is $DISPLAY (EGL_KHR_platform_x11).
+        let dpy = get_display(EGL_PLATFORM_X11_KHR, std::ptr::null_mut(), std::ptr::null());
+        if dpy.is_null() || initialize(dpy, std::ptr::null_mut(), std::ptr::null_mut()) == 0 {
+            return None;
+        }
+        let vendor = query(dpy, EGL_VENDOR);
+        let vendor = (!vendor.is_null()).then(|| CStr::from_ptr(vendor).to_string_lossy().into());
+        terminate(dpy);
+        vendor
+    }
+}
+
 /// Log a startup failure and stop, instead of panicking.
 ///
 /// Everything this is called for happens inside Tauri's `setup`, before any window exists.
@@ -408,8 +458,16 @@ pub fn run() {
         // 90 MiB of web-process RSS, which is the whole price.
         //
         // /dev/nvidiactl is the proprietary driver's control node, present whenever it is loaded
-        // and absent under nouveau, which does not have this bug. The variable is only defaulted,
-        // and skipped if either WEBKIT_ knob is already set by hand, so retesting stays possible.
+        // and absent under nouveau, which does not have this bug. Loaded is not drawing, though:
+        // a hybrid laptop has it and draws on Intel by default, where FORCE_SHM made album covers
+        // flicker black on hover and plain DMABUF was fine (#458, UHD 630 + GTX 1050, X11). So the
+        // last check asks EGL which vendor serves the display, and only a clear non-NVIDIA answer
+        // stands the gate down: no answer keeps the old behaviour, since the failure it guards
+        // against is a window that never paints. Optimus-manager's "nvidia" mode and PRIME
+        // offload should both answer NVIDIA, which is right: NVIDIA draws there.
+        //
+        // The variable is only defaulted, and skipped if either WEBKIT_ knob is already set by
+        // hand, so retesting stays possible.
         //
         // ponytail: delete this the day the AppImage stops forcing X11, which would put those
         // users on native Wayland and the full path, or the day the driver learns GBM on XWayland.
@@ -424,6 +482,7 @@ pub fn run() {
             && std::path::Path::new("/dev/nvidiactl").exists()
             && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
             && std::env::var_os("WEBKIT_DMABUF_RENDERER_FORCE_SHM").is_none()
+            && x11_egl_vendor().map_or(true, |v| v.contains("NVIDIA"))
         {
             std::env::set_var("WEBKIT_DMABUF_RENDERER_FORCE_SHM", "1");
         }
@@ -498,6 +557,14 @@ pub fn run() {
         )
         .setup(|app| {
             let handle = app.handle().clone();
+
+            // GtkSettings belongs to the main thread, which is where setup runs (#481).
+            #[cfg(target_os = "linux")]
+            if let Some(layout) = gtk::Settings::default()
+                .and_then(|s| gtk::prelude::GtkSettingsExt::gtk_decoration_layout(&s))
+            {
+                let _ = commands::BUTTON_LAYOUT.set(layout.into());
+            }
 
             // App data dir for the SQLite file and mpv's on-disk audio cache.
             let data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir());
@@ -956,6 +1023,9 @@ pub fn run() {
             commands::forget_video_stream,
             commands::native_video_rect,
             commands::ambient_frame,
+            commands::get_matugen_theme,
+            commands::start_matugen_watcher,
+            commands::stop_matugen_watcher,
             commands::get_settings,
             commands::set_setting,
             commands::get_global_hotkeys,

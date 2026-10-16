@@ -305,9 +305,20 @@
 		"sections_hint": "Drag a section to move it, or focus its handle and use the arrow keys. Hidden sections keep their place.",
 		"move_section": "Move {title}",
 		"moved_section": "{title} moved to position {position} of {total}",
-		"new_section": "New",
-		"show_new": "Show new sections",
-		"show_new_desc": "YouTube adds and renames shelves over time. Turned off, they arrive hidden and wait here until you switch them on.",
+		"kinds": {
+			"listen_again": "Listen again",
+			"quick_picks": "Quick picks",
+			"from_library": "From your library",
+			"community": "From the community",
+			"fresh_finds": "Fresh finds, old favourites",
+			"albums_for_you": "Albums for you",
+			"trending": "Trending songs for you",
+			"featured_playlists": "Featured playlists for you",
+			"new_releases": "New releases",
+			"mixed_for_you": "Mixed for you",
+			"daily_discover": "Your daily discover",
+			"music_videos": "Music videos for you"
+		},
 		"all_hidden": "Everything on home is switched off."
 	},
 	"history": {
@@ -509,6 +520,8 @@
 			"blur_playlist_header_hint": "Show a playlist's cover blurred behind its header. Smooths out covers that look pixelated stretched to the full width.",
 			"artwork_accent": "Adapt colors to artwork",
 			"artwork_accent_hint": "Recolor the app from the playing track's cover: accent, surfaces and borders, fading between tracks. Off keeps the selected theme's own colors.",
+			"matugen": "Matugen",
+			"matugen_hint": "Take every color, accent included, from the palette Matugen makes from your wallpaper. Set up the Limusic template in Matugen first.",
 			"reset_theme_hint": "Drop the color, roundness and font overrides. Keeps the preset.",
 			"interface_font_label": "Interface font",
 			"interface_font_short_hint": "Everything except headings.",

@@ -26,6 +26,7 @@
 
 use std::time::Duration;
 
+use futures_util::stream::{FuturesOrdered, StreamExt};
 use innertube::NextResult;
 use serde::{Deserialize, Serialize};
 
@@ -33,6 +34,15 @@ use crate::state::AppState;
 
 /// How long a cached "no lyrics found" verdict suppresses refetching.
 const MISS_TTL_SECS: i64 = 24 * 3600;
+
+/// How far apart `fetch` starts the providers. A first answer takes ~0.4-0.7s (timed 2026-10-16),
+/// so a hit at the top of the list usually sends one or two requests below it, and a miss
+/// everywhere costs about the slowest provider plus 7 × this instead of all of them added up.
+const STAGGER: Duration = Duration::from_millis(300);
+
+/// The most one provider may take in `fetch`, all of its requests together. Reading in order means
+/// a stalled provider holds back every answer below it; LRCLIB alone could sit for 2 × 15s.
+const PROVIDER_BUDGET: Duration = Duration::from_secs(10);
 
 const LRCLIB_ROOT: &str = "https://lrclib.net/api";
 
@@ -299,16 +309,36 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
     if let Err(e) = &next {
         tracing::debug!(error = %e, "lyrics: next() failed");
     }
-    let req = &req;
+    let (req, next) = (&req, &next);
     let cacheable = |id: &str| req.duration.is_some() || matches!(id, "youtube" | "simpmusic");
+
+    // Provider i starts at i × STAGGER instead of after provider i-1 answers (#482): a song with no
+    // synced lyrics anywhere used to wait on every provider in turn, ~10s. Answers are still read
+    // in the user's order, and dropping `answers` on a hit cancels whatever is in flight or unsent.
+    let started = std::time::Instant::now();
+    let mut answers: FuturesOrdered<_> =
+        provider_order(state.db.get_setting("lyrics_providers").as_deref())
+            .into_iter()
+            .filter(|(_, on)| *on)
+            .enumerate()
+            .map(|(i, (id, _))| async move {
+                tokio::time::sleep(STAGGER * i as u32).await;
+                let answer = tokio::time::timeout(PROVIDER_BUDGET, ask(id, state, req, next))
+                    .await
+                    .unwrap_or_else(|_| Err("timed out".into()));
+                (id, answer)
+            })
+            .collect();
 
     let mut definitive = false;
     let mut plain: Option<Lyrics> = None;
-    for (id, on) in provider_order(state.db.get_setting("lyrics_providers").as_deref()) {
-        if !on {
-            continue;
-        }
-        match ask(id, state, req, &next).await {
+    while let Some((id, answer)) = answers.next().await {
+        tracing::debug!(
+            provider = id,
+            ms = started.elapsed().as_millis() as u64,
+            "lyrics: answered"
+        );
+        match answer {
             Ok(Some(l)) if l.synced || l.instrumental => return (Some(l), cacheable(id)),
             Ok(hit) => {
                 definitive = true;

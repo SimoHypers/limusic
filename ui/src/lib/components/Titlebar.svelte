@@ -300,30 +300,35 @@
 		{#if win.chrome === 'off'}
 			<div class="mx-1.5 h-4 w-px bg-border"></div>
 
-			<button
-				class="flex h-full w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
-				data-window-control
-				onclick={() => w.minimize()}
-				aria-label={t('common.minimize')}
-			>
-				<HugeiconsIcon icon={MinusSignIcon} class="h-4 w-4" />
-			</button>
-			<button
-				class="flex h-full w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
-				data-window-control
-				onclick={() => w.toggleMaximize()}
-				aria-label={win.maximized ? t('common.restore') : t('common.maximize')}
-			>
-				<!-- Maximized: the restore glyph, two overlapping squares with the front one low-left.
-				     That is CopyIcon turned half a turn. altIcon/showAlt, since `icon` is frozen at
-				     mount (#428). -->
-				<HugeiconsIcon
-					icon={SquareIcon}
-					altIcon={CopyIcon}
-					showAlt={win.maximized}
-					class="h-3.5 w-3.5 {win.maximized ? 'rotate-180' : ''}"
-				/>
-			</button>
+			<!-- Minimize and maximize follow the desktop's button layout (#481). -->
+			{#if win.minimize}
+				<button
+					class="flex h-full w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
+					data-window-control
+					onclick={() => w.minimize()}
+					aria-label={t('common.minimize')}
+				>
+					<HugeiconsIcon icon={MinusSignIcon} class="h-4 w-4" />
+				</button>
+			{/if}
+			{#if win.maximize}
+				<button
+					class="flex h-full w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
+					data-window-control
+					onclick={() => w.toggleMaximize()}
+					aria-label={win.maximized ? t('common.restore') : t('common.maximize')}
+				>
+					<!-- Maximized: the restore glyph, two overlapping squares with the front one low-left.
+					     That is CopyIcon turned half a turn. altIcon/showAlt, since `icon` is frozen at
+					     mount (#428). -->
+					<HugeiconsIcon
+						icon={SquareIcon}
+						altIcon={CopyIcon}
+						showAlt={win.maximized}
+						class="h-3.5 w-3.5 {win.maximized ? 'rotate-180' : ''}"
+					/>
+				</button>
+			{/if}
 			<button
 				class="flex h-full w-11 items-center justify-center text-muted-foreground transition-colors hover:text-destructive"
 				data-window-control

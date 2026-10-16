@@ -14,9 +14,16 @@
 // through — the customization is a set of overrides, not a rival theme to maintain.
 
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { logUi } from './errlog';
 import { hexToHsv, isLight } from './color';
 import { artworkAccent, toAccent, warmAccent } from './artcolor';
-import { allowFontFile } from './api';
+import {
+	allowFontFile,
+	getMatugenTheme,
+	onMatugenThemeChanged,
+	startMatugenWatcher,
+	stopMatugenWatcher
+} from './api';
 
 export type ThemeId =
 	| 'default'
@@ -79,6 +86,7 @@ const APPEARANCE_KEY = 'appearance';
 const PALETTE_CLASSES = THEMES.map((t) => `theme-${t.id}`);
 /** Set on <html> while the artwork tint is live; the fill rules in layout.css hang off it. */
 const TINT_CLASS = 'art-tint';
+const MATUGEN_STYLE_ID = 'limusic-matugen';
 const ACCENT_VARS = ['--primary', '--primary-foreground', '--accent', '--accent-foreground'];
 const CUSTOM_VARS = ['--hue', '--radius', '--font-sans', '--font-heading'];
 // Same two neutrals the preset accent themes pick between.
@@ -122,7 +130,9 @@ export const appearance = $state({
 	artworkAccent: false,
 	/** Theater mode's second and third columns (#297). Sticky, like every view toggle. */
 	theaterLyrics: true,
-	theaterQueue: false
+	theaterQueue: false,
+	/** Derive the whole palette from Matugen. Off by default. */
+	matugen: false
 });
 
 export function setAppearance(patch: Partial<typeof appearance>): void {
@@ -204,7 +214,8 @@ function apply(): void {
 	root.classList.remove(...PALETTE_CLASSES, TINT_CLASS);
 	root.classList.add(`theme-${t.id}`); // 'default' has no rule: :root/.dark are its tokens
 
-	if (custom.accent) setAccentVars(custom.accent);
+	// The Matugen palette brings its own accent (its stylesheet sets it), so the custom one steps aside.
+	if (custom.accent && !appearance.matugen) setAccentVars(custom.accent);
 	// Last, so the artwork wins while it's on and the user's own theme is back the moment it isn't.
 	if (art) setArtVars(art);
 	if (custom.hue !== null) root.style.setProperty('--hue', String(custom.hue));
@@ -436,6 +447,46 @@ export function prewarmArtworkAccent(url: string | undefined | null): void {
 	if (url) warmAccent(url);
 }
 
+function applyMatugenTheme(css: string | null): void {
+	let style = document.getElementById(MATUGEN_STYLE_ID) as HTMLStyleElement | null;
+	if (!css) {
+		style?.remove();
+		document.documentElement.classList.remove('matugen-theme');
+		apply();
+		return;
+	}
+	if (!style) {
+		style = document.createElement('style');
+		style.id = MATUGEN_STYLE_ID;
+		document.head.prepend(style);
+	}
+	style.textContent = css;
+	document.documentElement.classList.add('matugen-theme');
+	apply();
+}
+
+let matugenUnlisten: (() => void) | null = null;
+let matugenQueue = Promise.resolve();
+
+/** Start or stop following the Matugen file to match the switch. Queued, so a fast off/on can't interleave. */
+export function syncMatugen(): Promise<void> {
+	matugenQueue = matugenQueue
+		.then(async () => {
+			if (appearance.matugen && !matugenUnlisten) {
+				matugenUnlisten = await onMatugenThemeChanged(applyMatugenTheme);
+				await startMatugenWatcher();
+				applyMatugenTheme(await getMatugenTheme());
+			} else if (!appearance.matugen && matugenUnlisten) {
+				matugenUnlisten();
+				matugenUnlisten = null;
+				await stopMatugenWatcher();
+				applyMatugenTheme(null);
+			}
+		})
+		.catch((e) => logUi('error', `Matugen: ${String(e)}`));
+	return matugenQueue;
+}
+
 /** Apply the stored theme + customization on startup (defaults to the default palette, no overrides). */
 export function initTheme(): void {
 	const stored = localStorage.getItem(KEY);
@@ -474,7 +525,8 @@ export function initTheme(): void {
 			'openPlayerOnPlay',
 			'artworkAccent',
 			'theaterLyrics',
-			'theaterQueue'
+			'theaterQueue',
+			'matugen'
 		] as const) {
 			if (typeof saved?.[k] === 'boolean') appearance[k] = saved[k];
 		}
@@ -482,6 +534,7 @@ export function initTheme(): void {
 		// unparseable — keep the defaults
 	}
 	apply();
+	if (appearance.matugen) syncMatugen();
 	// Async (each file needs its URL granted first), so the app paints in the fallback font for a
 	// frame or two before a loaded font swaps in.
 	if (custom.fontFiles.length) registerFontFiles();

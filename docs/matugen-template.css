@@ -1,0 +1,98 @@
+/* Limusic Matugen palette template.
+ *
+ * Copy this file into your Matugen templates directory as limusic.css, point your
+ * Matugen config at it and write the output to Limusic's CSS path
+ * (see docs/MATUGEN.md). Matugen expands the placeholders below.
+ *
+ * Light values are emitted under html.matugen-theme; dark values under
+ * html.matugen-theme.dark, matching Limusic's root selector cascade.
+ */
+
+html.matugen-theme {
+	--background: {{colors.background.light.hex}};
+	--foreground: {{colors.on_background.light.hex}};
+
+	--card: {{colors.surface_container.light.hex}};
+	--card-foreground: {{colors.on_surface.light.hex}};
+
+	--popover: {{colors.surface_container_high.light.hex}};
+	--popover-foreground: {{colors.on_surface.light.hex}};
+
+	/* Accent quartet owned by Matugen. */
+	--primary: {{colors.primary.light.hex}};
+	--primary-foreground: {{colors.on_primary.light.hex}};
+	--accent: {{colors.primary.light.hex}};
+	--accent-foreground: {{colors.on_primary.light.hex}};
+
+	--secondary: {{colors.secondary_container.light.hex}};
+	--secondary-foreground: {{colors.on_secondary_container.light.hex}};
+
+	--muted: {{colors.surface_container_low.light.hex}};
+	--muted-foreground: {{colors.on_surface_variant.light.hex}};
+
+	--destructive: {{colors.error.light.hex}};
+	--destructive-foreground: {{colors.on_error.light.hex}};
+
+	--border: {{colors.outline_variant.light.hex}};
+	--input: {{colors.outline_variant.light.hex}};
+	--ring: {{colors.primary.light.hex}};
+
+	--chart-1: {{colors.primary.light.hex}};
+	--chart-2: {{colors.secondary.light.hex}};
+	--chart-3: {{colors.tertiary.light.hex}};
+	--chart-4: {{colors.error.light.hex}};
+	--chart-5: {{colors.outline.light.hex}};
+
+	--sidebar: {{colors.surface.light.hex}};
+	--sidebar-foreground: {{colors.on_surface.light.hex}};
+	--sidebar-primary: {{colors.primary.light.hex}};
+	--sidebar-primary-foreground: {{colors.on_primary.light.hex}};
+	--sidebar-accent: {{colors.secondary_container.light.hex}};
+	--sidebar-accent-foreground: {{colors.on_secondary_container.light.hex}};
+	--sidebar-border: {{colors.outline_variant.light.hex}};
+	--sidebar-ring: {{colors.primary.light.hex}};
+}
+
+html.matugen-theme.dark {
+	--background: {{colors.background.dark.hex}};
+	--foreground: {{colors.on_background.dark.hex}};
+
+	--card: {{colors.surface_container.dark.hex}};
+	--card-foreground: {{colors.on_surface.dark.hex}};
+
+	--popover: {{colors.surface_container_high.dark.hex}};
+	--popover-foreground: {{colors.on_surface.dark.hex}};
+
+	--primary: {{colors.primary.dark.hex}};
+	--primary-foreground: {{colors.on_primary.dark.hex}};
+	--accent: {{colors.primary.dark.hex}};
+	--accent-foreground: {{colors.on_primary.dark.hex}};
+
+	--secondary: {{colors.secondary_container.dark.hex}};
+	--secondary-foreground: {{colors.on_secondary_container.dark.hex}};
+
+	--muted: {{colors.surface_container_low.dark.hex}};
+	--muted-foreground: {{colors.on_surface_variant.dark.hex}};
+
+	--destructive: {{colors.error.dark.hex}};
+	--destructive-foreground: {{colors.on_error.dark.hex}};
+
+	--border: {{colors.outline_variant.dark.hex}};
+	--input: {{colors.outline_variant.dark.hex}};
+	--ring: {{colors.primary.dark.hex}};
+
+	--chart-1: {{colors.primary.dark.hex}};
+	--chart-2: {{colors.secondary.dark.hex}};
+	--chart-3: {{colors.tertiary.dark.hex}};
+	--chart-4: {{colors.error.dark.hex}};
+	--chart-5: {{colors.outline.dark.hex}};
+
+	--sidebar: {{colors.surface.dark.hex}};
+	--sidebar-foreground: {{colors.on_surface.dark.hex}};
+	--sidebar-primary: {{colors.primary.dark.hex}};
+	--sidebar-primary-foreground: {{colors.on_primary.dark.hex}};
+	--sidebar-accent: {{colors.secondary_container.dark.hex}};
+	--sidebar-accent-foreground: {{colors.on_secondary_container.dark.hex}};
+	--sidebar-border: {{colors.outline_variant.dark.hex}};
+	--sidebar-ring: {{colors.primary.dark.hex}};
+}
