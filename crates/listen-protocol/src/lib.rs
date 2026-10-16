@@ -127,6 +127,28 @@ impl Playback {
     }
 }
 
+/// A control the phone sends to the device that is playing (device link). The server forwards it
+/// to the room's host without applying it; the player runs it through its own code path and then
+/// publishes the result like any other change.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RemoteAction {
+    Play,
+    Pause,
+    Next,
+    Previous,
+    Seek {
+        position_ms: i64,
+    },
+    /// 0.0..=1.0
+    SetVolume {
+        volume: f64,
+    },
+    PlayTrack {
+        track: Track,
+    },
+}
+
 /// Client → server. Internally tagged on `type`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -178,6 +200,23 @@ pub enum ClientMessage {
     RequestSync,
     /// Keepalive.
     Ping,
+    /// Device link: join (or create) the link room keyed by `secret`. Holding the secret is
+    /// membership, so there is no approval step.
+    JoinLink {
+        secret: String,
+        device_id: String,
+        name: String,
+    },
+    /// Device link member: ask for a 6-letter pairing code for this room.
+    PairStart,
+    /// A device not in any room trades a pairing code for the link secret.
+    PairClaim {
+        code: String,
+    },
+    /// Device link: a control for the device that is playing.
+    Remote {
+        action: RemoteAction,
+    },
 }
 
 /// Server → client. Internally tagged on `type`.
@@ -247,6 +286,22 @@ pub enum ServerMessage {
         message: String,
     },
     Pong,
+    /// Device link: reply to `JoinLink`. `room_code` is empty so the secret is never echoed.
+    LinkJoined {
+        state: RoomState,
+    },
+    PairCode {
+        code: String,
+        expires_in_s: u32,
+    },
+    Paired {
+        secret: String,
+    },
+    /// Device link: a control forwarded to the player. `from` is the sender's device id.
+    Remote {
+        from: String,
+        action: RemoteAction,
+    },
 }
 
 impl ClientMessage {
@@ -319,5 +374,104 @@ mod tests {
         assert_eq!(s.live_position_ms(15_000), 6000);
         // Never negative.
         assert_eq!(s.live_position_ms(5_000), 1000);
+    }
+
+    /// The device-link wire lines, byte for byte. Android's `MessageCodecTest` holds the same
+    /// strings, so a drift fails on both sides.
+    const SECRET: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ";
+    const DEVICE: &str = "0b6e1f9a-3c2d-4e5f-8a7b-9c0d1e2f3a4b";
+
+    fn client_line(json: &str, msg: ClientMessage) {
+        assert_eq!(msg.to_json(), json);
+        assert_eq!(serde_json::from_str::<ClientMessage>(json).unwrap().to_json(), json);
+    }
+
+    fn server_line(json: &str, msg: ServerMessage) {
+        assert_eq!(msg.to_json(), json);
+        assert_eq!(serde_json::from_str::<ServerMessage>(json).unwrap().to_json(), json);
+    }
+
+    #[test]
+    fn device_link_lines() {
+        assert_eq!(SECRET.len(), 43);
+        client_line(
+            &format!(
+                r#"{{"type":"join_link","secret":"{SECRET}","device_id":"{DEVICE}","name":"fedora"}}"#
+            ),
+            ClientMessage::JoinLink {
+                secret: SECRET.into(),
+                device_id: DEVICE.into(),
+                name: "fedora".into(),
+            },
+        );
+        server_line(
+            &format!(
+                r#"{{"type":"link_joined","state":{{"room_code":"","host_id":"","users":[{{"user_id":"{DEVICE}","username":"fedora","is_host":false,"is_connected":true}}],"current_track":null,"is_playing":false,"position_ms":0,"last_update_ms":0,"volume":1.0,"queue":[]}}}}"#
+            ),
+            ServerMessage::LinkJoined {
+                state: RoomState {
+                    users: vec![User {
+                        user_id: DEVICE.into(),
+                        username: "fedora".into(),
+                        is_host: false,
+                        is_connected: true,
+                    }],
+                    volume: 1.0,
+                    ..Default::default()
+                },
+            },
+        );
+        client_line(r#"{"type":"pair_start"}"#, ClientMessage::PairStart);
+        server_line(
+            r#"{"type":"pair_code","code":"K7QX2M","expires_in_s":120}"#,
+            ServerMessage::PairCode { code: "K7QX2M".into(), expires_in_s: 120 },
+        );
+        client_line(
+            r#"{"type":"pair_claim","code":"K7QX2M"}"#,
+            ClientMessage::PairClaim { code: "K7QX2M".into() },
+        );
+        server_line(
+            &format!(r#"{{"type":"paired","secret":"{SECRET}"}}"#),
+            ServerMessage::Paired { secret: SECRET.into() },
+        );
+        client_line(
+            r#"{"type":"remote","action":{"kind":"seek","position_ms":61000}}"#,
+            ClientMessage::Remote { action: RemoteAction::Seek { position_ms: 61000 } },
+        );
+        server_line(
+            &format!(r#"{{"type":"remote","from":"{DEVICE}","action":{{"kind":"next"}}}}"#),
+            ServerMessage::Remote { from: DEVICE.into(), action: RemoteAction::Next },
+        );
+    }
+
+    #[test]
+    fn remote_actions_roundtrip() {
+        let track = Track {
+            id: "dQw4w9WgXcQ".into(),
+            title: "x".into(),
+            artist: "y".into(),
+            thumbnail: None,
+            duration_ms: 0,
+            queued_by: None,
+        };
+        for a in [
+            RemoteAction::Play,
+            RemoteAction::Pause,
+            RemoteAction::Next,
+            RemoteAction::Previous,
+            RemoteAction::Seek { position_ms: 5 },
+            RemoteAction::SetVolume { volume: 0.5 },
+            RemoteAction::PlayTrack { track },
+        ] {
+            let json = ClientMessage::Remote { action: a.clone() }.to_json();
+            match serde_json::from_str::<ClientMessage>(&json).unwrap() {
+                ClientMessage::Remote { action } => assert_eq!(action, a, "{json}"),
+                m => panic!("wrong variant {m:?}"),
+            }
+        }
+        assert_eq!(
+            ClientMessage::Remote { action: RemoteAction::SetVolume { volume: 0.5 } }.to_json(),
+            r#"{"type":"remote","action":{"kind":"set_volume","volume":0.5}}"#
+        );
     }
 }
