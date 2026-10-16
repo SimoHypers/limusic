@@ -30,7 +30,7 @@
 	import { HELP_COMBO } from '$lib/shortcuts';
 	import { copyText } from '$lib/clipboard';
 	import * as api from '$lib/api';
-	import { blocked, karaokeAvailability, karaokeConsent, karaokeModel, cancelKaraokeModelDownload, prefs, refreshView, setAutoplay, ui, toast, unblockArtist } from '$lib/player.svelte';
+	import { blocked, karaokeAvailability, karaokeConsent, karaokeModel, cancelKaraokeModelDownload, prefs, refreshLanguage, setAutoplay, ui, toast, unblockArtist } from '$lib/player.svelte';
 	import { win } from '$lib/win.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import AppearanceSettings from '$lib/components/AppearanceSettings.svelte';

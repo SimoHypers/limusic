@@ -771,7 +771,7 @@ pub async fn open_mini(app: tauri::AppHandle) -> Result<(), String> {
     app.run_on_main_thread(move || {
         let _ = tx.send(crate::mini::open(&handle));
     })
-    .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?;
     rx.await.map_err(|_| "the mini player never answered".to_string())?
 }
 
@@ -2828,8 +2828,8 @@ pub async fn karaoke_engine_status(
             processor: engine.processor(),
         }
     })
-    .await
-    .map_err(|e| e.to_string())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Clear the karaoke instrumental cache.
@@ -2874,6 +2874,21 @@ pub async fn karaoke_set_cache_limit_mb(
     tauri::async_runtime::spawn_blocking(move || engine.set_cache_limit_mb(clamped))
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_matugen_theme(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    crate::matugen::read(&app)
+}
+
+#[tauri::command]
+pub fn start_matugen_watcher(app: tauri::AppHandle) -> Result<(), String> {
+    crate::matugen::start(app)
+}
+
+#[tauri::command]
+pub fn stop_matugen_watcher() {
+    crate::matugen::stop();
 }
 
 #[cfg(test)]
