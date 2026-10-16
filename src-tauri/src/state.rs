@@ -17,6 +17,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
 use crate::db::{now_secs, Db, StoredAccount};
+use crate::devicelink::{LinkCommand, LinkSession, Publish};
 use crate::discord::DiscordHandle;
 use crate::listentogether::{LtSession, SyncCommand};
 use crate::media::MediaHandle;
@@ -63,6 +64,8 @@ pub struct AppState {
     pub lt: Arc<LtSession>,
     // Serialize effect commands with the room's tempo reset, including requests already pending.
     playback_effects: Mutex<()>,
+    /// Device link: the phone as a remote, and Continue here (`crate::devicelink`).
+    pub link: Arc<LinkSession>,
     /// mpv's on-disk audio cache dir (context/14) — wiped by the settings "Clear caches" action.
     cache_dir: std::path::PathBuf,
     /// OS media integration (MPRIS/SMTC/NowPlaying). `None` if it failed to init. context/16.
@@ -475,6 +478,7 @@ impl AppState {
         app: AppHandle,
         orchestrator: Arc<Orchestrator>,
         lt: Arc<LtSession>,
+        link: Arc<LinkSession>,
         cache_dir: std::path::PathBuf,
         media: Option<MediaHandle>,
         discord: Option<DiscordHandle>,
@@ -488,6 +492,7 @@ impl AppState {
             app,
             orchestrator,
             lt,
+            link,
             cache_dir,
             media,
             discord,
@@ -2617,6 +2622,11 @@ impl AppState {
         if let Some(m) = &self.media {
             m.set_volume(volume);
         }
+        // Every volume change lands here (slider, hotkeys, MPRIS, a remote): the link's player
+        // reports it, so the phone's slider follows.
+        let mut v = Playback::new(PlaybackKind::SetVolume);
+        v.volume = volume as f64 / 100.0;
+        self.link.publish(v);
     }
 
     pub async fn set_playback_params(
@@ -3638,6 +3648,9 @@ impl AppState {
                 lt.request_sync().await;
             });
         }
+        // A guest may still be the device link's player: what it plays is published there (the
+        // Listen Together half of this no-ops for a guest).
+        self.lt_broadcast_current_track(target_ms, playing).await;
         // Resolve the host's next track now, into the URL cache, so its ChangeTrack only has to
         // load it. A guest never primes (the host decides what is next), so without this every
         // track change waited on a full resolve, a gap of a second or more the host doesn't have.
@@ -3675,25 +3688,49 @@ impl AppState {
         let _ = self.player.pause();
     }
 
-    /// Host: broadcast the current track + upcoming queue as a ChangeTrack. No-op unless host.
+    /// Broadcast the current track + upcoming queue as a ChangeTrack: to the device link (through
+    /// its send rule) and, when hosting, to the Listen Together room.
     async fn lt_broadcast_current_track(&self, position_ms: i64, playing: bool) {
-        if !self.lt.is_host().await {
+        let lt_host = self.lt.is_host().await;
+        if !lt_host && !self.link.linked() {
             return;
         }
-        let (track, queue) = {
-            let q = self.queue.lock().await;
-            let Some(cur) = q.items.get(q.current) else { return };
-            let track = song_to_track(cur);
-            let queue: Vec<Track> =
-                q.items.iter().skip(q.current + 1).take(50).map(song_to_track).collect();
-            (track, queue)
-        };
-        let mut p = Playback::new(PlaybackKind::ChangeTrack);
-        p.track = Some(track);
-        p.position_ms = position_ms;
+        let Some(p) = self.current_change_track(position_ms, playing).await else { return };
+        if self.link.publish(p.clone()) == Publish::Sent {
+            self.link_publish_volume();
+        }
+        if lt_host {
+            self.lt.broadcast_playback(p).await;
+        }
+    }
+
+    /// The current track and up to 50 upcoming ones as a ChangeTrack.
+    async fn current_change_track(&self, position_ms: i64, playing: bool) -> Option<Playback> {
+        let q = self.queue.lock().await;
+        let cur = q.items.get(q.current)?;
+        let mut p = Playback::at(PlaybackKind::ChangeTrack, position_ms);
+        p.track = Some(song_to_track(cur));
+        p.queue = Some(q.items.iter().skip(q.current + 1).take(50).map(song_to_track).collect());
         p.playing = playing;
-        p.queue = Some(queue);
-        self.lt.broadcast_playback(p).await;
+        Some(p)
+    }
+
+    /// Device link: publish through the send rule. A resume on a device that isn't the player
+    /// becomes a takeover, a ChangeTrack built from what we are playing.
+    async fn link_publish(&self, p: Playback) {
+        if self.link.publish(p.clone()) == Publish::Takeover {
+            if let Some(ct) = self.current_change_track(p.position_ms, true).await {
+                self.link.publish(ct);
+                self.link_publish_volume();
+            }
+        }
+    }
+
+    /// The remote's volume slider starts from what the player last said.
+    fn link_publish_volume(&self) {
+        let mut v = Playback::new(PlaybackKind::SetVolume);
+        v.volume = self.player.volume() as f64 / 100.0;
+        self.link.publish(v);
     }
 
     /// Put the user's crossfade setting on the player, unless we are in a Listen Together room.
@@ -3722,10 +3759,12 @@ impl AppState {
         self.lt_broadcast_current_track(position_ms, playing).await;
     }
 
-    /// Host: broadcast play/pause with the live position. Called on a pause press (the pump's
-    /// `Paused` arm) and when the queue runs out, never on a track change. No-op unless host.
+    /// Broadcast play/pause with the live position. Called on a pause press (the pump's `Paused`
+    /// arm) and when the queue runs out, never on a track change. Goes to the device link, and to
+    /// the Listen Together room when hosting.
     pub async fn lt_on_play_state(&self, playing: bool) {
-        if !self.lt.is_host().await {
+        let lt_host = self.lt.is_host().await;
+        if !lt_host && !self.link.linked() {
             return;
         }
         let pos_ms = (self.current_position() * 1000.0) as i64;
@@ -3736,7 +3775,10 @@ impl AppState {
         } else {
             Playback::at(PlaybackKind::Pause, pos_ms)
         };
-        self.lt.broadcast_playback(p).await;
+        self.link_publish(p.clone()).await;
+        if lt_host {
+            self.lt.broadcast_playback(p).await;
+        }
     }
 
     /// User seek from the UI. Blocked for guests; broadcast for host.
@@ -3754,10 +3796,10 @@ impl AppState {
             return Ok(());
         }
         self.player.seek(position).map_err(|e| e.to_string())?;
+        let p = Playback::at(PlaybackKind::Seek, (position * 1000.0) as i64);
+        self.link.publish(p.clone());
         if self.lt.is_host().await {
-            self.lt
-                .broadcast_playback(Playback::at(PlaybackKind::Seek, (position * 1000.0) as i64))
-                .await;
+            self.lt.broadcast_playback(p).await;
         }
         Ok(())
     }
@@ -4213,10 +4255,11 @@ impl AppState {
         self.lt_broadcast_queue().await;
     }
 
-    /// Host: broadcast the upcoming queue (everything after current) to the room. No-op for
-    /// non-hosts (`broadcast_playback` gates on role).
+    /// Broadcast the upcoming queue (everything after current) to the device link and, when
+    /// hosting, to the Listen Together room.
     async fn lt_broadcast_queue(&self) {
-        if !self.lt.is_host().await {
+        let lt_host = self.lt.is_host().await;
+        if !lt_host && !self.link.linked() {
             return;
         }
         let queue: Vec<Track> = {
@@ -4225,7 +4268,97 @@ impl AppState {
         };
         let mut p = Playback::new(PlaybackKind::SyncQueue);
         p.queue = Some(queue);
-        self.lt.broadcast_playback(p).await;
+        self.link.publish(p.clone());
+        if lt_host {
+            self.lt.broadcast_playback(p).await;
+        }
+    }
+
+    // --- Device link (crate::devicelink) ------------------------------------------------------
+
+    /// Apply what the link asks of the player. Remote actions take the same paths as the OS media
+    /// keys (`media::handle_event`), so a Listen Together guest's locks still hold.
+    pub async fn apply_link(self: &std::sync::Arc<Self>, cmd: LinkCommand) {
+        use listen_protocol::RemoteAction;
+        match cmd {
+            LinkCommand::Remote(action) => match action {
+                // Resume, not toggle: a play that crossed a pause on the wire must not pause.
+                RemoteAction::Play => {
+                    if !self.is_playing.load(Ordering::Relaxed) {
+                        self.resume_or_toggle().await;
+                    }
+                }
+                RemoteAction::Pause => {
+                    let _ = self.player.pause();
+                }
+                RemoteAction::Next => self.next_in_queue().await,
+                RemoteAction::Previous => self.prev_in_queue().await,
+                RemoteAction::Seek { position_ms } => {
+                    let _ = self.user_seek(position_ms.max(0) as f64 / 1000.0).await;
+                }
+                RemoteAction::SetVolume { volume } => {
+                    let v = (volume.clamp(0.0, 1.0) * 100.0).round() as i64;
+                    crate::hotkeys::change_volume(self, &self.app, |_| v);
+                }
+                RemoteAction::PlayTrack { track } => {
+                    if crate::listentogether::shareable(&track) {
+                        self.play_song(track_to_song(&track)).await;
+                    }
+                }
+            },
+            LinkCommand::HostLost => {
+                if self.is_playing.load(Ordering::Relaxed) {
+                    let _ = self.player.pause();
+                }
+            }
+            LinkCommand::Republish => {
+                if self.is_playing.load(Ordering::Relaxed) {
+                    let pos_ms = (self.current_position() * 1000.0) as i64;
+                    if let Some(p) = self.current_change_track(pos_ms, true).await {
+                        self.link.publish(p);
+                        self.link_publish_volume();
+                    }
+                }
+            }
+        }
+    }
+
+    /// Continue here: play what another linked device is playing, from where it is now, with its
+    /// upcoming queue. A normal queue from then on (autoplay, history, Previous's context), unlike
+    /// a Listen Together guest's. Starting it is the takeover that pauses the other device.
+    pub async fn link_continue_here(self: &std::sync::Arc<Self>) {
+        if self.lt.is_guest().await {
+            self.emit_guest_hint();
+            return;
+        }
+        let Some((track, _, _)) = self.link.handoff() else { return };
+        // Resolve first, into the URL cache, while the other device keeps playing: the load below
+        // is then quick, and the position read after it is where the music is now.
+        if let Err(e) = self.resolve(&track.id, false, track.duration_ms / 1000).await {
+            self.emit_error(&track.id, &e.to_string());
+            return;
+        }
+        let Some((track, upcoming, position_ms)) = self.link.handoff() else { return };
+        let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let position = self.current_position();
+        {
+            let mut q = self.queue.lock().await;
+            q.keep_context(position);
+            q.items = std::iter::once(&track).chain(&upcoming).map(track_to_song).collect();
+            q.epoch += 1;
+            q.current = 0;
+            q.lookahead_loaded = None;
+            q.radio_seed = None; // autoplay carries on from the last track, as after play_song
+            q.source_id = None;
+            q.source_name = None;
+            q.radio = false;
+            q.hydrating = None;
+            q.shuffle_orig = None;
+        }
+        *self.pending_seek.lock().unwrap() = Some((track.id.clone(), position_ms as f64 / 1000.0));
+        if self.start_current(gen).await {
+            self.prime_lookahead(gen).await;
+        }
     }
 
     /// Guest: mirror the host's upcoming queue into the local one (everything after current), so

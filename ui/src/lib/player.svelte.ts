@@ -13,6 +13,7 @@ import type {
 	SongItem
 } from './api';
 import { applyLtState, lt } from './lt.svelte';
+import { applyLinkState } from './link.svelte';
 import { clearCached, invalidateCached, LIBRARY_SONGS_KEY } from './pagecache';
 import * as pl from './personal';
 import type { Personal } from './personal';
@@ -1613,7 +1614,8 @@ export function initApp(mini = false): () => void {
 		// Listen Together (context/19): mirror the Rust session state; surface notices as toasts.
 		// Rust restores the shared clock before applying room playback, even with no UI open.
 		api.onLtState(applyLtState),
-		api.onLtNotice((msg) => toast(msg))
+		api.onLtNotice((msg) => toast(msg)),
+		api.onLinkState(applyLinkState)
 	];
 	const teardown = () => subs.forEach((u) => u.then((f) => f()));
 	api.getQueue()
@@ -1681,5 +1683,6 @@ export function initApp(mini = false): () => void {
 	loadBlocked();
 	// Seed the Listen Together state (server URL, any active room after a UI reload).
 	api.ltGetState().then(applyLtState).catch(() => {});
+	api.linkState().then(applyLinkState).catch(() => {});
 	return teardown;
 }

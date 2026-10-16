@@ -32,6 +32,7 @@
 	import Titlebar from '$lib/components/Titlebar.svelte';
 	import ResizeBorders from '$lib/components/ResizeBorders.svelte';
 	import PlayerBar from '$lib/components/PlayerBar.svelte';
+	import LinkStrip from '$lib/components/LinkStrip.svelte';
 	import QueuePanel from '$lib/components/QueuePanel.svelte';
 	import LyricsPanel from '$lib/components/LyricsPanel.svelte';
 	import CommentsPanel from '$lib/components/CommentsPanel.svelte';
@@ -270,6 +271,7 @@
 				/>{/if}
 			{#if showQueue}<QueuePanel onClose={() => (queueOpen = false)} />{/if}
 		</div>
+		<LinkStrip />
 		{#if playback.now}
 			<!-- Slides up from its own height on first play; leaves instantly (bar removal is rare).
 			     z-20 on the wrapper, not the bar: the intro's transform makes this a stacking context,

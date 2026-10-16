@@ -2340,6 +2340,44 @@ async fn scan_local(state: &Arc<AppState>) -> Result<crate::local::LocalLibrary,
     Ok(lib)
 }
 
+// --- Device link (crate::devicelink) -------------------------------------------------------
+
+#[tauri::command]
+pub async fn link_state(state: St<'_>) -> Result<serde_json::Value, String> {
+    Ok(state.link.snapshot())
+}
+
+/// "Link a phone" / "New code": make the link if there is none and ask the server for a code.
+#[tauri::command]
+pub async fn link_start_pairing(state: St<'_>) -> Result<(), String> {
+    state.link.start_pairing();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn link_cancel_pairing(state: St<'_>) -> Result<(), String> {
+    state.link.cancel_pairing();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn link_unlink(state: St<'_>, device_id: String) -> Result<(), String> {
+    state.link.unlink(&device_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn link_forget(state: St<'_>) -> Result<(), String> {
+    state.link.forget();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn link_continue_here(state: St<'_>) -> Result<(), String> {
+    state.inner().clone().link_continue_here().await;
+    Ok(())
+}
+
 // --- Listen Together (context/19) ----------------------------------------------------------
 
 /// Current client-side LT state (status, role, room, participants, pending joins, suggestions).

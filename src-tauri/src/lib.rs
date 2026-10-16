@@ -6,6 +6,7 @@ mod blocked;
 mod cipher;
 mod commands;
 mod db;
+mod devicelink;
 mod diagnostics;
 mod discord;
 mod hotkeys;
@@ -846,6 +847,8 @@ pub fn run() {
             // URL does not live here so that nothing ever has to hand it to the UI.
             let lt_url = db.get_setting("lt_server_url").unwrap_or_default();
             let (lt, lt_sync_rx) = listentogether::LtSession::new(handle.clone(), lt_url);
+            // Device link: opens a socket only once the user has linked a device.
+            let (link, link_rx) = devicelink::LinkSession::new(handle.clone(), db.clone());
 
             let app_state = Arc::new(AppState::new(
                 it,
@@ -855,6 +858,7 @@ pub fn run() {
                 handle.clone(),
                 orchestrator,
                 lt,
+                link,
                 cache_dir.clone(),
                 media,
                 discord,
@@ -922,6 +926,18 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     while let Some(cmd) = rx.recv().await {
                         st.apply_sync(cmd).await;
+                    }
+                });
+            }
+
+            // Bridge: apply what the device link asks of the player (remote controls, pause on a
+            // takeover by another device).
+            {
+                let st = app_state.clone();
+                let mut rx = link_rx;
+                tauri::async_runtime::spawn(async move {
+                    while let Some(cmd) = rx.recv().await {
+                        st.apply_link(cmd).await;
                     }
                 });
             }
@@ -1236,6 +1252,12 @@ pub fn run() {
             commands::lt_approve_suggestion,
             commands::lt_reject_suggestion,
             commands::lt_request_sync,
+            commands::link_state,
+            commands::link_start_pairing,
+            commands::link_cancel_pairing,
+            commands::link_unlink,
+            commands::link_forget,
+            commands::link_continue_here,
             commands::get_lyrics,
             commands::choose_lyrics_source,
             commands::set_lyrics_offset,

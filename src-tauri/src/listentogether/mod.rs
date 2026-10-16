@@ -89,7 +89,7 @@ impl Status {
 /// bare room code, so nobody has to see (or retype) somebody else's hostname to listen together.
 /// An empty `server_url` means "this one", resolved at connect time in [`LtSession::run`], so
 /// clearing the field is how a self-hoster comes back to the default.
-const DEFAULT_SERVER: &str = "wss://fedora-1.tail9c4985.ts.net/ws";
+pub(crate) const DEFAULT_SERVER: &str = "wss://fedora-1.tail9c4985.ts.net/ws";
 
 #[derive(Default)]
 struct Inner {
@@ -738,7 +738,7 @@ impl LtSession {
 /// so a peer could point us at any path. On Windows a UNC path (`\\host\share`) makes the OS
 /// connect to that host and offer the user's NTLM credentials. Outbound, the same rule keeps our
 /// local paths, and the username in them, off the relay; guests couldn't play the file anyway.
-fn shareable(t: &Track) -> bool {
+pub(crate) fn shareable(t: &Track) -> bool {
     t.id.len() == 11 && t.id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
@@ -798,7 +798,9 @@ const SILENCE_LIMIT: Duration = Duration::from_secs(60);
 /// AAAA ingress is a black hole from some networks; glibc sorts IPv6 first, so a host with working
 /// IPv6 burned six minutes on dead addresses before ever trying the IPv4 that works. Same reason a
 /// join request never reached the host: the socket carrying it was still in a SYN retry.
-async fn connect_ws(url: &str) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, WsError> {
+pub(crate) async fn connect_ws(
+    url: &str,
+) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, WsError> {
     let req = url.into_client_request()?;
     let uri = req.uri().clone();
     let host = uri
@@ -904,7 +906,7 @@ mod tests {
 }
 
 /// Exponential backoff, capped at 32s (context/19 Part B §1: the client's real ceiling).
-fn backoff_delay(attempt: u32) -> Duration {
+pub(crate) fn backoff_delay(attempt: u32) -> Duration {
     let shift = attempt.clamp(1, 6) - 1; // 0..=5 → 1,2,4,8,16,32
     Duration::from_secs(1u64 << shift)
 }
