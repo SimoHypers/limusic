@@ -1623,8 +1623,9 @@ mod tests {
     }
 
     /// A mix's panel carries a continuation token. Re-requesting the seed answers the same page,
-    /// so the token goes out as a bare `next` call and the answer parses like any panel page,
-    /// handing on the following token.
+    /// so the token goes out as a bare `next` call and the answer, shaped like a radio's panel
+    /// continuation (`playlistPanelContinuation`, next token in `nextRadioContinuationData`),
+    /// parses like any panel page, handing on the following token.
     #[tokio::test]
     async fn radio_continuation_pages_the_endless_mix() {
         let server = MockServer::start(|req: &Seen| {
@@ -1637,13 +1638,13 @@ mod tests {
             (
                 200,
                 json!({
-                    "contents": { "playlistPanelRenderer": { "contents": [
+                    "continuationContents": { "playlistPanelContinuation": { "contents": [
                         { "playlistPanelVideoRenderer": {
                             "videoId": "vid10",
                             "title": { "runs": [{ "text": "Deep Cut" }] },
                             "longBylineText": { "runs": [{ "text": "Artist C" }] }
                         }}
-                    ], "continuations": [{ "nextContinuationData": { "continuation": "TOK2" } }] } }
+                    ], "continuations": [{ "nextRadioContinuationData": { "continuation": "TOK2" } }] } }
                 })
                 .to_string(),
             )

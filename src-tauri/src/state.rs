@@ -1446,6 +1446,26 @@ impl AppState {
         shuffle: bool,
         continuation: Option<String>,
     ) {
+        self.play_tracks_as(items, start, source_id, source_name, shuffle, continuation, None)
+            .await;
+    }
+
+    /// [`Self::play_tracks`] that can install the queue as a radio. `radio` is `None` for a chosen
+    /// playlist/album, `Some(token)` for a started radio (`Some(None)`: no token to follow). The
+    /// flag and the token go in under the same lock as the queue itself: `start_current` awaits a
+    /// stream resolve for seconds, and setting them afterwards would hand them to whatever queue
+    /// replaced this one meanwhile.
+    #[allow(clippy::too_many_arguments)]
+    async fn play_tracks_as(
+        self: &std::sync::Arc<Self>,
+        items: Vec<SongItem>,
+        start: Option<usize>,
+        source_id: Option<String>,
+        source_name: Option<String>,
+        shuffle: bool,
+        continuation: Option<String>,
+        radio: Option<Option<String>>,
+    ) {
         if items.is_empty() {
             return;
         }
@@ -1482,9 +1502,10 @@ impl AppState {
             q.lookahead_loaded = None;
             q.source_id = source_id.clone();
             q.radio_seed = radio_seed_for(source_id);
-            q.radio_cont = None;
+            let (flagged, token) = radio_install(radio, q.radio_seed.as_deref());
+            q.radio = flagged;
+            q.radio_cont = token;
             q.source_name = source_name;
-            q.radio = false; // a chosen playlist/album; `start_radio` sets it back on for its own
             q.hydrating = None; // a `play_song` radio still in flight is for a queue that's gone
             if keep_shuffled {
                 // Snapshot the real playlist order (for un-shuffle), then play the clicked track
@@ -1595,14 +1616,19 @@ impl AppState {
             self.splice_radio(items, seed, title, cont).await;
             return Ok(());
         }
-        self.play_tracks(items, Some(seed_at.unwrap_or(0)), Some(seed), title, false, None).await;
-        {
-            let mut q = self.queue.lock().await;
-            q.radio = true;
-            q.radio_cont = q.radio_seed.clone().zip(cont);
-        }
-        // `play_tracks` announced the queue before it was a radio: say so, so the panel drops the
-        // Autoplay switch, and persist the flag.
+        // A radio from the first moment, installed under the queue's own lock (see `play_tracks_as`).
+        self.play_tracks_as(
+            items,
+            Some(seed_at.unwrap_or(0)),
+            Some(seed),
+            title,
+            false,
+            None,
+            Some(cont),
+        )
+        .await;
+        // `start_current` only announces and persists the queue once the track resolves; a failed
+        // resolve (offline, sign-in) would leave the panel on the old queue and the radio unsaved.
         self.emit_queue().await;
         self.persist_queue().await;
         Ok(())
@@ -4434,6 +4460,18 @@ fn repeat_blocks_top_up(repeat: RepeatMode, radio: bool) -> bool {
     }
 }
 
+/// The `radio` flag and next-window token a queue is installed with (see `play_tracks_as`): `None`
+/// is a chosen playlist/album, `Some(token)` a started radio. The token is only kept together with
+/// the seed it was issued for ([`radio_token`] checks it against the queue's).
+fn radio_install(
+    radio: Option<Option<String>>,
+    seed: Option<&str>,
+) -> (bool, Option<(String, String)>) {
+    let flagged = radio.is_some();
+    let cont = radio.flatten().zip(seed).map(|(token, seed)| (seed.to_owned(), token));
+    (flagged, cont)
+}
+
 /// Whether the queue is down to its tail and wants a top-up: a radio when fewer than
 /// [`RADIO_TAIL`] tracks are left behind the playing one, autoplay on the last two.
 fn wants_top_up(len: usize, current: usize, radio: bool) -> bool {
@@ -4910,10 +4948,10 @@ mod tests {
         adopt_twin, append_page, backfill_metadata, cache_horizon, drop_duplicates, enqueue_at,
         format_duration, freshen, get_url, guest_insert_index, history_threshold, is_mix, is_radio,
         loudness_gain, merge_radio, next_index, parse_duration_ms, persist_fingerprint,
-        prefer_version, prev_track_title, put_url, queue_fingerprint, radio_seed_for, radio_token,
-        repeat_blocks_top_up, retain_upcoming, shuffle_new_queue, shuffle_upcoming,
-        splice_radio_into, swap_version, trim_played, twin_position, unshuffled, upcoming_queued,
-        wants_top_up, QueueState, RepeatMode, VideoUrls, AUTOPLAY, KEEP_PLAYED,
+        prefer_version, prev_track_title, put_url, queue_fingerprint, radio_install,
+        radio_seed_for, radio_token, repeat_blocks_top_up, retain_upcoming, shuffle_new_queue,
+        shuffle_upcoming, splice_radio_into, swap_version, trim_played, twin_position, unshuffled,
+        upcoming_queued, wants_top_up, QueueState, RepeatMode, VideoUrls, AUTOPLAY, KEEP_PLAYED,
         LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO, RADIO_TAIL,
     };
 
@@ -5866,6 +5904,22 @@ mod tests {
         // A playlist's seed is `RDAMPL…`, autoplay's radio and not the queue itself.
         assert!(!is_radio(&q(false, Some("RDAMPLPL123"))));
         assert!(!is_radio(&q(false, None)));
+    }
+
+    #[test]
+    fn a_queue_is_installed_as_a_radio_together_with_its_token() {
+        let seed = Some("RDAMVMx");
+        // A started radio: flagged, and the token is tied to the seed it came with.
+        assert_eq!(
+            radio_install(Some(Some("TOK".into())), seed),
+            (true, Some(("RDAMVMx".into(), "TOK".into())))
+        );
+        // A radio whose first page carried no token is still a radio.
+        assert_eq!(radio_install(Some(None), seed), (true, None));
+        // A chosen playlist/album is not, whatever the queue before it was.
+        assert_eq!(radio_install(None, Some("RDAMPLPL1")), (false, None));
+        // No seed to pin: nothing to tie a token to.
+        assert_eq!(radio_install(Some(Some("TOK".into())), None), (true, None));
     }
 
     #[test]
