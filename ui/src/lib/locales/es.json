@@ -405,8 +405,6 @@
 			"app_icon_filter": "Imagen PNG",
 			"zoom": "Escala de la interfaz",
 			"zoom_hint": "Escala todo en la ventana. Los atajos para hacer zoom también lo cambian, y se recuerda entre reinicios.",
-			"stage_player": "Nuevo diseño del reproductor",
-			"stage_player_hint": "El título de la canción, el artista y el álbum aparecen bajo la imagen de portada; la cola de reproducción y la letra se sitúan en una columna de altura completa, y la vista se ilumina con los colores de la portada. La opción «Desactivado» (Off) mantiene la disposición original.",
 			"mode": "Claro o oscuro",
 			"mode_hint": "El sistema sigue la configuración de su equipo y cambia junto con ella.",
 			"mode_light": "Claro",

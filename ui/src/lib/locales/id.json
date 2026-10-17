@@ -384,8 +384,6 @@
 			"app_icon_filter": "Gambar PNG",
 			"zoom": "Skala antarmuka",
 			"zoom_hint": "Mengubah skala semua elemen jendela. Pintasan zoom juga dapat mengubahnya, dan pilihan akan diingat antar peluncuran.",
-			"stage_player": "Tata letak pemutar baru",
-			"stage_player_hint": "Judul lagu, artis, dan album ditampilkan di bawah sampul, sedangkan antrean dan lirik berada dalam kolom setinggi tampilan. Warna sampul mewarnai tampilan. Nonaktifkan untuk tetap menggunakan tata letak asli.",
 			"mode": "Terang atau gelap",
 			"mode_hint": "Sistem mengikuti pengaturan komputer Anda dan berubah sesuai pengaturan tersebut.",
 			"mode_light": "Terang",

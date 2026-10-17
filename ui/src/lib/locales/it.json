@@ -387,8 +387,6 @@
 			"app_icon_pick": "Scegli…",
 			"app_icon_dialog": "Scegli un'icona per l'app",
 			"app_icon_filter": "Immagine PNG",
-			"stage_player": "Nuovo layout del player",
-			"stage_player_hint": "Titolo del brano, artista e album sotto la copertina, coda e testi in una colonna a tutta altezza e schermata illuminata dai colori della copertina. Se disattivato, mantiene il layout originale.",
 			"mode": "Chiaro o scuro",
 			"mode_hint": "L'opzione Sistema segue l'impostazione del tuo computer e cambia con essa.",
 			"mode_light": "Chiaro",

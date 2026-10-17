@@ -405,8 +405,6 @@
 			"app_icon_filter": "Imagem PNG",
 			"zoom": "Escala da interface",
 			"zoom_hint": "Redimensiona tudo na janela. Os atalhos de zoom também alteram a escala, e ela fica salva ao reabrir o app.",
-			"stage_player": "Novo layout do player",
-			"stage_player_hint": "O título, o artista e o álbum da música ficam abaixo da capa; a fila e as letras, em uma coluna de altura total; e a tela é iluminada pelas cores da capa. Desativar mantém o layout original.",
 			"mode": "Claro ou escuro",
 			"mode_hint": "A opção Sistema segue a configuração do seu computador e alterna junto com ela.",
 			"mode_light": "Claro",

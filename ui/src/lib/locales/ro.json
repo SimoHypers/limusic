@@ -396,8 +396,6 @@
 			"app_icon_filter": "Imagine PNG",
 			"zoom": "Scalare interfață",
 			"zoom_hint": "Scalează toate elementele din fereastră. Scurtăturile de zoom o modifică de asemenea, iar valoarea este reținută între lansări.",
-			"stage_player": "Aspect nou pentru player",
-			"stage_player_hint": "Titlul piesei, artistul și albumul sub copertă, lista de redare și versurile într-o coloană pe toată înălțimea, iar fundalul iluminat în culorile copertei. Dezactivat: păstrează aspectul inițial.",
 			"mode": "Luminos sau întunecat",
 			"mode_hint": "Modul „Sistem” respectă setările calculatorului și comută odată cu acesta.",
 			"mode_light": "Luminos",

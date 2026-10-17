@@ -420,8 +420,6 @@
 			"app_icon_pick": "Wybierz…",
 			"app_icon_dialog": "Wybierz ikonę aplikacji",
 			"app_icon_filter": "Obraz PNG",
-			"stage_player": "Nowy układ odtwarzacza",
-			"stage_player_hint": "Tytuł utworu, wykonawca i album pod okładką, kolejka i tekst w kolumnie na pełną wysokość, a widok podświetlony kolorami okładki. Wyłączone zachowuje oryginalny układ.",
 			"mode": "Jasny lub ciemny",
 			"mode_hint": "Ustawienie systemowe podąża za ustawieniem Twojego komputera i zmienia się razem z nim.",
 			"mode_light": "Jasny",

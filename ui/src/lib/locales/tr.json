@@ -189,7 +189,18 @@
 		"sections_hint": "Bir bölümü taşımak için sürükleyin ya da tutacağına odaklanıp ok tuşlarını kullanın. Gizli bölümler yerlerini korur.",
 		"move_section": "Taşı: {title}",
 		"moved_section": "{title} öğesi, {total} öğe arasında {position}. sıraya taşındı",
-		"all_hidden": "Ana sayfadaki her şey kapatıldı."
+		"all_hidden": "Ana sayfadaki her şey kapatıldı.",
+		"kinds": {
+			"listen_again": "Tekrar dinleyin",
+			"quick_picks": "Hızlı seçimler",
+			"from_library": "Kütüphanenizden",
+			"community": "Topluluktan",
+			"fresh_finds": "Yeni keşifler, eski favoriler",
+			"albums_for_you": "Sana özel albümler",
+			"new_releases": "Yeni çıkanlar",
+			"mixed_for_you": "Senin için hazırlandı",
+			"music_videos": "Senin için müzik videoları"
+		}
 	},
 	"artist": {
 		"subscribe": "Abone ol",
@@ -390,7 +401,6 @@
 			"app_icon_filter": "PNG görsel",
 			"zoom": "Arayüz ölçeği",
 			"zoom_hint": "Penceredeki her şeyi ölçeklendirir. Yakınlaştırma kısayolları da bunu değiştirir ve uygulama yeniden başlatıldığında hatırlanır.",
-			"stage_player": "Yeni oynatıcı düzeni",
 			"mode": "Aydınlık veya karanlık",
 			"mode_hint": "Sistem bilgisayarınızın ayarını takip eder ve ona göre değiştirir.",
 			"mode_light": "Aydınlık",
@@ -401,7 +411,9 @@
 			"preview": "Önizle",
 			"accent_artwork_note": "Bir şarkı çalarken vurgu, şarkının kapak resminden gelir. Bunu görmek için “Kapağa göre renkleri ayarla” seçeneğini kapatın.",
 			"preview_hint": "Sürüklerken kaydırma çubukları ve renk seçici burada görünür; parmağınızı bıraktığınızda uygulama buna uyum sağlar.",
-			"stage_player_hint": "Kapak resminin altında şarkının adı, sanatçısı ve albümü; tam yükseklikteki bir sütunda çalma listesi ve şarkı sözleri; ayrıca kapak resminin renkleriyle aydınlatılmış görünüm. Kapalıyken orijinal düzen korunur."
+			"matugen": "Matugen",
+			"matugen_hint": "Matugen'in duvar kağıdınızdan oluşturduğu paletten, vurgu renkleri de dahil olmak üzere tüm renkleri alın. Öncelikle Matugen'de Limusic şablonunu ayarlayın.",
+			"blur_playlist_header_hint": "Bir çalma listesinin kapak resmini, başlığının arkasında bulanık bir şekilde göster. Tam genişlikte pikselli görünen kapak resimlerini yumuşatır."
 		},
 		"playback": {
 			"audio_quality": "Ses kalitesi",
@@ -452,7 +464,9 @@
 			"ambient_light_gpu_check": "Kartınıza bakın",
 			"shuffle_whole_queue_hint": "“Karıştır” seçeneği, “Sıraya Ekle” ile eklediğiniz şarkıları çalma listesiyle karıştırır. Bu seçeneği devre dışı bırakırsanız, şarkılar eklediğiniz sırayla çalınır. “Sonraki” seçeneği ise her zaman bir sonraki şarkıyı çalar.",
 			"ambient_light_gpu": "PassMark ekran kartı performans testinde 1000 puanın altında kalan durumlarda, müzik videosu oynatılırken oynatıcının görüntüsünde takılmalar yaşanabilir.",
-			"ambient_light": "Ambiyant aydınlık"
+			"ambient_light": "Ambiyant aydınlık",
+			"videos_first": "Önce videoyu oynat",
+			"videos_first_hint": "Müzik videosu bulunan albüm şarkıları, video ile başlar. Şarkı ile başlamak için bu seçeneği kapatın. Oynatıcı ekranındaki “Ses/Video” düğmesi, her iki yönde de geçiş yapmanızı sağlar."
 		},
 		"data": {
 			"clear_cache": "Görsel ve akış önbelleğini temizle",
@@ -628,8 +642,8 @@
 			"status_disconnected": "Hiçbir skroplama servisi bağlı değil, yani hiçbir şey gönderilmiyor.",
 			"status_skip_edit": "Yaptığınız düzenleme bu parçayı kapatır.",
 			"status_incomplete": "Hiçbir şey gönderilmedi: başlık ve sanatçı verisi yok.",
-			"status_at": "{time} tarihinde skroplandı.",
-			"status_done": "{time} tarihinde skroplandı.",
+			"status_at": "{time}'de skroplanacak.",
+			"status_done": "{time}'de skroplandı.",
 			"replace_placeholder": "Şununla değiştir",
 			"preset_video_tags": "(Official Video), (Lyrics) ve buna benzer ifadeleri kaldır",
 			"preset_explicit": "Başlıklardan \"(Explicit)\" ve \"(Clean)\" ifadelerini kaldır",

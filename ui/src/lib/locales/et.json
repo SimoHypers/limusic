@@ -447,8 +447,6 @@
 			"open_player_hint": "Sees: loo, albumi või esitusloendi esitamine avab täisekraani pleierivaate. Väljas: esitus algab ja jääd lehele, mida sirvisid.",
 			"tabbed_player": "Järjekord ja laulusõnad pleierivaates",
 			"tabbed_player_hint": "Sees: pleierivaates on need vahekaartidena ja riba kaks nuppu vahetavad nende vahel. Väljas: need nupud avavad ainult külgpaneelid, mis jäävad pleierivaate peale avatuks, nii et näed mõlemat korraga.",
-			"stage_player": "Uus pleieri paigutus",
-			"stage_player_hint": "Loo pealkiri, esitaja ja album kaanepildi all, järjekord ja laulusõnad täiskõrguses veerus ning vaade kaane värvides. Väljas jätab algse paigutuse.",
 			"artwork_background": "Kaanepildi taust",
 			"artwork_background_hint": "Toonib pleierivaate mängiva loo uduse kaanepildiga. Väljas jätab selle lihtsaks.",
 			"artwork_accent": "Kohanda värvid kaanepildiga",

@@ -437,8 +437,6 @@
 			"app_icon_pick": "Chọn…",
 			"app_icon_dialog": "Chọn biểu tượng ứng dụng",
 			"app_icon_filter": "Hình ảnh PNG",
-			"stage_player": "Bố cục trình phát mới",
-			"stage_player_hint": "Tên bài hát, nghệ sĩ và album nằm dưới ảnh bìa; hàng đợi và lời bài hát hiển thị trong một cột dọc; toàn bộ giao diện được chiếu sáng bằng tông màu của ảnh bìa. Chọn 'Tắt' sẽ giữ nguyên bố cục gốc.",
 			"mode": "Sáng hoặc tối",
 			"mode_hint": "'Hệ thống' sẽ tự động đồng bộ theo cài đặt giao diện sáng/tối của thiết bị.",
 			"mode_light": "Sáng",
