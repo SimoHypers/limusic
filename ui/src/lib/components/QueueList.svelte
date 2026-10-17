@@ -324,8 +324,9 @@
 				<p class="truncate text-xs text-muted-foreground tabular-nums">{leftLabel}</p>
 			{/if}
 		</div>
-		{#if canEdit}
-			<!-- Right where its tracks are drawn, rather than three levels into Settings. -->
+		{#if canEdit && !playback.queue.radio}
+			<!-- Right where its tracks are drawn, rather than three levels into Settings. A radio has
+			     no use for it: nothing follows a radio, it simply goes on. -->
 			<label
 				class="flex shrink-0 cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground"
 				title={t('settings.playback.autoplay_hint')}
@@ -384,7 +385,7 @@
 		{#if view.rows.length}
 			{@render rows(view.rows, wins[0])}
 			<!-- Said once, where the list stops, rather than leaving it to look unfinished. -->
-			{#if canEdit && !left.count && !view.autoplay.length && !prefs.autoplay && (playback.queue.repeat ?? 'off') === 'off'}
+			{#if canEdit && !playback.queue.radio && !left.count && !view.autoplay.length && !prefs.autoplay && (playback.queue.repeat ?? 'off') === 'off'}
 				<p class="px-2 pt-3 pb-1 text-xs text-muted-foreground" in:fade={{ duration: 150 }}>
 					{t('player.queue_ends')}
 				</p>

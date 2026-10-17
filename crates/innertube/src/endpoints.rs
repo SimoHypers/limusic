@@ -260,6 +260,35 @@ impl InnerTube {
         Ok(next)
     }
 
+    /// The next window of an endless mix/radio via the panel's own continuation token (context/08).
+    /// `parse_next` has always extracted that token (`NextResult::continuation`); nothing ever sent
+    /// it. Re-requesting the seed from the same anchor answers the same page, so a queue topped up
+    /// only that way stalls where the first panel ends. Same call and filtering as [`Self::next`];
+    /// `seed_video` only spares the anchor from "hide music videos".
+    pub async fn radio_continuation(
+        &self,
+        metadata_client: &YouTubeClient,
+        token: &str,
+        seed_video: Option<&str>,
+    ) -> Result<NextResult, Error> {
+        #[derive(Serialize)]
+        struct ContinuationBody {
+            context: Context,
+            continuation: String,
+        }
+        let body = ContinuationBody {
+            context: self.context_for(metadata_client),
+            continuation: token.to_owned(),
+        };
+        let value = self.post("next", metadata_client, &body, true).await?;
+        let mut page = metadata::parse_next(&value);
+        if self.hide_videos() {
+            page.items.retain(|i| !i.is_video || Some(i.video_id.as_str()) == seed_video);
+        }
+        self.drop_blocked_songs(&mut page.items, seed_video);
+        Ok(page)
+    }
+
     // --- comments. Reads go through `next`: a comments token sent to `browse` is answered with
     // the Home feed. -----------------------------------------------------------------------
 
@@ -1591,6 +1620,40 @@ mod tests {
 
     fn is_tab_lookup(req: &Seen) -> bool {
         req.body.contains("\"videoId\"")
+    }
+
+    /// A mix's panel carries a continuation token. Re-requesting the seed answers the same page,
+    /// so the token goes out as a bare `next` call and the answer parses like any panel page,
+    /// handing on the following token.
+    #[tokio::test]
+    async fn radio_continuation_pages_the_endless_mix() {
+        let server = MockServer::start(|req: &Seen| {
+            assert_eq!(
+                req.path.split('?').next(),
+                Some("/youtubei/v1/next"),
+                "a panel token is a next call, not browse"
+            );
+            assert!(req.body.contains("\"continuation\":\"TOK1\""), "{}", req.body);
+            (
+                200,
+                json!({
+                    "contents": { "playlistPanelRenderer": { "contents": [
+                        { "playlistPanelVideoRenderer": {
+                            "videoId": "vid10",
+                            "title": { "runs": [{ "text": "Deep Cut" }] },
+                            "longBylineText": { "runs": [{ "text": "Artist C" }] }
+                        }}
+                    ], "continuations": [{ "nextContinuationData": { "continuation": "TOK2" } }] } }
+                })
+                .to_string(),
+            )
+        });
+        let it = it_against(&server, false);
+        let page = it.radio_continuation(&web(), "TOK1", None).await.unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].video_id, "vid10");
+        assert_eq!(page.continuation.as_deref(), Some("TOK2"));
+        assert_eq!(server.requests().len(), 1, "exactly one request");
     }
 
     /// A tab-lookup answer whose comments token records who it was issued to.

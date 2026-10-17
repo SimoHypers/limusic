@@ -99,6 +99,9 @@ export interface QueueState {
 	/** The playlist the queue was started from, when it was one. What "Remove from this playlist"
 	 *  in the player's track menu writes to; absent for radios, single songs and guest queues. */
 	sourceId?: string | null;
+	/** The queue is a radio: YouTube generates all of it and keeps it going on its own, so the
+	 *  panel has no Autoplay switch for it and no "queue ends" line. */
+	radio?: boolean;
 	/** Title of the track a click replaced this queue mid-play, for the panel's "Back to …" line.
 	 *  Set only while `backToPrevious` would actually do something: at the head of the queue, with
 	 *  a kept one behind it. */
@@ -1048,6 +1051,7 @@ export interface QueueIndex {
 	repeat?: RepeatMode;
 	sourceName?: string | null;
 	sourceId?: string | null;
+	radio?: boolean;
 	prevTrack?: string | null;
 	current: SongItem | null;
 }
