@@ -3113,13 +3113,16 @@ impl AppState {
         self.freshen_radio(&mut fresh);
         let (added, trimmed) = {
             let mut q = self.queue.lock().await;
+            // The window was asked for a queue the playing one may no longer be: a radio spliced in
+            // behind the playing track swaps it without moving the generation checked above.
+            if is_foreign_window(top_up, &q, seed) {
+                return 0;
+            }
             // A radio's next-window token (`Some(None)`: no more), kept in the same breath as the
-            // append so a window fetched but not appended is never skipped over, and only while the
-            // queue still has the seed it was issued for.
+            // append so a window fetched but not appended is never skipped over. Only a radio hands
+            // one in, and only a window of the queue's own seed got this far.
             if let Some(next) = cont {
-                if q.radio_seed.as_deref() == Some(seed) {
-                    q.radio_cont = next.map(|t| (seed.to_owned(), t));
-                }
+                q.radio_cont = next.map(|t| (seed.to_owned(), t));
             }
             // Against the queue as it is *now*, not a snapshot from before the fetch: a playlist
             // fill, a guest add or `play_song`'s own hydration can all have appended something
@@ -4460,6 +4463,20 @@ fn repeat_blocks_top_up(repeat: RepeatMode, radio: bool) -> bool {
     }
 }
 
+/// Whether a fetched window is for a queue the playing one no longer is. The kind of top-up is
+/// decided from a snapshot taken before the request, and a radio spliced in behind the playing
+/// track swaps the queue's seed and flag without moving the generation. A radio's window is for the
+/// seed it was asked with. Autoplay's follows a queue that was no radio: it carries whatever seed
+/// it was derived from, but must not land in a radio, where its `autoplay` tag would let switching
+/// autoplay off cut rows out of it.
+fn is_foreign_window(top_up: TopUp, q: &QueueState, seed: &str) -> bool {
+    if top_up.autoplay {
+        is_radio(q)
+    } else {
+        q.radio_seed.as_deref() != Some(seed)
+    }
+}
+
 /// The `radio` flag and next-window token a queue is installed with (see `play_tracks_as`): `None`
 /// is a chosen playlist/album, `Some(token)` a started radio. The token is only kept together with
 /// the seed it was issued for ([`radio_token`] checks it against the queue's).
@@ -4946,13 +4963,14 @@ fn persist_fingerprint(q: &QueueState) -> u64 {
 mod tests {
     use super::{
         adopt_twin, append_page, backfill_metadata, cache_horizon, drop_duplicates, enqueue_at,
-        format_duration, freshen, get_url, guest_insert_index, history_threshold, is_mix, is_radio,
-        loudness_gain, merge_radio, next_index, parse_duration_ms, persist_fingerprint,
-        prefer_version, prev_track_title, put_url, queue_fingerprint, radio_install,
-        radio_seed_for, radio_token, repeat_blocks_top_up, retain_upcoming, shuffle_new_queue,
-        shuffle_upcoming, splice_radio_into, swap_version, trim_played, twin_position, unshuffled,
-        upcoming_queued, wants_top_up, QueueState, RepeatMode, VideoUrls, AUTOPLAY, KEEP_PLAYED,
-        LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO, RADIO_TAIL,
+        format_duration, freshen, get_url, guest_insert_index, history_threshold,
+        is_foreign_window, is_mix, is_radio, loudness_gain, merge_radio, next_index,
+        parse_duration_ms, persist_fingerprint, prefer_version, prev_track_title, put_url,
+        queue_fingerprint, radio_install, radio_seed_for, radio_token, repeat_blocks_top_up,
+        retain_upcoming, shuffle_new_queue, shuffle_upcoming, splice_radio_into, swap_version,
+        trim_played, twin_position, unshuffled, upcoming_queued, wants_top_up, QueueState,
+        RepeatMode, VideoUrls, AUTOPLAY, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO,
+        RADIO_TAIL,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -5904,6 +5922,25 @@ mod tests {
         // A playlist's seed is `RDAMPL…`, autoplay's radio and not the queue itself.
         assert!(!is_radio(&q(false, Some("RDAMPLPL123"))));
         assert!(!is_radio(&q(false, None)));
+    }
+
+    #[test]
+    fn a_window_is_dropped_once_the_queue_it_was_asked_for_is_gone() {
+        let q = |radio: bool, seed: Option<&str>| QueueState {
+            radio,
+            radio_seed: seed.map(Into::into),
+            ..QueueState::default()
+        };
+        // A radio's window: still the radio it was asked for.
+        assert!(!is_foreign_window(RADIO, &q(true, Some("RDAMVMa")), "RDAMVMa"));
+        // Radio B was spliced in while A's window was on the wire, or the radio was dropped.
+        assert!(is_foreign_window(RADIO, &q(true, Some("RDAMVMb")), "RDAMVMa"));
+        assert!(is_foreign_window(RADIO, &q(false, None), "RDAMVMa"));
+        // Autoplay's window follows the queue, whatever seed it was derived from.
+        assert!(!is_foreign_window(AUTOPLAY, &q(false, Some("RDAMPLPL1")), "RDAMVMlast"));
+        assert!(!is_foreign_window(AUTOPLAY, &q(false, None), "RDAMVMlast"));
+        // A radio spliced in behind the playing track while it was on the wire: not its tracks.
+        assert!(is_foreign_window(AUTOPLAY, &q(true, Some("RDAMVMb")), "RDAMVMlast"));
     }
 
     #[test]
