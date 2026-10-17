@@ -23,11 +23,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 tauri = { version = "2", features = ["tray-icon", "protocol-asset", "macos-private-api", "image-png"] }
-tauri-plugin-updater = "2"
-tauri-plugin-process = "2"
-tauri-plugin-single-instance = "2"
-tauri-plugin-autostart = "2"
-tauri-plugin-global-shortcut = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 # Phase 2 extraction stack (cipher + PoToken). context/04, 05, 13.
 # BotGuard runs under deno_core + JSDOM, NOT in a hidden webview. Every token a real browser engine
@@ -46,20 +41,18 @@ http-body-util = "0.1"
 
 innertube = { path = "../crates/innertube" }
 player = { path = "../crates/player" }
-souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
 # Listen Together: shared wire types + WebSocket client (wss via rustls). context/19.
 listen-protocol = { workspace = true }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 futures-util = { workspace = true }
 rand = { workspace = true }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
-discord-rich-presence = "1.1.0"
 # Last.fm API signature (api_sig is md5 of the sorted params + secret), and the stable
 # saved-account key (db.rs::account_key).
 md-5 = "0.10"
 lofty = "0.22.2"
+tauri-plugin-process = "2"
 tauri-plugin-dialog = "2.7.2"
-tauri-plugin-window-state = "2.4.1"
 tauri-plugin-clipboard-manager = "2.3.2"
 # Romanized lyrics (#202, romanize.rs). lindera's build script downloads IPADIC (~12 MB, from
 # GitHub) once and embeds it uncompressed (~45 MB in the binary, borrowed in place, never copied to
@@ -70,8 +63,6 @@ lindera = { version = "=0.30.0", default-features = false, features = ["ipadic"]
 wana_kana = { version = "5", default-features = false }
 pinyin = { version = "0.11", default-features = false, features = ["with_tone"] }
 any_ascii = "0.3"
-# Track-change notifications (notify.rs): D-Bus on Linux, WinRT toasts, NSUserNotification.
-notify-rust = "4"
 # Spotify import (#375, spotify.rs + import.rs). All four were in the lockfile already: zip under
 # the Windows updater, csv and unicode-normalization under lindera, strsim under clap.
 zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
@@ -108,3 +99,14 @@ libc = "0.2"
 webkit2gtk = { version = "2.0", features = ["v2_40"] }
 # Holding off suspend while playing (inhibit.rs, #347). Already in the tree through notify-rust.
 zbus = "5"
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+tauri-plugin-updater = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-window-state = "2.4.1"
+souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
+discord-rich-presence = "1.1.0"
+notify-rust = "4"
+

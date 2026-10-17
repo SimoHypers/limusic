@@ -9,6 +9,7 @@ use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
+#[cfg(not(target_os = "android"))]
 use souvlaki::{
     MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig,
     SeekDirection,
@@ -17,6 +18,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::state::AppState;
 
+#[cfg(not(target_os = "android"))]
 /// Update messages: app → media-controls owner thread.
 enum MediaUpdate {
     Metadata { title: String, artist: String, album: Option<String>, cover: Option<String> },
@@ -26,12 +28,14 @@ enum MediaUpdate {
     Volume(i64), // slider percent, 0-100
 }
 
+#[cfg(not(target_os = "android"))]
 /// App-side handle to the media-controls thread. Cheap to clone-send into. `None` when the OS
 /// integration failed to initialize (e.g. no session bus) — every push is then a no-op.
 pub struct MediaHandle {
     tx: Sender<MediaUpdate>,
 }
 
+#[cfg(not(target_os = "android"))]
 impl MediaHandle {
     pub fn set_metadata(
         &self,
@@ -67,6 +71,7 @@ impl MediaHandle {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 /// Spawn the media-controls owner thread. Returns `None` if the platform controls can't be
 /// created (integration simply absent then — MPRIS-only fallback is blessed, context/16).
 pub fn spawn(app: AppHandle) -> Option<MediaHandle> {
@@ -82,6 +87,7 @@ pub fn spawn(app: AppHandle) -> Option<MediaHandle> {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 // `duration` is reset per track in the Metadata arm; the lint can't see the loop's later reads.
 #[allow(unused_assignments)]
 fn run(app: AppHandle, rx: std::sync::mpsc::Receiver<MediaUpdate>) {
@@ -168,6 +174,7 @@ fn run(app: AppHandle, rx: std::sync::mpsc::Receiver<MediaUpdate>) {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 fn apply_metadata(
     controls: &mut MediaControls,
     title: &str,
@@ -204,6 +211,7 @@ pub(crate) fn cover_url(url: &str) -> String {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 /// Route an OS control press into the same [`AppState`] methods the UI commands use. Runs the
 /// async work on the Tauri runtime (the callback fires on souvlaki's own thread, and on Windows
 /// also on the UI thread via the taskbar toolbar).
@@ -244,4 +252,33 @@ pub(crate) fn handle_event(app: &AppHandle, event: MediaControlEvent) {
             _ => {}
         }
     });
+}
+
+#[cfg(target_os = "android")]
+#[derive(Clone)]
+pub struct MediaHandle;
+
+#[cfg(target_os = "android")]
+impl MediaHandle {
+    pub fn set_metadata(
+        &self,
+        _title: &str,
+        _artist: &str,
+        _album: Option<&str>,
+        _cover: Option<&str>,
+    ) {
+    }
+
+    pub fn set_album(&self, _album: &str) {}
+
+    pub fn set_duration(&self, _secs: f64) {}
+
+    pub fn set_playback(&self, _playing: bool, _pos: f64) {}
+
+    pub fn set_volume(&self, _volume: i64) {}
+}
+
+#[cfg(target_os = "android")]
+pub fn spawn(_app: AppHandle) -> Option<MediaHandle> {
+    Some(MediaHandle)
 }

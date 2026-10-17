@@ -10,6 +10,12 @@ rustypipe_reports/
 /.libmpv/
 /libmpv/
 
+# Android build artifacts
+/src-tauri/gen/android/.gradle/
+/src-tauri/gen/android/app/build/
+/src-tauri/gen/android/.idea/
+/src-tauri/gen/android/local.properties
+
 # Local tool state
 /.freebuff/
 

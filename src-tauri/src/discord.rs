@@ -45,6 +45,7 @@ use std::collections::VecDeque;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+#[cfg(not(target_os = "android"))]
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use innertube::SongItem;
 
@@ -219,6 +220,10 @@ struct Track {
     /// end up in a URL on the user's profile.
     local: bool,
 }
+
+#[cfg(not(target_os = "android"))]
+mod desktop {
+    use super::*;
 
 /// App-side handle to the presence thread. `None` when the thread couldn't be spawned; every push
 /// is then a no-op.
@@ -1378,4 +1383,28 @@ mod tests {
         assert!(!p.wants_push());
         assert_eq!(p.plan(), Act::Idle);
     }
+}
+}
+
+#[cfg(not(target_os = "android"))]
+pub use desktop::*;
+
+#[cfg(target_os = "android")]
+#[derive(Clone)]
+pub struct DiscordHandle;
+
+#[cfg(target_os = "android")]
+impl DiscordHandle {
+    pub fn set_track(&self, _item: &innertube::SongItem) {}
+    pub fn set_album(&self, _video_id: &str, _album: &str) {}
+    pub fn set_duration(&self, _secs: f64) {}
+    pub fn set_position(&self, _pos: f64) {}
+    pub fn set_playing(&self, _playing: bool) {}
+    pub fn set_enabled(&self, _on: bool) {}
+    pub fn set_config(&self, _cfg: RpcConfig) {}
+}
+
+#[cfg(target_os = "android")]
+pub fn spawn(_enabled: bool, _cfg: RpcConfig) -> Option<DiscordHandle> {
+    None
 }

@@ -1,0 +1,113 @@
+name: Android release binary
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to attach the APK to (leave blank to just build and save artifact)'
+        required: false
+        type: string
+      dry_run:
+        description: 'Build only, attach nothing to release'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.ref }}-${{ inputs.tag || 'manual' }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Bake in player-cipher registry
+        run: |
+          FARADAY=https://raw.githubusercontent.com/MetrolistGroup/faraday/master/registry/player_configs.json
+          ZEMER=https://raw.githubusercontent.com/ZemerTeam/zemer-cipher/master/library/src/main/assets/player_configs.json
+          tmp="$(mktemp)"
+          for url in "$FARADAY" "$ZEMER"; do
+            if curl -fsSL --max-time 30 "$url" -o "$tmp" && jq -e '(.players | objects | length) > 0' "$tmp" >/dev/null 2>&1; then
+              cp "$tmp" src-tauri/cipher_configs.json
+              echo "bundled player configs from $url"
+              exit 0
+            fi
+          done
+          echo "::warning::no player-cipher registry reachable"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: cd ui && pnpm install --frozen-lockfile
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK and NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r26b
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Install Tauri CLI
+        run: npm install -g "@tauri-apps/cli@2.11.5"
+
+      - name: Setup Last.fm API keys (optional)
+        env:
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
+        run: |
+          if [ -n "$LASTFM_API_KEY" ] && [ -n "$LASTFM_API_SECRET" ]; then
+            printf 'LIMUSIC_LASTFM_API_KEY=%s\nLIMUSIC_LASTFM_API_SECRET=%s\n' \
+              "$LASTFM_API_KEY" "$LASTFM_API_SECRET" > src-tauri/lastfm.keys
+          fi
+
+      - name: Build Android APK
+        env:
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          (cd ui && pnpm build)
+          tauri android build --apk
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: limusic-android-apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+
+      - name: Attach APK to GitHub Release
+        if: ${{ inputs.tag != '' && !inputs.dry_run }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          files: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

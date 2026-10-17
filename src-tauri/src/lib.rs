@@ -227,8 +227,7 @@ pub(crate) fn tune_webview_labelled(app: &tauri::AppHandle, label: &str, media: 
 /// border on screen and no titlebar to drag. Called from `setup`: the plugin has restored by then
 /// (it runs as the window is built, just before), and the window is still hidden.
 ///
-/// Wayland gives the app no real position and ignores `center`, which is fine: the compositor
-/// places the window there, so the bug cannot happen.
+#[cfg(not(target_os = "android"))]
 fn keep_on_screen(w: &tauri::WebviewWindow) {
     let (Ok(p), Ok(size)) = (w.outer_position(), w.outer_size()) else { return };
     if mini::on_a_display(w, p, size) {
@@ -247,7 +246,6 @@ fn keep_on_screen(w: &tauri::WebviewWindow) {
     }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Logs to stdout **and** to `<app data>/limusic.log`, truncated each launch (the previous run is
 /// kept as `limusic.log.1`).
 ///
@@ -409,6 +407,7 @@ fn should_start_minimized(db: &Db) -> bool {
 /// Tauri entry point. Applies the platform boot fixes (open-fd limit, NVIDIA/WebKit env), restores
 /// the persisted session, wires every command and plugin, and runs the event loop. context/01
 /// §startup.
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Must happen before any webview exists: the limit is inherited by the web processes WebKit
     // forks, and cannot be raised for them afterwards.
@@ -497,6 +496,7 @@ pub fn run() {
     // the two fight over it, which is what the guard exists to prevent:
     //
     //     LIMUSIC_MULTI=1 XDG_DATA_HOME=/tmp/limusic-b ./target/debug/limusic-app
+    #[cfg(not(target_os = "android"))]
     if std::env::var_os("LIMUSIC_MULTI").is_none() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             tray::show_main(app);
@@ -507,7 +507,7 @@ pub fn run() {
         }));
     }
 
-    builder
+    builder = builder
         // The hidden cipher webview's document (webview.rs). A registered scheme, because a
         // `data:` URL is not a document WebView2 will navigate to.
         .register_uri_scheme_protocol(webview::SCHEME, |_ctx, _req| {
@@ -516,7 +516,6 @@ pub fn run() {
                 .body(webview::HARNESS_HTML.as_bytes())
                 .expect("static harness response")
         })
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         // Folder picker for the local-music library (local.rs).
         .plugin(tauri_plugin_dialog::init())
@@ -524,34 +523,42 @@ pub fn run() {
         // (both `execCommand('copy')` and `navigator.clipboard`) behind its own policy, and on
         // Fedora every copy button in the app silently did nothing. The OS clipboard from the app
         // process has no such gate. See ui/src/lib/clipboard.ts.
-        .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            Some(vec!["--autostart"]),
-        ))
-        // Reopen at the size/position the window was left at. Only "main": the mini widget is
-        // fixed-size and the login/cipher/PoToken webviews are windows too. Size, position and
-        // maximized only — VISIBLE would restore a window hidden to the tray as invisible, and
-        // DECORATIONS would fight the custom titlebar.
-        .plugin(
-            tauri_plugin_window_state::Builder::new()
-                .with_state_flags(
-                    tauri_plugin_window_state::StateFlags::SIZE
-                        | tauri_plugin_window_state::StateFlags::POSITION
-                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
-                )
-                .with_filter(|label| label == "main")
-                .build(),
-        )
-        .plugin(
-            tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, shortcut, event| {
-                    if let Some(mgr) = app.try_state::<Arc<hotkeys::HotkeysManager>>() {
-                        mgr.handle_event(app, shortcut, event.state());
-                    }
-                })
-                .build(),
-        )
+        .plugin(tauri_plugin_clipboard_manager::init());
+
+    #[cfg(not(target_os = "android"))]
+    {
+        builder = builder
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_autostart::init(
+                tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+                Some(vec!["--autostart"]),
+            ))
+            // Reopen at the size/position the window was left at. Only "main": the mini widget is
+            // fixed-size and the login/cipher/PoToken webviews are windows too. Size, position and
+            // maximized only — VISIBLE would restore a window hidden to the tray as invisible, and
+            // DECORATIONS would fight the custom titlebar.
+            .plugin(
+                tauri_plugin_window_state::Builder::new()
+                    .with_state_flags(
+                        tauri_plugin_window_state::StateFlags::SIZE
+                            | tauri_plugin_window_state::StateFlags::POSITION
+                            | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                    )
+                    .with_filter(|label| label == "main")
+                    .build(),
+            )
+            .plugin(
+                tauri_plugin_global_shortcut::Builder::new()
+                    .with_handler(|app, shortcut, event| {
+                        if let Some(mgr) = app.try_state::<Arc<hotkeys::HotkeysManager>>() {
+                            mgr.handle_event(app, shortcut, event.state());
+                        }
+                    })
+                    .build(),
+            );
+    }
+
+    builder
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -612,8 +619,7 @@ pub fn run() {
                 });
             // Before the first fetch: the shared client builds itself on first use.
             http::set_proxy(proxy.as_deref());
-            // Built here instead of from the config (`create: false`), because WebView2 only takes
-            // a proxy at creation and it isn't known until the database is open (#465).
+            #[cfg(not(target_os = "android"))]
             if let Some(config) = app.config().app.windows.first() {
                 let w =
                     http::proxied(tauri::WebviewWindowBuilder::from_config(&handle, config)?)
@@ -763,6 +769,7 @@ pub fn run() {
             // pointing at nothing. So an installed build repoints an existing entry at itself.
             // Only an existing one: `is_enabled` is false after a Task Manager disable on Windows,
             // and that choice is the user's.
+            #[cfg(not(target_os = "android"))]
             if !tauri::is_dev() {
                 use tauri_plugin_autostart::ManagerExt;
                 let al = app.autolaunch();
@@ -939,7 +946,7 @@ pub fn run() {
             // is created undecorated, so this is the one place that reverses it; macOS never gets
             // here, its traffic lights come from `tauri.macos.conf.json`. Done before the SPA shows
             // the window, so the frame is already there rather than popping in.
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(all(not(target_os = "macos"), not(target_os = "android")))]
             if system_titlebar {
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.set_decorations(true);

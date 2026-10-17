@@ -4,7 +4,7 @@
 
 # Limusic
 
-**A native desktop YouTube Music client. Rust + Tauri, ad-free, no Electron.**
+**A native desktop & mobile YouTube Music client. Rust + Tauri 2, ad-free, no Electron.**
 
 <p align="center">
   <a href="https://github.com/SimoHypers/limusic/releases/latest"><img alt="GitHub Downloads" src="https://img.shields.io/github/downloads/SimoHypers/limusic/total?style=for-the-badge&label=DOWNLOADS&color=a4c400"></a>
@@ -17,14 +17,12 @@
   <img alt="Linux" src="https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black">
   <img alt="Windows" src="https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logoColor=white">
   <img alt="macOS" src="https://img.shields.io/badge/macOS-000000?style=for-the-badge&logo=apple&logoColor=white">
+  <img alt="Android" src="https://img.shields.io/badge/Android-3DDC84?style=for-the-badge&logo=android&logoColor=white">
   <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri_2-24C8D8?style=for-the-badge&logo=tauri&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white">
 </p>
 
-**Limusic** talks directly to YouTube's internal API and plays audio through libmpv: no bundled
-browser runtime, no backend server, no ads in the audio. It started as a desktop rebuild of the
-playback engine behind [Metrolist](https://github.com/mostafaalagamy/Metrolist), an Android
-YouTube Music client, and grew from there.
+**Limusic** talks directly to YouTube's internal API with zero browser bloat, no backend server, and no ads in the audio. It delivers high-fidelity audio on Desktop (powered by libmpv) and Android devices (powered by Google Media3 & ExoPlayer with foreground background service), sharing the same lightning-fast SvelteKit UI and pure-Rust engine.
 
 </div>
 
@@ -37,7 +35,7 @@ YouTube Music client, and grew from there.
 - **Sign in** with your YouTube Music account: in-app Google login or cookie-paste, several accounts at once with switching between them
 - **Your library**: playlists, liked songs, saved albums and artists, your uploads, and write actions (like, add to playlist, create/edit/delete playlists including cover art, subscribe, save to library)
 - **History**: everything you have played, in YouTube Music's own day buckets
-- **Gapless playback** with loudness normalization, powered by libmpv
+- **Gapless playback** with loudness normalization, powered by libmpv (Desktop) and ExoPlayer (Android)
 - **Queue** with radio/automix continuation, drag to reorder, restored across restarts
 - **Synced lyrics**: side panel with auto-scroll and click-to-jump, word by word where the source has the timings, with translations under each line
 - **Music videos**: optional, the video plays where the artwork sits, with the same gapless audio behind it
@@ -46,13 +44,24 @@ YouTube Music client, and grew from there.
 - **Last.fm scrobbling**: connect once from the title bar, every play is scrobbled
 - **ListenBrainz scrobbling**: paste a user token in the Scrobbling settings, same plays go there too
 - **Discord Rich Presence**: artwork, live progress bar, one click to toggle
-- **OS media keys** and now-playing integration (MPRIS on Linux, SMTC on Windows, plus playback buttons on the Windows taskbar preview)
+- **OS media keys** and now-playing integration (MPRIS on Linux, SMTC on Windows, MediaSession on Android, plus playback buttons on Windows taskbar preview)
 - **System tray**: close the window, keep the music; play/pause and skip from the tray, optional start-on-login
 - **Listen Together**: synced listening rooms over a small self-hosted relay
 - **Keyboard and mouse**: `Ctrl+K` searches from anywhere, `Ctrl+H` lists every shortcut, right-click menus throughout, `Ctrl` and the wheel zooms the interface
 - **Eighteen languages**: English, German, Spanish, French, Indonesian, Italian, Japanese, Korean, Polish, Brazilian Portuguese, Romanian, Russian, Tamil, Turkish, Ukrainian, Vietnamese, and Simplified and Traditional Chinese, with more in progress on [Weblate](https://hosted.weblate.org/projects/limusic/)
 - **Self-updating builds** (AppImage on Linux, setup.exe on Windows, .app on macOS)
 - **Make it yours**: accent palettes, custom colors, your own fonts, corner roundness, a custom app icon, and an adaptive theme that recolors the app from the playing cover
+
+### 📱 Android Mobile Experience
+
+Limusic on Android provides a first-class mobile listening experience engineered with pure Rust + Tauri 2 and native Android system components:
+
+- **Uninterrupted Background Playback**: Powered by Google's modern `Media3` and `ExoPlayer` audio engine wrapped in a dedicated Android Foreground Service. Playback keeps going with your screen turned off or while multitasking in other apps, resilient against Android Doze mode and background battery optimizations.
+- **Rich System MediaSession Integration**: Full lock screen and notification shade player controls featuring live seekable scrub bar, high-resolution album artwork, dynamic metadata (artist, title, album), previous/next, and play/pause controls.
+- **Headset & Bluetooth Peripheral Controls**: Hardware media buttons on Bluetooth headphones and car infotainment systems work immediately out-of-the-box. Features automatic playback pause when headphones disconnect or audio becomes noisy.
+- **Smart Audio Focus Management**: Seamlessly ducks or pauses audio during incoming phone calls, turn-by-turn navigation announcements, or alarm notifications, and smoothly resumes playback when finished.
+- **Full Feature Parity**: Enjoy the complete Limusic suite on your phone—direct ad-free YouTube streaming, word-by-word synchronized lyrics, multi-account YouTube Music login, personal playlist management, local files, and adaptive color themes.
+- **Ultra-Lightweight & Private**: Built on native Android WebView and compiled Rust—minimal battery drain, fractional memory footprint compared to Electron or Flutter alternatives, and absolutely zero tracking or telemetry.
 
 ---
 
@@ -81,6 +90,7 @@ YouTube Music client, and grew from there.
 
 | Platform | File | Notes |
 |---|---|---|
+| Android | `.apk` | Universal & arm64-v8a builds for Android 8.0+ (API 26+). Native Media3 ExoPlayer background playback |
 | Windows | `-setup.exe` | Self-updating |
 | Windows | `.msi` | Plain installer, no auto-update |
 | Linux | `.AppImage` | Self-updating, libmpv bundled. Needs glibc 2.39+ (Ubuntu 24.04+, Debian 13+, Fedora 40+) |
@@ -214,6 +224,14 @@ cargo tauri build
 
 Windows and macOS instructions live in [docs/BUILD-PLATFORMS.md](docs/BUILD-PLATFORMS.md).
 
+Android:
+
+```bash
+cargo tauri android init
+cargo tauri android build --apk
+```
+*(Requires Android SDK, NDK, and `JAVA_HOME` properly configured).*
+
 ---
 
 ## How It Works, Briefly
@@ -224,8 +242,10 @@ Windows and macOS instructions live in [docs/BUILD-PLATFORMS.md](docs/BUILD-PLAT
   cipher and the `n` parameter) and by BotGuard attestation. Limusic runs that
   JavaScript where it expects to run, in a real webview, hidden, and never lets
   any of it touch the UI process.
-- Audio goes through libmpv: gapless transitions, an on-disk cache, and
-  loudness normalization from YouTube's own metadata.
+- Audio goes through a dual-backend engine: **libmpv** on Desktop (gapless
+  transitions, an on-disk cache, loudness normalization) and native Google
+  **Media3 / ExoPlayer** on Android (background foreground service, lock screen
+  MediaSession, and low battery consumption).
 - The UI is a SvelteKit SPA that only ever talks to the Rust core. It never
   contacts YouTube itself.
 

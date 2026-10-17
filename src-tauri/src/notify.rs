@@ -7,9 +7,11 @@
 //! that rolls over while Limusic sits in front may go unseen. Best-effort like `media.rs`: a
 //! missing notification daemon is a `debug!` line.
 
-#[cfg(all(unix, not(target_os = "macos")))]
-use std::sync::Mutex;
-use tauri::{AppHandle, Manager};
+#[cfg(not(target_os = "android"))]
+mod desktop {
+    #[cfg(all(unix, not(target_os = "macos")))]
+    use std::sync::Mutex;
+    use tauri::{AppHandle, Manager};
 
 /// The last song's notification, closed before the next one is shown so a run of skips leaves one
 /// up, not a stack. Not `replaces_id`: Plasma updates an expired notification in place in its
@@ -105,3 +107,13 @@ fn present_while_frontmost() {
         }
     });
 }
+}
+
+#[cfg(not(target_os = "android"))]
+pub use desktop::*;
+
+#[cfg(target_os = "android")]
+use tauri::AppHandle;
+
+#[cfg(target_os = "android")]
+pub fn track_changed(_app: &AppHandle, _title: &str, _artists: &str, _even_focused: bool) {}

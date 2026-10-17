@@ -369,6 +369,8 @@ pub async fn forget_video_stream(state: St<'_>, video_id: String) -> Result<(), 
 fn native_chrome(db: &crate::db::Db) -> &'static str {
     if cfg!(target_os = "macos") {
         "overlay"
+    } else if cfg!(target_os = "android") {
+        "on"
     } else if db.get_setting("system_titlebar").as_deref() == Some("true") {
         "on"
     } else {

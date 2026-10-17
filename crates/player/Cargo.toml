@@ -8,10 +8,14 @@ license.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 tracing = { workspace = true }
 thiserror = { workspace = true }
+[target.'cfg(not(target_os = "android"))'.dependencies]
 # libmpv2 is the maintained fork of the abandoned `libmpv` crate (adopted in the Phase 0 spike).
 libmpv2 = "4"
 libmpv2-sys = "4"
 libc = "0.2"
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }

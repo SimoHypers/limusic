@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-capabilities",
+  "description": "desktop-only plugin permissions",
+  "windows": [
+    "main",
+    "mini"
+  ],
+  "platforms": [
+    "linux",
+    "windows",
+    "macOS"
+  ],
+  "permissions": [
+    "updater:default",
+    "global-shortcut:default"
+  ]
+}

@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.LiMusic" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:statusBarColor">#0b0d13</item>
+        <item name="android:navigationBarColor">#0b0d13</item>
+        <item name="android:windowBackground">#0b0d13</item>
+    </style>
+</resources>

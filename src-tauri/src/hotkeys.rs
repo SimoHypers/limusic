@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
+#[cfg(not(target_os = "android"))]
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 use crate::db::Db;
@@ -69,6 +70,10 @@ pub struct HotkeyRegisterResult {
     pub config: HotkeysConfig,
     pub errors: HashMap<HotkeyAction, String>,
 }
+
+#[cfg(not(target_os = "android"))]
+mod desktop {
+    use super::*;
 
 /// Parse a stored binding ("Ctrl+Alt+Space") with the plugin's own parser. A bare key is refused:
 /// a global grab on Space or a letter would take that key from every app on the desktop. F-keys
@@ -218,6 +223,28 @@ pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
             }
         }
     });
+}
+}
+}
+
+#[cfg(not(target_os = "android"))]
+pub use desktop::*;
+
+#[cfg(target_os = "android")]
+pub struct HotkeysManager {
+    pub config: Mutex<HotkeysConfig>,
+}
+
+#[cfg(target_os = "android")]
+impl HotkeysManager {
+    pub fn new(config: HotkeysConfig) -> Self {
+        Self { config: Mutex::new(config) }
+    }
+
+    pub fn apply_config(&self, _app: &AppHandle, new_config: HotkeysConfig) -> HotkeyRegisterResult {
+        *self.config.lock().unwrap() = new_config.clone();
+        HotkeyRegisterResult { success: true, config: new_config, errors: HashMap::new() }
+    }
 }
 
 /// Read, change, set, persist and echo the volume, the same as a slider commit. Serialized: each

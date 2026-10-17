@@ -224,7 +224,7 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(any(windows, target_os = "macos"))]
 mod imp {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
     use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
@@ -306,6 +306,20 @@ mod imp {
     fn sized(icon: &tauri::image::Image<'_>) -> tauri::image::Image<'static> {
         icon.clone().to_owned()
     }
+}
+
+#[cfg(target_os = "android")]
+mod imp {
+    use tauri::AppHandle;
+
+    pub fn init(_app: &AppHandle) -> tauri::Result<()> {
+        super::set_available(false);
+        Ok(())
+    }
+
+    pub fn set_playing(_app: &AppHandle, _playing: bool) {}
+
+    pub fn set_icon(_app: &AppHandle, _icon_bytes: &[u8]) {}
 }
 
 #[cfg(test)]
