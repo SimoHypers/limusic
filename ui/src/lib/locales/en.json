@@ -1009,6 +1009,8 @@
 		"check": "Check",
 		"off": "Off",
 		"off_hint": "Turned off in Settings. Check it for this song anyway?",
+		"text_size": "Lyrics Font Size",
+		"text_size_hint": "Make the lyrics larger or smaller",
 		"translated": "Includes a translation",
 		"chosen": "Chosen for this song",
 		"timing": "Timing",
