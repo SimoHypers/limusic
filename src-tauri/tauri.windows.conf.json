@@ -2,6 +2,9 @@
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
     "targets": ["nsis", "msi"],
-    "resources": ["libmpv-2.dll"]
+    "resources": {
+      "libmpv-2.dll": "libmpv-2.dll",
+      "karaoke-runtime": "karaoke-runtime"
+    }
   }
 }

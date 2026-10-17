@@ -9,6 +9,10 @@ rustypipe_reports/
 /src-tauri/libmpv-2.dll
 /.libmpv/
 /libmpv/
+# Karaoke runtime (onnxruntime.dll, DirectML.dll, app-local VC++ DLLs), fetched by
+# scripts/fetch-karaoke-runtime.ps1 and bundled next to the exe. Never committed.
+/src-tauri/karaoke-runtime/
+/.karaoke-runtime-cache/
 
 # Local tool state
 /.freebuff/

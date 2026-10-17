@@ -16,6 +16,9 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 mod video;
 pub use video::{GlDisplay, Thumbnail, VideoRenderer};
 
+mod decode;
+pub use decode::decode_to_wav;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("mpv: {0}")]
@@ -538,6 +541,11 @@ impl Player {
     /// lookahead" apart from "stalled — load the next track explicitly".
     pub fn is_idle(&self) -> bool {
         self.mpv().get_property::<bool>("idle-active").unwrap_or(true)
+    }
+
+    /// True when mpv is currently paused.
+    pub fn is_paused(&self) -> bool {
+        self.mpv().get_property::<bool>("pause").unwrap_or(false)
     }
 
     pub fn play(&self) -> Result<(), Error> {

@@ -1,0 +1,48 @@
+[package]
+name = "karaoke"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+hound = "3.5"
+realfft = "3.5"
+flacenc = "0.4"
+# The model download (download.rs) and the SHA-256 checks. The app passes in its own reqwest client
+# (proxy, TLS), so no TLS feature here.
+reqwest = { version = "0.12", default-features = false, features = ["stream"] }
+tokio = { workspace = true, features = ["fs", "io-util"] }
+futures-util = { workspace = true }
+sha2 = "0.10"
+
+[dev-dependencies]
+# Only the tests and examples decode audio (flac_read.rs, examples/separate.rs).
+symphonia = { version = "0.5", features = ["mp3", "flac", "wav", "aac", "ogg"] }
+rubato = "0.14"
+
+# Linux/macOS: ONNX Runtime linked in statically (prebuilt, downloaded at build time).
+[target.'cfg(not(windows))'.dependencies]
+ort = "=2.0.0-rc.13"
+
+# Windows: nothing from ONNX Runtime is linked into the exe. `onnxruntime.dll` (the official
+# DirectML build, bundled next to the app) is loaded by full path only when karaoke is turned on,
+# through `karaoke::runtime::init_from`. api-24 = ONNX Runtime 1.24.x, the last release with an
+# official DirectML build (NuGet Microsoft.ML.OnnxRuntime.DirectML 1.24.4).
+[target.'cfg(windows)'.dependencies]
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "tracing", "load-dynamic", "directml", "api-24"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dxgi", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D12", "Win32_System_LibraryLoader"] }
+
+[[example]]
+name = "inspect"
+
+[[example]]
+name = "separate"
+
+[[example]]
+name = "devices"
+
+[[example]]
+name = "cache_test"

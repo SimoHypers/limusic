@@ -37,6 +37,8 @@ export const playback = $state({
 	// 1.0 / 0 every launch and so does this, so the two can't drift apart.
 	speed: 1,
 	semitones: 0,
+	// Session-only: mpv starts without it every launch.
+	karaoke: false,
 	// Rating of the current track — seeded from its real `likeStatus` on each change, then
 	// optimistic on toggle. Owned here rather than in `ratings` below because the mini player is a
 	// separate webview with its own module instance: the backend reseed is what keeps them agreeing.
@@ -50,6 +52,87 @@ export const playback = $state({
  * gapless advance looks exactly like a user play from the `now-playing` event alone.
  */
 export const np = $state({ open: false, tab: 'queue' as 'queue' | 'lyrics' | 'comments' });
+
+export const karaokeStatus = $state({
+	state: 'off' as 'off' | 'needs-model' | 'preparing' | 'ready' | 'error' | 'too-long',
+	progress: undefined as number | undefined,
+	message: undefined as string | undefined
+});
+
+export const karaokeQueue = $state<{ slots: api.KaraokeQueueSlot[] }>({ slots: [] });
+
+const karaokeByTrack = $state<
+	Record<
+		string,
+		{
+			state: 'off' | 'needs-model' | 'preparing' | 'ready' | 'error' | 'too-long';
+			progress?: number;
+			message?: string;
+		}
+	>
+>({});
+
+function syncKaraokeStatus() {
+	const entry = playback.now?.videoId ? karaokeByTrack[playback.now.videoId] : undefined;
+	if (entry) {
+		karaokeStatus.state = entry.state;
+		karaokeStatus.progress = entry.progress;
+		karaokeStatus.message = entry.message;
+	} else {
+		karaokeStatus.state = playback.karaoke ? 'preparing' : 'off';
+		karaokeStatus.progress = undefined;
+		karaokeStatus.message = undefined;
+	}
+}
+
+export const karaokeModel = $state({
+	installed: false,
+	downloading: false,
+	downloaded: 0,
+	total: 0,
+	error: undefined as string | undefined
+});
+
+export const karaokeConsent = $state({ open: false });
+
+/**
+ * Why karaoke can't run here, from the backend's last attempt to start it (`reason` is an en.json
+ * `karaoke.unavailable.*` key). Unknown until karaoke is first tried or Settings asks: nothing is
+ * probed at launch.
+ */
+export const karaokeAvailability = $state({
+	reason: undefined as api.KaraokeUnavailableReason | undefined,
+	processor: undefined as 'gpu' | 'cpu' | undefined
+});
+
+export async function refreshKaraokeAvailability(): Promise<void> {
+	try {
+		const s = await api.karaokeEngineStatus();
+		karaokeAvailability.reason = s.availability === 'unavailable' ? s.reason : undefined;
+		karaokeAvailability.processor = s.processor;
+	} catch {
+		// Status is advisory; the toggle itself still reports errors.
+	}
+}
+
+export function confirmKaraokeModelDownload() {
+	karaokeModel.error = undefined;
+	api.karaokeModelDownload().catch((e) => {
+		karaokeModel.error = String(e);
+		toast.error(String(e));
+	});
+}
+
+export function cancelKaraokeModelDownload() {
+	karaokeConsent.open = false;
+	api.karaokeModelCancel().catch((e) => {
+		toast.error(String(e));
+	});
+}
+
+export function dismissKaraokeConsent() {
+	karaokeConsent.open = false;
+}
 
 /**
  * Backend settings the app has to know outside the settings modal (which holds the rest in its own
@@ -942,6 +1025,74 @@ export function setTempoPitch(speed: number, semitones: number) {
 	});
 }
 
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let retryAttempt = 0;
+let lastKaraokeTrackId: string | undefined;
+const RETRY_DELAYS = [5000, 15000, 30000, 60000];
+
+export function cancelKaraokeRetry() {
+	try {
+		if (typeof window !== 'undefined' && retryTimer) {
+			clearTimeout(retryTimer);
+			retryTimer = undefined;
+		}
+	} catch {}
+	retryAttempt = 0;
+}
+
+export function scheduleKaraokeRetry() {
+	try {
+		if (typeof window === 'undefined') return;
+		if (retryTimer) return;
+		if (retryAttempt >= RETRY_DELAYS.length) return;
+		const delay = RETRY_DELAYS[retryAttempt];
+		retryTimer = setTimeout(() => {
+			retryTimer = undefined;
+			retryAttempt++;
+			if (
+				playback.karaoke &&
+				(karaokeStatus.state === 'error' ||
+					Object.values(karaokeByTrack).some((entry) => entry.state === 'error'))
+			) {
+				retryKaraoke(false);
+			}
+		}, delay);
+	} catch {}
+}
+
+export function toggleKaraoke() {
+	const previous = playback.karaoke;
+	const next = !previous;
+	playback.karaoke = next;
+	if (!next) {
+		cancelKaraokeRetry();
+		for (const k in karaokeByTrack) delete karaokeByTrack[k];
+		karaokeQueue.slots = [];
+		syncKaraokeStatus();
+	}
+	api.setKaraoke(next)
+		.then(() => {
+			if (next) karaokeAvailability.reason = undefined;
+		})
+		.catch((e) => {
+			playback.karaoke = previous;
+			toast.error(String(e));
+			// Picks up the reason, so the button can show it instead of just failing again.
+			void refreshKaraokeAvailability();
+		});
+}
+
+export async function retryKaraoke(manual = true): Promise<void> {
+	if (manual) {
+		cancelKaraokeRetry();
+	}
+	try {
+		await api.karaokeRetryFailed();
+	} catch {
+		// Never throws
+	}
+}
+
 // Mute *is* volume 0 — no separate flag, so dragging the slider off zero un-mutes for free and the
 // icon can't disagree with what you hear. Remembers the level to come back to; falls back to 100
 // when the user dragged to zero themselves (nothing was remembered).
@@ -1490,6 +1641,33 @@ export function notePlaylistAdd(playlistId: string, songs: SongItem[]) {
 }
 
 let started = false;
+let onlineListenerRegistered = false;
+if (typeof window !== 'undefined' && !onlineListenerRegistered) {
+	onlineListenerRegistered = true;
+	// Automatically retry failed karaoke when network connectivity returns
+	window.addEventListener('online', () => {
+		if (
+			playback.karaoke &&
+			(karaokeStatus.state === 'error' ||
+				Object.values(karaokeByTrack).some((entry) => entry.state === 'error'))
+		) {
+			cancelKaraokeRetry();
+			try {
+				if (typeof window !== 'undefined') {
+					setTimeout(() => {
+						if (
+							playback.karaoke &&
+							(karaokeStatus.state === 'error' ||
+								Object.values(karaokeByTrack).some((entry) => entry.state === 'error'))
+						) {
+							retryKaraoke(false);
+						}
+					}, 1500);
+				}
+			} catch {}
+		}
+	});
+}
 
 /**
  * Wire the Tauri event listeners once and seed initial state. Returns a teardown fn.
@@ -1505,6 +1683,11 @@ export function initApp(mini = false): () => void {
 		api.onNowPlaying((n) => {
 			playback.now = n;
 			playback.rating = n.rating ?? 'indifferent'; // the track's real rating when known
+			if (n.videoId !== lastKaraokeTrackId) {
+				lastKaraokeTrackId = n.videoId;
+				retryAttempt = 0;
+			}
+			syncKaraokeStatus();
 			// Feeds Shortcuts recency and the community shelf's artist seed. Every play lands here,
 			// gapless advances included, so it's the one hook that sees them all.
 			pl.touchPick(personal, n.videoId);
@@ -1571,6 +1754,78 @@ export function initApp(mini = false): () => void {
 			if (v === 0 && playback.volume > 0) preMute = playback.volume;
 			playback.volume = v;
 		}),
+		api.onKaraoke((enabled) => {
+			playback.karaoke = enabled;
+			if (!enabled) {
+				cancelKaraokeRetry();
+				for (const k in karaokeByTrack) delete karaokeByTrack[k];
+				karaokeQueue.slots = [];
+				syncKaraokeStatus();
+			}
+		}),
+		api.onKaraokeQueue((e) => {
+			karaokeQueue.slots = e.slots;
+		}),
+		api.onKaraokeStatus((e) => {
+			// An error for no track in particular (karaoke itself stopped): fetch the reason.
+			if (e.state === 'error' && !e.videoId) void refreshKaraokeAvailability();
+			if (e.state === 'needs-model') {
+				karaokeConsent.open = true;
+				if (!e.videoId) {
+					karaokeStatus.state = e.state;
+					karaokeStatus.progress = e.progress;
+					karaokeStatus.message = e.message;
+					return;
+				}
+			}
+			if (e.videoId) {
+				if (!karaokeByTrack[e.videoId]) {
+					const keys = Object.keys(karaokeByTrack);
+					if (keys.length >= 10) {
+						delete karaokeByTrack[keys[0]];
+					}
+				}
+				karaokeByTrack[e.videoId] = {
+					state: e.state,
+					progress: e.progress,
+					message: e.message
+				};
+				if (playback.now?.videoId === e.videoId) {
+					syncKaraokeStatus();
+				}
+				if (e.state === 'error' && playback.karaoke) {
+					scheduleKaraokeRetry();
+				}
+				if (e.state === 'ready' && e.videoId === playback.now?.videoId) {
+					cancelKaraokeRetry();
+				}
+			}
+		}),
+		api.onKaraokeModel((e) => {
+			if (e.state === 'downloading') {
+				karaokeModel.downloading = true;
+				karaokeModel.downloaded = e.downloaded;
+				karaokeModel.total = e.total;
+				karaokeModel.error = undefined;
+			} else if (e.state === 'ready') {
+				karaokeModel.installed = true;
+				karaokeModel.downloading = false;
+				karaokeModel.error = undefined;
+				karaokeConsent.open = false;
+				playback.karaoke = true;
+				api.setKaraoke(true).catch((err) => {
+					playback.karaoke = false;
+					toast.error(String(err));
+				});
+			} else if (e.state === 'error') {
+				karaokeModel.downloading = false;
+				karaokeModel.error = e.message;
+			} else if (e.state === 'cancelled') {
+				karaokeModel.downloading = false;
+				karaokeModel.error = undefined;
+				karaokeConsent.open = false;
+			}
+		}),
 		api.onPlaybackError((msg) => toast.error(msg)),
 		api.onPlaybackNotice((msg) => toast(msg)), // auto-skipped an unplayable track
 		api.onCoverError((msg) => toast.error(msg)), // playlist artwork YouTube wouldn't take
@@ -1609,6 +1864,13 @@ export function initApp(mini = false): () => void {
 	const teardown = () => subs.forEach((u) => u.then((f) => f()));
 	api.getQueue()
 		.then((q) => (playback.queue = q))
+		.catch(() => {});
+	api.karaokeModelStatus()
+		.then((s) => {
+			karaokeModel.installed = s.installed;
+			karaokeModel.downloading = s.downloading;
+			karaokeModel.total = s.sizeBytes;
+		})
 		.catch(() => {});
 	// The events above are fire-and-forget, and this window missed every one that already fired:
 	// on a cold start the backend restores the queue before the UI subscribes, and the mini player

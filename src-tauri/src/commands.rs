@@ -231,6 +231,32 @@ pub async fn set_playback_params(state: St<'_>, speed: f64, semitones: i32) -> R
     state.player.set_speed(speed).map_err(|e| e.to_string())
 }
 
+/// Vocal reduction. Session-only on purpose, never persisted, resets on restart like tempo/pitch.
+#[tauri::command]
+pub async fn set_karaoke(
+    state: St<'_>,
+    models: State<'_, Arc<crate::karaoke_model::ModelManager>>,
+    enabled: bool,
+) -> Result<(), String> {
+    if enabled && !models.is_installed() {
+        let _ = state.app.emit(
+            "karaoke-status",
+            &serde_json::json!({
+                "videoId": "",
+                "state": "needs-model"
+            }),
+        );
+        let _ = state.app.emit("karaoke", false);
+        return Ok(());
+    }
+    if let Err(e) = state.set_karaoke_active(enabled).await {
+        let _ = state.app.emit("karaoke", false);
+        return Err(e);
+    }
+    let _ = state.app.emit("karaoke", enabled);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
     Ok(state.queue_snapshot().await)
@@ -2777,6 +2803,137 @@ pub fn theater_fullscreen(window: tauri::WebviewWindow, on: bool) -> Result<(), 
             })
             .map_err(|e| e.to_string())
     }
+}
+
+// The karaoke commands below are async so they stay off the main thread, and anything that
+// touches the disk runs in `spawn_blocking`. The ones whose return type is not a `Result` take an
+// owned `AppHandle` instead of `State<'_>`, which an async command may only borrow when it returns
+// a `Result`: that keeps every return type, and so the UI, unchanged.
+
+/// Get the status of the karaoke separation model.
+#[tauri::command]
+pub async fn karaoke_model_status(app: tauri::AppHandle) -> crate::karaoke_model::ModelStatus {
+    let manager = app.state::<Arc<crate::karaoke_model::ModelManager>>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || manager.status()).await.unwrap_or_else(|_| {
+        crate::karaoke_model::ModelStatus {
+            installed: false,
+            downloading: false,
+            size_bytes: crate::karaoke_model::MODEL_SIZE,
+            path: None,
+        }
+    })
+}
+
+/// Download the karaoke separation model asynchronously.
+#[tauri::command]
+pub async fn karaoke_model_download(
+    app: tauri::AppHandle,
+    manager: State<'_, Arc<crate::karaoke_model::ModelManager>>,
+) -> Result<(), String> {
+    let mgr = manager.inner().clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = mgr.download(&app).await;
+    });
+    Ok(())
+}
+
+/// Cancel an ongoing karaoke model download.
+#[tauri::command]
+pub async fn karaoke_model_cancel(
+    manager: State<'_, Arc<crate::karaoke_model::ModelManager>>,
+) -> Result<(), String> {
+    manager.cancel_download();
+    Ok(())
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KaraokeEngineStatus {
+    pub enabled: bool,
+    pub model_installed: bool,
+    pub cache_bytes: u64,
+    /// `"ready"`, `"needs-model"` or `"unavailable"`.
+    pub availability: &'static str,
+    /// With `"unavailable"`: the en.json `karaoke.unavailable.*` key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'static str>,
+    /// `"gpu"` or `"cpu"`, once the model has loaded this session.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processor: Option<&'static str>,
+}
+
+/// Get the status of the background karaoke engine. Availability reflects the last attempt to
+/// turn karaoke on: nothing is probed or loaded just to answer this.
+#[tauri::command]
+pub async fn karaoke_engine_status(
+    engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
+    models: State<'_, Arc<crate::karaoke_model::ModelManager>>,
+) -> Result<KaraokeEngineStatus, String> {
+    let (engine, models) = (engine.inner().clone(), models.inner().clone());
+    tauri::async_runtime::spawn_blocking(move || {
+        let model_installed = models.is_installed();
+        let reason =
+            if crate::http::has_proxy() { Some("proxy") } else { engine.unavailable_reason() };
+        let availability = match (reason, model_installed) {
+            (Some(_), _) => "unavailable",
+            (None, false) => "needs-model",
+            (None, true) => "ready",
+        };
+        KaraokeEngineStatus {
+            enabled: engine.is_enabled(),
+            model_installed,
+            cache_bytes: engine.cache_bytes(),
+            availability,
+            reason,
+            processor: engine.processor(),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Clear the karaoke instrumental cache.
+#[tauri::command]
+pub async fn karaoke_clear_cache(
+    engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
+) -> Result<(), String> {
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || engine.clear_cache())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Retry failed karaoke preparations.
+#[tauri::command]
+pub async fn karaoke_retry_failed(
+    state: St<'_>,
+    engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
+) -> Result<(), String> {
+    if !engine.is_enabled() || crate::http::has_proxy() {
+        return Ok(());
+    }
+    state.inner().clone().karaoke_retry_failed().await;
+    Ok(())
+}
+
+/// Get the karaoke cache limit in megabytes.
+#[tauri::command]
+pub async fn karaoke_cache_limit_mb(app: tauri::AppHandle) -> u64 {
+    crate::state::saved_karaoke_cache_limit_mb(&app.state::<Arc<AppState>>().db)
+}
+
+/// Set the karaoke cache limit in megabytes. Eviction deletes files, so it runs off-thread.
+#[tauri::command]
+pub async fn karaoke_set_cache_limit_mb(
+    state: State<'_, Arc<AppState>>,
+    engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
+    mb: u64,
+) -> Result<u64, String> {
+    let clamped = crate::state::set_saved_karaoke_cache_limit_mb(&state.db, mb);
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || engine.set_cache_limit_mb(clamped))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

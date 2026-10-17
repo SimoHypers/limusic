@@ -408,6 +408,57 @@ export const setRepeat = (mode: RepeatMode) => invoke<void>('set_repeat', { mode
 export const togglePause = () => invoke<void>('toggle_pause');
 export const seek = (position: number) => invoke<void>('seek', { position });
 export const setVolume = (volume: number) => invoke<void>('set_volume', { volume });
+export const setKaraoke = (enabled: boolean) => invoke<void>('set_karaoke', { enabled });
+export interface ModelStatus {
+	installed: boolean;
+	downloading: boolean;
+	sizeBytes: number;
+	path?: string;
+}
+export type KaraokeUnavailableReason =
+	| 'not_installed'
+	| 'corrupt'
+	| 'vc_runtime'
+	| 'load_failed'
+	| 'proxy'
+	| 'stopped';
+export interface KaraokeEngineStatus {
+	enabled: boolean;
+	modelInstalled: boolean;
+	cacheBytes: number;
+	/** From the last attempt to turn karaoke on; nothing is probed just to answer. */
+	availability: 'ready' | 'needs-model' | 'unavailable';
+	reason?: KaraokeUnavailableReason;
+	processor?: 'gpu' | 'cpu';
+}
+export interface KaraokeStatusEvent {
+	videoId: string;
+	state: 'off' | 'needs-model' | 'preparing' | 'ready' | 'error' | 'too-long';
+	progress?: number;
+	message?: string;
+}
+export interface KaraokeQueueSlot {
+	videoId: string;
+	state: 'ready' | 'preparing' | 'queued' | 'error';
+	progress?: number;
+}
+export interface KaraokeQueueEvent {
+	slots: KaraokeQueueSlot[];
+}
+export type KaraokeModelEvent =
+	| { state: 'downloading'; downloaded: number; total: number }
+	| { state: 'ready' }
+	| { state: 'cancelled' }
+	| { state: 'error'; message: string };
+
+export const karaokeModelStatus = () => invoke<ModelStatus>('karaoke_model_status');
+export const karaokeModelDownload = () => invoke<void>('karaoke_model_download');
+export const karaokeModelCancel = () => invoke<void>('karaoke_model_cancel');
+export const karaokeEngineStatus = () => invoke<KaraokeEngineStatus>('karaoke_engine_status');
+export const karaokeClearCache = () => invoke<void>('karaoke_clear_cache');
+export const karaokeCacheLimitMb = () => invoke<number>('karaoke_cache_limit_mb');
+export const karaokeSetCacheLimitMb = (mb: number) => invoke<number>('karaoke_set_cache_limit_mb', { mb });
+export const karaokeRetryFailed = (): Promise<void> => invoke<void>('karaoke_retry_failed');
 /** Tempo (0.25–2.0) + pitch (−12..=12 semitones). Not persisted: resets on restart. */
 export const setPlaybackParams = (speed: number, semitones: number) =>
 	invoke<void>('set_playback_params', { speed, semitones });
@@ -1078,6 +1129,14 @@ export const onDuration = (cb: (d: number) => void): Promise<UnlistenFn> =>
 /** Echo of every `set_volume`, so a second window's slider can't drift from what you hear. */
 export const onVolume = (cb: (v: number) => void): Promise<UnlistenFn> =>
 	listen<number>('volume', (e) => cb(e.payload));
+export const onKaraoke = (cb: (v: boolean) => void): Promise<UnlistenFn> =>
+	listen<boolean>('karaoke', (e) => cb(e.payload));
+export const onKaraokeStatus = (cb: (s: KaraokeStatusEvent) => void): Promise<UnlistenFn> =>
+	listen<KaraokeStatusEvent>('karaoke-status', (e) => cb(e.payload));
+export const onKaraokeQueue = (cb: (e: KaraokeQueueEvent) => void): Promise<UnlistenFn> =>
+	listen<KaraokeQueueEvent>('karaoke-queue', (e) => cb(e.payload));
+export const onKaraokeModel = (cb: (m: KaraokeModelEvent) => void): Promise<UnlistenFn> =>
+	listen<KaraokeModelEvent>('karaoke-model', (e) => cb(e.payload));
 export const onPlaybackState = (cb: (s: 'playing' | 'paused') => void): Promise<UnlistenFn> =>
 	listen<'playing' | 'paused'>('playback-state', (e) => cb(e.payload));
 export const onPlaybackError = (cb: (msg: string) => void): Promise<UnlistenFn> =>

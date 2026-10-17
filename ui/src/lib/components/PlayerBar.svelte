@@ -39,6 +39,7 @@
 	} from '$lib/player.svelte';
 	import { thumb } from '$lib/thumb';
 	import ArtistLine from './ArtistLine.svelte';
+	import KaraokeButton from './KaraokeButton.svelte';
 	import Marquee from './Marquee.svelte';
 	import TrackMenu from './TrackMenu.svelte';
 	import { t } from '$lib/i18n.svelte';
@@ -380,6 +381,7 @@
 			<Button variant="ghost" size="icon-sm" onclick={openMiniPlayer} aria-label={t('player.mini_player')}>
 				<HugeiconsIcon icon={MinimizeScreenIcon} class="h-5 w-5" />
 			</Button>
+			<KaraokeButton />
 			<Button
 				variant={lyricsOpen ? 'secondary' : 'ghost'}
 				size="icon-sm"

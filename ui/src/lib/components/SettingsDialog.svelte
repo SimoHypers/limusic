@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick, untrack, type Snippet } from 'svelte';
+	import { tick, untrack, onDestroy, type Snippet } from 'svelte';
 	import { save } from '@tauri-apps/plugin-dialog';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
@@ -26,10 +26,11 @@
 	import { Alert, AlertDescription } from '$lib/components/ui/alert';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Popover from '$lib/components/ui/popover';
+	import * as Select from '$lib/components/ui/select';
 	import { HELP_COMBO } from '$lib/shortcuts';
 	import { copyText } from '$lib/clipboard';
 	import * as api from '$lib/api';
-	import { blocked, prefs, refreshLanguage, setAutoplay, ui, toast, unblockArtist } from '$lib/player.svelte';
+	import { blocked, karaokeAvailability, karaokeConsent, karaokeModel, cancelKaraokeModelDownload, prefs, refreshLanguage, setAutoplay, ui, toast, unblockArtist } from '$lib/player.svelte';
 	import { win } from '$lib/win.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import AppearanceSettings from '$lib/components/AppearanceSettings.svelte';
@@ -124,6 +125,7 @@
 				tab = 'scrobbling';
 				ui.settingsFocus = null;
 				load();
+				loadKaraoke();
 			} else if (ui.settingsFocus) {
 				tab = 'playback';
 				const id = `settings-${ui.settingsFocus}`;
@@ -131,8 +133,10 @@
 				load().then(tick).then(() => {
 					document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 				});
+				loadKaraoke();
 			} else {
 				load();
+				loadKaraoke();
 			}
 			updateResult = null;
 		});
@@ -197,9 +201,126 @@
 		}
 	}
 
+	// Microsoft's permalink for the latest x64 VC++ runtime (karaoke's ONNX Runtime needs >= 14.44).
+	const VC_REDIST_URL = 'https://aka.ms/vc14/vc_redist.x64.exe';
+	// Credit for the vocal-removal model, as the UVR README asks.
+	const UVR_URL = 'https://github.com/Anjok07/ultimatevocalremovergui';
+
+	let karaokeCacheLimit = $state(2048);
+	let karaokeCacheBytes = $state(0);
+	let clearCacheConfirm = $state(false);
+	let clearCacheTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	function formatCacheSize(bytes: number): string {
+		if (bytes < 1024) return '0 KB';
+		const kb = bytes / 1024;
+		if (kb < 1024) return `${kb.toFixed(1)} KB`;
+		const mb = kb / 1024;
+		if (mb < 1024) return `${mb.toFixed(1)} MB`;
+		const gb = mb / 1024;
+		return `${gb.toFixed(1)} GB`;
+	}
+
+	async function clearKaraokeCache() {
+		if (!clearCacheConfirm) {
+			clearCacheConfirm = true;
+			if (clearCacheTimeout) clearTimeout(clearCacheTimeout);
+			clearCacheTimeout = setTimeout(() => {
+				clearCacheConfirm = false;
+			}, 3000);
+			return;
+		}
+		if (clearCacheTimeout) clearTimeout(clearCacheTimeout);
+		clearCacheConfirm = false;
+		try {
+			await api.karaokeClearCache();
+			const status = await api.karaokeEngineStatus();
+			karaokeCacheBytes = status.cacheBytes;
+			toast.success(t('karaoke.settings.cleared'));
+		} catch (e) {
+			toast.error(String(e));
+		}
+	}
+
+	const karaokeCacheOptions = $derived.by(() => {
+		const base = [
+			{ value: '1024', label: '1 GB' },
+			{ value: '2048', label: '2 GB' },
+			{ value: '5120', label: '5 GB' },
+			{ value: '10240', label: '10 GB' }
+		];
+		const curStr = String(karaokeCacheLimit);
+		if (!base.some((o) => o.value === curStr)) {
+			return [
+				...base,
+				{ value: curStr, label: t('karaoke.settings.cache_custom', { n: karaokeCacheLimit }) }
+			];
+		}
+		return base;
+	});
+
+	onDestroy(() => {
+		if (clearCacheTimeout) clearTimeout(clearCacheTimeout);
+	});
+
+	async function setKaraokeCacheLimit(valStr: string) {
+		const val = Number(valStr);
+		const prev = karaokeCacheLimit;
+		karaokeCacheLimit = val;
+		try {
+			const res = await api.karaokeSetCacheLimitMb(val);
+			karaokeCacheLimit = res;
+			try {
+				const status = await api.karaokeEngineStatus();
+				karaokeCacheBytes = status.cacheBytes;
+			} catch (e) {
+				console.warn(e);
+			}
+		} catch (e) {
+			karaokeCacheLimit = prev;
+			toast.error(String(e));
+		}
+	}
+
+	async function loadKaraoke() {
+		try {
+			const [modelRes, limitRes, statusRes] = await Promise.allSettled([
+				api.karaokeModelStatus(),
+				api.karaokeCacheLimitMb(),
+				api.karaokeEngineStatus()
+			]);
+			if (modelRes.status === 'fulfilled') {
+				const m = modelRes.value;
+				karaokeModel.installed = m.installed;
+				karaokeModel.downloading = m.downloading;
+				karaokeModel.total = m.sizeBytes;
+			} else {
+				console.warn(modelRes.reason);
+			}
+			if (limitRes.status === 'fulfilled') {
+				karaokeCacheLimit = limitRes.value;
+			} else {
+				console.warn(limitRes.reason);
+			}
+			if (statusRes.status === 'fulfilled') {
+				const s = statusRes.value;
+				karaokeCacheBytes = s.cacheBytes;
+				karaokeAvailability.reason = s.availability === 'unavailable' ? s.reason : undefined;
+				karaokeAvailability.processor = s.processor;
+			} else {
+				console.warn(statusRes.reason);
+			}
+		} catch (e) {
+			console.warn(e);
+		}
+	}
+
 	async function load() {
 		try {
-			const [s, c] = await Promise.all([api.getSettings(), api.getStreamClients()]);
+			const [s, c] = await Promise.all([
+				api.getSettings(),
+				api.getStreamClients()
+			]);
 			settings = s;
 			clients = c;
 			proxyInput = s.proxy ?? '';
@@ -714,6 +835,41 @@
 								{@render row({ title: t('settings.general.stream_clients'), below: clientList })}
 							</div>
 						</section>
+						<section class={GROUP}>
+							<h3 class={LABEL}>{t('karaoke.settings.title')}</h3>
+							<div class={CARD}>
+								{@render row({
+									title: t('karaoke.settings.model'),
+									desc: t('karaoke.settings.model_desc'),
+									control: karaokeModelControl
+								})}
+								{@render row({
+									title: t('karaoke.settings.cache_limit'),
+									desc: t('karaoke.settings.cache_limit_desc'),
+									control: karaokeCacheLimitControl
+								})}
+								{@render row({
+									title: t('karaoke.settings.cache_format'),
+									desc: t('karaoke.settings.cache_format_desc'),
+									control: karaokeCacheFormatControl
+								})}
+								{@render row({
+									title: t('karaoke.settings.cache_used'),
+									desc: t('karaoke.settings.cache_used_desc'),
+									control: karaokeCacheUsedControl
+								})}
+								{@render row({
+									title: t('karaoke.settings.status'),
+									desc: t('karaoke.settings.status_desc'),
+									control: karaokeStatusControl
+								})}
+								{@render row({
+									title: t('karaoke.settings.credit'),
+									desc: t('karaoke.consent.credit'),
+									control: karaokeCreditControl
+								})}
+							</div>
+						</section>
 					{:else if tab === 'hotkeys'}
 						<GlobalHotkeysSettings />
 					{:else if tab === 'data'}
@@ -1106,4 +1262,95 @@
 
 {#snippet changelog()}
 	<Changelog current={version} />
+{/snippet}
+
+{#snippet karaokeModelControl()}
+	{@const sizeStr = karaokeModel.total > 0 ? `${(karaokeModel.total / 1048576).toFixed(1)} MB` : '66.8 MB'}
+	{@const downloadedStr = (karaokeModel.downloaded / 1048576).toFixed(1)}
+	{@const totalStr = (karaokeModel.total / 1048576).toFixed(1)}
+	<div class="flex items-center gap-3">
+		<span class="text-xs text-muted-foreground">
+			{#if karaokeModel.installed}
+				{t('karaoke.settings.model_installed', { size: sizeStr })}
+			{:else if karaokeModel.downloading}
+				{downloadedStr} / {totalStr} MB
+			{:else}
+				{t('karaoke.settings.model_missing')}
+			{/if}
+		</span>
+		{#if !karaokeModel.installed && !karaokeModel.downloading}
+			<Button size="sm" onclick={() => (karaokeConsent.open = true)}>
+				{t('karaoke.download')}
+			</Button>
+		{:else if karaokeModel.downloading}
+			<Button variant="outline" size="sm" onclick={cancelKaraokeModelDownload}>
+				{t('karaoke.cancel')}
+			</Button>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet karaokeStatusControl()}
+	<div class="flex items-center gap-3">
+		<span class="text-xs text-muted-foreground">
+			{#if karaokeAvailability.reason}
+				{t(`karaoke.unavailable.${karaokeAvailability.reason}`)}
+			{:else if karaokeAvailability.processor === 'gpu'}
+				{t('karaoke.settings.processor_gpu')}
+			{:else if karaokeAvailability.processor === 'cpu'}
+				{t('karaoke.settings.processor_cpu')}
+			{:else}
+				{t('karaoke.settings.not_started')}
+			{/if}
+		</span>
+		{#if karaokeAvailability.reason === 'vc_runtime'}
+			<Button variant="outline" size="sm" onclick={() => api.openExternal(VC_REDIST_URL)}>
+				{t('karaoke.settings.get_vc_redist')}
+			</Button>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet karaokeCreditControl()}
+	<Button variant="outline" size="sm" onclick={() => api.openExternal(UVR_URL)}>
+		{t('karaoke.consent.credit_link')}
+	</Button>
+{/snippet}
+
+{#snippet karaokeCacheLimitControl()}
+	<Select.Root
+		type="single"
+		value={String(karaokeCacheLimit)}
+		onValueChange={setKaraokeCacheLimit}
+	>
+		<Select.Trigger class="w-40 shrink-0" aria-label={t('karaoke.settings.cache_limit')}>
+			<span class="flex-1 truncate text-left">
+				{karaokeCacheOptions.find((o) => o.value === String(karaokeCacheLimit))?.label ?? `${karaokeCacheLimit} MB`}
+			</span>
+		</Select.Trigger>
+		<Select.Content>
+			{#each karaokeCacheOptions as opt (opt.value)}
+				<Select.Item value={opt.value} label={opt.label}>{opt.label}</Select.Item>
+			{/each}
+		</Select.Content>
+	</Select.Root>
+{/snippet}
+
+{#snippet karaokeCacheFormatControl()}
+	<span class="text-xs text-muted-foreground">{t('karaoke.settings.cache_format_value')}</span>
+{/snippet}
+
+{#snippet karaokeCacheUsedControl()}
+	<div class="flex items-center gap-3">
+		<span class="text-xs text-muted-foreground">
+			{formatCacheSize(karaokeCacheBytes)}
+		</span>
+		<Button
+			variant={clearCacheConfirm ? 'destructive' : 'outline'}
+			size="sm"
+			onclick={clearKaraokeCache}
+		>
+			{clearCacheConfirm ? t('karaoke.settings.clear_confirm') : t('karaoke.settings.clear')}
+		</Button>
+	</div>
 {/snippet}
