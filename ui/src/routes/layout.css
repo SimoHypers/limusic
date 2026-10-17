@@ -612,6 +612,85 @@ html.art-tint.theme-amoled {
 	--sidebar-accent: oklch(0.275 0.042 var(--art-h));
 }
 
+.theme-everforest {
+	--background: #fdf6e3;
+	--foreground: #5c6a72;
+	--card: #f4f0d9;
+	--card-foreground: #5c6a72;
+	--popover: #f4f0d9;
+	--popover-foreground: #5c6a72;
+	--primary: #8da101;
+	--primary-foreground: #2d353b;
+	--secondary: #efebd4;
+	--secondary-foreground: #5c6a72;
+	--muted: #efebd4;
+	--muted-foreground: #829181;
+	--accent: #e6e2cc;
+	--accent-foreground: #5c6a72;
+	--destructive: #f85552;
+	--border: #e0dcc7;
+	--input: #e0dcc7;
+	--ring: #8da101;
+	--chart-1: #8da101;
+	--chart-2: #35a77c;
+	--chart-3: #3a94c5;
+	--chart-4: #df69ba;
+	--chart-5: #f57d26;
+	--sidebar: #f4f0d9;
+	--sidebar-foreground: #5c6a72;
+	--sidebar-primary: #8da101;
+	--sidebar-primary-foreground: #2d353b;
+	--sidebar-accent: #e6e2cc;
+	--sidebar-accent-foreground: #5c6a72;
+	--sidebar-border: #e0dcc7;
+	--sidebar-ring: #8da101;
+	--radius: 0.45rem;
+	--font-sans: 'IBM Plex Sans Variable', sans-serif;
+	--font-heading: 'IBM Plex Sans Variable', sans-serif;
+	--font-serif: Georgia, serif;
+	--font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	--shadow-2xs: 0px 2px 4px 0px rgba(92, 106, 114, 0.05);
+	--shadow-xs: 0px 2px 4px 0px rgba(92, 106, 114, 0.05);
+	--shadow-sm: 0px 3px 6px 0px rgba(92, 106, 114, 0.08);
+	--shadow-md: 0px 4px 8px 0px rgba(92, 106, 114, 0.10);
+	--shadow-lg: 0px 8px 16px 0px rgba(92, 106, 114, 0.12);
+	--shadow-xl: 0px 12px 24px 0px rgba(92, 106, 114, 0.14);
+	--shadow-2xl: 0px 16px 32px 0px rgba(92, 106, 114, 0.20);
+}
+.dark.theme-everforest {
+	--background: #2d353b;
+	--foreground: #d3c6aa;
+	--card: #343f44;
+	--card-foreground: #d3c6aa;
+	--popover: #343f44;
+	--popover-foreground: #d3c6aa;
+	--primary: #a7c080;
+	--primary-foreground: #2d353b;
+	--secondary: #3d484d;
+	--secondary-foreground: #d3c6aa;
+	--muted: #3d484d;
+	--muted-foreground: #859289;
+	--accent: #475258;
+	--accent-foreground: #d3c6aa;
+	--destructive: #e67e80;
+	--border: rgba(211, 198, 170, 0.12);
+	--input: rgba(211, 198, 170, 0.15);
+	--ring: #a7c080;
+	--chart-1: #a7c080;
+	--chart-2: #83c092;
+	--chart-3: #7fbbb3;
+	--chart-4: #d699b6;
+	--chart-5: #e69875;
+	--sidebar: #272e33;
+	--sidebar-foreground: #d3c6aa;
+	--sidebar-primary: #a7c080;
+	--sidebar-primary-foreground: #2d353b;
+	--sidebar-accent: #343f44;
+	--sidebar-accent-foreground: #d3c6aa;
+	--sidebar-border: rgba(211, 198, 170, 0.12);
+	--sidebar-ring: #a7c080;
+}
+
 @theme inline {
 	--font-sans: var(--font-sans);
 	--font-heading: var(--font-heading);
