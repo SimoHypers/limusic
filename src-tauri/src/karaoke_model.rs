@@ -7,15 +7,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use karaoke::models::ModelId;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
 
-pub const MODEL_FILE_NAME: &str = "UVR-MDX-NET-Inst_HQ_3.onnx";
-pub const MODEL_URL: &str =
-    "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/UVR-MDX-NET-Inst_HQ_3.onnx";
-pub const MODEL_SIZE: u64 = 66_759_214;
-pub const MODEL_SHA256: &str = "317554b07fe1ea5279a77f2b1520a41ea4b93432560c4ffd08792c30fddf9adc";
 /// Where the download, and GitHub's redirects for it, may go. `release-assets.githubusercontent.com`
 /// is where release downloads land today (checked 2026-10-14); `objects.githubusercontent.com` is
 /// the older asset host.
@@ -25,6 +21,7 @@ pub const MODEL_HOSTS: &[&str] =
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelStatus {
+    pub model: &'static str,
     pub installed: bool,
     pub downloading: bool,
     pub size_bytes: u64,
@@ -52,33 +49,37 @@ impl ModelManager {
         std::fs::create_dir_all(&self.dir)
     }
 
-    fn override_path() -> Option<PathBuf> {
-        if let Ok(val) = std::env::var("LIMUSIC_KARAOKE_MODEL") {
-            let p = PathBuf::from(val.trim());
-            if p.exists() {
-                return Some(p);
+    fn override_path(id: ModelId) -> Option<PathBuf> {
+        if id == ModelId::DEFAULT {
+            if let Ok(val) = std::env::var("LIMUSIC_KARAOKE_MODEL") {
+                let p = PathBuf::from(val.trim());
+                if p.exists() {
+                    return Some(p);
+                }
             }
         }
         None
     }
 
-    pub fn model_path(&self) -> PathBuf {
-        if let Some(p) = Self::override_path() {
+    pub fn model_path(&self, id: ModelId) -> PathBuf {
+        if let Some(p) = Self::override_path(id) {
             return p;
         }
-        self.dir.join(MODEL_FILE_NAME)
+        let spec = id.spec();
+        self.dir.join(spec.file_name)
     }
 
-    pub fn is_installed(&self) -> bool {
-        let path = if let Some(p) = Self::override_path() {
+    pub fn is_installed(&self, id: ModelId) -> bool {
+        let spec = id.spec();
+        let path = if let Some(p) = Self::override_path(id) {
             p
         } else {
-            let default_path = self.dir.join(MODEL_FILE_NAME);
+            let default_path = self.dir.join(spec.file_name);
             if !default_path.exists() {
                 return false;
             }
             if let Ok(meta) = std::fs::metadata(&default_path) {
-                return meta.len() == MODEL_SIZE;
+                return meta.len() == spec.size;
             } else {
                 return false;
             }
@@ -86,12 +87,13 @@ impl ModelManager {
         path.exists()
     }
 
-    pub fn status(&self) -> ModelStatus {
-        let installed = self.is_installed();
+    pub fn status(&self, id: ModelId) -> ModelStatus {
+        let spec = id.spec();
+        let installed = self.is_installed(id);
         let downloading = self.busy.load(Ordering::SeqCst);
         let path =
-            if installed { Some(self.model_path().to_string_lossy().into_owned()) } else { None };
-        ModelStatus { installed, downloading, size_bytes: MODEL_SIZE, path }
+            if installed { Some(self.model_path(id).to_string_lossy().into_owned()) } else { None };
+        ModelStatus { model: spec.key, installed, downloading, size_bytes: spec.size, path }
     }
 
     /// Stops a running download at once, even one stalled on the network. What arrived so far is
@@ -100,8 +102,42 @@ impl ModelManager {
         self.cancel.cancel();
     }
 
-    pub async fn download(&self, app: &AppHandle) -> Result<(), String> {
-        if self.is_installed() {
+    /// Deletes an installed karaoke model and its leftover `.part` file.
+    pub fn delete(&self, id: ModelId) -> Result<(), String> {
+        if self.busy.load(Ordering::SeqCst) {
+            return Err("in_use".to_string());
+        }
+        if Self::override_path(id).is_some() {
+            return Err("override".to_string());
+        }
+        let final_path = self.dir.join(id.spec().file_name);
+        let part_path = final_path.with_extension(
+            final_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| format!("{e}.part"))
+                .unwrap_or_else(|| "part".to_string()),
+        );
+
+        for path in &[final_path, part_path] {
+            if path.exists() {
+                if let Err(e) = std::fs::remove_file(path) {
+                    if e.kind() != std::io::ErrorKind::NotFound {
+                        return Err(karaoke::sanitize_error(&e.to_string()));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn download(&self, app: &AppHandle, id: ModelId) -> Result<(), String> {
+        let spec = id.spec();
+        if self.is_installed(id) {
+            let _ = app.emit(
+                "karaoke-model",
+                serde_json::json!({ "model": spec.key, "state": "ready" }),
+            );
             return Ok(());
         }
 
@@ -121,12 +157,14 @@ impl ModelManager {
 
         if let Err(e) = self.prepare_dir() {
             let msg = karaoke::sanitize_error(&e.to_string());
-            let _ =
-                app.emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
+            let _ = app.emit(
+                "karaoke-model",
+                serde_json::json!({ "model": spec.key, "state": "error", "message": msg }),
+            );
             return Err(msg);
         }
 
-        let final_path = self.model_path();
+        let final_path = self.model_path(id);
         let part_path = final_path.with_extension(
             final_path
                 .extension()
@@ -136,9 +174,9 @@ impl ModelManager {
         );
 
         let source = karaoke::download::Source {
-            url: MODEL_URL,
-            size: MODEL_SIZE,
-            sha256: MODEL_SHA256,
+            url: spec.url,
+            size: spec.size,
+            sha256: spec.sha256,
             hosts: MODEL_HOSTS,
             https_only: true,
         };
@@ -146,7 +184,7 @@ impl ModelManager {
         let emit_progress = |downloaded: u64| {
             let _ = app.emit(
                 "karaoke-model",
-                serde_json::json!({ "state": "downloading", "downloaded": downloaded, "total": MODEL_SIZE }),
+                serde_json::json!({ "model": spec.key, "state": "downloading", "downloaded": downloaded, "total": spec.size }),
             );
         };
         emit_progress(0);
@@ -167,21 +205,29 @@ impl ModelManager {
 
         match result {
             Ok(()) => {
-                emit_progress(MODEL_SIZE);
-                tracing::info!(target: "app_lib::karaoke", "karaoke model downloaded");
-                let _ = app.emit("karaoke-model", serde_json::json!({ "state": "ready" }));
+                emit_progress(spec.size);
+                tracing::info!(target: "app_lib::karaoke", model = spec.key, "karaoke model downloaded");
+                let _ = app.emit(
+                    "karaoke-model",
+                    serde_json::json!({ "model": spec.key, "state": "ready" }),
+                );
                 Ok(())
             }
             // The `.part` stays, so the next attempt resumes instead of starting over.
             Err(karaoke::download::Error::Cancelled) => {
-                let _ = app.emit("karaoke-model", serde_json::json!({ "state": "cancelled" }));
+                let _ = app.emit(
+                    "karaoke-model",
+                    serde_json::json!({ "model": spec.key, "state": "cancelled" }),
+                );
                 Err("cancelled".to_string())
             }
             Err(e) => {
                 let msg = karaoke::sanitize_error(&e.to_string());
-                tracing::warn!(target: "app_lib::karaoke", error = %msg, "karaoke model download failed");
-                let _ = app
-                    .emit("karaoke-model", serde_json::json!({ "state": "error", "message": msg }));
+                tracing::warn!(target: "app_lib::karaoke", model = spec.key, error = %msg, "karaoke model download failed");
+                let _ = app.emit(
+                    "karaoke-model",
+                    serde_json::json!({ "model": spec.key, "state": "error", "message": msg }),
+                );
                 Err(msg)
             }
         }
@@ -254,17 +300,18 @@ mod tests {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = temp_dir();
         let manager = ModelManager::new(&tmp);
-        assert!(!manager.is_installed());
+        let id = ModelId::DEFAULT;
+        assert!(!manager.is_installed(id));
         manager.prepare_dir().unwrap();
 
-        let path = manager.model_path();
+        let path = manager.model_path(id);
         std::fs::write(&path, b"short").unwrap();
-        assert!(!manager.is_installed());
+        assert!(!manager.is_installed(id));
 
         let f = std::fs::File::create(&path).unwrap();
-        f.set_len(MODEL_SIZE).unwrap();
+        f.set_len(id.spec().size).unwrap();
         drop(f);
-        assert!(manager.is_installed());
+        assert!(manager.is_installed(id));
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -274,13 +321,14 @@ mod tests {
         let tmp = temp_dir();
         let models_dir = tmp.join("models");
         std::fs::create_dir_all(&models_dir).unwrap();
-        let part_file = models_dir.join(format!("{MODEL_FILE_NAME}.part"));
+        let id = ModelId::DEFAULT;
+        let part_file = models_dir.join(format!("{}.part", id.spec().file_name));
         std::fs::write(&part_file, b"first bytes").unwrap();
 
         let manager = ModelManager::new(&tmp);
         manager.prepare_dir().unwrap();
         assert!(part_file.exists(), "prepare_dir() must keep the partial download");
-        assert!(!manager.is_installed());
+        assert!(!manager.is_installed(id));
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -301,7 +349,7 @@ mod tests {
         std::env::set_var("LIMUSIC_KARAOKE_MODEL", override_file.to_str().unwrap());
         let _env_guard = EnvGuard;
         let manager = ModelManager::new(&tmp);
-        assert_eq!(manager.model_path(), override_file);
+        assert_eq!(manager.model_path(ModelId::DEFAULT), override_file);
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -314,17 +362,67 @@ mod tests {
         let _env_guard = EnvGuard;
 
         let manager = ModelManager::new(&tmp);
-        assert_eq!(manager.model_path(), manager.dir.join(MODEL_FILE_NAME));
+        let id = ModelId::DEFAULT;
+        assert_eq!(manager.model_path(id), manager.dir.join(id.spec().file_name));
         manager.prepare_dir().unwrap();
 
-        let path = manager.model_path();
+        let path = manager.model_path(id);
         std::fs::write(&path, b"short").unwrap();
-        assert!(!manager.is_installed());
+        assert!(!manager.is_installed(id));
 
         let f = std::fs::File::create(&path).unwrap();
-        f.set_len(MODEL_SIZE).unwrap();
+        f.set_len(id.spec().size).unwrap();
         drop(f);
-        assert!(manager.is_installed());
+        assert!(manager.is_installed(id));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_model_delete_files() {
+        let tmp = temp_dir();
+        let manager = ModelManager::new(&tmp);
+        let id = ModelId::DEFAULT;
+        manager.prepare_dir().unwrap();
+
+        let model_file = manager.model_path(id);
+        let part_file = model_file.with_extension(
+            model_file
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| format!("{e}.part"))
+                .unwrap_or_else(|| "part".to_string()),
+        );
+
+        std::fs::write(&model_file, b"model data").unwrap();
+        std::fs::write(&part_file, b"part data").unwrap();
+        assert!(model_file.exists());
+        assert!(part_file.exists());
+
+        manager.delete(id).unwrap();
+        assert!(!model_file.exists(), "model file must be removed");
+        assert!(!part_file.exists(), "part file must be removed");
+
+        // Missing file is Ok
+        manager.delete(id).unwrap();
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_model_delete_override_refused() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir();
+        let override_file = tmp.join("custom_model.onnx");
+        std::fs::write(&override_file, b"override").unwrap();
+
+        std::env::set_var("LIMUSIC_KARAOKE_MODEL", override_file.to_str().unwrap());
+        let _env_guard = EnvGuard;
+        let manager = ModelManager::new(&tmp);
+
+        let res = manager.delete(ModelId::DEFAULT);
+        assert_eq!(res, Err("override".to_string()));
+        assert!(override_file.exists(), "override file must not be deleted");
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

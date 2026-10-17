@@ -3,7 +3,8 @@
 	import { Button } from '$lib/components/ui/button';
 	import {
 		karaokeConsent,
-		karaokeModel,
+		karaokeModels,
+		karaokeSelection,
 		confirmKaraokeModelDownload,
 		cancelKaraokeModelDownload,
 		dismissKaraokeConsent
@@ -17,30 +18,44 @@
 	// DirectML (and its telemetry note) only exists on Windows.
 	const IS_WINDOWS = browser && navigator.userAgent.includes('Windows');
 
-	const sizeMB = $derived(
-		karaokeModel.total > 0
-			? `${(karaokeModel.total / (1024 * 1024)).toFixed(1)} MB`
-			: '66.8 MB'
+	const currentModelId = $derived(karaokeConsent.model ?? karaokeSelection.model);
+	const currentModelState = $derived(karaokeModels[currentModelId] ?? karaokeModels.kara);
+	const modelLabel = $derived(
+		currentModelId === 'kara_2'
+			? t('karaoke.settings.model_medium')
+			: currentModelId === 'inst_hq_3'
+				? t('karaoke.settings.model_strong')
+				: t('karaoke.settings.model_weak')
 	);
 
-	const downloadedMB = $derived((karaokeModel.downloaded / (1024 * 1024)).toFixed(1));
-	const totalMB = $derived((karaokeModel.total / (1024 * 1024)).toFixed(1));
+	const sizeMB = $derived(
+		currentModelState.total > 0
+			? `${(currentModelState.total / (1024 * 1024)).toFixed(1)} MB`
+			: currentModelId === 'inst_hq_3'
+				? '66.8 MB'
+				: currentModelId === 'kara_2'
+					? '66.8 MB'
+					: '66.8 MB'
+	);
+
+	const downloadedMB = $derived((currentModelState.downloaded / (1024 * 1024)).toFixed(1));
+	const totalMB = $derived((currentModelState.total / (1024 * 1024)).toFixed(1));
 	const percent = $derived(
-		karaokeModel.total > 0 ? Math.round((karaokeModel.downloaded / karaokeModel.total) * 100) : 0
+		currentModelState.total > 0 ? Math.round((currentModelState.downloaded / currentModelState.total) * 100) : 0
 	);
 </script>
 
 <Dialog.Root
 	open={karaokeConsent.open}
 	onOpenChange={(v) => {
-		if (!v && karaokeModel.downloading) return;
+		if (!v && currentModelState.downloading) return;
 		karaokeConsent.open = v;
 		if (!v) dismissKaraokeConsent();
 	}}
 >
 	<Dialog.Content class="z-[60] gap-5 sm:max-w-md">
 		<div class="grid gap-1">
-			<Dialog.Title class="text-lg font-semibold">{t('karaoke.consent.title')}</Dialog.Title>
+			<Dialog.Title class="text-lg font-semibold">{t('karaoke.consent.title')} ({modelLabel})</Dialog.Title>
 			<Dialog.Description class="text-xs text-muted-foreground">
 				{t('karaoke.consent.desc', { size: sizeMB })}
 			</Dialog.Description>
@@ -64,13 +79,13 @@
 			{/if}
 		</ul>
 
-		{#if karaokeModel.error}
+		{#if currentModelState.error}
 			<div class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-xs text-destructive">
-				{karaokeModel.error}
+				{currentModelState.error}
 			</div>
 		{/if}
 
-		{#if karaokeModel.downloading}
+		{#if currentModelState.downloading}
 			<div class="flex flex-col gap-2">
 				<div class="flex justify-between text-xs text-muted-foreground">
 					<span>{downloadedMB} MB / {totalMB} MB</span>
@@ -83,22 +98,22 @@
 		{/if}
 
 		<div class="flex justify-end gap-2">
-			{#if karaokeModel.downloading}
+			{#if currentModelState.downloading}
 				<Button variant="outline" size="sm" onclick={cancelKaraokeModelDownload}>
 					{t('karaoke.cancel')}
 				</Button>
-			{:else if karaokeModel.error}
+			{:else if currentModelState.error}
 				<Button variant="outline" size="sm" onclick={dismissKaraokeConsent}>
 					{t('karaoke.not_now')}
 				</Button>
-				<Button size="sm" onclick={confirmKaraokeModelDownload}>
+				<Button size="sm" onclick={() => confirmKaraokeModelDownload(karaokeConsent.model)}>
 					{t('karaoke.retry')}
 				</Button>
 			{:else}
 				<Button variant="outline" size="sm" onclick={dismissKaraokeConsent}>
 					{t('karaoke.not_now')}
 				</Button>
-				<Button size="sm" onclick={confirmKaraokeModelDownload}>
+				<Button size="sm" onclick={() => confirmKaraokeModelDownload(karaokeConsent.model)}>
 					{t('karaoke.download')}
 				</Button>
 			{/if}

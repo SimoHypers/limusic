@@ -84,15 +84,37 @@ function syncKaraokeStatus() {
 	}
 }
 
-export const karaokeModel = $state({
-	installed: false,
-	downloading: false,
-	downloaded: 0,
-	total: 0,
-	error: undefined as string | undefined
+export type KaraokeModelState = {
+	installed: boolean;
+	downloading: boolean;
+	downloaded: number;
+	total: number;
+	error: string | undefined;
+};
+
+export const karaokeModels = $state<Record<api.KaraokeModelId, KaraokeModelState>>({
+	kara: { installed: false, downloading: false, downloaded: 0, total: 0, error: undefined },
+	kara_2: { installed: false, downloading: false, downloaded: 0, total: 0, error: undefined },
+	inst_hq_3: { installed: false, downloading: false, downloaded: 0, total: 0, error: undefined }
 });
 
-export const karaokeConsent = $state({ open: false });
+export const karaokeSelection = $state<{ model: api.KaraokeModelId }>({ model: 'kara' });
+
+export const karaokeModel = new Proxy({} as KaraokeModelState, {
+	get(_, prop) {
+		const active = karaokeSelection.model;
+		return karaokeModels[active]?.[prop as keyof KaraokeModelState] ?? karaokeModels.kara[prop as keyof KaraokeModelState];
+	},
+	set(_, prop, value) {
+		const active = karaokeSelection.model;
+		if (karaokeModels[active]) {
+			(karaokeModels[active] as any)[prop] = value;
+		}
+		return true;
+	}
+});
+
+export const karaokeConsent = $state({ open: false, model: 'kara' as api.KaraokeModelId, enableAfter: false });
 
 /**
  * Why karaoke can't run here, from the backend's last attempt to start it (`reason` is an en.json
@@ -114,10 +136,22 @@ export async function refreshKaraokeAvailability(): Promise<void> {
 	}
 }
 
-export function confirmKaraokeModelDownload() {
-	karaokeModel.error = undefined;
-	api.karaokeModelDownload().catch((e) => {
-		karaokeModel.error = String(e);
+export function confirmKaraokeModelDownload(model?: api.KaraokeModelId) {
+	const target = model ?? karaokeConsent.model ?? karaokeSelection.model;
+	if (karaokeModels[target]?.installed) {
+		karaokeConsent.open = false;
+		if (karaokeSelection.model !== target) {
+			api.karaokeModelSet(target)
+				.then(() => {
+					karaokeSelection.model = target;
+				})
+				.catch((e) => toast.error(String(e)));
+		}
+		return;
+	}
+	karaokeModels[target].error = undefined;
+	api.karaokeModelDownload(target).catch((e) => {
+		karaokeModels[target].error = String(e);
 		toast.error(String(e));
 	});
 }
@@ -129,8 +163,47 @@ export function cancelKaraokeModelDownload() {
 	});
 }
 
+export async function deleteKaraokeModel(model: api.KaraokeModelId) {
+	try {
+		await api.karaokeModelDelete(model);
+		toast.success(t('karaoke.settings.deleted'));
+	} catch (e) {
+		const errStr = String(e);
+		if (errStr.includes('in_use')) {
+			toast.error(t('karaoke.settings.delete_in_use'));
+		} else {
+			toast.error(t('karaoke.settings.delete_failed'));
+		}
+	} finally {
+		Promise.all([
+			api.karaokeModelStatus('kara'),
+			api.karaokeModelStatus('kara_2'),
+			api.karaokeModelStatus('inst_hq_3')
+		])
+			.then(([sKara, sKara2, sInst3]) => {
+				if (sKara) {
+					karaokeModels.kara.installed = sKara.installed;
+					karaokeModels.kara.downloading = sKara.downloading;
+					karaokeModels.kara.total = sKara.sizeBytes;
+				}
+				if (sKara2) {
+					karaokeModels.kara_2.installed = sKara2.installed;
+					karaokeModels.kara_2.downloading = sKara2.downloading;
+					karaokeModels.kara_2.total = sKara2.sizeBytes;
+				}
+				if (sInst3) {
+					karaokeModels.inst_hq_3.installed = sInst3.installed;
+					karaokeModels.inst_hq_3.downloading = sInst3.downloading;
+					karaokeModels.inst_hq_3.total = sInst3.sizeBytes;
+				}
+			})
+			.catch(() => {});
+	}
+}
+
 export function dismissKaraokeConsent() {
 	karaokeConsent.open = false;
+	karaokeConsent.enableAfter = false;
 }
 
 /**
@@ -1056,6 +1129,12 @@ export function scheduleKaraokeRetry() {
 export function toggleKaraoke() {
 	const previous = playback.karaoke;
 	const next = !previous;
+	if (next && !karaokeModels[karaokeSelection.model]?.installed) {
+		karaokeConsent.model = karaokeSelection.model;
+		karaokeConsent.enableAfter = true;
+		karaokeConsent.open = true;
+		return;
+	}
 	playback.karaoke = next;
 	if (!next) {
 		cancelKaraokeRetry();
@@ -1763,7 +1842,19 @@ export function initApp(mini = false): () => void {
 			// An error for no track in particular (karaoke itself stopped): fetch the reason.
 			if (e.state === 'error' && !e.videoId) void refreshKaraokeAvailability();
 			if (e.state === 'needs-model') {
-				karaokeConsent.open = true;
+				const m = e.model ?? karaokeSelection.model;
+				if (karaokeModels[m]?.installed) {
+					api.karaokeModelGet().then((sel) => {
+						if (sel) karaokeSelection.model = sel;
+					}).catch(() => {});
+					api.karaokeModelStatus(m).then((st) => {
+						if (st) karaokeModels[m].installed = st.installed;
+					}).catch(() => {});
+				} else {
+					karaokeConsent.model = m;
+					karaokeConsent.enableAfter = true;
+					karaokeConsent.open = true;
+				}
 				if (!e.videoId) {
 					karaokeStatus.state = e.state;
 					karaokeStatus.progress = e.progress;
@@ -1795,28 +1886,51 @@ export function initApp(mini = false): () => void {
 			}
 		}),
 		api.onKaraokeModel((e) => {
+			const m = e.model ?? karaokeConsent.model ?? karaokeSelection.model;
+			const st = karaokeModels[m];
+			if (!st) return;
 			if (e.state === 'downloading') {
-				karaokeModel.downloading = true;
-				karaokeModel.downloaded = e.downloaded;
-				karaokeModel.total = e.total;
-				karaokeModel.error = undefined;
+				st.downloading = true;
+				st.downloaded = e.downloaded;
+				st.total = e.total;
+				st.error = undefined;
 			} else if (e.state === 'ready') {
-				karaokeModel.installed = true;
-				karaokeModel.downloading = false;
-				karaokeModel.error = undefined;
+				st.installed = true;
+				st.downloading = false;
+				st.error = undefined;
+				const enable = karaokeConsent.enableAfter;
 				karaokeConsent.open = false;
-				playback.karaoke = true;
-				api.setKaraoke(true).catch((err) => {
-					playback.karaoke = false;
-					toast.error(String(err));
-				});
+				void (async () => {
+					try {
+						await api.karaokeModelSet(m);
+						karaokeSelection.model = m;
+						const status = await api.karaokeEngineStatus();
+						karaokeAvailability.reason = status.availability === 'unavailable' ? status.reason : undefined;
+						karaokeAvailability.processor = status.processor;
+						if (enable) {
+							playback.karaoke = true;
+							await api.setKaraoke(true);
+						}
+					} catch (err) {
+						if (enable) {
+							playback.karaoke = false;
+						}
+						toast.error(String(err));
+					}
+					karaokeConsent.enableAfter = false;
+				})();
 			} else if (e.state === 'error') {
-				karaokeModel.downloading = false;
-				karaokeModel.error = e.message;
+				st.downloading = false;
+				st.error = e.message;
 			} else if (e.state === 'cancelled') {
-				karaokeModel.downloading = false;
-				karaokeModel.error = undefined;
+				st.downloading = false;
+				st.error = undefined;
 				karaokeConsent.open = false;
+				karaokeConsent.enableAfter = false;
+				st.installed = false;
+				st.downloaded = 0;
+				st.downloading = false;
+				st.error = undefined;
 			}
 		}),
 		api.onPlaybackError((msg) => toast.error(msg)),
@@ -1858,13 +1972,47 @@ export function initApp(mini = false): () => void {
 	api.getQueue()
 		.then((q) => (playback.queue = q))
 		.catch(() => {});
-	api.karaokeModelStatus()
-		.then((s) => {
-			karaokeModel.installed = s.installed;
-			karaokeModel.downloading = s.downloading;
-			karaokeModel.total = s.sizeBytes;
+	api.karaokeModelGet()
+		.then((sel) => {
+			if (sel) karaokeSelection.model = sel;
 		})
-		.catch(() => {});
+		.catch(() => {})
+		.finally(() => {
+			Promise.all([
+				api.karaokeModelStatus('kara'),
+				api.karaokeModelStatus('kara_2'),
+				api.karaokeModelStatus('inst_hq_3')
+			])
+				.then(([sKara, sKara2, sInst3]) => {
+					if (sKara) {
+						karaokeModels.kara.installed = sKara.installed;
+						karaokeModels.kara.downloading = sKara.downloading;
+						karaokeModels.kara.total = sKara.sizeBytes;
+					}
+					if (sKara2) {
+						karaokeModels.kara_2.installed = sKara2.installed;
+						karaokeModels.kara_2.downloading = sKara2.downloading;
+						karaokeModels.kara_2.total = sKara2.sizeBytes;
+					}
+					if (sInst3) {
+						karaokeModels.inst_hq_3.installed = sInst3.installed;
+						karaokeModels.inst_hq_3.downloading = sInst3.downloading;
+						karaokeModels.inst_hq_3.total = sInst3.sizeBytes;
+					}
+				})
+				.catch(() => {
+					api.karaokeModelStatus()
+						.then((s) => {
+							if (s) {
+								const target = s.model ?? karaokeSelection.model;
+								karaokeModels[target].installed = s.installed;
+								karaokeModels[target].downloading = s.downloading;
+								karaokeModels[target].total = s.sizeBytes;
+							}
+						})
+						.catch(() => {});
+				});
+		});
 	// The events above are fire-and-forget, and this window missed every one that already fired:
 	// on a cold start the backend restores the queue before the UI subscribes, and the mini player
 	// is created mid-song. Ask for the current state once rather than guessing at it.

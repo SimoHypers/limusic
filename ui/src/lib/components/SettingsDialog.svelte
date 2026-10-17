@@ -30,7 +30,7 @@
 	import { HELP_COMBO } from '$lib/shortcuts';
 	import { copyText } from '$lib/clipboard';
 	import * as api from '$lib/api';
-	import { blocked, karaokeAvailability, karaokeConsent, karaokeModel, cancelKaraokeModelDownload, prefs, refreshLanguage, setAutoplay, ui, toast, unblockArtist } from '$lib/player.svelte';
+	import { blocked, karaokeAvailability, karaokeConsent, karaokeModel, karaokeModels, karaokeSelection, cancelKaraokeModelDownload, deleteKaraokeModel, playback, prefs, refreshLanguage, setAutoplay, ui, toast, unblockArtist } from '$lib/player.svelte';
 	import { win } from '$lib/win.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import AppearanceSettings from '$lib/components/AppearanceSettings.svelte';
@@ -282,33 +282,81 @@
 		}
 	}
 
+	let deleteConfirmModel = $state<api.KaraokeModelId | null>(null);
+
+	const karaokeModelOptions = $derived([
+		{
+			value: 'kara',
+			label: `${t('karaoke.settings.model_weak')} (${karaokeModels.kara.total > 0 ? (karaokeModels.kara.total / 1048576).toFixed(1) : '66.8'} MB)`,
+			desc: t('karaoke.settings.model_weak_desc')
+		},
+		{
+			value: 'kara_2',
+			label: `${t('karaoke.settings.model_medium')} (${karaokeModels.kara_2.total > 0 ? (karaokeModels.kara_2.total / 1048576).toFixed(1) : '66.8'} MB)`,
+			desc: t('karaoke.settings.model_medium_desc')
+		},
+		{
+			value: 'inst_hq_3',
+			label: `${t('karaoke.settings.model_strong')} (${karaokeModels.inst_hq_3.total > 0 ? (karaokeModels.inst_hq_3.total / 1048576).toFixed(1) : '66.8'} MB)`,
+			desc: t('karaoke.settings.model_strong_desc')
+		}
+	]);
+
+	async function setKaraokeModel(val: string) {
+		const modelId = val as api.KaraokeModelId;
+		deleteConfirmModel = null;
+		if (!karaokeModels[modelId]?.installed) {
+			karaokeConsent.model = modelId;
+			karaokeConsent.enableAfter = false;
+			karaokeConsent.open = true;
+			return;
+		}
+		try {
+			await api.karaokeModelSet(modelId);
+			karaokeSelection.model = modelId;
+			const status = await api.karaokeEngineStatus();
+			karaokeAvailability.reason = status.availability === 'unavailable' ? status.reason : undefined;
+			karaokeAvailability.processor = status.processor;
+		} catch (e) {
+			toast.error(String(e));
+		}
+	}
+
 	async function loadKaraoke() {
 		try {
-			const [modelRes, limitRes, statusRes] = await Promise.allSettled([
-				api.karaokeModelStatus(),
+			const sel = await api.karaokeModelGet();
+			if (sel) karaokeSelection.model = sel;
+			const [m1Res, m2Res, m3Res, limitRes, statusRes] = await Promise.allSettled([
+				api.karaokeModelStatus('kara'),
+				api.karaokeModelStatus('kara_2'),
+				api.karaokeModelStatus('inst_hq_3'),
 				api.karaokeCacheLimitMb(),
 				api.karaokeEngineStatus()
 			]);
-			if (modelRes.status === 'fulfilled') {
-				const m = modelRes.value;
-				karaokeModel.installed = m.installed;
-				karaokeModel.downloading = m.downloading;
-				karaokeModel.total = m.sizeBytes;
-			} else {
-				console.warn(modelRes.reason);
+			if (m1Res.status === 'fulfilled' && m1Res.value) {
+				karaokeModels.kara.installed = m1Res.value.installed;
+				karaokeModels.kara.downloading = m1Res.value.downloading;
+				karaokeModels.kara.total = m1Res.value.sizeBytes;
+			}
+			if (m2Res.status === 'fulfilled' && m2Res.value) {
+				karaokeModels.kara_2.installed = m2Res.value.installed;
+				karaokeModels.kara_2.downloading = m2Res.value.downloading;
+				karaokeModels.kara_2.total = m2Res.value.sizeBytes;
+			}
+			if (m3Res.status === 'fulfilled' && m3Res.value) {
+				karaokeModels.inst_hq_3.installed = m3Res.value.installed;
+				karaokeModels.inst_hq_3.downloading = m3Res.value.downloading;
+				karaokeModels.inst_hq_3.total = m3Res.value.sizeBytes;
 			}
 			if (limitRes.status === 'fulfilled') {
 				karaokeCacheLimit = limitRes.value;
-			} else {
-				console.warn(limitRes.reason);
 			}
 			if (statusRes.status === 'fulfilled') {
 				const s = statusRes.value;
 				karaokeCacheBytes = s.cacheBytes;
 				karaokeAvailability.reason = s.availability === 'unavailable' ? s.reason : undefined;
 				karaokeAvailability.processor = s.processor;
-			} else {
-				console.warn(statusRes.reason);
+				if (s.model) karaokeSelection.model = s.model;
 			}
 		} catch (e) {
 			console.warn(e);
@@ -841,7 +889,9 @@
 								{@render row({
 									title: t('karaoke.settings.model'),
 									desc: t('karaoke.settings.model_desc'),
-									control: karaokeModelControl
+									control: karaokeModelControl,
+									below: karaokeModelBelow,
+									tall: true
 								})}
 								{@render row({
 									title: t('karaoke.settings.cache_limit'),
@@ -1265,24 +1315,64 @@
 {/snippet}
 
 {#snippet karaokeModelControl()}
-	{@const sizeStr = karaokeModel.total > 0 ? `${(karaokeModel.total / 1048576).toFixed(1)} MB` : '66.8 MB'}
-	{@const downloadedStr = (karaokeModel.downloaded / 1048576).toFixed(1)}
-	{@const totalStr = (karaokeModel.total / 1048576).toFixed(1)}
-	<div class="flex items-center gap-3">
-		<span class="text-xs text-muted-foreground">
-			{#if karaokeModel.installed}
-				{t('karaoke.settings.model_installed', { size: sizeStr })}
-			{:else if karaokeModel.downloading}
+	<Select.Root
+		type="single"
+		value={karaokeSelection.model}
+		onValueChange={setKaraokeModel}
+	>
+		<Select.Trigger class="w-48 shrink-0" aria-label={t('karaoke.settings.model')}>
+			<span class="flex-1 truncate text-left">
+				{karaokeModelOptions.find((o) => o.value === karaokeSelection.model)?.label ?? karaokeSelection.model}
+			</span>
+		</Select.Trigger>
+		<Select.Content>
+			{#each karaokeModelOptions as opt (opt.value)}
+				<Select.Item value={opt.value} label={opt.label}>{opt.label}</Select.Item>
+			{/each}
+		</Select.Content>
+	</Select.Root>
+{/snippet}
+
+{#snippet karaokeModelBelow()}
+	{@const currentModelSt = karaokeModels[karaokeSelection.model] ?? karaokeModels.kara}
+	{@const sizeStr = currentModelSt.total > 0 ? `${(currentModelSt.total / 1048576).toFixed(1)} MB` : '66.8 MB'}
+	{@const downloadedStr = (currentModelSt.downloaded / 1048576).toFixed(1)}
+	{@const totalStr = (currentModelSt.total / 1048576).toFixed(1)}
+	{@const anyDownloading = Object.values(karaokeModels).some((m) => m.downloading)}
+	{@const isDisabled = playback.karaoke || anyDownloading}
+	{@const disableReason = playback.karaoke ? t('karaoke.settings.delete_in_use') : anyDownloading ? t('karaoke.settings.delete_in_use') : ''}
+	<div class="flex items-center justify-between pt-1">
+		<span class="text-xs text-muted-foreground flex items-center gap-2">
+			{#if currentModelSt.installed}
+				<span>{t('karaoke.settings.model_installed', { size: sizeStr })}</span>
+				<Button
+					variant="outline"
+					size="sm"
+					class="h-6 px-2 text-xs"
+					disabled={isDisabled}
+					title={isDisabled ? disableReason : undefined}
+					onclick={() => {
+						if (deleteConfirmModel === karaokeSelection.model) {
+							deleteConfirmModel = null;
+							deleteKaraokeModel(karaokeSelection.model);
+						} else {
+							deleteConfirmModel = karaokeSelection.model;
+						}
+					}}
+				>
+					{deleteConfirmModel === karaokeSelection.model ? t('karaoke.settings.delete_confirm') : t('karaoke.settings.delete')}
+				</Button>
+			{:else if currentModelSt.downloading}
 				{downloadedStr} / {totalStr} MB
 			{:else}
 				{t('karaoke.settings.model_missing')}
 			{/if}
 		</span>
-		{#if !karaokeModel.installed && !karaokeModel.downloading}
-			<Button size="sm" onclick={() => (karaokeConsent.open = true)}>
+		{#if !currentModelSt.installed && !currentModelSt.downloading}
+			<Button size="sm" onclick={() => { karaokeConsent.model = karaokeSelection.model; karaokeConsent.enableAfter = false; karaokeConsent.open = true; }}>
 				{t('karaoke.download')}
 			</Button>
-		{:else if karaokeModel.downloading}
+		{:else if currentModelSt.downloading}
 			<Button variant="outline" size="sm" onclick={cancelKaraokeModelDownload}>
 				{t('karaoke.cancel')}
 			</Button>

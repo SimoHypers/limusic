@@ -236,14 +236,18 @@ pub async fn set_playback_params(state: St<'_>, speed: f64, semitones: i32) -> R
 pub async fn set_karaoke(
     state: St<'_>,
     models: State<'_, Arc<crate::karaoke_model::ModelManager>>,
+    engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
     enabled: bool,
 ) -> Result<(), String> {
-    if enabled && !models.is_installed() {
+    // TODO(model-select)
+    let selected = engine.model();
+    if enabled && !models.is_installed(selected) {
         let _ = state.app.emit(
             "karaoke-status",
             &serde_json::json!({
                 "videoId": "",
-                "state": "needs-model"
+                "state": "needs-model",
+                "model": selected.key()
             }),
         );
         let _ = state.app.emit("karaoke", false);
@@ -2761,27 +2765,40 @@ pub fn theater_fullscreen(window: tauri::WebviewWindow, on: bool) -> Result<(), 
 
 /// Get the status of the karaoke separation model.
 #[tauri::command]
-pub async fn karaoke_model_status(app: tauri::AppHandle) -> crate::karaoke_model::ModelStatus {
+pub async fn karaoke_model_status(
+    app: tauri::AppHandle,
+    model: Option<String>,
+) -> Result<crate::karaoke_model::ModelStatus, String> {
     let manager = app.state::<Arc<crate::karaoke_model::ModelManager>>().inner().clone();
-    tauri::async_runtime::spawn_blocking(move || manager.status()).await.unwrap_or_else(|_| {
-        crate::karaoke_model::ModelStatus {
-            installed: false,
-            downloading: false,
-            size_bytes: crate::karaoke_model::MODEL_SIZE,
-            path: None,
-        }
-    })
+    let id = match model {
+        Some(ref key) => karaoke::models::ModelId::from_key(key).ok_or_else(|| "unknown model".to_string())?,
+        None => karaoke::models::ModelId::DEFAULT,
+    };
+    tauri::async_runtime::spawn_blocking(move || manager.status(id))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Download the karaoke separation model asynchronously.
 #[tauri::command]
 pub async fn karaoke_model_download(
+    state: State<'_, Arc<AppState>>,
+    engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
     app: tauri::AppHandle,
     manager: State<'_, Arc<crate::karaoke_model::ModelManager>>,
+    model: String,
 ) -> Result<(), String> {
+    let id = karaoke::models::ModelId::from_key(&model).ok_or_else(|| "unknown model".to_string())?;
     let mgr = manager.inner().clone();
+    let engine = engine.inner().clone();
+    let state = state.inner().clone();
     tauri::async_runtime::spawn(async move {
-        let _ = mgr.download(&app).await;
+        if mgr.download(&app, id).await.is_ok() {
+            if engine.is_enabled() && engine.model() == id {
+                engine.wake();
+                state.karaoke_repush_wants().await;
+            }
+        }
     });
     Ok(())
 }
@@ -2795,10 +2812,40 @@ pub async fn karaoke_model_cancel(
     Ok(())
 }
 
+/// Delete an installed karaoke model.
+#[tauri::command]
+pub async fn karaoke_model_delete(
+    engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
+    manager: State<'_, Arc<crate::karaoke_model::ModelManager>>,
+    app: tauri::AppHandle,
+    model: String,
+) -> Result<(), String> {
+    let id = karaoke::models::ModelId::from_key(&model).ok_or_else(|| "unknown model".to_string())?;
+    let engine = engine.inner().clone();
+    let manager = manager.inner().clone();
+
+    if engine.is_enabled() && engine.model() == id {
+        return Err("in_use".to_string());
+    }
+
+    engine.unload_model_if_loaded(id).await;
+
+    tauri::async_runtime::spawn_blocking(move || manager.delete(id))
+        .await
+        .map_err(|e| karaoke::sanitize_error(&e.to_string()))??;
+
+    let _ = app.emit(
+        "karaoke-model",
+        serde_json::json!({ "model": model, "state": "deleted" }),
+    );
+    Ok(())
+}
+
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KaraokeEngineStatus {
     pub enabled: bool,
+    pub model: &'static str,
     pub model_installed: bool,
     pub cache_bytes: u64,
     /// `"ready"`, `"needs-model"` or `"unavailable"`.
@@ -2820,7 +2867,8 @@ pub async fn karaoke_engine_status(
 ) -> Result<KaraokeEngineStatus, String> {
     let (engine, models) = (engine.inner().clone(), models.inner().clone());
     tauri::async_runtime::spawn_blocking(move || {
-        let model_installed = models.is_installed();
+        let selected = engine.model();
+        let model_installed = models.is_installed(selected);
         let reason =
             if crate::http::has_proxy() { Some("proxy") } else { engine.unavailable_reason() };
         let availability = match (reason, model_installed) {
@@ -2830,6 +2878,7 @@ pub async fn karaoke_engine_status(
         };
         KaraokeEngineStatus {
             enabled: engine.is_enabled(),
+            model: selected.key(),
             model_installed,
             cache_bytes: engine.cache_bytes(),
             availability,
@@ -2839,6 +2888,36 @@ pub async fn karaoke_engine_status(
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+/// Get the selected karaoke model key.
+#[tauri::command]
+pub async fn karaoke_model_get(
+    engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
+) -> Result<String, String> {
+    Ok(engine.model().key().to_string())
+}
+
+/// Set the selected karaoke model key.
+#[tauri::command]
+pub async fn karaoke_model_set(
+    state: State<'_, Arc<AppState>>,
+    engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
+    model: String,
+) -> Result<String, String> {
+    let id = karaoke::models::ModelId::from_key(&model)
+        .ok_or_else(|| "unknown model".to_string())?;
+    crate::state::set_saved_karaoke_model(&state.db, id);
+    let engine = engine.inner().clone();
+    let model_key = id.key();
+    let enabled = engine.is_enabled();
+    tracing::debug!(target: "app_lib::karaoke", model_key, enabled, "karaoke model set");
+    engine.set_model(id);
+    if engine.is_enabled() {
+        state.inner().clone().karaoke_repush_wants().await;
+        state.inner().clone().karaoke_on_model_switch().await;
+    }
+    Ok(id.key().to_string())
 }
 
 /// Clear the karaoke instrumental cache.

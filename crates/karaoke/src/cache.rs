@@ -46,6 +46,7 @@ pub struct InstrumentalCache {
     /// out, so a file the player got can never be deleted before (or while) mpv uses it. Held for
     /// one file at a time: playback waits at most for one delete.
     pins: std::sync::Mutex<[Option<PathBuf>; 2]>,
+    model_key: std::sync::Mutex<String>,
 }
 
 impl InstrumentalCache {
@@ -60,7 +61,18 @@ impl InstrumentalCache {
             format,
             max_bytes: std::sync::atomic::AtomicU64::new(max_bytes),
             pins: std::sync::Mutex::new([None, None]),
+            model_key: std::sync::Mutex::new(crate::models::ModelId::DEFAULT.key().to_string()),
         }
+    }
+
+    pub fn set_model(&self, key: &str) {
+        let mut m = self.model_key.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *m = key.to_string();
+    }
+
+    pub fn model_key(&self) -> String {
+        let m = self.model_key.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        m.clone()
     }
 
     /// Creates the cache directory and deletes temporary files a crash left behind.
@@ -106,14 +118,16 @@ impl InstrumentalCache {
     }
 
     pub fn path_for(&self, track_id: &str) -> PathBuf {
+        let mk = self.model_key();
         let sanitized = sanitize_track_id(track_id);
         let ext = self.format.extension();
-        self.dir.join(format!("{}.{}", sanitized, ext))
+        self.dir.join(format!("{}__{}.{}", mk, sanitized, ext))
     }
 
     pub fn tmp_wav_path(&self, track_id: &str) -> PathBuf {
+        let mk = self.model_key();
         let sanitized = sanitize_track_id(track_id);
-        self.dir.join("tmp").join(format!("{}.wav", sanitized))
+        self.dir.join("tmp").join(format!("{}__{}.wav", mk, sanitized))
     }
 
     fn lock_pins(&self) -> std::sync::MutexGuard<'_, [Option<PathBuf>; 2]> {
@@ -521,6 +535,67 @@ mod tests {
         cache.unpin(PinSlot::Current);
         cache.clear()?;
         assert!(!next.exists());
+        let _ = fs::remove_dir_all(&tmp);
+        Ok(())
+    }
+
+    #[test]
+    fn test_multi_model_cache() -> Result<()> {
+        let tmp = std::env::temp_dir().join("limusic_cache_test_multi_model");
+        if tmp.exists() {
+            let _ = fs::remove_dir_all(&tmp);
+        }
+
+        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024);
+        cache.prepare()?;
+
+        let p_kara = cache.path_for("track1");
+        fs::write(&p_kara, b"kara audio")?;
+        assert!(cache.contains("track1"));
+
+        cache.set_model("inst_hq_3");
+        assert!(!cache.contains("track1"));
+        let p_inst = cache.path_for("track1");
+        assert_ne!(p_kara, p_inst);
+        assert!(!p_inst.exists());
+
+        fs::write(&p_inst, b"inst audio")?;
+        assert!(cache.contains("track1"));
+
+        cache.set_model("kara");
+        assert!(cache.contains("track1"));
+        assert_eq!(fs::read_to_string(&cache.path_for("track1"))?, "kara audio");
+
+        cache.set_model("inst_hq_3");
+        assert_eq!(cache.total_size() as usize, "kara audio".len() + "inst audio".len());
+
+        let _ = fs::remove_dir_all(&tmp);
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_model_does_not_touch_pinned_file() -> Result<()> {
+        let tmp = std::env::temp_dir().join("limusic_cache_test_model_pin");
+        if tmp.exists() {
+            let _ = fs::remove_dir_all(&tmp);
+        }
+
+        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 10);
+        cache.prepare()?;
+
+        let p1 = cache.path_for("track1");
+        fs::write(&p1, b"pinned under kara")?;
+        assert_eq!(cache.pin(PinSlot::Current, "track1"), Some(p1.clone()));
+
+        cache.set_model("inst_hq_3");
+        cache.clear()?;
+
+        assert!(p1.exists());
+
+        cache.unpin(PinSlot::Current);
+        cache.clear()?;
+        assert!(!p1.exists());
+
         let _ = fs::remove_dir_all(&tmp);
         Ok(())
     }

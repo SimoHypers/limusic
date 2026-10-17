@@ -1,6 +1,7 @@
 use crate::cache::InstrumentalCache;
 use crate::cache_codec::{write_cached, Pcm};
 use crate::mdx::MdxModel;
+use crate::models::PrimaryStem;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -26,6 +27,15 @@ impl Separator for MdxModel {
     }
 }
 
+pub fn subtract_vocals(mix: &[f32], vocals: &[f32]) -> Vec<f32> {
+    let len = mix.len().min(vocals.len());
+    let mut res = Vec::with_capacity(len);
+    for i in 0..len {
+        res.push(mix[i] - vocals[i]);
+    }
+    res
+}
+
 struct TmpWavGuard(PathBuf);
 impl Drop for TmpWavGuard {
     fn drop(&mut self) {
@@ -37,6 +47,7 @@ impl Drop for TmpWavGuard {
 pub fn prepare_instrumental(
     cache: &InstrumentalCache,
     track_id: &str,
+    primary_stem: PrimaryStem,
     separator: &mut dyn Separator,
     decode_to_wav: &mut dyn FnMut(&Path) -> Result<()>,
     expected_secs: Option<f64>,
@@ -46,6 +57,7 @@ pub fn prepare_instrumental(
     prepare_instrumental_with_limit(
         cache,
         track_id,
+        primary_stem,
         separator,
         decode_to_wav,
         expected_secs,
@@ -62,6 +74,7 @@ pub fn prepare_instrumental(
 pub fn prepare_instrumental_with_limit(
     cache: &InstrumentalCache,
     track_id: &str,
+    primary_stem: PrimaryStem,
     separator: &mut dyn Separator,
     decode_to_wav: &mut dyn FnMut(&Path) -> Result<()>,
     expected_secs: Option<f64>,
@@ -171,7 +184,15 @@ pub fn prepare_instrumental_with_limit(
     }
 
     let start_separate = std::time::Instant::now();
-    let [sep_l, sep_r] = separator.separate_pcm([&left, &right], cancel, progress)?;
+    let [mut sep_l, mut sep_r] = separator.separate_pcm([&left, &right], cancel, progress)?;
+    if primary_stem == PrimaryStem::Vocals {
+        for (m, v) in left.iter().zip(sep_l.iter_mut()) {
+            *v = *m - *v;
+        }
+        for (m, v) in right.iter().zip(sep_r.iter_mut()) {
+            *v = *m - *v;
+        }
+    }
     let separate_ms = start_separate.elapsed().as_millis();
     tracing::debug!(target: "karaoke::pipeline", video_id = %track_id, separate_ms, "karaoke stage separate");
 
@@ -251,6 +272,14 @@ mod tests {
     }
 
     #[test]
+    fn test_subtract_vocals() {
+        let mix = [1.0, 2.0, 3.0];
+        let vocals = [0.5, 0.5, 0.5];
+        let res = subtract_vocals(&mix, &vocals);
+        assert_eq!(res, vec![0.5, 1.5, 2.5]);
+    }
+
+    #[test]
     fn test_pipeline_workflow() -> Result<()> {
         let tmp = std::env::temp_dir().join("limusic_pipeline_test");
         if tmp.exists() {
@@ -290,6 +319,7 @@ mod tests {
         let p1 = prepare_instrumental(
             &cache,
             track_id,
+            PrimaryStem::Instrumental,
             &mut separator,
             &mut decode_to_wav,
             None,
@@ -304,6 +334,7 @@ mod tests {
         let p2 = prepare_instrumental(
             &cache,
             track_id,
+            PrimaryStem::Instrumental,
             &mut separator,
             &mut decode_to_wav,
             None,
@@ -336,6 +367,7 @@ mod tests {
         let res = prepare_instrumental(
             &cache,
             track_id,
+            PrimaryStem::Instrumental,
             &mut separator,
             &mut decode_to_wav,
             None,
@@ -376,6 +408,7 @@ mod tests {
         let res = prepare_instrumental(
             &cache,
             track_id,
+            PrimaryStem::Instrumental,
             &mut separator,
             &mut decode_to_wav,
             None,
@@ -429,6 +462,7 @@ mod tests {
         let res = prepare_instrumental(
             &cache,
             track_id,
+            PrimaryStem::Instrumental,
             &mut separator,
             &mut decode_to_wav,
             Some(100.0),
@@ -459,6 +493,7 @@ mod tests {
         let res_ok = prepare_instrumental(
             &cache,
             track_id_ok,
+            PrimaryStem::Instrumental,
             &mut separator,
             &mut decode_to_wav_ok,
             Some(100.0),
@@ -501,6 +536,7 @@ mod tests {
         let res = prepare_instrumental_with_limit(
             &cache,
             "long",
+            PrimaryStem::Instrumental,
             &mut separator,
             &mut decode_to_wav,
             None,

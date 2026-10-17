@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::karaoke_model::ModelManager;
 use karaoke::board::{isolate, JobBoard};
@@ -18,7 +18,8 @@ use karaoke::cache::{InstrumentalCache, PinSlot};
 use karaoke::cache_codec::CacheFormat;
 use karaoke::jobs::DesiredSet;
 pub use karaoke::jobs::PrepareRequest;
-use karaoke::mdx::{MdxModel, MdxParams};
+use karaoke::mdx::MdxModel;
+use karaoke::models::ModelId;
 use karaoke::runtime::RuntimeReady;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -34,6 +35,8 @@ struct Ctx {
     ready_tx: tokio::sync::broadcast::Sender<String>,
     /// What the loaded model runs on, for Settings: 0 not loaded yet, 1 CPU, 2 GPU (DirectML).
     processor: Arc<AtomicU8>,
+    model: Arc<Mutex<ModelId>>,
+    loaded_model: Arc<Mutex<Option<ModelId>>>,
 }
 
 impl Ctx {
@@ -151,8 +154,13 @@ impl KaraokeEngine {
             .unwrap_or(2048)
             .clamp(512, 20480);
         let max_bytes = limit_mb * 1024 * 1024;
+        let model_id = app
+            .try_state::<Arc<crate::state::AppState>>()
+            .map(|st| crate::state::saved_karaoke_model(&st.db))
+            .unwrap_or(ModelId::DEFAULT);
         // No I/O here: the directory is created on first enable (`spawn_worker`).
         let cache = Arc::new(InstrumentalCache::new(cache_dir, CacheFormat::Flac, max_bytes));
+        cache.set_model(model_id.key());
         let (ready_tx, _) = tokio::sync::broadcast::channel(64);
         let ctx = Ctx {
             app,
@@ -161,6 +169,8 @@ impl KaraokeEngine {
             board: Arc::new(JobBoard::new()),
             ready_tx,
             processor: Arc::new(AtomicU8::new(0)),
+            model: Arc::new(Mutex::new(model_id)),
+            loaded_model: Arc::new(Mutex::new(None)),
         };
         Arc::new(Self {
             ctx,
@@ -168,6 +178,46 @@ impl KaraokeEngine {
             worker_alive: Arc::new(AtomicBool::new(false)),
             unavailable: Mutex::new(None),
         })
+    }
+
+    pub fn wake(&self) {
+        self.ctx.board.notify();
+    }
+
+    pub fn model(&self) -> ModelId {
+        *self.ctx.model.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub fn has_loaded(&self, id: ModelId) -> bool {
+        *self.ctx.loaded_model.lock().unwrap_or_else(PoisonError::into_inner) == Some(id)
+    }
+
+    pub async fn unload_model_if_loaded(&self, id: ModelId) {
+        if self.has_loaded(id) {
+            self.ctx.board.notify();
+            let start = Instant::now();
+            while self.has_loaded(id) && start.elapsed() < Duration::from_secs(3) {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        }
+    }
+
+    pub fn set_model(&self, id: ModelId) {
+        let model_key = id.key();
+        let enabled = self.is_enabled();
+        tracing::debug!(target: "app_lib::karaoke", model_key, enabled, "karaoke engine set model");
+        {
+            let mut m = self.ctx.model.lock().unwrap_or_else(PoisonError::into_inner);
+            *m = id;
+        }
+        self.ctx.cache.set_model(id.key());
+        self.ctx.board.with(|s| {
+            if let Some(r) = s.running.take() {
+                r.cancel.store(true, Ordering::SeqCst);
+            }
+        });
+        self.ctx.board.notify();
+        self.ctx.refresh_in_background(true);
     }
 
     /// Prepares the cache directory and starts the worker thread, once. Called when karaoke is
@@ -273,7 +323,11 @@ impl KaraokeEngine {
 
     /// Called by playback with the queue lock held: bookkeeping only, no disk, no waiting.
     pub fn want(&self, reqs: Vec<PrepareRequest>) {
-        if !self.ctx.board.is_enabled() {
+        let enabled = self.ctx.board.is_enabled();
+        let num_reqs = reqs.len();
+        let first_id = reqs.first().map_or(String::new(), |r| r.video_id.clone());
+        if !enabled {
+            tracing::debug!(target: "app_lib::karaoke", enabled, num_reqs, first_id = %first_id, returned_early = true, "karaoke want");
             return;
         }
         // Tracks over the length cap are never prepared (memory, see `MAX_TRACK_SECS`): say so
@@ -303,8 +357,13 @@ impl KaraokeEngine {
             }
             let removed = s.desired.replace(reqs);
             s.desired.clear_failed();
-            s.running.as_ref().filter(|r| removed.contains(&r.video_id)).cloned().map(Some)
+            Some(s.running.as_ref().filter(|r| removed.contains(&r.video_id)).cloned())
         });
+        if deferred_cancel.is_none() {
+            tracing::debug!(target: "app_lib::karaoke", enabled, num_reqs, first_id = %first_id, returned_early = true, "karaoke want");
+            return;
+        }
+        tracing::debug!(target: "app_lib::karaoke", enabled, num_reqs, first_id = %first_id, returned_early = false, "karaoke want");
         let Some(deferred_cancel) = deferred_cancel else { return };
         let ids: Vec<&str> = new_ids.iter().map(|s| s.as_str()).collect();
         tracing::info!(target: "app_lib::karaoke", ?ids, "karaoke wants updated");
@@ -412,8 +471,9 @@ impl KaraokeEngine {
     }
 }
 
-fn unload(model: &mut Option<MdxModel>, reason: &str) {
+fn unload(model: &mut Option<MdxModel>, reason: &str, loaded_model: &Mutex<Option<ModelId>>) {
     if model.take().is_some() {
+        *loaded_model.lock().unwrap_or_else(PoisonError::into_inner) = None;
         tracing::info!(target: "app_lib::karaoke", reason, "karaoke model unloaded");
     }
 }
@@ -422,26 +482,67 @@ fn unload(model: &mut Option<MdxModel>, reason: &str) {
 /// a job, file access or an emit. `rt` proves ONNX Runtime was set up before any session.
 fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
     let mut model: Option<MdxModel> = None;
+    let mut loaded_model_id: Option<ModelId> = None;
     let mut notified_needs_model = false;
 
+    let log_wake = |ctx: &Ctx, model: &Option<MdxModel>| {
+        let enabled = ctx.board.is_enabled();
+        let selected = { *ctx.model.lock().unwrap_or_else(PoisonError::into_inner) };
+        let installed = ctx.models.is_installed(selected);
+        let desired_count = ctx.board.with(|s| s.desired.ids().len());
+        let branch = if !enabled {
+            "disabled"
+        } else if !installed {
+            "needs-model"
+        } else {
+            let ready = ctx.announce_cached();
+            if ctx.board.with(|s| s.desired.next_pending(|id| ready.contains(id))).is_none() {
+                "idle"
+            } else if model.is_none() {
+                "load"
+            } else {
+                "job"
+            }
+        };
+        tracing::debug!(target: "app_lib::karaoke", enabled, model_key = selected.key(), installed, desired_count, branch, "karaoke worker wakeup");
+    };
+
     loop {
+        let selected = {
+            let m = ctx.model.lock().unwrap_or_else(PoisonError::into_inner);
+            *m
+        };
+
         if !ctx.board.is_enabled() {
-            unload(&mut model, "disabled");
+            unload(&mut model, "disabled", &ctx.loaded_model);
+            loaded_model_id = None;
             notified_needs_model = false;
             ctx.board.wait(None);
+            log_wake(ctx, &model);
             continue;
         }
 
-        if !ctx.models.is_installed() {
-            unload(&mut model, "error");
+        if loaded_model_id != Some(selected) {
+            unload(&mut model, "model-switch", &ctx.loaded_model);
+            loaded_model_id = None;
+            ctx.cache.set_model(selected.key());
+        }
+
+        if !ctx.models.is_installed(selected) {
+            unload(&mut model, "error", &ctx.loaded_model);
+            loaded_model_id = None;
             if !notified_needs_model {
                 let _ =
-                    ctx.app.emit("karaoke-status", &serde_json::json!({"state": "needs-model"}));
+                    ctx.app.emit("karaoke-status", &serde_json::json!({
+                        "state": "needs-model",
+                        "model": selected.key()
+                    }));
                 notified_needs_model = true;
             }
             ctx.board.with(|s| s.desired.clear());
             ctx.emit_queue();
             ctx.board.wait(None);
+            log_wake(ctx, &model);
             continue;
         }
         notified_needs_model = false;
@@ -451,24 +552,30 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
         let Some(req) = ctx.board.with(|s| s.desired.next_pending(|id| ready.contains(id))) else {
             ctx.emit_queue();
             if ctx.board.wait(Some(IDLE_UNLOAD)) {
-                unload(&mut model, "idle");
+                unload(&mut model, "idle", &ctx.loaded_model);
+                loaded_model_id = None;
             }
+            log_wake(ctx, &model);
             continue;
         };
 
         if model.is_none() {
             let start_load = std::time::Instant::now();
-            let path = ctx.models.model_path();
-            match isolate(|| MdxModel::load_auto(rt, &path, MdxParams::default())) {
+            let path = ctx.models.model_path(selected);
+            ctx.cache.set_model(selected.key());
+            match isolate(|| MdxModel::load_auto(rt, &path, selected.spec().params)) {
                 Ok((m, dev)) => {
                     let load_ms = start_load.elapsed().as_millis();
-                    tracing::info!(target: "app_lib::karaoke", load_ms, device = ?dev, "karaoke model loaded");
+                    let model_key = selected.key();
+                    tracing::info!(target: "app_lib::karaoke", model_key, load_ms, device = ?dev, "karaoke model loaded");
                     let processor = match dev {
                         karaoke::mdx::Device::Cpu => 1,
                         karaoke::mdx::Device::DirectMl { .. } => 2,
                     };
                     ctx.processor.store(processor, Ordering::SeqCst);
                     model = Some(m);
+                    loaded_model_id = Some(selected);
+                    *ctx.loaded_model.lock().unwrap_or_else(PoisonError::into_inner) = Some(selected);
                 }
                 Err(e) => {
                     let msg = karaoke::sanitize_error(&e.to_string());
@@ -480,6 +587,7 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
                     ctx.board.with(|s| s.desired.clear());
                     ctx.emit_queue();
                     ctx.board.wait(None);
+                    log_wake(ctx, &model);
                     continue;
                 }
             }
@@ -499,6 +607,7 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
             karaoke::pipeline::prepare_instrumental(
                 &ctx.cache,
                 &req.video_id,
+                selected.spec().primary_stem,
                 m,
                 &mut |wav| {
                     // A few seconds past the cap: enough for the pipeline to see "too long".
@@ -537,7 +646,8 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
                 let err_str = e.to_string();
                 if err_str.contains("panicked") {
                     // The session may be in any state after a panic mid-inference.
-                    unload(&mut model, "error");
+                    unload(&mut model, "error", &ctx.loaded_model);
+                    loaded_model_id = None;
                 }
                 if err_str.contains("cancelled") {
                     tracing::warn!(target: "app_lib::karaoke", video_id = %req.video_id, "karaoke prepare cancelled");

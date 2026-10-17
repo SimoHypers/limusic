@@ -7,6 +7,7 @@ pub mod download;
 mod flac_read;
 pub mod jobs;
 pub mod mdx;
+pub mod models;
 pub mod pipeline;
 pub mod runtime;
 pub mod stft;

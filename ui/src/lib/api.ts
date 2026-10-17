@@ -409,11 +409,14 @@ export const togglePause = () => invoke<void>('toggle_pause');
 export const seek = (position: number) => invoke<void>('seek', { position });
 export const setVolume = (volume: number) => invoke<void>('set_volume', { volume });
 export const setKaraoke = (enabled: boolean) => invoke<void>('set_karaoke', { enabled });
+export type KaraokeModelId = 'kara' | 'kara_2' | 'inst_hq_3';
+
 export interface ModelStatus {
 	installed: boolean;
 	downloading: boolean;
 	sizeBytes: number;
 	path?: string;
+	model?: KaraokeModelId;
 }
 export type KaraokeUnavailableReason =
 	| 'not_installed'
@@ -430,12 +433,14 @@ export interface KaraokeEngineStatus {
 	availability: 'ready' | 'needs-model' | 'unavailable';
 	reason?: KaraokeUnavailableReason;
 	processor?: 'gpu' | 'cpu';
+	model?: KaraokeModelId;
 }
 export interface KaraokeStatusEvent {
 	videoId: string;
 	state: 'off' | 'needs-model' | 'preparing' | 'ready' | 'error' | 'too-long';
 	progress?: number;
 	message?: string;
+	model?: KaraokeModelId;
 }
 export interface KaraokeQueueSlot {
 	videoId: string;
@@ -446,14 +451,18 @@ export interface KaraokeQueueEvent {
 	slots: KaraokeQueueSlot[];
 }
 export type KaraokeModelEvent =
-	| { state: 'downloading'; downloaded: number; total: number }
-	| { state: 'ready' }
-	| { state: 'cancelled' }
-	| { state: 'error'; message: string };
+	| { model: KaraokeModelId; state: 'downloading'; downloaded: number; total: number }
+	| { model: KaraokeModelId; state: 'ready' }
+	| { model: KaraokeModelId; state: 'cancelled' }
+	| { model: KaraokeModelId; state: 'error'; message: string }
+	| { model: KaraokeModelId; state: 'deleted' };
 
-export const karaokeModelStatus = () => invoke<ModelStatus>('karaoke_model_status');
-export const karaokeModelDownload = () => invoke<void>('karaoke_model_download');
+export const karaokeModelStatus = (model?: KaraokeModelId) => invoke<ModelStatus>('karaoke_model_status', model ? { model } : {});
+export const karaokeModelDownload = (model: KaraokeModelId) => invoke<void>('karaoke_model_download', { model });
 export const karaokeModelCancel = () => invoke<void>('karaoke_model_cancel');
+export const karaokeModelDelete = (model: KaraokeModelId) => invoke<void>('karaoke_model_delete', { model });
+export const karaokeModelGet = () => invoke<KaraokeModelId>('karaoke_model_get');
+export const karaokeModelSet = (model: KaraokeModelId) => invoke<KaraokeModelId>('karaoke_model_set', { model });
 export const karaokeEngineStatus = () => invoke<KaraokeEngineStatus>('karaoke_engine_status');
 export const karaokeClearCache = () => invoke<void>('karaoke_clear_cache');
 export const karaokeCacheLimitMb = () => invoke<number>('karaoke_cache_limit_mb');
