@@ -183,7 +183,7 @@ impl Player {
         &self,
         _max_width: usize,
         _unless_at: Option<f64>,
-    ) -> Option<crate::video::Thumbnail> {
+    ) -> Option<crate::Thumbnail> {
         None
     }
 }
