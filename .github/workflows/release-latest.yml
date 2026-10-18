@@ -335,6 +335,8 @@ jobs:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       HOMEBREW_NO_INSTALL_CLEANUP: "1"
       HOMEBREW_NO_ENV_HINTS: "1"
+      LIBRARY_PATH: "/opt/homebrew/lib"
+      PKG_CONFIG_PATH: "/opt/homebrew/lib/pkgconfig"
     steps:
       - uses: actions/checkout@v4
 
