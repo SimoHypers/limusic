@@ -55,7 +55,7 @@ export const np = $state({ open: false, tab: 'queue' as 'queue' | 'lyrics' | 'co
 export const karaokeStatus = $state({
 	state: 'off' as 'off' | 'needs-model' | 'preparing' | 'ready' | 'error' | 'too-long',
 	progress: undefined as number | undefined,
-	message: undefined as string | undefined
+	code: undefined as api.KaraokeErrorCode | undefined
 });
 
 export const karaokeQueue = $state<{ slots: api.KaraokeQueueSlot[] }>({ slots: [] });
@@ -66,7 +66,7 @@ const karaokeByTrack = $state<
 		{
 			state: 'off' | 'needs-model' | 'preparing' | 'ready' | 'error' | 'too-long';
 			progress?: number;
-			message?: string;
+			code?: api.KaraokeErrorCode | undefined;
 		}
 	>
 >({});
@@ -76,12 +76,16 @@ function syncKaraokeStatus() {
 	if (entry) {
 		karaokeStatus.state = entry.state;
 		karaokeStatus.progress = entry.progress;
-		karaokeStatus.message = entry.message;
+		karaokeStatus.code = entry.code;
 	} else {
 		karaokeStatus.state = playback.karaoke ? 'preparing' : 'off';
 		karaokeStatus.progress = undefined;
-		karaokeStatus.message = undefined;
+		karaokeStatus.code = undefined;
 	}
+}
+
+function hasKaraokeError(): boolean {
+	return karaokeStatus.state === 'error' || Object.values(karaokeByTrack).some((e) => e.state === 'error');
 }
 
 export type KaraokeModelState = {
@@ -1091,39 +1095,8 @@ export function setTempoPitch(speed: number, semitones: number) {
 	});
 }
 
-let retryTimer: ReturnType<typeof setTimeout> | undefined;
-let retryAttempt = 0;
-let lastKaraokeTrackId: string | undefined;
-const RETRY_DELAYS = [5000, 15000, 30000, 60000];
-
-export function cancelKaraokeRetry() {
-	try {
-		if (typeof window !== 'undefined' && retryTimer) {
-			clearTimeout(retryTimer);
-			retryTimer = undefined;
-		}
-	} catch {}
-	retryAttempt = 0;
-}
-
-export function scheduleKaraokeRetry() {
-	try {
-		if (typeof window === 'undefined') return;
-		if (retryTimer) return;
-		if (retryAttempt >= RETRY_DELAYS.length) return;
-		const delay = RETRY_DELAYS[retryAttempt];
-		retryTimer = setTimeout(() => {
-			retryTimer = undefined;
-			retryAttempt++;
-			if (
-				playback.karaoke &&
-				(karaokeStatus.state === 'error' ||
-					Object.values(karaokeByTrack).some((entry) => entry.state === 'error'))
-			) {
-				retryKaraoke(false);
-			}
-		}, delay);
-	} catch {}
+function isUnavailableReason(k: string): k is api.KaraokeUnavailableReason {
+	return ['not_installed', 'corrupt', 'vc_runtime', 'load_failed', 'proxy', 'stopped'].includes(k);
 }
 
 export function toggleKaraoke() {
@@ -1137,7 +1110,6 @@ export function toggleKaraoke() {
 	}
 	playback.karaoke = next;
 	if (!next) {
-		cancelKaraokeRetry();
 		for (const k in karaokeByTrack) delete karaokeByTrack[k];
 		karaokeQueue.slots = [];
 		syncKaraokeStatus();
@@ -1148,16 +1120,18 @@ export function toggleKaraoke() {
 		})
 		.catch((e) => {
 			playback.karaoke = previous;
-			toast.error(String(e));
+			const key = String(e);
+			if (isUnavailableReason(key)) {
+				toast.error(t(`karaoke.unavailable.${key}`));
+			} else {
+				toast.error(t('karaoke.error.failed'));
+			}
 			// Picks up the reason, so the button can show it instead of just failing again.
 			void refreshKaraokeAvailability();
 		});
 }
 
-export async function retryKaraoke(manual = true): Promise<void> {
-	if (manual) {
-		cancelKaraokeRetry();
-	}
+export async function retryKaraoke(_manual = true): Promise<void> {
 	try {
 		await api.karaokeRetryFailed();
 	} catch {
@@ -1718,26 +1692,7 @@ if (typeof window !== 'undefined' && !onlineListenerRegistered) {
 	onlineListenerRegistered = true;
 	// Automatically retry failed karaoke when network connectivity returns
 	window.addEventListener('online', () => {
-		if (
-			playback.karaoke &&
-			(karaokeStatus.state === 'error' ||
-				Object.values(karaokeByTrack).some((entry) => entry.state === 'error'))
-		) {
-			cancelKaraokeRetry();
-			try {
-				if (typeof window !== 'undefined') {
-					setTimeout(() => {
-						if (
-							playback.karaoke &&
-							(karaokeStatus.state === 'error' ||
-								Object.values(karaokeByTrack).some((entry) => entry.state === 'error'))
-						) {
-							retryKaraoke(false);
-						}
-					}, 1500);
-				}
-			} catch {}
-		}
+		if (playback.karaoke && hasKaraokeError()) void retryKaraoke();
 	});
 }
 
@@ -1755,10 +1710,6 @@ export function initApp(mini = false): () => void {
 		api.onNowPlaying((n) => {
 			playback.now = n;
 			playback.rating = n.rating ?? 'indifferent'; // the track's real rating when known
-			if (n.videoId !== lastKaraokeTrackId) {
-				lastKaraokeTrackId = n.videoId;
-				retryAttempt = 0;
-			}
 			syncKaraokeStatus();
 			// Feeds Shortcuts recency and the community shelf's artist seed. Every play lands here,
 			// gapless advances included, so it's the one hook that sees them all.
@@ -1829,7 +1780,6 @@ export function initApp(mini = false): () => void {
 		api.onKaraoke((enabled) => {
 			playback.karaoke = enabled;
 			if (!enabled) {
-				cancelKaraokeRetry();
 				for (const k in karaokeByTrack) delete karaokeByTrack[k];
 				karaokeQueue.slots = [];
 				syncKaraokeStatus();
@@ -1839,6 +1789,7 @@ export function initApp(mini = false): () => void {
 			karaokeQueue.slots = e.slots;
 		}),
 		api.onKaraokeStatus((e) => {
+			const code: api.KaraokeErrorCode | undefined = e.code === 'incomplete_download' ? 'incomplete_download' : e.code ? 'failed' : undefined;
 			// An error for no track in particular (karaoke itself stopped): fetch the reason.
 			if (e.state === 'error' && !e.videoId) void refreshKaraokeAvailability();
 			if (e.state === 'needs-model') {
@@ -1858,7 +1809,7 @@ export function initApp(mini = false): () => void {
 				if (!e.videoId) {
 					karaokeStatus.state = e.state;
 					karaokeStatus.progress = e.progress;
-					karaokeStatus.message = e.message;
+					karaokeStatus.code = code;
 					return;
 				}
 			}
@@ -1872,16 +1823,10 @@ export function initApp(mini = false): () => void {
 				karaokeByTrack[e.videoId] = {
 					state: e.state,
 					progress: e.progress,
-					message: e.message
+					code
 				};
 				if (playback.now?.videoId === e.videoId) {
 					syncKaraokeStatus();
-				}
-				if (e.state === 'error' && playback.karaoke) {
-					scheduleKaraokeRetry();
-				}
-				if (e.state === 'ready' && e.videoId === playback.now?.videoId) {
-					cancelKaraokeRetry();
 				}
 			}
 		}),

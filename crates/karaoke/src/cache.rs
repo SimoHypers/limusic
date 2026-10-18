@@ -1,4 +1,4 @@
-use crate::cache_codec::CacheFormat;
+use crate::cache_codec::CACHE_EXT;
 use anyhow::Result;
 use std::fs::{self, File};
 use std::path::PathBuf;
@@ -39,7 +39,6 @@ pub enum PinSlot {
 
 pub struct InstrumentalCache {
     dir: PathBuf,
-    format: CacheFormat,
     max_bytes: std::sync::atomic::AtomicU64,
     /// Files the player is using, by [`PinSlot`]. Eviction and [`Self::clear`] hold this lock
     /// while they decide about and delete each file, and [`Self::pin`] takes it to hand a file
@@ -55,10 +54,9 @@ impl InstrumentalCache {
     /// Nothing else waits for `prepare`: size, eviction and clearing always read the directory as
     /// it is on disk, so a previous session's files count (and can be cleared) with karaoke off,
     /// and a directory that does not exist yet simply holds nothing.
-    pub fn new(dir: PathBuf, format: CacheFormat, max_bytes: u64) -> Self {
+    pub fn new(dir: PathBuf, max_bytes: u64) -> Self {
         Self {
             dir,
-            format,
             max_bytes: std::sync::atomic::AtomicU64::new(max_bytes),
             pins: std::sync::Mutex::new([None, None]),
             model_key: std::sync::Mutex::new(crate::models::ModelId::DEFAULT.key().to_string()),
@@ -109,10 +107,6 @@ impl InstrumentalCache {
         Ok(())
     }
 
-    pub fn format(&self) -> CacheFormat {
-        self.format
-    }
-
     pub fn set_max_bytes(&self, max_bytes: u64) {
         self.max_bytes.store(max_bytes, std::sync::atomic::Ordering::SeqCst);
     }
@@ -120,7 +114,7 @@ impl InstrumentalCache {
     pub fn path_for(&self, track_id: &str) -> PathBuf {
         let mk = self.model_key();
         let sanitized = sanitize_track_id(track_id);
-        let ext = self.format.extension();
+        let ext = CACHE_EXT;
         self.dir.join(format!("{}__{}.{}", mk, sanitized, ext))
     }
 
@@ -199,7 +193,7 @@ impl InstrumentalCache {
                 let path = entry.path();
                 if path.is_file() {
                     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                        if ext.eq_ignore_ascii_case("flac") || ext.eq_ignore_ascii_case("opus") {
+                        if ext.eq_ignore_ascii_case(CACHE_EXT) {
                             if let Ok(meta) = fs::metadata(&path) {
                                 total += meta.len();
                             }
@@ -219,7 +213,7 @@ impl InstrumentalCache {
                 let path = entry.path();
                 if path.is_file() {
                     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                        if ext.eq_ignore_ascii_case("flac") || ext.eq_ignore_ascii_case("opus") {
+                        if ext.eq_ignore_ascii_case(CACHE_EXT) {
                             if let Ok(meta) = fs::metadata(&path) {
                                 let modified =
                                     meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
@@ -281,7 +275,7 @@ impl InstrumentalCache {
                 let path = entry.path();
                 if path.is_file() {
                     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                        if ext.eq_ignore_ascii_case("flac") || ext.eq_ignore_ascii_case("opus") {
+                        if ext.eq_ignore_ascii_case(CACHE_EXT) {
                             // What is playing or queued next stays (see `pin`).
                             let _ = self.remove_unless_pinned(&path);
                         } else if ext.eq_ignore_ascii_case("tmp") {
@@ -324,7 +318,7 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024);
+        let cache = InstrumentalCache::new(tmp.clone(), 1024 * 1024);
         cache.prepare()?;
         assert!(cache.get("track1").is_none());
 
@@ -349,7 +343,7 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 20);
+        let cache = InstrumentalCache::new(tmp.clone(), 20);
         cache.prepare()?;
 
         let p1 = cache.path_for("track1");
@@ -375,7 +369,7 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 10);
+        let cache = InstrumentalCache::new(tmp.clone(), 10);
         cache.prepare()?;
 
         let p_old = cache.path_for("old");
@@ -417,7 +411,7 @@ mod tests {
         let stale_root_tmp = tmp.join("stale.flac.tmp");
         fs::write(&stale_root_tmp, b"stale")?;
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024);
+        let cache = InstrumentalCache::new(tmp.clone(), 1024);
         assert!(stale_sub_tmp.exists() && stale_root_tmp.exists(), "new() must not touch the disk");
 
         cache.prepare()?;
@@ -435,7 +429,7 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 100);
+        let cache = InstrumentalCache::new(tmp.clone(), 100);
         cache.set_max_bytes(200);
         assert_eq!(cache.max_bytes.load(std::sync::atomic::Ordering::SeqCst), 200);
 
@@ -452,7 +446,7 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 100);
+        let cache = InstrumentalCache::new(tmp.clone(), 100);
         assert!(cache.get("track1").is_none());
         assert!(!cache.contains("track1"));
         assert_eq!(cache.total_size(), 0);
@@ -471,7 +465,7 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
         // An earlier session's cache, written before this instance existed.
-        let earlier = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, u64::MAX);
+        let earlier = InstrumentalCache::new(tmp.clone(), u64::MAX);
         earlier.prepare()?;
         let old = earlier.path_for("old");
         let new = earlier.path_for("new");
@@ -480,7 +474,7 @@ mod tests {
         fs::write(&new, [0u8; 30])?;
 
         // This launch: constructed, never prepared.
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, u64::MAX);
+        let cache = InstrumentalCache::new(tmp.clone(), u64::MAX);
         assert_eq!(cache.total_size(), 60, "usage counts the earlier files");
 
         cache.set_max_bytes(40);
@@ -503,7 +497,7 @@ mod tests {
         if tmp.exists() {
             let _ = fs::remove_dir_all(&tmp);
         }
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 10);
+        let cache = InstrumentalCache::new(tmp.clone(), 10);
         cache.prepare()?;
         let playing = cache.path_for("playing");
         let next = cache.path_for("next");
@@ -546,7 +540,7 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024);
+        let cache = InstrumentalCache::new(tmp.clone(), 1024 * 1024);
         cache.prepare()?;
 
         let p_kara = cache.path_for("track1");
@@ -580,7 +574,7 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 10);
+        let cache = InstrumentalCache::new(tmp.clone(), 10);
         cache.prepare()?;
 
         let p1 = cache.path_for("track1");

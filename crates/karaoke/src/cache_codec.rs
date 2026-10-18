@@ -4,93 +4,73 @@ use flacenc::error::Verify;
 use std::fs;
 use std::path::Path;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CacheFormat {
-    Flac,
-    Opus,
-}
-
-impl CacheFormat {
-    pub fn extension(self) -> &'static str {
-        match self {
-            Self::Flac => "flac",
-            Self::Opus => "opus",
-        }
-    }
-}
+pub const CACHE_EXT: &str = "flac";
 
 pub struct Pcm {
     pub sample_rate: u32,
     pub channels: [Vec<f32>; 2],
 }
 
-pub fn write_cached(path: &Path, pcm: &Pcm, format: CacheFormat) -> Result<()> {
-    match format {
-        CacheFormat::Opus => {
-            return Err(anyhow!("Opus cache format is not available in this build"));
+pub fn write_cached(path: &Path, pcm: &Pcm) -> Result<()> {
+    let channels = 2;
+    let bits_per_sample = 16;
+    let sample_rate = pcm.sample_rate as usize;
+    let len = pcm.channels[0].len().min(pcm.channels[1].len());
+
+    let mut peak = 0.0f32;
+    for i in 0..len {
+        let l = pcm.channels[0][i].abs();
+        if l > peak {
+            peak = l;
         }
-        CacheFormat::Flac => {
-            let channels = 2;
-            let bits_per_sample = 16;
-            let sample_rate = pcm.sample_rate as usize;
-            let len = pcm.channels[0].len().min(pcm.channels[1].len());
-
-            let mut peak = 0.0f32;
-            for i in 0..len {
-                let l = pcm.channels[0][i].abs();
-                if l > peak {
-                    peak = l;
-                }
-                let r = pcm.channels[1][i].abs();
-                if r > peak {
-                    peak = r;
-                }
-            }
-            let scale = if peak > 1.0 { 1.0 / peak } else { 1.0 };
-
-            let mut interleaved = Vec::with_capacity(len * channels);
-            for i in 0..len {
-                let l = (pcm.channels[0][i] * scale).clamp(-1.0, 1.0);
-                let r = (pcm.channels[1][i] * scale).clamp(-1.0, 1.0);
-                interleaved.push((l * 32767.0).round() as i32);
-                interleaved.push((r * 32767.0).round() as i32);
-            }
-
-            let source = flacenc::source::MemSource::from_samples(
-                &interleaved,
-                channels,
-                bits_per_sample,
-                sample_rate,
-            );
-            let config = flacenc::config::Encoder::default()
-                .into_verified()
-                .map_err(|e| anyhow!("flacenc config error: {:?}", e))?;
-            let stream = flacenc::encode_with_fixed_block_size(&config, source, config.block_size)
-                .map_err(|e| anyhow!("flacenc encode error: {:?}", e))?;
-
-            let mut bv = flacenc::bitsink::ByteSink::with_capacity(stream.count_bits());
-            stream.write(&mut bv).map_err(|e| anyhow!("flacenc write error: {:?}", e))?;
-
-            if let Some(p) = path.parent() {
-                if !p.as_os_str().is_empty() {
-                    fs::create_dir_all(p)?;
-                }
-            }
-
-            let tmp_path = match path.file_name() {
-                Some(name) => {
-                    let mut tmp_name = name.to_os_string();
-                    tmp_name.push(".tmp");
-                    path.with_file_name(tmp_name)
-                }
-                None => path.with_extension("tmp"),
-            };
-
-            fs::write(&tmp_path, bv.as_slice()).context("Failed to write temporary cache file")?;
-            fs::rename(&tmp_path, path)
-                .context("Failed to rename temporary cache file to target")?;
+        let r = pcm.channels[1][i].abs();
+        if r > peak {
+            peak = r;
         }
     }
+    let scale = if peak > 1.0 { 1.0 / peak } else { 1.0 };
+
+    let mut interleaved = Vec::with_capacity(len * channels);
+    for i in 0..len {
+        let l = (pcm.channels[0][i] * scale).clamp(-1.0, 1.0);
+        let r = (pcm.channels[1][i] * scale).clamp(-1.0, 1.0);
+        interleaved.push((l * 32767.0).round() as i32);
+        interleaved.push((r * 32767.0).round() as i32);
+    }
+
+    let source = flacenc::source::MemSource::from_samples(
+        &interleaved,
+        channels,
+        bits_per_sample,
+        sample_rate,
+    );
+    let config = flacenc::config::Encoder::default()
+        .into_verified()
+        .map_err(|e| anyhow!("flacenc config error: {:?}", e))?;
+    let stream = flacenc::encode_with_fixed_block_size(&config, source, config.block_size)
+        .map_err(|e| anyhow!("flacenc encode error: {:?}", e))?;
+
+    let mut bv = flacenc::bitsink::ByteSink::with_capacity(stream.count_bits());
+    stream.write(&mut bv).map_err(|e| anyhow!("flacenc write error: {:?}", e))?;
+
+    if let Some(p) = path.parent() {
+        if !p.as_os_str().is_empty() {
+            fs::create_dir_all(p)?;
+        }
+    }
+
+    let tmp_path = match path.file_name() {
+        Some(name) => {
+            let mut tmp_name = name.to_os_string();
+            tmp_name.push(".tmp");
+            path.with_file_name(tmp_name)
+        }
+        None => path.with_extension("tmp"),
+    };
+
+    fs::write(&tmp_path, bv.as_slice()).context("Failed to write temporary cache file")?;
+    fs::rename(&tmp_path, path)
+        .context("Failed to rename temporary cache file to target")?;
     Ok(())
 }
 
@@ -132,7 +112,7 @@ mod tests {
             let _ = fs::remove_file(&tmp_path);
         }
 
-        write_cached(&flac_path, &pcm_in, CacheFormat::Flac)?;
+        write_cached(&flac_path, &pcm_in)?;
 
         assert!(!tmp_path.exists(), "Temporary file should not remain after successful write");
         assert!(flac_path.exists(), "FLAC cache file should exist");
@@ -165,16 +145,6 @@ mod tests {
     }
 
     #[test]
-    fn test_cache_format_opus() {
-        let tmp_dir = std::env::temp_dir();
-        let dummy_path = tmp_dir.join("limusic_test_cache.opus");
-        let pcm = Pcm { sample_rate: 44100, channels: [vec![0.0; 100], vec![0.0; 100]] };
-        let res = write_cached(&dummy_path, &pcm, CacheFormat::Opus);
-        assert!(res.is_err());
-        assert!(res.unwrap_err().to_string().contains("Opus cache format is not available"));
-    }
-
-    #[test]
     fn test_cache_codec_peak_normalization() -> Result<()> {
         let sample_rate = 44100;
         let num_samples = 1000;
@@ -195,7 +165,7 @@ mod tests {
             let _ = fs::remove_file(&flac_path);
         }
 
-        write_cached(&flac_path, &pcm_in, CacheFormat::Flac)?;
+        write_cached(&flac_path, &pcm_in)?;
         let pcm_out = read_cached(&flac_path)?;
 
         let mut max_err_l = 0.0f32;

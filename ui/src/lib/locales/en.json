@@ -17,6 +17,10 @@
 			"proxy": "Karaoke isn't available while a proxy is set.",
 			"stopped": "Karaoke stopped unexpectedly. Restart Limusic to use it again."
 		},
+		"error": {
+			"incomplete_download": "The download was incomplete. Retrying automatically.",
+			"failed": "Preparing the instrumental failed."
+		},
 		"download": "Download",
 		"cancel": "Cancel",
 		"retry": "Retry",
@@ -52,9 +56,6 @@
 			"cache_limit": "Cache size limit",
 			"cache_limit_desc": "Prepared karaoke versions are cached on disk. The oldest ones are removed when the limit is exceeded.",
 			"cache_custom": "Custom ({n} MB)",
-			"cache_format": "Cache format",
-			"cache_format_value": "FLAC (lossless)",
-			"cache_format_desc": "Smaller lossy formats are planned.",
 			"cache_used": "Cache in use",
 			"cache_used_desc": "Space taken by prepared karaoke versions.",
 			"clear": "Clear cache",

@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 /// The longest track karaoke will prepare, in seconds (15 minutes).
 ///
@@ -105,6 +106,100 @@ impl DesiredSet {
 
     pub fn ids(&self) -> Vec<String> {
         self.items.iter().map(|i| i.video_id.clone()).collect()
+    }
+}
+
+pub const RETRY_DELAYS: [Duration; 4] = [
+    Duration::from_secs(5),
+    Duration::from_secs(15),
+    Duration::from_secs(30),
+    Duration::from_secs(60),
+];
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum RetryState {
+    Waiting(Instant),
+    Exhausted,
+    Active,
+}
+
+#[derive(Default, Debug)]
+pub struct RetryTracker {
+    entries: HashMap<String, (usize, RetryState, String)>,
+}
+
+impl RetryTracker {
+    pub fn on_failure(&mut self, id: &str, url: &str, now: Instant) {
+        let entry = self.entries.entry(id.to_string()).or_insert((0, RetryState::Active, url.to_string()));
+        entry.2 = url.to_string();
+        entry.0 += 1;
+        let attempts = entry.0;
+        if attempts <= RETRY_DELAYS.len() {
+            entry.1 = RetryState::Waiting(now + RETRY_DELAYS[attempts - 1]);
+        } else {
+            entry.1 = RetryState::Exhausted;
+        }
+    }
+
+    pub fn refresh(&mut self, id: &str, url: &str) -> bool {
+        if let Some(entry) = self.entries.get(id) {
+            if entry.2 != url {
+                self.entries.remove(id);
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn on_success(&mut self, id: &str) {
+        self.entries.remove(id);
+    }
+
+    pub fn is_blocked(&self, id: &str) -> bool {
+        if let Some((_, state, _)) = self.entries.get(id) {
+            matches!(state, RetryState::Waiting(_) | RetryState::Exhausted)
+        } else {
+            false
+        }
+    }
+
+    pub fn take_due(&mut self, now: Instant) -> Vec<String> {
+        let mut due_ids = Vec::new();
+        for (id, (_, state, _)) in &mut self.entries {
+            if let RetryState::Waiting(due) = *state {
+                if due <= now {
+                    due_ids.push(id.clone());
+                }
+            }
+        }
+        for id in &due_ids {
+            if let Some((_, state, _)) = self.entries.get_mut(id) {
+                *state = RetryState::Active;
+            }
+        }
+        due_ids
+    }
+
+    pub fn next_due(&self, now: Instant) -> Option<Duration> {
+        self.entries
+            .values()
+            .filter_map(|(_, state, _)| {
+                if let RetryState::Waiting(due) = *state {
+                    Some(due.saturating_duration_since(now))
+                } else {
+                    None
+                }
+            })
+            .min()
+    }
+
+    pub fn reset(&mut self) {
+        self.entries.clear();
+    }
+
+    pub fn retain_wanted(&mut self, ids: &[String]) {
+        let wanted: HashSet<&str> = ids.iter().map(|s| s.as_str()).collect();
+        self.entries.retain(|id, _| wanted.contains(id.as_str()));
     }
 }
 
@@ -301,6 +396,71 @@ mod tests {
         let removed = set.replace(vec![r2, r1]);
         assert!(removed.is_empty());
         assert_eq!(set.ids(), vec!["v2".to_string(), "v1".to_string()]);
+    }
+
+    #[test]
+    fn test_retry_tracker_behavior() {
+        let mut tracker = RetryTracker::default();
+        let now = Instant::now();
+
+        // 1st failure -> Waiting (5s)
+        tracker.on_failure("v1", "u1", now);
+        assert!(tracker.is_blocked("v1"));
+        assert_eq!(tracker.next_due(now), Some(Duration::from_secs(5)));
+
+        // take_due before due time returns nothing, after returns the id
+        assert!(tracker.take_due(now + Duration::from_secs(4)).is_empty());
+        assert!(tracker.is_blocked("v1"));
+        let due = tracker.take_due(now + Duration::from_secs(5));
+        assert_eq!(due, vec!["v1".to_string()]);
+
+        // an Active id is not blocked and a new failure increments its attempts
+        assert!(!tracker.is_blocked("v1"));
+        tracker.on_failure("v1", "u1", now); // 2nd failure (15s)
+        assert_eq!(tracker.next_due(now), Some(Duration::from_secs(15)));
+
+        // 3rd, 4th, 5th failure -> Exhausted
+        let _ = tracker.take_due(now + Duration::from_secs(100));
+        tracker.on_failure("v1", "u1", now); // 3rd (30s)
+        let _ = tracker.take_due(now + Duration::from_secs(100));
+        tracker.on_failure("v1", "u1", now); // 4th (60s)
+        let _ = tracker.take_due(now + Duration::from_secs(100));
+        tracker.on_failure("v1", "u1", now); // 5th failure -> Exhausted
+        assert!(tracker.is_blocked("v1"));
+
+        // on_success removes the entry
+        tracker.on_success("v1");
+        assert!(!tracker.is_blocked("v1"));
+
+        // retain_wanted drops unknown ids
+        tracker.on_failure("v1", "u1", now);
+        tracker.on_failure("v2", "u1", now);
+        tracker.retain_wanted(&["v1".to_string()]);
+        assert!(tracker.is_blocked("v1"));
+        assert!(!tracker.is_blocked("v2"));
+
+        tracker.reset();
+        assert!(!tracker.is_blocked("v1"));
+    }
+
+    #[test]
+    fn test_retry_tracker_refresh() {
+        let mut tracker = RetryTracker::default();
+        let now = Instant::now();
+
+        // refresh for an unknown id returns false
+        assert!(!tracker.refresh("v1", "u1"));
+
+        tracker.on_failure("v1", "u1", now);
+        assert!(tracker.is_blocked("v1"));
+
+        // refresh with the same url changes nothing
+        assert!(!tracker.refresh("v1", "u1"));
+        assert!(tracker.is_blocked("v1"));
+
+        // refresh with a different url unblocks and resets attempts
+        assert!(tracker.refresh("v1", "u2"));
+        assert!(!tracker.is_blocked("v1"));
     }
 }
 

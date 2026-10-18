@@ -899,11 +899,6 @@
 									control: karaokeCacheLimitControl
 								})}
 								{@render row({
-									title: t('karaoke.settings.cache_format'),
-									desc: t('karaoke.settings.cache_format_desc'),
-									control: karaokeCacheFormatControl
-								})}
-								{@render row({
 									title: t('karaoke.settings.cache_used'),
 									desc: t('karaoke.settings.cache_used_desc'),
 									control: karaokeCacheUsedControl
@@ -1424,10 +1419,6 @@
 			{/each}
 		</Select.Content>
 	</Select.Root>
-{/snippet}
-
-{#snippet karaokeCacheFormatControl()}
-	<span class="text-xs text-muted-foreground">{t('karaoke.settings.cache_format_value')}</span>
 {/snippet}
 
 {#snippet karaokeCacheUsedControl()}

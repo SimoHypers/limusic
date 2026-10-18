@@ -15,7 +15,6 @@ use std::time::{Duration, Instant};
 use crate::karaoke_model::ModelManager;
 use karaoke::board::{isolate, JobBoard};
 use karaoke::cache::{InstrumentalCache, PinSlot};
-use karaoke::cache_codec::CacheFormat;
 use karaoke::jobs::DesiredSet;
 pub use karaoke::jobs::PrepareRequest;
 use karaoke::mdx::MdxModel;
@@ -124,7 +123,7 @@ impl Drop for WorkerExit {
         let _ = self.ctx.app.emit("karaoke", false);
         let _ = self.ctx.app.emit(
             "karaoke-status",
-            &serde_json::json!({ "state": "error", "message": "Karaoke stopped unexpectedly" }),
+            &serde_json::json!({ "state": "error" }),
         );
         let _ = self.ctx.app.emit("karaoke-queue", &serde_json::json!({ "slots": [] }));
     }
@@ -159,7 +158,7 @@ impl KaraokeEngine {
             .map(|st| crate::state::saved_karaoke_model(&st.db))
             .unwrap_or(ModelId::DEFAULT);
         // No I/O here: the directory is created on first enable (`spawn_worker`).
-        let cache = Arc::new(InstrumentalCache::new(cache_dir, CacheFormat::Flac, max_bytes));
+        let cache = Arc::new(InstrumentalCache::new(cache_dir, max_bytes));
         cache.set_model(model_id.key());
         let (ready_tx, _) = tokio::sync::broadcast::channel(64);
         let ctx = Ctx {
@@ -205,7 +204,7 @@ impl KaraokeEngine {
     pub fn set_model(&self, id: ModelId) {
         let model_key = id.key();
         let enabled = self.is_enabled();
-        tracing::debug!(target: "app_lib::karaoke", model_key, enabled, "karaoke engine set model");
+        tracing::trace!(target: "app_lib::karaoke", model_key, enabled, "karaoke engine set model");
         {
             let mut m = self.ctx.model.lock().unwrap_or_else(PoisonError::into_inner);
             *m = id;
@@ -245,7 +244,7 @@ impl KaraokeEngine {
             Some((key, detail)) => {
                 let msg = karaoke::sanitize_error(&detail);
                 tracing::warn!(target: "app_lib::karaoke", reason = key, error = %msg, "karaoke unavailable");
-                Err(format!("Karaoke is unavailable: {msg}"))
+                Err(key.to_string())
             }
         }
     }
@@ -327,43 +326,52 @@ impl KaraokeEngine {
         let num_reqs = reqs.len();
         let first_id = reqs.first().map_or(String::new(), |r| r.video_id.clone());
         if !enabled {
-            tracing::debug!(target: "app_lib::karaoke", enabled, num_reqs, first_id = %first_id, returned_early = true, "karaoke want");
+            tracing::trace!(target: "app_lib::karaoke", enabled, num_reqs, first_id = %first_id, returned_early = true, "karaoke want");
             return;
         }
+        let ids_of_last_reqs: Vec<String> = reqs.iter().map(|r| r.video_id.clone()).collect();
         // Tracks over the length cap are never prepared (memory, see `MAX_TRACK_SECS`): say so
         // for each, and leave them out of the queue so prefetch moves on to the next one.
-        let (too_long, reqs): (Vec<_>, Vec<_>) =
-            reqs.into_iter().partition(|r| karaoke::jobs::too_long(r.expected_secs));
+        let (too_long, reqs_filtered_len): (Vec<_>, Vec<_>) =
+            reqs.clone().into_iter().partition(|r| karaoke::jobs::too_long(r.expected_secs));
         for r in &too_long {
             let _ = self.ctx.app.emit(
                 "karaoke-status",
                 &serde_json::json!({ "videoId": &r.video_id, "state": "too-long" }),
             );
         }
-        let mut new_ids = Vec::new();
-        let mut seen = HashSet::new();
-        for r in &reqs {
-            if seen.insert(r.video_id.clone()) {
-                new_ids.push(r.video_id.clone());
-                if new_ids.len() >= DesiredSet::MAX_DESIRED {
-                    break;
+        let (new_ids, deferred_cancel) = self.ctx.board.with(|s| {
+            for r in &reqs {
+                s.retries.refresh(&r.video_id, &r.url);
+            }
+            s.last_reqs = reqs;
+            s.retries.retain_wanted(&ids_of_last_reqs);
+            let reqs_for_desired: Vec<_> = reqs_filtered_len
+                .into_iter()
+                .filter(|r| !s.retries.is_blocked(&r.video_id))
+                .collect();
+            let mut new_ids = Vec::new();
+            let mut seen = HashSet::new();
+            for r in &reqs_for_desired {
+                if seen.insert(r.video_id.clone()) {
+                    new_ids.push(r.video_id.clone());
+                    if new_ids.len() >= DesiredSet::MAX_DESIRED {
+                        break;
+                    }
                 }
             }
-        }
-        let deferred_cancel = self.ctx.board.with(|s| {
-            s.last_reqs = reqs.clone();
             if s.desired.ids() == new_ids {
-                return None;
+                return (new_ids, None);
             }
-            let removed = s.desired.replace(reqs);
+            let removed = s.desired.replace(reqs_for_desired);
             s.desired.clear_failed();
-            Some(s.running.as_ref().filter(|r| removed.contains(&r.video_id)).cloned())
+            (new_ids, Some(s.running.as_ref().filter(|r| removed.contains(&r.video_id)).cloned()))
         });
         if deferred_cancel.is_none() {
-            tracing::debug!(target: "app_lib::karaoke", enabled, num_reqs, first_id = %first_id, returned_early = true, "karaoke want");
+            tracing::trace!(target: "app_lib::karaoke", enabled, num_reqs, first_id = %first_id, returned_early = true, "karaoke want");
             return;
         }
-        tracing::debug!(target: "app_lib::karaoke", enabled, num_reqs, first_id = %first_id, returned_early = false, "karaoke want");
+        tracing::trace!(target: "app_lib::karaoke", enabled, num_reqs, first_id = %first_id, returned_early = false, "karaoke want");
         let Some(deferred_cancel) = deferred_cancel else { return };
         let ids: Vec<&str> = new_ids.iter().map(|s| s.as_str()).collect();
         tracing::info!(target: "app_lib::karaoke", ?ids, "karaoke wants updated");
@@ -464,7 +472,11 @@ impl KaraokeEngine {
     }
 
     pub fn clear_failed(&self) -> usize {
-        let count = self.ctx.board.with(|s| s.desired.clear_failed());
+        let count = self.ctx.board.with(|s| {
+            let count = s.desired.clear_failed();
+            s.retries.reset();
+            count
+        });
         self.ctx.board.notify();
         self.ctx.refresh_in_background(false);
         count
@@ -504,7 +516,7 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
                 "job"
             }
         };
-        tracing::debug!(target: "app_lib::karaoke", enabled, model_key = selected.key(), installed, desired_count, branch, "karaoke worker wakeup");
+        tracing::trace!(target: "app_lib::karaoke", enabled, model_key = selected.key(), installed, desired_count, branch, "karaoke worker wakeup");
     };
 
     loop {
@@ -547,11 +559,30 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
         }
         notified_needs_model = false;
 
+        let due = ctx.board.with(|s| {
+            let due = s.retries.take_due(Instant::now());
+            if !due.is_empty() {
+                let reqs: Vec<_> = s
+                    .last_reqs
+                    .iter()
+                    .filter(|r| !s.retries.is_blocked(&r.video_id))
+                    .cloned()
+                    .collect();
+                s.desired.replace(reqs);
+            }
+            due
+        });
+        if !due.is_empty() {
+            tracing::debug!(target: "app_lib::karaoke", ?due, "karaoke retry due");
+        }
+
         // What is cached is announced; the first wanted track that is not is the next job.
         let ready = ctx.announce_cached();
         let Some(req) = ctx.board.with(|s| s.desired.next_pending(|id| ready.contains(id))) else {
             ctx.emit_queue();
-            if ctx.board.wait(Some(IDLE_UNLOAD)) {
+            let retry_wait = ctx.board.with(|s| s.retries.next_due(Instant::now()));
+            let wait = retry_wait.map_or(IDLE_UNLOAD, |d| d.min(IDLE_UNLOAD));
+            if ctx.board.wait(Some(wait)) && wait == IDLE_UNLOAD {
                 unload(&mut model, "idle", &ctx.loaded_model);
                 loaded_model_id = None;
             }
@@ -582,7 +613,7 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
                     tracing::warn!(target: "app_lib::karaoke", error = %msg, "karaoke model load failed");
                     let _ = ctx.app.emit(
                         "karaoke-status",
-                        &serde_json::json!({ "state": "error", "message": msg }),
+                        &serde_json::json!({ "state": "error", "code": "failed" }),
                     );
                     ctx.board.with(|s| s.desired.clear());
                     ctx.emit_queue();
@@ -638,7 +669,10 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
         match res {
             Ok(_) => {
                 ctx.announce_ready(&req.video_id);
-                ctx.board.with(|s| s.desired.complete(&req.video_id));
+                ctx.board.with(|s| {
+                    s.desired.complete(&req.video_id);
+                    s.retries.on_success(&req.video_id);
+                });
                 ctx.evict();
                 ctx.emit_queue();
             }
@@ -664,10 +698,11 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
                     });
                     ctx.emit_queue();
                 } else {
-                    let msg = if err_str.contains("incomplete download") {
-                        "Download was incomplete, will retry".to_string()
+                    let msg = karaoke::sanitize_error(&err_str);
+                    let code = if err_str.contains("incomplete download") {
+                        "incomplete_download"
                     } else {
-                        karaoke::sanitize_error(&err_str)
+                        "failed"
                     };
                     tracing::warn!(target: "app_lib::karaoke", video_id = %req.video_id, error = %msg, "karaoke prepare failed");
                     let _ = ctx.app.emit(
@@ -675,12 +710,13 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
                         &serde_json::json!({
                             "videoId": &req.video_id,
                             "state": "error",
-                            "message": msg
+                            "code": code
                         }),
                     );
                     ctx.board.with(|s| {
                         s.desired.fail(&req.video_id);
                         s.desired.complete(&req.video_id);
+                        s.retries.on_failure(&req.video_id, &req.url, Instant::now());
                     });
                     ctx.emit_queue();
                 }

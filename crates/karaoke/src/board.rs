@@ -9,7 +9,7 @@
 //!   a handful of field writes).
 //! - A job runs under [`isolate`], so a panic fails that job instead of killing the worker.
 
-use crate::jobs::{DesiredSet, PrepareRequest};
+use crate::jobs::{DesiredSet, PrepareRequest, RetryTracker};
 use std::collections::HashSet;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -33,6 +33,7 @@ pub struct BoardState {
     pub job_seq: u64,
     pub last_progress: f64,
     pub announced_ready: HashSet<String>,
+    pub retries: RetryTracker,
     /// Set by [`JobBoard::notify`]; consumed by [`JobBoard::wait`], so a wake-up sent while the
     /// worker was busy is not lost.
     woken: bool,
@@ -83,6 +84,7 @@ impl JobBoard {
                 s.last_reqs.clear();
                 s.announced_ready.clear();
                 s.last_progress = 0.0;
+                s.retries.reset();
                 if let Some(r) = s.running.take() {
                     r.cancel.store(true, Ordering::SeqCst);
                 }

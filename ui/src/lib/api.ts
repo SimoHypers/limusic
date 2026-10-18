@@ -425,6 +425,7 @@ export type KaraokeUnavailableReason =
 	| 'load_failed'
 	| 'proxy'
 	| 'stopped';
+export type KaraokeErrorCode = 'incomplete_download' | 'failed';
 export interface KaraokeEngineStatus {
 	enabled: boolean;
 	modelInstalled: boolean;
@@ -439,6 +440,7 @@ export interface KaraokeStatusEvent {
 	videoId: string;
 	state: 'off' | 'needs-model' | 'preparing' | 'ready' | 'error' | 'too-long';
 	progress?: number;
+	code?: KaraokeErrorCode;
 	message?: string;
 	model?: KaraokeModelId;
 }

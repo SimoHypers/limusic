@@ -205,7 +205,6 @@ pub fn prepare_instrumental_with_limit(
     let write_res = write_cached(
         &result_path,
         &Pcm { sample_rate: 44100, channels: [sep_l, sep_r] },
-        cache.format(),
     );
     let encode_ms = start_encode.elapsed().as_millis();
     tracing::debug!(target: "karaoke::pipeline", video_id = %track_id, encode_ms, "karaoke stage encode");
@@ -250,7 +249,6 @@ pub fn prepare_instrumental_with_limit(
 mod tests {
     use super::*;
     use crate::cache::InstrumentalCache;
-    use crate::cache_codec::CacheFormat;
     use hound::{SampleFormat, WavSpec, WavWriter};
     use std::cell::Cell;
 
@@ -286,7 +284,7 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024);
+        let cache = InstrumentalCache::new(tmp.clone(), 1024 * 1024);
         cache.prepare()?;
         let track_id = "test_track_1";
         let cancel = AtomicBool::new(false);
@@ -356,7 +354,7 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024);
+        let cache = InstrumentalCache::new(tmp.clone(), 1024 * 1024);
         cache.prepare()?;
         let track_id = "test_cancel";
         let cancel = AtomicBool::new(true);
@@ -395,7 +393,7 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024);
+        let cache = InstrumentalCache::new(tmp.clone(), 1024 * 1024);
         cache.prepare()?;
         let track_id = "test_err";
         let cancel = AtomicBool::new(false);
@@ -436,7 +434,7 @@ mod tests {
             let _ = fs::remove_dir_all(&tmp);
         }
 
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024);
+        let cache = InstrumentalCache::new(tmp.clone(), 1024 * 1024);
         cache.prepare()?;
         let track_id = "test_incomplete";
         let cancel = AtomicBool::new(false);
@@ -515,7 +513,7 @@ mod tests {
         if tmp.exists() {
             let _ = fs::remove_dir_all(&tmp);
         }
-        let cache = InstrumentalCache::new(tmp.clone(), CacheFormat::Flac, 1024 * 1024);
+        let cache = InstrumentalCache::new(tmp.clone(), 1024 * 1024);
         cache.prepare()?;
         let mut separator = FakeSeparator { calls: 0 };
         let mut decode_to_wav = |wav_path: &Path| -> Result<()> {

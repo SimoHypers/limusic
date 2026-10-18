@@ -2911,7 +2911,7 @@ pub async fn karaoke_model_set(
     let engine = engine.inner().clone();
     let model_key = id.key();
     let enabled = engine.is_enabled();
-    tracing::debug!(target: "app_lib::karaoke", model_key, enabled, "karaoke model set");
+    tracing::trace!(target: "app_lib::karaoke", model_key, enabled, "karaoke model set");
     engine.set_model(id);
     if engine.is_enabled() {
         state.inner().clone().karaoke_repush_wants().await;

@@ -2216,13 +2216,7 @@ impl AppState {
             .map(|(_, pos)| pos);
         let stream_url = mpv_stream_url(&data);
         let dur_secs = parse_duration_ms(item.duration.as_deref()) / 1000;
-        let expected_secs = if dur_secs > 0 { Some(dur_secs as f64) } else { None };
-        let req = crate::karaoke::PrepareRequest {
-            video_id: item.video_id.clone(),
-            url: stream_url.clone(),
-            headers: data.headers.clone(),
-            expected_secs,
-        };
+        let req = karaoke_prepare_request(&item.video_id, stream_url.clone(), &data.headers, dur_secs);
         let play_u = self.play_url(PinSlot::Current, &item.video_id, &stream_url);
         let is_karaoke = play_u != stream_url;
         // `load` replaces mpv's playlist: nothing is queued next any more.
@@ -2390,13 +2384,7 @@ impl AppState {
                 .map(|item| parse_duration_ms(item.duration.as_deref()) / 1000)
                 .unwrap_or(0)
         };
-        let expected_secs = if dur_secs > 0 { Some(dur_secs as f64) } else { None };
-        let req = crate::karaoke::PrepareRequest {
-            video_id: next_video.to_string(),
-            url: stream_url.clone(),
-            headers: data.headers.clone(),
-            expected_secs,
-        };
+        let req = karaoke_prepare_request(next_video, stream_url.clone(), &data.headers, dur_secs);
 
         let mut req2 = None;
         if karaoke_on {
@@ -2427,14 +2415,7 @@ impl AppState {
                                     .unwrap_or(false)
                             };
                             if same2 {
-                                let expected_secs2 =
-                                    if next2_secs > 0 { Some(next2_secs as f64) } else { None };
-                                req2 = Some(crate::karaoke::PrepareRequest {
-                                    video_id: next2_video,
-                                    url: stream_url2,
-                                    headers: d2.headers.clone(),
-                                    expected_secs: expected_secs2,
-                                });
+                                req2 = Some(karaoke_prepare_request(&next2_video, stream_url2, &d2.headers, next2_secs));
                             }
                         }
                     }
@@ -2602,13 +2583,7 @@ impl AppState {
         let pos = self.current_position();
         let stream_url = mpv_stream_url(&data);
         let dur_secs = parse_duration_ms(item.duration.as_deref()) / 1000;
-        let expected_secs = if dur_secs > 0 { Some(dur_secs as f64) } else { None };
-        let req = crate::karaoke::PrepareRequest {
-            video_id: item.video_id.clone(),
-            url: stream_url.clone(),
-            headers: data.headers.clone(),
-            expected_secs,
-        };
+        let req = karaoke_prepare_request(&item.video_id, stream_url.clone(), &data.headers, dur_secs);
         let engine_model = self.karaoke_engine().map(|e| e.model());
         let play_u = self.play_url(PinSlot::Current, &item.video_id, &stream_url);
         let is_karaoke = play_u != stream_url;
@@ -2677,12 +2652,12 @@ impl AppState {
     pub async fn set_karaoke_active(self: &std::sync::Arc<Self>, on: bool) -> Result<(), String> {
         let prev = self.karaoke_engine().map_or(false, |e| e.is_enabled());
         let requested = on;
-        tracing::debug!(target: "app_lib::karaoke", requested, prev, "karaoke active set");
+        tracing::trace!(target: "app_lib::karaoke", requested, prev, "karaoke active set");
         if on && crate::http::has_proxy() {
-            return Err("karaoke is not available while a proxy is configured".to_string());
+            return Err("proxy".to_string());
         }
         let Some(engine) = self.karaoke_engine() else {
-            return Err("karaoke engine not available".to_string());
+            return Err("load_failed".to_string());
         };
         if on {
             // The first enable loads (and on Windows hashes) the runtime: off the async runtime.
@@ -2748,82 +2723,38 @@ impl AppState {
         let count = engine.clear_failed();
         tracing::debug!(target: "app_lib::karaoke", count, "karaoke retry requested");
 
-        let (cur_info, next_info, next2_info) = {
+        let (cur_info, next_info, next2_info, next_idx) = {
             let q = self.queue.lock().await;
-            let cur = q.items.get(q.current).map(|item| {
-                (
-                    item.video_id.clone(),
-                    item.is_upload,
-                    parse_duration_ms(item.duration.as_deref()) / 1000,
-                )
-            });
+            let cur = karaoke_slot_info(&q, q.current);
             let next_idx = next_index(q.items.len(), q.current, q.repeat);
-            let next = next_idx.and_then(|n_idx| {
-                q.items.get(n_idx).map(|item| {
-                    (
-                        n_idx,
-                        item.video_id.clone(),
-                        item.is_upload,
-                        parse_duration_ms(item.duration.as_deref()) / 1000,
-                    )
-                })
-            });
+            let next = next_idx.and_then(|n_idx| karaoke_slot_info(&q, n_idx));
             let next2 = next_idx
                 .and_then(|n_idx| next_index(q.items.len(), n_idx, q.repeat))
-                .and_then(|n2_idx| {
-                    q.items.get(n2_idx).map(|item| {
-                        (
-                            item.video_id.clone(),
-                            item.is_upload,
-                            parse_duration_ms(item.duration.as_deref()) / 1000,
-                        )
-                    })
-                });
-            (cur, next, next2)
+                .and_then(|n2_idx| karaoke_slot_info(&q, n2_idx));
+            (cur, next, next2, next_idx)
         };
 
-        if let Some((vid, upload, secs)) = cur_info {
-            if let Ok(data) = self.resolve(&vid, upload, secs).await {
-                let stream_url = mpv_stream_url(&data);
-                let expected_secs = if secs > 0 { Some(secs as f64) } else { None };
-                let req = crate::karaoke::PrepareRequest {
-                    video_id: vid,
-                    url: stream_url,
-                    headers: data.headers.clone(),
-                    expected_secs,
-                };
+        if let Some(info) = cur_info {
+            if let Some(req) = self.karaoke_request_for(info).await {
                 let mut q = self.queue.lock().await;
                 q.karaoke_cur = Some(req);
             }
         }
 
-        if let Some((next_idx, vid, upload, secs)) = next_info {
-            if let Ok(data) = self.resolve(&vid, upload, secs).await {
-                let stream_url = mpv_stream_url(&data);
-                let expected_secs = if secs > 0 { Some(secs as f64) } else { None };
-                let req = crate::karaoke::PrepareRequest {
-                    video_id: vid,
-                    url: stream_url,
-                    headers: data.headers.clone(),
-                    expected_secs,
-                };
+        if let Some(info) = next_info {
+            let vid = info.0.clone();
+            if let Some(req) = self.karaoke_request_for(info).await {
                 let mut q = self.queue.lock().await;
-                if q.items.get(next_idx).map_or(false, |i| i.video_id == req.video_id) {
-                    q.karaoke_next = Some(req);
+                if let Some(n_idx) = next_idx {
+                    if q.items.get(n_idx).map_or(false, |i| i.video_id == vid) {
+                        q.karaoke_next = Some(req);
+                    }
                 }
             }
         }
 
-        if let Some((vid, upload, secs)) = next2_info {
-            if let Ok(data) = self.resolve(&vid, upload, secs).await {
-                let stream_url = mpv_stream_url(&data);
-                let expected_secs = if secs > 0 { Some(secs as f64) } else { None };
-                let req = crate::karaoke::PrepareRequest {
-                    video_id: vid,
-                    url: stream_url,
-                    headers: data.headers.clone(),
-                    expected_secs,
-                };
+        if let Some(info) = next2_info {
+            if let Some(req) = self.karaoke_request_for(info).await {
                 let mut q = self.queue.lock().await;
                 q.karaoke_next2 = Some(req);
             }
@@ -2831,6 +2762,19 @@ impl AppState {
 
         let q = self.queue.lock().await;
         self.karaoke_push_wants(&q);
+    }
+
+    async fn karaoke_request_for(
+        self: &std::sync::Arc<Self>,
+        info: (String, bool, u64),
+    ) -> Option<crate::karaoke::PrepareRequest> {
+        let (vid, upload, secs) = info;
+        if let Ok(data) = self.resolve(&vid, upload, secs as i64).await {
+            let stream_url = mpv_stream_url(&data);
+            Some(karaoke_prepare_request(&vid, stream_url, &data.headers, secs as i64))
+        } else {
+            None
+        }
     }
 
     /// Called right after the engine is managed (lib.rs). Without one there is nothing to listen
@@ -5107,6 +5051,30 @@ pub fn native_video() -> bool {
 /// ffmpeg opens a stream with an open-ended `Range: bytes=X-`, which googlevideo throttles to ~2×
 /// realtime; the proxy re-issues it as bounded ranges, which are served at full speed, so both the
 /// first play and every seek start sooner. audioproxy.rs has the numbers and the kill-switch.
+fn karaoke_slot_info(q: &QueueState, idx: usize) -> Option<(String, bool, u64)> {
+    q.items.get(idx).map(|item| {
+        (
+            item.video_id.clone(),
+            item.is_upload,
+            (parse_duration_ms(item.duration.as_deref()) / 1000) as u64,
+        )
+    })
+}
+
+fn karaoke_prepare_request(
+    video_id: &str,
+    stream_url: String,
+    headers: &std::collections::HashMap<String, String>,
+    dur_secs: i64,
+) -> crate::karaoke::PrepareRequest {
+    crate::karaoke::PrepareRequest {
+        video_id: video_id.to_string(),
+        url: stream_url,
+        headers: headers.clone(),
+        expected_secs: if dur_secs > 0 { Some(dur_secs as f64) } else { None },
+    }
+}
+
 fn mpv_stream_url(data: &PlaybackData) -> String {
     // A user proxy reaches mpv as `http-proxy` (#241), and ffmpeg would send the loopback request
     // through it, and it cannot reach our 127.0.0.1, so audio would go silent. Hand mpv the

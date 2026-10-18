@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use karaoke::cache_codec::{write_cached, CacheFormat, Pcm};
+use karaoke::cache_codec::{write_cached, Pcm};
 use std::env;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -72,7 +72,7 @@ fn main() -> Result<()> {
 
     println!("Encoding to FLAC: {}", out_flac_path.display());
     let encode_start = Instant::now();
-    write_cached(&out_flac_path, &pcm, CacheFormat::Flac)?;
+    write_cached(&out_flac_path, &pcm)?;
     let encode_time = encode_start.elapsed();
 
     let output_size =

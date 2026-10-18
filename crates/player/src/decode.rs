@@ -18,9 +18,6 @@ pub fn decode_to_wav(
     // fills the disk with a multi-GB WAV first. `None` decodes everything.
     max_secs: Option<f64>,
 ) -> anyhow::Result<()> {
-    unsafe {
-        libc::setlocale(libc::LC_NUMERIC, c"C".as_ptr());
-    }
     let mpv = Mpv::new().map_err(|e| anyhow::anyhow!("{}", e))?;
 
     if let Some(ua) = headers.get("User-Agent").or_else(|| headers.get("user-agent")) {
