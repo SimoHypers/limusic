@@ -3073,10 +3073,26 @@ impl AppState {
             }
         };
         let cont = (!top_up.autoplay).then_some(page.continuation);
-        let added = self.absorb_radio(page.items, gen, &seed, top_up, cont).await;
-        if added > 0 || !top_up.autoplay {
-            // A radio window that came back empty has already moved its token on; the next
-            // trigger asks for the following one, and a radio must not turn into another.
+        let mut added = self.absorb_radio(page.items, gen, &seed, top_up, cont).await;
+        if !top_up.autoplay {
+            // A window that added nothing still moved the token on. At the tail nothing else
+            // will ask again, so follow it a few times before giving up.
+            for _ in 0..3 {
+                if added > 0 || self.generation.load(Ordering::SeqCst) != gen {
+                    break;
+                }
+                let Some(t) = radio_token(&*self.queue.lock().await) else { break };
+                let Ok(page) = self.it.radio_continuation(client, &t, Some(&last_video)).await
+                else {
+                    break;
+                };
+                added = self
+                    .absorb_radio(page.items, gen, &seed, top_up, Some(page.continuation))
+                    .await;
+            }
+            return added;
+        }
+        if added > 0 {
             return added;
         }
         // An autoplay window can come back entirely blocked. Re-requesting the same seed from the
