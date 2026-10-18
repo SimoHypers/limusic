@@ -318,11 +318,16 @@ struct QueueState {
     /// This queue is a radio: YouTube generated every upcoming track, so "Add to queue" goes ahead
     /// of them rather than behind a feed the user never asked to finish ([`enqueue_at`]).
     radio: bool,
-    /// The panel's continuation token for the next window of this radio, tagged with the seed it
-    /// was issued for ([`radio_token`] only hands it out while that is still the queue's seed).
-    /// Not persisted: after a restart the first top-up asks from the seed and the last track and
-    /// picks a fresh token up from its answer. Cleared wherever the queue's seed is replaced.
-    radio_cont: Option<(String, String)>,
+    /// Where this radio stands, tagged with the seed it is about ([`radio_token`] and
+    /// [`radio_exhausted`] only read it while that is still the queue's seed):
+    /// - `None`: no page of it has been seen by this process (a restored queue; not persisted), so
+    ///   the first top-up asks from the seed and the last track and learns the rest from the answer;
+    /// - `Some((seed, Some(token)))`: the panel's token for its next window;
+    /// - `Some((seed, None))`: the last page fetched for `seed` was its end, nothing is left to
+    ///   follow or to ask for.
+    ///
+    /// Cleared wherever the queue's seed is replaced.
+    radio_cont: Option<(String, Option<String>)>,
     /// `play_song` is fetching this queue's radio right now (the generation it did it for). The
     /// autoplay early trigger fires from `start_current` while such a queue is still its single
     /// seed track, so without this hold both paths request the same `RDAMVM…` page at the same
@@ -1370,7 +1375,7 @@ impl AppState {
                 if next.items.len() > 1 {
                     q.radio_seed = Some(radio_id.clone());
                     q.radio = true;
-                    q.radio_cont = next.continuation.clone().map(|t| (radio_id.clone(), t));
+                    q.radio_cont = Some((radio_id.clone(), next.continuation.clone()));
                 }
                 // Deduped against the queue, not just against the seed: a carried manual add can
                 // be in the radio page too, and it should stay where the user put it.
@@ -1694,7 +1699,7 @@ impl AppState {
                 q.shuffle_orig = None; // a radio is a new context, so a non-sticky shuffle ends here
             }
             splice_radio_into(&mut q, items, seed, title);
-            q.radio_cont = q.radio_seed.clone().zip(cont);
+            q.radio_cont = q.radio_seed.clone().map(|seed| (seed, cont));
             // Whatever mpv had primed as the gapless next belongs to the old queue.
             if q.lookahead_loaded.take().is_some() {
                 let _ = self.player.clear_playlist();
@@ -3036,6 +3041,9 @@ impl AppState {
             if !radio && !autoplay_on {
                 return 0;
             }
+            if radio && radio_exhausted(&q) {
+                return 0; // its last page was its end; asking again answers the same one
+            }
             if !wants_top_up(q.items.len(), q.current, radio) {
                 return 0; // tail not near yet
             }
@@ -3118,11 +3126,11 @@ impl AppState {
             if is_foreign_window(top_up, &q, seed) {
                 return 0;
             }
-            // A radio's next-window token (`Some(None)`: no more), kept in the same breath as the
-            // append so a window fetched but not appended is never skipped over. Only a radio hands
-            // one in, and only a window of the queue's own seed got this far.
+            // What the window said about the next one (`None`: that was the end of the radio), kept
+            // in the same breath as the append so a window fetched but not appended is never skipped
+            // over. Only a radio hands one in, and only a window of the queue's own seed got here.
             if let Some(next) = cont {
-                q.radio_cont = next.map(|t| (seed.to_owned(), t));
+                q.radio_cont = Some((seed.to_owned(), next));
             }
             // Against the queue as it is *now*, not a snapshot from before the fetch: a playlist
             // fill, a guest add or `play_song`'s own hydration can all have appended something
@@ -4483,9 +4491,9 @@ fn is_foreign_window(top_up: TopUp, q: &QueueState, seed: &str) -> bool {
 fn radio_install(
     radio: Option<Option<String>>,
     seed: Option<&str>,
-) -> (bool, Option<(String, String)>) {
+) -> (bool, Option<(String, Option<String>)>) {
     let flagged = radio.is_some();
-    let cont = radio.flatten().zip(seed).map(|(token, seed)| (seed.to_owned(), token));
+    let cont = radio.zip(seed).map(|(token, seed)| (seed.to_owned(), token));
     (flagged, cont)
 }
 
@@ -4503,7 +4511,14 @@ fn wants_top_up(len: usize, current: usize, radio: bool) -> bool {
 /// spliced in, or a different one, makes an older token meaningless).
 fn radio_token(q: &QueueState) -> Option<String> {
     let (seed, token) = q.radio_cont.as_ref()?;
-    (q.radio_seed.as_deref() == Some(seed.as_str())).then(|| token.clone())
+    (q.radio_seed.as_deref() == Some(seed.as_str())).then(|| token.clone()).flatten()
+}
+
+/// The last page fetched for `q`'s radio was its end: no token to follow, and asking for the seed
+/// again answers the same page. A radio nobody has asked yet (`radio_cont` `None`, as after a
+/// restart) is not exhausted, and neither is one whose ending belonged to another seed.
+fn radio_exhausted(q: &QueueState) -> bool {
+    matches!(&q.radio_cont, Some((seed, None)) if q.radio_seed.as_deref() == Some(seed.as_str()))
 }
 
 /// Append radio-continuation tracks to the queue: dedupe against `existing` (the whole current
@@ -4966,11 +4981,11 @@ mod tests {
         format_duration, freshen, get_url, guest_insert_index, history_threshold,
         is_foreign_window, is_mix, is_radio, loudness_gain, merge_radio, next_index,
         parse_duration_ms, persist_fingerprint, prefer_version, prev_track_title, put_url,
-        queue_fingerprint, radio_install, radio_seed_for, radio_token, repeat_blocks_top_up,
-        retain_upcoming, shuffle_new_queue, shuffle_upcoming, splice_radio_into, swap_version,
-        trim_played, twin_position, unshuffled, upcoming_queued, wants_top_up, QueueState,
-        RepeatMode, VideoUrls, AUTOPLAY, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO,
-        RADIO_TAIL,
+        queue_fingerprint, radio_exhausted, radio_install, radio_seed_for, radio_token,
+        repeat_blocks_top_up, retain_upcoming, shuffle_new_queue, shuffle_upcoming,
+        splice_radio_into, swap_version, trim_played, twin_position, unshuffled, upcoming_queued,
+        wants_top_up, QueueState, RepeatMode, VideoUrls, AUTOPLAY, KEEP_PLAYED,
+        LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO, RADIO_TAIL,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -5949,10 +5964,10 @@ mod tests {
         // A started radio: flagged, and the token is tied to the seed it came with.
         assert_eq!(
             radio_install(Some(Some("TOK".into())), seed),
-            (true, Some(("RDAMVMx".into(), "TOK".into())))
+            (true, Some(("RDAMVMx".into(), Some("TOK".into()))))
         );
-        // A radio whose first page carried no token is still a radio.
-        assert_eq!(radio_install(Some(None), seed), (true, None));
+        // A radio whose first page carried no token is a radio that has already ended.
+        assert_eq!(radio_install(Some(None), seed), (true, Some(("RDAMVMx".into(), None))));
         // A chosen playlist/album is not, whatever the queue before it was.
         assert_eq!(radio_install(None, Some("RDAMPLPL1")), (false, None));
         // No seed to pin: nothing to tie a token to.
@@ -5960,10 +5975,32 @@ mod tests {
     }
 
     #[test]
+    fn a_radio_that_ended_is_not_a_radio_nobody_asked_yet() {
+        let radio = |cont: Option<(&str, Option<&str>)>| QueueState {
+            radio: true,
+            radio_seed: Some("RDAMVMx".into()),
+            radio_cont: cont.map(|(seed, token)| (seed.to_owned(), token.map(str::to_owned))),
+            ..QueueState::default()
+        };
+        // Never asked (a restored queue): the first top-up has to ask from the seed.
+        assert!(!radio_exhausted(&radio(None)));
+        // Following a token.
+        let following = radio(Some(("RDAMVMx", Some("TOK"))));
+        assert!(!radio_exhausted(&following));
+        assert_eq!(radio_token(&following).as_deref(), Some("TOK"));
+        // Asked, and that page was the end: nothing to follow, nothing left to ask.
+        let ended = radio(Some(("RDAMVMx", None)));
+        assert!(radio_exhausted(&ended));
+        assert_eq!(radio_token(&ended), None);
+        // An ending that belonged to another radio says nothing about this one.
+        assert!(!radio_exhausted(&radio(Some(("RDAMVMold", None)))));
+    }
+
+    #[test]
     fn a_radio_token_is_only_good_for_its_own_seed() {
         let mut q = QueueState {
             radio_seed: Some("RDAMVMx".into()),
-            radio_cont: Some(("RDAMVMx".into(), "TOK".into())),
+            radio_cont: Some(("RDAMVMx".into(), Some("TOK".into()))),
             ..QueueState::default()
         };
         assert_eq!(radio_token(&q).as_deref(), Some("TOK"));
@@ -5978,7 +6015,7 @@ mod tests {
         let mut q = QueueState {
             items: vec![song("a", None)],
             radio_seed: Some("RDAMVMx".into()),
-            radio_cont: Some(("RDAMVMx".into(), "TOK".into())),
+            radio_cont: Some(("RDAMVMx".into(), Some("TOK".into()))),
             ..QueueState::default()
         };
         // Same seed, but a new window sequence: the old token would skip windows.
