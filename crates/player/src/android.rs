@@ -179,7 +179,11 @@ impl Player {
         false
     }
 
-    pub fn video_thumbnail(&self, _max_width: usize, _unless_at: Option<f64>) -> Option<crate::video::Thumbnail> {
+    pub fn video_thumbnail(
+        &self,
+        _max_width: usize,
+        _unless_at: Option<f64>,
+    ) -> Option<crate::video::Thumbnail> {
         None
     }
 }
@@ -205,7 +209,12 @@ fn with_env<F: FnOnce(&mut jni::JNIEnv) -> jni::errors::Result<()>>(f: F) {
 }
 
 // Android dispatch implementations bridging to AudioBridge in Kotlin
-fn dispatch_android_load(url: &str, _headers: &HashMap<String, String>, _gain: Option<f64>, start: Option<f64>) {
+fn dispatch_android_load(
+    url: &str,
+    _headers: &HashMap<String, String>,
+    _gain: Option<f64>,
+    start: Option<f64>,
+) {
     let start_pos = start.unwrap_or(0.0);
     with_env(|env| {
         let j_url = env.new_string(url)?;

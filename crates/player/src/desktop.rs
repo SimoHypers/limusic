@@ -300,7 +300,7 @@ impl Player {
     }
 
     /// The deck the app is hearing. Every command below acts on this one.
-    fn mpv(&self) -> &Arc<Mpv> {
+    pub(crate) fn mpv(&self) -> &Arc<Mpv> {
         self.decks.active_mpv()
     }
 

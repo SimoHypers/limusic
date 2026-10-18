@@ -77,7 +77,9 @@ mod desktop_mini {
         let scale = win.scale_factor().map_err(|e| e.to_string())?;
         let new = PhysicalSize::new((w * scale).round() as u32, (h * scale).round() as u32);
         let to = match (win.outer_position(), win.outer_size(), win.current_monitor()) {
-            (Ok(pos), Ok(old), Ok(Some(m))) => Some(anchored(pos, old, new, *m.position(), *m.size())),
+            (Ok(pos), Ok(old), Ok(Some(m))) => {
+                Some(anchored(pos, old, new, *m.position(), *m.size()))
+            }
             _ => None,
         };
         win.set_size(new).map_err(|e| e.to_string())?;

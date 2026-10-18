@@ -75,155 +75,160 @@ pub struct HotkeyRegisterResult {
 mod desktop {
     use super::*;
 
-/// Parse a stored binding ("Ctrl+Alt+Space") with the plugin's own parser. A bare key is refused:
-/// a global grab on Space or a letter would take that key from every app on the desktop. F-keys
-/// are the exception, nothing types with them.
-pub fn parse_shortcut(input: &str) -> Result<Shortcut, String> {
-    let shortcut: Shortcut = input.trim().parse().map_err(|e| format!("{e}"))?;
-    let modified = shortcut.mods.intersects(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SUPER);
-    use Code::*;
-    #[rustfmt::skip]
+    /// Parse a stored binding ("Ctrl+Alt+Space") with the plugin's own parser. A bare key is refused:
+    /// a global grab on Space or a letter would take that key from every app on the desktop. F-keys
+    /// are the exception, nothing types with them.
+    pub fn parse_shortcut(input: &str) -> Result<Shortcut, String> {
+        let shortcut: Shortcut = input.trim().parse().map_err(|e| format!("{e}"))?;
+        let modified =
+            shortcut.mods.intersects(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SUPER);
+        use Code::*;
+        #[rustfmt::skip]
     let fkey = matches!(shortcut.key, F1 | F2 | F3 | F4 | F5 | F6 | F7 | F8 | F9 | F10 | F11 | F12
         | F13 | F14 | F15 | F16 | F17 | F18 | F19 | F20 | F21 | F22 | F23 | F24);
-    if !modified && !fkey {
-        return Err(format!("'{input}' needs Ctrl, Alt or Super"));
-    }
-    Ok(shortcut)
-}
-
-/// Manages hotkey registration state and event dispatching.
-pub struct HotkeysManager {
-    pub config: Mutex<HotkeysConfig>,
-    pub registered: Mutex<HashMap<Shortcut, HotkeyAction>>,
-}
-
-impl HotkeysManager {
-    pub fn new(config: HotkeysConfig) -> Self {
-        Self { config: Mutex::new(config), registered: Mutex::new(HashMap::new()) }
+        if !modified && !fkey {
+            return Err(format!("'{input}' needs Ctrl, Alt or Super"));
+        }
+        Ok(shortcut)
     }
 
-    /// Register all shortcuts from `new_config`, unregistering previous ones.
-    pub fn apply_config(&self, app: &AppHandle, new_config: HotkeysConfig) -> HotkeyRegisterResult {
-        let mut errors = HashMap::new();
-        let mut new_registered = HashMap::new();
+    /// Manages hotkey registration state and event dispatching.
+    pub struct HotkeysManager {
+        pub config: Mutex<HotkeysConfig>,
+        pub registered: Mutex<HashMap<Shortcut, HotkeyAction>>,
+    }
 
-        // Clear existing system registrations
-        if let Err(e) = app.global_shortcut().unregister_all() {
-            tracing::error!(error = ?e, "failed to unregister existing global hotkeys");
-            let config = self.config.lock().unwrap().clone();
-            return HotkeyRegisterResult { success: false, config, errors: HashMap::new() };
+    impl HotkeysManager {
+        pub fn new(config: HotkeysConfig) -> Self {
+            Self { config: Mutex::new(config), registered: Mutex::new(HashMap::new()) }
         }
 
-        if new_config.enabled {
-            for (&action, shortcut_str) in &new_config.bindings {
-                let s = shortcut_str.trim();
-                if s.is_empty() {
-                    continue;
-                }
+        /// Register all shortcuts from `new_config`, unregistering previous ones.
+        pub fn apply_config(
+            &self,
+            app: &AppHandle,
+            new_config: HotkeysConfig,
+        ) -> HotkeyRegisterResult {
+            let mut errors = HashMap::new();
+            let mut new_registered = HashMap::new();
 
-                match parse_shortcut(s) {
-                    Ok(shortcut) => match app.global_shortcut().register(shortcut) {
-                        Ok(_) => {
-                            new_registered.insert(shortcut, action);
-                        }
+            // Clear existing system registrations
+            if let Err(e) = app.global_shortcut().unregister_all() {
+                tracing::error!(error = ?e, "failed to unregister existing global hotkeys");
+                let config = self.config.lock().unwrap().clone();
+                return HotkeyRegisterResult { success: false, config, errors: HashMap::new() };
+            }
+
+            if new_config.enabled {
+                for (&action, shortcut_str) in &new_config.bindings {
+                    let s = shortcut_str.trim();
+                    if s.is_empty() {
+                        continue;
+                    }
+
+                    match parse_shortcut(s) {
+                        Ok(shortcut) => match app.global_shortcut().register(shortcut) {
+                            Ok(_) => {
+                                new_registered.insert(shortcut, action);
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    error = ?e,
+                                    action = ?action,
+                                    shortcut = %s,
+                                    "failed to register global hotkey"
+                                );
+                                errors.insert(action, format!("{e}"));
+                            }
+                        },
                         Err(e) => {
                             tracing::warn!(
-                                error = ?e,
+                                error = %e,
                                 action = ?action,
                                 shortcut = %s,
-                                "failed to register global hotkey"
+                                "invalid shortcut string"
                             );
-                            errors.insert(action, format!("{e}"));
+                            errors.insert(action, e);
                         }
-                    },
-                    Err(e) => {
-                        tracing::warn!(
-                            error = %e,
-                            action = ?action,
-                            shortcut = %s,
-                            "invalid shortcut string"
-                        );
-                        errors.insert(action, e);
                     }
                 }
             }
+
+            // Swap in the new map at the end without holding the lock across register()
+            {
+                let mut registered_map = self.registered.lock().unwrap();
+                *registered_map = new_registered;
+            }
+
+            let success = errors.is_empty();
+            *self.config.lock().unwrap() = new_config.clone();
+
+            HotkeyRegisterResult { success, config: new_config, errors }
         }
 
-        // Swap in the new map at the end without holding the lock across register()
-        {
-            let mut registered_map = self.registered.lock().unwrap();
-            *registered_map = new_registered;
+        /// Dispatch triggered shortcut to its bound action.
+        pub fn handle_event(&self, app: &AppHandle, shortcut: &Shortcut, state: ShortcutState) {
+            if state != ShortcutState::Pressed {
+                return;
+            }
+
+            let registered_map = self.registered.lock().unwrap();
+            if let Some(action) = registered_map.get(shortcut) {
+                execute_action(app, *action);
+            }
         }
 
-        let success = errors.is_empty();
-        *self.config.lock().unwrap() = new_config.clone();
-
-        HotkeyRegisterResult { success, config: new_config, errors }
+        pub fn get_config(&self) -> HotkeysConfig {
+            self.config.lock().unwrap().clone()
+        }
     }
 
-    /// Dispatch triggered shortcut to its bound action.
-    pub fn handle_event(&self, app: &AppHandle, shortcut: &Shortcut, state: ShortcutState) {
-        if state != ShortcutState::Pressed {
-            return;
-        }
-
-        let registered_map = self.registered.lock().unwrap();
-        if let Some(action) = registered_map.get(shortcut) {
-            execute_action(app, *action);
-        }
-    }
-
-    pub fn get_config(&self) -> HotkeysConfig {
-        self.config.lock().unwrap().clone()
-    }
-}
-
-/// Execute a hotkey action on `AppState`.
-pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let Some(state) = app.try_state::<Arc<AppState>>() else { return };
-        let state = state.inner().clone();
-        match action {
-            HotkeyAction::PlayPause => {
-                state.resume_or_toggle().await;
-            }
-            HotkeyAction::NextTrack => {
-                state.next_in_queue().await;
-            }
-            HotkeyAction::PrevTrack => {
-                state.prev_in_queue().await;
-            }
-            HotkeyAction::VolumeUp => change_volume(&state, &app, |v| v + 5),
-            HotkeyAction::VolumeDown => change_volume(&state, &app, |v| v - 5),
-            HotkeyAction::MuteToggle => change_volume(&state, &app, |v| {
-                if v > 0 {
-                    LAST_NONZERO_VOLUME.store(v, Ordering::Relaxed);
-                    0
-                } else {
-                    LAST_NONZERO_VOLUME.load(Ordering::Relaxed)
+    /// Execute a hotkey action on `AppState`.
+    pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let Some(state) = app.try_state::<Arc<AppState>>() else { return };
+            let state = state.inner().clone();
+            match action {
+                HotkeyAction::PlayPause => {
+                    state.resume_or_toggle().await;
                 }
-            }),
-            HotkeyAction::SeekForward => {
-                let pos = state.current_position();
-                let _ = state.user_seek((pos + 10.0).max(0.0)).await;
+                HotkeyAction::NextTrack => {
+                    state.next_in_queue().await;
+                }
+                HotkeyAction::PrevTrack => {
+                    state.prev_in_queue().await;
+                }
+                HotkeyAction::VolumeUp => change_volume(&state, &app, |v| v + 5),
+                HotkeyAction::VolumeDown => change_volume(&state, &app, |v| v - 5),
+                HotkeyAction::MuteToggle => change_volume(&state, &app, |v| {
+                    if v > 0 {
+                        LAST_NONZERO_VOLUME.store(v, Ordering::Relaxed);
+                        0
+                    } else {
+                        LAST_NONZERO_VOLUME.load(Ordering::Relaxed)
+                    }
+                }),
+                HotkeyAction::SeekForward => {
+                    let pos = state.current_position();
+                    let _ = state.user_seek((pos + 10.0).max(0.0)).await;
+                }
+                HotkeyAction::SeekBackward => {
+                    let pos = state.current_position();
+                    let _ = state.user_seek((pos - 10.0).max(0.0)).await;
+                }
+                HotkeyAction::ToggleShuffle => {
+                    state.toggle_shuffle().await;
+                }
+                HotkeyAction::ToggleRepeat => {
+                    state.cycle_repeat().await;
+                }
+                HotkeyAction::ShowApp => {
+                    crate::tray::show_main(&app);
+                }
             }
-            HotkeyAction::SeekBackward => {
-                let pos = state.current_position();
-                let _ = state.user_seek((pos - 10.0).max(0.0)).await;
-            }
-            HotkeyAction::ToggleShuffle => {
-                state.toggle_shuffle().await;
-            }
-            HotkeyAction::ToggleRepeat => {
-                state.cycle_repeat().await;
-            }
-            HotkeyAction::ShowApp => {
-                crate::tray::show_main(&app);
-            }
-        }
-    });
-}
+        });
+    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -240,7 +245,11 @@ impl HotkeysManager {
         Self { config: Mutex::new(config) }
     }
 
-    pub fn apply_config(&self, _app: &AppHandle, new_config: HotkeysConfig) -> HotkeyRegisterResult {
+    pub fn apply_config(
+        &self,
+        _app: &AppHandle,
+        new_config: HotkeysConfig,
+    ) -> HotkeyRegisterResult {
         *self.config.lock().unwrap() = new_config.clone();
         HotkeyRegisterResult { success: true, config: new_config, errors: HashMap::new() }
     }
