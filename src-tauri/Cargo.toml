@@ -110,5 +110,7 @@ notify-rust = "4"
 
 [target.'cfg(target_os = "android")'.dependencies]
 openssl = { version = "0.10", features = ["vendored"] }
+rquickjs-sys = { version = "0.9", features = ["bindgen"] }
+
 
 

@@ -113,6 +113,7 @@ jobs:
           OPENSSL_VENDORED: 1
           AR: llvm-ar
           RANLIB: llvm-ranlib
+          BINDGEN_EXTRA_CLANG_ARGS: "--sysroot=${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
         run: |
           (cd ui && pnpm build)
           tauri android build --apk
