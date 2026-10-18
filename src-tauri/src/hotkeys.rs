@@ -225,7 +225,6 @@ pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
     });
 }
 }
-}
 
 #[cfg(not(target_os = "android"))]
 pub use desktop::*;

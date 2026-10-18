@@ -5,7 +5,7 @@
 //! On Android, delegates to the Android media playback engine (`android.rs`).
 
 #[cfg(not(target_os = "android"))]
-mod video;
+pub(crate) mod video;
 #[cfg(not(target_os = "android"))]
 pub use video::{GlDisplay, Thumbnail, VideoRenderer};
 

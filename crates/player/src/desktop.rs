@@ -50,7 +50,7 @@ fn is_ao_init_failed(e: &libmpv2::Error) -> bool {
 /// The player. Wraps `Arc<Mpv>` (Send+Sync); an event loop runs on a dedicated OS thread per deck
 /// and pumps [`PlayerEvent`]s into a channel taken once via [`Player::take_events`].
 pub struct Player {
-    decks: Arc<Decks>,
+    pub(crate) decks: Arc<Decks>,
     events: Option<UnboundedReceiver<PlayerEvent>>,
     /// `(loudness gain dB, pitch semitones)`. mpv's `af` is one global chain, so the two things
     /// that write to it have to be re-applied together: a bare `set_property("af", ...)` from
@@ -66,59 +66,59 @@ pub struct Player {
 /// off pays for it. With the setting off, `b` stays empty and every path below is the single-mpv
 /// one it always was (the lookahead goes into mpv's own playlist, gaplessly).
 pub(crate) struct Decks {
-    a: Arc<Mpv>,
-    b: OnceLock<Arc<Mpv>>,
+    pub(crate) a: Arc<Mpv>,
+    pub(crate) b: OnceLock<Arc<Mpv>>,
     /// Which deck the app is listening to. Events from the other one are dropped.
-    active: AtomicUsize,
+    pub(crate) active: AtomicUsize,
     /// Crossfade length in milliseconds; 0 is off.
-    crossfade_ms: AtomicU64,
+    pub(crate) crossfade_ms: AtomicU64,
     /// The volume slider's percent, so a fade can scale the user's own level instead of
     /// overwriting it.
-    volume: AtomicI64,
+    pub(crate) volume: AtomicI64,
     /// A track is loaded and paused on the idle deck, waiting to be faded in. Published by the
     /// idle deck's own `FileLoaded`, never by `preload`: `loadfile` returns long before mpv has
     /// the stream open, and a fade into a deck that is still opening plays silence over the
     /// track going out.
-    preloaded: AtomicBool,
+    pub(crate) preloaded: AtomicBool,
     /// Bumped whenever the preload is cancelled. A `loadfile` already in flight when that happens
     /// still reaches `FileLoaded` a moment later; comparing this against `preload_armed` is how
     /// that late event knows it is loading a track nobody wants any more, which used to hand the
     /// next crossfade whatever the user had just skipped away from.
-    preload_gen: AtomicU64,
+    pub(crate) preload_gen: AtomicU64,
     /// The generation the track currently loading on the idle deck was started under.
-    preload_armed: AtomicU64,
+    pub(crate) preload_armed: AtomicU64,
     /// Written only under the `pending` lock, so an `enqueue` racing the end of a fade cannot
     /// read "still fading", stash its URL, and have the ramp thread take `pending` a moment
     /// earlier: that leaves the URL stranded, loaded by nobody, while the app has already
     /// recorded a lookahead. Read without the lock on the event thread, where it is a hint.
-    fading: AtomicBool,
+    pub(crate) fading: AtomicBool,
     /// Bumped to cancel a fade in progress. The ramp thread captures it when it starts and stops
     /// as soon as the value no longer matches, so a pause, a seek or a skip mid-fade doesn't keep
     /// writing volumes to decks that have moved on.
-    fade_gen: AtomicU64,
+    pub(crate) fade_gen: AtomicU64,
     /// A preload that arrived mid-fade. The idle deck is the one still fading *out*, so loading
     /// over it would cut the fade short: the ramp thread picks this up when it is done.
-    pending: Mutex<Option<String>>,
+    pub(crate) pending: Mutex<Option<String>>,
     /// repeat-one. mpv restarts the file instead of ending it, so such a track must never fade
     /// into the one behind it. Mirrored here because the trigger runs on the event thread, where
     /// asking mpv for a property can stall the pump.
-    loop_file: AtomicBool,
-    cache_dir: String,
-    tx: UnboundedSender<PlayerEvent>,
+    pub(crate) loop_file: AtomicBool,
+    pub(crate) cache_dir: String,
+    pub(crate) tx: UnboundedSender<PlayerEvent>,
     /// Music videos waiting for (or attached to) the audio file they belong to. See `video.rs`.
-    videos: Mutex<video::Videos>,
+    pub(crate) videos: Mutex<video::Videos>,
     /// Someone can see the picture, so the deck being heard decodes it.
-    video_visible: AtomicBool,
+    pub(crate) video_visible: AtomicBool,
     /// Set by the video renderer: deck b needs a render context of its own before it can show a
     /// picture, and only the GL thread can make one.
-    on_new_deck: OnceLock<Box<dyn Fn() + Send + Sync>>,
+    pub(crate) on_new_deck: OnceLock<Box<dyn Fn() + Send + Sync>>,
     /// The native window mpv draws the picture into, 0 for none (the render API). See
     /// [`Player::set_video_window`].
-    wid: AtomicI64,
+    pub(crate) wid: AtomicI64,
 }
 
 impl Decks {
-    fn mpv(&self, deck: usize) -> Option<&Arc<Mpv>> {
+    pub(crate) fn mpv(&self, deck: usize) -> Option<&Arc<Mpv>> {
         if deck == 0 {
             Some(&self.a)
         } else {
@@ -126,11 +126,11 @@ impl Decks {
         }
     }
 
-    fn active_mpv(&self) -> &Arc<Mpv> {
+    pub(crate) fn active_mpv(&self) -> &Arc<Mpv> {
         self.mpv(self.active.load(Ordering::SeqCst)).unwrap_or(&self.a)
     }
 
-    fn idle_deck(&self) -> usize {
+    pub(crate) fn idle_deck(&self) -> usize {
         1 - self.active.load(Ordering::SeqCst)
     }
 

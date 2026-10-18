@@ -184,10 +184,15 @@ jobs:
         run: |
           set -euo pipefail
           (cd ui && pnpm build)
+          VERSION="$(jq -r .version src-tauri/tauri.conf.json)"
+          BUNDLES="nsis"
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            BUNDLES="nsis,msi"
+          fi
           if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
-            tauri build --bundles nsis,msi --config '{"build":{"beforeBuildCommand":""}}'
+            tauri build --bundles "$BUNDLES" --config '{"build":{"beforeBuildCommand":""}}'
           else
-            tauri build --bundles nsis,msi --config '{"build":{"beforeBuildCommand":""},"bundle":{"createUpdaterArtifacts":false}}'
+            tauri build --bundles "$BUNDLES" --config '{"build":{"beforeBuildCommand":""},"bundle":{"createUpdaterArtifacts":false}}'
           fi
 
       - name: Upload Windows artifacts
@@ -481,6 +486,13 @@ jobs:
             printf 'LIMUSIC_LASTFM_API_KEY=%s\nLIMUSIC_LASTFM_API_SECRET=%s\n' \
               "$LASTFM_API_KEY" "$LASTFM_API_SECRET" > src-tauri/lastfm.keys
           fi
+
+      - name: Ensure Gradle Wrapper
+        run: |
+          if [ ! -f src-tauri/gen/android/gradlew ]; then
+            (cd src-tauri/gen/android && gradle wrapper --gradle-version 8.10.2)
+          fi
+          chmod +x src-tauri/gen/android/gradlew
 
       - name: Build Android APK
         env:
