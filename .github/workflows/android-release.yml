@@ -99,6 +99,7 @@ jobs:
       - name: Build Android APK
         env:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          OPENSSL_VENDORED: 1
         run: |
           (cd ui && pnpm build)
           tauri android build --apk
