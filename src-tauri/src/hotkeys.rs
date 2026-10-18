@@ -245,6 +245,10 @@ impl HotkeysManager {
         Self { config: Mutex::new(config) }
     }
 
+    pub fn get_config(&self) -> HotkeysConfig {
+        self.config.lock().unwrap().clone()
+    }
+
     pub fn apply_config(
         &self,
         _app: &AppHandle,

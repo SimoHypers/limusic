@@ -47,6 +47,7 @@ pub fn show_main(app: &AppHandle) {
     crate::mini::close(app);
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
+        #[cfg(not(target_os = "android"))]
         let _ = w.unminimize();
         let _ = w.set_focus();
         set_main_visible(app, true);
@@ -319,7 +320,7 @@ mod imp {
 
     pub fn set_playing(_app: &AppHandle, _playing: bool) {}
 
-    pub fn set_icon(_app: &AppHandle, _icon_bytes: &[u8]) {}
+    pub fn set_icon(_app: &AppHandle, _icon: &tauri::image::Image<'_>) {}
 }
 
 #[cfg(test)]

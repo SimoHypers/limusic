@@ -935,6 +935,8 @@ pub(crate) fn open_browser(url: &str) -> Result<(), String> {
             Err(std::io::Error::last_os_error())
         }
     };
+    #[cfg(target_os = "android")]
+    let cmd: Result<(), std::io::Error> = Ok(());
     cmd.map_err(|e| format!("Couldn't open the browser: {e}"))
 }
 

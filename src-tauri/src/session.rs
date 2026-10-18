@@ -193,13 +193,17 @@ pub async fn refresh_session(app: AppHandle, state: Arc<AppState>) {
         let Ok(url) = tauri::Url::parse(REFRESH_URL) else { return };
         // Not 1x1 like the cipher harness: this is a real page, and YouTube's own startup is what
         // makes Google hand out the rotated cookies.
-        let builder = WebviewWindowBuilder::new(&app2, REFRESH_LABEL, WebviewUrl::External(url))
-            .title("YouTube Music")
-            .visible(false)
-            .inner_size(1024.0, 768.0)
-            .skip_taskbar(true)
-            .decorations(false)
-            .focused(false);
+        #[allow(unused_mut)]
+        let mut builder =
+            WebviewWindowBuilder::new(&app2, REFRESH_LABEL, WebviewUrl::External(url))
+                .title("YouTube Music")
+                .visible(false)
+                .inner_size(1024.0, 768.0)
+                .focused(false);
+        #[cfg(not(target_os = "android"))]
+        {
+            builder = builder.skip_taskbar(true).decorations(false);
+        }
         let builder = match LOGIN_UA {
             Some(ua) => builder.user_agent(ua),
             None => builder,

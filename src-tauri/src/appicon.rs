@@ -110,7 +110,7 @@ pub fn apply(app: &AppHandle) {
         // call is a *queued* window message while `set_icons` is a synchronous `SendMessageW`:
         // whichever lands last wins, and leaving both in would put the unscaled icon back at
         // random. `set_icons` covers ICON_SMALL as well, at the size the shell draws.
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(any(target_os = "windows", target_os = "android")))]
         let _ = w.set_icon(icon.clone());
         #[cfg(target_os = "windows")]
         crate::taskbar::set_icons(&w, &icon);

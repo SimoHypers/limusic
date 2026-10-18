@@ -415,6 +415,7 @@ pub async fn set_setting(
     // startup repoints an existing entry at the running binary (lib.rs). Before the write, so a
     // failure leaves the setting as it was. A dev build would register itself, and at login its
     // window needs a vite server that isn't running.
+    #[cfg(not(target_os = "android"))]
     if key == "autostart" {
         if tauri::is_dev() {
             return Err(
@@ -493,7 +494,7 @@ pub async fn set_setting(
     }
     // Hand the frame back to the compositor (or take it again). macOS is not on this path: its
     // titlebar style is fixed at window creation, so the setting is hidden there.
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "android")))]
     if key == "system_titlebar" {
         use tauri::Manager;
         if let Some(w) = app.get_webview_window("main") {
@@ -786,6 +787,7 @@ pub async fn show_main(state: St<'_>, window: tauri::WebviewWindow) -> Result<bo
         return Ok(false);
     }
     window.show().map_err(|e| e.to_string())?;
+    #[cfg(not(target_os = "android"))]
     window.unminimize().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
     crate::tray::set_main_visible(window.app_handle(), true);
@@ -2505,27 +2507,36 @@ pub struct BetaUpdate {
 /// Any different version counts, same as `allowDowngrades` on stable: the pointer only moves forward
 /// by itself, so a lower version there is a beta rollback somebody made on purpose.
 #[tauri::command]
-pub async fn check_beta_update(webview: tauri::Webview) -> Result<Option<BetaUpdate>, String> {
-    use tauri::Manager;
-    use tauri_plugin_updater::UpdaterExt;
-    let url = tauri::Url::parse(BETA_MANIFEST).map_err(|e| e.to_string())?;
-    let update = webview
-        .updater_builder()
-        .endpoints(vec![url])
-        .map_err(|e| e.to_string())?
-        .version_comparator(|current, remote| remote.version != current)
-        .build()
-        .map_err(|e| e.to_string())?
-        .check()
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(update.map(|u| BetaUpdate {
-        current_version: u.current_version.clone(),
-        version: u.version.clone(),
-        body: u.body.clone(),
-        raw_json: u.raw_json.clone(),
-        rid: webview.resources_table().add(u),
-    }))
+pub async fn check_beta_update(
+    #[allow(unused_variables)] webview: tauri::Webview,
+) -> Result<Option<BetaUpdate>, String> {
+    #[cfg(not(target_os = "android"))]
+    {
+        use tauri::Manager;
+        use tauri_plugin_updater::UpdaterExt;
+        let url = tauri::Url::parse(BETA_MANIFEST).map_err(|e| e.to_string())?;
+        let update = webview
+            .updater_builder()
+            .endpoints(vec![url])
+            .map_err(|e| e.to_string())?
+            .version_comparator(|current, remote| remote.version != current)
+            .build()
+            .map_err(|e| e.to_string())?
+            .check()
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(update.map(|u| BetaUpdate {
+            current_version: u.current_version.clone(),
+            version: u.version.clone(),
+            body: u.body.clone(),
+            raw_json: u.raw_json.clone(),
+            rid: webview.resources_table().add(u),
+        }))
+    }
+    #[cfg(target_os = "android")]
+    {
+        Ok(None)
+    }
 }
 
 /// Open a link from the UI in the real browser. An `<a href>` inside the webview would navigate
@@ -2662,8 +2673,16 @@ pub async fn listenbrainz_profile(
 /// with SWP_FRAMECHANGED to force one recalculation with the fullscreen flag set. On the main
 /// thread, where the window messages run inline and the order is guaranteed.
 #[tauri::command]
-pub fn theater_fullscreen(window: tauri::WebviewWindow, on: bool) -> Result<(), String> {
-    #[cfg(not(target_os = "windows"))]
+pub fn theater_fullscreen(
+    #[allow(unused_variables)] window: tauri::WebviewWindow,
+    on: bool,
+) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = on;
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "android")))]
     {
         window.set_fullscreen(on).map_err(|e| e.to_string())
     }

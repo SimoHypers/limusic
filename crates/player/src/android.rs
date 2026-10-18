@@ -167,6 +167,8 @@ impl Player {
 
     pub fn set_crossfade_ms(&self, _ms: u64) {}
 
+    pub fn set_crossfade(&self, _secs: Option<f64>) {}
+
     pub fn set_http_proxy(&self, _proxy: Option<&str>) -> Result<(), Error> {
         Ok(())
     }
