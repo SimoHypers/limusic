@@ -198,11 +198,10 @@ pub async fn refresh_session(app: AppHandle, state: Arc<AppState>) {
             WebviewWindowBuilder::new(&app2, REFRESH_LABEL, WebviewUrl::External(url))
                 .title("YouTube Music")
                 .visible(false)
-                .inner_size(1024.0, 768.0)
-                .focused(false);
+                .inner_size(1024.0, 768.0);
         #[cfg(not(target_os = "android"))]
         {
-            builder = builder.skip_taskbar(true).decorations(false);
+            builder = builder.skip_taskbar(true).decorations(false).focused(false);
         }
         let builder = match LOGIN_UA {
             Some(ua) => builder.user_agent(ua),

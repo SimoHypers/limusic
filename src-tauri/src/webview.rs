@@ -105,11 +105,10 @@ impl Bridge {
             let mut builder =
                 crate::http::proxied(WebviewWindowBuilder::new(&app2, label2, webview_url))
                     .visible(false)
-                    .inner_size(1.0, 1.0)
-                    .focused(false);
+                    .inner_size(1.0, 1.0);
             #[cfg(not(target_os = "android"))]
             {
-                builder = builder.skip_taskbar(true).decorations(false);
+                builder = builder.skip_taskbar(true).decorations(false).focused(false);
             }
             let res = builder
                 .on_page_load(move |_wv, payload| {
