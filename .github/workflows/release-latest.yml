@@ -468,6 +468,17 @@ jobs:
         with:
           ndk-version: r26b
 
+      - name: Configure Android NDK toolchain links
+        run: |
+          TOOLCHAIN_BIN="${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          echo "$TOOLCHAIN_BIN" >> $GITHUB_PATH
+          for arch in aarch64-linux-android arm-linux-androideabi armv7a-linux-androideabi i686-linux-android x86_64-linux-android; do
+            ln -sf llvm-ar "$TOOLCHAIN_BIN/${arch}-ar"
+            ln -sf llvm-ranlib "$TOOLCHAIN_BIN/${arch}-ranlib"
+            ln -sf llvm-strip "$TOOLCHAIN_BIN/${arch}-strip"
+            ln -sf llvm-nm "$TOOLCHAIN_BIN/${arch}-nm"
+          done
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
@@ -500,6 +511,8 @@ jobs:
         env:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           OPENSSL_VENDORED: 1
+          AR: llvm-ar
+          RANLIB: llvm-ranlib
         run: |
           (cd ui && pnpm build)
           tauri android build --apk
