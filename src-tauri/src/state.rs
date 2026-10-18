@@ -3073,7 +3073,8 @@ impl AppState {
             }
         };
         let cont = (!top_up.autoplay).then_some(page.continuation);
-        let mut added = self.absorb_radio(page.items, gen, &seed, top_up, cont).await;
+        let mut added =
+            self.absorb_radio(page.items, gen, &seed, top_up, cont, token.as_deref()).await;
         if !top_up.autoplay {
             // A window that added nothing still moved the token on. At the tail nothing else
             // will ask again, so follow it a few times before giving up.
@@ -3087,7 +3088,14 @@ impl AppState {
                     break;
                 };
                 added = self
-                    .absorb_radio(page.items, gen, &seed, top_up, Some(page.continuation))
+                    .absorb_radio(
+                        page.items,
+                        gen,
+                        &seed,
+                        top_up,
+                        Some(page.continuation),
+                        Some(t.as_str()),
+                    )
                     .await;
             }
             return added;
@@ -3110,7 +3118,7 @@ impl AppState {
         let Ok((fresh, seed, _)) = self.fetch_radio(Some(&last_video), &song_seed).await else {
             return 0;
         };
-        self.absorb_radio(fresh, gen, &seed, AUTOPLAY, None).await
+        self.absorb_radio(fresh, gen, &seed, AUTOPLAY, None, None).await
     }
 
     /// Append a fetched radio page to the tail of the queue and run the bookkeeping that follows.
@@ -3123,6 +3131,7 @@ impl AppState {
         seed: &str,
         top_up: TopUp,
         cont: Option<Option<String>>,
+        from_token: Option<&str>,
     ) -> usize {
         if self.generation.load(Ordering::SeqCst) != gen {
             return 0; // user moved on while we fetched
@@ -3144,9 +3153,12 @@ impl AppState {
             }
             // What the window said about the next one (`None`: that was the end of the radio), kept
             // in the same breath as the append so a window fetched but not appended is never skipped
-            // over. Only a radio hands one in, and only a window of the queue's own seed got here.
+            // over. Only a radio hands one in, and only while the queue still stands where this
+            // window was asked from: a slower response landing after a newer one must not rewind it.
             if let Some(next) = cont {
-                q.radio_cont = Some((seed.to_owned(), next));
+                if window_still_current(&q, from_token) {
+                    q.radio_cont = Some((seed.to_owned(), next));
+                }
             }
             // Against the queue as it is *now*, not a snapshot from before the fetch: a playlist
             // fill, a guest add or `play_song`'s own hydration can all have appended something
@@ -4537,6 +4549,17 @@ fn radio_exhausted(q: &QueueState) -> bool {
     matches!(&q.radio_cont, Some((seed, None)) if q.radio_seed.as_deref() == Some(seed.as_str()))
 }
 
+/// Whether `q`'s radio still stands where a window asked with `from_token` started: still on that
+/// token, or (`None`: asked from the seed) with no page of it seen yet. More than one top-up can be
+/// in flight, and a slower response landing after a newer one would otherwise rewind the sequence —
+/// re-asking a window the queue already has, or un-ending a radio whose last page said it ended.
+fn window_still_current(q: &QueueState, from_token: Option<&str>) -> bool {
+    match from_token {
+        Some(t) => radio_token(q).as_deref() == Some(t),
+        None => q.radio_cont.is_none(),
+    }
+}
+
 /// Append radio-continuation tracks to the queue: dedupe against `existing` (the whole current
 /// queue + everything appended this hop), cap at `cap`, and, for autoplay, mark each as `autoplay`
 /// so the UI can show where the chosen queue ends and autoplay begins. Returns how many were
@@ -5000,8 +5023,8 @@ mod tests {
         queue_fingerprint, radio_exhausted, radio_install, radio_seed_for, radio_token,
         repeat_blocks_top_up, retain_upcoming, shuffle_new_queue, shuffle_upcoming,
         splice_radio_into, swap_version, trim_played, twin_position, unshuffled, upcoming_queued,
-        wants_top_up, QueueState, RepeatMode, VideoUrls, AUTOPLAY, KEEP_PLAYED,
-        LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO, RADIO_TAIL,
+        wants_top_up, window_still_current, QueueState, RepeatMode, VideoUrls, AUTOPLAY,
+        KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO, RADIO_TAIL,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -6010,6 +6033,25 @@ mod tests {
         assert_eq!(radio_token(&ended), None);
         // An ending that belonged to another radio says nothing about this one.
         assert!(!radio_exhausted(&radio(Some(("RDAMVMold", None)))));
+    }
+
+    #[test]
+    fn only_a_window_the_queue_still_stands_on_may_move_it_on() {
+        let radio = |cont: Option<(&str, Option<&str>)>| QueueState {
+            radio: true,
+            radio_seed: Some("RDAMVMx".into()),
+            radio_cont: cont.map(|(seed, token)| (seed.to_owned(), token.map(str::to_owned))),
+            ..QueueState::default()
+        };
+        // Asked with the token the queue is standing on.
+        assert!(window_still_current(&radio(Some(("RDAMVMx", Some("TOK")))), Some("TOK")));
+        // A newer window landed while this one was on the wire: stale, must not rewind it.
+        assert!(!window_still_current(&radio(Some(("RDAMVMx", Some("TOK2")))), Some("TOK")));
+        // Asked from the seed, and no page of it has been seen yet.
+        assert!(window_still_current(&radio(None), None));
+        // A newer response got there first, with a token or with the end.
+        assert!(!window_still_current(&radio(Some(("RDAMVMx", Some("TOK")))), None));
+        assert!(!window_still_current(&radio(Some(("RDAMVMx", None))), None));
     }
 
     #[test]
