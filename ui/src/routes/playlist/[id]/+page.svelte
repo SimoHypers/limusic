@@ -681,8 +681,12 @@
 		scrollingToEnd = true;
 		try {
 			if (pl?.continuation) {
-				await loadAll();
+				const whole = await loadAll();
 				if (pid !== id) return;
+				if (!whole) {
+					warnPartial('queued');
+					return;
+				}
 			}
 			await tick();
 			if (pid !== id || !scrollerEl?.isConnected) return;
