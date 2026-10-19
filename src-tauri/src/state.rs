@@ -333,6 +333,10 @@ struct QueueState {
     /// seed track, so without this hold both paths request the same `RDAMVM…` page at the same
     /// moment and the queue ends up holding it twice (issue #255).
     hydrating: Option<u64>,
+    /// An `extend_queue_radio` is fetching this queue's next window right now (the generation it
+    /// is doing it for). The early trigger, a skip at the tail and a shuffle toggle can all ask
+    /// within one round trip; without this hold they fetch the same window twice.
+    topping_up: Option<u64>,
     /// The queue index we've already appended to mpv for gapless lookahead (if any).
     lookahead_loaded: Option<usize>,
     /// Which client served the currently-loaded track (for the WEB_REMIX-403 feedback). context/06.
@@ -3008,6 +3012,15 @@ impl AppState {
         }
     }
 
+    /// Lift the hold `extend_queue_radio` put on other top-ups while it was on the wire, unless a
+    /// newer queue has taken it over in the meantime (its own top-up sets its own generation).
+    async fn end_top_up(&self, gen: u64) {
+        let mut q = self.queue.lock().await;
+        if q.topping_up == Some(gen) {
+            q.topping_up = None;
+        }
+    }
+
     /// Top up the queue's tail when it's nearly out. Returns how many tracks were appended.
     /// Guards: not a guest, repeat Off, generation unchanged across the network call. Dedupes
     /// against the entire current queue. When nothing new comes back, playback later stops
@@ -3026,12 +3039,17 @@ impl AppState {
         }
         let autoplay_on = self.autoplay_enabled();
         let (last_video, seed, token, top_up) = {
-            let q = self.queue.lock().await;
+            let mut q = self.queue.lock().await;
             if q.hydrating == Some(gen) {
                 // This queue's own `play_song` is already fetching its radio (#255). Keyed to the
                 // generation: a marker left by a queue that has since been replaced (`play_index`
                 // and the other load paths bump the generation without clearing it) must not stop
                 // the new queue from topping itself up.
+                return 0;
+            }
+            if q.topping_up == Some(gen) {
+                // This queue's own top-up is already on the wire. Keyed to the generation for the
+                // same reason as `hydrating`: a newer queue has to be free to ask.
                 return 0;
             }
             let radio = is_radio(&q);
@@ -3055,15 +3073,32 @@ impl AppState {
             }
             let seed = q.radio_seed.clone().unwrap_or_else(|| format!("RDAMVM{}", last.video_id));
             let token = if radio { radio_token(&q) } else { None };
+            q.topping_up = Some(gen);
             (last.video_id.clone(), seed, token, if radio { RADIO } else { AUTOPLAY })
         };
+        let added = self.follow_top_up(gen, &last_video, &seed, token, top_up).await;
+        self.end_top_up(gen).await;
+        added
+    }
+
+    /// The network half of [`Self::extend_queue_radio`], which holds `topping_up` for the whole
+    /// call so it can clear the marker once, on every path.
+    ///
+    /// Snapshot → network → re-lock, same discipline as `prime_lookahead`; the generation check
+    /// between them is what makes it safe, and `absorb_radio` dedupes against the queue as it is
+    /// after the fetch, so whatever grew it meanwhile can't come back as a duplicate.
+    async fn follow_top_up(
+        self: &std::sync::Arc<Self>,
+        gen: u64,
+        last_video: &str,
+        seed: &str,
+        token: Option<String>,
+        top_up: TopUp,
+    ) -> usize {
         let Some(client) = self.clients.get(innertube::METADATA_CLIENT) else { return 0 };
-        // Snapshot → network → re-lock, same discipline as `prime_lookahead`; the generation check
-        // between them is what makes it safe, and `absorb_radio` dedupes against the queue as it
-        // is after the fetch, so whatever grew it meanwhile can't come back as a duplicate.
         let page = match &token {
-            Some(t) => self.it.radio_continuation(client, t, Some(&last_video)).await,
-            None => self.it.next(client, Some(&last_video), Some(&seed)).await,
+            Some(t) => self.it.radio_continuation(client, t, Some(last_video)).await,
+            None => self.it.next(client, Some(last_video), Some(seed)).await,
         };
         let page = match page {
             Ok(page) => page,
@@ -3074,7 +3109,7 @@ impl AppState {
         };
         let cont = (!top_up.autoplay).then_some(page.continuation);
         let Some(mut added) =
-            self.absorb_radio(page.items, gen, &seed, top_up, cont, token.as_deref()).await
+            self.absorb_radio(page.items, gen, seed, top_up, cont, token.as_deref()).await
         else {
             return 0; // the queue moved on: this window and the token after it are not ours
         };
@@ -3086,7 +3121,7 @@ impl AppState {
                     break;
                 }
                 let Some(t) = radio_token(&*self.queue.lock().await) else { break };
-                let Ok(page) = self.it.radio_continuation(client, &t, Some(&last_video)).await
+                let Ok(page) = self.it.radio_continuation(client, &t, Some(last_video)).await
                 else {
                     break;
                 };
@@ -3094,7 +3129,7 @@ impl AppState {
                     .absorb_radio(
                         page.items,
                         gen,
-                        &seed,
+                        seed,
                         top_up,
                         Some(page.continuation),
                         Some(t.as_str()),
@@ -3122,7 +3157,7 @@ impl AppState {
             return 0;
         }
         let song_seed = format!("RDAMVM{last_video}");
-        let Ok((fresh, seed, _)) = self.fetch_radio(Some(&last_video), &song_seed).await else {
+        let Ok((fresh, seed, _)) = self.fetch_radio(Some(last_video), &song_seed).await else {
             return 0;
         };
         self.absorb_radio(fresh, gen, &seed, AUTOPLAY, None, None).await.unwrap_or(0)
