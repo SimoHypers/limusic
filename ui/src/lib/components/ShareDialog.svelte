@@ -13,6 +13,7 @@
 	import { Switch } from '$lib/components/ui/switch';
 	import { thumb } from '$lib/thumb';
 	import { ui, toast } from '$lib/player.svelte';
+	import { windowCorners } from '$lib/win.svelte';
 	import { t } from '$lib/i18n.svelte';
 
 	// Playlist browseIds carry a `VL` prefix that the watch/playlist URLs don't take.
@@ -110,7 +111,7 @@
 {#if ui.share}
 	<div
 		transition:fade={{ duration: 150 }}
-		class="fixed inset-0 z-[49] flex items-center justify-center bg-black/50 p-4"
+		class="fixed inset-0 z-[49] flex items-center justify-center bg-black/50 p-4 {windowCorners()}"
 		role="presentation"
 		onclick={(e) => {
 			if (e.target === e.currentTarget) close();

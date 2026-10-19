@@ -188,9 +188,6 @@
 		"sections_hint": "Trage o secțiune pentru a o muta sau selectează mânerul și folosește tastele săgeți. Secțiunile ascunse își păstrează poziția.",
 		"move_section": "Mută secțiunea {title}",
 		"moved_section": "Secțiunea {title} a fost mutată pe poziția {position} din {total}",
-		"new_section": "Nou",
-		"show_new": "Arată secțiunile noi",
-		"show_new_desc": "YouTube adaugă și redenumește secțiuni periodic. Când opțiunea este dezactivată, acestea rămân ascunse până le activezi manual.",
 		"all_hidden": "Toate secțiunile de pe Acasă sunt dezactivate."
 	},
 	"history": {
@@ -399,8 +396,6 @@
 			"app_icon_filter": "Imagine PNG",
 			"zoom": "Scalare interfață",
 			"zoom_hint": "Scalează toate elementele din fereastră. Scurtăturile de zoom o modifică de asemenea, iar valoarea este reținută între lansări.",
-			"stage_player": "Aspect nou pentru player",
-			"stage_player_hint": "Titlul piesei, artistul și albumul sub copertă, lista de redare și versurile într-o coloană pe toată înălțimea, iar fundalul iluminat în culorile copertei. Dezactivat: păstrează aspectul inițial.",
 			"mode": "Luminos sau întunecat",
 			"mode_hint": "Modul „Sistem” respectă setările calculatorului și comută odată cu acesta.",
 			"mode_light": "Luminos",

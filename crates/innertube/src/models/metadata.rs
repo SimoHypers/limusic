@@ -50,6 +50,11 @@ pub struct SongItem {
     pub added_by: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub added_by_avatars: Vec<String>,
+    /// When the track went into the playlist, unix seconds ([`added_at`] on a YouTube playlist
+    /// row; the app stamps its own for a playlist kept on this machine). Shed with the rest of
+    /// the playlist context once the track leaves the page (`shed_queue_context`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub added_at: Option<i64>,
     /// The signed-in user's rating of this track, from the row's `likeStatus`. `None` when the
     /// response didn't carry one, which the UI treats the same as [`Rating::Indifferent`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -575,6 +580,7 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
         set_video_id,
         added_by,
         added_by_avatars,
+        added_at: added_at(node),
         rating: like_status(node),
         queued_by: None,
         queued: false,
@@ -587,6 +593,17 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
         explicit: is_explicit(node),
         library: library_toggle(node),
     })
+}
+
+/// When a playlist row went into its playlist: `playlistItemData.voteSortValue`, unix seconds.
+/// The name is YouTube's, and on an ordinary playlist the value is the add time: live-checked
+/// 2026-10-18 on an owned playlist (`tests/fixtures/playlist_rows_added.json`), it fell in step with
+/// the "Newest" sort, a bulk add of 38 tracks shared one second, and the one track added later
+/// carried that day. Anything that can't be a date (before 2005, after 2100) is dropped.
+fn added_at(node: &Value) -> Option<i64> {
+    node.pointer("/playlistItemData/voteSortValue")
+        .and_then(Value::as_i64)
+        .filter(|t| (1_104_537_600..4_102_444_800).contains(t))
 }
 
 /// A podcast episode row (`musicMultiRowListItemRenderer`), the only row a show page (`MPSP…`),
@@ -871,6 +888,7 @@ fn parse_panel_video(node: &Value) -> Option<SongItem> {
         set_video_id: None,
         added_by: None,
         added_by_avatars: Vec::new(),
+        added_at: None,
         rating: like_status(node),
         queued_by: None,
         queued: false,

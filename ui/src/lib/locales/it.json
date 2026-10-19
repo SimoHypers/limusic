@@ -188,9 +188,6 @@
 		"sections_hint": "Trascina una sezione per spostarla oppure seleziona la sua maniglia e usa i tasti freccia. Le sezioni nascoste mantengono la propria posizione.",
 		"move_section": "Sposta {title}",
 		"moved_section": "{title} spostato in posizione {position} di {total}",
-		"new_section": "Nuovo",
-		"show_new": "Mostra nuove sezioni",
-		"show_new_desc": "YouTube aggiunge e rinomina sezioni nel tempo. Se disattivato, appariranno nascoste finché non le attiverai tu.",
 		"all_hidden": "Tutti gli elementi della schermata Home sono disattivati."
 	},
 	"artist": {
@@ -390,8 +387,6 @@
 			"app_icon_pick": "Scegli…",
 			"app_icon_dialog": "Scegli un'icona per l'app",
 			"app_icon_filter": "Immagine PNG",
-			"stage_player": "Nuovo layout del player",
-			"stage_player_hint": "Titolo del brano, artista e album sotto la copertina, coda e testi in una colonna a tutta altezza e schermata illuminata dai colori della copertina. Se disattivato, mantiene il layout originale.",
 			"mode": "Chiaro o scuro",
 			"mode_hint": "L'opzione Sistema segue l'impostazione del tuo computer e cambia con essa.",
 			"mode_light": "Chiaro",

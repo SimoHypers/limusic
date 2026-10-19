@@ -39,8 +39,7 @@
 		freshen,
 		hiddenSections,
 		interleave,
-		recentItems,
-		topArtists
+		recentItems
 	} from '$lib/personal';
 	import { getCached, putCached } from '$lib/pagecache';
 
@@ -331,7 +330,7 @@
 	async function cater(page: HomePage, params: string | null) {
 		if (params) return; // a mood-filtered feed is the chip's, not the user's
 		if (!page.sections.some((s) => s.kind === 'community')) return;
-		const artists = topArtists(personal, 3);
+		const artists = (await api.topArtists(3).catch(() => [])).map((a) => a.name);
 		if (!artists.length) return;
 		const key = `community:${artists.join('|')}`;
 		let items = getCached<BrowseItem[]>(key);

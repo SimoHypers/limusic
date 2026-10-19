@@ -220,9 +220,6 @@
 		"sections_hint": "拖动分区可移动，或聚焦其手柄并使用方向键。隐藏的分区会保留位置。",
 		"move_section": "移动“{title}”",
 		"moved_section": "{title} 已移动到第 {position}/{total} 位",
-		"new_section": "新分区",
-		"show_new": "显示新分区",
-		"show_new_desc": "YouTube 会不时添加和重命名版块栏目。关闭后，它们会以隐藏状态显示并在此等待，直到你将其开启。",
 		"all_hidden": "首页上的所有内容均已关闭。"
 	},
 	"history": {

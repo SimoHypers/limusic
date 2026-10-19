@@ -497,7 +497,7 @@ fn albums_of(tracks: &[LocalTrack]) -> Vec<BrowseItem> {
 /// ponytail: splits on ";" and the feat. markers only. "," and "&" are left alone on purpose —
 /// they sit inside real names ("Tyler, The Creator", "Earth, Wind & Fire") often enough that
 /// splitting on them invents worse artists than it merges.
-fn primary_artist(artist: &str) -> &str {
+pub(crate) fn primary_artist(artist: &str) -> &str {
     let mut cut = artist.find(';').unwrap_or(artist.len());
     let lower = artist.to_lowercase();
     for marker in [" feat.", " feat ", " ft.", " ft ", " featuring "] {

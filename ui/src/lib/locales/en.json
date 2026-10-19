@@ -214,6 +214,7 @@
 		"remove_account_desc": "{name} is only removed from this list. The Google account itself is not affected, and you can sign in with it again whenever you like.",
 		"saved_accounts_hint": "Pick a saved account to switch to it.",
 		"history": "History",
+		"stats": "Stats",
 		"no_channels": "YouTube did not return any selectable channels."
 	},
 	"player": {
@@ -341,6 +342,66 @@
 		"songs_count": "{count} songs",
 		"empty": "Nothing here yet. Anything you play while signed in shows up on this page.",
 		"signed_out": "Sign in to see your YouTube Music listening history."
+	},
+	"stats": {
+		"title": "Listening stats",
+		"ranges": {
+			"week": "7 days",
+			"month": "30 days",
+			"year": "12 months",
+			"all": "All time"
+		},
+		"listened": {
+			"week": "listened in the last 7 days",
+			"month": "listened in the last 30 days",
+			"year": "listened in the last 12 months",
+			"all": "listened since {date}"
+		},
+		"compared": {
+			"week": "vs. the 7 days before",
+			"month": "vs. the 30 days before",
+			"year": "vs. the 12 months before"
+		},
+		"plays": "Plays",
+		"new_songs": "{count} new",
+		"streak": "Day streak",
+		"best_streak": "Best: {count}",
+		"activity": "Listening activity",
+		"daily_average": "Daily average",
+		"monthly_average": "Monthly average",
+		"busiest_day": "Busiest day",
+		"busiest_month": "Busiest month",
+		"busiest_weekday": "Busiest day of the week",
+		"busiest_hour": "Busiest hour",
+		"top_songs": "Top songs",
+		"top_artists": "Top artists",
+		"top_albums": "Top albums",
+		"share": "{percent} of your listening",
+		"when": "When you listen",
+		"dayparts": {
+			"morning": "Morning",
+			"afternoon": "Afternoon",
+			"evening": "Evening",
+			"night": "Night"
+		},
+		"persona": {
+			"morning": "Early bird",
+			"afternoon": "Afternoon listener",
+			"evening": "Evening listener",
+			"night": "Night owl"
+		},
+		"persona_hint": "You listen most between {from} and {to}.",
+		"less": "Less",
+		"more": "More",
+		"nothing_in_range": "Nothing played in this period.",
+		"empty_title": "Your stats start here",
+		"empty": "Play a few songs and this page fills in with what you listen to, when, and for how long.",
+		"on_device": "Counted on this device from what you play in Limusic. Nothing is sent anywhere.",
+		"clear": "Clear listening history",
+		"clear_title": "Clear listening history?",
+		"clear_desc": "This forgets every play counted on this device, so your stats start over and On Repeat empties. Your YouTube Music history isn't touched.",
+		"clear_confirm": "Clear history",
+		"cleared": "Listening history cleared"
 	},
 	"artist": {
 		"subscribe": "Subscribe",
@@ -524,8 +585,8 @@
 			"open_player_hint": "On, playing a song, album or playlist brings up the full player view. Off, it starts playing and leaves you on the page you were browsing.",
 			"tabbed_player": "Queue and lyrics in the player view",
 			"tabbed_player_hint": "On, the player view carries them as tabs and the bar's two buttons switch between them. Off, those buttons only ever open the side panels, which stay open over the player view so you can see both at once.",
-			"stage_player": "New player layout",
-			"stage_player_hint": "The song's title, artist and album under the artwork, queue and lyrics in a full-height column, and the view lit by the cover's colors. Off keeps the original layout.",
+			"classic_player": "Classic player layout",
+			"classic_player_hint": "The original player view: the artwork alone over a blurred copy of the cover, with the song's details left to the player bar. Off uses the new layout, with the title, artist and album under the artwork and the view lit by the cover's colors.",
 			"artwork_background": "Artwork background",
 			"artwork_background_hint": "Tint the player view with the playing track's cover, blurred. Off leaves it plain.",
 			"blur_playlist_header": "Blur playlist headers",
@@ -1039,6 +1100,10 @@
 		"search_go": "Search",
 		"search_reset": "Back to this song",
 		"search_results": "Results for {query}",
+		"text_size": "Text size",
+		"text_size_hint": "Make the lyrics larger or smaller",
+		"text_size_larger": "Larger text",
+		"text_size_smaller": "Smaller text",
 		"translation": "Translation",
 		"translation_hint": "Show the translation some sources add under each line",
 		"about": {
@@ -1114,6 +1179,17 @@
 		"ascending": "ascending",
 		"descending": "descending",
 		"top": "Top voted"
+	},
+	"columns": {
+		"label": "Columns",
+		"choose": "Choose columns",
+		"title": "Title",
+		"album": "Album",
+		"added": "Date added",
+		"by": "Added by",
+		"plays": "Plays",
+		"mine": "Your plays",
+		"duration": "Duration"
 	},
 	"changelog": {
 		"version": "Version {version}",

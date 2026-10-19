@@ -6,11 +6,24 @@
 	import { RefreshIcon, Alert02Icon, NoInternetIcon } from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import { isUnreachable } from '$lib/neterr';
+	import { whenBackOnline } from '$lib/reconnect';
 	import { t } from '$lib/i18n.svelte';
 
 	let { message, onRetry }: { message: string; onRetry: () => void } = $props();
 
 	const offline = $derived(isUnreachable(message));
+
+	// A dead connection fixes itself, so don't wait for the button (#483). Re-registering after
+	// each retry keeps the ladder going on a page whose retry leaves this mounted; a page whose
+	// retry remounts it drops the stale registration in the cleanup.
+	$effect(() => {
+		if (!offline) return;
+		let cancel = whenBackOnline(function again() {
+			onRetry();
+			cancel = whenBackOnline(again);
+		});
+		return () => cancel();
+	});
 	// Anything we can't name keeps its raw text, one size down and muted: it is the only thing a
 	// bug report can carry, and it reads as detail rather than as an alarm.
 	const body = $derived(offline ? t('errors.offline_body') : message);

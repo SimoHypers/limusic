@@ -54,7 +54,7 @@
 	import { auth, initApp, np, playback, prefs, ui } from '$lib/player.svelte';
 	import { isLocalId } from '$lib/api';
 	import { video } from '$lib/video.svelte';
-	import { win, initWin } from '$lib/win.svelte';
+	import { initWin, windowCorners } from '$lib/win.svelte';
 	import { initZoom } from '$lib/zoom.svelte';
 	import { initShortcuts } from '$lib/shortcuts';
 	import { initErrorLog } from '$lib/errlog';
@@ -259,22 +259,16 @@
 	<MiniPlayer />
 {:else}
 	<!-- The window itself is transparent; this root paints the background and, when not maximized,
-	     rounds the corners (the compositor can't round an undecorated window for us). Theater mode
-	     counts as maximized here: it is fullscreen, and rounding it clips the corners of a view that
-	     is meant to reach every edge (#139). With a system frame (win.chrome) the compositor rounds
-	     for us, so ours would only fight it.
-	     12px, not `rounded-lg`: that resolves to --radius, which every theme sets differently, so
-	     the window corner used to change with the theme. This is the GNOME/Adwaita value (#65).
+	     rounds the corners (the compositor can't round an undecorated window for us on Linux).
+	     Theater mode counts as maximized here: it is fullscreen, and rounding it clips the corners
+	     of a view that is meant to reach every edge (#139). With a system frame (win.chrome), or on
+	     Windows 11, the compositor rounds for us, so ours would only fight it (#504).
 	     Invisible while theater mode shows mpv's picture: theater is transparent over the hole, and
 	     the titlebar, sidebar or player bar under it would paint over the video. -->
 	<div
 		class="relative flex h-screen flex-col overflow-hidden text-foreground {video.hole
 			? ''
-			: 'bg-background'} {win.maximized ||
-		ui.theaterOpen ||
-		win.chrome !== 'off'
-			? ''
-			: 'rounded-[12px]'} {ui.theaterOpen && video.hole ? 'invisible' : ''}"
+			: 'bg-background'} {windowCorners()} {ui.theaterOpen && video.hole ? 'invisible' : ''}"
 	>
 		{#if video.hole}
 			<!-- Linux: mpv draws the music video underneath the page (nativevideo.rs), so the page

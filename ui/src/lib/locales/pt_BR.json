@@ -88,7 +88,8 @@
 		"remove_account_title": "Remover do Limusic?",
 		"remove_account_desc": "{name} é removida apenas desta lista. A conta do Google em si não é afetada, e você pode fazer login com ela novamente quando quiser.",
 		"saved_accounts_hint": "Selecione uma conta salva para alternar.",
-		"no_channels": "O YouTube não retornou nenhum canal selecionável."
+		"no_channels": "O YouTube não retornou nenhum canal selecionável.",
+		"stats": "Estatísticas"
 	},
 	"player": {
 		"play": "Tocar",
@@ -190,10 +191,21 @@
 		"sections_hint": "Arraste uma seção para movê-la, ou selecione a alça dela e use as teclas de seta. As seções ocultas mantêm a posição.",
 		"move_section": "Mover {title}",
 		"moved_section": "{title} movida para a posição {position} de {total}",
-		"new_section": "Novo",
-		"show_new": "Mostrar novas seções",
-		"show_new_desc": "O YouTube adiciona e renomeia prateleiras ao longo do tempo. Se estiver desativado, elas chegam ocultas e ficam aguardando aqui até você ativá-las.",
-		"all_hidden": "Tudo na tela inicial está desativado."
+		"all_hidden": "Tudo na tela inicial está desativado.",
+		"kinds": {
+			"listen_again": "Ouvir novamente",
+			"quick_picks": "Escolhas rápidas",
+			"from_library": "Da sua biblioteca",
+			"community": "Da comunidade",
+			"fresh_finds": "Novas descobertas, antigos favoritos",
+			"albums_for_you": "Álbuns para você",
+			"trending": "Músicas em alta para você",
+			"featured_playlists": "Playlists em destaque para você",
+			"new_releases": "Novos lançamentos",
+			"mixed_for_you": "Mix para você",
+			"daily_discover": "Sua descoberta diária",
+			"music_videos": "Videoclipes para você"
+		}
 	},
 	"artist": {
 		"subscribe": "Inscrever-se",
@@ -394,8 +406,6 @@
 			"app_icon_filter": "Imagem PNG",
 			"zoom": "Escala da interface",
 			"zoom_hint": "Redimensiona tudo na janela. Os atalhos de zoom também alteram a escala, e ela fica salva ao reabrir o app.",
-			"stage_player": "Novo layout do player",
-			"stage_player_hint": "O título, o artista e o álbum da música ficam abaixo da capa; a fila e as letras, em uma coluna de altura total; e a tela é iluminada pelas cores da capa. Desativar mantém o layout original.",
 			"mode": "Claro ou escuro",
 			"mode_hint": "A opção Sistema segue a configuração do seu computador e alterna junto com ela.",
 			"mode_light": "Claro",
@@ -407,7 +417,11 @@
 			"preview": "Prévia",
 			"preview_hint": "Os controles deslizantes e o seletor de cores aparecem aqui enquanto você arrasta, e o app acompanha quando você solta.",
 			"blur_playlist_header": "Desfocar cabeçalhos de playlists",
-			"blur_playlist_header_hint": "Mostra a capa da playlist desfocada atrás do cabeçalho. Suaviza capas que ficam pixeladas ao serem esticadas para a largura total."
+			"blur_playlist_header_hint": "Mostra a capa da playlist desfocada atrás do cabeçalho. Suaviza capas que ficam pixeladas ao serem esticadas para a largura total.",
+			"matugen": "Matugen",
+			"matugen_hint": "Use todas as cores, incluindo a de destaque, da paleta que o Matugen cria a partir do seu papel de parede. Configure o modelo do Limusic no Matugen primeiro.",
+			"classic_player": "Layout clássico do player",
+			"classic_player_hint": "A tela original do player: apenas a capa sobre uma cópia desfocada da mesma, com os detalhes da música na barra do player. Desativado usa o novo layout, com o título, artista e álbum abaixo da capa e a tela iluminada pelas cores da capa."
 		},
 		"playback": {
 			"audio_quality": "Qualidade de áudio",
@@ -1202,5 +1216,76 @@
 		"delete_desc": "Isso não pode ser desfeito. Qualquer resposta a ele também será excluída.",
 		"held": "Comentários em {title}",
 		"follow_current": "Mostrar faixa atual"
+	},
+	"stats": {
+		"title": "Estatísticas de reprodução",
+		"ranges": {
+			"week": "7 dias",
+			"month": "30 dias",
+			"year": "12 meses",
+			"all": "Desde o início"
+		},
+		"listened": {
+			"week": "ouvidas nos últimos 7 dias",
+			"month": "ouvidas nos últimos 30 dias",
+			"year": "ouvidas nos últimos 12 meses",
+			"all": "ouvidas desde {date}"
+		},
+		"compared": {
+			"week": "em relação aos 7 dias anteriores",
+			"month": "em relação aos 30 dias anteriores",
+			"year": "em relação aos 12 meses anteriores"
+		},
+		"plays": "Reproduções",
+		"new_songs": "{count} novas",
+		"streak": "Sequência de dias",
+		"best_streak": "Melhor: {count}",
+		"activity": "Atividade de reprodução",
+		"daily_average": "Média diária",
+		"monthly_average": "Média mensal",
+		"busiest_day": "Dia mais ativo",
+		"busiest_month": "Mês mais ativo",
+		"busiest_weekday": "Dia da semana mais ativo",
+		"busiest_hour": "Horário mais ativo",
+		"top_songs": "Músicas mais ouvidas",
+		"top_artists": "Artistas mais ouvidos",
+		"top_albums": "Álbuns mais ouvidos",
+		"share": "{percent} das suas reproduções",
+		"when": "Quando você ouve",
+		"dayparts": {
+			"morning": "Manhã",
+			"afternoon": "Tarde",
+			"evening": "Fim de tarde",
+			"night": "Noite"
+		},
+		"persona": {
+			"morning": "Madrugador",
+			"afternoon": "Ouvinte da tarde",
+			"evening": "Ouvinte do fim de tarde",
+			"night": "Coruja"
+		},
+		"persona_hint": "Você ouve mais entre {from} e {to}.",
+		"less": "Menos",
+		"more": "Mais",
+		"nothing_in_range": "Nada foi reproduzido neste período.",
+		"empty_title": "Suas estatísticas começam aqui",
+		"empty": "Toque algumas músicas e esta página será preenchida com o que você ouve, quando e por quanto tempo.",
+		"on_device": "Contabilizadas neste dispositivo a partir do que você reproduz no Limusic. Nada é enviado para lugar nenhum.",
+		"clear": "Limpar histórico de reprodução",
+		"clear_title": "Limpar histórico de reprodução?",
+		"clear_desc": "Isso apaga todas as reproduções contabilizadas neste dispositivo, então suas estatísticas recomeçam e a lista \"Em repetição\" esvazia. Seu histórico do YouTube Music não é afetado.",
+		"clear_confirm": "Limpar histórico",
+		"cleared": "Histórico de reprodução limpo"
+	},
+	"columns": {
+		"label": "Colunas",
+		"choose": "Escolher colunas",
+		"title": "Título",
+		"album": "Álbum",
+		"added": "Data de adição",
+		"by": "Adicionado por",
+		"plays": "Reproduções",
+		"mine": "Suas reproduções",
+		"duration": "Duração"
 	}
 }

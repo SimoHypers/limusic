@@ -36,6 +36,7 @@ mod romanize;
 mod session;
 mod spotify;
 mod state;
+mod stats;
 #[cfg(target_os = "windows")]
 mod taskbar;
 mod tray;
@@ -1061,6 +1062,7 @@ pub fn run() {
             commands::karaoke_set_cache_limit_mb,
             commands::take_launch_args,
             commands::get_home,
+            commands::network_reachable,
             commands::get_home_more,
             commands::get_comments,
             commands::get_comments_more,
@@ -1082,6 +1084,9 @@ pub fn run() {
             commands::playlist_index,
             commands::sync_playlist_index,
             commands::play_counts,
+            commands::listening_stats,
+            commands::top_artists,
+            commands::clear_listening_history,
             commands::get_album,
             commands::get_blocked_artists,
             commands::block_artist,

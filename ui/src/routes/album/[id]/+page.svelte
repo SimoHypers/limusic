@@ -16,6 +16,8 @@
         BookmarkCheck02Icon,
     } from "@hugeicons/core-free-icons";
     import TrackRow from "$lib/components/TrackRow.svelte";
+    import TrackColumns, { chosen } from "$lib/components/TrackColumns.svelte";
+    import { availableColumns } from "$lib/trackcolumns";
     import TrackSelectionBar from "$lib/components/TrackSelectionBar.svelte";
     import TrackSelectButton from "$lib/components/TrackSelectButton.svelte";
     import { trackSelection } from "$lib/selection.svelte";
@@ -68,6 +70,9 @@
     // The rows actually on screen. Identical to `album.items` with no query typed.
     const shown = $derived(filterTracks(album?.items ?? [], query));
     const selection = trackSelection(() => album?.items ?? [], () => shown, () => `${auth.epoch}:${id}`);
+    // The optional columns (`TrackColumns`). Album is never one here: every row would repeat the title.
+    const availCols = $derived(availableColumns(album?.items ?? [], true));
+    const cols = $derived(availCols.filter((c) => chosen.list.includes(c)));
     // A local album has no YouTube playlist behind it: nothing to save or add to a playlist.
     // Playing, shuffling and Shortcuts all work exactly the same.
     const isLocal = $derived(api.isLocalId(id));
@@ -479,25 +484,32 @@
     <!-- Numbered track list -->
     <div class="content-in p-6 pt-2">
         <TrackSelectionBar {selection} from={album.title} />
-        {#each shown as item, i (JSON.stringify([item.video_id, i]))}
-            <TrackRow
-                song={item}
-                {selection}
-                selectionKey={selection.visibleKeys[i]}
-                index={i}
-                hideThumb
-                showPlayCount
-                active={item.video_id === nowId}
-                onplay={() => playAll(i)}
-                onAdd={() => openAddManyToPlaylist([item])}
-            />
+        {#if shown.length}
+            <!-- A size container: the columns' widths read it (`trackcolumns.ts`). The selection
+                 bar stays outside, `position: fixed` would resolve against it. -->
+            <div class="@container">
+                <TrackColumns available={availCols} columns={cols} selecting={selection.active} />
+                {#each shown as item, i (JSON.stringify([item.video_id, i]))}
+                    <TrackRow
+                        song={item}
+                        {selection}
+                        selectionKey={selection.visibleKeys[i]}
+                        index={i}
+                        hideThumb
+                        columns={cols}
+                        active={item.video_id === nowId}
+                        onplay={() => playAll(i)}
+                        onAdd={() => openAddManyToPlaylist([item])}
+                    />
+                {/each}
+            </div>
         {:else}
             <p class="p-4 text-sm text-muted-foreground">
                 {query.trim()
                     ? t("library.no_matching_tracks", { query: query.trim() })
                     : t("library.empty_album")}
             </p>
-        {/each}
+        {/if}
     </div>
 
     <!-- Other versions of this release, and what sits near it. Ruled off from the tracks so the

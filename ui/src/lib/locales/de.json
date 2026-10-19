@@ -208,9 +208,6 @@
 		"sections_hint": "Ziehe Bereiche, um ihre Reihenfolge zu ändern, oder wähle den Anfasser aus und nutze die Pfeiltasten. Ausgeblendete Bereiche behalten ihre Position.",
 		"move_section": "„{title}“ verschieben",
 		"moved_section": "„{title}“ an Position {position} von {total} verschoben",
-		"new_section": "Neu",
-		"show_new": "Neue Abschnitte anzeigen",
-		"show_new_desc": "YouTube fügt im Laufe der Zeit neue Reihen hinzu oder benennt sie um. Wenn deaktiviert, bleiben neue Abschnitte zunächst ausgeblendet.",
 		"all_hidden": "Auf der Startseite ist derzeit alles ausgeblendet."
 	},
 	"history": {

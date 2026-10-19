@@ -5,6 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getSettings, onUiVisible } from '$lib/api';
 import { setUiVisible } from '$lib/theme.svelte';
 import { invoke } from '@tauri-apps/api/core';
+import { ui } from '$lib/player.svelte';
 
 /** Who draws the window frame. `off` = our custom titlebar owns it (the default), `on` = the
  *  compositor does (the "system title bar" setting, Linux/Windows), `overlay` = macOS traffic
@@ -13,11 +14,24 @@ import { invoke } from '@tauri-apps/api/core';
 export const win = $state({
 	maximized: false,
 	chrome: 'off' as 'off' | 'on' | 'overlay',
+	// The OS rounds our undecorated window itself (Windows 11, `os_corners` in commands.rs, #504).
+	osCorners: false,
 	// Which of our window buttons the desktop's GTK layout names (Linux, `BUTTON_LAYOUT` in
 	// commands.rs, #481). Close always shows.
 	minimize: true,
 	maximize: true
 });
+
+/** The window's corner rounding, as a class. The root layout wears it, and so does every backdrop
+ *  that paints the whole window: those portal to <body>, outside the root's clip, and squared the
+ *  corners off while a dialog was open (#504). Theater mode counts as maximized (#139).
+ *  12px, not `rounded-lg`: that resolves to --radius, which every theme sets differently. This is
+ *  the GNOME/Adwaita value (#65). */
+export function windowCorners(): string {
+	return win.maximized || ui.theaterOpen || win.chrome !== 'off' || win.osCorners
+		? ''
+		: 'rounded-[12px]';
+}
 
 let started = false;
 
@@ -41,6 +55,7 @@ export function initWin(): () => void {
 	getSettings()
 		.then((s) => {
 			if (s.native_chrome === 'on' || s.native_chrome === 'overlay') win.chrome = s.native_chrome;
+			win.osCorners = s.os_corners === 'true';
 			const layout = s.button_layout;
 			if (layout !== undefined) {
 				win.minimize = layout.includes('minimize');

@@ -14,6 +14,7 @@
 	let {
 		title,
 		icon,
+		strokeWidth,
 		onMore,
 		moreLabel,
 		children
@@ -21,6 +22,8 @@
 		title: string;
 		/** Says what the section holds at a glance. Optional: not every section has a kind. */
 		icon?: IconSvgElement;
+		/** The icon's line weight, where a page draws its icons heavier than the default. */
+		strokeWidth?: number;
 		/** Renders the trailing "See all"; the title becomes a second way to click it. */
 		onMore?: () => void;
 		moreLabel?: string;
@@ -35,7 +38,7 @@
 		<!-- Keyed: HugeiconsIcon freezes `icon` at mount, and a shelf can settle on a different kind
 		     once its items arrive. -->
 		{#key icon}
-			<HugeiconsIcon {icon} class="h-5 w-5 shrink-0 text-primary/70" />
+			<HugeiconsIcon {icon} {strokeWidth} class="h-5 w-5 shrink-0 text-primary/70" />
 		{/key}
 	{/if}
 	{#if onMore}

@@ -60,10 +60,10 @@
 	// one open counts as that one panel.
 	let { queueOpen, lyricsOpen }: { queueOpen: boolean; lyricsOpen: boolean } = $props();
 	const tabbed = $derived(appearance.tabbedPlayer);
-	// The two layouts (Settings > Appearance > New player layout). One component, so both share
-	// every behaviour below: the video hole, the backdrop click, the wheel volume, Esc. Only the
-	// markup differs. Off is the original, opt-in while people get used to the new one.
-	const stage = $derived(appearance.stagePlayer);
+	// The two layouts (Settings > Appearance > Classic player layout). One component, so both
+	// share every behaviour below: the video hole, the backdrop click, the wheel volume, Esc. Only
+	// the markup differs. The new one is the default, the original is opt-in.
+	const stage = $derived(!appearance.classicPlayer);
 	// ponytail: mirrors QueuePanel / LyricsPanel's w-80, keep in sync if those change.
 	const panels = $derived(Number(queueOpen) + Number(lyricsOpen));
 	const inset = $derived(['', 'lg:right-80', 'lg:right-[40rem]'][panels]);
@@ -492,9 +492,9 @@
 					     the square has been stretched, and `cover` would throw away a third of its
 					     colour. -->
 					<div
-						in:fade={{ duration: 700 }}
-						style="background-image:url({room.wash});background-size:100% 100%"
-						class="pointer-events-none absolute inset-0 opacity-40 dark:opacity-50"
+						transition:fade={{ duration: 700 }}
+						style="background-image:url({room.wash});background-size:100% 100%;{room.washVars}"
+						class="pointer-events-none absolute inset-0 opacity-[min(0.4,var(--wash-light))] dark:opacity-[min(0.5,var(--wash-dark))]"
 					></div>
 				{/key}
 			{/if}

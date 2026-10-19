@@ -64,7 +64,8 @@
 		"top_result": "Hasil teratas",
 		"all_results_for": "Semua hasil untuk “{query}”",
 		"refresh": "Segarkan",
-		"videos": "Video"
+		"videos": "Video",
+		"restore": "Pulihkan"
 	},
 	"nav": {
 		"home": "Beranda",
@@ -87,7 +88,8 @@
 		"remove_account_title": "Hapus dari Limusic?",
 		"remove_account_desc": "{name} hanya dihapus dari daftar ini. Akun Google itu sendiri tidak terpengaruh, dan Anda dapat masuk kembali kapan saja.",
 		"saved_accounts_hint": "Pilih akun tersimpan untuk beralih ke akun tersebut.",
-		"no_channels": "YouTube tidak mengembalikan saluran yang dapat dipilih."
+		"no_channels": "YouTube tidak mengembalikan saluran yang dapat dipilih.",
+		"stats": "Statistik"
 	},
 	"player": {
 		"play": "Putar",
@@ -150,7 +152,9 @@
 		"edit_scrobble": "Edit scrobble",
 		"back_to": "Kembali ke {title}",
 		"song": "Lagu",
-		"video": "Video"
+		"video": "Video",
+		"comments": "Komentar",
+		"up_next": "Selanjutnya"
 	},
 	"home": {
 		"good_morning": "Selamat pagi",
@@ -187,17 +191,29 @@
 		"sections_hint": "Seret bagian untuk memindahkannya, atau fokuskan pada tombol seret lalu gunakan tombol panah. Bagian yang disembunyikan tetap mempertahankan posisinya.",
 		"move_section": "Pindahkan {title}",
 		"moved_section": "{title} dipindahkan ke posisi {position} dari {total}",
-		"new_section": "Baru",
-		"show_new": "Tampilkan bagian baru",
-		"show_new_desc": "YouTube menambahkan dan mengubah nama rak secara berkala. Jika dinonaktifkan, bagian baru akan disembunyikan sampai Anda mengaktifkannya.",
-		"all_hidden": "Semua konten di beranda dinonaktifkan."
+		"all_hidden": "Semua konten di beranda dinonaktifkan.",
+		"kinds": {
+			"listen_again": "Dengarkan lagi",
+			"quick_picks": "Pilihan cepat",
+			"from_library": "Dari library Anda",
+			"community": "Dari komunitas",
+			"fresh_finds": "Baru ditemukan, favorit lama",
+			"albums_for_you": "Album untuk Anda",
+			"trending": "Lagu populer untuk Anda",
+			"featured_playlists": "Daftar putar pilihan untuk Anda",
+			"new_releases": "Rilis baru",
+			"mixed_for_you": "Campuran untuk Anda",
+			"daily_discover": "Penemuan harian Anda",
+			"music_videos": "Video musik untuk Anda"
+		}
 	},
 	"artist": {
 		"subscribe": "Berlangganan",
 		"subscribed": "Sudah berlangganan",
 		"top_songs": "Lagu teratas",
 		"subscribe_to": "Berlangganan ke {name}",
-		"unsubscribe_from": "Batal berlangganan dari {name}"
+		"unsubscribe_from": "Batal berlangganan dari {name}",
+		"appears_on": "Tampil di"
 	},
 	"library": {
 		"title": "Koleksi",
@@ -261,7 +277,8 @@
 		"suggestions_hint": "Berdasarkan isi daftar putar ini",
 		"suggestions_failed": "Tidak dapat memuat rekomendasi.",
 		"suggestion_add": "Tambahkan {title} ke daftar putar ini",
-		"suggestion_added": "Ditambahkan"
+		"suggestion_added": "Ditambahkan",
+		"saved_in_count": "{count} daftar putar"
 	},
 	"local": {
 		"scanning": "Memindai folder...",
@@ -346,7 +363,9 @@
 			"track_notifications": "Notifikasi lagu",
 			"track_notifications_hint": "Tampilkan notifikasi saat lagu baru dimulai saat Limusic berada di latar belakang.",
 			"start_minimized": "Mulai di baki sistem saat komputer menyala",
-			"start_minimized_hint": "Saat Limusic dimulai bersama sistem, aplikasi tetap berada di baki sistem sampai Anda membukanya. Membuka aplikasi secara manual akan selalu menampilkan jendela."
+			"start_minimized_hint": "Saat Limusic dimulai bersama sistem, aplikasi tetap berada di baki sistem sampai Anda membukanya. Membuka aplikasi secara manual akan selalu menampilkan jendela.",
+			"track_notifications_focused": "Sambil menggunakan Limusic",
+			"track_notifications_focused_hint": "Tampilkan juga notifikasi ketika lagu berikutnya mulai sendiri saat Limusic adalah jendela aktif. Lagu yang Anda pilih sendiri tidak akan menampilkan notifikasi."
 		},
 		"themes": {
 			"interface_font": "Font antarmuka",
@@ -387,8 +406,6 @@
 			"app_icon_filter": "Gambar PNG",
 			"zoom": "Skala antarmuka",
 			"zoom_hint": "Mengubah skala semua elemen jendela. Pintasan zoom juga dapat mengubahnya, dan pilihan akan diingat antar peluncuran.",
-			"stage_player": "Tata letak pemutar baru",
-			"stage_player_hint": "Judul lagu, artis, dan album ditampilkan di bawah sampul, sedangkan antrean dan lirik berada dalam kolom setinggi tampilan. Warna sampul mewarnai tampilan. Nonaktifkan untuk tetap menggunakan tata letak asli.",
 			"mode": "Terang atau gelap",
 			"mode_hint": "Sistem mengikuti pengaturan komputer Anda dan berubah sesuai pengaturan tersebut.",
 			"mode_light": "Terang",
@@ -398,7 +415,13 @@
 			"accent_theme": "Warna aksen bawaan tema",
 			"accent_artwork_note": "Saat lagu diputar, warna aksen diambil dari sampulnya. Nonaktifkan Sesuaikan warna dengan sampul untuk melihat warna ini.",
 			"preview": "Pratinjau",
-			"preview_hint": "Perubahan penggeser dan pemilih warna ditampilkan di sini saat Anda menyeretnya, lalu diterapkan ke aplikasi saat Anda melepasnya."
+			"preview_hint": "Perubahan penggeser dan pemilih warna ditampilkan di sini saat Anda menyeretnya, lalu diterapkan ke aplikasi saat Anda melepasnya.",
+			"blur_playlist_header": "Burmaskan header daftar putar",
+			"blur_playlist_header_hint": "Tampilkan sampul daftar putar yang blur di dietro header-nya. Membuat halus sampul yang terlihat piksel dan diregang ke lebar penuh.",
+			"matugen_hint": "Ambil setiap warna, aksen termasuk, dari palet Matugen yang dibuat dari wallpaper Anda. Siapkan template Limusic di Matugen terlebih dahulu.",
+			"classic_player": "Tata letak pemain klasik",
+			"classic_player_hint": "Tampilan pemain asli: artwork saja di atas salinan blur dari sampul, dengan detail lagu berada di sebelah bilah pemain. Off menggunakan tata letak baru, dengan judul, artis dan album di bawah artwork dan tampilan diterangi oleh warna sampul.",
+			"matugen": "Matugen"
 		},
 		"playback": {
 			"audio_quality": "Kualitas audio",
@@ -449,7 +472,9 @@
 			"lyrics_move_source": "Pindahkan {name}",
 			"lyrics_moved_source": "{name} dipindahkan ke posisi {position} dari {total}",
 			"lyrics_use_source": "Gunakan {name}",
-			"lyrics_sources_none": "Semua sumber dinonaktifkan, sehingga tidak ada lirik yang akan ditemukan."
+			"lyrics_sources_none": "Semua sumber dinonaktifkan, sehingga tidak ada lirik yang akan ditemukan.",
+			"videos_first": "Mainkan video terlebih dahulu",
+			"videos_first_hint": "Lagu album yang memiliki video musik dimulai sebagai videonya. Matikan ini untuk memulai dengan lagu. Tombol Switch Lagu/Video di tampilan pemain menukar keduanya baik seperti itu."
 		},
 		"data": {
 			"clear_cache": "Hapus cache gambar dan stream",
@@ -838,7 +863,8 @@
 		"collapse_sidebar": "Ciutkan bilah samping",
 		"show_artwork": "Tampilkan gambar sampul",
 		"show_video": "Tampilkan video",
-		"zoom": "Skala antarmuka"
+		"zoom": "Skala antarmuka",
+		"close_comments": "Tutup komentar"
 	},
 	"lyrics": {
 		"title": "Lirik",
@@ -971,7 +997,16 @@
 		"could_not_add": "Tidak dapat menambahkan itu, coba buka langsung",
 		"added_to_playlists": "Ditambahkan ke {count} daftar putar",
 		"added_to_playlists_dupes": "Ditambahkan ke {count} daftar putar. Duplikat yang dilewati: {dupes}",
-		"already_in_selected": "Semua lagu sudah ada di daftar putar yang dipilih"
+		"already_in_selected": "Semua lagu sudah ada di daftar putar yang dipilih",
+		"could_not_load_comments": "Tidak dapat memuat komentar",
+		"comment_action_rejected": "YouTube tidak mengirimkan itu. Suara Anda tidak berubah.",
+		"comment_action_failed": "Tidak dapat memperbarui suara Anda. Coba lagi.",
+		"comment_write_rejected": "YouTube tidak menerima itu. Teks Anda masih ada.",
+		"comment_write_failed": "Tidak dapat mengirimkan itu. Teks Anda masih ada.",
+		"comment_write_unconfirmed": "Tidak dapat memverifikasi apakah komentar Anda diposting. Periksa sebelum mengirimkannya lagi.",
+		"comment_posted": "Diposting. Akan muncul pada saat komatan berikutnya dimuat.",
+		"comment_delete_failed": "Tidak dapat menghapus. Periksa koneksi Anda dan coba lagi.",
+		"comment_gone": "Komentar tersebut tidak lagi ada."
 	},
 	"history": {
 		"title": "Riwayat",
@@ -1135,5 +1170,111 @@
 			"cooldown": "YouTube Music meminta Limusic untuk memperlambat proses, sehingga impor dijeda hingga {time}. Semua trek yang telah ditemukan tetap tersimpan."
 		},
 		"paste_link_hint": "Hanya tersedia sebagai video di YouTube? Tempel tautannya."
+	},
+	"comments": {
+		"title": "Komentar",
+		"sort_top": "Teratas",
+		"sort_newest": "Terbaru",
+		"show_replies": "Lihat balasan",
+		"hide_replies": "Sembunyikan balasan",
+		"show_more_replies": "Tampilkan lebih banyak balasan",
+		"load_more": "Muat lebih banyak",
+		"disabled": "Komentar dimatikan atau tidak tersedia untuk lagu ini.",
+		"empty": "Belum ada komentar.",
+		"load_failed": "Tidak dapat memuat komentar.",
+		"retry": "Coba lagi",
+		"pinned": "Disematkan",
+		"hearted": "Disukai oleh pembuat",
+		"verified": "Terverifikasi",
+		"creator": "Pembuat",
+		"artist": "Artis",
+		"show_more": "Tampilkan lebih banyak",
+		"show_less": "Tampilkan lebih sedikit",
+		"vote": "Suara Anda",
+		"like": "Suka",
+		"remove_like": "Hapus suka",
+		"dislike": "Tidak suka",
+		"remove_dislike": "Hapus tidak suka",
+		"reload_needed": "Komentar ini sudah ketinggalan. Muat ulang untuk melanjutkan.",
+		"reload": "Muat ulang",
+		"composer_label": "Tulis komentar",
+		"add_placeholder": "Tambahkan komentar...",
+		"reply_placeholder": "Tambahkan balasan...",
+		"edit_label": "Edit komentar Anda",
+		"reply": "Balas",
+		"delete": "Hapus",
+		"post": "Komentar",
+		"post_reply": "Balas",
+		"save": "Simpan",
+		"sending": "Mengirim...",
+		"delete_title": "Hapus komentar ini?",
+		"delete_desc": "Tidak dapat dibatalkan. Balasan apa pun akan ikut terhapus.",
+		"held": "Komentar pada {title}",
+		"follow_current": "Tampilkan lagu saat ini",
+		"count": "{count} komentar",
+		"count_one": "1 komentar",
+		"replies": "{count} balasan",
+		"replies_one": "1 balasan",
+		"edit": "Sunting"
+	},
+	"stats": {
+		"title": "Statistik dengarkan",
+		"ranges": {
+			"week": "7 hari",
+			"month": "30 hari",
+			"year": "12 bulan",
+			"all": "Semua waktu"
+		},
+		"listened": {
+			"week": "didengar dalam 7 hari terakhir",
+			"month": "didengar dalam 30 hari terakhir",
+			"year": "didengar dalam 12 bulan terakhir",
+			"all": "didengar sejak {date}"
+		},
+		"compared": {
+			"week": "vs. 7 hari sebelumnya",
+			"month": "vs. 30 hari sebelumnya",
+			"year": "vs. 12 bulan sebelumnya"
+		},
+		"plays": "Putaran",
+		"new_songs": "{count} baru",
+		"streak": "Hari beruntun",
+		"best_streak": "Terbaik: {count}",
+		"activity": "Aktivitas mendengar",
+		"daily_average": "Rata-rata harian",
+		"monthly_average": "Rata-rata bulanan",
+		"busiest_day": "Hari paling sibuk",
+		"busiest_month": "Bulan paling sibuk",
+		"busiest_weekday": "Hari paling sibuk dalam seminggu",
+		"busiest_hour": "Jam paling sibuk",
+		"top_songs": "Lagu teratas",
+		"top_artists": "Artis teratas",
+		"top_albums": "Album teratas",
+		"share": "{percent} dari dengaran Anda",
+		"when": "Ketika Anda mendengar",
+		"dayparts": {
+			"morning": "Pagi",
+			"afternoon": "Siang",
+			"evening": "Sore",
+			"night": "Malam"
+		},
+		"persona": {
+			"morning": "Si pagi",
+			"afternoon": "Pendengar siang",
+			"evening": "Pendengar sore",
+			"night": "Pendengar malam"
+		},
+		"persona_hint": "Anda paling sering mendengar antara {from} dan {to}.",
+		"less": "Kurang",
+		"more": "Lebih",
+		"nothing_in_range": "Tidak diputar dalam periode ini.",
+		"empty_title": "Statistik Anda dimulai dari sini",
+		"empty": "Mainkan beberapa lagu dan halaman ini akan terisi dengan apa yang Anda dengarkan, kapan, dan selama berapa lama.",
+		"on_device": "Dihitung pada perangkat ini dari apa yang Anda mainkan di Limusic. Tidak ada yang dikirim ke mana-mana.",
+		"clear": "Hapus riwayat mendengar",
+		"clear_title": "Hapus riwayat mendengar?",
+		"clear_desc": "Hal ini menghapus setiap putaran yang dihitung pada perangkat ini, sehingga statistik Anda dimulai dari awal dan On Repeat dikosongkan. Riwayat YouTube Music Anda tidak disentuh.",
+		"clear_confirm": "Hapus riwayat",
+		"cleared": "Riwayat mendengar telah dihapus"
 	}
 }
