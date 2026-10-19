@@ -4547,14 +4547,15 @@ fn repeat_blocks_top_up(repeat: RepeatMode, radio: bool) -> bool {
 /// Whether a fetched window is for a queue the playing one no longer is. The kind of top-up is
 /// decided from a snapshot taken before the request, and a radio spliced in behind the playing
 /// track swaps the queue's seed and flag without moving the generation. A radio's window is for the
-/// seed it was asked with. Autoplay's follows a queue that was no radio: it carries whatever seed
-/// it was derived from, but must not land in a radio, where its `autoplay` tag would let switching
-/// autoplay off cut rows out of it.
+/// seed it was asked with, and only while the queue is still a radio: a playlist opened on the same
+/// mix id keeps the seed but not the flag. Autoplay's follows a queue that was no radio: it carries
+/// whatever seed it was derived from, but must not land in a radio, where its `autoplay` tag would
+/// let switching autoplay off cut rows out of it.
 fn is_foreign_window(top_up: TopUp, q: &QueueState, seed: &str) -> bool {
     if top_up.autoplay {
         is_radio(q)
     } else {
-        q.radio_seed.as_deref() != Some(seed)
+        is_radio(q) && q.radio_seed.as_deref() == Some(seed)
     }
 }
 
@@ -6035,6 +6036,9 @@ mod tests {
         // Radio B was spliced in while A's window was on the wire, or the radio was dropped.
         assert!(is_foreign_window(RADIO, &q(true, Some("RDAMVMb")), "RDAMVMa"));
         assert!(is_foreign_window(RADIO, &q(false, None), "RDAMVMa"));
+        // The same mix id opened as a chosen playlist keeps the seed but is not the radio the
+        // window was asked for.
+        assert!(is_foreign_window(RADIO, &q(false, Some("RDAMVMa")), "RDAMVMa"));
         // Autoplay's window follows the queue, whatever seed it was derived from.
         assert!(!is_foreign_window(AUTOPLAY, &q(false, Some("RDAMPLPL1")), "RDAMVMlast"));
         assert!(!is_foreign_window(AUTOPLAY, &q(false, None), "RDAMVMlast"));
