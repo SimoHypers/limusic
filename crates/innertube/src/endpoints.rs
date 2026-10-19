@@ -250,21 +250,14 @@ impl InnerTube {
             is_audio_only: true,
         };
         let value = self.post("next", metadata_client, &body, true).await?;
-        let mut next = metadata::parse_next(&value);
-        // The seed itself survives: "start radio from this video" must still open on that video,
-        // and the track already playing is never yanked out from under the user.
-        if self.hide_videos() {
-            next.items.retain(|i| !i.is_video || Some(i.video_id.as_str()) == video_id);
-        }
-        self.drop_blocked_songs(&mut next.items, video_id);
-        Ok(next)
+        Ok(self.finish_next(&value, video_id))
     }
 
     /// The next window of an endless mix/radio via the panel's own continuation token (context/08).
     /// `parse_next` has always extracted that token (`NextResult::continuation`); nothing ever sent
     /// it. Re-requesting the seed from the same anchor answers the same page, so a queue topped up
-    /// only that way stalls where the first panel ends. Same call and filtering as [`Self::next`];
-    /// `seed_video` only spares the anchor from "hide music videos".
+    /// only that way stalls where the first panel ends. Same filtering as [`Self::next`] (both go
+    /// through [`Self::finish_next`]); `seed_video` only spares the anchor from "hide music videos".
     pub async fn radio_continuation(
         &self,
         metadata_client: &YouTubeClient,
@@ -281,12 +274,21 @@ impl InnerTube {
             continuation: token.to_owned(),
         };
         let value = self.post("next", metadata_client, &body, true).await?;
-        let mut page = metadata::parse_next(&value);
+        Ok(self.finish_next(&value, seed_video))
+    }
+
+    /// Parse a `/next` answer and apply the filters both ways of asking for one share: hidden
+    /// music videos (the seed survives, so the track that asked is never yanked) and blocked
+    /// songs.
+    fn finish_next(&self, value: &serde_json::Value, seed_video: Option<&str>) -> NextResult {
+        let mut next = metadata::parse_next(value);
+        // The seed itself survives: "start radio from this video" must still open on that video,
+        // and the track already playing is never yanked out from under the user.
         if self.hide_videos() {
-            page.items.retain(|i| !i.is_video || Some(i.video_id.as_str()) == seed_video);
+            next.items.retain(|i| !i.is_video || Some(i.video_id.as_str()) == seed_video);
         }
-        self.drop_blocked_songs(&mut page.items, seed_video);
-        Ok(page)
+        self.drop_blocked_songs(&mut next.items, seed_video);
+        next
     }
 
     // --- comments. Reads go through `next`: a comments token sent to `browse` is answered with
