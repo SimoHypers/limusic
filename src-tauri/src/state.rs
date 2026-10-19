@@ -388,6 +388,9 @@ struct PrevContext {
     current: usize,
     shuffle_orig: Option<Vec<SongItem>>,
     radio_seed: Option<String>,
+    /// The window the kept radio was following when it was set aside. Restoring asks for the next
+    /// one instead of the seed again, which would repeat its first page.
+    radio_cont: Option<(String, Option<String>)>,
     source_name: Option<String>,
     source_id: Option<String>,
     radio: bool,
@@ -428,6 +431,7 @@ impl QueueState {
             current,
             shuffle_orig: self.shuffle_orig.take(),
             radio_seed: self.radio_seed.take(),
+            radio_cont: self.radio_cont.take(),
             source_name: self.source_name.take(),
             source_id: self.source_id.take(),
             radio: self.radio,
@@ -443,7 +447,7 @@ impl QueueState {
         self.current = prev.current;
         self.shuffle_orig = prev.shuffle_orig;
         self.radio_seed = prev.radio_seed;
-        self.radio_cont = None;
+        self.radio_cont = prev.radio_cont;
         self.source_name = prev.source_name;
         self.source_id = prev.source_id;
         self.radio = prev.radio;
@@ -6180,6 +6184,7 @@ mod tests {
             source_name: Some("Deep cuts".into()),
             source_id: Some("PL1".into()),
             radio_seed: Some("RDAMPLPL1".into()),
+            radio_cont: Some(("RDAMPLPL1".into(), Some("TOK".into()))),
             ..QueueState::default()
         };
 
@@ -6197,6 +6202,11 @@ mod tests {
         assert_eq!(q.current, 1);
         assert_eq!(q.source_id.as_deref(), Some("PL1"));
         assert_eq!(q.radio_seed.as_deref(), Some("RDAMPLPL1"));
+        assert_eq!(
+            q.radio_cont,
+            Some(("RDAMPLPL1".into(), Some("TOK".into()))),
+            "the radio keeps following the window it was on"
+        );
         assert!(q.shuffle_orig.is_some(), "shuffle came back with it");
         assert!(q.prev_context.is_none(), "one level deep: the restore is the end of it");
     }
