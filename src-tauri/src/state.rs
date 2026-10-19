@@ -1316,7 +1316,9 @@ impl AppState {
         // A local file isn't a videoId YouTube has ever heard of: it has no radio, and asking for
         // one offline (where local music earns its keep) is a guaranteed-failing request.
         // Autoplay off means the song plays and the queue ends there (#238): the radio hydrated
-        // below is exactly the "recommended tracks" that setting turns off.
+        // below is exactly the "recommended tracks" that setting turns off. Once hydrated, the
+        // queue *is* that radio: it follows its own token from then on, whatever the setting says
+        // later ([`Self::extend_queue_radio`]).
         let no_radio = crate::local::is_local_song(&video_id) || !self.autoplay_enabled();
         let position = self.current_position();
 
@@ -2714,10 +2716,11 @@ impl AppState {
         };
         match i {
             Some(i) => self.play_index(i).await,
-            // Repeat off at the tail. Autoplay tops the queue up asynchronously (on track start /
-            // track end), so the continuation may simply not have landed yet — fetch it now rather
-            // than leaving Skip a dead button. Still a no-op when autoplay is off, when the user is
-            // a guest, or when the radio returns nothing: there genuinely is no next track then.
+            // Repeat off at the tail. The tail is topped up asynchronously (on track start / track
+            // end), so the continuation may simply not have landed yet — fetch it now rather than
+            // leaving Skip a dead button. Still nothing to do for a guest, for autoplay with the
+            // setting off, or for a radio whose last page was its end: there genuinely is no next
+            // track then.
             None => {
                 let gen = self.generation.load(Ordering::SeqCst);
                 if self.extend_queue_radio(gen).await > 0 {
@@ -3027,9 +3030,11 @@ impl AppState {
     }
 
     /// Top up the queue's tail when it's nearly out. Returns how many tracks were appended.
-    /// Guards: not a guest, repeat Off, generation unchanged across the network call. Dedupes
-    /// against the entire current queue. When nothing new comes back, playback later stops
-    /// exactly as pre-autoplay (no retry loop).
+    /// Guards: not a guest, the generation unchanged across the network call, and the queue not
+    /// under a repeat that owns its tail ([`repeat_blocks_top_up`]: a radio still tops up under
+    /// Repeat One, Repeat All blocks both kinds). Dedupes against the entire current queue. A
+    /// radio follows its token for up to three more windows when a page adds nothing; when the
+    /// chain ends, playback stops exactly as pre-autoplay.
     ///
     /// Two behaviours share this ([`TopUp`]). A **radio** ([`is_radio`]) is endless on its own
     /// account: no setting gates it, it asks for its next window with [`RADIO_TAIL`] tracks left,
