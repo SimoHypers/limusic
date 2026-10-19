@@ -3073,8 +3073,11 @@ impl AppState {
             }
         };
         let cont = (!top_up.autoplay).then_some(page.continuation);
-        let mut added =
-            self.absorb_radio(page.items, gen, &seed, top_up, cont, token.as_deref()).await;
+        let Some(mut added) =
+            self.absorb_radio(page.items, gen, &seed, top_up, cont, token.as_deref()).await
+        else {
+            return 0; // the queue moved on: this window and the token after it are not ours
+        };
         if !top_up.autoplay {
             // A window that added nothing still moved the token on. At the tail nothing else
             // will ask again, so follow it a few times before giving up.
@@ -3087,7 +3090,7 @@ impl AppState {
                 else {
                     break;
                 };
-                added = self
+                let Some(n) = self
                     .absorb_radio(
                         page.items,
                         gen,
@@ -3096,7 +3099,11 @@ impl AppState {
                         Some(page.continuation),
                         Some(t.as_str()),
                     )
-                    .await;
+                    .await
+                else {
+                    break; // a spliced-in radio's token answers for that radio, not this one
+                };
+                added = n;
             }
             return added;
         }
@@ -3118,11 +3125,14 @@ impl AppState {
         let Ok((fresh, seed, _)) = self.fetch_radio(Some(&last_video), &song_seed).await else {
             return 0;
         };
-        self.absorb_radio(fresh, gen, &seed, AUTOPLAY, None, None).await
+        self.absorb_radio(fresh, gen, &seed, AUTOPLAY, None, None).await.unwrap_or(0)
     }
 
     /// Append a fetched radio page to the tail of the queue and run the bookkeeping that follows.
-    /// Returns how many tracks landed. The generation check lives here because every caller was on
+    /// Returns how many tracks landed, or `None` when the window belongs to a queue the playing one
+    /// no longer is: a newer load, or a radio spliced in behind the playing track, which changes
+    /// the seed without moving the generation. The caller stops then instead of following a
+    /// sequence that isn't its own. The generation check lives here because every caller was on
     /// the network right before it.
     async fn absorb_radio(
         self: &std::sync::Arc<Self>,
@@ -3132,15 +3142,15 @@ impl AppState {
         top_up: TopUp,
         cont: Option<Option<String>>,
         from_token: Option<&str>,
-    ) -> usize {
+    ) -> Option<usize> {
         if self.generation.load(Ordering::SeqCst) != gen {
-            return 0; // user moved on while we fetched
+            return None; // user moved on while we fetched
         }
         // Switched off while we fetched: `autoplay_changed` has already cleared the tail, and
         // appending now would put back the tracks the switch just took away. A radio isn't
         // autoplay's to take away.
         if top_up.autoplay && !self.autoplay_enabled() {
-            return 0;
+            return Some(0);
         }
         // Before the cap: the batch that lands is the songs you haven't heard, when there are any.
         self.freshen_radio(&mut fresh);
@@ -3149,7 +3159,7 @@ impl AppState {
             // The window was asked for a queue the playing one may no longer be: a radio spliced in
             // behind the playing track swaps it without moving the generation checked above.
             if is_foreign_window(top_up, &q, seed) {
-                return 0;
+                return None;
             }
             // What the window said about the next one (`None`: that was the end of the radio), kept
             // in the same breath as the append so a window fetched but not appended is never skipped
@@ -3198,7 +3208,7 @@ impl AppState {
             // "current was last, nothing was primed" case.
             self.prime_lookahead(gen).await;
         }
-        added
+        Some(added)
     }
 
     /// Persist the queue so a restart can restore it losslessly (context/11 §state). Called
