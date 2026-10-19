@@ -44,6 +44,8 @@ impl Drop for TmpWavGuard {
 }
 
 /// [`prepare_instrumental_with_limit`] with the standard [`crate::jobs::MAX_TRACK_SECS`] cap.
+// Pipeline requires multiple configuration and dependency parameters.
+#[allow(clippy::too_many_arguments)]
 pub fn prepare_instrumental(
     cache: &InstrumentalCache,
     track_id: &str,
@@ -70,6 +72,7 @@ pub fn prepare_instrumental(
 /// Decodes, separates and caches `track_id`. Refuses with [`crate::jobs::TOO_LONG`] decoded audio
 /// longer than `max_secs` (the decoder is told to stop just past it, so this holds when the
 /// metadata duration was missing too).
+// Pipeline requires multiple configuration and dependency parameters.
 #[allow(clippy::too_many_arguments)]
 pub fn prepare_instrumental_with_limit(
     cache: &InstrumentalCache,
@@ -202,10 +205,8 @@ pub fn prepare_instrumental_with_limit(
 
     let start_encode = std::time::Instant::now();
     let result_path = cache.path_for(track_id);
-    let write_res = write_cached(
-        &result_path,
-        &Pcm { sample_rate: 44100, channels: [sep_l, sep_r] },
-    );
+    let write_res =
+        write_cached(&result_path, &Pcm { sample_rate: 44100, channels: [sep_l, sep_r] });
     let encode_ms = start_encode.elapsed().as_millis();
     tracing::debug!(target: "karaoke::pipeline", video_id = %track_id, encode_ms, "karaoke stage encode");
 
@@ -223,7 +224,7 @@ pub fn prepare_instrumental_with_limit(
         return Err(e);
     }
 
-    let _ = cache.evict(&[result_path.clone()]);
+    let _ = cache.evict(std::slice::from_ref(&result_path));
 
     let total_ms = start_total.elapsed().as_millis();
     let rtf = if audio_seconds > 0.0 { (total_ms as f64 / 1000.0) / audio_seconds } else { 0.0 };

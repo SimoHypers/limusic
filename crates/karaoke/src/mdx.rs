@@ -226,14 +226,12 @@ impl MdxModel {
             let n = end - start;
             let mut chunk_l = vec![0.0f32; chunk_size];
             let mut chunk_r = vec![0.0f32; chunk_size];
-            for k in 0..n {
-                chunk_l[k] = mixture_l[start + k];
-                chunk_r[k] = mixture_r[start + k];
-            }
+            chunk_l[..n].copy_from_slice(&mixture_l[start..start + n]);
+            chunk_r[..n].copy_from_slice(&mixture_r[start..start + n]);
 
             let mut w = vec![0.0f32; n];
-            for k in 0..n {
-                w[k] = if overlap > 0.0 {
+            for (k, item) in w.iter_mut().enumerate() {
+                *item = if overlap > 0.0 {
                     if n == 1 {
                         1.0
                     } else {
@@ -315,8 +313,9 @@ impl MdxModel {
             for t in 0..dim_t {
                 for b in 0..n_bins {
                     let (re_l, im_l, re_r, im_r) = if b < dim_f {
-                        let idx_l_re = ((0 * dim_f + b) * dim_t) + t;
-                        let idx_l_im = ((1 * dim_f + b) * dim_t) + t;
+                        // Channel layout: re_L, im_L, re_R, im_R
+                        let idx_l_re = (b * dim_t) + t;
+                        let idx_l_im = ((dim_f + b) * dim_t) + t;
                         let idx_r_re = ((2 * dim_f + b) * dim_t) + t;
                         let idx_r_im = ((3 * dim_f + b) * dim_t) + t;
                         (pred[idx_l_re], pred[idx_l_im], pred[idx_r_re], pred[idx_r_im])
@@ -388,8 +387,8 @@ mod tests {
         for &(start, end) in &chunks {
             let n = end - start;
             let mut w = vec![0.0f32; n];
-            for k in 0..n {
-                w[k] = if overlap > 0.0 {
+            for (k, item) in w.iter_mut().enumerate() {
+                *item = if overlap > 0.0 {
                     if n == 1 {
                         1.0
                     } else {
@@ -400,19 +399,13 @@ mod tests {
                     1.0
                 };
             }
-            for k in 0..n {
-                divider[start + k] += w[k];
+            for (k, &wk) in w.iter().enumerate() {
+                divider[start + k] += wk;
             }
         }
 
         let total_chunks = chunks.len();
-        let mut all_covered = true;
-        for i in trim..(trim + l) {
-            if divider[i] < 1e-6 {
-                all_covered = false;
-                break;
-            }
-        }
+        let all_covered = divider[trim..(trim + l)].iter().all(|&v| v >= 1e-6);
 
         (total_chunks, all_covered)
     }

@@ -2834,7 +2834,9 @@ pub async fn karaoke_model_status(
 ) -> Result<crate::karaoke_model::ModelStatus, String> {
     let manager = app.state::<Arc<crate::karaoke_model::ModelManager>>().inner().clone();
     let id = match model {
-        Some(ref key) => karaoke::models::ModelId::from_key(key).ok_or_else(|| "unknown model".to_string())?,
+        Some(ref key) => {
+            karaoke::models::ModelId::from_key(key).ok_or_else(|| "unknown model".to_string())?
+        }
         None => karaoke::models::ModelId::DEFAULT,
     };
     tauri::async_runtime::spawn_blocking(move || manager.status(id))
@@ -2851,7 +2853,8 @@ pub async fn karaoke_model_download(
     manager: State<'_, Arc<crate::karaoke_model::ModelManager>>,
     model: String,
 ) -> Result<(), String> {
-    let id = karaoke::models::ModelId::from_key(&model).ok_or_else(|| "unknown model".to_string())?;
+    let id =
+        karaoke::models::ModelId::from_key(&model).ok_or_else(|| "unknown model".to_string())?;
     let mgr = manager.inner().clone();
     let engine = engine.inner().clone();
     let state = state.inner().clone();
@@ -2883,7 +2886,8 @@ pub async fn karaoke_model_delete(
     app: tauri::AppHandle,
     model: String,
 ) -> Result<(), String> {
-    let id = karaoke::models::ModelId::from_key(&model).ok_or_else(|| "unknown model".to_string())?;
+    let id =
+        karaoke::models::ModelId::from_key(&model).ok_or_else(|| "unknown model".to_string())?;
     let engine = engine.inner().clone();
     let manager = manager.inner().clone();
 
@@ -2897,10 +2901,7 @@ pub async fn karaoke_model_delete(
         .await
         .map_err(|e| karaoke::sanitize_error(&e.to_string()))??;
 
-    let _ = app.emit(
-        "karaoke-model",
-        serde_json::json!({ "model": model, "state": "deleted" }),
-    );
+    let _ = app.emit("karaoke-model", serde_json::json!({ "model": model, "state": "deleted" }));
     Ok(())
 }
 
@@ -2968,8 +2969,8 @@ pub async fn karaoke_model_set(
     engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
     model: String,
 ) -> Result<String, String> {
-    let id = karaoke::models::ModelId::from_key(&model)
-        .ok_or_else(|| "unknown model".to_string())?;
+    let id =
+        karaoke::models::ModelId::from_key(&model).ok_or_else(|| "unknown model".to_string())?;
     crate::state::set_saved_karaoke_model(&state.db, id);
     let engine = engine.inner().clone();
     let model_key = id.key();

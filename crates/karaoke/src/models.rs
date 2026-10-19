@@ -129,17 +129,11 @@ mod tests {
             }
 
             assert!(keys.insert(spec.key), "Duplicate key: {}", spec.key);
-            assert!(
-                file_names.insert(spec.file_name),
-                "Duplicate file_name: {}",
-                spec.file_name
-            );
+            assert!(file_names.insert(spec.file_name), "Duplicate file_name: {}", spec.file_name);
 
             assert_eq!(spec.sha256.len(), 64);
             assert!(
-                spec.sha256
-                    .chars()
-                    .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+                spec.sha256.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
                 "SHA256 not lowercase hex: {}",
                 spec.sha256
             );

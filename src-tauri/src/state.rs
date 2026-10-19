@@ -2232,7 +2232,8 @@ impl AppState {
             .map(|(_, pos)| pos);
         let stream_url = mpv_stream_url(&data);
         let dur_secs = parse_duration_ms(item.duration.as_deref()) / 1000;
-        let req = karaoke_prepare_request(&item.video_id, stream_url.clone(), &data.headers, dur_secs);
+        let req =
+            karaoke_prepare_request(&item.video_id, stream_url.clone(), &data.headers, dur_secs);
         let play_u = self.play_url(PinSlot::Current, &item.video_id, &stream_url);
         let is_karaoke = play_u != stream_url;
         // `load` replaces mpv's playlist: nothing is queued next any more.
@@ -2432,7 +2433,12 @@ impl AppState {
                                     .unwrap_or(false)
                             };
                             if same2 {
-                                req2 = Some(karaoke_prepare_request(&next2_video, stream_url2, &d2.headers, next2_secs));
+                                req2 = Some(karaoke_prepare_request(
+                                    &next2_video,
+                                    stream_url2,
+                                    &d2.headers,
+                                    next2_secs,
+                                ));
                             }
                         }
                     }
@@ -2600,7 +2606,8 @@ impl AppState {
         let pos = self.current_position();
         let stream_url = mpv_stream_url(&data);
         let dur_secs = parse_duration_ms(item.duration.as_deref()) / 1000;
-        let req = karaoke_prepare_request(&item.video_id, stream_url.clone(), &data.headers, dur_secs);
+        let req =
+            karaoke_prepare_request(&item.video_id, stream_url.clone(), &data.headers, dur_secs);
         let engine_model = self.karaoke_engine().map(|e| e.model());
         let play_u = self.play_url(PinSlot::Current, &item.video_id, &stream_url);
         let is_karaoke = play_u != stream_url;
@@ -2612,7 +2619,9 @@ impl AppState {
         let already_loaded = {
             let q = self.queue.lock().await;
             self.player.current_path().as_deref() == Some(&play_u)
-                || (q.current_is_karaoke && q.current_karaoke_model == engine_model && q.items.get(q.current).map_or(false, |i| i.video_id == item.video_id))
+                || (q.current_is_karaoke
+                    && q.current_karaoke_model == engine_model
+                    && q.items.get(q.current).map_or(false, |i| i.video_id == item.video_id))
         };
         if already_loaded {
             let mut q = self.queue.lock().await;
@@ -2688,7 +2697,8 @@ impl AppState {
                 let q = self.queue.lock().await;
                 self.karaoke_push_wants(&q);
                 q.items.get(q.current).map_or(false, |item| {
-                    (!q.current_is_karaoke || q.current_karaoke_model != Some(engine.model())) && engine.ready_path(&item.video_id).is_some()
+                    (!q.current_is_karaoke || q.current_karaoke_model != Some(engine.model()))
+                        && engine.ready_path(&item.video_id).is_some()
                 })
             };
             if should_reload {
@@ -2848,7 +2858,10 @@ impl AppState {
             return;
         }
         let engine_model = self.karaoke_engine().map(|e| e.model());
-        let already_loaded = self.karaoke_engine().and_then(|e| e.ready_path(video_id)).map_or(false, |p| self.player.current_path().as_deref() == Some(p.to_str().unwrap_or("")));
+        let already_loaded =
+            self.karaoke_engine().and_then(|e| e.ready_path(video_id)).map_or(false, |p| {
+                self.player.current_path().as_deref() == Some(p.to_str().unwrap_or(""))
+            });
         if already_loaded {
             return;
         }
@@ -2860,7 +2873,8 @@ impl AppState {
             let primed = q.lookahead_loaded.is_some();
             let current_matches = current_id == Some(video_id)
                 && (!q.current_is_karaoke || q.current_karaoke_model != engine_model);
-            let _next_matches = next_id == Some(video_id) && primed
+            let _next_matches = next_id == Some(video_id)
+                && primed
                 && (!q.lookahead_is_karaoke || q.lookahead_karaoke_model != engine_model);
             (
                 current_matches,
@@ -2903,9 +2917,7 @@ impl AppState {
         }
         let next_info = {
             let q = self.queue.lock().await;
-            q.lookahead_loaded.and_then(|idx| {
-                q.items.get(idx).map(|i| (idx, i.video_id.clone()))
-            })
+            q.lookahead_loaded.and_then(|idx| q.items.get(idx).map(|i| (idx, i.video_id.clone())))
         };
         if let Some((_idx, next_vid)) = next_info {
             if engine.ready_path(&next_vid).is_some() {

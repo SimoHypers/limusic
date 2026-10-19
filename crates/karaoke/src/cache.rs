@@ -226,7 +226,7 @@ impl InstrumentalCache {
         }
 
         // Sort by modified time ascending (oldest first)
-        files.sort_by(|a, b| a.2.cmp(&b.2));
+        files.sort_by_key(|a| a.2);
 
         let mut current_size: u64 = files.iter().map(|f| f.1).sum();
         let mut freed_bytes = 0;
@@ -353,7 +353,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(10));
         fs::write(&p2, b"12345678901234567890")?;
 
-        cache.evict(&[p1.clone()])?;
+        cache.evict(std::slice::from_ref(&p1))?;
 
         assert!(p1.exists(), "p1 should be kept because it was specified in keep");
         assert!(!p2.exists(), "p2 should be evicted");
@@ -558,7 +558,7 @@ mod tests {
 
         cache.set_model("kara");
         assert!(cache.contains("track1"));
-        assert_eq!(fs::read_to_string(&cache.path_for("track1"))?, "kara audio");
+        assert_eq!(fs::read_to_string(cache.path_for("track1"))?, "kara audio");
 
         cache.set_model("inst_hq_3");
         assert_eq!(cache.total_size() as usize, "kara audio".len() + "inst audio".len());

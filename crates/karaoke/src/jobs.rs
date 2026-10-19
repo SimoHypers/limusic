@@ -104,6 +104,10 @@ impl DesiredSet {
         self.items.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
     pub fn ids(&self) -> Vec<String> {
         self.items.iter().map(|i| i.video_id.clone()).collect()
     }
@@ -130,7 +134,8 @@ pub struct RetryTracker {
 
 impl RetryTracker {
     pub fn on_failure(&mut self, id: &str, url: &str, now: Instant) {
-        let entry = self.entries.entry(id.to_string()).or_insert((0, RetryState::Active, url.to_string()));
+        let entry =
+            self.entries.entry(id.to_string()).or_insert((0, RetryState::Active, url.to_string()));
         entry.2 = url.to_string();
         entry.0 += 1;
         let attempts = entry.0;

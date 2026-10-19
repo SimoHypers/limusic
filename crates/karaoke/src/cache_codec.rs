@@ -69,8 +69,7 @@ pub fn write_cached(path: &Path, pcm: &Pcm) -> Result<()> {
     };
 
     fs::write(&tmp_path, bv.as_slice()).context("Failed to write temporary cache file")?;
-    fs::rename(&tmp_path, path)
-        .context("Failed to rename temporary cache file to target")?;
+    fs::rename(&tmp_path, path).context("Failed to rename temporary cache file to target")?;
     Ok(())
 }
 

@@ -134,10 +134,8 @@ impl ModelManager {
     pub async fn download(&self, app: &AppHandle, id: ModelId) -> Result<(), String> {
         let spec = id.spec();
         if self.is_installed(id) {
-            let _ = app.emit(
-                "karaoke-model",
-                serde_json::json!({ "model": spec.key, "state": "ready" }),
-            );
+            let _ = app
+                .emit("karaoke-model", serde_json::json!({ "model": spec.key, "state": "ready" }));
             return Ok(());
         }
 

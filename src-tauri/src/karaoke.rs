@@ -121,10 +121,7 @@ impl Drop for WorkerExit {
         self.ctx.board.set_enabled(false);
         tracing::error!(target: "app_lib::karaoke", "karaoke worker stopped; karaoke unavailable");
         let _ = self.ctx.app.emit("karaoke", false);
-        let _ = self.ctx.app.emit(
-            "karaoke-status",
-            &serde_json::json!({ "state": "error" }),
-        );
+        let _ = self.ctx.app.emit("karaoke-status", &serde_json::json!({ "state": "error" }));
         let _ = self.ctx.app.emit("karaoke-queue", &serde_json::json!({ "slots": [] }));
     }
 }
@@ -544,11 +541,13 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
             unload(&mut model, "error", &ctx.loaded_model);
             loaded_model_id = None;
             if !notified_needs_model {
-                let _ =
-                    ctx.app.emit("karaoke-status", &serde_json::json!({
+                let _ = ctx.app.emit(
+                    "karaoke-status",
+                    &serde_json::json!({
                         "state": "needs-model",
                         "model": selected.key()
-                    }));
+                    }),
+                );
                 notified_needs_model = true;
             }
             ctx.board.with(|s| s.desired.clear());
@@ -606,7 +605,8 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
                     ctx.processor.store(processor, Ordering::SeqCst);
                     model = Some(m);
                     loaded_model_id = Some(selected);
-                    *ctx.loaded_model.lock().unwrap_or_else(PoisonError::into_inner) = Some(selected);
+                    *ctx.loaded_model.lock().unwrap_or_else(PoisonError::into_inner) =
+                        Some(selected);
                 }
                 Err(e) => {
                     let msg = karaoke::sanitize_error(&e.to_string());
