@@ -316,7 +316,8 @@ struct QueueState {
     /// is actually playing. `None` for radios, single songs and a mirrored guest queue.
     source_id: Option<String>,
     /// This queue is a radio: YouTube generated every upcoming track, so "Add to queue" goes ahead
-    /// of them rather than behind a feed the user never asked to finish ([`enqueue_at`]).
+    /// of them rather than behind a feed the user never asked to finish ([`enqueue_at`], which
+    /// pairs the flag with a pinned seed through [`is_radio`]).
     radio: bool,
     /// Where this radio stands, tagged with the seed it is about ([`radio_token`] and
     /// [`radio_exhausted`] only read it while that is still the queue's seed):
@@ -4344,7 +4345,7 @@ fn track_to_song(t: &Track) -> SongItem {
 /// adds right after the playing track instead.
 fn enqueue_at(q: &QueueState) -> usize {
     let start = (q.current + 1).min(q.items.len());
-    if q.radio {
+    if is_radio(q) {
         let mut at = start;
         while q.items.get(at).is_some_and(|i| i.queued || i.queued_end) {
             at += 1;
@@ -5684,9 +5685,20 @@ mod tests {
             items: vec![song("r1", None), added("x1"), song("r2", None), song("r3", None)],
             current: 0,
             radio: true,
+            radio_seed: Some("RDAMVMr1".into()),
             ..QueueState::default()
         };
         assert_eq!(enqueue_at(&q), 2);
+
+        // The flag without a pinned seed is not a radio (`is_radio`): no generated tail is
+        // promised, so the add goes to the tail like a playlist's.
+        let q = QueueState {
+            items: vec![song("r1", None), song("r2", None), added("x1")],
+            current: 0,
+            radio: true,
+            ..QueueState::default()
+        };
+        assert_eq!(enqueue_at(&q), 3);
 
         // Nothing after the playing track: appended, not out of bounds.
         let q = QueueState { items: vec![song("a", None)], current: 0, ..QueueState::default() };
