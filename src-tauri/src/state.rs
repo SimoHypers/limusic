@@ -3045,41 +3045,9 @@ impl AppState {
         let autoplay_on = self.autoplay_enabled();
         let (last_video, seed, token, top_up) = {
             let mut q = self.queue.lock().await;
-            if q.hydrating == Some(gen) {
-                // This queue's own `play_song` is already fetching its radio (#255). Keyed to the
-                // generation: a marker left by a queue that has since been replaced (`play_index`
-                // and the other load paths bump the generation without clearing it) must not stop
-                // the new queue from topping itself up.
-                return 0;
-            }
-            if q.topping_up == Some(gen) {
-                // This queue's own top-up is already on the wire. Keyed to the generation for the
-                // same reason as `hydrating`: a newer queue has to be free to ask.
-                return 0;
-            }
-            let radio = is_radio(&q);
-            if repeat_blocks_top_up(q.repeat, radio) {
-                return 0; // the queue never exhausts under repeat
-            }
-            if !radio && !autoplay_on {
-                return 0;
-            }
-            if radio && radio_exhausted(&q) {
-                return 0; // its last page was its end; asking again answers the same one
-            }
-            if !wants_top_up(q.items.len(), q.current, radio) {
-                return 0; // tail not near yet
-            }
-            let Some(last) = q.items.last() else { return 0 };
-            // Nothing to continue from when the queue ends on a local file: its path is not a
-            // videoId, and a queue of local music is exactly the case that has to work offline.
-            if q.radio_seed.is_none() && crate::local::is_local_song(&last.video_id) {
-                return 0;
-            }
-            let seed = q.radio_seed.clone().unwrap_or_else(|| format!("RDAMVM{}", last.video_id));
-            let token = if radio { radio_token(&q) } else { None };
+            let Some(plan) = plan_top_up(&q, gen, autoplay_on) else { return 0 };
             q.topping_up = Some(gen);
-            (last.video_id.clone(), seed, token, if radio { RADIO } else { AUTOPLAY })
+            plan
         };
         let added = self.follow_top_up(gen, &last_video, &seed, token, top_up).await;
         self.end_top_up(gen).await;
@@ -4600,6 +4568,48 @@ fn radio_exhausted(q: &QueueState) -> bool {
     matches!(&q.radio_cont, Some((seed, None)) if q.radio_seed.as_deref() == Some(seed.as_str()))
 }
 
+/// What [`AppState::extend_queue_radio`] should ask for, if anything: `(anchor, seed, token,
+/// kind)`. Pure, so every guard that decides whether the tail is worth a request is testable
+/// without a queue, a client or a network.
+fn plan_top_up(
+    q: &QueueState,
+    gen: u64,
+    autoplay_on: bool,
+) -> Option<(String, String, Option<String>, TopUp)> {
+    // This queue's own `play_song` is already fetching its radio (#255). Keyed to the generation:
+    // a marker left by a queue that has since been replaced (`play_index` and the other load paths
+    // bump the generation without clearing it) must not stop the new queue from topping itself up.
+    if q.hydrating == Some(gen) {
+        return None;
+    }
+    // Same keying for the queue's own top-up already on the wire.
+    if q.topping_up == Some(gen) {
+        return None;
+    }
+    let radio = is_radio(q);
+    if repeat_blocks_top_up(q.repeat, radio) {
+        return None; // the queue never exhausts under repeat
+    }
+    if !radio && !autoplay_on {
+        return None;
+    }
+    if radio && radio_exhausted(q) {
+        return None; // its last page was its end; asking again answers the same one
+    }
+    if !wants_top_up(q.items.len(), q.current, radio) {
+        return None; // tail not near yet
+    }
+    let last = q.items.last()?;
+    // Nothing to continue from when the queue ends on a local file: its path is not a videoId,
+    // and a queue of local music is exactly the case that has to work offline.
+    if q.radio_seed.is_none() && crate::local::is_local_song(&last.video_id) {
+        return None;
+    }
+    let seed = q.radio_seed.clone().unwrap_or_else(|| format!("RDAMVM{}", last.video_id));
+    let token = if radio { radio_token(q) } else { None };
+    Some((last.video_id.clone(), seed, token, if radio { RADIO } else { AUTOPLAY }))
+}
+
 /// Whether `q`'s radio still stands where a window asked with `from_token` started: still on that
 /// token, or (`None`: asked from the seed) with no page of it seen yet. More than one top-up can be
 /// in flight, and a slower response landing after a newer one would otherwise rewind the sequence —
@@ -5070,8 +5080,8 @@ mod tests {
         adopt_twin, append_page, backfill_metadata, cache_horizon, drop_duplicates, enqueue_at,
         format_duration, freshen, get_url, guest_insert_index, history_threshold,
         is_foreign_window, is_mix, is_radio, loudness_gain, merge_radio, next_index,
-        parse_duration_ms, persist_fingerprint, prefer_version, prev_track_title, put_url,
-        queue_fingerprint, radio_exhausted, radio_install, radio_seed_for, radio_token,
+        parse_duration_ms, persist_fingerprint, plan_top_up, prefer_version, prev_track_title,
+        put_url, queue_fingerprint, radio_exhausted, radio_install, radio_seed_for, radio_token,
         repeat_blocks_top_up, retain_upcoming, shuffle_new_queue, shuffle_upcoming,
         splice_radio_into, swap_version, trim_played, twin_position, unshuffled, upcoming_queued,
         wants_top_up, window_still_current, QueueState, RepeatMode, VideoUrls, AUTOPLAY,
@@ -6038,6 +6048,107 @@ mod tests {
         // A playlist's seed is `RDAMPL…`, autoplay's radio and not the queue itself.
         assert!(!is_radio(&q(false, Some("RDAMPLPL123"))));
         assert!(!is_radio(&q(false, None)));
+    }
+
+    // The tail's owner decides whether it is asked for. A radio does it on its own account, even
+    // with autoplay off; a picked queue only while the setting is on.
+    #[test]
+    fn a_radio_tops_itself_up_with_autoplay_off() {
+        let radio = QueueState {
+            items: vec![song("a", None), song("b", None)],
+            radio: true,
+            radio_seed: Some("RDAMVMa".into()),
+            ..QueueState::default()
+        };
+        let (anchor, seed, token, top_up) =
+            plan_top_up(&radio, 1, false).expect("a radio has no setting over it");
+        assert_eq!((anchor.as_str(), seed.as_str(), token), ("b", "RDAMVMa", None));
+        assert!(!top_up.autoplay);
+
+        let picked =
+            QueueState { items: vec![song("a", None), song("b", None)], ..QueueState::default() };
+        assert!(plan_top_up(&picked, 1, false).is_none(), "the setting owns a picked tail");
+        let (_, seed, token, top_up) =
+            plan_top_up(&picked, 1, true).expect("autoplay continues it");
+        assert_eq!((seed.as_str(), token), ("RDAMVMb", None));
+        assert!(top_up.autoplay);
+    }
+
+    #[test]
+    fn a_queue_is_asked_for_its_tail_once() {
+        let q = |hydrating, topping_up| QueueState {
+            items: vec![song("a", None), song("b", None)],
+            radio: true,
+            radio_seed: Some("RDAMVMa".into()),
+            hydrating,
+            topping_up,
+            ..QueueState::default()
+        };
+        assert!(plan_top_up(&q(Some(7), None), 7, true).is_none(), "play_song is hydrating");
+        assert!(plan_top_up(&q(None, Some(7)), 7, true).is_none(), "a top-up is on the wire");
+        // Both markers are keyed to the generation: a queue that replaced that one asks freely.
+        assert!(plan_top_up(&q(Some(7), Some(7)), 8, true).is_some());
+    }
+
+    #[test]
+    fn a_finished_radio_is_not_asked_again() {
+        use RepeatMode::{All, One};
+        let radio = |cont: Option<(&str, Option<&str>)>| QueueState {
+            items: vec![song("a", None), song("b", None)],
+            radio: true,
+            radio_seed: Some("RDAMVMa".into()),
+            radio_cont: cont.map(|(seed, token)| (seed.to_owned(), token.map(str::to_owned))),
+            ..QueueState::default()
+        };
+        // Asked, and that page was the end: nothing left to follow or to ask.
+        assert!(plan_top_up(&radio(Some(("RDAMVMa", None))), 1, true).is_none());
+        // Never asked (a restored queue): the first top-up asks from the seed.
+        let (_, seed, token, _) = plan_top_up(&radio(None), 1, true).expect("not asked yet");
+        assert_eq!((seed.as_str(), token), ("RDAMVMa", None));
+        // Following a token.
+        let (_, _, token, _) = plan_top_up(&radio(Some(("RDAMVMa", Some("TOK")))), 1, true)
+            .expect("follows the window it is on");
+        assert_eq!(token.as_deref(), Some("TOK"));
+        // A token issued for another seed is not this radio's: ask from the seed again.
+        let (_, seed, token, _) = plan_top_up(&radio(Some(("RDAMVMold", Some("TOK")))), 1, true)
+            .expect("a stale token is no ending");
+        assert_eq!((seed.as_str(), token), ("RDAMVMa", None));
+        // Repeat One is a radio's to keep; repeat All owns the tail.
+        let mut q = radio(Some(("RDAMVMa", Some("TOK"))));
+        q.repeat = One;
+        assert!(plan_top_up(&q, 1, true).is_some());
+        q.repeat = All;
+        assert!(plan_top_up(&q, 1, true).is_none());
+    }
+
+    #[test]
+    fn a_local_tail_is_not_continued_and_the_rest_waits_for_the_tail() {
+        let mut q = QueueState {
+            items: (0..10).map(|i| song(&format!("v{i}"), None)).collect(),
+            current: 0,
+            radio: true,
+            radio_seed: Some("RDAMVMx".into()),
+            ..QueueState::default()
+        };
+        assert!(plan_top_up(&q, 1, true).is_none(), "nine tracks behind it are plenty");
+        q.current = 5; // four left behind the playing one
+        assert!(plan_top_up(&q, 1, true).is_some());
+        // Autoplay waits for the last two, counting the playing one.
+        let mut q = QueueState {
+            items: (0..4).map(|i| song(&format!("v{i}"), None)).collect(),
+            current: 0,
+            ..QueueState::default()
+        };
+        assert!(plan_top_up(&q, 1, true).is_none());
+        q.current = 2;
+        assert!(plan_top_up(&q, 1, true).is_some());
+        // A queue that ends on a local file has no videoId to ask YouTube from; a pinned seed
+        // still has one.
+        let mut q =
+            QueueState { items: vec![song("LOCAL:/music/a.flac", None)], ..QueueState::default() };
+        assert!(plan_top_up(&q, 1, true).is_none());
+        q.radio_seed = Some("RDAMVMy".into());
+        assert!(plan_top_up(&q, 1, true).is_some());
     }
 
     #[test]
