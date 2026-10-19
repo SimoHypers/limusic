@@ -4533,7 +4533,7 @@ fn is_foreign_window(top_up: TopUp, q: &QueueState, seed: &str) -> bool {
     if top_up.autoplay {
         is_radio(q)
     } else {
-        is_radio(q) && q.radio_seed.as_deref() == Some(seed)
+        !is_radio(q) || q.radio_seed.as_deref() != Some(seed)
     }
 }
 
