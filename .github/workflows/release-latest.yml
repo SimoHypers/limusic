@@ -405,7 +405,14 @@ jobs:
           mkdir -p "$STAGE" target/release/bundle/dmg
           ditto "$APP" "$STAGE/limusic.app"
           ln -s /Applications "$STAGE/Applications"
-          hdiutil create -volname "Limusic" -srcfolder "$STAGE" -ov -format UDZO target/release/bundle/dmg/limusic-macos-arm64.dmg
+          sync
+          for i in 1 2 3 4 5; do
+            if hdiutil create -volname "Limusic" -srcfolder "$STAGE" -ov -format UDZO target/release/bundle/dmg/limusic-macos-arm64.dmg; then
+              break
+            fi
+            echo "hdiutil failed, retrying in 2s ($i/5)..."
+            sleep 2
+          done
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
