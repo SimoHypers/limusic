@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { tick, untrack } from 'svelte';
-	import { MediaQuery } from 'svelte/reactivity';
+	import { untrack, tick } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
@@ -671,38 +670,27 @@
 		rowWindow(sc.scrollTop - sc.offsetPx, sc.viewportPx, shown.length, sc.rowPx)
 	);
 
-	const reducedMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
 	let scrollerEl = $state<HTMLElement | null>(null);
 	let scrollingToEnd = $state(false);
 
+	// Pull the rest of the playlist in before scrolling, so the end of the whole list is reached
+	// rather than just the rows mounted so far. The menu stays open with the row disabled so the
+	// loading state is visible, and closes once the walk is done.
 	async function scrollToEnd() {
-		if (scrollingToEnd || !pl?.items.length || !scrollerEl) return;
+		if (!pl?.items.length || scrollingToEnd || !scrollerEl) return;
 		const pid = id;
 		scrollingToEnd = true;
 		try {
 			if (pl?.continuation) {
-				const whole = await loadAll();
-				if (pid !== id) return;
-				if (!whole) {
-					warnPartial('queued');
-					return;
-				}
+				await loadAll();
 			}
 			await tick();
 			if (pid !== id || !scrollerEl?.isConnected) return;
-			const targetTop = scrollerEl.scrollHeight;
-			if (reducedMotion.current) {
-				scrollerEl.scrollTop = targetTop;
-				return;
-			}
-			const gap = targetTop - scrollerEl.scrollTop;
-			if (gap > 2 * scrollerEl.clientHeight) {
-				scrollerEl.scrollTop = targetTop - scrollerEl.clientHeight;
-			}
-			scrollerEl.scrollTo({ top: targetTop, behavior: 'smooth' });
+			scrollerEl.scrollTop = scrollerEl.scrollHeight;
 		} finally {
 			if (pid === id) {
 				scrollingToEnd = false;
+				menuOpen = false;
 			}
 		}
 	}
@@ -1145,19 +1133,6 @@
 								{selection}
 								class="-ml-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition hover:bg-muted hover:text-foreground"
 							/>
-							<Button
-								variant="ghost"
-								size="icon"
-								aria-label={t('player.scroll_to_end')}
-								title={t('player.scroll_to_end')}
-								onclick={scrollToEnd}
-								disabled={!pl.items.length || scrollingToEnd}
-							>
-								<HugeiconsIcon
-									icon={ArrowDown01Icon}
-									class="h-5 w-5 text-muted-foreground {scrollingToEnd ? 'animate-pulse' : ''}"
-								/>
-							</Button>
 						</div>
 						<!-- Pushed to the far end of the header, away from the play controls. -->
 						<div class="flex items-center gap-1">
@@ -1352,9 +1327,9 @@
 			<HugeiconsIcon icon={ArrowDownWideNarrowIcon} class="h-4 w-4" /> {t('player.add_to_queue')}
 		</button>
 		<button
-			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
-			onclick={() => run(scrollToEnd)}
-			disabled={!pl?.items.length || scrollingToEnd}
+			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10 disabled:opacity-50"
+			onclick={scrollToEnd}
+			disabled={scrollingToEnd || !pl?.items.length}
 		>
 			<HugeiconsIcon icon={ArrowDown01Icon} class="h-4 w-4" />
 			{scrollingToEnd ? t('common.loading') : t('player.scroll_to_end')}
