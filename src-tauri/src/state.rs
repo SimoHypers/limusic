@@ -2666,6 +2666,7 @@ impl AppState {
                 .await
                 .map_err(|e| e.to_string())??;
             engine.set_enabled(true)?;
+            self.karaoke_refresh_slots(true).await;
             let should_reload = {
                 let q = self.queue.lock().await;
                 self.karaoke_push_wants(&q);
@@ -2723,21 +2724,42 @@ impl AppState {
         let count = engine.clear_failed();
         tracing::debug!(target: "app_lib::karaoke", count, "karaoke retry requested");
 
+        self.karaoke_refresh_slots(false).await;
+
+        let q = self.queue.lock().await;
+        self.karaoke_push_wants(&q);
+    }
+
+    async fn karaoke_refresh_slots(self: &std::sync::Arc<Self>, only_missing: bool) {
         let (cur_info, next_info, next2_info, next_idx) = {
             let q = self.queue.lock().await;
-            let cur = karaoke_slot_info(&q, q.current);
+            let cur = if only_missing && q.karaoke_cur.is_some() {
+                None
+            } else {
+                karaoke_slot_info(&q, q.current)
+            };
             let next_idx = next_index(q.items.len(), q.current, q.repeat);
-            let next = next_idx.and_then(|n_idx| karaoke_slot_info(&q, n_idx));
-            let next2 = next_idx
-                .and_then(|n_idx| next_index(q.items.len(), n_idx, q.repeat))
-                .and_then(|n2_idx| karaoke_slot_info(&q, n2_idx));
+            let next = if only_missing && q.karaoke_next.is_some() {
+                None
+            } else {
+                next_idx.and_then(|n_idx| karaoke_slot_info(&q, n_idx))
+            };
+            let next2 = if only_missing && q.karaoke_next2.is_some() {
+                None
+            } else {
+                next_idx
+                    .and_then(|n_idx| next_index(q.items.len(), n_idx, q.repeat))
+                    .and_then(|n2_idx| karaoke_slot_info(&q, n2_idx))
+            };
             (cur, next, next2, next_idx)
         };
 
         if let Some(info) = cur_info {
             if let Some(req) = self.karaoke_request_for(info).await {
                 let mut q = self.queue.lock().await;
-                q.karaoke_cur = Some(req);
+                if !only_missing || q.karaoke_cur.is_none() {
+                    q.karaoke_cur = Some(req);
+                }
             }
         }
 
@@ -2745,9 +2767,11 @@ impl AppState {
             let vid = info.0.clone();
             if let Some(req) = self.karaoke_request_for(info).await {
                 let mut q = self.queue.lock().await;
-                if let Some(n_idx) = next_idx {
-                    if q.items.get(n_idx).map_or(false, |i| i.video_id == vid) {
-                        q.karaoke_next = Some(req);
+                if !only_missing || q.karaoke_next.is_none() {
+                    if let Some(n_idx) = next_idx {
+                        if q.items.get(n_idx).map_or(false, |i| i.video_id == vid) {
+                            q.karaoke_next = Some(req);
+                        }
                     }
                 }
             }
@@ -2756,12 +2780,11 @@ impl AppState {
         if let Some(info) = next2_info {
             if let Some(req) = self.karaoke_request_for(info).await {
                 let mut q = self.queue.lock().await;
-                q.karaoke_next2 = Some(req);
+                if !only_missing || q.karaoke_next2.is_none() {
+                    q.karaoke_next2 = Some(req);
+                }
             }
         }
-
-        let q = self.queue.lock().await;
-        self.karaoke_push_wants(&q);
     }
 
     async fn karaoke_request_for(
