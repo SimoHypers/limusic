@@ -1386,7 +1386,10 @@ impl AppState {
                 if next.items.len() > 1 {
                     q.radio_seed = Some(radio_id.clone());
                     q.radio = true;
-                    q.radio_cont = Some((radio_id.clone(), next.continuation.clone()));
+                    // Only a panel may say the radio ended. An answer without one is not about a
+                    // radio, and the radio is not over: the first top-up asks from the seed.
+                    q.radio_cont =
+                        radio_state(&next_window(next.panel, next.continuation.clone()), &radio_id);
                 }
                 // Deduped against the queue, not just against the seed: a carried manual add can
                 // be in the radio page too, and it should stay where the user put it.
@@ -1467,10 +1470,10 @@ impl AppState {
     }
 
     /// [`Self::play_tracks`] that can install the queue as a radio. `radio` is `None` for a chosen
-    /// playlist/album, `Some(token)` for a started radio (`Some(None)`: no token to follow). The
-    /// flag and the token go in under the same lock as the queue itself: `start_current` awaits a
-    /// stream resolve for seconds, and setting them afterwards would hand them to whatever queue
-    /// replaced this one meanwhile.
+    /// playlist/album, and `Some(..)` for a started radio — with what its first page said about the
+    /// window after it ([`NextWindow`]). The flag and the token go in under the same lock as the
+    /// queue itself: `start_current` awaits a stream resolve for seconds, and setting them
+    /// afterwards would hand them to whatever queue replaced this one meanwhile.
     #[allow(clippy::too_many_arguments)]
     async fn play_tracks_as(
         self: &std::sync::Arc<Self>,
@@ -1480,7 +1483,7 @@ impl AppState {
         source_name: Option<String>,
         shuffle: bool,
         continuation: Option<String>,
-        radio: Option<Option<String>>,
+        radio: Option<NextWindow>,
     ) {
         if items.is_empty() {
             return;
@@ -1652,8 +1655,9 @@ impl AppState {
 
     /// Fetch a radio's first page, escalating when YouTube hands back a dead one. Returns the
     /// tracks, the playlist id that actually produced them (the radio's seed, which is not
-    /// necessarily the one asked for) and the token of that radio's second window, when the page
-    /// that produced the tracks carries one.
+    /// necessarily the one asked for) and what that page said about the window after it
+    /// ([`NextWindow`]: the token of the radio's second window, the radio's end, or nothing —
+    /// a page that was not a radio page at all).
     ///
     /// A `RDAMVM…` radio for an obscure or region-locked track routinely answers with the seed
     /// song and nothing else, and "start radio" then looks like it did nothing. So: ask the song
@@ -1666,13 +1670,14 @@ impl AppState {
         &self,
         video_id: Option<&str>,
         playlist_id: &str,
-    ) -> Result<(Vec<SongItem>, String, Option<String>), String> {
+    ) -> Result<(Vec<SongItem>, String, NextWindow), String> {
         const NO_RADIO: &str = "YouTube has no radio for this.";
         let client = self.clients.get(innertube::METADATA_CLIENT).ok_or("no metadata client")?;
         let first =
             self.it.next(client, video_id, Some(playlist_id)).await.map_err(|e| e.to_string())?;
         if first.items.len() > 1 {
-            return Ok((first.items, playlist_id.to_owned(), first.continuation));
+            let said = next_window(first.panel, first.continuation.clone());
+            return Ok((first.items, playlist_id.to_owned(), said));
         }
         let Some(video_id) = video_id else { return Err(NO_RADIO.into()) };
         let bare = self.it.next(client, Some(video_id), None).await.map_err(|e| e.to_string())?;
@@ -1683,12 +1688,14 @@ impl AppState {
                 .await
                 .map_err(|e| e.to_string())?;
             if page.items.len() > 1 {
-                return Ok((page.items, mix, page.continuation));
+                let said = next_window(page.panel, page.continuation.clone());
+                return Ok((page.items, mix, said));
             }
         }
-        // The bare page was asked for without a playlist, so its token belongs to no radio.
+        // The bare page was asked for without a playlist, so its token belongs to no radio: it
+        // says nothing about a radio, which is not the same as the radio being over.
         if bare.items.len() > 1 {
-            return Ok((bare.items, format!("RDAMVM{video_id}"), None));
+            return Ok((bare.items, format!("RDAMVM{video_id}"), NextWindow::Unknown));
         }
         Err(NO_RADIO.into())
     }
@@ -1702,7 +1709,7 @@ impl AppState {
         items: Vec<SongItem>,
         seed: String,
         title: Option<String>,
-        cont: Option<String>,
+        said: NextWindow,
     ) {
         {
             let mut q = self.queue.lock().await;
@@ -1710,7 +1717,7 @@ impl AppState {
                 q.shuffle_orig = None; // a radio is a new context, so a non-sticky shuffle ends here
             }
             splice_radio_into(&mut q, items, seed, title);
-            q.radio_cont = q.radio_seed.clone().map(|seed| (seed, cont));
+            q.radio_cont = q.radio_seed.as_deref().and_then(|seed| radio_state(&said, seed));
             // Whatever mpv had primed as the gapless next belongs to the old queue.
             if q.lookahead_loaded.take().is_some() {
                 let _ = self.player.clear_playlist();
@@ -3085,7 +3092,7 @@ impl AppState {
                 return 0;
             }
         };
-        let cont = (!top_up.autoplay).then_some(page.continuation);
+        let cont = (!top_up.autoplay).then(|| next_window(page.panel, page.continuation.clone()));
         let Some(mut added) =
             self.absorb_radio(page.items, gen, seed, top_up, cont, token.as_deref()).await
         else {
@@ -3109,7 +3116,7 @@ impl AppState {
                         gen,
                         seed,
                         top_up,
-                        Some(page.continuation),
+                        Some(next_window(page.panel, page.continuation.clone())),
                         Some(t.as_str()),
                     )
                     .await
@@ -3154,7 +3161,7 @@ impl AppState {
         gen: u64,
         seed: &str,
         top_up: TopUp,
-        cont: Option<Option<String>>,
+        cont: Option<NextWindow>,
         from_token: Option<&str>,
     ) -> Option<usize> {
         if self.generation.load(Ordering::SeqCst) != gen {
@@ -3176,11 +3183,34 @@ impl AppState {
             if !window_may_land(top_up, &q, seed, from_token) {
                 return None;
             }
-            // What the window said about the next one (`None`: that was the end of the radio), kept
-            // in the same breath as the append so a window fetched but not appended is never skipped
-            // over. Only a radio hands one in, and only for a window that still belongs here.
-            if let Some(next) = cont {
-                q.radio_cont = Some((seed.to_owned(), next));
+            // What the window said about the next one, kept in the same breath as the append so
+            // a window fetched but not appended is never skipped over. Only a radio hands one in,
+            // and only for a window that still belongs here.
+            match cont {
+                None => {}
+                // The panel's own token: the window after this one.
+                Some(NextWindow::Token(token)) => {
+                    q.radio_cont = Some((seed.to_owned(), Some(token)));
+                }
+                // A panel without a continuation: the radio ends here. This is the only thing
+                // that may say so.
+                Some(NextWindow::Ended) => {
+                    q.radio_cont = Some((seed.to_owned(), None));
+                }
+                // The window told us nothing: a foreign or expired token, or an answer that is
+                // not about a radio at all. That is not the radio's end — the radio's own token
+                // is worth one more try from the seed — but there is no window either, so no
+                // token is written.
+                Some(NextWindow::Unknown) => match unknown_window(&q) {
+                    Unknown::Retry => q.radio_cont = None, // ask again from the seed
+                    Unknown::FallBack => {
+                        // The seed was asked and answered nothing too: this radio cannot be
+                        // continued, so the queue goes back to autoplay, which is what it was
+                        // before the radio took it over.
+                        q.radio = false;
+                        q.radio_cont = None;
+                    }
+                },
             }
             // Against the queue as it is *now*, not a snapshot from before the fetch: a playlist
             // fill, a guest add or `play_song`'s own hydration can all have appended something
@@ -4569,16 +4599,78 @@ fn window_may_land(top_up: TopUp, q: &QueueState, seed: &str, from_token: Option
     top_up.autoplay || window_still_current(q, from_token)
 }
 
+/// What a fetched window said about the radio's next window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NextWindow {
+    /// The panel carries the token of the next window.
+    Token(String),
+    /// The panel is there and has no continuation: the radio ends here.
+    Ended,
+    /// No panel at all: nothing was learned — a foreign or expired token, or an answer that is
+    /// not about a radio.
+    Unknown,
+}
+
+/// What a fetched answer says about the radio's next window: the panel's own token, the radio's
+/// end (a panel without a continuation), or nothing at all (no panel — the answer is not about
+/// a radio, e.g. a foreign or expired token, which is not the same thing as the radio's end).
+fn next_window(panel: bool, continuation: Option<String>) -> NextWindow {
+    if !panel {
+        return NextWindow::Unknown;
+    }
+    match continuation {
+        Some(token) => NextWindow::Token(token),
+        None => NextWindow::Ended,
+    }
+}
+
+/// What a radio does with a window that told it nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Unknown {
+    /// The radio's own token is worth one more try: ask again from the seed.
+    Retry,
+    /// The seed was asked and answered nothing too: the radio cannot be continued, so the queue
+    /// goes back to autoplay, which is what it was before the radio took it over.
+    FallBack,
+}
+
+/// What a radio does with a window that told it nothing, given what the queue holds: a radio
+/// that still has a token is worth one more try, from the seed; one that has none was already
+/// asked from the seed, so it cannot be continued at all.
+fn unknown_window(q: &QueueState) -> Unknown {
+    if q.radio_cont.is_some() {
+        Unknown::Retry
+    } else {
+        Unknown::FallBack
+    }
+}
+
 /// The `radio` flag and next-window token a queue is installed with (see `play_tracks_as`): `None`
-/// is a chosen playlist/album, `Some(token)` a started radio. The token is only kept together with
-/// the seed it was issued for ([`radio_token`] checks it against the queue's).
+/// is a chosen playlist/album, `Some(..)` a started radio, described by what its first page said
+/// about the window after it ([`NextWindow`]). The token is only kept together with the seed it
+/// was issued for ([`radio_token`] checks it against the queue's).
+///
+/// A radio whose first page said nothing about a radio is not a radio that has ended: it is one
+/// whose first page was not a radio page at all (a bare page asked for without a playlist, whose
+/// token belongs to no radio), so its first top-up asks from the seed and learns the rest from the
+/// answer. Only the panel itself may say a radio ended.
 fn radio_install(
-    radio: Option<Option<String>>,
+    radio: Option<NextWindow>,
     seed: Option<&str>,
 ) -> (bool, Option<(String, Option<String>)>) {
     let flagged = radio.is_some();
-    let cont = radio.zip(seed).map(|(token, seed)| (seed.to_owned(), token));
+    let cont = radio.zip(seed).and_then(|(said, seed)| radio_state(&said, seed));
     (flagged, cont)
+}
+
+/// What a radio's token state becomes after an answer: the token of the next window, the radio's
+/// end, or nothing known yet — in which case the first top-up asks from the seed.
+fn radio_state(said: &NextWindow, seed: &str) -> Option<(String, Option<String>)> {
+    match said {
+        NextWindow::Token(token) => Some((seed.to_owned(), Some(token.clone()))),
+        NextWindow::Ended => Some((seed.to_owned(), None)),
+        NextWindow::Unknown => None,
+    }
 }
 
 /// Whether the queue is down to its tail and wants a top-up: a radio when fewer than
@@ -5116,14 +5208,14 @@ mod tests {
     use super::{
         adopt_twin, append_page, backfill_metadata, cache_horizon, drop_duplicates, enqueue_at,
         format_duration, freshen, get_url, guest_insert_index, history_threshold,
-        is_foreign_window, is_mix, is_radio, loudness_gain, merge_radio, next_index,
+        is_foreign_window, is_mix, is_radio, loudness_gain, merge_radio, next_index, next_window,
         parse_duration_ms, persist_fingerprint, plan_top_up, prefer_version, prev_track_title,
         put_url, queue_fingerprint, radio_exhausted, radio_install, radio_seed_for, radio_token,
         repeat_blocks_top_up, retain_upcoming, shuffle_new_queue, shuffle_upcoming,
-        splice_radio_into, swap_version, trim_played, twin_position, unshuffled, untag_radio_rows,
-        upcoming_queued, wants_top_up, window_may_land, window_still_current, QueueState,
-        RepeatMode, VideoUrls, AUTOPLAY, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO,
-        RADIO_TAIL,
+        splice_radio_into, swap_version, trim_played, twin_position, unknown_window, unshuffled,
+        untag_radio_rows, upcoming_queued, wants_top_up, window_may_land, window_still_current,
+        NextWindow, QueueState, RepeatMode, Unknown, VideoUrls, AUTOPLAY, KEEP_PLAYED,
+        LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO, RADIO_TAIL,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -6216,15 +6308,22 @@ mod tests {
         let seed = Some("RDAMVMx");
         // A started radio: flagged, and the token is tied to the seed it came with.
         assert_eq!(
-            radio_install(Some(Some("TOK".into())), seed),
+            radio_install(Some(NextWindow::Token("TOK".into())), seed),
             (true, Some(("RDAMVMx".into(), Some("TOK".into()))))
         );
-        // A radio whose first page carried no token is a radio that has already ended.
-        assert_eq!(radio_install(Some(None), seed), (true, Some(("RDAMVMx".into(), None))));
+        // A radio whose first page said the radio ends there: it ends, and it is the panel that
+        // says so.
+        assert_eq!(
+            radio_install(Some(NextWindow::Ended), seed),
+            (true, Some(("RDAMVMx".into(), None)))
+        );
+        // A radio whose first page was not a radio page at all is not a radio that has ended:
+        // it has nothing to follow yet, so the first top-up asks from the seed.
+        assert_eq!(radio_install(Some(NextWindow::Unknown), seed), (true, None));
         // A chosen playlist/album is not, whatever the queue before it was.
         assert_eq!(radio_install(None, Some("RDAMPLPL1")), (false, None));
         // No seed to pin: nothing to tie a token to.
-        assert_eq!(radio_install(Some(Some("TOK".into())), None), (true, None));
+        assert_eq!(radio_install(Some(NextWindow::Token("TOK".into())), None), (true, None));
     }
 
     #[test]
@@ -6299,6 +6398,34 @@ mod tests {
         let plain = QueueState { items: vec![song("a", None)], ..QueueState::default() };
         assert!(window_may_land(AUTOPLAY, &plain, "RDAMPLPL1", None));
         assert!(!window_may_land(AUTOPLAY, &radio(Some("TOK")), "RDAMVMa", None));
+    }
+
+    // What a fetched answer says about the next window: the panel's own token, the radio's end,
+    // or nothing learned at all — the last is not the same as the radio's end.
+    #[test]
+    fn only_a_panel_says_where_a_radio_goes_next() {
+        assert_eq!(next_window(true, Some("TOK".into())), NextWindow::Token("TOK".into()));
+        assert_eq!(next_window(true, None), NextWindow::Ended);
+        // No panel at all: a foreign or expired token, or an answer that is not about a radio.
+        assert_eq!(next_window(false, Some("TOK".into())), NextWindow::Unknown);
+        assert_eq!(next_window(false, None), NextWindow::Unknown);
+    }
+
+    // A window that told the radio nothing is not the radio's end: the radio's own token is
+    // worth one more try from the seed, and only a second failure hands the queue back to
+    // autoplay.
+    #[test]
+    fn a_window_that_told_nothing_is_not_the_radios_end() {
+        let radio = |cont: Option<(&str, Option<&str>)>| QueueState {
+            radio: true,
+            radio_seed: Some("RDAMVMx".into()),
+            radio_cont: cont.map(|(seed, token)| (seed.to_owned(), token.map(str::to_owned))),
+            ..QueueState::default()
+        };
+        // The radio still holds a token: one more try, from the seed.
+        assert_eq!(unknown_window(&radio(Some(("RDAMVMx", Some("TOK"))))), Unknown::Retry);
+        // Nothing left to follow: the seed was asked and answered nothing too.
+        assert_eq!(unknown_window(&radio(None)), Unknown::FallBack);
     }
 
     #[test]
