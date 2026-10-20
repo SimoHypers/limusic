@@ -3273,15 +3273,29 @@ impl AppState {
             // while we were on the network, and dropping a stale set on top of it duplicates.
             let existing: HashSet<String> = q.items.iter().map(|i| i.video_id.clone()).collect();
             let added = merge_radio(&mut q.items, fresh, existing, top_up.batch, top_up.autoplay);
-            // Not while shuffle is on: `shuffle_orig` is a parallel clone of the list and rebasing
-            // both consistently is a bigger change than this one. Deliberate, see plan 039.
-            let trimmed = if added > 0 && q.shuffle_orig.is_none() {
+            // With shuffle on, `shuffle_orig` is the same tracks in the order they had before the
+            // shuffle: the window goes in there too, or un-shuffle would drop it.
+            if added > 0 {
+                let rows: Vec<SongItem> = q.items[q.items.len() - added..].to_vec();
+                if let Some(orig) = q.shuffle_orig.as_mut() {
+                    orig.extend(rows);
+                }
+            }
+            // The played rows are dropped from the front, so the queue does not grow forever.
+            // With shuffle on, the snapshot holds the same tracks in their old order, so the
+            // ones that leave the queue have to leave it there too — or un-shuffle would bring
+            // them back.
+            let trimmed = if added > 0 {
                 let cur = q.current;
                 let dropped = trim_played(&mut q.items, cur, KEEP_PLAYED);
                 if dropped > 0 {
                     q.current -= dropped;
                     // Only ever set to `current` or `current + 1`, so this never underflows.
                     q.lookahead_loaded = q.lookahead_loaded.map(|i| i.saturating_sub(dropped));
+                    if let Some(orig) = q.shuffle_orig.take() {
+                        let synced = sync_shuffle_snapshot(orig, &q.items);
+                        q.shuffle_orig = Some(synced);
+                    }
                 }
                 dropped
             } else {
@@ -4548,6 +4562,14 @@ fn splice_radio_into(
     }
 }
 
+/// The shuffle snapshot without the tracks that left the queue: it is the same tracks in the
+/// order they had before the shuffle, so the ones that left have to leave it there too — or
+/// un-shuffle would bring them back.
+fn sync_shuffle_snapshot(orig: Vec<SongItem>, items: &[SongItem]) -> Vec<SongItem> {
+    let left: HashSet<String> = items.iter().map(|i| i.video_id.clone()).collect();
+    orig.into_iter().filter(|item| left.contains(&item.video_id)).collect()
+}
+
 /// How many already-played rows an endlessly-extending queue keeps behind the play pointer.
 ///
 /// Autoplay appends forever and nothing used to drop anything, so a long session grew the item list
@@ -5268,10 +5290,10 @@ mod tests {
         parse_duration_ms, persist_fingerprint, plan_top_up, prefer_version, prev_track_title,
         put_url, queue_fingerprint, radio_exhausted, radio_install, radio_seed_for, radio_token,
         repeat_blocks_top_up, retain_upcoming, shuffle_new_queue, shuffle_upcoming,
-        splice_radio_into, swap_version, trim_played, twin_position, unknown_window, unshuffled,
-        untag_radio_rows, upcoming_queued, wants_top_up, window_may_land, window_still_current,
-        NextWindow, QueueState, RepeatMode, Unknown, VideoUrls, AUTOPLAY, KEEP_PLAYED,
-        LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO, RADIO_TAIL,
+        splice_radio_into, swap_version, sync_shuffle_snapshot, trim_played, twin_position,
+        unknown_window, unshuffled, untag_radio_rows, upcoming_queued, wants_top_up,
+        window_may_land, window_still_current, NextWindow, QueueState, RepeatMode, Unknown,
+        VideoUrls, AUTOPLAY, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO, RADIO_TAIL,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -6454,6 +6476,17 @@ mod tests {
         let plain = QueueState { items: vec![song("a", None)], ..QueueState::default() };
         assert!(window_may_land(AUTOPLAY, &plain, "RDAMPLPL1", None));
         assert!(!window_may_land(AUTOPLAY, &radio(Some("TOK")), "RDAMVMa", None));
+    }
+
+    // The shuffle snapshot is the same tracks in the order they had before the shuffle, so the
+    // ones that left the queue leave it there too: un-shuffle must not bring them back.
+    #[test]
+    fn the_shuffle_snapshot_follows_the_queue() {
+        let items = vec![song("a", None), song("b", None)];
+        let orig = vec![song("a", None), song("b", None), song("c", None)];
+        let synced = sync_shuffle_snapshot(orig, &items);
+        let ids: Vec<_> = synced.iter().map(|i| i.video_id.as_str()).collect();
+        assert_eq!(ids, ["a", "b"], "the track that left the queue does not come back");
     }
 
     // What a fetched answer says about the next window: the panel's own token, the radio's end,
