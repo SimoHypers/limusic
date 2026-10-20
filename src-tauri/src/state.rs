@@ -3143,10 +3143,11 @@ impl AppState {
 
     /// Append a fetched radio page to the tail of the queue and run the bookkeeping that follows.
     /// Returns how many tracks landed, or `None` when the window belongs to a queue the playing one
-    /// no longer is: a newer load, or a radio spliced in behind the playing track, which changes
-    /// the seed without moving the generation. The caller stops then instead of following a
-    /// sequence that isn't its own. The generation check lives here because every caller was on
-    /// the network right before it.
+    /// no longer is: a newer load, a radio spliced in behind the playing track, which changes the
+    /// seed without moving the generation, or the same radio asked for again, which swaps the
+    /// sequence under the window. The caller stops then instead of following a sequence that isn't
+    /// its own. The generation check lives here because every caller was on the network right
+    /// before it.
     async fn absorb_radio(
         self: &std::sync::Arc<Self>,
         mut fresh: Vec<SongItem>,
@@ -3170,18 +3171,16 @@ impl AppState {
         let (added, trimmed) = {
             let mut q = self.queue.lock().await;
             // The window was asked for a queue the playing one may no longer be: a radio spliced in
-            // behind the playing track swaps it without moving the generation checked above.
-            if is_foreign_window(top_up, &q, seed) {
+            // behind the playing track swaps it without moving the generation checked above, and
+            // the same radio asked for again swaps the sequence under the window on the wire.
+            if !window_may_land(top_up, &q, seed, from_token) {
                 return None;
             }
             // What the window said about the next one (`None`: that was the end of the radio), kept
             // in the same breath as the append so a window fetched but not appended is never skipped
-            // over. Only a radio hands one in, and only while the queue still stands where this
-            // window was asked from: a slower response landing after a newer one must not rewind it.
+            // over. Only a radio hands one in, and only for a window that still belongs here.
             if let Some(next) = cont {
-                if window_still_current(&q, from_token) {
-                    q.radio_cont = Some((seed.to_owned(), next));
-                }
+                q.radio_cont = Some((seed.to_owned(), next));
             }
             // Against the queue as it is *now*, not a snapshot from before the fetch: a playlist
             // fill, a guest add or `play_song`'s own hydration can all have appended something
@@ -4537,6 +4536,21 @@ fn is_foreign_window(top_up: TopUp, q: &QueueState, seed: &str) -> bool {
     }
 }
 
+/// Whether a fetched window may still be appended. It was asked for the radio the queue is
+/// ([`is_foreign_window`]), and the queue still stands where the window started: a radio spliced
+/// in behind the playing track swaps the sequence — and its token — without moving the
+/// generation, and the seed alone cannot tell the two apart, since the same radio asked for again
+/// has the same seed. A window of the replaced sequence is not this radio's, and appending it
+/// would put its tracks ahead of the ones the queue is now on.
+fn window_may_land(top_up: TopUp, q: &QueueState, seed: &str, from_token: Option<&str>) -> bool {
+    if is_foreign_window(top_up, q, seed) {
+        return false;
+    }
+    // Only a radio carries a token, so only a radio can be swapped under a window that is already
+    // on the wire. Autoplay's windows follow the queue and are guarded by the generation.
+    top_up.autoplay || window_still_current(q, from_token)
+}
+
 /// The `radio` flag and next-window token a queue is installed with (see `play_tracks_as`): `None`
 /// is a chosen playlist/album, `Some(token)` a started radio. The token is only kept together with
 /// the seed it was issued for ([`radio_token`] checks it against the queue's).
@@ -5089,8 +5103,8 @@ mod tests {
         put_url, queue_fingerprint, radio_exhausted, radio_install, radio_seed_for, radio_token,
         repeat_blocks_top_up, retain_upcoming, shuffle_new_queue, shuffle_upcoming,
         splice_radio_into, swap_version, trim_played, twin_position, unshuffled, upcoming_queued,
-        wants_top_up, window_still_current, QueueState, RepeatMode, VideoUrls, AUTOPLAY,
-        KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO, RADIO_TAIL,
+        wants_top_up, window_may_land, window_still_current, QueueState, RepeatMode, VideoUrls,
+        AUTOPLAY, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO, RADIO_TAIL,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -6233,6 +6247,39 @@ mod tests {
         // A newer response got there first, with a token or with the end.
         assert!(!window_still_current(&radio(Some(("RDAMVMx", Some("TOK")))), None));
         assert!(!window_still_current(&radio(Some(("RDAMVMx", None))), None));
+    }
+
+    // The same radio asked for again has the same seed, so the seed cannot tell the two apart:
+    // only the token can, and a window of the replaced sequence must not land in the new one.
+    #[test]
+    fn a_window_of_a_restarted_radio_does_not_land() {
+        let radio = |token: Option<&str>| QueueState {
+            items: vec![song("a", None), song("b", None)],
+            radio: true,
+            radio_seed: Some("RDAMVMa".into()),
+            radio_cont: Some(("RDAMVMa".into(), token.map(str::to_owned))),
+            ..QueueState::default()
+        };
+        // The radio still stands where the window was asked from.
+        assert!(window_may_land(RADIO, &radio(Some("TOK")), "RDAMVMa", Some("TOK")));
+        // The same radio asked for again: same seed, new sequence, new token.
+        assert!(!window_may_land(RADIO, &radio(Some("TOK2")), "RDAMVMa", Some("TOK")));
+        // Asked from the seed, and the radio has seen a page since.
+        assert!(!window_may_land(RADIO, &radio(Some("TOK2")), "RDAMVMa", None));
+        // Asked from the seed of a radio nobody has seen a page of yet.
+        let mut fresh = radio(None);
+        fresh.radio_cont = None;
+        assert!(window_may_land(RADIO, &fresh, "RDAMVMa", None));
+        // Another radio's window.
+        assert!(!window_may_land(RADIO, &radio(Some("TOK")), "RDAMVMb", Some("TOK")));
+        // The same mix id opened as a chosen playlist is not a radio any more.
+        let mut playlist = radio(Some("TOK"));
+        playlist.radio = false;
+        assert!(!window_may_land(RADIO, &playlist, "RDAMVMa", Some("TOK")));
+        // Autoplay's window follows the queue; a radio is the one thing it must not land in.
+        let plain = QueueState { items: vec![song("a", None)], ..QueueState::default() };
+        assert!(window_may_land(AUTOPLAY, &plain, "RDAMPLPL1", None));
+        assert!(!window_may_land(AUTOPLAY, &radio(Some("TOK")), "RDAMVMa", None));
     }
 
     #[test]
