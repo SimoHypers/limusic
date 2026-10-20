@@ -243,6 +243,11 @@ pub struct NextResult {
     pub items: Vec<SongItem>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub continuation: Option<String>,
+    /// The answer carried a radio panel at all. A panel without a continuation is the radio's
+    /// end; no panel at all is not an answer about a radio (a foreign or expired token), and the
+    /// two must not be read as the same thing.
+    #[serde(default)]
+    pub panel: bool,
     /// The lyrics tab's browseId (`MPLYt…`) — feed it to a lyrics `browse` (models::lyrics).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lyrics_browse_id: Option<String>,
@@ -316,20 +321,47 @@ pub fn parse_next(root: &Value) -> NextResult {
         }
     }
     // The automix/radio continuation (context/08): the panel ends with a continuation token
-    // used to fetch the endless mix. Take the first continuation token we find.
-    let continuation = find_first_str(root, "continuation");
+    // used to fetch the endless mix. Take it from the panel itself.
+    let panel = panel_continuation(root);
+    let continuation = panel.clone().flatten();
     let automix_playlist_id = find_all(root, "automixPreviewVideoRenderer")
         .into_iter()
         .find_map(|n| find_first_str(n, "playlistId"));
     NextResult {
         items,
         continuation,
+        panel: panel.is_some(),
         lyrics_browse_id: lyrics_browse_id(root),
         automix_playlist_id,
         // Scoped to the overlay on purpose: a bare `find_first_str` over the whole response would
         // read whatever a future panel row starts carrying instead of the requested video's own.
         rating: root.get("playerOverlays").and_then(like_status),
     }
+}
+
+/// The panel's own continuation: the token of the window *after* the one the panel renders.
+///
+/// Taken from the panel's `continuations`, not from a bare search over the answer: a `/next`
+/// response carries other `continuation` keys (the comments tab, Related), and the first one
+/// found would hand the radio a token that belongs to something else.
+///
+/// * `Some(Some(token))` — the panel carries the token of the next window.
+/// * `Some(None)` — the panel is there and has no continuation: the radio ends here.
+/// * `None` — there is no panel at all: the answer is not a radio page.
+fn panel_continuation(root: &Value) -> Option<Option<String>> {
+    let panel = find_all(root, "playlistPanelRenderer")
+        .into_iter()
+        .chain(find_all(root, "playlistPanelContinuation"))
+        .next()?;
+    let token = find_all(panel, "continuations").into_iter().find_map(|arr| {
+        arr.as_array()?.iter().find_map(|entry| {
+            let data = entry
+                .get("nextRadioContinuationData")
+                .or_else(|| entry.get("nextContinuationData"))?;
+            data.get("continuation")?.as_str().map(str::to_owned)
+        })
+    });
+    Some(token)
 }
 
 /// Every panel row in order, ignoring the `counterpart` arm of a
@@ -1772,6 +1804,46 @@ mod tests {
         // No overlay in this response, and the panel row carries no `likeStatus` either: the
         // rating has to read as unknown, not as "not liked".
         assert_eq!(r.rating, None);
+        // The panel is there, so this answer is about a radio.
+        assert!(r.panel);
+    }
+
+    /// The radio's token is the panel's own. A `/next` answer carries other `continuation` keys
+    /// (the comments tab, Related), and taking the first one found would hand the radio a token
+    /// that belongs to something else — a window that is not a panel, and then a radio that
+    /// stops for good.
+    #[test]
+    fn takes_the_radio_token_from_the_panel() {
+        let root = json!({
+            "engagementPanels": { "engagementPanelSectionListRenderer": { "content": {
+                "continuationCommand": { "token": "COMMENTS_TOK" }
+            } } },
+            "contents": { "playlistPanelRenderer": { "contents": [
+                { "playlistPanelVideoRenderer": {
+                    "videoId": "vid9",
+                    "title": { "runs": [{ "text": "Next Song" }] }
+                }}
+            ], "continuations": [{ "nextRadioContinuationData": { "continuation": "RADIO_TOK" } }] } }
+        });
+        let r = parse_next(&root);
+        assert_eq!(r.continuation.as_deref(), Some("RADIO_TOK"), "the panel's own token");
+        assert!(r.panel);
+    }
+
+    /// A panel with no continuation is the radio's end; no panel at all is not an answer about a
+    /// radio. The two must not be read as the same thing.
+    #[test]
+    fn a_panel_and_no_panel_are_not_the_same() {
+        let ended = json!({ "contents": { "playlistPanelRenderer": { "contents": [] } } });
+        let r = parse_next(&ended);
+        assert!(r.panel, "the panel is there");
+        assert_eq!(r.continuation, None, "and it has no continuation");
+
+        let no_panel =
+            json!({ "contents": { "automixPreviewVideoRenderer": { "playlistId": "RDAMVMx" } } });
+        let r = parse_next(&no_panel);
+        assert!(!r.panel, "no panel at all");
+        assert_eq!(r.continuation, None);
     }
 
     /// The one place a `next` response states the requested video's rating (issue #93). It has to
