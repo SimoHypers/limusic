@@ -75,6 +75,10 @@ pub struct AppState {
     /// Bumped on every explicit `play`/jump so superseded async resolves discard their result
     /// (cancellation without JoinHandle bookkeeping). context/06 §6.
     generation: AtomicU64,
+    /// Bumped after every top-up finishes, so a caller that found one on the wire can wait for
+    /// it instead of doing nothing: the Skip button at the tail of a queue whose continuation is
+    /// being fetched right now.
+    top_up_done: tokio::sync::watch::Sender<u64>,
     /// Bumped by the `rate` command. [`Self::refresh_from_next`] samples it before its round trip
     /// and throws the answer away if it moved: a like landing in that ~400 ms window is newer
     /// than what YouTube was asked, and applying the stale reply would flip the heart back.
@@ -516,6 +520,7 @@ impl AppState {
             listen: std::sync::Mutex::default(),
             is_playing: AtomicBool::new(false),
             generation: AtomicU64::new(0),
+            top_up_done: tokio::sync::watch::channel(0).0,
             rate_epoch: AtomicU64::new(0),
             comments: std::sync::Mutex::new(innertube::CommentsSession::default()),
             pending_seek: std::sync::Mutex::new(None),
@@ -2730,7 +2735,12 @@ impl AppState {
             // track then.
             None => {
                 let gen = self.generation.load(Ordering::SeqCst);
-                if self.extend_queue_radio(gen).await > 0 {
+                // The tail is topped up asynchronously (on track start / track end), so the
+                // continuation may simply not have landed yet. If that top-up is already on the
+                // wire, wait for it rather than leaving Skip a dead button — and then use what
+                // it brought, not what this call fetched.
+                self.wait_for_top_up(gen).await;
+                if self.extend_queue_radio(gen).await > 0 || self.has_next().await {
                     let next = self.queue.lock().await.current + 1;
                     self.play_index(next).await;
                 }
@@ -3030,10 +3040,35 @@ impl AppState {
     /// Lift the hold `extend_queue_radio` put on other top-ups while it was on the wire, unless a
     /// newer queue has taken it over in the meantime (its own top-up sets its own generation).
     async fn end_top_up(&self, gen: u64) {
-        let mut q = self.queue.lock().await;
-        if q.topping_up == Some(gen) {
-            q.topping_up = None;
+        {
+            let mut q = self.queue.lock().await;
+            if q.topping_up == Some(gen) {
+                q.topping_up = None;
+            }
         }
+        // Whoever found this top-up on the wire is waiting for it: let it go on.
+        self.top_up_done.send_modify(|n| *n += 1);
+    }
+
+    /// Wait for a top-up that is already on the wire (see `topping_up`), so a caller that found
+    /// one in flight is not left with nothing to do. Returns at once when none is in flight.
+    ///
+    /// Bounded: a top-up that never finishes (a task that panicked) must not leave the caller
+    /// waiting forever.
+    async fn wait_for_top_up(&self, gen: u64) {
+        let mut rx = self.top_up_done.subscribe();
+        let seen = *rx.borrow_and_update();
+        if self.queue.lock().await.topping_up != Some(gen) {
+            return;
+        }
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            while *rx.borrow_and_update() == seen {
+                if rx.changed().await.is_err() {
+                    break; // the state is gone: nothing left to wait for
+                }
+            }
+        })
+        .await;
     }
 
     /// Drop the radio's token: the window it was asked with was refused, so it is no good any
@@ -3043,6 +3078,12 @@ impl AppState {
         if self.generation.load(Ordering::SeqCst) == gen {
             q.radio_cont = None;
         }
+    }
+
+    /// Whether the queue has a track after the playing one.
+    async fn has_next(&self) -> bool {
+        let q = self.queue.lock().await;
+        q.items.len() > q.current + 1
     }
 
     /// Top up the queue's tail when it's nearly out. Returns how many tracks were appended.
