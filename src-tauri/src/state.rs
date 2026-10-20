@@ -3276,7 +3276,7 @@ impl AppState {
     pub async fn restore_queue(self: &std::sync::Arc<Self>) {
         let Some(json) = self.db.get_setting("queue_json") else { return };
         let Ok(saved) = serde_json::from_str::<serde_json::Value>(&json) else { return };
-        let items: Vec<SongItem> = saved
+        let mut items: Vec<SongItem> = saved
             .get("items")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default();
@@ -3331,6 +3331,10 @@ impl AppState {
             // Left at 0, quitting without pressing play overwrote the saved position (#502).
             self.latest_position.store(p.to_bits(), Ordering::SeqCst);
         }
+        // A radio's tail is the radio, not autoplay (see `untag_radio_rows`). After the
+        // fingerprint check above, which hashes that tag: strip it before, and the saved pointer
+        // would no longer match these rows.
+        untag_radio_rows(&mut items, radio, radio_seed.as_deref());
         {
             let mut q = self.queue.lock().await;
             q.current = current;
@@ -4410,6 +4414,20 @@ fn radio_seed_for(source_id: Option<String>) -> Option<String> {
     })
 }
 
+/// A radio's tail is the radio, not autoplay. A build that topped every radio up through autoplay
+/// saved that tag on its rows: the panel drew them under an "Autoplay" divider, and switching
+/// autoplay off cut them out of the radio. A queue that is a radio — the flag and a seed to
+/// continue from — gets the tag off its rows; anything else keeps it, because there autoplay
+/// still is what those rows are.
+fn untag_radio_rows(items: &mut [SongItem], radio: bool, seed: Option<&str>) {
+    if !(radio && seed.is_some()) {
+        return;
+    }
+    for item in items {
+        item.autoplay = false;
+    }
+}
+
 /// Replace everything after the playing track with a radio, keeping the history, the current song
 /// and any unplayed manual adds. Deduped against what survives, so the seed can't come round again
 /// two tracks later. The tracks aren't marked `autoplay`: this queue is what the user asked for,
@@ -5102,9 +5120,10 @@ mod tests {
         parse_duration_ms, persist_fingerprint, plan_top_up, prefer_version, prev_track_title,
         put_url, queue_fingerprint, radio_exhausted, radio_install, radio_seed_for, radio_token,
         repeat_blocks_top_up, retain_upcoming, shuffle_new_queue, shuffle_upcoming,
-        splice_radio_into, swap_version, trim_played, twin_position, unshuffled, upcoming_queued,
-        wants_top_up, window_may_land, window_still_current, QueueState, RepeatMode, VideoUrls,
-        AUTOPLAY, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO, RADIO_TAIL,
+        splice_radio_into, swap_version, trim_played, twin_position, unshuffled, untag_radio_rows,
+        upcoming_queued, wants_top_up, window_may_land, window_still_current, QueueState,
+        RepeatMode, VideoUrls, AUTOPLAY, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO,
+        RADIO_TAIL,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -6307,6 +6326,25 @@ mod tests {
         // Same seed, but a new window sequence: the old token would skip windows.
         splice_radio_into(&mut q, vec![song("b", None)], "RDAMVMx".into(), None);
         assert_eq!(radio_token(&q), None);
+    }
+
+    // A radio saved by a build that topped it up through autoplay carries that tag on its rows:
+    // the panel drew them under an "Autoplay" divider, and switching autoplay off cut them out
+    // of the radio.
+    #[test]
+    fn a_restored_radio_is_not_autoplay_again() {
+        let tagged = |id: &str| innertube::SongItem { autoplay: true, ..song(id, None) };
+        let mut items = vec![song("a", None), tagged("r1"), tagged("r2")];
+        untag_radio_rows(&mut items, true, Some("RDAMVMa"));
+        assert!(items.iter().all(|i| !i.autoplay));
+        // A queue the user picked: autoplay is still what those rows are.
+        let mut items = vec![song("a", None), tagged("r1")];
+        untag_radio_rows(&mut items, false, Some("RDAMPLPL1"));
+        assert!(items[1].autoplay);
+        // Flagged, but nothing pinned to continue from: not a radio.
+        let mut items = vec![tagged("r1")];
+        untag_radio_rows(&mut items, true, None);
+        assert!(items[0].autoplay);
     }
 
     #[test]
