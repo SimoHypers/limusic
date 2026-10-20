@@ -3036,6 +3036,15 @@ impl AppState {
         }
     }
 
+    /// Drop the radio's token: the window it was asked with was refused, so it is no good any
+    /// more. The next top-up asks from the seed instead.
+    async fn forget_radio_token(&self, gen: u64) {
+        let mut q = self.queue.lock().await;
+        if self.generation.load(Ordering::SeqCst) == gen {
+            q.radio_cont = None;
+        }
+    }
+
     /// Top up the queue's tail when it's nearly out. Returns how many tracks were appended.
     /// Guards: not a guest, the generation unchanged across the network call, and the queue not
     /// under a repeat that owns its tail ([`repeat_blocks_top_up`]: a radio still tops up under
@@ -3089,6 +3098,12 @@ impl AppState {
             Ok(page) => page,
             Err(e) => {
                 tracing::warn!(error = %e, "queue top-up fetch failed");
+                // A refused window (a stale session, an account that changed) says nothing
+                // about the radio: the token it was asked with is no good, so it is dropped and
+                // the next try asks from the seed — a request the session can heal.
+                if e.is_refusal() {
+                    self.forget_radio_token(gen).await;
+                }
                 return 0;
             }
         };

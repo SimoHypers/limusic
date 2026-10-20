@@ -273,7 +273,12 @@ impl InnerTube {
             context: self.context_for(metadata_client),
             continuation: token.to_owned(),
         };
-        let value = self.post("next", metadata_client, &body, true).await?;
+        // Not healed: this is a background read the user did not ask for, and a refusal must
+        // not wake the healer (which can sign the user out) over a radio's next window. The
+        // token is replayed with whatever identity is current, so a refusal is expected once
+        // the session changed: it comes back as an ordinary error, and the queue asks from the
+        // seed instead.
+        let value = self.post_no_heal("next", metadata_client, &body, true).await?;
         Ok(self.finish_next(&value, seed_video))
     }
 

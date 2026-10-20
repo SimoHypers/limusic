@@ -84,6 +84,14 @@ impl Error {
     pub fn is_not_found(&self) -> bool {
         matches!(self, Error::Http(e) if e.status().is_some_and(|s| s.as_u16() == 404))
     }
+
+    /// YouTube refused the request (401/403): the stored cookie has gone stale, or the request
+    /// was not for this account. A request that heals ([`InnerTube::post`]) waits for the
+    /// healer and tries again; one that does not ([`InnerTube::post_no_heal`]) hands the
+    /// refusal to the caller, which decides what to do with it.
+    pub fn is_refusal(&self) -> bool {
+        matches!(self, Error::Http(e) if e.status().is_some_and(|s| s.as_u16() == 401 || s.as_u16() == 403))
+    }
 }
 
 /// `s` if it looks like an enum value (`STATUS_SUCCEEDED`), safe to log.
