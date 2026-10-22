@@ -254,10 +254,12 @@ impl InnerTube {
     }
 
     /// The next window of an endless mix/radio via the panel's own continuation token (context/08).
-    /// `parse_next` has always extracted that token (`NextResult::continuation`); nothing ever sent
-    /// it. Re-requesting the seed from the same anchor answers the same page, so a queue topped up
-    /// only that way stalls where the first panel ends. Same filtering as [`Self::next`] (both go
-    /// through [`Self::finish_next`]); `seed_video` only spares the anchor from "hide music videos".
+    /// `parse_next` has always extracted that token (`NextResult::continuation`), but nothing ever
+    /// sent it — and it now comes from the panel itself (see `panel_continuation`), so it is the
+    /// radio's own token and not whichever `continuation` the answer carries first. Re-requesting
+    /// the seed from the same anchor answers the same page, so a queue topped up only that way
+    /// stalls where the first panel ends. Same filtering as [`Self::next`] (both go through
+    /// [`Self::finish_next`]); `seed_video` only spares the anchor from "hide music videos".
     pub async fn radio_continuation(
         &self,
         metadata_client: &YouTubeClient,
