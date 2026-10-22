@@ -64,7 +64,8 @@
 		"top_result": "Meilleur résultat",
 		"all_results_for": "Tous les résultats pour « {query} »",
 		"refresh": "Actualiser",
-		"videos": "Vidéos"
+		"videos": "Vidéos",
+		"restore": "Restaurer"
 	},
 	"nav": {
 		"home": "Accueil",
@@ -87,7 +88,8 @@
 		"remove_account_title": "Supprimer de Limusic ?",
 		"remove_account_desc": "{name} sera uniquement retiré de cette liste. Le compte Google lui-même n'est pas affecté et vous pourrez vous y reconnecter à tout moment.",
 		"saved_accounts_hint": "Sélectionnez un compte enregistré pour basculer dessus.",
-		"no_channels": "YouTube n'a renvoyé aucune chaîne sélectionnable."
+		"no_channels": "YouTube n'a renvoyé aucune chaîne sélectionnable.",
+		"stats": "Statistiques"
 	},
 	"player": {
 		"play": "Lire",
@@ -148,7 +150,11 @@
 		"songs_left": "{count} morceaux restants",
 		"songs_left_one": "1 morceau restant",
 		"queue_ends": "La file d’attente se termine après ce morceau.",
-		"edit_scrobble": "Modifier la réécoute"
+		"edit_scrobble": "Modifier la réécoute",
+		"comments": "Commentaires",
+		"song": "Chanson",
+		"video": "Vidéo",
+		"up_next": "À suivre"
 	},
 	"home": {
 		"good_morning": "Bonjour",
@@ -185,14 +191,29 @@
 		"sections_hint": "Glissez une section pour la déplacer, ou sélectionnez sa poignée et utilisez les touches fléchées. Les sections masquées conservent leur position.",
 		"move_section": "Déplacer {title}",
 		"moved_section": "{title} a été déplacé à la position {position} sur {total}",
-		"all_hidden": "Tous les éléments de l'accueil sont désactivés."
+		"all_hidden": "Tous les éléments de l'accueil sont désactivés.",
+		"kinds": {
+			"listen_again": "Réécouter",
+			"quick_picks": "Sélections rapides",
+			"from_library": "Depuis votre bibliothèque",
+			"community": "De la part de la communauté",
+			"fresh_finds": "Nouveautés à découvrir, anciens favoris",
+			"albums_for_you": "Albums pour vous",
+			"trending": "Chansons du moment pour vous",
+			"featured_playlists": "Playlists à la une pour vous",
+			"new_releases": "Nouvelles sorties",
+			"mixed_for_you": "Mix pour vous",
+			"daily_discover": "Votre découverte du jour",
+			"music_videos": "Clips vidéo pour vous"
+		}
 	},
 	"artist": {
 		"subscribe": "S'abonner",
 		"subscribed": "Abonné",
 		"top_songs": "Top des titres",
 		"subscribe_to": "S'abonner à {name}",
-		"unsubscribe_from": "Se désabonner de {name}"
+		"unsubscribe_from": "Se désabonner de {name}",
+		"appears_on": "Apparaît sur"
 	},
 	"library": {
 		"title": "Bibliothèque",
@@ -251,7 +272,13 @@
 		"saved_in_many": "Enregistré dans {count} playlists",
 		"saved_in_more": "et {count} de plus",
 		"subscriptions_tab": "Abonnements",
-		"no_subscriptions": "Aucun abonnement pour le moment. Abonnez-vous à un artiste depuis sa page pour le conserver ici."
+		"no_subscriptions": "Aucun abonnement pour le moment. Abonnez-vous à un artiste depuis sa page pour le conserver ici.",
+		"suggestions": "Suggestions",
+		"suggestions_hint": "Basé sur le contenu de cette playlist",
+		"suggestions_failed": "Impossible de charger les suggestions.",
+		"suggestion_add": "Ajouter {title} à cette playlist",
+		"suggestion_added": "Ajouté",
+		"saved_in_count": "{count} playlists"
 	},
 	"local": {
 		"scanning": "Analyse du dossier…",
@@ -285,7 +312,7 @@
 			"hotkeys": "Raccourcis globaux",
 			"hotkeys_hint": "Raccourcis système pour contrôler la lecture partout.",
 			"scrobbling": "Réécoute",
-			"scrobbling_hint": "Ce que Last.fm reçoit, et quand une lecture est comptabilisée."
+			"scrobbling_hint": "Ce que le scrobbling envoie, et quand une lecture est comptabilisée."
 		},
 		"sections": {
 			"language": "Langue",
@@ -308,7 +335,9 @@
 			"discord_status": "Statut",
 			"discord_card": "Carte",
 			"discord_links": "Liens cliquables",
-			"discord_buttons": "Boutons"
+			"discord_buttons": "Boutons",
+			"colors": "Couleurs",
+			"interface": "Interface"
 		},
 		"general": {
 			"language": "Langue de l'interface",
@@ -334,7 +363,9 @@
 			"track_notifications": "Notifications de titre",
 			"track_notifications_hint": "Afficher une notification lorsqu'un nouveau titre démarre et que Limusic est en arrière-plan.",
 			"start_minimized": "Démarrer réduit dans la zone de notification",
-			"start_minimized_hint": "Lorsque Limusic démarre avec votre système, il reste réduit dans la barre d'état. L'ouvrir manuellement affichera toujours la fenêtre."
+			"start_minimized_hint": "Lorsque Limusic démarre avec votre système, il reste réduit dans la barre d'état. L'ouvrir manuellement affichera toujours la fenêtre.",
+			"track_notifications_focused": "Aussi pendant l'utilisation de Limusic",
+			"track_notifications_focused_hint": "Affiche aussi une notification lorsque le titre suivant démarre automatiquement alors que Limusic est la fenêtre active. Les titres que vous choisissez vous-même n'en affichent jamais."
 		},
 		"themes": {
 			"interface_font": "Police de l'interface",
@@ -374,7 +405,23 @@
 			"app_icon_dialog": "Choisir une icône pour l'application",
 			"app_icon_filter": "Image PNG",
 			"zoom": "Échelle de l'interface",
-			"zoom_hint": "Redimensionne tous les éléments de la fenêtre. Les raccourcis de zoom modifient également ce réglage, conservé d'un lancement à l'autre."
+			"zoom_hint": "Redimensionne tous les éléments de la fenêtre. Les raccourcis de zoom modifient également ce réglage, conservé d'un lancement à l'autre.",
+			"classic_player": "Disposition classique du lecteur",
+			"classic_player_hint": "La vue d'origine du lecteur : l'illustration seule sur une copie floutée de la pochette, avec les détails du titre laissés à la barre du lecteur. Désactivé, le réglage utilise la nouvelle disposition, avec le titre, l'artiste et l'album sous l'illustration et la vue éclairée par les couleurs de la pochette.",
+			"blur_playlist_header": "Flouter les en-têtes de playlist",
+			"blur_playlist_header_hint": "Affiche la pochette d'une playlist floutée derrière son en-tête. Atténue l'aspect pixellisé des pochettes étirées sur toute la largeur.",
+			"matugen": "Matugen",
+			"matugen_hint": "Prend toutes les couleurs, y compris la couleur d'accentuation, de la palette que Matugen génère à partir de votre fond d'écran. Configurez d'abord le modèle Limusic dans Matugen.",
+			"mode": "Clair ou sombre",
+			"mode_hint": "Système suit le réglage de votre ordinateur et change avec lui.",
+			"mode_light": "Clair",
+			"mode_dark": "Sombre",
+			"mode_system": "Système",
+			"accent_hint": "Les boutons, la barre de progression et tout élément sélectionné.",
+			"accent_theme": "L’accent du thème",
+			"accent_artwork_note": "Pendant la lecture d'un titre, l'accent provient de sa pochette. Désactivez Adapter les couleurs à l'illustration pour voir celui-ci.",
+			"preview": "Aperçu",
+			"preview_hint": "Les curseurs et le sélecteur de couleur s'appliquent ici pendant que vous les faites glisser, et l'application suit dès que vous relâchez."
 		},
 		"playback": {
 			"audio_quality": "Qualité audio",
@@ -918,7 +965,8 @@
 		"account_changed": "L'ajout de titres a été interrompu suite à un changement de compte.",
 		"remove": "Retirer de cette playlist",
 		"remove_confirm": "Retirer {count} éléments ?",
-		"playlists_partial": "Ajouté à {done} sur {total} playlists. {error}"
+		"playlists_partial": "Ajouté à {done} sur {total} playlists. {error}",
+		"play_on_repeat": "Jouer uniquement celles-ci, en boucle"
 	},
 	"errors": {
 		"unreachable": "Impossible de joindre YouTube Music. Vérifiez votre connexion.",
@@ -945,5 +993,65 @@
 		"anyway_hint": "Conserver en double exemplaire",
 		"anyway_hint_local": "Les copies supplémentaires s'appliquent uniquement aux playlists YouTube",
 		"adds": "+{count}"
+	},
+	"stats": {
+		"title": "Statistiques d'écoute",
+		"ranges": {
+			"week": "7 jours",
+			"month": "30 jours",
+			"year": "12 mois",
+			"all": "Depuis toujours"
+		},
+		"listened": {
+			"week": "Écouté ces 7 derniers jours",
+			"month": "Écouté ces 30 derniers jours",
+			"year": "Écouté ces 12 derniers mois",
+			"all": "Écouté depuis le {date}"
+		},
+		"compared": {
+			"week": "par rapport aux 7 jours précédents",
+			"month": "par rapport aux 30 jours précédents",
+			"year": "par rapport aux 12 mois précédents"
+		},
+		"plays": "Lectures",
+		"new_songs": "{count} nouveaux",
+		"streak": "Jours consécutifs",
+		"best_streak": "Record : {count}",
+		"activity": "Activité d'écoute",
+		"daily_average": "Moyenne quotidienne",
+		"monthly_average": "Moyenne mensuelle",
+		"busiest_day": "Jour le plus actif",
+		"busiest_month": "Mois le plus actif",
+		"busiest_weekday": "Jour de la semaine le plus actif",
+		"busiest_hour": "Heure la plus active",
+		"top_songs": "Top des titres",
+		"top_artists": "Top des artistes",
+		"top_albums": "Top des albums",
+		"share": "{percent} de votre écoute",
+		"when": "Quand vous écoutez",
+		"dayparts": {
+			"morning": "Matin",
+			"afternoon": "Après-midi",
+			"evening": "Soir",
+			"night": "Nuit"
+		},
+		"persona": {
+			"morning": "Lève-tôt",
+			"afternoon": "Auditeur de l'après-midi",
+			"evening": "Auditeur du soir",
+			"night": "Oiseau de nuit"
+		},
+		"persona_hint": "Vous écoutez surtout entre {from} et {to}.",
+		"less": "Moins",
+		"more": "Plus",
+		"nothing_in_range": "Rien n'a été lu sur cette période.",
+		"empty_title": "Vos statistiques commencent ici",
+		"empty": "Écoutez quelques titres et cette page se remplira avec ce que vous écoutez, quand et pendant combien de temps.",
+		"on_device": "Comptabilisé sur cet appareil à partir de ce que vous écoutez dans Limusic. Rien n'est envoyé ailleurs.",
+		"clear": "Effacer l'historique d'écoute",
+		"clear_title": "Effacer l'historique d'écoute ?",
+		"clear_desc": "Cela efface toutes les lectures comptabilisées sur cet appareil, donc vos statistiques repartent de zéro et En boucle se vide. Votre historique YouTube Music n'est pas modifié.",
+		"clear_confirm": "Effacer l'historique",
+		"cleared": "Historique d'écoute effacé"
 	}
 }
