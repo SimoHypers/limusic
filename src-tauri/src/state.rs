@@ -3247,14 +3247,25 @@ impl AppState {
             if !window_may_land(top_up, &q, seed, from_token) {
                 return None;
             }
+            // Against the queue as it is *now*, not a snapshot from before the fetch: a playlist
+            // fill, a guest add or `play_song`'s own hydration can all have appended something
+            // while we were on the network, and dropping a stale set on top of it duplicates.
+            let existing: HashSet<String> = q.items.iter().map(|i| i.video_id.clone()).collect();
+            let (added, left) =
+                merge_radio(&mut q.items, fresh, existing, top_up.batch, top_up.autoplay);
             // What the window said about the next one, kept in the same breath as the append so
             // a window fetched but not appended is never skipped over. Only a radio hands one in,
             // and only for a window that still belongs here.
             match cont {
                 None => {}
-                // The panel's own token: the window after this one.
+                // The panel's own token: the window after this one. Unless the cap cut this
+                // window short: the token points past the tracks that did not fit, and those are
+                // only reachable by asking for this window again — so the token stays where it
+                // was, and the next top-up asks for the same window.
                 Some(NextWindow::Token(token)) => {
-                    q.radio_cont = Some((seed.to_owned(), Some(token)));
+                    if !left {
+                        q.radio_cont = Some((seed.to_owned(), Some(token)));
+                    }
                 }
                 // A panel without a continuation: the radio ends here. This is the only thing
                 // that may say so.
@@ -3276,11 +3287,6 @@ impl AppState {
                     }
                 },
             }
-            // Against the queue as it is *now*, not a snapshot from before the fetch: a playlist
-            // fill, a guest add or `play_song`'s own hydration can all have appended something
-            // while we were on the network, and dropping a stale set on top of it duplicates.
-            let existing: HashSet<String> = q.items.iter().map(|i| i.video_id.clone()).collect();
-            let added = merge_radio(&mut q.items, fresh, existing, top_up.batch, top_up.autoplay);
             // With shuffle on, `shuffle_orig` is the same tracks in the order they had before the
             // shuffle: the window goes in there too, or un-shuffle would drop it.
             if added > 0 {
@@ -4880,27 +4886,31 @@ fn window_still_current(q: &QueueState, from_token: Option<&str>) -> bool {
 /// Append radio-continuation tracks to the queue: dedupe against `existing` (the whole current
 /// queue + everything appended this hop), cap at `cap`, and, for autoplay, mark each as `autoplay`
 /// so the UI can show where the chosen queue ends and autoplay begins. Returns how many were
-/// appended.
+/// appended, and whether the window had more new tracks than the cap: the ones that did not fit
+/// are only reachable by asking for this window again.
 fn merge_radio(
     items: &mut Vec<SongItem>,
     fresh: Vec<SongItem>,
     mut existing: HashSet<String>,
     cap: usize,
     autoplay: bool,
-) -> usize {
+) -> (usize, bool) {
     let mut added = 0;
+    let mut left = false;
     for mut item in fresh {
-        if added >= cap {
-            break;
-        }
-        if !existing.insert(item.video_id.clone()) {
+        if existing.contains(&item.video_id) {
             continue; // already in the queue (or appended this hop)
         }
+        if added >= cap {
+            left = true; // a new track that does not fit
+            continue;
+        }
+        existing.insert(item.video_id.clone());
         item.autoplay = autoplay;
         items.push(item);
         added += 1;
     }
-    added
+    (added, left)
 }
 
 /// What the skip toast blames. "unavailable" is right for a video YouTube would not serve, and
@@ -6236,15 +6246,19 @@ mod tests {
             song("d", None),
             song("e", None),
         ];
-        let added = merge_radio(&mut items, fresh, existing.clone(), 2, true);
+        let (added, left) = merge_radio(&mut items, fresh, existing.clone(), 2, true);
         assert_eq!(added, 2); // cap honored: c + d, e cut off
+        assert!(left, "e did not fit: it is only reachable by asking for the window again");
         let ids: Vec<_> = items.iter().map(|i| i.video_id.as_str()).collect();
         assert_eq!(ids, ["a", "b", "c", "d"]);
         // Appended tracks are marked autoplay (the UI's divider/badge key); originals aren't.
         assert!(items[2].autoplay && items[3].autoplay);
         assert!(!items[0].autoplay && !items[1].autoplay);
         // Nothing new in the radio result → 0, queue untouched (playback then stops as before).
-        assert_eq!(merge_radio(&mut items.clone(), vec![song("a", None)], existing, 20, true), 0);
+        assert_eq!(
+            merge_radio(&mut items.clone(), vec![song("a", None)], existing, 20, true),
+            (0, false)
+        );
     }
 
     #[test]
@@ -6254,13 +6268,15 @@ mod tests {
         let mut items = vec![];
         assert_eq!(
             merge_radio(&mut items, fresh(), HashSet::new(), RADIO.batch, RADIO.autoplay),
-            50
+            (50, false)
         );
         assert!(items.iter().all(|i| !i.autoplay));
         // Autoplay keeps its smaller hop and its tag.
         let mut items = vec![];
-        let n = merge_radio(&mut items, fresh(), HashSet::new(), AUTOPLAY.batch, AUTOPLAY.autoplay);
+        let (n, left) =
+            merge_radio(&mut items, fresh(), HashSet::new(), AUTOPLAY.batch, AUTOPLAY.autoplay);
         assert_eq!(n, 20);
+        assert!(left, "the rest of the window did not fit");
         assert!(items.iter().all(|i| i.autoplay));
     }
 
