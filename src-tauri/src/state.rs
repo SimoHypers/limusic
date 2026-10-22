@@ -4433,7 +4433,9 @@ fn track_to_song(t: &Track) -> SongItem {
 /// filler the user never picked, and it tops itself up forever.
 ///
 /// A radio is that kind of filler from its first track, so there an add goes behind the manual
-/// adds right after the playing track instead.
+/// adds right after the playing track instead. That is a queue that grew behind a clicked song as
+/// well (see `play_song`): the tracks behind it are the radio's, so the add goes in front of them
+/// rather than behind all of them — a visible change from before the radio took over the tail.
 fn enqueue_at(q: &QueueState) -> usize {
     let start = (q.current + 1).min(q.items.len());
     if is_radio(q) {
