@@ -3080,14 +3080,7 @@ impl AppState {
         if self.queue.lock().await.topping_up != Some(gen) {
             return;
         }
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(20), async {
-            while *rx.borrow_and_update() == seen {
-                if rx.changed().await.is_err() {
-                    break; // the state is gone: nothing left to wait for
-                }
-            }
-        })
-        .await;
+        wait_for_top_up_done(&mut rx, seen, TOP_UP_WAIT).await;
     }
 
     /// A window failed. The token it was asked with may not be good any more, so count the
@@ -4919,6 +4912,27 @@ fn plan_top_up(
     Some((last.video_id.clone(), seed, token, if radio { RADIO } else { AUTOPLAY }))
 }
 
+/// How long a caller waits for a top-up that is on the wire.
+const TOP_UP_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// Wait until the top-up counter moves past `seen`, or until `timeout` runs out. The counter is
+/// bumped when a top-up finishes, so a waiter is let go as soon as the one it waits for is done —
+/// and a top-up that never finishes does not hold it forever.
+async fn wait_for_top_up_done(
+    rx: &mut tokio::sync::watch::Receiver<u64>,
+    seen: u64,
+    timeout: std::time::Duration,
+) {
+    let _ = tokio::time::timeout(timeout, async {
+        while *rx.borrow_and_update() == seen {
+            if rx.changed().await.is_err() {
+                break; // the state is gone: nothing left to wait for
+            }
+        }
+    })
+    .await;
+}
+
 /// Where a radio's sequence stands: the window it is on, the start (it has no window of its own
 /// yet), or its end. One definition, so the plan — which window to ask for — and the gate —
 /// whether an answer may land — cannot disagree about it.
@@ -6711,6 +6725,28 @@ mod tests {
             ..QueueState::default()
         };
         assert_eq!(skip_repeat(&picked), RepeatMode::All);
+    }
+
+    // The wait a Skip at the tail does for the top-up that is on the wire: it is let go as soon
+    // as that top-up is done, and it does not wait forever for one that never finishes.
+    #[tokio::test]
+    async fn a_waiter_is_let_go_when_the_top_up_finishes() {
+        let (tx, mut rx) = tokio::sync::watch::channel(0u64);
+        let seen = *rx.borrow_and_update();
+        let waiter = tokio::spawn(async move {
+            wait_for_top_up_done(&mut rx, seen, std::time::Duration::from_secs(5)).await;
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tx.send_modify(|n| *n += 1); // the top-up finished
+        waiter.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_waiter_does_not_wait_forever() {
+        let (_tx, mut rx) = tokio::sync::watch::channel(0u64);
+        let seen = *rx.borrow_and_update();
+        // Nothing ever finishes that top-up: the wait gives up on its own.
+        wait_for_top_up_done(&mut rx, seen, std::time::Duration::from_millis(50)).await;
     }
 
     // A token that is not good any more fails the same way every time, so the count of failures
