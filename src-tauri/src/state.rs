@@ -342,6 +342,11 @@ struct QueueState {
     /// is doing it for). The early trigger, a skip at the tail and a shuffle toggle can all ask
     /// within one round trip; without this hold they fetch the same window twice.
     topping_up: Option<u64>,
+    /// How many windows in a row failed for this radio's token. A token that is not good any
+    /// more (an expired continuation) fails the same way every time, so after a few of them the
+    /// token is dropped and the radio asks from the seed again — the way it did before it had a
+    /// token at all.
+    radio_fails: u8,
     /// The queue index we've already appended to mpv for gapless lookahead (if any).
     lookahead_loaded: Option<usize>,
     /// Which client served the currently-loaded track (for the WEB_REMIX-403 feedback). context/06.
@@ -3083,12 +3088,29 @@ impl AppState {
         .await;
     }
 
-    /// Drop the radio's token: the window it was asked with was refused, so it is no good any
-    /// more. The next top-up asks from the seed instead.
-    async fn forget_radio_token(&self, gen: u64) {
+    /// A window failed. The token it was asked with may not be good any more, so count the
+    /// failures in a row: a refusal settles it at once, and anything else is given a few tries
+    /// before the token is dropped and the radio asks from the seed again.
+    async fn note_failed_window(&self, gen: u64, top_up: TopUp, refused: bool) {
+        if top_up.autoplay {
+            return; // autoplay asks from the seed every time; there is no token to lose
+        }
+        let mut q = self.queue.lock().await;
+        if self.generation.load(Ordering::SeqCst) != gen {
+            return;
+        }
+        let (fails, drop) = failed_window(q.radio_fails, refused);
+        q.radio_fails = fails;
+        if drop {
+            q.radio_cont = None; // ask from the seed again
+        }
+    }
+
+    /// A window came: whatever was wrong with the last ones is over.
+    async fn clear_failed_windows(&self, gen: u64) {
         let mut q = self.queue.lock().await;
         if self.generation.load(Ordering::SeqCst) == gen {
-            q.radio_cont = None;
+            q.radio_fails = 0;
         }
     }
 
@@ -3151,15 +3173,15 @@ impl AppState {
             Ok(page) => page,
             Err(e) => {
                 tracing::warn!(error = %e, "queue top-up fetch failed");
-                // A refused window (a stale session, an account that changed) says nothing
-                // about the radio: the token it was asked with is no good, so it is dropped and
-                // the next try asks from the seed — a request the session can heal.
-                if e.is_refusal() {
-                    self.forget_radio_token(gen).await;
-                }
+                // A window that failed says nothing about the radio: the token it was asked with
+                // may not be good any more. A refusal settles it at once; anything else is given
+                // a few tries, so a hiccup does not throw the sequence away.
+                self.note_failed_window(gen, top_up, e.is_refusal()).await;
                 return 0;
             }
         };
+        // The window came: whatever was wrong with the last ones is over.
+        self.clear_failed_windows(gen).await;
         let cont = (!top_up.autoplay).then(|| next_window(page.panel, page.continuation.clone()));
         let Some(mut added) =
             self.absorb_radio(page.items, gen, seed, top_up, cont, token.as_deref()).await
@@ -4669,6 +4691,23 @@ const RADIO: TopUp = TopUp { batch: 50, autoplay: false };
 /// A radio asks for its next window once fewer than this many tracks are left behind the playing
 /// one, which is when YT Music does.
 const RADIO_TAIL: usize = 5;
+
+/// How many windows in a row may fail for one token before the radio gives it up and asks from
+/// the seed again. A token that is not good any more fails the same way every time, so the count
+/// is what tells a dead token from a hiccup.
+const RADIO_FAILS: u8 = 3;
+
+/// What a failed window does to the radio: the new count of failures in a row, and whether the
+/// token is dropped — the radio asks from the seed again, the way it did before it had a token.
+/// A refusal settles it at once, a few failures in a row do, a single hiccup does not.
+fn failed_window(fails: u8, refused: bool) -> (u8, bool) {
+    let fails = fails.saturating_add(1);
+    if refused || fails >= RADIO_FAILS {
+        (0, true)
+    } else {
+        (fails, false)
+    }
+}
 
 /// The queue is a radio with a seed pinned to continue: `start_radio`, a radio spliced in behind
 /// the playing track, a song's own radio (`play_song`). A queue without a pinned seed (a playlist,
@@ -6661,6 +6700,19 @@ mod tests {
             ..QueueState::default()
         };
         assert_eq!(skip_repeat(&picked), RepeatMode::All);
+    }
+
+    // A token that is not good any more fails the same way every time, so the count of failures
+    // in a row is what tells a dead token from a hiccup.
+    #[test]
+    fn a_dead_token_is_given_up_on_and_a_hiccup_is_not() {
+        assert_eq!(failed_window(0, false), (1, false), "one failure is a hiccup");
+        assert_eq!(failed_window(1, false), (2, false));
+        assert_eq!(failed_window(2, false), (0, true), "the third one gives the token up");
+        // A refusal settles it at once: the token is not good any more.
+        assert_eq!(failed_window(0, true), (0, true));
+        // And the count starts over, so the next token gets the same tries.
+        assert_eq!(failed_window(0, false), (1, false));
     }
 
     // Where a radio stands is one thing, read the same way by the plan (which window to ask
