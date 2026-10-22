@@ -2763,6 +2763,11 @@ impl AppState {
                 if self.extend_queue_radio(gen).await > 0 || self.has_next().await {
                     let next = self.queue.lock().await.current + 1;
                     self.play_index(next).await;
+                } else if self.repeats_one().await {
+                    // A radio that has ended, under Repeat One: there is no next track to
+                    // continue into, and the Skip used to start the queue over. Do that, rather
+                    // than doing nothing at all.
+                    self.play_index(0).await;
                 }
             }
         }
@@ -3108,6 +3113,12 @@ impl AppState {
         if self.generation.load(Ordering::SeqCst) == gen {
             q.radio_fails = 0;
         }
+    }
+
+    /// Whether the queue is set to Repeat One. A radio under Repeat One has no next track to
+    /// continue into once it has ended, and the Skip used to start the queue over.
+    async fn repeats_one(&self) -> bool {
+        self.queue.lock().await.repeat == RepeatMode::One
     }
 
     /// Whether the queue has a track after the playing one.
