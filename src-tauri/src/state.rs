@@ -1403,8 +1403,10 @@ impl AppState {
                     q.radio = true;
                     // Only a panel may say the radio ended. An answer without one is not about a
                     // radio, and the radio is not over: the first top-up asks from the seed.
-                    q.radio_cont =
-                        radio_state(&next_window(next.panel, next.continuation.clone()), &radio_id);
+                    q.radio_cont = radio_state(
+                        &next_window(next.panel, next.items.len(), next.continuation.clone()),
+                        &radio_id,
+                    );
                 }
                 // Deduped against the queue, not just against the seed: a carried manual add can
                 // be in the radio page too, and it should stay where the user put it.
@@ -1702,7 +1704,7 @@ impl AppState {
         let first =
             self.it.next(client, video_id, Some(playlist_id)).await.map_err(|e| e.to_string())?;
         if first.items.len() > 1 {
-            let said = next_window(first.panel, first.continuation.clone());
+            let said = next_window(first.panel, first.items.len(), first.continuation.clone());
             return Ok((first.items, playlist_id.to_owned(), said));
         }
         let Some(video_id) = video_id else { return Err(NO_RADIO.into()) };
@@ -1714,7 +1716,7 @@ impl AppState {
                 .await
                 .map_err(|e| e.to_string())?;
             if page.items.len() > 1 {
-                let said = next_window(page.panel, page.continuation.clone());
+                let said = next_window(page.panel, page.items.len(), page.continuation.clone());
                 return Ok((page.items, mix, said));
             }
         }
@@ -3182,7 +3184,8 @@ impl AppState {
         };
         // The window came: whatever was wrong with the last ones is over.
         self.clear_failed_windows(gen).await;
-        let cont = (!top_up.autoplay).then(|| next_window(page.panel, page.continuation.clone()));
+        let cont = (!top_up.autoplay)
+            .then(|| next_window(page.panel, page.items.len(), page.continuation.clone()));
         let Some(mut added) =
             self.absorb_radio(page.items, gen, seed, top_up, cont, token.as_deref()).await
         else {
@@ -3206,7 +3209,7 @@ impl AppState {
                         gen,
                         seed,
                         top_up,
-                        Some(next_window(page.panel, page.continuation.clone())),
+                        Some(next_window(page.panel, page.items.len(), page.continuation.clone())),
                         Some(t.as_str()),
                     )
                     .await
@@ -4784,15 +4787,20 @@ enum NextWindow {
 }
 
 /// What a fetched answer says about the radio's next window: the panel's own token, the radio's
-/// end (a panel without a continuation), or nothing at all (no panel — the answer is not about
-/// a radio, e.g. a foreign or expired token, which is not the same thing as the radio's end).
-fn next_window(panel: bool, continuation: Option<String>) -> NextWindow {
+/// end (a panel with rows and no continuation), or nothing at all (no panel, or a panel with a
+/// single row and no continuation — a dead radio, not the end of a sequence).
+fn next_window(panel: bool, rows: usize, continuation: Option<String>) -> NextWindow {
     if !panel {
         return NextWindow::Unknown;
     }
     match continuation {
         Some(token) => NextWindow::Token(token),
-        None => NextWindow::Ended,
+        // A panel with rows and no continuation: the radio ends here.
+        None if rows > 1 => NextWindow::Ended,
+        // A panel with a single row and no continuation: a dead radio — the seed song and
+        // nothing else, which is how a radio that is not there answers. It says nothing about
+        // the sequence, so it must not end it.
+        None => NextWindow::Unknown,
     }
 }
 
@@ -6637,11 +6645,14 @@ mod tests {
     // or nothing learned at all — the last is not the same as the radio's end.
     #[test]
     fn only_a_panel_says_where_a_radio_goes_next() {
-        assert_eq!(next_window(true, Some("TOK".into())), NextWindow::Token("TOK".into()));
-        assert_eq!(next_window(true, None), NextWindow::Ended);
+        assert_eq!(next_window(true, 5, Some("TOK".into())), NextWindow::Token("TOK".into()));
+        assert_eq!(next_window(true, 5, None), NextWindow::Ended);
         // No panel at all: a foreign or expired token, or an answer that is not about a radio.
-        assert_eq!(next_window(false, Some("TOK".into())), NextWindow::Unknown);
-        assert_eq!(next_window(false, None), NextWindow::Unknown);
+        assert_eq!(next_window(false, 5, Some("TOK".into())), NextWindow::Unknown);
+        assert_eq!(next_window(false, 5, None), NextWindow::Unknown);
+        // A dead radio answers with the seed song and nothing else: that is not the end of a
+        // sequence, it is a radio that is not there.
+        assert_eq!(next_window(true, 1, None), NextWindow::Unknown);
     }
 
     // What a radio's state becomes after an answer: the next window's token, the radio's end, or
