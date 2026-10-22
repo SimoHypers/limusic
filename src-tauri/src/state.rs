@@ -1376,13 +1376,18 @@ impl AppState {
                 Some(&radio_id),
             )
             .await;
-        self.end_hydration(gen).await; // autoplay may top this queue up from here on
         match hydrated {
             Ok(mut next) => {
                 self.freshen_radio(&mut next.items);
                 let mut q = self.queue.lock().await;
                 if self.generation.load(Ordering::SeqCst) != gen {
                     return; // superseded
+                }
+                // The hold and the pin under one lock. Between them the queue looked like a
+                // plain queue — no radio, no seed — and the autoplay early trigger could ask
+                // for the very radio being hydrated here (#255).
+                if q.hydrating == Some(gen) {
+                    q.hydrating = None; // autoplay may top this queue up from here on
                 }
                 // From here on this queue *is* that radio: pin its seed, and keep the token of the
                 // window after this one so the tail can follow it ([`extend_queue_radio`]).
@@ -1441,7 +1446,10 @@ impl AppState {
                 drop(q);
                 self.emit_queue().await;
             }
-            Err(e) => tracing::warn!(error = %e, "next() radio hydration failed"),
+            Err(e) => {
+                tracing::warn!(error = %e, "next() radio hydration failed");
+                self.end_hydration(gen).await;
+            }
         }
 
         self.prime_lookahead(gen).await;
