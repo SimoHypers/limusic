@@ -3400,7 +3400,7 @@ impl AppState {
             .get("repeat")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default();
-        let shuffle_orig: Option<Vec<SongItem>> =
+        let mut shuffle_orig: Option<Vec<SongItem>> =
             saved.get("shuffleOrig").and_then(|v| serde_json::from_value(v.clone()).ok()).flatten();
         let radio_seed: Option<String> =
             saved.get("radioSeed").and_then(|v| v.as_str()).map(str::to_owned);
@@ -5377,12 +5377,13 @@ mod tests {
         format_duration, freshen, get_url, guest_insert_index, history_threshold,
         is_foreign_window, is_mix, is_radio, loudness_gain, merge_radio, next_index, next_window,
         parse_duration_ms, persist_fingerprint, plan_top_up, prefer_version, prev_track_title,
-        put_url, queue_fingerprint, radio_exhausted, radio_install, radio_seed_for, radio_token,
-        repeat_blocks_top_up, retain_upcoming, shuffle_new_queue, shuffle_upcoming,
-        splice_radio_into, swap_version, sync_shuffle_snapshot, trim_played, twin_position,
-        unknown_window, unshuffled, untag_radio_rows, upcoming_queued, wants_top_up,
-        window_may_land, window_still_current, NextWindow, QueueState, RepeatMode, Unknown,
-        VideoUrls, AUTOPLAY, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO, RADIO_TAIL,
+        put_url, queue_fingerprint, radio_exhausted, radio_install, radio_seed_for, radio_stand,
+        radio_state, radio_token, repeat_blocks_top_up, retain_upcoming, shuffle_new_queue,
+        shuffle_upcoming, skip_repeat, splice_radio_into, splice_radio_state, swap_version,
+        sync_shuffle_snapshot, trim_played, twin_position, unknown_window, unshuffled,
+        untag_radio_rows, upcoming_queued, wants_top_up, window_may_land, window_still_current,
+        NextWindow, QueueState, RadioStand, RepeatMode, Unknown, VideoUrls, AUTOPLAY, KEEP_PLAYED,
+        LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO, RADIO_TAIL,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
