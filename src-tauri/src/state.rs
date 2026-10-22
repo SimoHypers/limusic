@@ -3208,15 +3208,9 @@ impl AppState {
                 else {
                     break;
                 };
+                let said = next_window(page.panel, page.items.len(), page.continuation.clone());
                 let Some(n) = self
-                    .absorb_radio(
-                        page.items,
-                        gen,
-                        seed,
-                        top_up,
-                        Some(next_window(page.panel, page.items.len(), page.continuation.clone())),
-                        Some(t.as_str()),
-                    )
+                    .absorb_radio(page.items, gen, seed, top_up, Some(said), Some(t.as_str()))
                     .await
                 else {
                     break; // a spliced-in radio's token answers for that radio, not this one
@@ -5462,16 +5456,16 @@ fn persist_fingerprint(q: &QueueState) -> u64 {
 mod tests {
     use super::{
         adopt_twin, append_page, backfill_metadata, cache_horizon, drop_duplicates, enqueue_at,
-        format_duration, freshen, get_url, guest_insert_index, history_threshold,
+        failed_window, format_duration, freshen, get_url, guest_insert_index, history_threshold,
         is_foreign_window, is_mix, is_radio, loudness_gain, merge_radio, next_index, next_window,
         parse_duration_ms, persist_fingerprint, plan_top_up, prefer_version, prev_track_title,
         put_url, queue_fingerprint, radio_exhausted, radio_install, radio_seed_for, radio_stand,
         radio_state, radio_token, repeat_blocks_top_up, retain_upcoming, shuffle_new_queue,
         shuffle_upcoming, skip_repeat, splice_radio_into, splice_radio_state, swap_version,
         sync_shuffle_snapshot, trim_played, twin_position, unknown_window, unshuffled,
-        untag_radio_rows, upcoming_queued, wants_top_up, window_may_land, window_still_current,
-        NextWindow, QueueState, RadioStand, RepeatMode, Unknown, VideoUrls, AUTOPLAY, KEEP_PLAYED,
-        LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO, RADIO_TAIL,
+        untag_radio_rows, upcoming_queued, wait_for_top_up_done, wants_top_up, window_may_land,
+        window_still_current, NextWindow, QueueState, RadioStand, RepeatMode, Unknown, VideoUrls,
+        AUTOPLAY, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB, RADIO, RADIO_TAIL,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
