@@ -2729,10 +2729,7 @@ impl AppState {
     pub async fn next_in_queue(self: &std::sync::Arc<Self>) {
         let i = {
             let q = self.queue.lock().await;
-            // Manual next escapes a repeat-one loop (the next track then loops too), so treat One
-            // as All here: with any repeat engaged the queue wraps instead of dead-ending.
-            let repeat = if q.repeat == RepeatMode::One { RepeatMode::All } else { q.repeat };
-            next_index(q.items.len(), q.current, repeat)
+            next_index(q.items.len(), q.current, skip_repeat(&q))
         };
         match i {
             Some(i) => self.play_index(i).await,
@@ -4651,6 +4648,18 @@ fn is_radio(q: &QueueState) -> bool {
     q.radio && q.radio_seed.is_some()
 }
 
+/// The repeat mode a manual Skip works with. Repeat One is treated as Repeat All, so a queue
+/// with a repeat engaged wraps instead of dead-ending at its tail. A radio is the exception: its
+/// tail is topped up under Repeat One ([`repeat_blocks_top_up`]), so a Skip at the tail continues
+/// into the radio instead of wrapping back to the start.
+fn skip_repeat(q: &QueueState) -> RepeatMode {
+    if q.repeat == RepeatMode::One && !is_radio(q) {
+        RepeatMode::All
+    } else {
+        q.repeat
+    }
+}
+
 /// Whether repeat mode forbids topping the queue up. A radio is endless on its own account, so
 /// [`RepeatMode::One`] doesn't take its tail away — the looped file ends, and the queue behind it
 /// still runs out of unheard tracks. [`RepeatMode::All`] does block it: wrapping the user's own
@@ -6563,6 +6572,30 @@ mod tests {
         // No panel at all: a foreign or expired token, or an answer that is not about a radio.
         assert_eq!(next_window(false, Some("TOK".into())), NextWindow::Unknown);
         assert_eq!(next_window(false, None), NextWindow::Unknown);
+    }
+
+    // A manual Skip at the tail of a radio continues into the radio; a queue the user picked
+    // wraps instead of dead-ending, the way it always has.
+    #[test]
+    fn a_skip_at_the_tail_of_a_radio_continues() {
+        use RepeatMode::One;
+        let radio = QueueState {
+            items: vec![song("a", None), song("b", None)],
+            current: 1,
+            repeat: One,
+            radio: true,
+            radio_seed: Some("RDAMVMa".into()),
+            ..QueueState::default()
+        };
+        assert_eq!(skip_repeat(&radio), One, "the radio's tail is topped up, not wrapped");
+        // A queue the user picked: the Skip wraps to the start, as it always has.
+        let picked = QueueState {
+            items: vec![song("a", None), song("b", None)],
+            current: 1,
+            repeat: One,
+            ..QueueState::default()
+        };
+        assert_eq!(skip_repeat(&picked), RepeatMode::All);
     }
 
     // Where a radio stands is one thing, read the same way by the plan (which window to ask
