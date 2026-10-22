@@ -6618,6 +6618,28 @@ mod tests {
         assert_eq!(radio_state(&NextWindow::Unknown, "RDAMVMx"), None);
     }
 
+    // The exception is what makes a radio's tail reachable under Repeat One: the queue loops the
+    // file, so nothing else would ever ask for the continuation — and a Skip at the tail waits
+    // for it.
+    #[test]
+    fn a_radio_is_topped_up_under_repeat_one() {
+        let mut q = QueueState {
+            items: vec![song("a", None), song("b", None)],
+            current: 0,
+            repeat: RepeatMode::One,
+            radio: true,
+            radio_seed: Some("RDAMVMa".into()),
+            ..QueueState::default()
+        };
+        // Two tracks behind the playing one: a radio asks with fewer than five left.
+        let plan = plan_top_up(&q, 1, true).expect("the radio's tail is topped up");
+        assert!(!plan.3.autoplay, "it is the radio's own window");
+        // A queue the user picked keeps the rule it always had: no top-up while it repeats.
+        q.radio = false;
+        q.radio_seed = None;
+        assert!(plan_top_up(&q, 1, true).is_none());
+    }
+
     // A manual Skip at the tail of a radio continues into the radio; a queue the user picked
     // wraps instead of dead-ending, the way it always has.
     #[test]
