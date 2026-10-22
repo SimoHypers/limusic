@@ -3446,6 +3446,11 @@ impl AppState {
         // fingerprint check above, which hashes that tag: strip it before, and the saved pointer
         // would no longer match these rows.
         untag_radio_rows(&mut items, radio, radio_seed.as_deref());
+        if let Some(orig) = shuffle_orig.as_mut() {
+            // The snapshot is the same tracks in the order they had before the shuffle, and they
+            // carry the same tag: un-shuffle would bring it — and the divider with it — back.
+            untag_radio_rows(orig, radio, radio_seed.as_deref());
+        }
         {
             let mut q = self.queue.lock().await;
             q.current = current;
