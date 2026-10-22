@@ -1584,9 +1584,9 @@ impl AppState {
     ///
     /// A radio *is* a playlist id — the whole feature is a prefix convention plus one `/next`
     /// call. Songs and playlists build theirs client-side (`RDAMVM…` / `RDAMPL…`); artists can't,
-    /// so theirs comes off the artist page (`radio_playlist_id`). Once started it continues
-    /// through the same autoplay path as any other queue ([`Self::extend_queue_radio`]), which is
-    /// why this only has to install a first page and a seed.
+    /// so theirs comes off the artist page (`radio_playlist_id`). Once started it goes on its own
+    /// token, not through the autoplay path ([`Self::extend_queue_radio`]), which is why this only
+    /// has to install a first page and a seed.
     pub async fn start_radio(
         self: &std::sync::Arc<Self>,
         kind: &str,
@@ -4913,7 +4913,7 @@ fn radio_stand(q: &QueueState) -> RadioStand {
 /// token, or (`None`: asked from the seed) at the start of its own sequence. More than one top-up
 /// can be in flight, and a slower response landing after a newer one would otherwise rewind the
 /// sequence — re-asking a window the queue already has, or un-ending a radio whose last page said
-/// it ended.
+/// it ended. Such a window is dropped whole ([`window_may_land`]), not just its token.
 fn window_still_current(q: &QueueState, from_token: Option<&str>) -> bool {
     match (from_token, radio_stand(q)) {
         (Some(t), RadioStand::On(token)) => token == t,
