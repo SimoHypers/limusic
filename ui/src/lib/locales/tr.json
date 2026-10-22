@@ -202,7 +202,9 @@
 			"new_releases": "Yeni çıkanlar",
 			"mixed_for_you": "Senin için hazırlandı",
 			"music_videos": "Senin için müzik videoları",
-			"daily_discover": "Günlük keşif"
+			"daily_discover": "Günlük keşif",
+			"trending": "Sizin için trend şarkılar",
+			"featured_playlists": "Sizin için öne çıkan çalma listeleri"
 		}
 	},
 	"artist": {
@@ -1267,7 +1269,14 @@
 		"cleared": "Dinleme geçmişi silindi",
 		"top_songs": "En çok dinlenen şarkılar",
 		"top_artists": "En çok dinlenen sanatçılar",
-		"top_albums": "En çok dinlenen albümler"
+		"top_albums": "En çok dinlenen albümler",
+		"busiest_day": "En yoğun gün",
+		"busiest_month": "En yoğun ay",
+		"busiest_weekday": "Haftanın en yoğun günü",
+		"busiest_hour": "En yoğun saat",
+		"share": "Dinlemenizin {percent}'i",
+		"when": "Dinlediğiniz zaman",
+		"on_device": "Bu cihazda, Limusic'te dinlediklerinizden hesaplanır. Herhangi bir yere bir şey gönderilmez."
 	},
 	"columns": {
 		"title": "Başlık",
