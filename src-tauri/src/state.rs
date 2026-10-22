@@ -6295,11 +6295,12 @@ mod tests {
     #[test]
     fn a_radio_window_is_not_tagged_autoplay() {
         let fresh = || -> Vec<_> { (0..60).map(|i| song(&format!("v{i}"), None)).collect() };
-        // A radio takes its whole window and has no autoplay seam in the queue panel.
+        // A radio takes its window and has no autoplay seam in the queue panel. The window here
+        // is bigger than the cap, so the rest of it is left over — the radio asks for it again.
         let mut items = vec![];
         assert_eq!(
             merge_radio(&mut items, fresh(), HashSet::new(), RADIO.batch, RADIO.autoplay),
-            (50, false)
+            (50, true)
         );
         assert!(items.iter().all(|i| !i.autoplay));
         // Autoplay keeps its smaller hop and its tag.
