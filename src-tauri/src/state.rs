@@ -4821,18 +4821,56 @@ fn plan_top_up(
         return None;
     }
     let seed = q.radio_seed.clone().unwrap_or_else(|| format!("RDAMVM{}", last.video_id));
-    let token = if radio { radio_token(q) } else { None };
+    let token = if radio { radio_stand(q).token() } else { None };
     Some((last.video_id.clone(), seed, token, if radio { RADIO } else { AUTOPLAY }))
 }
 
+/// Where a radio's sequence stands: the window it is on, the start (it has no window of its own
+/// yet), or its end. One definition, so the plan — which window to ask for — and the gate —
+/// whether an answer may land — cannot disagree about it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RadioStand {
+    /// The radio is on the window with this token.
+    On(String),
+    /// The radio has not seen a window of its own yet: the first one is still to come.
+    AtStart,
+    /// The radio has reached its end: its last page was the last one.
+    Ended,
+}
+
+impl RadioStand {
+    /// The token of the window to ask for, if the radio is on one.
+    fn token(&self) -> Option<String> {
+        match self {
+            RadioStand::On(token) => Some(token.clone()),
+            RadioStand::AtStart | RadioStand::Ended => None,
+        }
+    }
+}
+
+/// Where `q`'s radio stands. The token of the window it is on is only its own: a token that
+/// belongs to another seed is not this radio's to follow, and the radio is then at the start of
+/// its own sequence — which is what the plan asks from, and what the gate has to allow.
+fn radio_stand(q: &QueueState) -> RadioStand {
+    if radio_exhausted(q) {
+        return RadioStand::Ended;
+    }
+    match radio_token(q) {
+        Some(token) => RadioStand::On(token),
+        None => RadioStand::AtStart,
+    }
+}
+
 /// Whether `q`'s radio still stands where a window asked with `from_token` started: still on that
-/// token, or (`None`: asked from the seed) with no page of it seen yet. More than one top-up can be
-/// in flight, and a slower response landing after a newer one would otherwise rewind the sequence —
-/// re-asking a window the queue already has, or un-ending a radio whose last page said it ended.
+/// token, or (`None`: asked from the seed) at the start of its own sequence. More than one top-up
+/// can be in flight, and a slower response landing after a newer one would otherwise rewind the
+/// sequence — re-asking a window the queue already has, or un-ending a radio whose last page said
+/// it ended.
 fn window_still_current(q: &QueueState, from_token: Option<&str>) -> bool {
-    match from_token {
-        Some(t) => radio_token(q).as_deref() == Some(t),
-        None => q.radio_cont.is_none(),
+    match (from_token, radio_stand(q)) {
+        (Some(t), RadioStand::On(token)) => token == t,
+        (None, RadioStand::AtStart) => true,
+        _ => false,
     }
 }
 
@@ -6506,6 +6544,35 @@ mod tests {
         // No panel at all: a foreign or expired token, or an answer that is not about a radio.
         assert_eq!(next_window(false, Some("TOK".into())), NextWindow::Unknown);
         assert_eq!(next_window(false, None), NextWindow::Unknown);
+    }
+
+    // Where a radio stands is one thing, read the same way by the plan (which window to ask
+    // for) and by the gate (whether the answer may land): a token that belongs to another seed
+    // is not this radio's window, so the radio is at the start of its own sequence.
+    #[test]
+    fn a_radio_stands_in_one_place() {
+        let radio = |cont: Option<(&str, Option<&str>)>| QueueState {
+            radio: true,
+            radio_seed: Some("RDAMVMx".into()),
+            radio_cont: cont.map(|(seed, token)| (seed.to_owned(), token.map(str::to_owned))),
+            ..QueueState::default()
+        };
+        // On a window of its own.
+        assert_eq!(
+            radio_stand(&radio(Some(("RDAMVMx", Some("TOK"))))),
+            RadioStand::On("TOK".into())
+        );
+        // Never asked: the first window is still to come.
+        assert_eq!(radio_stand(&radio(None)), RadioStand::AtStart);
+        // Its last page was the last one.
+        assert_eq!(radio_stand(&radio(Some(("RDAMVMx", None)))), RadioStand::Ended);
+        // A token of another seed is not this radio's window: it is at the start of its own.
+        assert_eq!(radio_stand(&radio(Some(("RDAMVMold", Some("TOK"))))), RadioStand::AtStart);
+        // And the plan and the gate agree about it: the plan asks from the seed, and a window
+        // asked from the seed may land.
+        let q = radio(Some(("RDAMVMold", Some("TOK"))));
+        assert_eq!(radio_stand(&q).token(), None, "the plan asks from the seed");
+        assert!(window_still_current(&q, None), "and that window may land");
     }
 
     // A window that told the radio nothing is not the radio's end: the radio's own token is
