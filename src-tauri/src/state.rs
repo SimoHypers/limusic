@@ -6595,6 +6595,18 @@ mod tests {
         assert_eq!(next_window(false, None), NextWindow::Unknown);
     }
 
+    // What a radio's state becomes after an answer: the next window's token, the radio's end, or
+    // nothing known yet — in which case the first top-up asks from the seed.
+    #[test]
+    fn a_radio_state_follows_what_the_answer_said() {
+        assert_eq!(
+            radio_state(&NextWindow::Token("TOK".into()), "RDAMVMx"),
+            Some(("RDAMVMx".into(), Some("TOK".into())))
+        );
+        assert_eq!(radio_state(&NextWindow::Ended, "RDAMVMx"), Some(("RDAMVMx".into(), None)));
+        assert_eq!(radio_state(&NextWindow::Unknown, "RDAMVMx"), None);
+    }
+
     // A manual Skip at the tail of a radio continues into the radio; a queue the user picked
     // wraps instead of dead-ending, the way it always has.
     #[test]
