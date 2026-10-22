@@ -419,7 +419,9 @@
 			"matugen": "Matugen",
 			"matugen_hint": "Matugen'in duvar kağıdınızdan oluşturduğu paletten, vurgu renkleri de dahil olmak üzere tüm renkleri alın. Öncelikle Matugen'de Limusic şablonunu ayarlayın.",
 			"blur_playlist_header_hint": "Bir çalma listesinin kapak resmini, başlığının arkasında bulanık bir şekilde göster. Tam genişlikte pikselli görünen kapak resimlerini yumuşatır.",
-			"classic_player": "Klasik oynatıcı düzeni"
+			"classic_player": "Klasik oynatıcı düzeni",
+			"blur_playlist_header": "Oynatma listesi başlıklarını bulanıklaştır",
+			"classic_player_hint": "Orijinal oynatıcı görünümü: Kapak resminin bulanık bir kopyası üzerinde sadece albüm kapağı resminin yer aldığı, şarkı bilgilerinin ise oynatıcı çubuğunda gösterildiği görünüm. Kapalıyken yeni düzen kullanılır; bu düzende albüm kapağı resminin altında şarkı adı, sanatçı ve albüm adı yer alır ve görünüm, kapak resminin renkleriyle aydınlatılır."
 		},
 		"playback": {
 			"audio_quality": "Ses kalitesi",
@@ -916,7 +918,8 @@
 		},
 		"text_size_larger": "Daha büyük metin",
 		"text_size_smaller": "Daha küçük metin",
-		"text_size": "Metin boyutu"
+		"text_size": "Metin boyutu",
+		"text_size_hint": "Şarkı sözlerini daha büyük veya daha küçük yapın"
 	},
 	"queue": {
 		"title": "Sıra"
@@ -1214,7 +1217,7 @@
 		"held": "{title} parçasının yorumları",
 		"post_reply": "Yanıtla",
 		"delete_desc": "Bu işlem geri alınamaz. Bu içeriğe yapılan tüm yanıtlar da silinecektir.",
-		"hearted": "Üretici tarafından beğenildi",
+		"hearted": "Sanatçı tarafından beğenildi",
 		"creator": "Üretici",
 		"reload_needed": "Yorumlar güncel değil. Devam etmek için sayfayı yeniden yükleyin."
 	},
@@ -1274,8 +1277,8 @@
 		"busiest_month": "En yoğun ay",
 		"busiest_weekday": "Haftanın en yoğun günü",
 		"busiest_hour": "En yoğun saat",
-		"share": "Dinlemenizin {percent}'i",
-		"when": "Dinlediğiniz zaman",
+		"share": "Dinlemelerinizin {percent} kadarını oluşturuyor",
+		"when": "Dinlediğiniz zamanlar",
 		"on_device": "Bu cihazda, Limusic'te dinlediklerinizden hesaplanır. Herhangi bir yere bir şey gönderilmez."
 	},
 	"columns": {
@@ -1286,6 +1289,7 @@
 		"plays": "Oynatmalar",
 		"mine": "Oynatmalarınız",
 		"duration": "Süre",
-		"choose": "Sütunları seç"
+		"choose": "Sütunları seç",
+		"label": "Sütunlar"
 	}
 }
