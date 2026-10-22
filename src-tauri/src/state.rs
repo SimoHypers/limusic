@@ -1468,7 +1468,6 @@ impl AppState {
     /// from the tracks the page had loaded and the rest is walked in the background
     /// ([`Self::fill_playlist`]) so a long playlist starts playing now instead of after ~50
     /// chained round trips.
-    #[allow(clippy::too_many_arguments)]
     pub async fn play_tracks(
         self: &std::sync::Arc<Self>,
         items: Vec<SongItem>,
