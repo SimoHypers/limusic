@@ -3262,8 +3262,9 @@ impl AppState {
         }
         // Before the cap: the batch that lands is the songs you haven't heard, when there are any.
         self.freshen_radio(&mut fresh);
-        let (added, trimmed) = {
+        let (added, trimmed, no_radio) = {
             let mut q = self.queue.lock().await;
+            let mut no_radio = false;
             // The window was asked for a queue the playing one may no longer be: a radio spliced in
             // behind the playing track swaps it without moving the generation checked above, and
             // the same radio asked for again swaps the sequence under the window on the wire.
@@ -3307,6 +3308,7 @@ impl AppState {
                         // before the radio took it over.
                         q.radio = false;
                         q.radio_cont = None;
+                        no_radio = true;
                     }
                 },
             }
@@ -3338,8 +3340,13 @@ impl AppState {
             } else {
                 0
             };
-            (added, trimmed)
+            (added, trimmed, no_radio)
         };
+        if no_radio {
+            // The queue is not a radio any more: the panel's Autoplay switch belongs back, and
+            // the panel learns of it now rather than at the next queue-index.
+            self.emit_queue().await;
+        }
         if added > 0 {
             if top_up.autoplay {
                 tracing::info!(added, trimmed, seed = %seed, "autoplay extended the queue");
