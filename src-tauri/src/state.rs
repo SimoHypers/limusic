@@ -4557,6 +4557,9 @@ fn splice_radio_into(
     }
     q.radio_seed = Some(seed);
     q.radio_cont = None;
+    // The top-up that was on the wire was asked for the radio this one replaces. Holding it
+    // would keep the new radio's tail from being topped up until that request comes back.
+    q.topping_up = None;
     q.source_name = title;
     q.source_id = None; // a radio is nobody's playlist to edit
     q.radio = true;
