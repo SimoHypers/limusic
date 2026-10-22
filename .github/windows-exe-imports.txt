@@ -1,0 +1,45 @@
+# Load-time imports of limusic-app.exe on Windows (dumpbin /DEPENDENTS), checked by
+# scripts/check-windows-imports.ps1 in windows-release.yml and checks.yml. One DLL per line,
+# compared case-insensitively; '#' starts a comment.
+#
+# Taken from the 1.3.0-rc.4 release, built with the tauri CLI (STATIC_VCRUNTIME=true, so the VC
+# runtime is linked statically and only the UCRT api-ms-win-crt-* sets are imported). Every DLL
+# here is part of Windows except libmpv-2.dll, which ships next to the exe.
+#
+# A new entry means every user's machine must have that DLL for the app to START, karaoke or not.
+# Karaoke's ONNX Runtime, DirectML, D3D12/DXGI and the C++ runtime are deliberately NOT here: they
+# are loaded at run time, by full path, only when karaoke is turned on. Do not add them.
+# No delay-load section is allowed either.
+advapi32.dll
+api-ms-win-core-synch-l1-2-0.dll
+api-ms-win-core-winrt-l1-1-0.dll
+api-ms-win-crt-convert-l1-1-0.dll
+api-ms-win-crt-environment-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+api-ms-win-crt-locale-l1-1-0.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-multibyte-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-string-l1-1-0.dll
+api-ms-win-crt-time-l1-1-0.dll
+api-ms-win-crt-utility-l1-1-0.dll
+bcrypt.dll
+bcryptprimitives.dll
+combase.dll
+comctl32.dll
+crypt32.dll
+dbghelp.dll
+dwmapi.dll
+gdi32.dll
+kernel32.dll
+libmpv-2.dll
+ntdll.dll
+ole32.dll
+oleaut32.dll
+secur32.dll
+shell32.dll
+shlwapi.dll
+user32.dll
+winmm.dll
+ws2_32.dll

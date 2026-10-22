@@ -58,6 +58,9 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
   writes a `GIO_EXTRA_MODULES` containing a literal newline and a path into your own `target/` dir,
   which leaves the webview with `GDummyTlsBackend` and no HTTPS anywhere but this machine. CI runs
   the script automatically; run it by hand if you're testing a local AppImage elsewhere.
+- **Karaoke links ONNX Runtime statically on Linux and macOS.** The `ort` crate downloads a prebuilt
+  static library at build time, so the first build needs network access. Nothing extra ships in the
+  bundle. (Windows is different: see below.)
 
 ---
 
@@ -93,11 +96,32 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
 5. **Bundle the DLL:** copy `libmpv-2.dll` into `src-tauri/` (it is listed under
    `tauri.windows.conf.json` → `bundle.resources`, so the installer places it next to the exe).
    It's ~117 MB — gitignored, never commit it.
-6. **Build:**
+6. **Fetch the karaoke runtime:** `powershell -ExecutionPolicy Bypass -File scripts\fetch-karaoke-runtime.ps1`.
+   It puts `onnxruntime.dll` (official DirectML build 1.24.4) and `DirectML.dll` from the official
+   NuGet packages (pinned SHA-256), plus the app-local VC++ runtime (`vcruntime140*.dll`,
+   `msvcp140*.dll`, copied from your Visual Studio redist folder, Microsoft-signed, ≥ 14.44), into
+   `src-tauri/karaoke-runtime/` (gitignored). `tauri.windows.conf.json` bundles that folder next to
+   the exe, so the build fails without it, as it does without `libmpv-2.dll`. Nothing from it is
+   linked: the karaoke crate uses ort's `load-dynamic`, and the files are loaded by full path only
+   when karaoke is turned on. No particular MSVC version is needed to build.
+7. **Build:**
    ```powershell
    cd ui; pnpm build; cd ..
    cargo tauri build          # → target/release/bundle/{msi,nsis}/limusic_*.{msi,exe}
    ```
+8. **Check the import table:** `powershell -ExecutionPolicy Bypass -File scripts\check-windows-imports.ps1 -Exe target\release\limusic-app.exe`.
+   Every load-time import is a DLL each user needs just to *start* the app (and auto-update ships
+   the exe to everyone), so it must match `.github/windows-exe-imports.txt` exactly. CI checks the
+   same thing in `checks.yml` and `windows-release.yml`. Compare a build linked the way releases
+   are: `cargo tauri build` sets `STATIC_VCRUNTIME=true` (static VC runtime). A plain `cargo build`
+   does not, and adds `vcruntime140*.dll`, so export `STATIC_VCRUNTIME=true` for a debug build you
+   want to check. tauri-build does not re-run when that variable changes, so touch
+   `src-tauri/build.rs` after changing it.
+- **Karaoke on Windows:** the runtime loader (`crates/karaoke/src/runtime.rs`) re-checks the pinned
+  SHA-256s, refuses a VC++ runtime older than 14.44 (bundled, or already loaded in the process), and
+  loads `DirectML.dll` and `onnxruntime.dll` by full path with the search limited to their folder
+  and System32. To run the karaoke examples against the fetched runtime, set
+  `ORT_DYLIB_PATH=<repo>\src-tauri\karaoke-runtime\onnxruntime.dll`.
 - Media keys use **SMTC** (the volume-flyout media card). souvlaki binds it to the main window
   handle — see the validation checklist below.
 

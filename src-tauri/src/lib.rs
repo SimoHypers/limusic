@@ -13,6 +13,9 @@ mod http;
 mod import;
 #[cfg(target_os = "linux")]
 mod inhibit;
+mod karaoke;
+mod karaoke_model;
+mod karaoke_runtime;
 mod lastfm;
 mod listenbrainz;
 mod listentogether;
@@ -380,7 +383,7 @@ fn init_logging(dir: &std::path::Path) {
 
     let filter = || {
         tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "info,app_lib=debug".into())
+            .unwrap_or_else(|_| "info,app_lib=debug,ort=warn,flacenc=warn".into())
     };
     let path = dir.join("limusic.log");
     let _ = std::fs::rename(&path, dir.join("limusic.log.1"));
@@ -902,6 +905,15 @@ pub fn run() {
                 tracing::warn!(errors = ?reg_res.errors, "some global hotkeys could not be registered on startup");
             }
 
+            // Karaoke model manager
+            let karaoke_model_mgr = Arc::new(karaoke_model::ModelManager::new(&data_dir));
+            app.manage(karaoke_model_mgr.clone());
+
+            // Karaoke engine
+            let karaoke_engine = karaoke::KaraokeEngine::new(handle.clone(), &data_dir, karaoke_model_mgr.clone());
+            app.manage(karaoke_engine);
+            app_state.spawn_karaoke_listener();
+
             // A custom app icon (#173) has to be pushed at each surface every launch, since only
             // the .exe/.desktop icon is baked in and that one we can't touch. Guarded, rather than
             // unconditional: with no custom icon there is nothing to restore, and on Windows
@@ -1118,6 +1130,7 @@ pub fn run() {
             commands::seek,
             commands::set_volume,
             commands::set_playback_params,
+            commands::set_karaoke,
             commands::get_queue,
             commands::get_playback,
             commands::video_stream,
@@ -1149,6 +1162,17 @@ pub fn run() {
             commands::close_mini,
             commands::set_mini_compact,
             commands::show_main,
+            commands::karaoke_model_status,
+            commands::karaoke_model_download,
+            commands::karaoke_model_cancel,
+            commands::karaoke_model_delete,
+            commands::karaoke_model_get,
+            commands::karaoke_model_set,
+            commands::karaoke_engine_status,
+            commands::karaoke_clear_cache,
+            commands::karaoke_retry_failed,
+            commands::karaoke_cache_limit_mb,
+            commands::karaoke_set_cache_limit_mb,
             commands::take_launch_args,
             commands::get_home,
             commands::network_reachable,
