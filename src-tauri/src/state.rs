@@ -1487,6 +1487,9 @@ impl AppState {
     /// window after it ([`NextWindow`]). The flag and the token go in under the same lock as the
     /// queue itself: `start_current` awaits a stream resolve for seconds, and setting them
     /// afterwards would hand them to whatever queue replaced this one meanwhile.
+    ///
+    /// Returns whether the queue's first track started: `start_current` announces and persists the
+    /// queue only once the track resolves.
     #[allow(clippy::too_many_arguments)]
     async fn play_tracks_as(
         self: &std::sync::Arc<Self>,
@@ -1497,13 +1500,13 @@ impl AppState {
         shuffle: bool,
         continuation: Option<String>,
         radio: Option<NextWindow>,
-    ) {
+    ) -> bool {
         if items.is_empty() {
-            return;
+            return false;
         }
         if self.lt.is_guest().await {
             self.emit_guest_hint();
-            return;
+            return false;
         }
         // A mix has no "rest of the playlist" worth walking (see `is_mix`) — drop the token.
         let continuation = continuation.filter(|_| !is_mix(source_id.as_deref()));
@@ -1564,13 +1567,15 @@ impl AppState {
             q.epoch
         };
         // start_current emits now-playing + queue + persists; prime the gapless lookahead after.
-        if self.start_current(gen).await {
+        let started = self.start_current(gen).await;
+        if started {
             self.prime_lookahead(gen).await;
         }
         if let Some(token) = continuation {
             let me = self.clone();
             tokio::spawn(async move { me.fill_playlist(epoch, gen, token, Fill::Playing).await });
         }
+        started
     }
 
     /// Start a radio (context/08): an endless YouTube-generated queue seeded on a song, artist,
@@ -1649,20 +1654,24 @@ impl AppState {
             return Ok(());
         }
         // A radio from the first moment, installed under the queue's own lock (see `play_tracks_as`).
-        self.play_tracks_as(
-            items,
-            Some(seed_at.unwrap_or(0)),
-            Some(seed),
-            title,
-            false,
-            None,
-            Some(cont),
-        )
-        .await;
-        // `start_current` only announces and persists the queue once the track resolves; a failed
-        // resolve (offline, sign-in) would leave the panel on the old queue and the radio unsaved.
-        self.emit_queue().await;
-        self.persist_queue().await;
+        if !self
+            .play_tracks_as(
+                items,
+                Some(seed_at.unwrap_or(0)),
+                Some(seed),
+                title,
+                false,
+                None,
+                Some(cont),
+            )
+            .await
+        {
+            // `start_current` only announces and persists the queue once the track resolves; a
+            // failed resolve (offline, sign-in) would leave the panel on the old queue and the
+            // radio unsaved. On the happy path it has already done both.
+            self.emit_queue().await;
+            self.persist_queue().await;
+        }
         Ok(())
     }
 
