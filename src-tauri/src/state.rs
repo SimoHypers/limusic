@@ -1729,8 +1729,7 @@ impl AppState {
             if !self.sticky_shuffle() {
                 q.shuffle_orig = None; // a radio is a new context, so a non-sticky shuffle ends here
             }
-            splice_radio_into(&mut q, items, seed, title);
-            q.radio_cont = q.radio_seed.as_deref().and_then(|seed| radio_state(&said, seed));
+            splice_radio_state(&mut q, items, seed, title, &said);
             // Whatever mpv had primed as the gapless next belongs to the old queue.
             if q.lookahead_loaded.take().is_some() {
                 let _ = self.player.clear_playlist();
@@ -4591,6 +4590,21 @@ fn sync_shuffle_snapshot(orig: Vec<SongItem>, items: &[SongItem]) -> Vec<SongIte
     orig.into_iter().filter(|item| left.contains(&item.video_id)).collect()
 }
 
+/// Splice a radio in behind the playing track: the history and the manual adds stay, everything
+/// after them becomes the radio, and the radio's token state is what its first page said about
+/// the window after it.
+fn splice_radio_state(
+    q: &mut QueueState,
+    items: Vec<SongItem>,
+    seed: String,
+    title: Option<String>,
+    said: &NextWindow,
+) {
+    let cont = radio_state(said, &seed);
+    splice_radio_into(q, items, seed, title);
+    q.radio_cont = cont;
+}
+
 /// How many already-played rows an endlessly-extending queue keeps behind the play pointer.
 ///
 /// Autoplay appends forever and nothing used to drop anything, so a long session grew the item list
@@ -6674,8 +6688,23 @@ mod tests {
             ..QueueState::default()
         };
         // Same seed, but a new window sequence: the old token would skip windows.
-        splice_radio_into(&mut q, vec![song("b", None)], "RDAMVMx".into(), None);
-        assert_eq!(radio_token(&q), None);
+        splice_radio_state(
+            &mut q,
+            vec![song("b", None)],
+            "RDAMVMx".into(),
+            None,
+            &NextWindow::Unknown,
+        );
+        assert_eq!(radio_token(&q), None, "the old sequence's token is gone");
+        // And the splice installs the token of the new sequence — the whole path a splice takes.
+        splice_radio_state(
+            &mut q,
+            vec![song("c", None)],
+            "RDAMVMx".into(),
+            None,
+            &NextWindow::Token("TOK2".into()),
+        );
+        assert_eq!(radio_token(&q).as_deref(), Some("TOK2"));
     }
 
     // A radio saved by a build that topped it up through autoplay carries that tag on its rows:
