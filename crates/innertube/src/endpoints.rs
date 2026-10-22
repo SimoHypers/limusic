@@ -313,7 +313,7 @@ impl InnerTube {
                     page.read_as_account = true;
                     return Ok(page);
                 }
-                Err(e) if is_refusal(&e) => {
+                Err(e) if e.is_refusal() => {
                     // Nothing about the request or the account is logged.
                     tracing::debug!("signed-in comments read refused, redoing it anonymously");
                 }
@@ -1489,10 +1489,6 @@ fn accept_answer(
 }
 
 /// A 401/403: YouTube said no to this request.
-fn is_refusal(e: &Error) -> bool {
-    matches!(e, Error::Http(h) if h.status().is_some_and(|s| s == 401 || s == 403))
-}
-
 // Playlist edit/delete want the raw playlistId; browse gives it `VL`-prefixed. context/01.
 fn strip_vl(id: &str) -> &str {
     id.strip_prefix("VL").unwrap_or(id)
@@ -1687,7 +1683,7 @@ mod tests {
 
     /// A refusal comes back as the HTTP error it was, never as an expired session.
     fn is_plain_refusal(e: &Error) -> bool {
-        is_refusal(e) && !matches!(e, Error::SessionExpired)
+        e.is_refusal() && !matches!(e, Error::SessionExpired)
     }
 
     #[tokio::test]
