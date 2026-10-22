@@ -478,7 +478,9 @@
 			"blur_playlist_header": "Hägusta esitusloendi päised",
 			"blur_playlist_header_hint": "Näita esitusloendi kaanepilti pealkirja taga hägustatuna. Sellega kuvad kaanepildid sujuvatena, mis täislaiusele venitatuna näevad välja pikseldatuna.",
 			"matugen": "Matugen",
-			"matugen_hint": "Võta kõik värvid, sealhulgas aktsentvärvid, paletist, mille Matugen sinu taustapildist koostab. Seadista esmalt Matugenis Limusicu mall."
+			"matugen_hint": "Võta kõik värvid, sealhulgas aktsentvärvid, paletist, mille Matugen sinu taustapildist koostab. Seadista esmalt Matugenis Limusicu mall.",
+			"classic_player": "Pleieri klassikaline paigutus",
+			"classic_player_hint": "Esialgne pleierivaade: ainult albumi kaanepilt hägustatud kaanepildi taustal, kusjuures loo andmed on paigutatud esitusvaate ribale. Väljalülitamisel on kasutusel uus paigutus, kus pealkiri, esitaja ja album on kujunduse all ning vaade on valgustatud kaanepildi värvidega."
 		},
 		"playback": {
 			"audio_quality": "Helikvaliteet",
@@ -1224,7 +1226,8 @@
 		"ranges": {
 			"week": "7 päeva",
 			"month": "30 päeva",
-			"year": "12 kuud"
+			"year": "12 kuud",
+			"all": "Läbi aegade"
 		},
 		"listened": {
 			"week": "kuulatud viimase 7 päeva jooksul",
@@ -1271,7 +1274,12 @@
 		"busiest_hour": "Aktiivseim tund",
 		"share": "{percent} kuulamistest",
 		"persona_hint": "Sa kuulad kõige rohkem vahemikus {from} kuni {to}.",
-		"empty_title": "Sinu statistika algab siit"
+		"empty_title": "Sinu statistika algab siit",
+		"streak": "Päevi järjest",
+		"when": "Millal sa kuulad",
+		"empty": "Kuula mõnda lugu ja see lehekülg täitub andmetega selle kohta, mida sa kuulad, millal ja kui kaua.",
+		"on_device": "Loendades selles seadmes, arvestades seda, mida sa Limusicus kuulad. Mitte midagi kuhugi ei saadeta.",
+		"clear_desc": "See kustutab kõik selles seadmes kuulatud lood, mistõttu su statistika algab otsast peale ja „On Repeat” tühjeneb. Su YouTube Musicu ajalugu jääb puutumata."
 	},
 	"columns": {
 		"label": "Tulbad",
