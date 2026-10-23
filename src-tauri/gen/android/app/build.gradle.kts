@@ -54,6 +54,10 @@ android {
         jvmTarget = "1.8"
     }
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     sourceSets {
         getByName("main") {
             jniLibs.srcDirs("src/main/jniLibs")
@@ -75,4 +79,9 @@ dependencies {
     implementation("androidx.webkit:webkit:1.12.0")
     implementation("androidx.activity:activity-ktx:1.9.3")
     implementation("androidx.lifecycle:lifecycle-process:2.8.7")
+}
+
+val tauriBuild = file("tauri.build.gradle.kts")
+if (tauriBuild.exists()) {
+    apply(from = tauriBuild)
 }

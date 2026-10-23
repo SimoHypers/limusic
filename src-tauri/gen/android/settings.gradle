@@ -6,7 +6,7 @@ pluginManagement {
     }
 }
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
     repositories {
         google()
         mavenCentral()
@@ -14,4 +14,9 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "limusic"
-include(":app")
+include ':app'
+
+def tauriSettings = file("tauri.settings.gradle")
+if (tauriSettings.exists()) {
+    apply from: 'tauri.settings.gradle'
+}
