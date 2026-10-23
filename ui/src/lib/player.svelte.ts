@@ -70,7 +70,10 @@ export const prefs = $state({
 	autoplay: true,
 	/** The Scrobbling tab's on switch (`lastfm_config.enabled`). The track menu offers "Edit
 	 *  scrobble" only while it is on, so a user who paused scrobbling isn't shown it. */
-	scrobbling: true
+	scrobbling: true,
+	/** Running on Android (Tauri mobile). Used to hide desktop-only chrome (titlebar, resize
+	 *  borders, system tray settings, Discord RPC, global hotkeys) and adapt the layout for touch. */
+	isAndroid: typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
 });
 
 /** Rust drops the upcoming autoplay tracks when this goes off, and tops a short queue up when it
@@ -1627,6 +1630,9 @@ export function initApp(mini = false): () => void {
 			prefs.discordRpc = s.discord_rpc === 'true';
 			prefs.autoplay = s.autoplay !== 'false';
 			prefs.scrobbling = parseScrobbleConfig(s.lastfm_config).enabled;
+			if (s.is_android === 'true') {
+				prefs.isAndroid = true;
+			}
 			// Half of what the app shows is YouTube's own text, and Rust asks for it in the language
 			// this setting holds (#274). It reads the setting at startup, before the SPA exists to
 			// tell it anything, so the two disagree on a fresh install, on a language taken from the

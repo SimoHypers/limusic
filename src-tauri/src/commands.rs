@@ -395,6 +395,10 @@ pub async fn get_settings(state: St<'_>) -> Result<serde_json::Value, String> {
         .collect();
     map.insert("native_chrome".into(), native_chrome(&state.db).into());
     map.insert("native_video".into(), crate::state::native_video().to_string().into());
+    map.insert(
+        "is_android".into(),
+        if cfg!(target_os = "android") { "true" } else { "false" }.into(),
+    );
     if let Some(layout) = BUTTON_LAYOUT.get() {
         map.insert("button_layout".into(), layout.clone().into());
     }

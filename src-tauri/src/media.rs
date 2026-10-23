@@ -255,6 +255,9 @@ pub(crate) fn handle_event(app: &AppHandle, event: MediaControlEvent) {
 }
 
 #[cfg(target_os = "android")]
+static ANDROID_APP: std::sync::OnceLock<AppHandle> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "android")]
 #[derive(Clone)]
 pub struct MediaHandle;
 
@@ -262,11 +265,12 @@ pub struct MediaHandle;
 impl MediaHandle {
     pub fn set_metadata(
         &self,
-        _title: &str,
-        _artist: &str,
-        _album: Option<&str>,
-        _cover: Option<&str>,
+        title: &str,
+        artist: &str,
+        album: Option<&str>,
+        cover: Option<&str>,
     ) {
+        player::android_set_metadata(title, artist, album, cover);
     }
 
     pub fn set_album(&self, _album: &str) {}
@@ -279,6 +283,56 @@ impl MediaHandle {
 }
 
 #[cfg(target_os = "android")]
-pub fn spawn(_app: AppHandle) -> Option<MediaHandle> {
+pub fn spawn(app: AppHandle) -> Option<MediaHandle> {
+    let _ = ANDROID_APP.set(app);
     Some(MediaHandle)
 }
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "C" fn Java_com_limusic_desktop_AudioBridge_nativeOnNext(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+) {
+    if let Some(app) = ANDROID_APP.get() {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Some(state) = app.try_state::<std::sync::Arc<AppState>>() {
+                state.next_in_queue().await;
+            }
+        });
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "C" fn Java_com_limusic_desktop_AudioBridge_nativeOnPrevious(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+) {
+    if let Some(app) = ANDROID_APP.get() {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Some(state) = app.try_state::<std::sync::Arc<AppState>>() {
+                state.prev_in_queue().await;
+            }
+        });
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "C" fn Java_com_limusic_desktop_AudioBridge_nativeOnToggle(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+) {
+    if let Some(app) = ANDROID_APP.get() {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Some(state) = app.try_state::<std::sync::Arc<AppState>>() {
+                state.resume_or_toggle().await;
+            }
+        });
+    }
+}
+

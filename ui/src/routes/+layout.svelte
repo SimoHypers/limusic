@@ -271,7 +271,8 @@
 			? ''
 			: 'bg-background'} {win.maximized ||
 		ui.theaterOpen ||
-		win.chrome !== 'off'
+		win.chrome !== 'off' ||
+		prefs.isAndroid
 			? ''
 			: 'rounded-[12px]'} {ui.theaterOpen && video.hole ? 'invisible' : ''}"
 	>
@@ -287,7 +288,9 @@
 					.h}px;box-shadow:0 0 0 100vmax var(--background)"
 			></div>
 		{/if}
-		<ResizeBorders />
+		{#if !prefs.isAndroid}
+			<ResizeBorders />
+		{/if}
 		<Titlebar />
 		<!-- relative: the queue and lyrics panels are absolute overlays inside it (see QueuePanel). -->
 		<div class="relative flex min-h-0 flex-1">

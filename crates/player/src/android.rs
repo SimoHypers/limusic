@@ -210,21 +210,26 @@ fn with_env<F: FnOnce(&mut jni::JNIEnv) -> jni::errors::Result<()>>(f: F) {
     }
 }
 
-// Android dispatch implementations bridging to AudioBridge in Kotlin
 fn dispatch_android_load(
     url: &str,
-    _headers: &HashMap<String, String>,
+    headers: &HashMap<String, String>,
     _gain: Option<f64>,
     start: Option<f64>,
 ) {
     let start_pos = start.unwrap_or(0.0);
+    let headers_json = serde_json::to_string(headers).unwrap_or_default();
     with_env(|env| {
         let j_url = env.new_string(url)?;
+        let j_headers = env.new_string(&headers_json)?;
         env.call_static_method(
             "com/limusic/desktop/AudioBridge",
             "load",
-            "(Ljava/lang/String;D)V",
-            &[jni::objects::JValue::Object(&j_url), jni::objects::JValue::Double(start_pos)],
+            "(Ljava/lang/String;DLjava/lang/String;)V",
+            &[
+                jni::objects::JValue::Object(&j_url),
+                jni::objects::JValue::Double(start_pos),
+                jni::objects::JValue::Object(&j_headers),
+            ],
         )?;
         Ok(())
     });
@@ -283,9 +288,65 @@ fn dispatch_android_volume(vol: i64) {
 }
 
 fn dispatch_android_gain(_gain: Option<f64>) {}
-fn dispatch_android_speed(_speed: f64) {}
+
+fn dispatch_android_speed(speed: f64) {
+    with_env(|env| {
+        env.call_static_method(
+            "com/limusic/desktop/AudioBridge",
+            "setSpeed",
+            "(F)V",
+            &[jni::objects::JValue::Float(speed as f32)],
+        )?;
+        Ok(())
+    });
+}
+
 fn dispatch_android_pitch(_semitones: i32) {}
-fn dispatch_android_loop_file(_loop_file: bool) {}
+
+fn dispatch_android_loop_file(loop_file: bool) {
+    with_env(|env| {
+        env.call_static_method(
+            "com/limusic/desktop/AudioBridge",
+            "setLoop",
+            "(Z)V",
+            &[jni::objects::JValue::Bool(loop_file as u8)],
+        )?;
+        Ok(())
+    });
+}
+
+/// Send current track metadata to Android AudioBridge (for MediaSession / lockscreen notification).
+pub fn android_set_metadata(
+    title: &str,
+    artist: &str,
+    album: Option<&str>,
+    cover: Option<&str>,
+) {
+    with_env(|env| {
+        let j_title = env.new_string(title)?;
+        let j_artist = env.new_string(artist)?;
+        let j_album = match album {
+            Some(a) => env.new_string(a)?.into(),
+            None => jni::objects::JObject::null(),
+        };
+        let j_cover = match cover {
+            Some(c) => env.new_string(c)?.into(),
+            None => jni::objects::JObject::null(),
+        };
+        env.call_static_method(
+            "com/limusic/desktop/AudioBridge",
+            "setMetadata",
+            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+            &[
+                jni::objects::JValue::Object(&j_title),
+                jni::objects::JValue::Object(&j_artist),
+                jni::objects::JValue::Object(&j_album),
+                jni::objects::JValue::Object(&j_cover),
+            ],
+        )?;
+        Ok(())
+    });
+}
 
 // JNI callback bridge for Android MediaSession/ExoPlayer service
 #[no_mangle]

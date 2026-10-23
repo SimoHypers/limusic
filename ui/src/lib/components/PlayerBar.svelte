@@ -28,6 +28,7 @@
 	import {
 		np,
 		playback,
+		prefs,
 		commitVolume,
 		cycleRepeat,
 		dragVolume,
@@ -377,9 +378,11 @@
 		</div>
 		<!-- One cluster, so they sit tighter to each other than to the volume slider. -->
 		<div class="flex items-center gap-0.5">
-			<Button variant="ghost" size="icon-sm" onclick={openMiniPlayer} aria-label={t('player.mini_player')}>
-				<HugeiconsIcon icon={MinimizeScreenIcon} class="h-5 w-5" />
-			</Button>
+			{#if !prefs.isAndroid}
+				<Button variant="ghost" size="icon-sm" onclick={openMiniPlayer} aria-label={t('player.mini_player')}>
+					<HugeiconsIcon icon={MinimizeScreenIcon} class="h-5 w-5" />
+				</Button>
+			{/if}
 			<Button
 				variant={lyricsOpen ? 'secondary' : 'ghost'}
 				size="icon-sm"

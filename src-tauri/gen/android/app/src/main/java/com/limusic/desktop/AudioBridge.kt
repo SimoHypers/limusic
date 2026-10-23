@@ -56,11 +56,26 @@ object AudioBridge {
     }
 
     @JvmStatic
-    fun load(url: String, startSecs: Double) {
+    fun load(url: String, startSecs: Double, headersJson: String? = null) {
         handler.post {
             ensureServiceStarted()
-            service?.loadUrl(url, (startSecs * 1000).toLong())
+            service?.loadUrl(url, (startSecs * 1000).toLong(), headersJson)
         }
+    }
+
+    @JvmStatic
+    fun setSpeed(speed: Float) {
+        handler.post { service?.setPlaybackSpeed(speed) }
+    }
+
+    @JvmStatic
+    fun setLoop(loop: Boolean) {
+        handler.post { service?.setLoop(loop) }
+    }
+
+    @JvmStatic
+    fun setMetadata(title: String, artist: String, album: String?, coverUrl: String?) {
+        handler.post { service?.updateMetadata(title, artist, album, coverUrl) }
     }
 
     @JvmStatic
@@ -85,6 +100,9 @@ object AudioBridge {
     external fun nativeOnPaused(paused: Boolean)
     external fun nativeOnTrackEnded()
     external fun nativeOnTrackFailed()
+    external fun nativeOnNext()
+    external fun nativeOnPrevious()
+    external fun nativeOnToggle()
 
     fun onPosition(positionSecs: Double) {
         try {
@@ -125,6 +143,27 @@ object AudioBridge {
     fun onTrackFailed() {
         try {
             nativeOnTrackFailed()
+        } catch (e: UnsatisfiedLinkError) {
+        }
+    }
+
+    fun onNext() {
+        try {
+            nativeOnNext()
+        } catch (e: UnsatisfiedLinkError) {
+        }
+    }
+
+    fun onPrevious() {
+        try {
+            nativeOnPrevious()
+        } catch (e: UnsatisfiedLinkError) {
+        }
+    }
+
+    fun onToggle() {
+        try {
+            nativeOnToggle()
         } catch (e: UnsatisfiedLinkError) {
         }
     }

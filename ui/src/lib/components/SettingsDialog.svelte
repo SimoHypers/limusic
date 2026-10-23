@@ -63,8 +63,12 @@
 		{ id: 'general', label: t('settings.tabs.general'), hint: t('settings.tabs.general_hint'), icon: Settings02Icon },
 		{ id: 'themes', label: t('settings.tabs.themes'), hint: t('settings.tabs.themes_hint'), icon: PaintBoardIcon },
 		{ id: 'playback', label: t('settings.tabs.playback'), hint: t('settings.tabs.playback_hint'), icon: PlayCircleIcon },
-		{ id: 'hotkeys', label: t('settings.tabs.hotkeys'), hint: t('settings.tabs.hotkeys_hint'), icon: KeyboardIcon },
-		{ id: 'discord', label: t('settings.tabs.discord'), hint: t('settings.tabs.discord_hint'), icon: DiscordIcon },
+		...(prefs.isAndroid
+			? []
+			: [
+					{ id: 'hotkeys' as const, label: t('settings.tabs.hotkeys'), hint: t('settings.tabs.hotkeys_hint'), icon: KeyboardIcon },
+					{ id: 'discord' as const, label: t('settings.tabs.discord'), hint: t('settings.tabs.discord_hint'), icon: DiscordIcon }
+				]),
 		{ id: 'scrobbling', label: t('settings.tabs.scrobbling'), hint: t('settings.tabs.scrobbling_hint'), icon: LastFmIcon },
 		{ id: 'data', label: t('settings.tabs.data'), hint: t('settings.tabs.data_hint'), icon: Database02Icon },
 		{ id: 'about', label: t('settings.tabs.about'), hint: t('settings.tabs.about_hint'), icon: InformationCircleIcon }
@@ -562,47 +566,49 @@
 								})}
 							</div>
 						</section>
-						<section class={GROUP}>
-							<h3 class={LABEL}>{t('settings.sections.system')}</h3>
-							<div class={CARD}>
-								{@render row({
-									title: t('settings.general.close_to_tray'),
-									desc: t('settings.general.close_to_tray_hint'),
-									control: traySwitch
-								})}
-								{@render row({
-									title: t('settings.general.track_notifications'),
-									desc: t('settings.general.track_notifications_hint'),
-									control: trackNotificationsSwitch
-								})}
-								{#if trackNotificationsOn}
+						{#if !prefs.isAndroid}
+							<section class={GROUP}>
+								<h3 class={LABEL}>{t('settings.sections.system')}</h3>
+								<div class={CARD}>
 									{@render row({
-										title: t('settings.general.track_notifications_focused'),
-										desc: t('settings.general.track_notifications_focused_hint'),
-										control: trackNotificationsFocusedSwitch
+										title: t('settings.general.close_to_tray'),
+										desc: t('settings.general.close_to_tray_hint'),
+										control: traySwitch
 									})}
-								{/if}
-								{@render row({
-									title: t('settings.general.autostart'),
-									desc: t('settings.general.autostart_hint'),
-									control: autostartSwitch
-								})}
-								{#if autostartOn}
 									{@render row({
-										title: t('settings.general.start_minimized'),
-										desc: t('settings.general.start_minimized_hint'),
-										control: startMinimizedSwitch
+										title: t('settings.general.track_notifications'),
+										desc: t('settings.general.track_notifications_hint'),
+										control: trackNotificationsSwitch
 									})}
-								{/if}
-								{#if !systemTitlebarFixed}
+									{#if trackNotificationsOn}
+										{@render row({
+											title: t('settings.general.track_notifications_focused'),
+											desc: t('settings.general.track_notifications_focused_hint'),
+											control: trackNotificationsFocusedSwitch
+										})}
+									{/if}
 									{@render row({
-										title: t('settings.general.system_titlebar'),
-										desc: t('settings.general.system_titlebar_hint'),
-										control: systemTitlebarSwitch
+										title: t('settings.general.autostart'),
+										desc: t('settings.general.autostart_hint'),
+										control: autostartSwitch
 									})}
-								{/if}
-							</div>
-						</section>
+									{#if autostartOn}
+										{@render row({
+											title: t('settings.general.start_minimized'),
+											desc: t('settings.general.start_minimized_hint'),
+											control: startMinimizedSwitch
+										})}
+									{/if}
+									{#if !systemTitlebarFixed}
+										{@render row({
+											title: t('settings.general.system_titlebar'),
+											desc: t('settings.general.system_titlebar_hint'),
+											control: systemTitlebarSwitch
+										})}
+									{/if}
+								</div>
+							</section>
+						{/if}
 					{:else if tab === 'playback'}
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.audio')}</h3>
