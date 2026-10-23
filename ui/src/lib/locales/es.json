@@ -154,7 +154,10 @@
 		"song": "Canción",
 		"video": "Video",
 		"comments": "Comentarios",
-		"up_next": "A continuación"
+		"up_next": "A continuación",
+		"fullscreen_video": "Vídeo a pantalla completa",
+		"exit_fullscreen_video": "Salir del modo de pantalla completa",
+		"scroll_to_end": "Desplázate hasta el final"
 	},
 	"home": {
 		"good_morning": "Buenos días",
@@ -278,7 +281,10 @@
 		"suggestions_failed": "No se pudieron cargar sugerencias.",
 		"suggestion_add": "Añadir {title} a esta playlist",
 		"suggestion_added": "Añadida",
-		"saved_in_count": "{count} playlists"
+		"saved_in_count": "{count} playlists",
+		"suggestions_hide": "Esconder",
+		"suggestions_show": "Mostrar",
+		"suggestions_hidden": "Sugerencias ocultas. Vuelve a mostrarlas desde el final de cualquiera de tus listas de reproducción.Sugerencias ocultas. Vuelve a mostrarlas desde el final de cualquiera de tus listas de reproducción."
 	},
 	"local": {
 		"scanning": "Escaneando carpeta...",
@@ -365,7 +371,9 @@
 			"start_minimized": "Iniciar en la bandeja al arrancar",
 			"start_minimized_hint": "Cuando Limusic inicia con tu sistema, se mantiene en la bandeja hasta que lo abres. Siempre se muestra la ventana al abrirlo tu mismo.",
 			"track_notifications_focused": "También al usar Limusic",
-			"track_notifications_focused_hint": "Mostrar una notificación cuando la siguiente pista comience sola con Limusic en primer plano. Las pistas que elijas manualmente nunca mostrarán notificación."
+			"track_notifications_focused_hint": "Mostrar una notificación cuando la siguiente pista comience sola con Limusic en primer plano. Las pistas que elijas manualmente nunca mostrarán notificación.",
+			"play_on_start": "Reanudar la reproducción al abrir",
+			"play_on_start_hint": "Empieza a reproducir tu última cola cuando se abre Limusic."
 		},
 		"themes": {
 			"interface_font": "Fuente de la interfaz",
@@ -421,7 +429,9 @@
 			"matugen": "Matugen",
 			"matugen_hint": "Toma cualquier color, acentos incluidos, de la paleta de colores que Matugen crea de tu fondo de pantalla. Crea una plantilla de Limusic en Matugen primero.",
 			"classic_player": "Diseño clásico del reproductor",
-			"classic_player_hint": "El diseño original del reproductor: La carátula sola sobre una copia desenfocada de la misma, con los detalles de la canción a la izquierda del barra de reproducción. Desactivado usa el nuevo diseño, con el título, artista y álbum debajo de la carátula e iluminado con los colores de esta."
+			"classic_player_hint": "El diseño original del reproductor: La carátula sola sobre una copia desenfocada de la misma, con los detalles de la canción a la izquierda del barra de reproducción. Desactivado usa el nuevo diseño, con el título, artista y álbum debajo de la carátula e iluminado con los colores de esta.",
+			"now_playing_pill": "Botón de reproducción actual",
+			"now_playing_pill_hint": "Muestra un botón para volver a la canción en reproducción cuando queda fuera de la vista al desplazarte, en una lista de reproducción o en la cola."
 		},
 		"playback": {
 			"audio_quality": "Calidad de audio",
