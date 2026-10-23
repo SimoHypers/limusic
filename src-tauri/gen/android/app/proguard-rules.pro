@@ -3,6 +3,5 @@
     native <methods>;
 }
 
--keep class com.limusic.desktop.AudioBridge { *; }
--keep class com.limusic.desktop.AudioService { *; }
+-keep class com.limusic.desktop.** { *; }
 -keep class app.tauri.** { *; }

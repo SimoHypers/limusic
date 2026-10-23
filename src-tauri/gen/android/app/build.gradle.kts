@@ -72,6 +72,7 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.3.1")
     implementation("androidx.media3:media3-datasource-okhttp:1.3.1")
 
-    // Tauri Android runtime
-    implementation("app.tauri:tauri-android:2.0.0")
+    implementation("androidx.webkit:webkit:1.12.0")
+    implementation("androidx.activity:activity-ktx:1.9.3")
+    implementation("androidx.lifecycle:lifecycle-process:2.8.7")
 }
