@@ -1288,6 +1288,8 @@
 		"album": "Album",
 		"added": "Tanggal ditambahkan",
 		"by": "Ditambahkan oleh",
-		"duration": "Durasi"
+		"duration": "Durasi",
+		"plays": "Putar",
+		"mine": "Riwayat Putar"
 	}
 }
