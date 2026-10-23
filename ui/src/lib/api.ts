@@ -36,6 +36,9 @@ export interface SongItem {
 	 * Taste Match row more than one member shares). */
 	added_by?: string;
 	added_by_avatars?: string[];
+	/** When the track went into the playlist (unix seconds). Playlists on this machine only:
+	 *  YouTube sends no such date for its own. */
+	added_at?: number;
 	/** The signed-in user's rating (absent when the response didn't say — same as 'indifferent'). */
 	rating?: Rating;
 	/** "Add to library" off the row's own menu, with a token for each direction. Absent on rows
@@ -754,11 +757,64 @@ export const playlistIndex = () => invoke<Record<string, string[]>>('playlist_in
  */
 export const syncPlaylistIndex = () => invoke<Record<string, string[]>>('sync_playlist_index');
 /**
- * videoId → times played, from the local listening history. Same trailing window On Repeat uses
- * (a month): the history table is pruned to it, so there is no older data. A videoId that isn't in
- * the map has not been played inside the window.
+ * videoId → times played, from the local listening history, over the trailing window On Repeat uses
+ * (a month). A videoId that isn't in the map has not been played inside the window.
  */
 export const getPlayCounts = () => invoke<Record<string, number>>('play_counts');
+
+/** The stats page's lists (#396): times played and seconds heard, inside the window. */
+export interface TopSong {
+	song: SongItem;
+	plays: number;
+	secs: number;
+}
+export interface TopArtist {
+	name: string;
+	/** Their channel (`UC…`) or a local artist (`LOCALARTIST:…`); null when the credit links none. */
+	id: string | null;
+	/** The cover of their most-heard song, for when there's no photo. */
+	thumbnail: string | null;
+	plays: number;
+	secs: number;
+}
+export interface TopAlbum {
+	id: string;
+	title: string;
+	artist: string;
+	thumbnail: string | null;
+	plays: number;
+	secs: number;
+}
+/** Everything the stats page shows for one window, counted on this device. */
+export interface ListeningStats {
+	secs: number;
+	/** Seconds in the window of the same length just before this one; null for all time. */
+	prevSecs: number | null;
+	plays: number;
+	songs: number;
+	/** Songs played for the first time ever inside the window. */
+	newSongs: number;
+	artists: number;
+	/** Seconds per local day (`2026-10-17`), oldest first, days with nothing left out. */
+	days: [string, number][];
+	/** Seconds per local weekday (0 = Sunday) and hour: `hours[day * 24 + hour]`. */
+	hours: number[];
+	topSongs: TopSong[];
+	topArtists: TopArtist[];
+	topAlbums: TopAlbum[];
+	/** Unix secs of the oldest play on record; null when nothing has been counted yet. */
+	firstAt: number | null;
+	/** Days in a row with a play, up to today, and the longest run ever. Whole history. */
+	streak: number;
+	bestStreak: number;
+}
+/** `since`: unix secs where the window starts, 0 for all time. It always ends now. */
+export const listeningStats = (since: number) =>
+	invoke<ListeningStats>('listening_stats', { since });
+/** The `limit` most played artists of all time, on the stats page's counts. Home's Familiar Artists. */
+export const topArtists = (limit: number) => invoke<TopArtist[]>('top_artists', { limit });
+/** Forget every counted play. On Repeat empties with it. */
+export const clearListeningHistory = () => invoke<void>('clear_listening_history');
 /**
  * `start`: the clicked track index, or `null` for "just play it" (random opener under shuffle).
  * `sourceId`: the page's playlist/album playlist id — makes autoplay continue with that

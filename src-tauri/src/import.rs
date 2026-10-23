@@ -1346,7 +1346,7 @@ async fn current_rows(
             .db
             .local_playlist_tracks(key)
             .into_iter()
-            .filter_map(|(row, json)| {
+            .filter_map(|(row, json, _)| {
                 let s: SongItem = serde_json::from_str(&json).ok()?;
                 Some((s.video_id, row.to_string()))
             })

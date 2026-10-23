@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { windowCorners } from '$lib/win.svelte';
 	import { fade, fly, scale } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
@@ -135,7 +136,7 @@
 {#if ui.addSongs}
 	<div
 		transition:fade={{ duration: 150 }}
-		class="fixed inset-0 z-[49] flex items-center justify-center bg-black/50 p-4"
+		class="fixed inset-0 z-[49] flex items-center justify-center bg-black/50 p-4 {windowCorners()}"
 		role="presentation"
 		onclick={(e) => {
 			if (e.target === e.currentTarget) close();

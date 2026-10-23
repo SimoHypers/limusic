@@ -33,6 +33,7 @@ mod romanize;
 mod session;
 mod spotify;
 mod state;
+mod stats;
 #[cfg(target_os = "windows")]
 mod taskbar;
 mod tray;
@@ -143,6 +144,10 @@ fn tune_webview(win: &tauri::WebviewWindow, media: bool) {
             // shelves keep their swipes. Windows has this on by default; macOS would need
             // WKWebView's allowsBackForwardNavigationGestures, which wry does not expose.
             settings.set_enable_back_forward_navigation_gestures(true);
+
+            if compositor_features_off(&settings) {
+                restart_web_process(&webview);
+            }
         }
         heal_lost_release(&webview);
     });
@@ -152,6 +157,115 @@ fn tune_webview(win: &tauri::WebviewWindow, media: bool) {
         }
         Err(e) => tracing::warn!(label, error = %e, "webkit tuning failed (continuing)"),
     }
+}
+
+/// WebKitGTK 2.54's new compositing, back to what every earlier release did (#433). Returns
+/// whether anything changed.
+///
+/// 2.54 composites with Skia, and Skia draws a layer at its opacity from before an animation on the
+/// frame the animation ends, so every fade blinks: switches, dialogs, the player view. Any GPU,
+/// opaque windows too. `UseSkiaForComposition` off brings back TextureMapper. 2.54 also has the
+/// compositor draw only the damaged rectangles, and on Intel/Mesa (GNOME, niri) a buffer that
+/// holds nothing outside them leaves our transparent window see-through on alternate frames, so
+/// both damage switches go off as well and every frame is drawn whole, as on 2.52.
+/// `ui/perf/flashprobe.py` on 2.54.1: 7-8 one-frame flashes per 6.5 s of fades, 0 with these off,
+/// 0 on 2.52.1.
+///
+/// WebKit's feature list (2.42+) has no binding in webkit2gtk 2.0, so its six functions come from
+/// the already-loaded library by name. A WebKit without one of them, or without a feature, is left
+/// alone.
+///
+/// ponytail: drop this once a WebKitGTK release fixes both; run flashprobe.py on it first.
+#[cfg(target_os = "linux")]
+fn compositor_features_off(settings: &webkit2gtk::Settings) -> bool {
+    use gtk::glib::translate::ToGlibPtr;
+    use std::ffi::{c_char, c_int, c_void, CStr};
+    type AllFeatures = unsafe extern "C" fn() -> *mut c_void;
+    type Length = unsafe extern "C" fn(*mut c_void) -> usize;
+    type Get = unsafe extern "C" fn(*mut c_void, usize) -> *mut c_void;
+    type Identifier = unsafe extern "C" fn(*mut c_void) -> *const c_char;
+    type Enabled = unsafe extern "C" fn(*mut c_void, *mut c_void) -> c_int;
+    type SetEnabled = unsafe extern "C" fn(*mut c_void, *mut c_void, c_int);
+    type Unref = unsafe extern "C" fn(*mut c_void);
+    const OFF: [&[u8]; 3] = [
+        b"UseSkiaForComposition",
+        b"UseDamagingInformationForCompositing",
+        b"PropagateDamagingInformation",
+    ];
+
+    // SAFETY: the version calls take nothing. The rest are dlsym'd from the WebKitGTK this process
+    // already links, each cast to its signature in webkit/WebKitSettings.h and WebKitFeature.h.
+    // The list is ours to unref; the features in it are borrowed from the list.
+    unsafe {
+        if webkit2gtk::ffi::webkit_get_minor_version() < 54 {
+            return false;
+        }
+        let sym = |name: &CStr| libc::dlsym(libc::RTLD_DEFAULT, name.as_ptr());
+        let syms = [
+            sym(c"webkit_settings_get_all_features"),
+            sym(c"webkit_feature_list_get_length"),
+            sym(c"webkit_feature_list_get"),
+            sym(c"webkit_feature_get_identifier"),
+            sym(c"webkit_settings_get_feature_enabled"),
+            sym(c"webkit_settings_set_feature_enabled"),
+            sym(c"webkit_feature_list_unref"),
+        ];
+        if syms.iter().any(|s| s.is_null()) {
+            return false;
+        }
+        let all: AllFeatures = std::mem::transmute(syms[0]);
+        let length: Length = std::mem::transmute(syms[1]);
+        let get: Get = std::mem::transmute(syms[2]);
+        let identifier: Identifier = std::mem::transmute(syms[3]);
+        let enabled: Enabled = std::mem::transmute(syms[4]);
+        let set_enabled: SetEnabled = std::mem::transmute(syms[5]);
+        let unref: Unref = std::mem::transmute(syms[6]);
+
+        let raw: *mut webkit2gtk::ffi::WebKitSettings = settings.to_glib_none().0;
+        let list = all();
+        if list.is_null() {
+            return false;
+        }
+        let mut changed = false;
+        for i in 0..length(list) {
+            let feature = get(list, i);
+            let id = identifier(feature);
+            if !id.is_null()
+                && OFF.contains(&CStr::from_ptr(id).to_bytes())
+                && enabled(raw.cast(), feature) != 0
+            {
+                set_enabled(raw.cast(), feature, 0);
+                changed = true;
+            }
+        }
+        unref(list);
+        changed
+    }
+}
+
+/// Builds the page again so [`compositor_features_off`] takes effect. The web process reads those
+/// settings once, when it creates the page, and wry starts that load inside `build()`, before tauri
+/// hands the webview over: flipped afterwards they are ignored (measured). So the process is
+/// killed and the same URL loaded again. `reload()` would not do: the first load has usually not
+/// committed yet, and a reload of nothing paints nothing. Costs one extra web-process start per
+/// window, only on 2.54+. A later crash is not ours to answer, hence the reason check.
+#[cfg(target_os = "linux")]
+fn restart_web_process(webview: &webkit2gtk::WebView) {
+    use webkit2gtk::{WebProcessTerminationReason, WebViewExt};
+
+    let Some(uri) = webview.uri() else {
+        tracing::warn!(
+            "webkit 2.54+: no URI to rebuild the page with, compositing unchanged (#433)"
+        );
+        return;
+    };
+    webview.connect_web_process_terminated(move |view, reason| {
+        if reason == WebProcessTerminationReason::TerminatedByApi {
+            view.load_uri(&uri);
+        }
+    });
+    webview.terminate_web_process();
+    tracing::info!("webkit 2.54+: Skia compositing and damage tracking off, page rebuilt (#433)");
 }
 
 /// Hands WebKit a left-button release it never got. A titlebar drag starts a compositor move grab
@@ -394,6 +508,11 @@ const RESTARTED_ENV: &str = "LIMUSIC_RESTARTED";
 /// already running reaches the single-instance callback instead, which emits `open-link`. Raw
 /// strings either way: `parseYtLink` in the UI decides what is a link, so there is one parser.
 pub(crate) static LAUNCH_ARGS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Raised by `show_main` once the SPA has mounted, whether it shows the window or stays in the
+/// tray. `play_on_start` waits for it: started off the setup timeline, the music began while the
+/// window was still coming up.
+pub(crate) static UI_MOUNTED: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
 /// Stay in the tray instead of showing the window: launched at login with "Start minimized to
 /// tray" on, and a tray icon to come back from. Asked by the startup safety net and by
@@ -814,11 +933,12 @@ pub fn run() {
                 });
             }
 
-            // Restore the last session's queue (paused, not autoplaying). context/11 §state.
+            // Restore the last session's queue, then optionally start playback.
             {
                 let st = app_state.clone();
                 tauri::async_runtime::spawn(async move {
                     st.restore_queue().await;
+                    st.play_on_start().await;
                 });
             }
 
@@ -1044,6 +1164,7 @@ pub fn run() {
             commands::show_main,
             commands::take_launch_args,
             commands::get_home,
+            commands::network_reachable,
             commands::get_home_more,
             commands::get_comments,
             commands::get_comments_more,
@@ -1065,6 +1186,9 @@ pub fn run() {
             commands::playlist_index,
             commands::sync_playlist_index,
             commands::play_counts,
+            commands::listening_stats,
+            commands::top_artists,
+            commands::clear_listening_history,
             commands::get_album,
             commands::get_blocked_artists,
             commands::block_artist,
@@ -1295,6 +1419,7 @@ fn spawn_event_pump(
                 PlayerEvent::TrackEnded => {
                     state.on_track_ended().await;
                 }
+                PlayerEvent::Looped => state.on_looped().await,
                 PlayerEvent::TrackFailed(msg) => {
                     // The track died (dead/403 URL etc). on_track_failed records a WEB_REMIX 403
                     // (context/06 §2), evicts the poisoned cache, and retries the track once via

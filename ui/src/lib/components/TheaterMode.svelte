@@ -28,7 +28,9 @@
 	import {
 		Cancel01Icon,
 		FavouriteIcon,
+		FullScreenIcon,
 		Mic01Icon,
+		MinimizeScreenIcon,
 		MusicNote01Icon,
 		NextIcon,
 		PauseIcon,
@@ -56,6 +58,7 @@
 	} from '$lib/player.svelte';
 	import {
 		canSwitch,
+		cinema as cinemaOn,
 		claimVideo,
 		parkVideo,
 		pickVersion,
@@ -68,6 +71,7 @@
 	import { appearance, setAppearance } from '$lib/theme.svelte';
 	import { isMissingThumb, thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
+	import { keyOf, typing } from '$lib/shortcuts';
 	import ArtistLine from './ArtistLine.svelte';
 	import LyricsView from './LyricsView.svelte';
 	import QueueList from './QueueList.svelte';
@@ -88,6 +92,8 @@
 		api.theaterFullscreen(true).catch((e) => console.error('theater fullscreen failed', e));
 		return () => {
 			api.theaterFullscreen(false).catch(() => {});
+			// Cinema is per opening, not a setting: theater always starts in its normal layout.
+			video.cinema = false;
 		};
 	});
 
@@ -108,10 +114,22 @@
 		return () => clearTimeout(idleTimer);
 	});
 	const calm = $derived(idle && !playback.paused && !overDock);
+	// Cinema: the picture fills the screen, the title, lyrics and queue step aside and the header
+	// and dock float over it.
+	const cinema = $derived(cinemaOn());
+	// Over a video the ink has to be light whatever the theme: the scrims under the header and the
+	// dock are black. Only the neutrals change, so the accent (custom, artwork or the theme's own)
+	// stays what it is everywhere else. `.dark` would reset it to the default palette's.
+	const CINEMA_INK =
+		'[--foreground:oklch(0.985_0_0)] [--muted-foreground:oklch(0.985_0_0/0.8)] [--background:oklch(0.145_0_0)] [--muted:oklch(1_0_0/0.3)]';
+	function toggleCinema() {
+		video.cinema = !video.cinema;
+		wake();
+	}
 
 	// The dock floats over the bottom of the stage. Once it has faded out, the lyrics and the queue
 	// grow down into its room until they end as far from the bottom edge as they start from the top
-	// (the header's 5rem), instead of stopping over an empty band (#468). Not to the edge: that cut
+	// (the header's height), instead of stopping over an empty band (#468). Not to the edge: that cut
 	// lines in half against the progress line. The picture keeps its size. Growing the columns at
 	// the bottom moves nothing already on screen, it only shows more of them. Waits out the dock's
 	// fade so the two never overlap, and gives the room back the moment the dock comes back.
@@ -126,6 +144,11 @@
 		return () => clearTimeout(timer);
 	});
 
+	// A focused slider (the seek bar or volume, after a click) is not a text field: F must still
+	// work there.
+	const textTarget = (el: EventTarget | null) =>
+		typing(el) && !(el instanceof HTMLInputElement && el.type === 'range');
+
 	function onKey(e: KeyboardEvent) {
 		wake();
 		// A dialog or menu open over this one (the palette, the shortcut sheet, a track menu) already
@@ -135,6 +158,20 @@
 		if (e.key === 'Escape') {
 			e.preventDefault();
 			close();
+		}
+		// F toggles cinema. keyOf reads the physical key for non-Latin layouts, like the app-wide
+		// shortcuts do.
+		if (
+			keyOf(e) === 'f' &&
+			!e.ctrlKey &&
+			!e.metaKey &&
+			!e.altKey &&
+			!e.repeat &&
+			showVideo() &&
+			!textTarget(e.target)
+		) {
+			e.preventDefault();
+			toggleCinema();
 		}
 	}
 
@@ -186,13 +223,37 @@
 	// wider screen shows the queue here, the one that had to be asked for.
 	const wide = new MediaQuery('(min-width: 64rem)');
 	const roomy = new MediaQuery('(min-width: 90rem)');
+	// A short screen (768 and 800px laptops) gets a slimmer dock and top strip: at full size the
+	// two took a third of the height away from the picture and the lyrics (#469).
+	const short = new MediaQuery('(max-height: 50rem)');
+	const headerH = $derived(short.current ? '4rem' : '5rem');
 	const queueShown = $derived(wide.current && appearance.theaterQueue);
 	const lyricsShown = $derived(
 		wide.current && appearance.theaterLyrics && (!queueShown || roomy.current)
 	);
-	const both = $derived(lyricsShown && queueShown);
+	// A song with nothing to read (no lyrics found, or instrumental) gets the spotlight instead of a
+	// half-screen column with one line at its top. The lyrics stay mounted, hidden, to fetch the next
+	// song's, and the layout moves only once a fetch has answered, never for the loading in between.
+	// Forgotten while no lyrics are mounted to keep it current.
+	let noLyrics = $state(false);
+	$effect(() => {
+		if (!lyricsShown) noLyrics = false;
+	});
+	const lyricsColumn = $derived(lyricsShown && !noLyrics);
+	// The column rises in when it appears, as the queue does with `in:fly`, and again each time a
+	// song with lyrics follows one without, which `in:` can't do for a column that was only hidden.
+	// Transform and opacity only (tw-animate's `animate-in` also animates `filter`).
+	let lyricsCol: HTMLElement | undefined = $state();
+	$effect(() => {
+		if (lyricsColumn && lyricsCol)
+			lyricsCol.animate([{ opacity: 0, transform: 'translateY(24px)' }, {}], {
+				duration: 400,
+				easing: 'cubic-bezier(0.33, 1, 0.68, 1)' // cubicOut
+			});
+	});
+	const both = $derived(lyricsColumn && queueShown);
 	/** A column beside the picture: it moves over to the left and its title gets smaller. */
-	const columns = $derived(lyricsShown || queueShown);
+	const columns = $derived(lyricsColumn || queueShown);
 	function toggleLyrics() {
 		const on = !lyricsShown;
 		setAppearance({ theaterLyrics: on, ...(on && !roomy.current && { theaterQueue: false }) });
@@ -207,14 +268,34 @@
 	// and its title is set larger, so it budgets more for it.
 	// ponytail: 8rem / 6.5rem are the title blocks at their largest, measured, not computed. Raise
 	// them if the block under the picture grows.
+	// A title too long for one line gets a second instead of an ellipsis (the "feat." credits are
+	// what the ellipsis used to eat), and only then does the picture give up a line's height for it:
+	// 2.25rem / 3rem at leading 1.15. Measured at one line (does it overflow?) or at two (did it
+	// wrap?), so the answer can't flip back and forth: the room it takes only narrows the line.
+	let titleEl: HTMLElement | undefined = $state();
+	let twoLines = $state(false);
+	$effect(() => {
+		const el = titleEl;
+		if (!el) return;
+		const ro = new ResizeObserver(() => {
+			twoLines = twoLines
+				? el.scrollHeight > parseFloat(getComputedStyle(el).lineHeight) * 1.5
+				: el.scrollWidth > el.clientWidth + 1;
+		});
+		ro.observe(el);
+		return () => ro.disconnect();
+	});
+	const titleRoom = $derived(
+		`${columns ? 6.5 : 8}rem - ${twoLines ? (columns ? 2.6 : 3.5) : 0}rem`
+	);
 	const side = $derived(
 		columns
 			? showVideo()
-				? 'min(100cqw, (100cqh - 6.5rem) * 16 / 9)'
-				: 'min(100cqw, 100cqh - 6.5rem, 34rem)'
+				? `min(100cqw, (100cqh - ${titleRoom}) * 16 / 9)`
+				: `min(100cqw, 100cqh - ${titleRoom}, 34rem)`
 			: showVideo()
-				? 'min(100cqw, (100cqh - 8rem) * 16 / 9, 96rem)'
-				: 'min(100cqw, 100cqh - 8rem, 44rem)'
+				? `min(100cqw, (100cqh - ${titleRoom}) * 16 / 9, 96rem)`
+				: `min(100cqw, 100cqh - ${titleRoom}, 44rem)`
 	);
 
 	// Clicking the picture toggles playback and flashes the action just taken over it. Read `paused`
@@ -322,24 +403,28 @@
 	onoutrostart={leave}
 	class="fixed inset-0 z-40 flex flex-col overflow-hidden text-foreground inert:bg-background {video.hole
 		? ''
-		: 'bg-background'} {calm ? 'cursor-none' : ''}"
+		: cinema
+			? 'bg-black'
+			: 'bg-background'} {cinema ? CINEMA_INK : ''} {calm ? 'cursor-none' : ''}"
 >
 	{#if showVideo()}
 		<!-- The video lights the room itself (Settings > Video > ambient light), and nothing else
 		     does: on Linux every layer here would paint over mpv's picture. -->
-		{#if prefs.ambient && picBox}<Ambient box={picBox} />{/if}
+		{#if prefs.ambient && picBox && !cinema}<Ambient box={picBox} />{/if}
 	{:else}
 		<!-- === Backdrop, three layers, none of which repaint with the content over them ===
 		     1. the cover, pre-blurred into a small bitmap once per track and upscaled. No live
 		        filter. Behind the artwork-background setting, so it is still a one-click ablation.
 		        Stretched to the window (`100% 100%`) rather than cropped: at this blur nobody can see
-		        the square has been stretched, and `cover` would throw away its top and bottom. -->
+		        the square has been stretched, and `cover` would throw away its top and bottom.
+		        A new track's wash crossfades with the last one's: an entrance alone dropped the old
+		        one at once and dipped the room to the bare background on every song. -->
 		{#if appearance.artworkBackground && room.wash}
 			{#key room.wash}
 				<div
-					in:fade={{ duration: 700 }}
-					style="background-image:url({room.wash});background-size:100% 100%"
-					class="pointer-events-none absolute inset-0 opacity-50 dark:opacity-60"
+					transition:fade={{ duration: 700 }}
+					style="background-image:url({room.wash});background-size:100% 100%;{room.washVars}"
+					class="pointer-events-none absolute inset-0 opacity-[min(0.5,var(--wash-light))] dark:opacity-[min(0.6,var(--wash-dark))]"
 				></div>
 			{/key}
 		{/if}
@@ -362,9 +447,12 @@
 
 	<!-- === Top strip: where the queue came from, and the way out. === -->
 	<header
-		class="relative z-10 flex h-20 shrink-0 items-center justify-between gap-6 px-8 transition-opacity duration-500 xl:px-14 {calm
+		class="{cinema
+			? 'absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-black/75 via-black/35 to-transparent'
+			: 'relative z-10'} flex shrink-0 items-center justify-between gap-6 px-8 transition-opacity duration-500 xl:px-14 {calm
 			? 'opacity-0'
 			: ''}"
+		style="height:{headerH}"
 	>
 		<div class="min-w-0">
 			<!-- The queue column says this itself. -->
@@ -391,230 +479,274 @@
 	<!-- === The stage. The picture and what's playing, and beside it at most one column. ===
 	     A stacking context of its own (z-10), so the light behind the picture (-z-10) stays above the
 	     backdrop instead of sinking under it. -->
-	<div
-		class="relative z-10 mx-auto flex min-h-0 w-full max-w-[110rem] flex-1 gap-10 px-8 xl:px-14 {both
-			? 'xl:gap-12'
-			: 'xl:gap-20'}"
-	>
-		<!-- A size container, so the picture is sized against the space actually left for it
-		     (cqw/cqh) instead of guessing at the window. -->
+	{#if !cinema}
 		<div
-			class="flex min-w-0 flex-1 items-center justify-center [container-type:size]"
-			style="padding-bottom:{dockH}px"
-			data-theater-pic
+			class="relative z-10 mx-auto flex min-h-0 w-full max-w-[110rem] flex-1 gap-10 px-8 xl:px-14 {both
+				? 'xl:gap-12'
+				: 'xl:gap-20'}"
 		>
-			<div style="--side:{side};width:var(--side)">
-				<!-- svelte-ignore a11y_no_static_element_interactions -- wheel is the volume gesture -->
-				<div bind:this={picBox} class="relative" onwheel={onArtWheel}>
-					{#if !showVideo()}
-						<!-- The light the cover sits in: bigger than it and behind it, so it reads as a
-						     spill, where a shadow this size would be re-blurred on every repaint. -->
-						<div
-							class="pointer-events-none absolute -inset-[14%] -z-10 opacity-70"
-							style="background-image:{room.glow}"
-						></div>
-					{/if}
-					<button
-						type="button"
-						onclick={toggle}
-						aria-label={t('a11y.play_pause')}
-						class="relative block w-full cursor-pointer"
-					>
-						{#if flash}
-							<!-- Transform and opacity only: no backdrop-blur on the plate. -->
+			<!-- A size container, so the picture is sized against the space actually left for it
+			     (cqw/cqh) instead of guessing at the window. -->
+			<div
+				class="flex min-w-0 flex-1 items-center justify-center [container-type:size]"
+				style="padding-bottom:{dockH}px"
+				data-theater-pic
+			>
+				<div style="--side:{side};width:var(--side)">
+					<!-- svelte-ignore a11y_no_static_element_interactions -- wheel is the volume gesture -->
+					<div bind:this={picBox} class="relative" onwheel={onArtWheel}>
+						{#if !showVideo()}
+							<!-- The light the cover sits in: bigger than it and behind it, so it reads as a
+							     spill, where a shadow this size would be re-blurred on every repaint. -->
 							<div
-								in:scale={{ start: 0.7, duration: 150, easing: cubicOut }}
-								out:scale={{ start: 1.3, duration: 320, easing: cubicOut }}
-								class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
-							>
-								<div class="rounded-full bg-black/55 p-4 text-white">
-									<!-- icon swap via altIcon/showAlt: `icon` is frozen at mount -->
-									<HugeiconsIcon
-										icon={PauseIcon}
-										altIcon={PlayIcon}
-										showAlt={flash === 'play'}
-										class="h-8 w-8"
-									/>
-								</div>
-							</div>
-						{/if}
-						<!-- The music video. VideoSurface owns the element (or mpv draws it, on Linux and
-						     Windows) and this borrows it while theater is up, the same way the player
-						     view does; the player view hands it over and takes it back. -->
-						{#if prefs.nativeVideo}
-							{#if showVideo()}
-								<div
-									class="aspect-video w-full rounded-2xl inert:bg-black {video.hole ? '' : 'bg-black'}"
-									{@attach holeFor}
-								></div>
-							{/if}
-						{:else}
-							<div
-								class="contents"
-								{@attach (box: HTMLElement) => {
-									claimVideo(box);
-									return () => parkVideo(box);
-								}}
+								class="pointer-events-none absolute -inset-[14%] -z-10 opacity-70"
+								style="background-image:{room.glow}"
 							></div>
 						{/if}
-						{#if !showVideo()}
-							<!-- A new track's cover settles in from a little smaller: the one motion on
-							     the stage, and it says the song changed. -->
-							{#key playback.now?.videoId}
-								<div in:scale={{ start: 0.94, duration: 420, easing: cubicOut }} class="relative">
-									{#if src && attempt < srcs.length}
-										<!-- The 120 underneath is the one the player bar already has, so it
-										     paints on the frame the track changes (#77). -->
-										<img
-											{src}
-											alt=""
-											onerror={() => attempt++}
-											onload={(e) => isMissingThumb(e) && attempt++}
-											style={srcs[2] ? `background-image:url(${srcs[2]})` : undefined}
-											class="aspect-square w-full rounded-2xl bg-cover object-cover"
+						<button
+							type="button"
+							onclick={toggle}
+							aria-label={t('a11y.play_pause')}
+							class="relative block w-full cursor-pointer"
+						>
+							{#if flash}
+								<!-- Transform and opacity only: no backdrop-blur on the plate. -->
+								<div
+									in:scale={{ start: 0.7, duration: 150, easing: cubicOut }}
+									out:scale={{ start: 1.3, duration: 320, easing: cubicOut }}
+									class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
+								>
+									<div class="rounded-full bg-black/55 p-4 text-white">
+										<!-- icon swap via altIcon/showAlt: `icon` is frozen at mount -->
+										<HugeiconsIcon
+											icon={PauseIcon}
+											altIcon={PlayIcon}
+											showAlt={flash === 'play'}
+											class="h-8 w-8"
 										/>
-									{:else}
-										<div
-											class="flex aspect-square w-full items-center justify-center rounded-2xl bg-muted text-muted-foreground/40"
-										>
-											<HugeiconsIcon icon={MusicNote01Icon} class="h-20 w-20" />
-										</div>
-									{/if}
-									<!-- A hairline round the edge, so a cover that is mostly the background's
-									     colour still has one. A ring, not a shadow. -->
-									<div
-										class="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-inset ring-foreground/10"
-									></div>
+									</div>
 								</div>
-							{/key}
-						{/if}
-					</button>
-				</div>
-
-				<!-- What's playing. The title scales with the picture so it reads as part of it, set
-				     big enough to read from across the room. Rises in with each new track. -->
-				{#key playback.now?.videoId}
-					<div
-						in:fly={{ y: 10, duration: 420, easing: cubicOut }}
-						class={columns ? 'mt-6' : 'mt-8 text-center'}
-					>
-						<h1
-							class="truncate font-heading leading-[1.15] font-bold tracking-tight"
-							style="font-size:clamp(1.5rem, var(--side) * {columns ? 0.065 : 0.07}, {columns
-								? '2.25rem'
-								: '3rem'})"
-							title={playback.now?.title}
-						>
-							{playback.now?.title ?? t('player.not_playing')}
-						</h1>
-						<p
-							class="mt-2 flex min-w-0 items-baseline gap-2 {columns
-								? 'text-base'
-								: 'justify-center text-lg'}"
-						>
-							<ArtistLine
-								runs={playback.now?.artistRuns}
-								text={playback.now?.artists ?? ''}
-								class="text-foreground/75"
-							/>
-							{#if album}
-								<span class="shrink-0 text-muted-foreground/60" aria-hidden="true">·</span>
-								<!-- There is no page per song, so the album is where "more about this" goes. -->
-								{#if albumId}
-									<button
-										type="button"
-										onclick={() => goto(`/album/${encodeURIComponent(albumId)}`)}
-										class="min-w-0 cursor-pointer truncate text-muted-foreground transition-colors hover:text-foreground hover:underline"
-									>
-										{album}
-									</button>
-								{:else}
-									<span class="min-w-0 truncate text-muted-foreground">{album}</span>
-								{/if}
 							{/if}
-						</p>
+							<!-- The music video. VideoSurface owns the element (or mpv draws it, on Linux and
+							     Windows) and this borrows it while theater is up, the same way the player
+							     view does; the player view hands it over and takes it back. -->
+							{#if prefs.nativeVideo}
+								{#if showVideo()}
+									<div
+										class="aspect-video w-full rounded-2xl inert:bg-black {video.hole ? '' : 'bg-black'}"
+										{@attach holeFor}
+									></div>
+								{/if}
+							{:else}
+								<div
+									class="contents"
+									{@attach (box: HTMLElement) => {
+										claimVideo(box);
+										return () => parkVideo(box);
+									}}
+								></div>
+							{/if}
+							{#if !showVideo()}
+								<!-- A new track's cover settles in from a little smaller: the one motion on
+								     the stage, and it says the song changed. -->
+								{#key playback.now?.videoId}
+									<div in:scale={{ start: 0.94, duration: 420, easing: cubicOut }} class="relative">
+										{#if src && attempt < srcs.length}
+											<!-- The 120 underneath is the one the player bar already has, so it
+											     paints on the frame the track changes (#77). -->
+											<img
+												{src}
+												alt=""
+												onerror={() => attempt++}
+												onload={(e) => isMissingThumb(e) && attempt++}
+												style={srcs[2] ? `background-image:url(${srcs[2]})` : undefined}
+												class="aspect-square w-full rounded-2xl bg-cover object-cover"
+											/>
+										{:else}
+											<div
+												class="flex aspect-square w-full items-center justify-center rounded-2xl bg-muted text-muted-foreground/40"
+											>
+												<HugeiconsIcon icon={MusicNote01Icon} class="h-20 w-20" />
+											</div>
+										{/if}
+										<!-- A hairline round the edge, so a cover that is mostly the background's
+										     colour still has one. A ring, not a shadow. -->
+										<div
+											class="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-inset ring-foreground/10"
+										></div>
+									</div>
+								{/key}
+							{/if}
+						</button>
 					</div>
-				{/key}
+
+					<!-- What's playing. The title scales with the picture so it reads as part of it, set
+					     big enough to read from across the room. Rises in with each new track. -->
+					{#key playback.now?.videoId}
+						<div
+							in:fly={{ y: 10, duration: 420, easing: cubicOut }}
+							class={columns ? 'mt-6' : 'mt-8 text-center'}
+						>
+							<h1
+								bind:this={titleEl}
+								class="font-heading leading-[1.15] font-bold tracking-tight {twoLines
+									? 'line-clamp-2 [overflow-wrap:anywhere]'
+									: 'truncate'}"
+								style="font-size:clamp(1.5rem, var(--side) * {columns ? 0.065 : 0.07}, {columns
+									? '2.25rem'
+									: '3rem'})"
+								title={playback.now?.title}
+							>
+								{playback.now?.title ?? t('player.not_playing')}
+							</h1>
+							<p
+								class="mt-2 flex min-w-0 items-baseline gap-2 {columns
+									? 'text-base'
+									: 'justify-center text-lg'}"
+							>
+								<ArtistLine
+									runs={playback.now?.artistRuns}
+									text={playback.now?.artists ?? ''}
+									class="text-foreground/75"
+								/>
+								{#if album}
+									<span class="shrink-0 text-muted-foreground/60" aria-hidden="true">·</span>
+									<!-- There is no page per song, so the album is where "more about this" goes. -->
+									{#if albumId}
+										<button
+											type="button"
+											onclick={() => goto(`/album/${encodeURIComponent(albumId)}`)}
+											class="min-w-0 cursor-pointer truncate text-muted-foreground transition-colors hover:text-foreground hover:underline"
+										>
+											{album}
+										</button>
+									{:else}
+										<span class="min-w-0 truncate text-muted-foreground">{album}</span>
+									{/if}
+								{/if}
+							</p>
+						</div>
+					{/key}
+				</div>
 			</div>
+
+			<!-- === Lyrics, straight on the backdrop. No card: a panel on a screen with no other chrome
+			     is the one thing that makes this look like a page instead of a stage. One size up on big
+			     screens, where this is read from the sofa. That size is `em`, not `text-4xl`, so the
+			     lyrics text size control still scales it.
+			     Never give this a `mask-image` for the end fades, however tempting: it buffers the whole
+			     scroller offscreen on every scroll frame. Same for `backdrop-filter` (see the header).
+			     The scrollbar is hidden from out here, since the child owns the scroller.
+			     An entrance only, never an exit: one keeps this in the DOM after the stage has already
+			     given its room back, and the picture recentres in two visible steps. The entrance is
+			     `lyricsCol.animate` (script), since `noLyrics` hides this rather than unmounting it. === -->
+			{#if lyricsShown}
+				<div
+					bind:this={lyricsCol}
+					class="min-h-0 min-w-0 flex-[1.2] flex-col overflow-hidden 2xl:[&_[data-line]]:text-[2.25em] [&_*]:[scrollbar-width:none] [&_*::-webkit-scrollbar]:hidden {noLyrics
+						? 'hidden'
+						: 'flex'}"
+					style="padding-bottom:{roomFree ? headerH : `${dockH}px`}"
+				>
+					<LyricsView expanded bind:missing={noLyrics} />
+				</div>
+			{/if}
+			<!-- === The queue, on the backdrop like the lyrics and for the same reason. It keeps its
+			     scrollbar: a playlist queue runs to thousands of rows, and it is the only thing here you
+			     scroll by hand. It hugs a track row's width rather than taking half the screen, and
+			     narrows further when the lyrics are on screen too.
+			     `relative z-0` gives it its own stacking context, and that is what keeps the scrollbar on
+			     screen: without it, every transform transition on the stage (the cover settling in, the
+			     flash) blanks the thumb on WebKitGTK for as long as it runs (#343, docs/UI-PERFORMANCE.md). -->
+			{#if queueShown}
+				<div
+					in:fly={{ y: 24, duration: 400, easing: cubicOut }}
+					class="relative z-0 flex min-h-0 shrink-0 flex-col overflow-hidden {both
+						? 'w-[22rem]'
+						: 'w-[28rem] xl:w-[34rem]'}"
+					style="padding-bottom:{roomFree ? headerH : `${dockH}px`}"
+				>
+					<QueueList />
+				</div>
+			{/if}
+
+			<!-- What comes next, in the last seconds of a track. Stays up through calm: it is for the
+			     screen nobody is touching. -->
+			{#if upNext}
+				<button
+					type="button"
+					transition:fly={{ x: 24, duration: 350, easing: cubicOut }}
+					onclick={() => api.nextTrack()}
+					style="bottom:{dockH + 16}px"
+					class="absolute right-8 z-20 flex w-80 cursor-pointer items-center gap-3 rounded-2xl border border-foreground/10 bg-background/80 p-2.5 pr-4 text-left transition-colors hover:bg-background xl:right-14"
+					aria-label="{t('player.up_next')}: {upNext.title}"
+				>
+					{#if upNext.thumbnail}
+						<img
+							src={thumb(upNext.thumbnail, 120)}
+							alt=""
+							class="size-12 shrink-0 rounded-lg bg-muted object-cover"
+						/>
+					{/if}
+					<div class="min-w-0">
+						<p class="text-[10px] font-semibold uppercase tracking-[0.2em] text-primary">
+							{t('player.up_next')}
+						</p>
+						<p class="truncate text-sm font-semibold">{upNext.title}</p>
+						<p class="truncate text-xs text-muted-foreground">{upNext.artists}</p>
+					</div>
+				</button>
+			{/if}
 		</div>
-
-		<!-- === Lyrics, straight on the backdrop. No card: a panel on a screen with no other chrome
-		     is the one thing that makes this look like a page instead of a stage. One size up on big
-		     screens, where this is read from the sofa.
-		     Never give this a `mask-image` for the end fades, however tempting: it buffers the whole
-		     scroller offscreen on every scroll frame. Same for `backdrop-filter` (see the header).
-		     The scrollbar is hidden from out here, since the child owns the scroller.
-		     `in:` only, never `transition:`. An out transition keeps this in the DOM after the stage
-		     has already given its room back, and the picture recentres in two visible steps. === -->
-		{#if lyricsShown}
-			<div
-				in:fly={{ y: 24, duration: 400, easing: cubicOut }}
-				class="flex min-h-0 min-w-0 flex-[1.2] flex-col overflow-hidden 2xl:[&_[data-line]]:text-4xl [&_*]:[scrollbar-width:none] [&_*::-webkit-scrollbar]:hidden"
-				style="padding-bottom:{roomFree ? '5rem' : `${dockH}px`}"
-			>
-				<LyricsView expanded />
-			</div>
-		{/if}
-		<!-- === The queue, on the backdrop like the lyrics and for the same reason. It keeps its
-		     scrollbar: a playlist queue runs to thousands of rows, and it is the only thing here you
-		     scroll by hand. It hugs a track row's width rather than taking half the screen, and
-		     narrows further when the lyrics are on screen too.
-		     `relative z-0` gives it its own stacking context, and that is what keeps the scrollbar on
-		     screen: without it, every transform transition on the stage (the cover settling in, the
-		     flash) blanks the thumb on WebKitGTK for as long as it runs (#343, docs/UI-PERFORMANCE.md). -->
-		{#if queueShown}
-			<div
-				in:fly={{ y: 24, duration: 400, easing: cubicOut }}
-				class="relative z-0 flex min-h-0 shrink-0 flex-col overflow-hidden {both
-					? 'w-[22rem]'
-					: 'w-[28rem] xl:w-[34rem]'}"
-				style="padding-bottom:{roomFree ? '5rem' : `${dockH}px`}"
-			>
-				<QueueList />
-			</div>
-		{/if}
-
-		<!-- What comes next, in the last seconds of a track. Stays up through calm: it is for the
-		     screen nobody is touching. -->
-		{#if upNext}
+	{:else}
+		<!--
+			Cinema. This wrapper has to stay transparent while mpv draws under the page
+			(video.hole), or its black would hide the picture.
+		-->
+		<!-- svelte-ignore a11y_no_static_element_interactions -- wheel is the volume gesture -->
+		<div class="absolute inset-0 z-0 {video.hole ? '' : 'bg-black'}" onwheel={onArtWheel}>
 			<button
 				type="button"
-				transition:fly={{ x: 24, duration: 350, easing: cubicOut }}
-				onclick={() => api.nextTrack()}
-				style="bottom:{dockH + 16}px"
-				class="absolute right-8 z-20 flex w-80 cursor-pointer items-center gap-3 rounded-2xl border border-foreground/10 bg-background/80 p-2.5 pr-4 text-left transition-colors hover:bg-background xl:right-14"
-				aria-label="{t('player.up_next')}: {upNext.title}"
+				onclick={toggle}
+				class="block h-full w-full cursor-pointer"
+				aria-label={t('a11y.play_pause')}
 			>
-				{#if upNext.thumbnail}
-					<img
-						src={thumb(upNext.thumbnail, 120)}
-						alt=""
-						class="size-12 shrink-0 rounded-lg bg-muted object-cover"
-					/>
+				{#if prefs.nativeVideo}
+					<div class="h-full w-full inert:bg-black {video.hole ? '' : 'bg-black'}" {@attach holeFor}></div>
+				{:else}
+					<div
+						class="contents"
+						{@attach (box: HTMLElement) => {
+							claimVideo(box);
+							return () => parkVideo(box);
+						}}
+					></div>
 				{/if}
-				<div class="min-w-0">
-					<p class="text-[10px] font-semibold uppercase tracking-[0.2em] text-primary">
-						{t('player.up_next')}
-					</p>
-					<p class="truncate text-sm font-semibold">{upNext.title}</p>
-					<p class="truncate text-xs text-muted-foreground">{upNext.artists}</p>
-				</div>
 			</button>
-		{/if}
-	</div>
+		</div>
+	{/if}
 
 	<!-- === The dock: every control on one strip along the bottom. The scrubber runs the full width,
 	     the widest thing on screen to aim at; transport in the middle, what is playing on the left,
 	     what the stage shows on the right. Fades with calm and floats over the stage, which lends its
 	     room to the lyrics and the queue while it is gone (see `roomFree`). === -->
+	{#if cinema}
+		<!-- The floor under the dock, the full width of the screen (the dock itself stops at
+		     110rem). Strong enough that the controls read over a white frame. -->
+		<div
+			class="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-56 bg-gradient-to-t from-black/85 via-black/50 to-transparent transition-opacity duration-500 {calm
+				? 'opacity-0'
+				: ''}"
+		></div>
+	{/if}
 	<div
 		role="group"
 		bind:clientHeight={dockH}
 		onpointerenter={() => (overDock = true)}
 		onpointerleave={() => (overDock = false)}
-		class="absolute inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[110rem] px-8 pt-3 pb-7 transition-opacity duration-500 xl:px-14 {calm
-			? 'opacity-0'
-			: ''}"
+		class="absolute inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[110rem] px-8 transition-opacity duration-500 xl:px-14 {short.current
+			? 'pt-2 pb-4'
+			: 'pt-3 pb-7'} {calm ? 'opacity-0' : ''}"
 	>
 		<!-- Fixed-width slots for the times: the font may have no tabular figures, and the bar would
 		     shift a few px per tick (#463). -->
@@ -622,7 +754,7 @@
 			<span class="min-w-[5ch] text-right">{fmt(shownPosition)}</span>
 			<input
 				type="range"
-				class="range theater-range min-w-0 flex-1"
+				class="range theater-range min-w-0 flex-1 {cinema ? 'on-art' : ''}"
 				style="--pct:{pct}%"
 				min="0"
 				max={playback.duration || 0}
@@ -639,7 +771,9 @@
 			<span class="min-w-[5ch]">{fmt(playback.duration)}</span>
 		</div>
 
-		<div class="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-6">
+		<div
+			class="grid grid-cols-[1fr_auto_1fr] items-center gap-6 {short.current ? 'mt-1.5' : 'mt-3'}"
+		>
 			<!-- What's playing: like, the player bar's own ⋮ menu, and Song/Video. -->
 			<div class="flex min-w-0 items-center gap-1">
 				{#if playback.now && !local}
@@ -697,27 +831,38 @@
 				<button
 					type="button"
 					onclick={() => api.prevTrack()}
-					class="flex size-12 cursor-pointer items-center justify-center rounded-full text-foreground/90 transition-colors hover:bg-foreground/10 hover:text-foreground"
+					class="flex cursor-pointer items-center justify-center rounded-full text-foreground/90 transition-colors hover:bg-foreground/10 hover:text-foreground {short.current
+						? 'size-10'
+						: 'size-12'}"
 					aria-label={t('player.previous')}
 				>
-					<HugeiconsIcon icon={PreviousIcon} class="h-6 w-6" />
+					<HugeiconsIcon icon={PreviousIcon} class={short.current ? 'h-5 w-5' : 'h-6 w-6'} />
 				</button>
 				<button
 					type="button"
 					onclick={() => api.togglePause()}
-					class="mx-1 flex size-16 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform duration-150 hover:scale-[1.06] active:scale-95"
+					class="mx-1 flex cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform duration-150 hover:scale-[1.06] active:scale-95 {short.current
+						? 'size-12'
+						: 'size-16'}"
 					aria-label={playback.paused ? t('player.play') : t('player.pause')}
 				>
 					<!-- icon swap via altIcon/showAlt: `icon` is frozen at mount -->
-					<HugeiconsIcon icon={PauseIcon} altIcon={PlayIcon} showAlt={playback.paused} class="h-7 w-7" />
+					<HugeiconsIcon
+						icon={PauseIcon}
+						altIcon={PlayIcon}
+						showAlt={playback.paused}
+						class={short.current ? 'h-6 w-6' : 'h-7 w-7'}
+					/>
 				</button>
 				<button
 					type="button"
 					onclick={() => api.nextTrack()}
-					class="flex size-12 cursor-pointer items-center justify-center rounded-full text-foreground/90 transition-colors hover:bg-foreground/10 hover:text-foreground"
+					class="flex cursor-pointer items-center justify-center rounded-full text-foreground/90 transition-colors hover:bg-foreground/10 hover:text-foreground {short.current
+						? 'size-10'
+						: 'size-12'}"
 					aria-label={t('player.next')}
 				>
-					<HugeiconsIcon icon={NextIcon} class="h-6 w-6" />
+					<HugeiconsIcon icon={NextIcon} class={short.current ? 'h-5 w-5' : 'h-6 w-6'} />
 				</button>
 				<button
 					type="button"
@@ -748,8 +893,13 @@
 
 			<!-- What the stage shows, and the volume. -->
 			<div class="flex min-w-0 items-center justify-end gap-3">
-				<!-- One pill, so it reads as a view switch rather than two more actions. -->
-				<div class="hidden items-center gap-0.5 rounded-full bg-foreground/[0.06] p-1 lg:flex">
+				<!-- One pill, so it reads as a view switch rather than two more actions. Not in cinema,
+				     where there is no stage for either column. -->
+				<div
+					class="hidden items-center gap-0.5 rounded-full bg-foreground/[0.06] p-1 {cinema
+						? ''
+						: 'lg:flex'}"
+				>
 					{@render sideButton(Mic01Icon, t('player.lyrics'), lyricsShown, toggleLyrics)}
 					{@render sideButton(Queue01Icon, t('player.queue'), queueShown, toggleQueue)}
 				</div>
@@ -771,7 +921,7 @@
 					</button>
 					<input
 						type="range"
-						class="range w-24 xl:w-28"
+						class="range w-24 xl:w-28 {cinema ? 'on-art' : ''}"
 						style="--pct:{playback.volume}%"
 						min="0"
 						max="100"
@@ -781,6 +931,24 @@
 						aria-label={t('player.volume')}
 					/>
 				</div>
+				<!-- Last, where every video player keeps it. -->
+				{#if showVideo()}
+					<button
+						type="button"
+						onclick={toggleCinema}
+						class="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+						aria-label={cinema ? t('player.exit_fullscreen_video') : t('player.fullscreen_video')}
+						title="{cinema ? t('player.exit_fullscreen_video') : t('player.fullscreen_video')} (F)"
+					>
+						<!-- icon swap via altIcon/showAlt: `icon` is frozen at mount -->
+						<HugeiconsIcon
+							icon={FullScreenIcon}
+							altIcon={MinimizeScreenIcon}
+							showAlt={cinema}
+							class="h-5 w-5"
+						/>
+					</button>
+				{/if}
 			</div>
 		</div>
 	</div>

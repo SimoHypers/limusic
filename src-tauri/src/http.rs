@@ -106,6 +106,29 @@ pub fn client() -> &'static reqwest::Client {
     })
 }
 
+/// Whether YouTube Music answers at all. Any status counts, only getting no reply means the
+/// network is down.
+pub async fn network_reachable() -> bool {
+    client()
+        .head("https://music.youtube.com/")
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .is_ok()
+}
+
+/// Waits about a minute for [`network_reachable`], probing again on a backoff. Returns false if
+/// the network never came up.
+pub async fn wait_for_network() -> bool {
+    for delay in [0, 2, 4, 8, 15, 30] {
+        tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+        if network_reachable().await {
+            return true;
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::webview_url;

@@ -6,13 +6,25 @@
 # to confirm you're not a bot", and rustypipe's resolve with the same sentence, because those
 # runners sit in Azure ranges. The runner bootstraps a valid visitorData and is refused anyway, so
 # no amount of session work fixes it. A home connection gets the real answer, which is also the
-# answer the users get. The other four live tests are IP-agnostic and stay in the workflow.
+# answer the users get. The other live tests are IP-agnostic and stay in the workflow.
 #
 #   scripts/stream-health-local.sh            # run once, notify only if something broke
 #   scripts/stream-health-local.sh --install  # set up the daily systemd user timer
 #   systemctl --user list-timers limusic-stream-health.timer
 #
-# Full output of the last run is kept at ~/.local/state/limusic/stream-health.log.
+# It tests `origin/dev` in a worktree of its own, never the checkout this script sits in: that one
+# is whatever branch was left open, maybe half-edited or not compiling, and a red from it says
+# nothing about YouTube. dev rather than master because a fix for a YouTube change then turns this
+# green the day it merges, not at the next release.
+#
+# ~/.local/state/limusic/
+#   stream-health.log                 full output of the last run
+#   stream-health-<date>-<time>.log   full output of every run that was not green, kept
+#   stream-health.history             one line per run: when, dev commit, verdict, each leg
+#
+# A red run is one of three things, and the notification says which: YouTube changed something
+# (fix the code), YouTube is bot-challenging this IP (not a code break, it lifts on its own, keep
+# other live testing off it meanwhile), or dev did not build (not about YouTube at all).
 #
 # ponytail: a timer and notify-send, no alerting stack. It runs on the machine that would ship the
 # fix anyway. If this ever needs to reach you when you are away from it, the lazy upgrade is a
@@ -20,7 +32,10 @@
 set -uo pipefail
 
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-LOG="${XDG_STATE_HOME:-$HOME/.local/state}/limusic/stream-health.log"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/limusic"
+LOG="$STATE/stream-health.log"
+HISTORY="$STATE/stream-health.history"
+TREE="${XDG_CACHE_HOME:-$HOME/.cache}/limusic/stream-health-tree"
 UNITS="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
 if [[ "${1:-}" == "--install" ]]; then
@@ -54,27 +69,87 @@ EOF
   exit 0
 fi
 
+mkdir -p "$STATE"
+
 # A laptop on a captive portal or with no network would fail both tests and report a YouTube
 # breakage that never happened. That false red is the exact thing this split exists to avoid, so
 # an unreachable YouTube is "no answer today", not "red".
 if ! curl -sf -o /dev/null --max-time 20 https://music.youtube.com/sw.js_data; then
   echo "youtube unreachable, skipping" >&2
+  echo "$(date -Is) - skipped: youtube unreachable" >> "$HISTORY"
   exit 0
 fi
 
-mkdir -p "$(dirname "$LOG")"
-{ date -Is; git -C "$REPO" rev-parse --short HEAD; } > "$LOG"
+# A failed fetch tests the last dev fetched, which is still a known, merged state.
+git -C "$REPO" fetch -q origin dev || echo "fetch failed, testing the last fetched origin/dev" >&2
+if [[ ! -e "$TREE/.git" ]]; then
+  mkdir -p "$(dirname "$TREE")"
+  git -C "$REPO" worktree prune
+  git -C "$REPO" worktree add -q --detach "$TREE" origin/dev || exit 1
+fi
+# -f: cargo may rewrite Cargo.lock in there, and nothing in the tree is anyone's work.
+git -C "$TREE" checkout -qf --detach origin/dev || exit 1
+sha=$(git -C "$TREE" rev-parse --short HEAD)
+{ date -Is; echo "origin/dev $sha"; } > "$LOG"
 
-cd "$REPO" || exit 1
-cargo test -p innertube --features integration-tests --test live_smoke -- \
-  --nocapture direct_clients_resolve_and_stream rustypipe_url_is_fetchable >> "$LOG" 2>&1
+cd "$TREE" || exit 1
+# This tree rebuilds only when dev moves, and incremental state would roughly double its target
+# dir for nothing.
+export CARGO_INCREMENTAL=0
+smoke() { cargo test -p innertube --features integration-tests --test live_smoke -- --nocapture "$@"; }
+smoke direct_clients_resolve_and_stream rustypipe_url_is_fetchable >> "$LOG" 2>&1
 status=$?
+# A renamed test matches no filter, and zero tests run is a pass to cargo.
+note=
+if [[ $status -eq 0 ]] && ! grep -q '^test result: ok. 2 passed' "$LOG"; then
+  note="the two stream tests did not run: renamed in live_smoke.rs? Update this script."
+  echo "$note" >> "$LOG"
+  status=1
+fi
+
+# Issue #292's one-mebibyte cap on rustypipe URLs. The nightly skips this test because it fails
+# every night while the cap stands, so nothing else would notice the cap lifting. Information
+# only: it never turns the run red.
+echo "--- #292 cap check (information only)" >> "$LOG"
+cap_out=$(smoke --exact rustypipe_url_streams_to_the_end 2>&1)
+echo "$cap_out" >> "$LOG"
+grep -q '^test result: ok. 1 passed' <<< "$cap_out" && cap=lifted || cap=on
+
+# Classified on the main run only, so a challenge on the cap check cannot relabel its red.
+main=$(sed '/^--- #292/q' "$LOG")
+if [[ $status -eq 0 ]]; then
+  verdict=ok
+elif grep -q 'could not compile' <<< "$main"; then
+  verdict=build
+elif grep -q 'not a bot' <<< "$main"; then
+  verdict=flagged
+else
+  verdict=red
+fi
+
+# Each client's leg ("VISIONOS: Streams(251)") and each rustypipe status, on one line.
+legs=$(grep -E '^[A-Z][A-Z0-9_]+: |^rustypipe itag' "$LOG" | paste -sd ';' | sed 's/;/; /g')
+echo "$(date -Is) $sha $verdict cap:$cap | $legs" >> "$HISTORY"
 
 tail -n 30 "$LOG"
-[[ $status -eq 0 ]] && exit 0
+kept="$STATE/stream-health-$(date +%F-%H%M%S).log"
+[[ $verdict == ok ]] || cp "$LOG" "$kept"
 
-# The test's own panic message names which leg of the chain went, so it is the whole notification.
-why=$(grep -m3 -E '^(VISIONOS|rustypipe resolve)' "$LOG" | tr '\n' ' ')
-notify-send -u critical "Limusic: YouTube stream check failed" \
-  "${why:-see $LOG}" 2>/dev/null
+# The first line of each test's own panic message names which leg of the chain went.
+why=$(grep -A1 'panicked at' <<< "$main" | grep -v -e 'panicked at' -e '^--$' | cut -c1-160 | head -3)
+case $verdict in
+  ok)
+    [[ $cap == lifted ]] && notify-send "Limusic: the #292 rustypipe cap has lifted" \
+      "rustypipe URLs stream to the end again. Drop the rustypipe_url_streams_to_the_end skip from stream-health.yml." 2>/dev/null
+    exit 0 ;;
+  build)
+    notify-send -u critical "Limusic: stream check did not build" \
+      "origin/dev $sha does not compile, so nothing was asked of YouTube. See $kept" 2>/dev/null ;;
+  flagged)
+    notify-send -u critical "Limusic: YouTube is bot-challenging this IP" \
+      "Not a code break, and it lifts on its own. Keep live testing off this IP meanwhile. See $kept" 2>/dev/null ;;
+  red)
+    notify-send -u critical "Limusic: YouTube stream check failed" \
+      "${why:-${note:-no panic message}} (dev $sha, $kept)" 2>/dev/null ;;
+esac
 exit "$status"

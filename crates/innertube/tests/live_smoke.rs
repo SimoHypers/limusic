@@ -784,10 +784,28 @@ async fn comments_load_for_an_audio_track_and_a_video() {
         let header = page.header.as_ref().expect("first page carries a header");
         let sorts: Vec<_> = header.sorts.iter().map(|s| s.key).collect();
         assert_eq!(sorts, [CommentSortKey::Top, CommentSortKey::Newest]);
-        assert!(page
+        assert!(
+            page.threads.iter().all(|t| !t.comment.id.is_empty()),
+            "{label}: a thread has no id"
+        );
+        // One top comment with an empty body is one commenter's doing, not a shape change: it
+        // turned the nightly red twice, on the runner's region only. A moved content path empties
+        // every thread at once. The ids say which comment it was (`watch?v=<id>&lc=<comment id>`).
+        let blank: Vec<_> = page
             .threads
             .iter()
-            .all(|t| !t.comment.text.is_empty() && !t.comment.id.is_empty()));
+            .filter(|t| t.comment.text.is_empty())
+            .map(|t| t.comment.id.as_str())
+            .collect();
+        if !blank.is_empty() {
+            eprintln!("  no text on {blank:?}");
+        }
+        assert!(
+            blank.len() * 2 < page.threads.len(),
+            "{label}: {} of {} threads have no text, the comment content path moved",
+            blank.len(),
+            page.threads.len()
+        );
 
         let token = page.continuation.clone().expect("a second page token");
         let more =

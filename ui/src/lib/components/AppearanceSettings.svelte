@@ -404,6 +404,11 @@
 					desc: t('settings.themes.blur_playlist_header_hint'),
 					control: blurHeaderSwitch
 				})}
+				{@render row({
+					title: t('settings.themes.now_playing_pill'),
+					desc: t('settings.themes.now_playing_pill_hint'),
+					control: nowPlayingPillSwitch
+				})}
 			</div>
 		</section>
 
@@ -434,9 +439,9 @@
 			<h3 class={LABEL}>{t('settings.sections.player_view')}</h3>
 			<div class={CARD}>
 				{@render row({
-					title: t('settings.themes.stage_player'),
-					desc: t('settings.themes.stage_player_hint'),
-					control: stagePlayerSwitch
+					title: t('settings.themes.classic_player'),
+					desc: t('settings.themes.classic_player_hint'),
+					control: classicPlayerSwitch
 				})}
 				{@render row({
 					title: t('settings.themes.open_player'),
@@ -671,9 +676,13 @@
 		checked={appearance.blurPlaylistHeader}
 		onCheckedChange={(on) => setAppearance({ blurPlaylistHeader: on })}
 	/>{/snippet}
-{#snippet stagePlayerSwitch()}<Switch
-		checked={appearance.stagePlayer}
-		onCheckedChange={(on) => setAppearance({ stagePlayer: on })}
+{#snippet nowPlayingPillSwitch()}<Switch
+		checked={appearance.nowPlayingPill}
+		onCheckedChange={(on) => setAppearance({ nowPlayingPill: on })}
+	/>{/snippet}
+{#snippet classicPlayerSwitch()}<Switch
+		checked={appearance.classicPlayer}
+		onCheckedChange={(on) => setAppearance({ classicPlayer: on })}
 	/>{/snippet}
 {#snippet openPlayerSwitch()}<Switch
 		checked={appearance.openPlayerOnPlay}

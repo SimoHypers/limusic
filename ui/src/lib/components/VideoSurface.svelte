@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { forgetVideoUrl, playback, prefs, videoUrlFor } from '$lib/player.svelte';
-	import { canVideo, hasVideo, registerVideo, showVideo, video } from '$lib/video.svelte';
+	import { canVideo, cinema, hasVideo, registerVideo, showVideo, video } from '$lib/video.svelte';
 
 	// --- Music videos (plan 031) -------------------------------------------------------------
 	// When the track *is* a music video, the player view draws the video instead of the artwork.
@@ -378,6 +378,12 @@
 		// No shadow, unlike the artwork: WebKitGTK re-blurs a resting box-shadow over the whole tile
 		// on every repaint, and a video repaints 24 times a second at this size. It dragged the whole
 		// app, not just the picture. Same cause as the card-hover cost measured on 2026-08-06.
+		// Cinema: the box is as big as the screen, so the picture fills it, with no 16:9 box and no
+		// rounded corners.
+		if (cinema()) {
+			el.className = 'h-full w-full bg-black object-contain';
+			return;
+		}
 		el.className = `w-full rounded-2xl bg-black object-contain ${
 			showVideo() ? 'aspect-video' : 'pointer-events-none absolute inset-0 h-full opacity-0'
 		}`;

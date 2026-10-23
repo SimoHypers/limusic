@@ -20,6 +20,11 @@ export const video = $state({
 	/** Linux: the hole the page leaves for mpv's picture, while the picture is up (see setHole).
 	 *  Viewport CSS pixels. */
 	hole: null as Hole | null,
+	/**
+	 * Theater mode shows the picture edge to edge instead of inside the stage. Reset when theater
+	 *  closes.
+	 */
+	cinema: false,
 	/** The Song/Video side just picked, held while the other version resolves (a second or two). */
 	switching: null as boolean | null
 });
@@ -38,6 +43,8 @@ export const canSwitch = () => prefs.musicVideos && (!!playback.now?.isVideo || 
 export const hasVideo = () =>
 	canVideo() && (prefs.nativeVideo ? !!videoReady[playback.now!.videoId] : !!video.url);
 export const showVideo = () => hasVideo() && video.want;
+/** Cinema only makes sense while a video is actually the picture. */
+export const cinema = () => video.cinema && showVideo();
 
 /** Which side of Song/Video is picked: the user's choice, not what is on screen. "Video" stays
  *  picked while the picture is still loading, and the artwork stands in until it arrives. */

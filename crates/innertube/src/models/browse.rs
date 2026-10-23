@@ -1875,6 +1875,17 @@ mod tests {
         assert_eq!(batch.refresh.as_deref(), Some("CONTINUATION_SCRUBBED"));
     }
 
+    /// Date added (the track list's column) reads `voteSortValue` off each row. Captured from an
+    /// owned playlist sorted Newest: one track added on its own, then two of a bulk add.
+    #[test]
+    fn playlist_rows_carry_when_they_were_added() {
+        let root: Value =
+            serde_json::from_str(include_str!("../../tests/fixtures/playlist_rows_added.json"))
+                .unwrap();
+        let added: Vec<_> = parse_playlist(&root).items.iter().map(|s| s.added_at).collect();
+        assert_eq!(added, [Some(1_755_417_934), Some(1_754_910_197), Some(1_754_910_196)]);
+    }
+
     /// What the "Edit playlist" dialog prefills from. Both fields have to survive the round trip:
     /// a description read back as `None` is one the dialog would offer to overwrite with nothing.
     #[test]

@@ -249,6 +249,7 @@
 	const trayOn = $derived(settings.close_to_tray !== 'false');
 	const trackNotificationsOn = $derived(settings.track_notifications === 'true');
 	const trackNotificationsFocusedOn = $derived(settings.track_notifications_focused === 'true');
+	const playOnStartOn = $derived(settings.play_on_start === 'true');
 	const autostartOn = $derived(settings.autostart === 'true');
 	const startMinimizedOn = $derived(settings.start_minimized === 'true');
 	// `native_chrome` is read-only and platform-derived (commands.rs). `overlay` is macOS, where the
@@ -378,6 +379,11 @@
 			win.chrome = prev;
 			toast.error(String(e));
 		}
+	}
+
+	async function setPlayOnStart(on: boolean) {
+		settings.play_on_start = on ? 'true' : 'false';
+		await api.setSetting('play_on_start', settings.play_on_start);
 	}
 
 	async function setAutostart(on: boolean) {
@@ -587,6 +593,11 @@
 											control: trackNotificationsFocusedSwitch
 										})}
 									{/if}
+									{@render row({
+										title: t('settings.general.play_on_start'),
+										desc: t('settings.general.play_on_start_hint'),
+										control: playOnStartSwitch
+									})}
 									{@render row({
 										title: t('settings.general.autostart'),
 										desc: t('settings.general.autostart_hint'),
@@ -886,6 +897,7 @@
 		checked={trackNotificationsFocusedOn}
 		onCheckedChange={setTrackNotificationsFocused}
 	/>{/snippet}
+{#snippet playOnStartSwitch()}<Switch checked={playOnStartOn} onCheckedChange={setPlayOnStart} />{/snippet}
 {#snippet autostartSwitch()}<Switch checked={autostartOn} onCheckedChange={setAutostart} />{/snippet}
 {#snippet startMinimizedSwitch()}<Switch checked={startMinimizedOn} onCheckedChange={setStartMinimized} />{/snippet}
 {#snippet systemTitlebarSwitch()}<Switch

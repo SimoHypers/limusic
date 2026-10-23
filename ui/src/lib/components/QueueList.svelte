@@ -5,13 +5,9 @@
 	import { fade, fly } from 'svelte/transition';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import {
-		ArrowDown01Icon,
-		ArrowTurnBackwardIcon,
-		ArrowUp01Icon,
-		InfinityIcon
-	} from '@hugeicons/core-free-icons';
+	import { ArrowTurnBackwardIcon, InfinityIcon } from '@hugeicons/core-free-icons';
 	import TrackRow from '$lib/components/TrackRow.svelte';
+	import NowPlayingPill from '$lib/components/NowPlayingPill.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Switch } from '$lib/components/ui/switch';
 	import * as api from '$lib/api';
@@ -28,6 +24,7 @@
 	import { dragScroll, QUEUE_ROW_MIME } from '$lib/dnd';
 	import { playback, prefs, setAutoplay, openAddToPlaylist } from '$lib/player.svelte';
 	import { lt } from '$lib/lt.svelte';
+	import { appearance } from '$lib/theme.svelte';
 	import { currentLocale, t } from '$lib/i18n.svelte';
 
 	const reducedMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
@@ -407,17 +404,7 @@
 			<p class="p-4 text-sm text-muted-foreground">{t('player.empty_queue')}</p>
 		{/if}
 	</div>
-	<!-- After the scroller in the DOM, so it paints after it: a transition painted before a scroller
-	     can blank its scrollbar on WebKitGTK (docs/UI-PERFORMANCE.md). Opacity only. -->
-	{#if away}
-		<button
-			class="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 cursor-pointer items-center gap-1.5 rounded-full border bg-popover px-3 py-1.5 text-xs font-medium text-popover-foreground shadow-lg hover:bg-accent"
-			onclick={() => toPlaying(true)}
-			transition:fade={{ duration: reducedMotion.current ? 0 : 150 }}
-		>
-			<!-- altIcon/showAlt: `icon` is frozen at mount. -->
-			<HugeiconsIcon icon={ArrowDown01Icon} altIcon={ArrowUp01Icon} showAlt={awayAbove} class="size-3.5" />
-			{t('player.now_playing')}
-		</button>
+	{#if away && appearance.nowPlayingPill}
+		<NowPlayingPill above={awayAbove} onclick={() => toPlaying(true)} />
 	{/if}
 </div>

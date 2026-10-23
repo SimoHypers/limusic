@@ -241,7 +241,7 @@ pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
 /// `visitor_data`) and internal blobs (`queue_json`, `queue_index`, `queue_position`) never cross
 /// into the webview: they'd otherwise ship the login credential to the renderer on every open, and
 /// the webview can't overwrite them either.
-const UI_SETTINGS: [&str; 31] = [
+const UI_SETTINGS: [&str; 32] = [
     "volume",
     "proxy",
     "quality",
@@ -253,6 +253,7 @@ const UI_SETTINGS: [&str; 31] = [
     "close_to_tray",
     "track_notifications",
     "track_notifications_focused",
+    "play_on_start",
     "autostart",
     "start_minimized",
     "autoplay",
@@ -394,6 +395,10 @@ pub async fn get_settings(state: St<'_>) -> Result<serde_json::Value, String> {
         .map(|(k, v)| (k, serde_json::Value::String(v)))
         .collect();
     map.insert("native_chrome".into(), native_chrome(&state.db).into());
+    // Windows 11 rounds an undecorated window with a shadow (our main window) by itself, so the
+    // SPA's own rounding would leave transparent slivers inside DWM's curve (#504). Windows 10
+    // rounds nothing, and square is its native corner anyway.
+    map.insert("os_corners".into(), cfg!(target_os = "windows").to_string().into());
     map.insert("native_video".into(), crate::state::native_video().to_string().into());
     map.insert(
         "is_android".into(),
@@ -787,6 +792,7 @@ pub fn take_launch_args() -> Vec<String> {
 
 #[tauri::command]
 pub async fn show_main(state: St<'_>, window: tauri::WebviewWindow) -> Result<bool, String> {
+    crate::UI_MOUNTED.notify_one();
     if crate::should_start_minimized(&state.db) {
         return Ok(false);
     }
@@ -814,6 +820,14 @@ pub async fn get_home(state: St<'_>, params: Option<String>) -> Result<HomePage,
 pub async fn get_home_more(state: St<'_>, token: String) -> Result<HomePage, String> {
     let client = metadata_client(&state)?;
     state.it.home_continuation(client, &token).await.map_err(|e| e.to_string())
+}
+
+/// Whether YouTube Music answers at all, for the UI's offline retries (#483): it asks this until
+/// the answer is yes and only then reloads the page, so a dead connection doesn't flash skeletons
+/// on every try. Any status counts, only getting no reply means the network is still down.
+#[tauri::command]
+pub async fn network_reachable() -> bool {
+    crate::http::network_reachable().await
 }
 
 /// Why a comments command failed, as a stable word the UI words itself. Details go to the debug log.
@@ -1263,12 +1277,41 @@ pub async fn set_playlist_sort(
     state.it.playlist_set_sort(client, &playlist_id, sort).await.map_err(|e| e.to_string())
 }
 
-/// videoId → how many times it was played, over the same trailing window On Repeat is built from
-/// (the history table is pruned to it, so there is no older data to offer). Feeds the playlist
-/// page's "Most played" sort; a track the map doesn't mention has not been played this month.
+/// videoId → how many times it was ever played. Feeds the "Your plays" track column and the
+/// playlist page's "Most played" sort, which share it so the sort and the numbers beside it agree;
+/// a track the map doesn't mention has never been played.
 #[tauri::command]
 pub fn play_counts(state: St<'_>) -> std::collections::HashMap<String, i64> {
-    state.db.play_counts(now_secs() - ON_REPEAT_WINDOW_SECS).into_iter().collect()
+    state.db.play_counts(0).into_iter().collect()
+}
+
+/// The stats page (#396): everything heard since `since` (unix secs, 0 for all time). The page
+/// picks the window, because the calendar it is drawn against is the webview's.
+#[tauri::command]
+pub fn listening_stats(state: St<'_>, since: i64) -> crate::stats::Stats {
+    let now = now_secs();
+    let since = since.clamp(0, now);
+    let raw = state.db.listening(since, now);
+    let all_time = !matches!(raw.first_at, Some(first) if since > first);
+    let mut stats = crate::stats::shape(raw, all_time);
+    for t in &mut stats.top_songs {
+        t.song = shed_queue_context(std::mem::take(&mut t.song));
+    }
+    stats
+}
+
+/// Home's Familiar Artists and the community shelf's seed (#497): the `limit` most played artists
+/// of all time, on the stats page's counts.
+#[tauri::command]
+pub fn top_artists(state: St<'_>, limit: usize) -> Vec<crate::stats::TopArtist> {
+    crate::stats::top_artists(state.db.listened_songs(0, now_secs()), limit)
+}
+
+/// "Clear listening history" on the stats page. On Repeat empties too: it is built from the same
+/// plays.
+#[tauri::command]
+pub fn clear_listening_history(state: St<'_>) {
+    state.db.clear_listens();
 }
 
 /// The On Repeat track list: most-played first, over the trailing window. Rows whose stored JSON
@@ -1300,6 +1343,7 @@ fn shed_queue_context(s: SongItem) -> SongItem {
         set_video_id: None,
         added_by: None,
         added_by_avatars: Vec::new(),
+        added_at: None,
         ..s
     }
 }
@@ -1479,7 +1523,7 @@ fn require_login(state: &Arc<AppState>) -> Result<&innertube::YouTubeClient, Str
 #[tauri::command]
 pub async fn rate(state: St<'_>, video_id: String, rating: Rating) -> Result<(), String> {
     let client = require_login(&state)?;
-    // Before the write, not after: a `refresh_rating` round trip already in flight was asked
+    // Before the write, not after: a `refresh_from_next` round trip already in flight was asked
     // before this rating existed, so its answer is stale from here on either way (issue #93).
     state.rate_epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     state.it.rate(client, &video_id, rating).await.map_err(|e| e.to_string())
@@ -2005,9 +2049,9 @@ fn local_playlist_page(state: &Arc<AppState>, id: &str) -> Result<PlaylistPage, 
         .db
         .local_playlist_tracks(key)
         .into_iter()
-        .filter_map(|(row, json)| {
+        .filter_map(|(row, json, added_at)| {
             let song: SongItem = serde_json::from_str(&json).ok()?;
-            Some(SongItem { set_video_id: Some(row.to_string()), ..song })
+            Some(SongItem { set_video_id: Some(row.to_string()), added_at: Some(added_at), ..song })
         })
         .collect();
     Ok(PlaylistPage {
@@ -2676,6 +2720,10 @@ pub async fn listenbrainz_profile(
 /// So: restore from the real placement, go fullscreen, then put the window on the monitor rect
 /// with SWP_FRAMECHANGED to force one recalculation with the fullscreen flag set. On the main
 /// thread, where the window messages run inline and the order is guaranteed.
+///
+/// A window that was fullscreen already when theater opened (macOS's green button, a window
+/// manager's shortcut) is left alone both ways, so closing theater doesn't drop the user out of a
+/// fullscreen they chose (#485).
 #[tauri::command]
 pub fn theater_fullscreen(
     #[allow(unused_variables)] window: tauri::WebviewWindow,
@@ -2686,70 +2734,85 @@ pub fn theater_fullscreen(
         let _ = on;
         Ok(())
     }
-    #[cfg(not(any(target_os = "windows", target_os = "android")))]
-    {
-        window.set_fullscreen(on).map_err(|e| e.to_string())
-    }
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_os = "android"))]
     {
         use std::sync::atomic::{AtomicBool, Ordering};
-        use windows::Win32::UI::WindowsAndMessaging::{
-            IsZoomed, SetWindowPos, ShowWindow, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE,
-            SWP_NOZORDER, SW_MAXIMIZE, SW_RESTORE,
-        };
 
-        /// Restoring the window is what makes fullscreen work, so theater has to put the
-        /// maximized state back itself on the way out.
-        static WAS_MAXIMIZED: AtomicBool = AtomicBool::new(false);
+        static WAS_FULLSCREEN: AtomicBool = AtomicBool::new(false);
+        if on {
+            let already = window.is_fullscreen().unwrap_or(false);
+            WAS_FULLSCREEN.store(already, Ordering::Relaxed);
+            if already {
+                return Ok(());
+            }
+        } else if WAS_FULLSCREEN.swap(false, Ordering::Relaxed) {
+            return Ok(());
+        }
 
-        let w = window.clone();
-        window
-            .run_on_main_thread(move || {
-                let Ok(hwnd) = w.hwnd() else { return };
-                if on {
-                    let zoomed = unsafe { IsZoomed(hwnd).as_bool() };
-                    WAS_MAXIMIZED.store(zoomed, Ordering::Relaxed);
-                    if zoomed {
-                        unsafe {
-                            let _ = ShowWindow(hwnd, SW_RESTORE);
+        #[cfg(not(target_os = "windows"))]
+        {
+            window.set_fullscreen(on).map_err(|e| e.to_string())
+        }
+        #[cfg(target_os = "windows")]
+        {
+            use windows::Win32::UI::WindowsAndMessaging::{
+                IsZoomed, SetWindowPos, ShowWindow, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE,
+                SWP_NOZORDER, SW_MAXIMIZE, SW_RESTORE,
+            };
+
+            /// Restoring the window is what makes fullscreen work, so theater has to put the
+            /// maximized state back itself on the way out.
+            static WAS_MAXIMIZED: AtomicBool = AtomicBool::new(false);
+
+            let w = window.clone();
+            window
+                .run_on_main_thread(move || {
+                    let Ok(hwnd) = w.hwnd() else { return };
+                    if on {
+                        let zoomed = unsafe { IsZoomed(hwnd).as_bool() };
+                        WAS_MAXIMIZED.store(zoomed, Ordering::Relaxed);
+                        if zoomed {
+                            unsafe {
+                                let _ = ShowWindow(hwnd, SW_RESTORE);
+                            }
                         }
-                    }
-                    let _ = w.set_fullscreen(true);
-                    if let Ok(Some(m)) = w.current_monitor() {
-                        let (p, s) = (m.position(), m.size());
+                        let _ = w.set_fullscreen(true);
+                        if let Ok(Some(m)) = w.current_monitor() {
+                            let (p, s) = (m.position(), m.size());
+                            unsafe {
+                                let _ = SetWindowPos(
+                                    hwnd,
+                                    None,
+                                    p.x,
+                                    p.y,
+                                    s.width as i32,
+                                    s.height as i32,
+                                    SWP_FRAMECHANGED | SWP_NOZORDER,
+                                );
+                            }
+                        }
+                    } else {
+                        let _ = w.set_fullscreen(false);
+                        if WAS_MAXIMIZED.swap(false, Ordering::Relaxed) {
+                            unsafe {
+                                let _ = ShowWindow(hwnd, SW_MAXIMIZE);
+                            }
+                        }
                         unsafe {
                             let _ = SetWindowPos(
                                 hwnd,
                                 None,
-                                p.x,
-                                p.y,
-                                s.width as i32,
-                                s.height as i32,
-                                SWP_FRAMECHANGED | SWP_NOZORDER,
+                                0,
+                                0,
+                                0,
+                                0,
+                                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
                             );
                         }
                     }
-                } else {
-                    let _ = w.set_fullscreen(false);
-                    if WAS_MAXIMIZED.swap(false, Ordering::Relaxed) {
-                        unsafe {
-                            let _ = ShowWindow(hwnd, SW_MAXIMIZE);
-                        }
-                    }
-                    unsafe {
-                        let _ = SetWindowPos(
-                            hwnd,
-                            None,
-                            0,
-                            0,
-                            0,
-                            0,
-                            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
-                        );
-                    }
-                }
-            })
-            .map_err(|e| e.to_string())
+                })
+                .map_err(|e| e.to_string())
+        }
     }
 }
 

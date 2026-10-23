@@ -10,6 +10,7 @@ import { artworkAccent } from './artcolor';
 import { hexToHsv } from './color';
 import { playback } from './player.svelte';
 import { thumb } from './thumb';
+import { blur, saturate } from './wash';
 
 // Same CORS story as artcolor: googleusercontent and ytimg send `access-control-allow-origin: *`,
 // and a host that doesn't taints the canvas, throws on toDataURL, and lands in the same `null`.
@@ -17,7 +18,8 @@ import { thumb } from './thumb';
 // session is exactly the case that used to keep one base64 PNG (and the CSS image resource WebKit
 // decodes from it) per cover for the life of the view.
 const MAX_WASHES = 8;
-const washes = new Map<string, string>();
+type Wash = { url: string; lo: number; hi: number };
+const washes = new Map<string, Wash>();
 
 // 160px square, blurred at 28px. The size matters in both directions: too small (an earlier
 // version used 48) and the upscale to a 1080p-plus screen is 40x, where bilinear interpolation
@@ -28,7 +30,7 @@ const washes = new Map<string, string>();
 // arrive on screen as 8x8 *tiles* once CSS has stretched them across the window.
 const WASH = 160;
 const WASH_BLUR = 28;
-async function bake(url: string): Promise<string | null> {
+async function bake(url: string): Promise<Wash | null> {
 	try {
 		const img = new Image();
 		img.crossOrigin = 'anonymous';
@@ -39,22 +41,12 @@ async function bake(url: string): Promise<string | null> {
 		const ctx = canvas.getContext('2d');
 		if (!ctx) return null;
 		ctx.imageSmoothingQuality = 'high';
-		// Overdrawn past every edge by more than the blur radius. Without it the blur samples the
-		// transparent pixels outside the drawing and leaves a dark frame all the way round, which
-		// the upscale then turns into a vignette nobody asked for.
-		const over = WASH_BLUR * 1.6;
-		if (typeof ctx.filter === 'string') {
-			ctx.filter = `blur(${WASH_BLUR}px) saturate(1.5)`;
-			ctx.drawImage(img, -over, -over, WASH + over * 2, WASH + over * 2);
-		} else {
-			// No canvas filters: downscale hard and let the upscale do the smoothing instead.
-			// Rougher, but it is a dimmed wash behind a mesh, not the subject.
-			const small = document.createElement('canvas');
-			small.width = small.height = 20;
-			small.getContext('2d')?.drawImage(img, 0, 0, 20, 20);
-			ctx.drawImage(small, -over, -over, WASH + over * 2, WASH + over * 2);
-		}
-		return canvas.toDataURL('image/png');
+		ctx.drawImage(img, 0, 0, WASH, WASH);
+		const data = ctx.getImageData(0, 0, WASH, WASH);
+		blur(data.data, WASH, WASH_BLUR);
+		const { lo, hi } = saturate(data.data, 1.5);
+		ctx.putImageData(data, 0, 0);
+		return { url: canvas.toDataURL('image/png'), lo, hi };
 	} catch {
 		return null; // offline, 404, throttled, tainted: the mesh is the backdrop on its own
 	}
@@ -81,7 +73,7 @@ export function artRoom(on: () => boolean = () => true) {
 		};
 	});
 
-	let wash = $state<string | null>(null);
+	let wash = $state<Wash | null>(null);
 	$effect(() => {
 		const url = on() ? thumb(playback.now?.thumbnail, 400) : undefined;
 		if (!url) {
@@ -94,14 +86,14 @@ export function artRoom(on: () => boolean = () => true) {
 			return;
 		}
 		let alive = true;
-		bake(url).then((data) => {
-			if (!alive || !data) return;
+		bake(url).then((baked) => {
+			if (!alive || !baked) return;
 			if (washes.size >= MAX_WASHES && !washes.has(url)) {
 				const oldest = washes.keys().next().value;
 				if (oldest !== undefined) washes.delete(oldest);
 			}
-			washes.set(url, data);
-			wash = data;
+			washes.set(url, baked);
+			wash = baked;
 		});
 		return () => {
 			alive = false;
@@ -128,10 +120,27 @@ export function artRoom(on: () => boolean = () => true) {
 		`radial-gradient(closest-side, hsl(${hue ?? 265} 80% 55% / 0.5), transparent)`
 	);
 
+	// How strong the wash may be before text over it stops reading. On a dark theme its brightest
+	// spot may lift the room to about 20% grey at most, on a light one its darkest may pull it down
+	// to about 85%. A dim cover on a dark theme keeps the view's own cap, a white one drops to a
+	// tint, and the other way round on a light theme. Each view takes `min(its cap, var)` per mode,
+	// so the light/dark split stays in its markup.
+	// ponytail: 0.2 and 0.15 hold dim lyric lines near 3:1 over the worst cover in the default
+	// themes; raise them if the washes look too faint, lower them if a theme's dim lines stop reading.
+	const washVars = $derived.by(() => {
+		const fit = (room: number, over: number) =>
+			Math.min(1, room / Math.max(over, 0.01)).toFixed(3);
+		return `--wash-dark:${fit(0.2, wash?.hi ?? 0)};--wash-light:${fit(0.15, 1 - (wash?.lo ?? 1))}`;
+	});
+
 	return {
 		/** The baked wash as a data URL, or null until it is ready (or if the cover can't be read). */
 		get wash() {
-			return wash;
+			return wash?.url ?? null;
+		},
+		/** `--wash-dark` / `--wash-light`: the most opacity the wash can take on each kind of theme. */
+		get washVars() {
+			return washVars;
 		},
 		get mesh() {
 			return mesh;

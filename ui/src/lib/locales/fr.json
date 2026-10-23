@@ -185,9 +185,6 @@
 		"sections_hint": "Glissez une section pour la déplacer, ou sélectionnez sa poignée et utilisez les touches fléchées. Les sections masquées conservent leur position.",
 		"move_section": "Déplacer {title}",
 		"moved_section": "{title} a été déplacé à la position {position} sur {total}",
-		"new_section": "Nouveau",
-		"show_new": "Afficher les nouvelles sections",
-		"show_new_desc": "Au fil du temps, YouTube ajoute et renomme des sections. Si cette option est désactivée, elles restent masquées ici jusqu'à ce que vous les activiez.",
 		"all_hidden": "Tous les éléments de l'accueil sont désactivés."
 	},
 	"artist": {

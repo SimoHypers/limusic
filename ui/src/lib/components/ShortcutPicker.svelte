@@ -11,6 +11,7 @@
 	import { addPick, library, loadLibrary, personal } from '$lib/player.svelte';
 	import { mergeSaved } from '$lib/personal';
 	import { t } from '$lib/i18n.svelte';
+	import { windowCorners } from '$lib/win.svelte';
 
 	let { onclose }: { onclose: () => void } = $props();
 
@@ -30,7 +31,7 @@
 
 <div
 	transition:fade={{ duration: 150 }}
-	class="fixed inset-0 z-[49] flex items-center justify-center bg-black/50 p-4"
+	class="fixed inset-0 z-[49] flex items-center justify-center bg-black/50 p-4 {windowCorners()}"
 >
 	<div
 		transition:scale={{ duration: 180, start: 0.96, easing: cubicOut }}

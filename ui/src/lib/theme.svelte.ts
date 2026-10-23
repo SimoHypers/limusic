@@ -115,9 +115,14 @@ export const appearance = $state({
 	/** Blur the cover behind a playlist's header. Sharp, a square cover stretched to the page's
 	 *  width is often too small for it and shows its pixels (#461). */
 	blurPlaylistHeader: false,
-	/** The redesigned now-playing view (title and album under the picture, a lit backdrop, a
-	 *  full-height queue/lyrics column). Opt-in while people get used to it; off is the original. */
-	stagePlayer: false,
+	/** The "Now playing" pill a list floats over its rows while the playing one is off screen, in
+	 *  the queue and on a playlist (#366). Off for whoever finds it in the way. */
+	nowPlayingPill: true,
+	/** The original now-playing view, before the redesign (title and album under the picture, a
+	 *  lit backdrop, a full-height queue/lyrics column) became the default. A new key rather than
+	 *  `stagePlayer` flipped: that one was saved as `false` for everyone, so a new default would
+	 *  never have reached them. */
+	classicPlayer: false,
 	/**
 	 * The now-playing view carries queue and lyrics itself, as tabs, and the player bar's two
 	 * buttons switch between them while it's open. Off, those buttons only ever open the floating
@@ -414,8 +419,8 @@ function setArtVars(c: { h: number; hex: string }): void {
 
 /**
  * Point the theme at a cover URL. `null`/undefined (setting off, nothing playing) drops the layer
- * immediately; an unreadable or colourless image leaves the current colours alone rather than
- * flashing to grey.
+ * immediately. An unreadable or colourless cover drops it too once decoded: keeping the last
+ * track's colour paints this one in a cover it doesn't have (#522).
  */
 export function applyArtworkAccent(url: string | undefined | null): void {
 	wanted = url ?? '';
@@ -427,11 +432,11 @@ export function applyArtworkAccent(url: string | undefined | null): void {
 		return;
 	}
 	artworkAccent(url).then((hex) => {
-		if (!hex || wanted !== url) return; // colourless cover, or a faster track change already won
-		if (art?.hex === hex) return; // same colour (a repeat, or the queue moved under us)
-		const hsv = hexToHsv(hex);
-		if (!hsv) return;
-		art = { h: hsv.h, hex };
+		if (wanted !== url) return; // a faster track change already won
+		const hsv = hex ? hexToHsv(hex) : null;
+		const next = hsv ? { h: hsv.h, hex: hex! } : null;
+		if (art?.hex === next?.hex) return; // same colour (a repeat, the queue moved), or theme already
+		art = next;
 		restyle(); // through the normal path, so `effective` and the pickers agree
 	});
 }
@@ -520,7 +525,8 @@ export function initTheme(): void {
 		for (const k of [
 			'artworkBackground',
 			'blurPlaylistHeader',
-			'stagePlayer',
+			'nowPlayingPill',
+			'classicPlayer',
 			'tabbedPlayer',
 			'openPlayerOnPlay',
 			'artworkAccent',

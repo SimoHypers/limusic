@@ -66,6 +66,9 @@ pub enum PlayerEvent {
     Paused(bool),
     /// One track finished normally (EOF) — orchestrator advances the queue.
     TrackEnded,
+    /// Repeat-one started the file over. `loop-file` sends no end-file, so this is the only sign
+    /// a new pass began; the app counts it as a new play (#518).
+    Looped,
     /// One track died (end-file with error, e.g. its URL 403'd). mpv may have auto-advanced
     /// into the next playlist entry or gone idle — the orchestrator asks [`Player::is_idle`].
     TrackFailed(String),

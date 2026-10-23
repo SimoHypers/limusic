@@ -18,7 +18,8 @@ import * as pl from './personal';
 import type { Personal } from './personal';
 import { appearance } from './theme.svelte';
 import { currentLocale, pushLocaleToRust, t } from './i18n.svelte';
-import { friendlyNetError } from './neterr';
+import { friendlyNetError, isUnreachable } from './neterr';
+import { whenBackOnline } from './reconnect';
 import { parseScrobbleConfig } from './scrobble';
 
 export const playback = $state({
@@ -108,9 +109,9 @@ const videoUrls = new Map<string, Promise<string | null>>();
  *  (80), and the title block under the picture (9.5rem, `VIDEO_SIDE`). If any of those changes
  *  height, this does. */
 export function wantedVideoHeight() {
-	const px = appearance.stagePlayer
-		? window.innerHeight - 344
-		: (window.innerHeight - 176) * 0.85;
+	const px = appearance.classicPlayer
+		? (window.innerHeight - 176) * 0.85
+		: window.innerHeight - 344;
 	return [360, 480, 720].find((h) => h >= px) ?? 720;
 }
 
@@ -213,6 +214,10 @@ export async function loadLibrary(force = false) {
 		library.loaded = true;
 	} catch (e) {
 		if (generation === libraryGeneration) library.error = String(e);
+		// Run at startup, often before the network is up: without this the sidebar keeps only the
+		// local playlists until something else asks again (#483).
+		if (isUnreachable(String(e)))
+			whenBackOnline(() => generation === libraryGeneration && loadLibrary());
 		// The account's half failed (offline, most likely), and the playlists on this machine need
 		// no network: show them anyway rather than an empty sidebar.
 		refreshLocalPlaylists();
@@ -240,6 +245,8 @@ export async function loadLibraryExtras(force = false) {
 		library.extrasLoaded = true;
 	} catch (e) {
 		if (generation === libraryGeneration) library.extrasError = String(e);
+		if (isUnreachable(String(e)))
+			whenBackOnline(() => generation === libraryGeneration && loadLibraryExtras());
 	} finally {
 		if (generation === libraryGeneration) library.extrasLoading = false;
 	}
@@ -1501,10 +1508,11 @@ export function initApp(mini = false): () => void {
 		api.onNowPlaying((n) => {
 			playback.now = n;
 			playback.rating = n.rating ?? 'indifferent'; // the track's real rating when known
-			// Feeds Shortcuts recency and the community shelf's artist seed. Every play lands here,
-			// gapless advances included, so it's the one hook that sees them all.
+			// Feeds Shortcuts recency. Every track start lands here, gapless advances included, so
+			// it's the one hook that sees them all. Never count plays here: skips and the track
+			// restored at launch land here too. Plays are counted in Rust, past the history
+			// threshold (#497).
 			pl.touchPick(personal, n.videoId);
-			if (n.artists) pl.noteArtist(personal, n.artistId ?? n.artists, pl.firstArtist(n.artists));
 			savePersonal();
 			// Warm the music video now rather than when the view opens: the resolve is a round trip
 			// to YouTube, and paid here it overlaps the track starting instead of the user's click.

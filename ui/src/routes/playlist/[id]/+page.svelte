@@ -2,6 +2,7 @@
 	import { untrack, tick } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { MediaQuery } from 'svelte/reactivity';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		PlayIcon,
@@ -13,6 +14,7 @@
 		ArrowUpNarrowWideIcon,
 		ArrowDownWideNarrowIcon,
 		ArrowDown01Icon,
+		ArrowDownBigIcon,
 		DashboardSquare02Icon,
 		PlayListAddIcon,
 		Share08Icon,
@@ -31,14 +33,18 @@
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import TrackRow from '$lib/components/TrackRow.svelte';
+	import TrackColumns, { chosen, loadMyPlays, myPlays } from '$lib/components/TrackColumns.svelte';
+	import { availableColumns, fitColumns } from '$lib/trackcolumns';
 	import TrackSelectionBar from '$lib/components/TrackSelectionBar.svelte';
 	import TrackSelectButton from '$lib/components/TrackSelectButton.svelte';
 	import { trackSelection } from '$lib/selection.svelte';
+	import { subtitleCount, withSubtitleCount } from '$lib/trackcount';
 	import EditPlaylistDialog from '$lib/components/EditPlaylistDialog.svelte';
 	import TrackFilter, { filterTracks } from '$lib/components/TrackFilter.svelte';
 	import TrackRowSkeleton from '$lib/components/TrackRowSkeleton.svelte';
 	import PlaylistSuggestions from '$lib/components/PlaylistSuggestions.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
+	import NowPlayingPill from '$lib/components/NowPlayingPill.svelte';
 	import * as api from '$lib/api';
 	import { ON_REPEAT_ID } from '$lib/api';
 	import type { BrowseItem, PlaylistPage, SongItem } from '$lib/api';
@@ -48,6 +54,7 @@
 	import { anchorMenu, fitMenu, NO_ANCHOR } from '$lib/menu';
 	import { rowWindow } from '$lib/rows';
 	import { rowScroller } from '$lib/rows.svelte';
+	import { restoreTo } from '$lib/scrollrestore';
 	import { t } from '$lib/i18n.svelte';
 	import { imp, updateFromSpotify } from '$lib/import.svelte';
 	import {
@@ -209,7 +216,7 @@
 				? t('library.songs_count_one')
 				: t('library.songs_count', { count: pl.items.length })
 			: pl && !pl.continuation && pl.items.length
-				? (pl.subtitle ?? '').replace(/^[\d,.]+ songs?/i, `${pl.items.length} songs`)
+				? withSubtitleCount(pl.subtitle ?? '', pl.items.length)
 				: pl?.subtitle
 	);
 	// --- sorting (`$lib/sort`) ---------------------------------------------------------------
@@ -225,18 +232,11 @@
 	const sortLabel = $derived(
 		sort === 'default' ? t('sort.label') : t(`sort.${sort}`)
 	);
-	// The local listening history, fetched once and only if "Most played" is ever picked — it is a
-	// SQLite read the other five sorts have no use for.
-	let plays = $state<Record<string, number>>({});
-	let playsInflight: Promise<void> | null = null;
-	function loadPlays(): Promise<void> {
-		playsInflight ??= api
-			.getPlayCounts()
-			.then((c) => void (plays = c))
-			// An empty map just sorts everything as unplayed, which beats blocking the sort.
-			.catch(() => {});
-		return playsInflight;
-	}
+	// "Most played" ranks by the local listening history, the same counts the Your plays column
+	// shows. Read when the sort is picked, and when a list opens already on it.
+	$effect(() => {
+		if (sort === 'plays') untrack(loadMyPlays);
+	});
 
 	// YouTube offers a sort menu for this list, so it does the ordering — all of it except "Most
 	// played", which is our own listening history and means nothing to YouTube.
@@ -253,7 +253,7 @@
 		// no params for is a reversed *manual* order, so that one reverse stays here.
 		if (serverSorted) return sort === 'default' && desc ? items.slice().reverse() : items;
 		// Liked Music is the one playlist YouTube hands back newest-addition-first.
-		return sortSongs(items, sort, isLiked, desc, plays);
+		return sortSongs(items, sort, isLiked, desc, myPlays.counts);
 	});
 
 	// The rows actually on screen: the sorted list, narrowed by the header's filter box. Identical
@@ -265,14 +265,19 @@
 		// header count would be the wrong number to offer there.
 		() => (filtering ? undefined : headerCount), loadAll);
 	const filtering = $derived(!!applied.trim());
-	// The leading number of YouTube's own "190 tracks - 9+ hours", which is what the subtitle under
-	// the title shows until every page is in. An upper bound, not a count: it includes rows that
-	// never arrive (unavailable, region-blocked). A locale that doesn't lead with the number gives
-	// nothing back, and Select all falls back to the rows it has.
-	const headerCount = $derived.by(() => {
-		const digits = (pl?.subtitle ?? '').match(/^[\d.,]+/)?.[0].replace(/\D/g, '');
-		return digits ? Number(digits) : undefined;
-	});
+	// YouTube's own count, which is what the subtitle under the title shows until every page is in.
+	// An upper bound, not a count: it includes rows that never arrive (unavailable, region-blocked).
+	// With no number to read, Select all falls back to the rows it has.
+	const headerCount = $derived(subtitleCount(pl?.subtitle));
+
+	// The track list's optional columns (`TrackColumns`): what this list can fill, and of that, what
+	// the user has chosen. Not Date added on a collaborative playlist: the value it reads is what
+	// "Top voted" sorts by, and it was only ever checked to be the add time where nobody votes.
+	const availCols = $derived(
+		availableColumns(pl?.items ?? []).filter((c) => c !== 'added' || !pl?.collaborative)
+	);
+	let listPx = $state(0);
+	const cols = $derived(fitColumns(availCols.filter((c) => chosen.list.includes(c)), listPx));
 
 	// A sort has to cover the whole playlist, not the pages scrolled so far, so pull the rest in.
 	// Stops on a failed page (`moreError`), on navigation, and on any pass that made no progress.
@@ -301,7 +306,7 @@
 	// honest once every page is in.
 	async function ready(): Promise<boolean> {
 		if (!sorting) return true;
-		if (sort === 'plays') await loadPlays(); // queueing before they land would sort by nothing
+		if (sort === 'plays') await loadMyPlays(); // queueing before they land would sort by nothing
 		if (!pl?.continuation) return true;
 		preparing = true;
 		try {
@@ -356,7 +361,6 @@
 		sortOpen = false;
 		if (key === sort) return;
 		sort = key;
-		if (key === 'plays') loadPlays(); // the list re-sorts itself when the counts land
 		applySort();
 	}
 
@@ -506,7 +510,11 @@
 		if (lastPlaylistAdd.epoch === seenAddEpoch) return;
 		seenAddEpoch = lastPlaylistAdd.epoch;
 		if (!pl || lastPlaylistAdd.playlistId !== id) return;
-		pl = { ...pl, items: [...pl.items, ...lastPlaylistAdd.songs] };
+		// Stamped now, as the playlist itself stamps it, so Date added fills in at once. A song
+		// picked off another playlist would otherwise bring that one's date along.
+		const added_at = Math.floor(Date.now() / 1000);
+		const songs = lastPlaylistAdd.songs.map((s) => ({ ...s, added_at }));
+		pl = { ...pl, items: [...pl.items, ...songs] };
 		cacheCurrent();
 		fillSetVideoIds();
 	});
@@ -674,8 +682,7 @@
 	let scrollingToEnd = $state(false);
 
 	// Pull the rest of the playlist in before scrolling, so the end of the whole list is reached
-	// rather than just the rows mounted so far. The menu stays open with the row disabled so the
-	// loading state is visible, and closes once the walk is done.
+	// rather than just the rows mounted so far. The button pulses, disabled, while the walk runs.
 	async function scrollToEnd() {
 		if (!pl?.items.length || scrollingToEnd || !scrollerEl) return;
 		const pid = id;
@@ -695,6 +702,48 @@
 		}
 	}
 
+	// Back from an artist page lands where you left the list (#366). Kit hands the offset over once
+	// the page has mounted, when a cache miss is still loading and has no scroller yet, so it waits
+	// for one; the settle loop then rides out the rows filling in.
+	let restoreY = $state<number | null>(null);
+	export const snapshot = {
+		capture: () => scrollerEl?.scrollTop,
+		restore: (y: unknown) => {
+			if (typeof y === 'number') restoreY = y;
+		}
+	};
+	$effect(() => {
+		if (!scrollerEl || restoreY === null) return;
+		restoreTo(scrollerEl, restoreY);
+		restoreY = null;
+	});
+
+	// The playing track's row, and the queue's pill back to it while it is off screen (#366).
+	// Arithmetic on what the windowing already tracks, so it costs no layout read.
+	// ponytail: the first row holding the track, so a playlist with it twice jumps to the first.
+	const playingRow = $derived(nowId ? shown.findIndex((s) => s.video_id === nowId) : -1);
+	const playingY = $derived(sc.offsetPx + playingRow * sc.rowPx);
+	const away = $derived(
+		playingRow >= 0 &&
+			sc.viewportPx > 0 &&
+			(playingY + sc.rowPx <= sc.scrollTop || playingY >= sc.scrollTop + sc.viewportPx)
+	);
+	const reducedMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
+
+	// Centred, so the songs coming up show under it. Smooth across thousands of rows would mount
+	// every window on the way, so a long trip lands a screen short first, as the queue does.
+	function toPlaying() {
+		const el = scrollerEl;
+		if (!el || playingRow < 0) return;
+		const top = playingY - (el.clientHeight - sc.rowPx) / 2;
+		if (reducedMotion.current) {
+			el.scrollTop = top;
+			return;
+		}
+		const gap = el.scrollTop - top;
+		if (Math.abs(gap) > 2 * el.clientHeight) el.scrollTop = top + Math.sign(gap) * el.clientHeight;
+		el.scrollTo({ top, behavior: 'smooth' });
+	}
 	// One page per approach to the bottom: the observer only fires when the sentinel *enters* view,
 	// so an appended page that pushes it back out is required before the next fetch. rootMargin
 	// starts the fetch early enough that the rows are usually there by the time you reach them.
@@ -1004,9 +1053,10 @@
 	}
 </script>
 
-<div class="flex h-full flex-col">
+<!-- relative: the Now playing pill floats over the bottom of the scroller. -->
+<div class="relative flex h-full flex-col">
 	{#if loading}
-		<div class="flex items-end gap-6 border-b p-6">
+		<div class="flex items-end gap-6 p-6">
 			<Skeleton class="h-40 w-40 shrink-0 rounded-xl" />
 			<div class="flex-1 space-y-3">
 				<Skeleton class="h-3 w-16 rounded" />
@@ -1024,13 +1074,14 @@
 		<div class="p-6"><ErrorState message={error} onRetry={() => load(id)} /></div>
 	{:else if pl}
 		<!-- One scroller for the whole page: the header scrolls away above the rows, same as the
-		     album page. -->
+		     album page. `pb-12` is the Now playing pill's height plus its offset, so at the end of
+		     the list it covers no row (#380 on the queue). -->
 		<div
 			bind:this={scrollerEl}
-			class="content-in min-h-0 flex-1 overflow-y-auto"
+			class="content-in min-h-0 flex-1 overflow-y-auto pb-12"
 			{@attach sc.attach}
 		>
-			<div class="relative flex min-h-[38vh] shrink-0 items-end gap-6 overflow-hidden border-b p-6">
+			<div class="relative flex min-h-[38vh] shrink-0 items-end gap-6 overflow-hidden p-6">
 				<!-- The backdrop and its fade share one layer (`art-wash` on the wrapper): see HomeHero. -->
 				<div class="art-wash pointer-events-none absolute inset-0 overflow-hidden">
 					{#if backdrop}
@@ -1135,7 +1186,7 @@
 							/>
 						</div>
 						<!-- Pushed to the far end of the header, away from the play controls. -->
-						<div class="flex items-center gap-1">
+						<div class="flex items-center">
 							<Button
 								variant="ghost"
 								size="sm"
@@ -1148,13 +1199,27 @@
 							</Button>
 							<Button
 								variant="ghost"
-								size="icon"
+								size="icon-sm"
 								class={desc ? '' : 'text-muted-foreground'}
 								aria-label={t('sort.direction', { dir: desc ? t('sort.descending') : t('sort.ascending') })}
 								onclick={toggleDesc}
 								disabled={!pl.items.length}
 							>
 								<HugeiconsIcon icon={ArrowUpDownIcon} class="h-4 w-4" />
+							</Button>
+							<Button
+								variant="ghost"
+								size="icon-sm"
+								class="text-muted-foreground"
+								aria-label={t('player.scroll_to_end')}
+								title={t('player.scroll_to_end')}
+								onclick={scrollToEnd}
+								disabled={scrollingToEnd || !pl.items.length}
+							>
+								<HugeiconsIcon
+									icon={ArrowDownBigIcon}
+									class="h-4 w-4 {scrollingToEnd ? 'animate-pulse' : ''}"
+								/>
 							</Button>
 						</div>
 					</div>
@@ -1177,29 +1242,33 @@
 				aria-busy={resorting}
 			>
 				{#if shown.length}
-					<!-- The padding stands in for the rows outside the window, so the scrollbar is the
-					     length of the whole playlist even though only ~30 rows exist.
-					     data-rows: what the scroller measures row 0's position from. -->
-					<div data-rows style="padding-top:{win.padTop}px;padding-bottom:{win.padBottom}px">
-						{#each shown.slice(win.start, win.end) as item, i (JSON.stringify([item.video_id, win.start + i]))}
-							{@const n = win.start + i}
-							<!-- data-row: what the scroller measures a row's real height from. -->
-							<div data-row>
-								<TrackRow
-									song={item}
-									{selection}
-									selectionKey={selection.visibleKeys[n]}
-									index={n}
-									showPlayCount
-									active={item.video_id === nowId}
-									onplay={() => playAll(n)}
-									onAdd={() => openAddToPlaylist(item)}
-									onRemove={isLiked || item.set_video_id
-										? () => removeTrack(item)
-										: undefined}
-								/>
-							</div>
-						{/each}
+					<!-- Its width decides which columns fit (`fitColumns`). -->
+					<div bind:clientWidth={listPx}>
+						<TrackColumns available={availCols} columns={cols} selecting={selection.active} />
+						<!-- The padding stands in for the rows outside the window, so the scrollbar is the
+						     length of the whole playlist even though only ~30 rows exist.
+						     data-rows: what the scroller measures row 0's position from. -->
+						<div data-rows style="padding-top:{win.padTop}px;padding-bottom:{win.padBottom}px">
+							{#each shown.slice(win.start, win.end) as item, i (JSON.stringify([item.video_id, win.start + i]))}
+								{@const n = win.start + i}
+								<!-- data-row: what the scroller measures a row's real height from. -->
+								<div data-row>
+									<TrackRow
+										song={item}
+										{selection}
+										selectionKey={selection.visibleKeys[n]}
+										index={n}
+										columns={cols}
+										active={item.video_id === nowId}
+										onplay={() => playAll(n)}
+										onAdd={() => openAddToPlaylist(item)}
+										onRemove={isLiked || item.set_video_id
+											? () => removeTrack(item)
+											: undefined}
+									/>
+								</div>
+							{/each}
+						</div>
 					</div>
 				{:else if filtering}
 					<p class="p-4 text-sm text-muted-foreground">
@@ -1259,6 +1328,10 @@
 				{/key}
 			{/if}
 		</div>
+		<!-- Not while selecting: the selection bar sits in the same spot. -->
+		{#if away && !selection.active && appearance.nowPlayingPill}
+			<NowPlayingPill above={playingY < sc.scrollTop} onclick={toPlaying} />
+		{/if}
 	{/if}
 </div>
 

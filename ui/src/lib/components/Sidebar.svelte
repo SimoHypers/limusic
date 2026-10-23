@@ -17,7 +17,8 @@
 		ComputerIcon,
 		SquareArrowLeft01Icon,
 		SquareArrowRight01Icon,
-		SpotifyIcon
+		SpotifyIcon,
+		Chart02Icon
 	} from '@hugeicons/core-free-icons';
 	import { toggleMode } from 'mode-watcher';
 	import { Button } from '$lib/components/ui/button';
@@ -32,7 +33,8 @@
 	const nav = $derived([
 		{ href: '/', label: t('nav.home'), icon: Home01Icon },
 		{ href: '/search', label: t('nav.search'), icon: Search01Icon },
-		{ href: '/library', label: t('nav.library'), icon: LibraryIcon }
+		{ href: '/library', label: t('nav.library'), icon: LibraryIcon },
+		{ href: '/stats', label: t('nav.stats'), icon: Chart02Icon }
 	]);
 	const isActive = (href: string) =>
 		href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(href);

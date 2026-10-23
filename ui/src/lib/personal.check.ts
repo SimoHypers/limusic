@@ -12,7 +12,6 @@ import {
 	adoptKinds,
 	arrangeSections,
 	empty,
-	firstArtist,
 	forgetSearch,
 	forgetIds,
 	freshen,
@@ -35,7 +34,6 @@ import {
 	seedPick,
 	togglePin,
 	toggleSaved,
-	topArtistIds,
 	touchPick,
 	unsynced
 } from './personal.ts';
@@ -192,14 +190,6 @@ const range = (n: number, prefix: string) => Array.from({ length: n }, (_, i) =>
 	const merged = interleave([[item('x'), item('y')], [item('x'), item('z')]], 10);
 	ok(ids(merged).join() === 'x,y,z', 'round-robins and drops repeats');
 	ok(interleave([range(9, 'a'), range(9, 'b')], 4).length === 4, 'the cap holds');
-}
-
-// --- artist credit parsing ----------------------------------------------------------------------
-{
-	ok(firstArtist('Daft Punk') === 'Daft Punk', 'a lone artist is unchanged');
-	ok(firstArtist('Daft Punk, Pharrell Williams') === 'Daft Punk', 'a comma list takes the lead');
-	ok(firstArtist('The Weeknd & Ariana Grande') === 'The Weeknd', 'an ampersand pair takes the lead');
-	ok(firstArtist('Drake feat. Rihanna') === 'Drake', 'a feature credit is stripped');
 }
 
 // --- hydrate survives junk ----------------------------------------------------------------------
@@ -369,19 +359,6 @@ const range = (n: number, prefix: string) => Array.from({ length: n }, (_, i) =>
 	ok(isSynced(back, 'MPRE1'), 'and so does the synced flag');
 	ok(hydrate({}).saved.length === 0, 'a blob from before the feature reads as nothing saved');
 	ok(hydrate({ saved: [{ id: 'x' }, 'junk'] }).saved.length === 0, 'junk rows are dropped');
-}
-
-// --- familiar artists: play counts, but only the ones with a channel to open --------------------
-{
-	const p = empty();
-	p.artists = {
-		UCa: { name: 'A', count: 3 },
-		UCb: { name: 'B', count: 9 },
-		'Some Band': { name: 'Some Band', count: 99 }
-	};
-	ok(topArtistIds(p).join() === 'UCb,UCa', 'ordered by plays, name-keyed entries dropped');
-	ok(topArtistIds(p, 1).join() === 'UCb', 'capped at n');
-	ok(topArtistIds(empty()).length === 0, 'no listening history is not an error');
 }
 
 // --- stored cards follow the live library ------------------------------------------------------

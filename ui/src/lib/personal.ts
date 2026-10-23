@@ -12,7 +12,6 @@ import type { BrowseItem } from './api';
 export const MAX_PICKS = 18;
 export const MAX_PINS = 3;
 const MAX_RECENT = 100;
-const MAX_ARTISTS = 100;
 export const MAX_SEARCHES = 10;
 
 /**
@@ -45,8 +44,6 @@ export type Personal = {
 	pins: string[];
 	/** Last time each playlist/album/artist was played from, keyed by browseId. */
 	recent: Record<string, RecentEntry>;
-	/** Play counts per artist, keyed by channel id (or name when there's no id). */
-	artists: Record<string, { name: string; count: number }>;
 	/**
 	 * Tiles the user has taken off the grid. Only `seedPick` consults it, so this is purely "don't
 	 * suggest this again": a hand-added tile is unaffected, since `addPick` ignores the list.
@@ -87,7 +84,6 @@ export function empty(): Personal {
 		saved: [],
 		pins: [],
 		recent: {},
-		artists: {},
 		dismissedSeeds: [],
 		home: defaultHome(),
 		searches: []
@@ -114,7 +110,6 @@ export function hydrate(raw: unknown): Personal {
 		base.pins = o.pins.filter((p) => typeof p === 'string').slice(0, MAX_PINS);
 	}
 	if (o.recent && typeof o.recent === 'object') base.recent = o.recent;
-	if (o.artists && typeof o.artists === 'object') base.artists = o.artists;
 	if (Array.isArray(o.dismissedSeeds)) {
 		base.dismissedSeeds = o.dismissedSeeds.filter((id) => typeof id === 'string');
 	}
@@ -463,50 +458,6 @@ export function recentItems(p: Personal, n = 12): RecentEntry[] {
 	return Object.values(p.recent)
 		.sort((a, b) => b.at - a.at)
 		.slice(0, n);
-}
-
-/** The lead artist out of a joined credit string — a usable search seed, unlike the whole list. */
-export function firstArtist(artists: string): string {
-	return artists.split(/[,&•]|\sfeat\.?\s|\sft\.?\s/i)[0].trim();
-}
-
-export function noteArtist(p: Personal, key: string, name: string): void {
-	const cur = p.artists[key];
-	if (cur) {
-		cur.count++;
-		if (name) cur.name = name;
-	} else {
-		p.artists[key] = { name, count: 1 };
-	}
-	const keys = Object.keys(p.artists);
-	if (keys.length > MAX_ARTISTS) {
-		for (const k of keys
-			.sort((a, b) => p.artists[b].count - p.artists[a].count)
-			.slice(MAX_ARTISTS)) {
-			delete p.artists[k];
-		}
-	}
-}
-
-/** The user's most-played artist names — the seed for the community shelf. */
-/**
- * Top artists by play count that carry a real channel id. Names-only keys (a song whose artist
- * wasn't linked) are dropped: without an id there is no artist page to look up or open.
- */
-export function topArtistIds(p: Personal, n = 7): string[] {
-	return Object.entries(p.artists)
-		.filter(([id]) => id.startsWith('UC'))
-		.sort((a, b) => b[1].count - a[1].count)
-		.slice(0, n)
-		.map(([id]) => id);
-}
-
-export function topArtists(p: Personal, n = 3): string[] {
-	return Object.values(p.artists)
-		.filter((a) => a.name)
-		.sort((a, b) => b.count - a.count)
-		.slice(0, n)
-		.map((a) => a.name);
 }
 
 /** Round-robin several result lists into one, deduped by id. */

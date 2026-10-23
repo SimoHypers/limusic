@@ -88,7 +88,8 @@
 		"remove_account_title": "¿Quitar de Limusic?",
 		"remove_account_desc": "{name} solo se quita de la lista. La cuenta de Google en sí no se ve afectada y puedes iniciar sesión con esta cuando quieras.",
 		"saved_accounts_hint": "Elige una cuenta guardada para cambiar a esta.",
-		"no_channels": "YouTube no devolvió ningún canal seleccionable."
+		"no_channels": "YouTube no devolvió ningún canal seleccionable.",
+		"stats": "Estadísticas"
 	},
 	"player": {
 		"play": "Reproducir",
@@ -190,10 +191,21 @@
 		"sections_hint": "Arrastra una sección para moverla, o selecciona su botón de arrastre y usa las flechas. Las secciones ocultas conservan su posición.",
 		"move_section": "Mover {title}",
 		"moved_section": "{title} movido a la posición {position} de {total}",
-		"new_section": "Nueva",
-		"show_new": "Mostrar nuevas secciones",
-		"show_new_desc": "YouTube agrega y renombra secciones con el tiempo. Si desactivas esta opción, las nuevas secciones se añadirán ocultas y esperarán aquí hasta que las actives.",
-		"all_hidden": "Todo en el inicio esta desactivado."
+		"all_hidden": "Todo en el inicio esta desactivado.",
+		"kinds": {
+			"listen_again": "Vuelve a escucharlo",
+			"quick_picks": "Selecciones rápidas",
+			"from_library": "De tu biblioteca",
+			"community": "De la comunidad",
+			"fresh_finds": "Lo nuevo y lo que más te gusta",
+			"albums_for_you": "Álbumes para ti",
+			"trending": "Canciones en tendencia para ti",
+			"featured_playlists": "Playlists destacadas para ti",
+			"new_releases": "Nuevos lanzamientos",
+			"mixed_for_you": "Mixes para ti",
+			"daily_discover": "Tu descubrimiento diario",
+			"music_videos": "Videos musicales para ti"
+		}
 	},
 	"artist": {
 		"subscribe": "Suscribirse",
@@ -394,8 +406,6 @@
 			"app_icon_filter": "Imagen PNG",
 			"zoom": "Escala de la interfaz",
 			"zoom_hint": "Escala todo en la ventana. Los atajos para hacer zoom también lo cambian, y se recuerda entre reinicios.",
-			"stage_player": "Nuevo diseño del reproductor",
-			"stage_player_hint": "El título de la canción, el artista y el álbum aparecen bajo la imagen de portada; la cola de reproducción y la letra se sitúan en una columna de altura completa, y la vista se ilumina con los colores de la portada. La opción «Desactivado» (Off) mantiene la disposición original.",
 			"mode": "Claro o oscuro",
 			"mode_hint": "El sistema sigue la configuración de su equipo y cambia junto con ella.",
 			"mode_light": "Claro",
@@ -407,7 +417,11 @@
 			"preview": "Previa",
 			"preview_hint": "Los controles deslizantes y el selector de color aparecen aquí a medida que arrastras, y la aplicación responde cuando sueltas.",
 			"blur_playlist_header": "Desenfocar cabecera de playlist",
-			"blur_playlist_header_hint": "Muestra la portada de la playlist desenfocada detrás de la cabecera. Suaviza las portadas que se ven pixeladas al estirarse a todo lo ancho."
+			"blur_playlist_header_hint": "Muestra la portada de la playlist desenfocada detrás de la cabecera. Suaviza las portadas que se ven pixeladas al estirarse a todo lo ancho.",
+			"matugen": "Matugen",
+			"matugen_hint": "Toma cualquier color, acentos incluidos, de la paleta de colores que Matugen crea de tu fondo de pantalla. Crea una plantilla de Limusic en Matugen primero.",
+			"classic_player": "Diseño clásico del reproductor",
+			"classic_player_hint": "El diseño original del reproductor: La carátula sola sobre una copia desenfocada de la misma, con los detalles de la canción a la izquierda del barra de reproducción. Desactivado usa el nuevo diseño, con el título, artista y álbum debajo de la carátula e iluminado con los colores de esta."
 		},
 		"playback": {
 			"audio_quality": "Calidad de audio",
@@ -503,7 +517,7 @@
 			"show_paused": "Mostrar cuando esté en pausa",
 			"show_paused_hint": "Mantener la tarjeta visible mientras la pista está en pausa. Discord no tiene un estado de pausa, así que la barra de progreso desaparece en lugar de seguir avanzando.",
 			"hide_details": "Ocultar detalles",
-			"hide_details_hint": "Muestra solo que hay música reproduciendo. Ningún titulo, artista, album, portada, barra de progreso o botones salen de tu equipo.",
+			"hide_details_hint": "Muestra solo que hay música reproduciendo. Ningún título, artista, album, portada, barra de progreso o botones salen de tu equipo.",
 			"status_line": "Texto del estado",
 			"status_line_hint": "Lo que Discord muestra junto a tu nombre en la lista de miembros. La tarjeta de perfil inferior siempre muestra el nombre de la aplicación.",
 			"status_app": "Nombre de la aplicación",
@@ -516,7 +530,7 @@
 			"line1_hint": "La línea en negrita, justo debajo del encabezado.",
 			"line2": "Linea 2",
 			"line2_hint": "La linea más pequeña debajo de esta.",
-			"content_title": "Titulo de la canción",
+			"content_title": "Título de la canción",
 			"content_artist": "Artista",
 			"content_album": "Álbum",
 			"content_artist_album": "Artista y álbum",
@@ -860,7 +874,7 @@
 		"romanize": "Romanizado",
 		"romanize_hint": "Muestra la pronunciación de cada línea con el alfabeto latino",
 		"find": "Encontrar letras",
-		"none_found_hint": "Intenta otra fuente o busca con un titulo diferente.",
+		"none_found_hint": "Intenta otra fuente o busca con un título diferente.",
 		"sources_title": "Fuente de las letras",
 		"sources_hint": "Solo para esta canción. El orden predeterminado esta en configuración.",
 		"open_settings": "Configuración de letras",
@@ -884,8 +898,8 @@
 		"timing_earlier": "Muestra la letra antes",
 		"timing_later": "Mostrar la letra después",
 		"timing_reset": "Reiniciar desface",
-		"search_open": "¿Canción incorrecta? Busca por titulo",
-		"search_title": "Titulo",
+		"search_open": "¿Canción incorrecta? Busca por título",
+		"search_title": "Título",
 		"search_artist": "Artista",
 		"search_go": "Buscar",
 		"search_reset": "Volver a esta canción",
@@ -901,7 +915,11 @@
 			"netease": "Gran catalogo chino. Agrega traducciones en chino bajo muchas canciones.",
 			"qq": "Catálogo chino, fuerte en Mandopop y Cantopop.",
 			"kugou": "Catálogo chino, para pistas poco comunes."
-		}
+		},
+		"text_size": "Tamaño del texto",
+		"text_size_hint": "Hace las letras musicales más grandes o más pequeñas",
+		"text_size_larger": "Texto más grande",
+		"text_size_smaller": "Texto más pequeño"
 	},
 	"queue": {
 		"title": "Cola"
@@ -1202,5 +1220,76 @@
 		"delete_desc": "Esto no se puede deshacer. Se eliminarán también todas sus respuestas.",
 		"held": "Comentarios en {title}",
 		"follow_current": "Mostrar pista actual"
+	},
+	"stats": {
+		"title": "Estadísticas de reproducción",
+		"ranges": {
+			"week": "7 días",
+			"month": "30 días",
+			"year": "12 meses",
+			"all": "Siempre"
+		},
+		"listened": {
+			"week": "escuchadas en los últimos 7 días",
+			"month": "escuchadas en los últimos 30 días",
+			"year": "escuchadas en los últimos 12 meses",
+			"all": "escuchadas desde {date}"
+		},
+		"compared": {
+			"week": "vs. los 7 días anteriores",
+			"month": "vs. los 30 días anteriores",
+			"year": "vs. los 12 meses anteriores"
+		},
+		"plays": "Reproducciones",
+		"new_songs": "{count} nuevas",
+		"streak": "Racha de días",
+		"best_streak": "Mejor: {count}",
+		"activity": "Actividad de reproducción",
+		"daily_average": "Promedio diario",
+		"monthly_average": "Promedio mensual",
+		"busiest_day": "Día más activo",
+		"busiest_month": "Mes más activo",
+		"busiest_weekday": "Día más activo de la semana",
+		"busiest_hour": "Hora más activa",
+		"top_songs": "Canciones más escuchadas",
+		"top_artists": "Artistas más escuchados",
+		"top_albums": "Álbumes más escuchados",
+		"share": "{percent} de tus reproducciones",
+		"when": "Cuándo escuchas",
+		"dayparts": {
+			"morning": "Mañana",
+			"afternoon": "Tarde",
+			"evening": "Atardecer",
+			"night": "Noche"
+		},
+		"persona": {
+			"morning": "Madrugador",
+			"afternoon": "Oyente vespertino",
+			"evening": "Oyente del atardecer",
+			"night": "Noctámbulo"
+		},
+		"persona_hint": "Escuchas más entre las {from} y {to}.",
+		"less": "Menos",
+		"more": "Más",
+		"nothing_in_range": "Nada se reprodujo en este periodo.",
+		"empty_title": "Tus estadísticas inician aquí",
+		"empty": "Reproduce algunas canciones y esta pagina se llenara con lo que escuchas, cuando y por cuanto tiempo.",
+		"on_device": "Calculado en este dispositivo a partir de lo que reproduces en Limusic. No se envía ninguna información.",
+		"clear": "Borrar el historial de reproducción",
+		"clear_title": "¿Borrar el historial de reproducción?",
+		"clear_desc": "Esto olvida cada reproducción contada en este dispositivo, tus estadísticas se reinician y \"En Repetición\" se vacía. Tu historial de YouTube Music no se toca.",
+		"clear_confirm": "Borrar historial",
+		"cleared": "Historial de reproducción borrado"
+	},
+	"columns": {
+		"label": "Columnas",
+		"choose": "Elegir columnas",
+		"title": "Título",
+		"album": "Álbum",
+		"added": "Fecha de adición",
+		"by": "Añadido por",
+		"plays": "Reproducciones",
+		"mine": "Tus reproducciones",
+		"duration": "Duración"
 	}
 }
