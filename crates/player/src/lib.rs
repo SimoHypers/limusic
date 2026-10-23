@@ -98,4 +98,3 @@ pub(crate) use desktop::{quoted, Decks};
 mod android;
 #[cfg(target_os = "android")]
 pub use android::{android_set_metadata, Player};
-

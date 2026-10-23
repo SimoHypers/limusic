@@ -316,12 +316,7 @@ fn dispatch_android_loop_file(loop_file: bool) {
 }
 
 /// Send current track metadata to Android AudioBridge (for MediaSession / lockscreen notification).
-pub fn android_set_metadata(
-    title: &str,
-    artist: &str,
-    album: Option<&str>,
-    cover: Option<&str>,
-) {
+pub fn android_set_metadata(title: &str, artist: &str, album: Option<&str>, cover: Option<&str>) {
     with_env(|env| {
         let j_title = env.new_string(title)?;
         let j_artist = env.new_string(artist)?;

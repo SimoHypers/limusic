@@ -335,4 +335,3 @@ pub extern "C" fn Java_com_limusic_desktop_AudioBridge_nativeOnToggle(
         });
     }
 }
-
