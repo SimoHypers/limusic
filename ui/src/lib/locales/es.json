@@ -155,9 +155,9 @@
 		"video": "Video",
 		"comments": "Comentarios",
 		"up_next": "A continuación",
-		"fullscreen_video": "Vídeo a pantalla completa",
-		"exit_fullscreen_video": "Salir del modo de pantalla completa",
-		"scroll_to_end": "Desplázate hasta el final"
+		"fullscreen_video": "Pantalla completa",
+		"exit_fullscreen_video": "Salir de pantalla completa",
+		"scroll_to_end": "Desplazar hasta el final"
 	},
 	"home": {
 		"good_morning": "Buenos días",
@@ -282,9 +282,9 @@
 		"suggestion_add": "Añadir {title} a esta playlist",
 		"suggestion_added": "Añadida",
 		"saved_in_count": "{count} playlists",
-		"suggestions_hide": "Esconder",
+		"suggestions_hide": "Ocultar",
 		"suggestions_show": "Mostrar",
-		"suggestions_hidden": "Sugerencias ocultas. Vuelve a mostrarlas desde el final de cualquiera de tus listas de reproducción.Sugerencias ocultas. Vuelve a mostrarlas desde el final de cualquiera de tus listas de reproducción."
+		"suggestions_hidden": "Sugerencias ocultas. Vuelve a mostrarlas al final de cualquiera de tus playlists."
 	},
 	"local": {
 		"scanning": "Escaneando carpeta...",
@@ -430,8 +430,8 @@
 			"matugen_hint": "Toma cualquier color, acentos incluidos, de la paleta de colores que Matugen crea de tu fondo de pantalla. Crea una plantilla de Limusic en Matugen primero.",
 			"classic_player": "Diseño clásico del reproductor",
 			"classic_player_hint": "El diseño original del reproductor: La carátula sola sobre una copia desenfocada de la misma, con los detalles de la canción a la izquierda del barra de reproducción. Desactivado usa el nuevo diseño, con el título, artista y álbum debajo de la carátula e iluminado con los colores de esta.",
-			"now_playing_pill": "Botón de reproducción actual",
-			"now_playing_pill_hint": "Muestra un botón para volver a la canción en reproducción cuando queda fuera de la vista al desplazarte, en una lista de reproducción o en la cola."
+			"now_playing_pill": "Botón de reproduciendo ahora",
+			"now_playing_pill_hint": "Muestra un botón para volver a la canción en reproducción cuando queda fuera de la vista al desplazarte, en una playlist o en la cola."
 		},
 		"playback": {
 			"audio_quality": "Calidad de audio",
