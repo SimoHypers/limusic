@@ -100,13 +100,15 @@
 	// Seek: hold the dragged value locally so incoming position ticks can't yank the thumb out
 	// from under the pointer; only invoke the seek on release.
 	let seekDrag = $state<number | null>(null);
-	const shownPosition = $derived(seekDrag ?? playback.position);
+	// Match the main player's tempo-adjusted timeline; retain track seconds for mpv seeks.
+	const shownPosition = $derived((seekDrag ?? playback.position) / playback.speed);
+	const shownDuration = $derived(playback.duration / playback.speed);
 
 	function onSeekInput(e: Event) {
-		seekDrag = Number((e.target as HTMLInputElement).value);
+		seekDrag = Number((e.target as HTMLInputElement).value) * playback.speed;
 	}
 	function onSeekCommit(e: Event) {
-		const v = Number((e.target as HTMLInputElement).value);
+		const v = Number((e.target as HTMLInputElement).value) * playback.speed;
 		playback.position = v;
 		seekDrag = null;
 		api.seek(v);
@@ -356,9 +358,9 @@
 				<input
 					type="range"
 					class="range on-art min-w-0 flex-1"
-					style="--pct:{playback.duration ? (shownPosition / playback.duration) * 100 : 0}%"
+					style="--pct:{shownDuration ? (shownPosition / shownDuration) * 100 : 0}%"
 					min="0"
-					max={playback.duration || 0}
+					max={shownDuration || 0}
 					value={shownPosition}
 					oninput={onSeekInput}
 					onchange={onSeekCommit}

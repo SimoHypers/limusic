@@ -866,10 +866,48 @@
 			"show_this_list": "Show this list"
 		},
 		"tempo_pitch": {
-			"title": "Tempo & Pitch Controls",
+			"title": "Tempo, Pitch & Reverb",
 			"desc": "Applies to everything you play, until you change it back or restart the app.",
+			"presets": "Your presets",
+			"preset_choose": "Choose a preset",
+			"preset_name": "New preset name",
+			"preset_add": "Add preset",
+			"preset_modified": "Modified",
+			"preset_update": "Update preset",
+			"preset_duplicate": "That name is already saved. Choose it to update it, or use a new name.",
+			"preset_save_error": "Couldn't save your presets. Try again; your saved presets are unchanged.",
+			"preset_load_error": "Couldn't read your saved presets. Saving is disabled to protect them.",
+			"presets_hint": "Save the current tempo, pitch and all reverb settings. Presets stay on this device after restarting.",
+			"preset_room_hint": "In a listening room, presets apply pitch and reverb only. Saved tempo is kept for solo listening.",
 			"tempo": "Tempo (Speed)",
-			"pitch": "Pitch (Key)"
+			"pitch": "Pitch (Semitones)",
+			"reverb": "Reverb",
+			"reverb_hint": "Adds room reflections and a lingering tail around the original song.",
+			"reverb_type": "Reverb type",
+			"reverb_types": {
+				"small_room": "Small room",
+				"medium_room": "Medium room",
+				"large_room": "Large room",
+				"medium_hall": "Medium hall",
+				"large_hall": "Large hall",
+				"plate": "Plate"
+			},
+			"reverb_controls": {
+				"dry": "Dry level",
+				"wet": "Wet level",
+				"decay": "Decay",
+				"preDelay": "Pre-delay",
+				"damping": "Damping (high-cut)",
+				"reflections": "Early reflections"
+			},
+			"reverb_control_hints": {
+				"dry": "Volume of the original song.",
+				"wet": "Volume of the added reverberation.",
+				"decay": "Nominal time for the tail to fade by 60 dB. Longer values also spread the reflections.",
+				"preDelay": "Extra time before the reverb reaches you.",
+				"damping": "A lower cutoff makes the reverb darker; the original song is unaffected.",
+				"reflections": "Level of the first 80 ms of reflections, before the later tail."
+			}
 		},
 		"link": {
 			"title": "Open link",

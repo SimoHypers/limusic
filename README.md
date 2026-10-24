@@ -38,6 +38,7 @@ YouTube Music client, and grew from there.
 - **Your library**: playlists, liked songs, saved albums and artists, your uploads, and write actions (like, add to playlist, create/edit/delete playlists including cover art, subscribe, save to library)
 - **History**: everything you have played, in YouTube Music's own day buckets
 - **Gapless playback** with loudness normalization, powered by libmpv
+- **Tempo, pitch and reverb**: adjust playback speed and pitch, add reverb with independent dry/wet controls, and save custom presets on this device.
 - **Queue** with radio/automix continuation, drag to reorder, restored across restarts
 - **Synced lyrics**: side panel with auto-scroll and click-to-jump, word by word where the source has the timings, with translations under each line
 - **Music videos**: optional, the video plays where the artwork sits, with the same gapless audio behind it

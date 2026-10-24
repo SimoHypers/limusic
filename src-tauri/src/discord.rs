@@ -250,15 +250,14 @@ impl DiscordHandle {
         let _ = self.tx.send(Msg::Album { video_id: video_id.to_owned(), album: album.to_owned() });
     }
 
-    /// mpv's reported track length — the only source of a real duration (`SongItem::duration` is a
-    /// display string like "3:45"). Without it the presence shows elapsed time but no end.
-    pub fn set_duration(&self, secs: f64) {
-        let _ = self.tx.send(Msg::Duration(secs));
+    /// Convert mpv's track seconds to listening seconds for Discord's wall-clock timeline.
+    pub fn set_duration(&self, secs: f64, speed: f64) {
+        let _ = self.tx.send(Msg::Duration(secs / speed));
     }
 
     /// A raw position tick. Carries no play/pause authority — mpv also ticks on paused seeks.
-    pub fn set_position(&self, pos: f64) {
-        let _ = self.tx.send(Msg::Position { pos, at: Instant::now() });
+    pub fn set_position(&self, pos: f64, speed: f64) {
+        let _ = self.tx.send(Msg::Position { pos: pos / speed, at: Instant::now() });
     }
 
     pub fn set_playing(&self, playing: bool) {
@@ -935,6 +934,31 @@ mod tests {
         });
         p.last_send = Some(Instant::now() - Duration::from_secs(5));
         p.cfg_dirty = false;
+    }
+
+    #[test]
+    fn tempo_adjusted_ticks_stay_on_discords_timeline() {
+        let (tx, rx) = channel();
+        let discord = DiscordHandle { tx };
+        for (speed, duration, position) in
+            [(0.5, 480.0, 120.0), (1.0, 240.0, 60.0), (1.25, 192.0, 48.0), (2.0, 120.0, 30.0)]
+        {
+            let mut p = playing("abc", 0.0);
+            discord.set_duration(240.0, speed);
+            p.apply(rx.recv().unwrap());
+            discord.set_position(60.0, speed);
+            p.apply(rx.recv().unwrap());
+            assert_eq!(p.duration, duration);
+            assert_eq!(p.pos, position);
+            sent_now(&mut p, position as i64);
+            assert!(!p.wants_push(), "tempo {speed} created a false seek");
+
+            // Advance the source and the shown card by ten listening seconds, without sleeping.
+            p.sent.as_mut().unwrap().start_ms -= 10_000;
+            discord.set_position(60.0 + 10.0 * speed, speed);
+            p.apply(rx.recv().unwrap());
+            assert!(!p.wants_push(), "tempo {speed} made Discord drift during playback");
+        }
     }
 
     /// An album learned mid-track (#309) re-pushes the shown card, but only for that track: one

@@ -411,9 +411,24 @@ export const setRepeat = (mode: RepeatMode) => invoke<void>('set_repeat', { mode
 export const togglePause = () => invoke<void>('toggle_pause');
 export const seek = (position: number) => invoke<void>('seek', { position });
 export const setVolume = (volume: number) => invoke<void>('set_volume', { volume });
-/** Tempo (0.25–2.0) + pitch (−12..=12 semitones). Not persisted: resets on restart. */
-export const setPlaybackParams = (speed: number, semitones: number) =>
-	invoke<void>('set_playback_params', { speed, semitones });
+export interface Reverb {
+	enabled: boolean;
+	preset: number;
+	dry: number;
+	wet: number;
+	decay: number;
+	preDelay: number;
+	damping: number;
+	reflections: number;
+}
+export const DEFAULT_REVERB: Reverb = {
+	enabled: false, preset: 3, dry: 100, wet: 25, decay: 1.1, preDelay: 0, damping: 8000, reflections: 100
+};
+/** Session-only tempo, pitch, and independent reverb controls. */
+export const setPlaybackParams = (speed: number, semitones: number, reverb: Reverb) =>
+	invoke<void>('set_playback_params', { speed, semitones, reverb });
+export const onPlaybackParams = (cb: (p: { speed: number; semitones: number; reverb: Reverb }) => void) =>
+	listen<{ speed: number; semitones: number; reverb: Reverb }>('playback-params', (e) => cb(e.payload));
 export const getQueue = () => invoke<QueueState>('get_queue');
 /** A `limusicvideo://` URL for the track's music video, or null when there isn't one. `maxHeight`
  *  caps the picture at what the box on screen can actually show. The bytes are proxied through
@@ -444,6 +459,9 @@ export const ambientFrame = (after: number) =>
 
 /** What the event stream already reported, for a webview that started after it did. */
 export interface PlaybackSnapshot {
+	speed: number;
+	semitones: number;
+	reverb: Reverb;
 	now: NowPlaying | null;
 	paused: boolean;
 	position: number;

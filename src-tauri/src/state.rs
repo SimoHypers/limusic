@@ -61,6 +61,8 @@ pub struct AppState {
     pub orchestrator: Arc<Orchestrator>,
     /// Listen Together session (context/19). Drives host broadcasts + guest gating.
     pub lt: Arc<LtSession>,
+    // Serialize effect commands with the room's tempo reset, including requests already pending.
+    playback_effects: Mutex<()>,
     /// mpv's on-disk audio cache dir (context/14) — wiped by the settings "Clear caches" action.
     cache_dir: std::path::PathBuf,
     /// OS media integration (MPRIS/SMTC/NowPlaying). `None` if it failed to init. context/16.
@@ -491,6 +493,7 @@ impl AppState {
             discord,
             lastfm,
             queue: Mutex::new(QueueState::default()),
+            playback_effects: Mutex::new(()),
             auth: tokio::sync::Mutex::default(),
             history_pinged: AtomicBool::new(false),
             listen: std::sync::Mutex::default(),
@@ -2459,6 +2462,7 @@ impl AppState {
     /// player (a second webview, created long after the track started) and the main window on a
     /// cold start both have to ask once instead of guessing.
     pub async fn playback_snapshot(&self) -> serde_json::Value {
+        let (speed, semitones, reverb) = self.player.playback_params();
         let (duration, item) = {
             let q = self.queue.lock().await;
             (q.duration, q.items.get(q.current).cloned())
@@ -2470,6 +2474,9 @@ impl AppState {
             // 0 until mpv loads the file, which a restored track waits for until play (#502).
             "duration": if duration > 0.0 { duration } else { item.as_ref().map_or(0.0, row_secs) },
             "volume": saved_volume(&self.db),
+            "speed": speed,
+            "semitones": semitones,
+            "reverb": reverb,
         })
     }
 
@@ -2600,6 +2607,63 @@ impl AppState {
         }
     }
 
+    pub async fn set_playback_params(
+        &self,
+        speed: f64,
+        semitones: i32,
+        reverb: player::Reverb,
+    ) -> Result<(), String> {
+        let _effects = self.playback_effects.lock().await;
+        if self.lt.in_room().await && speed != 1.0 {
+            return Err("Tempo cannot be changed during shared listening".into());
+        }
+        self.apply_playback_params(speed, semitones, reverb).await
+    }
+
+    // Caller holds playback_effects through the update and notification so two windows cannot
+    // emit confirmations out of order. The room reset uses this same path before shared playback.
+    async fn apply_playback_params(
+        &self,
+        speed: f64,
+        semitones: i32,
+        reverb: player::Reverb,
+    ) -> Result<(), String> {
+        self.player.set_playback_params(speed, semitones, reverb).map_err(|e| e.to_string())?;
+        self.media_refresh_timing().await;
+        let _ = self.app.emit(
+            "playback-params",
+            serde_json::json!({ "speed": speed, "semitones": semitones, "reverb": reverb }),
+        );
+        Ok(())
+    }
+
+    async fn reset_room_tempo(&self) -> Result<(), String> {
+        let _effects = self.playback_effects.lock().await;
+        let (speed, semitones, reverb) = self.player.playback_params();
+        if self.lt.in_room().await && speed != 1.0 {
+            self.apply_playback_params(1.0, semitones, reverb).await?;
+        }
+        Ok(())
+    }
+
+    /// Tempo changes do not emit a new mpv duration; refresh OS and Discord timelines immediately.
+    pub async fn media_refresh_timing(&self) {
+        let secs = self.queue.lock().await.duration;
+        let speed = self.player.speed();
+        if let Some(m) = &self.media {
+            if secs > 0.0 {
+                m.set_duration(secs, speed);
+            }
+            self.media_set_playing(self.is_playing.load(Ordering::Relaxed));
+        }
+        if let Some(d) = &self.discord {
+            if secs > 0.0 {
+                d.set_duration(secs, speed);
+            }
+            d.set_position(self.current_position(), speed);
+        }
+    }
+
     /// Push play/pause state + the current position to the OS media controls (context/16) and
     /// Discord. The single choke point for play/pause, so both stay in step with mpv. Discord gets
     /// the flag only — its position flows exclusively through the ticks, so a stale
@@ -2611,7 +2675,7 @@ impl AppState {
             let pos = self.current_position();
             // Record what the controls now hold, or the next tick would repeat this very push.
             *self.last_media_state.lock().unwrap() = Some((playing, pos));
-            m.set_playback(playing, pos);
+            m.set_playback(playing, pos, self.player.speed());
         }
         #[cfg(target_os = "windows")]
         crate::taskbar::set_playing(&self.app, playing);
@@ -2903,11 +2967,12 @@ impl AppState {
     pub async fn on_duration(&self, secs: f64) {
         if secs.is_finite() && secs > 0.0 {
             self.queue.lock().await.duration = secs;
+            let speed = self.player.speed();
             if let Some(m) = &self.media {
-                m.set_duration(secs);
+                m.set_duration(secs, speed);
             }
             if let Some(d) = &self.discord {
-                d.set_duration(secs);
+                d.set_duration(secs, speed);
             }
             self.lastfm.set_duration(secs);
         }
@@ -3267,6 +3332,7 @@ impl AppState {
             // synchronous on mpv's core lock. `is_playing` is kept current by `PlayerEvent::Playing`,
             // which mpv now pushes (it derives from `idle-active`, not just `pause`).
             let playing = self.is_playing.load(Ordering::Relaxed);
+            let speed = self.player.speed();
             if let Some(m) = &self.media {
                 // Push when the play state flipped, or when the position moved further than one
                 // tick of ordinary playback explains (a seek, a track change). Not every second:
@@ -3280,11 +3346,11 @@ impl AppState {
                 if send {
                     *last = Some((playing, pos));
                     drop(last);
-                    m.set_playback(playing, pos);
+                    m.set_playback(playing, pos, speed);
                 }
             }
             if let Some(d) = &self.discord {
-                d.set_position(pos);
+                d.set_position(pos, speed);
             }
             self.lastfm.set_position(pos);
         }
@@ -3368,6 +3434,13 @@ impl AppState {
     /// Apply one sync command from the connection (the bridge task drives this). Guest playback +
     /// host seeding. See `crate::listentogether`.
     pub async fn apply_sync(self: &std::sync::Arc<Self>, cmd: SyncCommand) {
+        // Membership has already changed. Finish any earlier effect request, restore the shared
+        // clock, then seed/apply playback. Later non-1x commands recheck membership under the lock.
+        if let Err(error) = self.reset_room_tempo().await {
+            let _ = self.player.pause();
+            self.emit_error("", &format!("Could not restore shared playback tempo: {error}"));
+            return;
+        }
         match cmd {
             SyncCommand::HostSeed => {
                 self.apply_crossfade().await;

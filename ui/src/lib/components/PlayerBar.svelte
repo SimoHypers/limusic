@@ -106,13 +106,15 @@
 	// Seek: while dragging, hold a local value so incoming mpv position ticks can't yank the thumb
 	// back under the pointer; only invoke the (expensive) seek on release.
 	let seekDrag = $state<number | null>(null);
-	const shownPosition = $derived(seekDrag ?? playback.position);
+	// Display playback seconds at the selected tempo; mpv seeks still take track seconds.
+	const shownPosition = $derived((seekDrag ?? playback.position) / playback.speed);
+	const shownDuration = $derived(playback.duration / playback.speed);
 
 	function onSeekInput(e: Event) {
-		seekDrag = Number((e.target as HTMLInputElement).value);
+		seekDrag = Number((e.target as HTMLInputElement).value) * playback.speed;
 	}
 	function onSeekCommit(e: Event) {
-		const v = Number((e.target as HTMLInputElement).value);
+		const v = Number((e.target as HTMLInputElement).value) * playback.speed;
 		playback.position = v;
 		seekDrag = null;
 		api.seek(v);
@@ -333,15 +335,15 @@
 			<input
 				type="range"
 				class="range flex-1"
-				style="--pct:{playback.duration ? (shownPosition / playback.duration) * 100 : 0}%"
+				style="--pct:{shownDuration ? (shownPosition / shownDuration) * 100 : 0}%"
 				min="0"
-				max={playback.duration || 0}
+				max={shownDuration || 0}
 				value={shownPosition}
 				oninput={onSeekInput}
 				onchange={onSeekCommit}
 				aria-label={t('player.seek')}
 			/>
-			<span class="min-w-[5ch] tabular-nums">{fmt(playback.duration)}</span>
+			<span class="min-w-[5ch] tabular-nums">{fmt(shownDuration)}</span>
 		</div>
 	</div>
 
