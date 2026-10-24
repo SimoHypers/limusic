@@ -78,6 +78,33 @@ pub struct PlayerResponse {
     pub playback_tracking: Option<PlaybackTracking>,
 }
 
+/// What a live broadcast resolves to: the client said it is on air, and handed over the HLS
+/// playlist. One without the other is nothing to play: `adaptiveFormats` of a broadcast are
+/// segment bases, not files, and a client that knows that but holds no playlist back (iOS does)
+/// has to be passed over for one that does.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Live<'a> {
+    /// A recording, or a client that never says (`isLive` absent): pick a format as usual.
+    No,
+    /// On air, playlist in hand.
+    Hls(&'a str),
+    /// On air, but this client gave no playlist.
+    NoManifest,
+}
+
+impl PlayerResponse {
+    pub fn live(&self) -> Live<'_> {
+        let on_air = self.video_details.as_ref().is_some_and(|v| v.is_live == Some(true));
+        if !on_air {
+            return Live::No;
+        }
+        match self.streaming_data.as_ref().and_then(|s| s.hls_manifest_url.as_deref()) {
+            Some(url) => Live::Hls(url),
+            None => Live::NoManifest,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayabilityStatus {
@@ -127,6 +154,11 @@ pub struct StreamingData {
     pub adaptive_formats: Vec<Format>,
     #[serde(default, deserialize_with = "deserialize_opt_i64_lenient")]
     pub expires_in_seconds: Option<i64>,
+    /// A live broadcast's HLS variant playlist. Its `adaptiveFormats` are segment bases
+    /// (`source=yt_live_broadcast`, no `contentLength`) that nothing here can play as one file,
+    /// so this is the only stream a live video has (#424).
+    #[serde(default)]
+    pub hls_manifest_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -297,6 +329,9 @@ pub struct VideoDetails {
     pub author: Option<String>,
     #[serde(default)]
     pub length_seconds: Option<String>,
+    /// A broadcast still on air. Its `lengthSeconds` is `"0"`, which is not a duration.
+    #[serde(default)]
+    pub is_live: Option<bool>,
     #[serde(default)]
     pub music_video_type: Option<String>,
     #[serde(default)]
@@ -435,6 +470,31 @@ mod tests {
         assert!(v.direct_url().is_none() && v.cipher_string().is_some());
         assert_eq!(find_video_format(&sd, 480).unwrap().itag, 244);
         assert!(find_format(&sd, AudioQuality::High).unwrap().is_audio());
+    }
+
+    /// A real ANDROID `/player` reply for a broadcast on air (Lofi Girl's 0muHFBSiybw,
+    /// 2026-10-23; trimmed to the fields read here, signed URLs scrubbed). Its audio formats are
+    /// segment bases with no `contentLength`, and `lengthSeconds` is "0": only the HLS playlist is
+    /// a stream, and only `isLive` says so. The same reply without the playlist (iOS answers that
+    /// way) is a client to pass over, not a recording to pick a format from (#424).
+    #[test]
+    fn live_reply_resolves_to_its_hls_playlist() {
+        let body = include_str!("../../tests/fixtures/player_android_live.json");
+        let r: PlayerResponse = serde_json::from_str(body).unwrap();
+        assert!(r.playability_status.is_ok());
+        let Live::Hls(url) = r.live() else { panic!("{:?}", r.live()) };
+        assert!(url.starts_with("https://manifest.googlevideo.com/api/manifest/hls_variant/"));
+        assert_eq!(r.video_details.as_ref().unwrap().length_seconds.as_deref(), Some("0"));
+        // A format is still there to be found — which is the trap: it is not a file.
+        assert!(find_format(r.streaming_data.as_ref().unwrap(), AudioQuality::High).is_some());
+
+        let no_manifest: PlayerResponse =
+            serde_json::from_str(&body.replace("\"hlsManifestUrl\"", "\"x\"")).unwrap();
+        assert_eq!(no_manifest.live(), Live::NoManifest);
+
+        let recording: PlayerResponse =
+            serde_json::from_str(&body.replace("\"isLive\": true", "\"isLive\": false")).unwrap();
+        assert_eq!(recording.live(), Live::No);
     }
 
     /// Audio-only response (the ordinary case for a song): no video, so the view keeps the artwork.

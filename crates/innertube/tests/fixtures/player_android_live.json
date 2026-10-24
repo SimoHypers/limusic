@@ -1,0 +1,43 @@
+{
+  "playabilityStatus": {
+    "status": "OK",
+    "liveStreamability": {
+      "liveStreamabilityRenderer": {
+        "videoId": "0muHFBSiybw",
+        "pollDelayMs": "30000"
+      }
+    }
+  },
+  "streamingData": {
+    "expiresInSeconds": "21540",
+    "adaptiveFormats": [
+      {
+        "itag": 139,
+        "url": "https://rr3---sn-hpjgvnj5o-cvhr.googlevideo.com/videoplayback?SCRUBBED",
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.5\"",
+        "bitrate": 64000,
+        "targetDurationSec": 5,
+        "maxDvrDurationSec": 43200,
+        "audioQuality": "AUDIO_QUALITY_LOW"
+      },
+      {
+        "itag": 140,
+        "url": "https://rr3---sn-hpjgvnj5o-cvhr.googlevideo.com/videoplayback?SCRUBBED",
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 144000,
+        "targetDurationSec": 5,
+        "maxDvrDurationSec": 43200,
+        "audioQuality": "AUDIO_QUALITY_MEDIUM"
+      }
+    ],
+    "hlsManifestUrl": "https://manifest.googlevideo.com/api/manifest/hls_variant/expire/SCRUBBED/ei/SCRUBBED/requiressl/yes/playlist_duration/30/manifest_duration/30/maudio/1/playlist/index.m3u8"
+  },
+  "videoDetails": {
+    "videoId": "0muHFBSiybw",
+    "title": "summer lofi radio ☀️ music to put you in a better mood",
+    "lengthSeconds": "0",
+    "isLive": true,
+    "isLiveContent": true,
+    "author": "Lofi Girl"
+  }
+}

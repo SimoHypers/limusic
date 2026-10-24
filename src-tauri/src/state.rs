@@ -346,6 +346,10 @@ struct QueueState {
     cpn: String,
     /// Latest mpv-reported track duration (secs), for the history-ping threshold.
     duration: f64,
+    /// The current track is a broadcast on air (#424). Its deck carries the live file options and
+    /// its timeline is the DVR window, so nothing is primed behind it and a guest never seeks it to
+    /// the host's position. Only a `load` sets it; a gapless advance can't land on one.
+    live: bool,
     /// Last videoId we re-resolved after a playback failure — guards the one-shot retry in
     /// `on_track_failed` against a retry loop when the retried stream dies too.
     retried: Option<String>,
@@ -1249,6 +1253,7 @@ impl AppState {
                 // the cache window (hours, and every track you just listened to) would fall back
                 // to the queue row's flag, which is exactly the thing that can't be trusted.
                 is_video: c.is_video,
+                live: false, // never written to the cache, see below
                 stream_client: c.client.unwrap_or_else(|| "cache".to_owned()),
             });
         }
@@ -1261,7 +1266,10 @@ impl AppState {
         //
         // Nor upload URLs: they expire in minutes (32 seconds without the MLPT context), and the
         // read above only accepts a row with 60s of life left, so the write is dead on arrival.
-        if data.stream_client != "rustypipe" && !is_upload {
+        //
+        // Nor a live playlist (#424): the broadcast it describes can end and the recording take
+        // its videoId within the cache window, and a replay then needs a real `/player` answer.
+        if data.stream_client != "rustypipe" && !is_upload && !data.live {
             self.db.put_stream(
                 video_id,
                 &crate::db::CachedStream {
@@ -1983,6 +1991,7 @@ impl AppState {
             self.history_pinged.store(false, Ordering::Relaxed);
             self.end_listen();
             q.duration = 0.0;
+            q.live = false;
         }
         if let Some(item) = self.current_item().await {
             self.emit_now_playing(&item, "gapless");
@@ -2219,9 +2228,13 @@ impl AppState {
             .filter(|(vid, _)| *vid == item.video_id)
             .map(|(_, pos)| pos);
         let stream_url = mpv_stream_url(&data);
-        if let Err(e) =
-            self.player.load(&stream_url, &data.headers, self.track_gain(data.loudness_db), seek)
-        {
+        if let Err(e) = self.player.load(
+            &stream_url,
+            &data.headers,
+            self.track_gain(data.loudness_db),
+            seek,
+            data.live,
+        ) {
             self.emit_error(&item.video_id, &e.to_string());
             return false;
         }
@@ -2239,7 +2252,8 @@ impl AppState {
             data.artists.as_deref(),
             data.is_video,
         );
-        self.attach_video(&item.video_id, item.is_video, &stream_url);
+        // A broadcast's picture is segment bases too (#424), so there is no 720p file to pair.
+        self.attach_video(&item.video_id, item.is_video && !data.live, &stream_url);
         {
             let mut q = self.queue.lock().await;
             q.current_client = Some(data.stream_client.clone());
@@ -2250,6 +2264,7 @@ impl AppState {
             self.history_pinged.store(false, Ordering::Relaxed);
             self.end_listen();
             q.duration = 0.0;
+            q.live = data.live;
             let cur = q.current;
             if let Some(qi) = q.items.get_mut(cur) {
                 // Same repair on the queue's own copy: it's what the queue panel renders, what
@@ -2302,6 +2317,12 @@ impl AppState {
                 let Some(next) = next_index(q.items.len(), q.current, q.repeat) else { return };
                 if q.lookahead_loaded == Some(next) {
                     return; // already primed
+                }
+                // `enqueue` appends with the deck's options as they are, and a live load left them
+                // at the live set (no reconnect). When the broadcast ends the next track comes in
+                // through `start_current`, which sets its own.
+                if q.live {
+                    return;
                 }
                 next
             };
@@ -2383,6 +2404,13 @@ impl AppState {
                 index = next_idx,
                 "lookahead already primed by a concurrent resolve — dropped"
             );
+            return;
+        }
+        // A broadcast is not appended (#424): the player's `load` is what knows a URL is live, and
+        // an appended entry inherits the file options and duration handling of the track before
+        // it. Left unprimed, it is reached through `start_current` like a first play.
+        if data.live {
+            tracing::debug!(index = next_idx, "next track is live, not primed");
             return;
         }
         // Headers are global in mpv; the direct-URL clients need none beyond UA, which the
@@ -3415,21 +3443,22 @@ impl AppState {
             let _ = self.player.pause();
             return;
         };
-        let already_loaded = {
+        let (already_loaded, live) = {
             let q = self.queue.lock().await;
-            q.items.get(q.current).map(|i| i.video_id == track.id).unwrap_or(false)
+            (q.items.get(q.current).map(|i| i.video_id == track.id).unwrap_or(false), q.live)
         };
         if already_loaded && !self.player.is_idle() {
             let target = state.position_ms as f64 / 1000.0;
+            // A broadcast's position is the DVR window's, not the host's: never seek it (#424).
             if state.is_playing {
                 // Only correct meaningful drift — avoid a re-buffer glitch when we're already synced
                 // (e.g. the post-join auto re-sync after the initial compensation nailed it).
-                if (self.current_position() - target).abs() > 0.35 {
+                if !live && (self.current_position() - target).abs() > 0.35 {
                     let _ = self.player.seek(target);
                 }
                 let _ = self.player.play();
             } else {
-                if target > 0.5 {
+                if !live && target > 0.5 {
                     let _ = self.player.seek(target);
                 }
                 let _ = self.player.pause();
@@ -3499,7 +3528,8 @@ impl AppState {
             &stream_url,
             &data.headers,
             self.track_gain(data.loudness_db),
-            (pos > 0.5).then_some(pos),
+            (pos > 0.5 && !data.live).then_some(pos),
+            data.live,
         ) {
             self.emit_error(&track.id, &e.to_string());
             return;
@@ -3520,6 +3550,7 @@ impl AppState {
             self.history_pinged.store(false, Ordering::Relaxed);
             self.end_listen();
             q.duration = 0.0;
+            q.live = data.live;
         }
         if let Some(item) = self.current_item().await {
             self.emit_now_playing(&item, "listen-together");
@@ -3562,8 +3593,7 @@ impl AppState {
     /// transit, and a guest whose clock ran a few seconds fast landed that far ahead. The transit
     /// itself is tens of ms, far inside the 2s tolerance.
     async fn lt_apply_play(&self, position_ms: i64) {
-        let cur_ms = (self.current_position() * 1000.0) as i64;
-        if (cur_ms - position_ms).abs() > 2000 {
+        if self.lt_drifted(position_ms).await {
             let _ = self.player.seek(position_ms as f64 / 1000.0);
         }
         let _ = self.player.play();
@@ -3571,11 +3601,20 @@ impl AppState {
 
     /// Guest: apply a pause, correcting position if it drifted past tolerance.
     async fn lt_apply_pause(&self, position_ms: i64) {
-        let cur_ms = (self.current_position() * 1000.0) as i64;
-        if (cur_ms - position_ms).abs() > 2000 {
+        if self.lt_drifted(position_ms).await {
             let _ = self.player.seek(position_ms as f64 / 1000.0);
         }
         let _ = self.player.pause();
+    }
+
+    /// Past the 2s tolerance from the host's position — and not a broadcast, whose position is
+    /// the DVR window's and compares with nothing on the host (#424).
+    async fn lt_drifted(&self, position_ms: i64) -> bool {
+        if self.queue.lock().await.live {
+            return false;
+        }
+        let cur_ms = (self.current_position() * 1000.0) as i64;
+        (cur_ms - position_ms).abs() > 2000
     }
 
     /// Host: broadcast the current track + upcoming queue as a ChangeTrack. No-op unless host.
@@ -4782,7 +4821,10 @@ fn mpv_stream_url(data: &PlaybackData) -> String {
     // googlevideo URL instead and let the user's proxy carry it: no chunked proxy, but working
     // playback. Nothing else is lost, because the proxy's own upstream fetch already goes through
     // `http::client()`, which is proxied.
-    if crate::http::has_proxy() {
+    //
+    // A live playlist (#424) goes direct too: the chunking proxy serves one byte-range file per
+    // registration, and a playlist is text that names other URLs, which mpv has to fetch itself.
+    if crate::http::has_proxy() || data.live {
         return data.stream_url.clone();
     }
     let http = data.stream_url.starts_with("http://") || data.stream_url.starts_with("https://");

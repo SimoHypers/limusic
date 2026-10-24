@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use innertube::{
     find_format, find_video_format, rustypipe_fallback, AudioQuality, Clients, Format, InnerTube,
-    PlayerResponse, StreamingData, YouTubeClient, MAIN_CLIENT, STREAM_FALLBACK_ORDER,
+    Live, PlayerResponse, StreamingData, YouTubeClient, MAIN_CLIENT, STREAM_FALLBACK_ORDER,
     UPLOAD_FALLBACK_ORDER,
 };
 use tokio::sync::Mutex;
@@ -45,6 +45,10 @@ pub struct PlaybackData {
     /// music-video mode believes this over the queue row's flag, which several rows arrive without
     /// (a card played from a shelf, a Listen Together mirror, an album row swapped to its audio id).
     pub is_video: Option<bool>,
+    /// A broadcast on air (#424): `stream_url` is its HLS variant playlist, not a file. mpv reads
+    /// the playlist itself, so it bypasses the chunking proxy, is never cached (the playlist
+    /// outlives nothing), and `duration` is `None` rather than YouTube's `"0"`.
+    pub live: bool,
     /// Which client produced the stream (diagnostics). context/06.
     pub stream_client: String,
 }
@@ -380,6 +384,51 @@ impl Orchestrator {
 
             let Some(streaming) = resp.streaming_data.as_ref() else { continue };
             let Some(expires) = streaming.expires_in_seconds else { continue };
+            // A broadcast has no file to pick: its `adaptiveFormats` are segment bases that pass
+            // HEAD and then die in mpv as "unrecognized format", and the proxy's ranged probe 502s
+            // on them. Its one stream is the HLS playlist, read by mpv directly: no cipher, no
+            // `n`, and a plain GET to validate, since the playlist has no byte length to probe.
+            //
+            // Direct clients only. A web client's playlist opens fine, but its segments are
+            // PoToken-gated like its file URLs, and a segment is mpv's to fetch, so there is
+            // nowhere to put the `&pot=` that `sign` adds to a file: measured on WEB_REMIX, every
+            // segment 403s under a playlist that validated. VISIONOS's play as they are. A client
+            // that knows it is live but holds the playlist back (iOS does) is passed over too. #424.
+            match resp.live() {
+                Live::No => {}
+                Live::NoManifest => {
+                    tracing::debug!(client = %key, "live, but no HLS playlist from this client");
+                    continue;
+                }
+                Live::Hls(manifest) => {
+                    let client = self.clients.get(&key);
+                    if client.is_some_and(|c| c.use_web_po_tokens) {
+                        tracing::debug!(client = %key, "live: a web client's segments are PoToken-gated, next");
+                        continue;
+                    }
+                    let headers = stream_headers(
+                        client.map(|c| c.user_agent.clone()),
+                        self.it.cookie(),
+                        is_upload,
+                    );
+                    if !self.validate_manifest(manifest, &headers).await {
+                        tracing::warn!(video_id, client = %key, "HLS playlist refused");
+                        continue;
+                    }
+                    let ping = main_ping.clone().or_else(|| playback_ping(&resp, &key));
+                    return Ok(self.build(
+                        video_id,
+                        None,
+                        manifest.to_owned(),
+                        expires,
+                        &key,
+                        audio_config_loudness.or_else(|| main_loudness(&resp)),
+                        &main_resp,
+                        ping,
+                        headers,
+                    ));
+                }
+            }
             let Some(format) = find_format(streaming, quality) else { continue };
             if audio_config_loudness.is_none() {
                 audio_config_loudness = main_loudness(&resp);
@@ -442,7 +491,7 @@ impl Orchestrator {
                 let ping = main_ping.clone().or_else(|| playback_ping(&resp, &key));
                 return Ok(self.build(
                     video_id,
-                    format,
+                    Some(format),
                     url,
                     expires,
                     &key,
@@ -484,7 +533,7 @@ impl Orchestrator {
             let headers = self.headers_for(&c.client, is_upload);
             return Ok(self.build(
                 video_id,
-                &c.format,
+                Some(&c.format),
                 c.url,
                 c.expires,
                 &c.client,
@@ -507,7 +556,7 @@ impl Orchestrator {
             let headers = self.headers_for(&c.client, is_upload);
             return Ok(self.build(
                 video_id,
-                &c.format,
+                Some(&c.format),
                 c.url,
                 c.expires,
                 &c.client,
@@ -546,6 +595,7 @@ impl Orchestrator {
                 thumbnail: None,
                 // rustypipe answers without a `musicVideoType`, so the queue row's flag stands.
                 is_video: None,
+                live: false,
                 stream_client: "rustypipe".to_owned(),
             }),
             Err(e) => {
@@ -749,6 +799,16 @@ impl Orchestrator {
         matches!(req.send().await, Ok(r) if r.status().is_success())
     }
 
+    /// A live playlist is text with no length, so the ranged probe above has nothing to ask for;
+    /// a plain GET within the same budget says whether the manifest host honours this client.
+    async fn validate_manifest(&self, url: &str, headers: &HashMap<String, String>) -> bool {
+        let mut req = crate::http::client().get(url).timeout(Duration::from_secs(10));
+        for (k, v) in headers {
+            req = req.header(k, v);
+        }
+        matches!(req.send().await, Ok(r) if r.status().is_success())
+    }
+
     /// A cipher client's stream was refused, so its config may be stale. Heal off the hot path so
     /// it never blocks falling through (context/06 §7). If the heal changes the config table,
     /// clear the WEB_REMIX failure memory (context/06 §2).
@@ -785,7 +845,7 @@ impl Orchestrator {
     fn build(
         &self,
         video_id: &str,
-        format: &Format,
+        format: Option<&Format>,
         url: String,
         expires: i64,
         client: &str,
@@ -795,20 +855,23 @@ impl Orchestrator {
         headers: HashMap<String, String>,
     ) -> PlaybackData {
         let vd = main_resp.as_ref().and_then(|r| r.video_details.as_ref());
-        tracing::info!(video_id, client, itag = format.itag, "resolved stream");
+        let live = format.is_none();
+        let itag = format.map_or(0, |f| f.itag as i64);
+        tracing::info!(video_id, client, itag, live, "resolved stream");
         PlaybackData {
             video_id: video_id.to_owned(),
             stream_url: url,
-            itag: format.itag as i64,
+            itag,
             headers,
             expires_in_seconds: expires,
-            loudness_db: format.loudness_db.or(loudness),
+            loudness_db: format.and_then(|f| f.loudness_db).or(loudness),
             playback_ping: ping,
             title: vd.and_then(|v| v.title.clone()),
             artists: vd.and_then(|v| v.author.clone()),
-            duration: vd.and_then(|v| v.length_seconds.clone()),
+            duration: if live { None } else { vd.and_then(|v| v.length_seconds.clone()) },
             thumbnail: main_resp.as_ref().and_then(best_thumbnail),
             is_video: vd.and_then(|v| v.is_music_video()),
+            live,
             stream_client: client.to_owned(),
         }
     }
