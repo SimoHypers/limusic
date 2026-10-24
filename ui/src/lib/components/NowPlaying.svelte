@@ -272,7 +272,7 @@
 
 <!-- Both layouts: the play/pause button over the picture, and the picture in it. -->
 {#snippet picture()}
-	<button type="button" onclick={toggle} aria-label={t('a11y.play_pause')} class="block w-full cursor-pointer">
+	<button type="button" onclick={toggle} aria-label={t('a11y.play_pause')} class="block w-full cursor-pointer" data-ctx-button>
 		{#if flash}
 			<!-- No backdrop-blur: re-blurring the plate on every frame of the scale is what made this
 			     stutter on WebKitGTK. Transform and opacity only. -->
@@ -711,9 +711,20 @@
 						class="relative w-full {showVideo() ? 'max-w-[var(--vid)]' : 'max-w-[var(--art)]'}"
 						onwheel={onWheel}
 						data-np-keep
+						data-ctx
 					>
 						{#if volFlash}{@render volPlate()}{/if}
 						{@render picture()}
+						{#if currentSong}
+							<TrackMenu
+								song={currentSong}
+								linksOnly
+								playlistId={playback.queue.sourceId}
+								queueIndex={playback.queue.currentIndex}
+								onAdd={() => openAddToPlaylist(currentSong!)}
+								triggerClass="hidden"
+							/>
+						{/if}
 						<!-- On plates, since they sit over whatever frame happens to be showing. -->
 						<div class="absolute right-3 top-3 z-10 flex gap-1.5">
 							{#if canSwitch()}

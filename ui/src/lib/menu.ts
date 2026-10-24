@@ -137,7 +137,7 @@ export function suppressNative(e: MouseEvent) {
  * half a page right-clickable only makes it unclear what the menu is even about.
  *
  * Buttons inside an item are their own thing too, so right-clicking Like does nothing rather than
- * opening the row's menu. The ⋯ trigger is the exception, since this menu is what it is for.
+ * opening the row's menu. The ⋯ trigger and artwork marked `data-ctx-button` are exceptions.
  *
  * Nested hosts are fine: the innermost one wins, because `open` stops the event.
  */
@@ -149,7 +149,7 @@ export function ctxHost(open: (e: MouseEvent) => void) {
 			if (wantsNative(e as MouseEvent)) return; // let the field keep its paste menu
 			const t = e.target;
 			const button = t instanceof Element ? t.closest('button') : null;
-			if (button && button !== trigger) return;
+			if (button && button !== trigger && !button.hasAttribute('data-ctx-button')) return;
 			open(e as MouseEvent);
 		};
 		host.addEventListener('contextmenu', onContextMenu);
