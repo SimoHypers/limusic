@@ -8,9 +8,9 @@
 </script>
 
 <script lang="ts">
-	import { onMount, untrack } from 'svelte';
+	import { untrack } from 'svelte';
 	import { page } from '$app/state';
-	import { goto } from '$app/navigation';
+	import { afterNavigate, goto } from '$app/navigation';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		Cancel01Icon,
@@ -120,7 +120,15 @@
 
 	function searchFor(q: string) {
 		query = q;
-		runSearch();
+		submitSearch();
+	}
+
+	function submitSearch() {
+		if (!query.trim()) return;
+		const params = new URLSearchParams({ q: query });
+		if (cat !== 'all') params.set('cat', cat);
+		const href = `/search?${params}`;
+		goto(href, { keepFocus: true, replaceState: href === page.url.pathname + page.url.search });
 	}
 
 	/** Back to the browse page. `latest` is reset too, so a search still in flight lands nowhere. */
@@ -146,29 +154,30 @@
 	// Only from a click: arriving by URL must leave the layout's scroll restore alone.
 	let root = $state<HTMLElement | null>(null);
 	function pickCat(c: Cat) {
-		setCat(c);
+		const params = new URLSearchParams({ q: searched });
+		if (c !== 'all') params.set('cat', c);
+		goto(`/search?${params}`, { keepFocus: true });
 		root?.closest('main')?.scrollTo({ top: 0 });
 	}
 
-	// Run the search when arriving with a ?q= (e.g. from the Home search box). Keyed on the URL
-	// alone: typing a new query in the field must not look like a URL change and bounce us back.
-	const urlQuery = $derived(page.url.searchParams.get('q') ?? '');
-	let lastUrlQuery = '';
-	$effect(() => {
-		if (urlQuery && urlQuery !== lastUrlQuery) {
-			lastUrlQuery = urlQuery;
-			query = urlQuery;
-			untrack(() => {
-				setCat('all');
-				runSearch();
-			});
+	// The URL owns submitted searches, so Back/Forward restore each query and category.
+	// A fresh sidebar visit still opens the last search; Back to an empty search stays empty.
+	afterNavigate(({ type }) => {
+		const q = page.url.searchParams.get('q') ?? '';
+		if (!q && type !== 'popstate' && lastQuery) {
+			const params = new URLSearchParams({ q: lastQuery });
+			if (lastCat !== 'all') params.set('cat', lastCat);
+			goto(`/search?${params}`, { replaceState: true, keepFocus: true });
+			return;
 		}
-	});
-
-	// Arriving without a ?q= (back from a result, or the sidebar link): rerun whatever was last
-	// searched. onMount, not the effect above, so a ?q= arrival still wins.
-	onMount(() => {
-		if (!urlQuery && query) runSearch();
+		if (!q) {
+			clearSearch();
+			return;
+		}
+		const c = page.url.searchParams.get('cat');
+		setCat(CATS.includes(c as Cat) ? c as Cat : 'all');
+		query = q;
+		if (latest !== q) runSearch();
 	});
 
 	// --- Albums / Artists / Playlists tabs: a filtered search of their own, fetched on open ----------
@@ -404,7 +413,7 @@
 			class="relative max-w-2xl"
 			onsubmit={(e) => {
 				e.preventDefault();
-				runSearch();
+				submitSearch();
 			}}
 		>
 			<HugeiconsIcon
@@ -426,7 +435,10 @@
 					class="absolute right-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
 					aria-label={t('a11y.clear_search')}
 					title={t('a11y.clear_search')}
-					onclick={(e) => clearSearch(e.currentTarget.form?.querySelector('input'))}
+					onclick={(e) => {
+						clearSearch(e.currentTarget.form?.querySelector('input'));
+						goto('/search', { keepFocus: true });
+					}}
 				>
 					<HugeiconsIcon icon={Cancel01Icon} class="h-4 w-4" />
 				</button>
