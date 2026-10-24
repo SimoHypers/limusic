@@ -178,7 +178,10 @@
 		"comments": "留言",
 		"song": "歌曲",
 		"video": "影片",
-		"up_next": "接下來"
+		"up_next": "接下來",
+		"fullscreen_video": "全螢幕",
+		"exit_fullscreen_video": "離開全螢幕",
+		"scroll_to_end": "捲動到底部"
 	},
 	"home": {
 		"good_morning": "讓今天從旋律開始",
@@ -196,7 +199,7 @@
 		"show_section": "在首頁顯示「{title}」",
 		"feed_empty": "首頁目前沒有任何推薦內容。",
 		"signed_out_hint": "登入後，首頁將會根據您的聆聽喜好提供專屬合輯與推薦清單。",
-		"add_to_end": "新增至結尾",
+		"add_to_end": "移至最後",
 		"edit_home_desc": "您所做的變更會即時反映在首頁上。",
 		"look": "介面外觀",
 		"card_size": "卡片大小",
@@ -311,7 +314,10 @@
 		"suggestions_failed": "無法載入建議。",
 		"suggestion_add": "將 {title} 添加到此播放清單",
 		"suggestion_added": "已加入",
-		"saved_in_count": "{count} 個播放清單"
+		"saved_in_count": "{count} 個播放清單",
+		"suggestions_hide": "隱藏",
+		"suggestions_show": "顯示",
+		"suggestions_hidden": "隱藏建議。在播放清單的尾端，再重新顯示建議。"
 	},
 	"local": {
 		"scanning": "正在掃描資料夾…",
@@ -398,7 +404,9 @@
 			"start_minimized": "開機啟動時最小化至系統匣",
 			"start_minimized_hint": "隨系統開機啟動時自動保持在系統匣背景中；手動開啟應用程式時則正常顯示視窗。",
 			"track_notifications_focused": "使用 Limusic 時也顯示通知",
-			"track_notifications_focused_hint": "當 Limusic 是目前使用中的視窗時，如果下一首歌曲自動開始播放，也會顯示通知。手動選擇播放的歌曲則不會顯示通知。"
+			"track_notifications_focused_hint": "當 Limusic 是目前使用中的視窗時，如果下一首歌曲自動開始播放，也會顯示通知。手動選擇播放的歌曲則不會顯示通知。",
+			"play_on_start": "開啟時，恢復上一次的播放",
+			"play_on_start_hint": "當 Limusic 開啟時，從上次播放歌曲繼續。"
 		},
 		"themes": {
 			"interface_font": "介面字型",
@@ -454,7 +462,9 @@
 			"accent_theme": "主題的獨特性",
 			"accent_artwork_note": "在播放歌曲時，主要強調色來自歌曲的封面。關閉「Matugen 動態配色」功能，即可看到這一效果。",
 			"preview": "預覽",
-			"preview_hint": "當您拖動時，滑塊和顏色選擇器會顯示，應用程序會跟隨您的操作。"
+			"preview_hint": "當您拖動時，滑塊和顏色選擇器會顯示，應用程序會跟隨您的操作。",
+			"now_playing_pill": "現正播放",
+			"now_playing_pill_hint": "在播放清單或待播清單中，當歌曲被滾動到屏幕外時，顯示一個返回按鈕，以便輕鬆返回到之前的歌曲。"
 		},
 		"playback": {
 			"audio_quality": "音訊品質",
