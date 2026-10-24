@@ -3,7 +3,7 @@
 // ponytail: a script over a test runner — the UI has no test setup and this is the only piece of
 // menu.ts that does arithmetic worth getting wrong. `layout` isn't exported, so these go through
 // `place`, the same call `fitMenu` makes with a measured popup.
-import { anchorMenu, place } from './menu.ts';
+import { anchorMenu, ctxHost, place } from './menu.ts';
 
 // ponytail: two lines instead of node:assert, which would want @types/node in a DOM-only tsconfig.
 const eq = (got: string, want: string) => {
@@ -52,5 +52,47 @@ eqp(from({ left: 10, right: 50, top: 200, bottom: 240 }, 'right'), 'left:auto;ri
 // and the clamp pulls it back inside.
 viewport(1000, 300);
 eqp(at(100, 150), 'left:100px;right:auto;top:12px;bottom:auto', 'top left');
+
+// Minimal DOM surface for the shared right-click attachment: artwork opts in, other controls
+// keep their own meaning, and Shift+right-click still reaches the native menu.
+class MenuElement extends EventTarget {
+	button: MenuElement | null = null;
+	artwork = false;
+	closest(selector: string): MenuElement | null {
+		if (selector === '[data-ctx]') return host;
+		if (selector === 'button') return this.button;
+		return null;
+	}
+	hasAttribute(name: string) {
+		return name === 'data-ctx-button' && this.artwork;
+	}
+}
+Object.assign(globalThis, { Element: MenuElement });
+Object.assign(window, { getSelection: () => null });
+const host = new MenuElement();
+const trigger = new MenuElement();
+const artwork = new MenuElement();
+artwork.artwork = true;
+let opened = 0;
+const detach = ctxHost(() => opened++)(trigger as unknown as HTMLElement);
+const rightClick = (button: MenuElement | null, shiftKey = false) => {
+	host.button = button;
+	const event = new Event('contextmenu');
+	Object.assign(event, { shiftKey });
+	host.dispatchEvent(event);
+};
+rightClick(null);
+eq(String(opened), '1');
+rightClick(new MenuElement());
+eq(String(opened), '1');
+rightClick(artwork);
+eq(String(opened), '2');
+rightClick(artwork, true);
+eq(String(opened), '2');
+rightClick(trigger);
+eq(String(opened), '3');
+detach?.();
+rightClick(artwork);
+eq(String(opened), '3');
 
 console.log('menu.check: ok');
