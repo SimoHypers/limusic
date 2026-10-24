@@ -1085,3 +1085,26 @@ input[type='range'].range:active::-webkit-slider-thumb {
 		scroll-behavior: auto !important;
 	}
 }
+
+/* --- Lite mode ---
+   The "Lite mode" switch (or its auto-arm) puts `.lite` on <html> from `apply()` in
+   theme.svelte.ts, the same path the palette class rides. What CSS can cut on its own is zeroed
+   here: every animation and transition, and the blur on the decorative artwork washes — the wash
+   fills stay, only the blur goes, and on a GPU sharing memory bandwidth with something else the
+   blur is the part that costs. The zeroing mirrors the reduced-motion block above instead of
+   `animation: none`: the like-pulse resets itself on `animationend`, and a duration that is tiny
+   rather than absent still fires it. The JS-driven loops (marquee, progress ticks, lyric scroll)
+   are gated in the components on the `lite` export — CSS cannot stop a rAF loop, and starting one
+   is not this file's job. */
+html.lite *,
+html.lite *::before,
+html.lite *::after {
+	animation-duration: 0.01ms !important;
+	animation-iteration-count: 1 !important;
+	transition-duration: 0.01ms !important;
+	scroll-behavior: auto !important;
+}
+html.lite .art-wash,
+html.lite .art-wash img {
+	filter: none !important;
+}

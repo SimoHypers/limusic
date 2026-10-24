@@ -120,3 +120,42 @@ plausible culprits (scrollbar styling, border radius, cover images, SVG icons) m
 Measure in the engine the report comes from, with the CPU throttled to 4x or more, and with a song
 playing. Put the before/after numbers in the comment next to the effect, so the next person can see
 what removing it would cost.
+
+## Lite mode
+
+Some machines cannot afford the effects this file prices — an iGPU starved on memory bandwidth
+behind a busy dGPU, a desktop at fractional 5K scale. Lite mode is the in-app answer: one switch
+(Appearance → "Lite mode"), and next to it an optional auto-arm. It keeps layout, colors, artwork
+and text; it removes the constant repainting those rules above keep promising is affordable.
+
+The toggle is **in-app state only**. The env-var alternative was measured here and lost:
+`WEBKIT_DISABLE_COMPOSITING_MODE=1` at 5120x2880 is laggier than any effect, because it drops the
+page to CPU rasterization wholesale. Lite mode instead removes the work, never the accelerator.
+
+What it cuts, via a `lite` class on `<html>` plus component gates (the same split as
+`prefers-reduced-motion`: CSS zeroes `animation`/`transition` and the decorative washes; JS-driven
+loops are gated in code, not CSS):
+
+- the artwork washes and their blur (player view, theater mode, playlist header) and the artwork
+  accent tint — the full-window blurred layers;
+- the karaoke sweep: the lyrics rAF loop is gated off (`needsFrameClock`), and the auto-scroller
+  flips lines instead of gliding;
+- marquee scrolls, which sit still;
+- every `prefers-reduced-motion` transition too — pill fades, queue FLIP, jump-to-playing glides —
+  since lite is the same "hold still" promise, taken further.
+
+Gates read one derived value, `lite()` from `theme.svelte.ts`
+(`liteMode || (liteAuto && autoArmed)`), and derive effective values only — a machine going busy
+never rewrites a user's stored settings. With lite off the default path is untouched: the gates are
+booleans on existing `$derived`s, no per-frame work added. Audio is out of scope by definition: the
+player (`crates/player`, libmpv) is not in the diff and cannot be — lite mode is web-page only.
+
+Auto-arm watches the DRM counters (`gpu_busy_percents`, one `read_dir` and a few four-byte reads
+per 15 s poll) and hystereses them so an iGPU that spikes 0→75→0 in seconds cannot flap the mode;
+constants live in one place, `lite-auto.svelte.ts`: arm after **3 consecutive samples with any
+card ≥ 85 %**, disarm after **8 consecutive samples with every card < 40 %**, and never flip sides
+more often than every **60 s**. The armed state is runtime-only (`autoArmed`, never persisted), so
+auto-arm changes what renders, not what is saved. It exists on Linux only, where the counters do;
+a machine with no readable counter — no DRM, or NVIDIA behind NVML — gets an empty reading, counts
+as idle, and never arms. `LIMUSIC_FORCE_GPU_BUSY=<0-255>` overrides every reading, which is how
+the hysteresis is tested without loading a GPU.

@@ -21,8 +21,10 @@
 		applyArtworkAccent,
 		prewarmArtworkAccent,
 		refreshArtworkAccent,
-		initTheme
+		initTheme,
+		lite
 	} from '$lib/theme.svelte';
+	import { startLiteAutoPolling } from '$lib/lite-auto.svelte';
 	import { loadAppIcon } from '$lib/appicon.svelte';
 	import { thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
@@ -129,8 +131,9 @@
 
 	// "Adapt colors to artwork": re-run on every track change and on the toggle itself. The 120px
 	// cover is the one the player bar has already loaded, so this costs no extra request. A Matugen
-	// palette owns every colour while it's on, so the artwork stands down.
-	const artworkTint = $derived(appearance.artworkAccent && !appearance.matugen);
+	// palette owns every colour while it's on, so the artwork stands down — and lite mode stands it
+	// down too: the tint is recomputed per track, which is one restyle per track on a starved GPU.
+	const artworkTint = $derived(appearance.artworkAccent && !appearance.matugen && !lite());
 	$effect(() => {
 		applyArtworkAccent(artworkTint ? thumb(playback.now?.thumbnail, 120) : null);
 	});
@@ -154,6 +157,10 @@
 
 	// Apply the saved accent color before the first paint (ssr=false → nothing renders until now).
 	if (browser) initTheme();
+	// Lite mode's auto-arm poll starts with the theme (§4): a 15 s gpu-busy read that decides
+	// nothing until the user has switched lite-auto on, and can't write settings no matter what
+	// it decides.
+	if (browser) startLiteAutoPolling();
 	// The custom app icon (#173) is a file on disk, so the titlebar has to ask Rust for it.
 	if (browser) loadAppIcon();
 

@@ -8,6 +8,7 @@
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { ArrowDown01Icon, ArrowUp01Icon } from '@hugeicons/core-free-icons';
 	import { t } from '$lib/i18n.svelte';
+	import { lite } from '$lib/theme.svelte';
 
 	let { above, onclick }: { above: boolean; onclick: () => void } = $props();
 
@@ -17,7 +18,7 @@
 <button
 	class="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 cursor-pointer items-center gap-1.5 rounded-full border bg-popover px-3 py-1.5 text-xs font-medium text-popover-foreground shadow-lg hover:bg-accent"
 	{onclick}
-	transition:fade={{ duration: reducedMotion.current ? 0 : 150 }}
+	transition:fade={{ duration: reducedMotion.current || lite() ? 0 : 150 }}
 >
 	<!-- altIcon/showAlt: `icon` is frozen at mount. -->
 	<HugeiconsIcon icon={ArrowDown01Icon} altIcon={ArrowUp01Icon} showAlt={above} class="size-3.5" />
