@@ -204,7 +204,10 @@
 		"song": "Bài hát",
 		"video": "Video",
 		"comments": "Bình luận",
-		"up_next": "Tiếp theo"
+		"up_next": "Tiếp theo",
+		"fullscreen_video": "Video toàn màn hình",
+		"exit_fullscreen_video": "Thoát video toàn màn hình",
+		"scroll_to_end": "Cuộn xuống cuối"
 	},
 	"home": {
 		"good_morning": "Chào buổi sáng",
@@ -248,10 +251,10 @@
 			"from_library": "Danh sách phát từ thư viện của bạn",
 			"community": "Danh sách phát mọi người tạo",
 			"fresh_finds": "Nhạc mới và những ca khúc cũ bạn thích",
-			"albums_for_you": "Đĩa nhạc cho bạn",
+			"albums_for_you": "Album cho bạn",
 			"trending": "Bài hát thịnh hành dành cho bạn",
 			"featured_playlists": "Danh sách phát nổi bật dành riêng cho bạn",
-			"new_releases": "Đĩa nhạc và đĩa đơn mới phát hành",
+			"new_releases": "Mới phát hành",
 			"mixed_for_you": "Tuyển tập nhạc cho bạn",
 			"daily_discover": "Nhạc mới mỗi ngày",
 			"music_videos": "Video nhạc cho bạn"
@@ -320,7 +323,7 @@
 		"no_artists": "Chưa có nghệ sĩ nào. Nghệ sĩ sẽ xuất hiện sau khi bạn lưu bài hát hoặc album của họ.",
 		"no_subscriptions": "Chưa có kênh đăng ký nào. Đăng ký một nghệ sĩ từ trang của họ để theo dõi tại đây.",
 		"on_repeat": "Phát lại",
-		"on_repeat_subtitle": "{count} bài hát bạn đã nghe nhiều nhất trong tháng này",
+		"on_repeat_subtitle": "{count} bài hát bạn nghe nhiều nhất trong tháng này",
 		"songs_count": "{count} bài hát",
 		"songs_count_one": "1 bài hát",
 		"on_this_device": "Trên thiết bị này",
@@ -332,12 +335,15 @@
 		"saved_in_one": "Đã lưu trong {playlist}",
 		"saved_in_many": "Đã lưu trong {count} danh sách phát",
 		"saved_in_more": "và {count} danh sách khác",
-		"suggestions": "Gợi ý",
+		"suggestions": "Đề xuất",
 		"suggestions_hint": "Dựa trên những gì có trong danh sách phát này",
-		"suggestions_failed": "Không thể tải thêm gợi ý.",
+		"suggestions_failed": "Không thể tải thêm đề xuất.",
 		"suggestion_add": "Thêm {title} vào danh sách phát này",
 		"suggestion_added": "Đã thêm",
-		"saved_in_count": "{count} danh sách phát"
+		"saved_in_count": "{count} danh sách phát",
+		"suggestions_hide": "Ẩn",
+		"suggestions_show": "Hiện",
+		"suggestions_hidden": "Các đề xuất đã bị ẩn. Hiển thị lại chúng từ cuối bất kỳ danh sách phát nào của bạn."
 	},
 	"local": {
 		"scanning": "Đang quét thư mục...",
@@ -424,7 +430,9 @@
 			"stream_clients": "Client phát luồng",
 			"stream_clients_hint": "Tắt client để bỏ qua khi phân giải luồng âm thanh. Bị ghi đè bởi biến môi trường {var}.",
 			"track_notifications_focused": "Trong khi sử dụng Limusic",
-			"track_notifications_focused_hint": "Hiện thông báo khi bài hát tiếp theo tự động phát kể cả trong lúc bạn đang sử dụng Limusic. Những bài bạn chọn thủ công sẽ không hiện thông báo."
+			"track_notifications_focused_hint": "Hiện thông báo khi bài hát tiếp theo tự động phát kể cả trong lúc bạn đang sử dụng Limusic. Những bài bạn chọn thủ công sẽ không hiện thông báo.",
+			"play_on_start": "Tiếp tục phát khi mở",
+			"play_on_start_hint": "Bắt đầu phát hàng đợi gần nhất của bạn khi mở Limusic."
 		},
 		"themes": {
 			"interface_font": "Phông chữ giao diện",
@@ -480,7 +488,9 @@
 			"blur_playlist_header": "Làm mờ tiêu đề danh sách phát",
 			"blur_playlist_header_hint": "Hiển thị ảnh bìa danh sách phát làm nền mờ phía sau phần tiêu đề. Giúp làm mượt các ảnh bìa bị vỡ khi bị kéo giãn hết cỡ chiều rộng.",
 			"matugen": "Matugen",
-			"matugen_hint": "Lấy toàn bộ màu sắc, bao gồm cả màu điểm nhấn, từ bảng màu mà Matugen tạo ra từ hình nền của bạn. Trước tiên, hãy thiết lập mẫu cho Limusic trong Matugen."
+			"matugen_hint": "Lấy toàn bộ màu sắc, bao gồm cả màu điểm nhấn, từ bảng màu mà Matugen tạo ra từ hình nền của bạn. Trước tiên, hãy thiết lập mẫu cho Limusic trong Matugen.",
+			"now_playing_pill": "Nút \"Đang phát\"",
+			"now_playing_pill_hint": "Hiện nút bấm để nhảy đến bài hát đang phát khi bị cuộn khỏi tầm nhìn trong danh sách phát hoặc hàng đợi."
 		},
 		"playback": {
 			"audio_quality": "Chất lượng âm thanh",
@@ -533,7 +543,7 @@
 			"lyrics_use_source": "Dùng {name}",
 			"lyrics_sources_none": "Tất cả các nguồn đã bị tắt, nên sẽ không tìm thấy lời bài hát nào.",
 			"videos_first": "Ưu tiên phát video",
-			"videos_first_hint": "Các bài hát trong đĩa nhạc có video ca nhạc sẽ khởi chạy dưới dạng video. Tắt để bắt đầu bằng bài hát. Công tắc Bài hát/Video cho phép chuyển đổi qua lại giữa hai chế độ này."
+			"videos_first_hint": "Các bài hát trong album có video ca nhạc sẽ khởi chạy dưới dạng video. Tắt để bắt đầu bằng bài hát. Công tắc Bài hát/Video cho phép chuyển đổi qua lại giữa hai chế độ này."
 		},
 		"hotkeys": {
 			"title": "Phím nóng toàn cục",
@@ -832,7 +842,7 @@
 			"disconnected": "Đã ngắt kết nối",
 			"make_host": "Chuyển quyền chủ phòng",
 			"remove": "Xoá",
-			"suggestions": "Gợi ý",
+			"suggestions": "Đề xuất",
 			"from_user": "từ {user}",
 			"resync": "Đồng bộ lại",
 			"leave": "Rời phòng",
@@ -974,7 +984,11 @@
 			"netease": "Kho nhạc Trung Quốc lớn. Cung cấp bản dịch tiếng Trung dưới nhiều bài hát.",
 			"qq": "Kho nhạc Trung Quốc, rất mạnh về Mandopop và Cantopop.",
 			"kugou": "Kho nhạc Trung Quốc dành cho các bài hát hiếm hơn."
-		}
+		},
+		"text_size": "Cỡ chữ",
+		"text_size_hint": "Điều chỉnh cỡ chữ của lời bài hát",
+		"text_size_larger": "To hơn",
+		"text_size_smaller": "Nhỏ hơn"
 	},
 	"queue": {
 		"title": "Hàng đợi"
@@ -1116,7 +1130,7 @@
 		"change": "Thay đổi",
 		"choose": "Chọn",
 		"search_ytm": "Tìm trên YouTube Music",
-		"no_candidates": "Không có gợi ý. Hãy thử tìm kiếm.",
+		"no_candidates": "Không có đề xuất nào. Hãy thử tìm kiếm.",
 		"keep": "Chính xác",
 		"skip": "Bỏ qua",
 		"name_label": "Tên danh sách phát",
@@ -1203,7 +1217,7 @@
 		"busiest_hour": "Giờ bận rộn nhất",
 		"top_songs": "Bài hát hàng đầu",
 		"top_artists": "Nghệ sĩ hàng đầu",
-		"top_albums": "Đĩa nhạc hàng đầu",
+		"top_albums": "Album hàng đầu",
 		"share": "{percent} thời gian nghe của bạn",
 		"when": "Khung giờ bạn nghe",
 		"dayparts": {
@@ -1219,8 +1233,8 @@
 			"night": "Cú đêm"
 		},
 		"persona_hint": "Bạn chủ yếu nghe giữa khoảng {from} và {to}.",
-		"less": "Ẩn bớt",
-		"more": "Xem thêm",
+		"less": "Ít hơn",
+		"more": "Nhiều hơn",
 		"nothing_in_range": "Không bài nào được phát trong giai đoạn này.",
 		"empty_title": "Thống kê của bạn bắt đầu ở đây",
 		"empty": "Hãy phát vài bài hát và trang này sẽ hiển thị những gì bạn đã nghe, từ bao giờ, và bao lâu.",
@@ -1281,7 +1295,7 @@
 		"label": "Cột",
 		"choose": "Chọn cột",
 		"title": "Tiêu đề",
-		"album": "Đĩa nhạc",
+		"album": "Album",
 		"added": "Ngày thêm",
 		"by": "Thêm bởi",
 		"plays": "Lượt phát",

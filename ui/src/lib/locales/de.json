@@ -87,7 +87,8 @@
 		"play_all": "Alle abspielen",
 		"top_result": "Bestes Ergebnis",
 		"all_results_for": "Alle Ergebnisse für „{query}“",
-		"videos": "Videos"
+		"videos": "Videos",
+		"restore": "Wiederherstellen"
 	},
 	"nav": {
 		"home": "Startseite",
@@ -110,7 +111,8 @@
 		"remove_account_desc": "„{name}“ wird nur aus dieser Liste entfernt. Das Google-Konto selbst bleibt unberührt und du kannst dich jederzeit wieder anmelden.",
 		"saved_accounts_hint": "Wähle ein gespeichertes Konto aus, um dorthin zu wechseln.",
 		"history": "Verlauf",
-		"no_channels": "YouTube hat keine auswählbaren Kanäle zurückgegeben."
+		"no_channels": "YouTube hat keine auswählbaren Kanäle zurückgegeben.",
+		"stats": "Statistiken"
 	},
 	"player": {
 		"play": "Wiedergeben",
@@ -171,7 +173,13 @@
 		"songs_left_one": "Noch 1 Song",
 		"queue_ends": "Die Warteschlange endet nach diesem Song.",
 		"back_to": "Zurück zu „{title}“",
-		"edit_scrobble": "Scrobble bearbeiten"
+		"edit_scrobble": "Scrobble bearbeiten",
+		"comments": "Kommentare",
+		"song": "Lied",
+		"video": "Video",
+		"fullscreen_video": "Vollbild-Video",
+		"exit_fullscreen_video": "Vollbild beenden",
+		"up_next": "Als nächstes"
 	},
 	"home": {
 		"good_morning": "Guten Morgen",
@@ -208,7 +216,20 @@
 		"sections_hint": "Ziehe Bereiche, um ihre Reihenfolge zu ändern, oder wähle den Anfasser aus und nutze die Pfeiltasten. Ausgeblendete Bereiche behalten ihre Position.",
 		"move_section": "„{title}“ verschieben",
 		"moved_section": "„{title}“ an Position {position} von {total} verschoben",
-		"all_hidden": "Auf der Startseite ist derzeit alles ausgeblendet."
+		"all_hidden": "Auf der Startseite ist derzeit alles ausgeblendet.",
+		"kinds": {
+			"listen_again": "Erneut anhören",
+			"quick_picks": "Schnellwahl",
+			"from_library": "Aus deiner Bibliothek",
+			"community": "Von der Community",
+			"fresh_finds": "Frischer Wind, alte Freunde",
+			"albums_for_you": "Alben für dich",
+			"trending": "Trends für dich",
+			"new_releases": "Neuerscheinungen",
+			"mixed_for_you": "Für dich zusammengestellt",
+			"daily_discover": "Tägliche Vorschläge",
+			"music_videos": "Musikvideos für dich"
+		}
 	},
 	"history": {
 		"title": "Verlauf",
@@ -224,7 +245,8 @@
 		"subscribed": "Abonniert",
 		"subscribe_to": "„{name}“ abonnieren",
 		"unsubscribe_from": "Abo von „{name}“ beenden",
-		"top_songs": "Top-Titel"
+		"top_songs": "Top-Titel",
+		"appears_on": "Taucht auf bei"
 	},
 	"library": {
 		"title": "Bibliothek",
@@ -283,7 +305,15 @@
 		"saved_in_many": "Gespeichert in {count} Playlists",
 		"saved_in_more": "und {count} weiteren",
 		"subscriptions_tab": "Abonnements",
-		"no_subscriptions": "Noch keine Abonnements vorhanden. Abonniere einen Künstler auf dessen Profilseite, um ihn hier zu behalten."
+		"no_subscriptions": "Noch keine Abonnements vorhanden. Abonniere einen Künstler auf dessen Profilseite, um ihn hier zu behalten.",
+		"suggestions": "Vorschläge",
+		"suggestions_hint": "Basierend darauf, was in der Playlist ist",
+		"suggestions_failed": "Vorschläge konnten nicht geladen werden.",
+		"suggestion_add": "{title} zu dieser Playlist hinzugefügt",
+		"suggestion_added": "Hinzugefügt",
+		"suggestions_hide": "Ausblenden",
+		"suggestions_show": "Zeigen",
+		"saved_in_count": "{count} Playlists"
 	},
 	"local": {
 		"scanning": "Ordner wird durchsucht…",
@@ -317,7 +347,7 @@
 			"hotkeys": "Globale Hotkeys",
 			"hotkeys_hint": "Systemweite Tastenkombinationen zur Wiedergabesteuerung.",
 			"scrobbling": "Scrobbeln",
-			"scrobbling_hint": "Was an Last.fm übertragen wird und wann eine Wiedergabe zählt."
+			"scrobbling_hint": "Was beim Scrobbling übertragen wird und wann eine Wiedergabe zählt."
 		},
 		"sections": {
 			"language": "Sprache",
@@ -340,7 +370,9 @@
 			"discord_status": "Status",
 			"discord_card": "Statuskarte",
 			"discord_links": "Klickbare Links",
-			"discord_buttons": "Schaltflächen"
+			"discord_buttons": "Schaltflächen",
+			"colors": "Farben",
+			"interface": "Nutzeransicht"
 		},
 		"general": {
 			"language": "Sprache der Benutzeroberfläche",
@@ -366,7 +398,11 @@
 			"track_notifications": "Titelbenachrichtigungen",
 			"track_notifications_hint": "Eine Benachrichtigung anzeigen, wenn ein neuer Titel startet und Limusic im Hintergrund läuft.",
 			"start_minimized": "Minimiert im Infobereich starten",
-			"start_minimized_hint": "Beim automatischen Systemstart bleibt Limusic im Tray minimiert. Manuelles Öffnen zeigt stets das Fenster an."
+			"start_minimized_hint": "Beim automatischen Systemstart bleibt Limusic im Tray minimiert. Manuelles Öffnen zeigt stets das Fenster an.",
+			"play_on_start": "Wiedergabe beim Öffnen fortsetzen",
+			"play_on_start_hint": "Spiel die letzte gehörte Wiedergabeliste wenn Limusic geöffnet wird.",
+			"track_notifications_focused": "Während über Limusic gehört wird",
+			"track_notifications_focused_hint": "Zeige auch eine Benachrichtigung, wenn das nächste Lied von selbst startet und Limusic das aktive Fenster ist. Selbstgewählte Lieder zeigen nie eine."
 		},
 		"themes": {
 			"interface_font": "Schriftart der Benutzeroberfläche",
@@ -406,7 +442,25 @@
 			"app_icon_hint": "Ein PNG-Bild ersetzt das Icon im Tray, Fenster und bei Alt+Tab. Dateimanager und Desktop-Verknüpfungen behalten das Standard-Icon.",
 			"app_icon_pick": "Auswählen…",
 			"app_icon_dialog": "App-Icon auswählen",
-			"app_icon_filter": "PNG-Bild"
+			"app_icon_filter": "PNG-Bild",
+			"classic_player": "Klassische Player-Ansicht",
+			"classic_player_hint": "Die originale Player-Ansicht: Nur das Cover vor einer unscharfen Version mit den Details zum Lied links vom Player. \"Aus\" zeigt die neue Player-Ansicht mit dem Titel, Künstler und Album-Cover hinter dem Lied-Cover und eine Ansicht im Thema der Cover-Farben.",
+			"blur_playlist_header": "Playlist-Hintergründe unscharf machen",
+			"blur_playlist_header_hint": "Zeigt das Cover einer Playlist hinter seinem Banner. Verschönert Cover, die verpixelt aussehen, wenn sie zur vollen Breite gestreckt werden.",
+			"now_playing_pill": "Aktuelle-Wiedergabe-Knopf",
+			"now_playing_pill_hint": "Fügt einen Knopf hinzu, der zum aktiven Lied zurückspringt, wenn es in einer Playlist oder Wiedergabeliste außer Sicht ist.",
+			"matugen": "Matugen",
+			"matugen_hint": "Nimmt jede Farbe mit Akzenten von der Palette, die Matugen aus deinem Desktop-Hintergrund macht. Richte erst die Limusic Vorlage in Matugen ein.",
+			"mode": "Hell oder Dunkel",
+			"mode_hint": "Folgt den Einstellungen deines Computers und wechselt mit ihnen.",
+			"mode_light": "Hell",
+			"mode_dark": "Dunkel",
+			"mode_system": "System",
+			"accent_hint": "Knöpfe, die Fortschrittsleiste und alles Ausgewählte.",
+			"accent_theme": "Die Akzente vom Thema",
+			"accent_artwork_note": "Wenn ein Lied wiedergegeben wird, kommt der Akzent von seinem Cover. Schalte die Farbanpassung aus um dieses zu sehen.",
+			"preview": "Vorschau",
+			"preview_hint": "Regler und der Farbwähler werden schon beim Bewegen angezeigt, die App passt sich an, wenn du loslässt."
 		},
 		"playback": {
 			"audio_quality": "Audioqualität",
@@ -457,7 +511,9 @@
 			"lyrics_move_source": "„{name}“ verschieben",
 			"lyrics_moved_source": "„{name}“ an Position {position} von {total} verschoben",
 			"lyrics_use_source": "„{name}“ verwenden",
-			"lyrics_sources_none": "Alle Quellen sind deaktiviert, es können keine Songtexte gefunden werden."
+			"lyrics_sources_none": "Alle Quellen sind deaktiviert, es können keine Songtexte gefunden werden.",
+			"videos_first": "Spiel erst das Video",
+			"videos_first_hint": "Lieder eines Albums, die ein Musikvideo haben, starten als Video. Schalte dies aus um mit dem Lied zu starten. Der Lied/Video Schalter im Player wechselt sowieso zwischen ihnen."
 		},
 		"data": {
 			"clear_cache": "Bild- und Stream-Cache leeren",
@@ -598,7 +654,7 @@
 			"enable": "Scrobbeln",
 			"enable_hint": "Deaktivieren, um das Scrobbeln vorübergehend zu pausieren, ohne das Konto zu trennen.",
 			"now_playing": "Aktuelle Wiedergabe anzeigen",
-			"now_playing_hint": "Übermittelt Titel beim Start an Last.fm, damit dein Profil sie live anzeigt.",
+			"now_playing_hint": "Kündigt den Start eines Lieds an, damit dein Profil sie live anzeigt.",
 			"section_timing": "Wann eine Wiedergabe zählt",
 			"percent": "Scrobbeln nach",
 			"percent_value": "{n} %",
@@ -650,13 +706,23 @@
 			"applied_edit": "Deine Korrektur",
 			"applied_split": "Titelaufteilung",
 			"applied_rule": "Regel {n}",
-			"status_disconnected": "Last.fm ist nicht verbunden, daher werden keine Daten gesendet.",
+			"status_disconnected": "Kein Scrobble-Service verbunden, daher werden keine Daten gesendet.",
 			"status_paused": "Scrobbeln ist deaktiviert.",
 			"status_skip_edit": "Deine Korrektur schließt diesen Titel aus.",
 			"status_incomplete": "Nichts gesendet: Weder Titel noch Künstler vorhanden.",
 			"status_short": "Zu kurz zum Scrobbeln.",
 			"status_at": "Wird um {time} gescrobbelt.",
-			"status_done": "Um {time} gescrobbelt."
+			"status_done": "Um {time} gescrobbelt.",
+			"stat_listens": "Hört",
+			"lb_open_profile": "Öffne dein ListenBrainz-Profil",
+			"lb_disconnected": "Verbinde dein ListenBrainz-Account, um ihm Bescheid zu geben, was du gerade hörst.",
+			"lb_validating": "Überprüft diesen Token mit ListenBrainz.",
+			"lb_token_hint": "Füge dein Nutzertoken hier ein. Du kannst ihn von der ListenBrainz Einstellungs-Seite kopieren.",
+			"lb_open_settings": "Öffne die Einstellungen von ListenBrainz",
+			"lb_token_placeholder": "ListenBrainz Nutzer-Token",
+			"lb_problem_email": "Verifiziere deine MetaBrainz E-Mail, damit ListenBrainz akzeptiert, was du hörst.",
+			"lb_problem_rejected": "ListenBrainz akzeptiert diesen Token nicht mehr. Verbinde dich mit einem neuen.",
+			"lb_verify_email": "E-Mail verifizieren"
 		}
 	},
 	"dialogs": {
@@ -704,7 +770,8 @@
 			"zoom_in": "Vergrößern",
 			"zoom_out": "Verkleinern",
 			"reset_zoom": "Zoom zurücksetzen",
-			"show_this_list": "Diese Liste anzeigen"
+			"show_this_list": "Diese Liste anzeigen",
+			"quit_app": "Limusic beenden"
 		},
 		"tempo_pitch": {
 			"title": "Tempo- und Tonhöhensteuerung",
@@ -789,7 +856,9 @@
 		"lastfm_connecting": "Verbindung zu Last.fm wird hergestellt – Klick zum Abbrechen",
 		"lastfm_scrobble_to": "Zu Last.fm scrobbeln",
 		"disconnect": "Trennen",
-		"lastfm_settings": "Scrobbel-Einstellungen"
+		"lastfm_settings": "Scrobbel-Einstellungen",
+		"listenbrainz_connected_as": "Übermittle was du hörst als {user}",
+		"listenbrainz_disconnected": "ListenBrainz nicht mehr verbunden"
 	},
 	"a11y": {
 		"close": "Schließen",
@@ -833,7 +902,8 @@
 		"expand_sidebar": "Seitenleiste ausklappen",
 		"collapse_sidebar": "Seitenleiste einklappen",
 		"show_artwork": "Cover anzeigen",
-		"show_video": "Video anzeigen"
+		"show_video": "Video anzeigen",
+		"close_comments": "Kommentare schließen"
 	},
 	"lyrics": {
 		"title": "Songtext",
@@ -884,7 +954,11 @@
 			"netease": "Großer chinesischer Musikkatalog. Bietet für viele Songs chinesische Übersetzungen an.",
 			"qq": "Chinesischer Katalog mit großem Fokus auf Mandopop und Cantopop.",
 			"kugou": "Chinesischer Musikkatalog, besonders stark bei selteneren Titeln."
-		}
+		},
+		"text_size": "Textgröße",
+		"text_size_hint": "Mache den Liedtext größer oder kleiner",
+		"text_size_larger": "Größerer Text",
+		"text_size_smaller": "Kleinerer Text"
 	},
 	"queue": {
 		"title": "Warteschlange"
@@ -966,7 +1040,16 @@
 		"could_not_add": "Konnte nicht hinzugefügt werden – versuche stattdessen, den Eintrag zu öffnen",
 		"added_to_playlists": "Zu {count} Playlists hinzugefügt",
 		"added_to_playlists_dupes": "Zu {count} Playlists hinzugefügt. Übersprungene Duplikate: {dupes}",
-		"already_in_selected": "Alle Titel sind bereits in den ausgewählten Playlists vorhanden"
+		"already_in_selected": "Alle Titel sind bereits in den ausgewählten Playlists vorhanden",
+		"could_not_load_comments": "Kommentare konnten nicht geladen werden",
+		"comment_action_rejected": "YouTube hat das nicht angenommen. Deine Stimme wurde nicht geändert.",
+		"comment_action_failed": "Deine Stimme konnte nicht geändert werden. Versuche es erneut.",
+		"comment_write_rejected": "Youtube hat das nicht angenommen. Dein Text immernoch da.",
+		"comment_write_failed": "Das konnte nicht abgeschickt werden. Dein Text ist immernoch da.",
+		"comment_write_unconfirmed": "Konnte nicht bestätigen, das dein Kommentar gepostet wurde. Gehe sicher bevor du ihn erneut abschickst.",
+		"comment_posted": "Gepostet. Wird angezeigt, wenn du die Kommentare neu lädst.",
+		"comment_delete_failed": "Konnte nicht gelöscht werden. Schaue nach deiner Verbindung und versuche es erneut.",
+		"comment_gone": "Dieser Kommentar existiert nicht mehr."
 	},
 	"add_playlist": {
 		"confirm": "Zu Playlists hinzufügen",
@@ -1095,6 +1178,120 @@
 			"not_found": "Konnte auf YouTube Music nicht gefunden werden.",
 			"cooldown": "YouTube Music hat um Drosselung gebeten. Importe sind bis {time} pausiert. Bisher Gefundenes bleibt gespeichert."
 		},
-		"creating_progress": "{done} von {total} erledigt"
+		"creating_progress": "{done} von {total} erledigt",
+		"paste_link_hint": "Nur als Video auf YouTube? Füge den Link ein."
+	},
+	"stats": {
+		"title": "Hörstatistiken",
+		"ranges": {
+			"week": "7 Tage",
+			"month": "30 Tage",
+			"year": "12 Monate",
+			"all": "Von Anfang an"
+		},
+		"listened": {
+			"week": "in der letzen Woche gehört",
+			"month": "im letzten Monat gehört",
+			"year": "im letzten Jahr gehört",
+			"all": "seit {date} gehört"
+		},
+		"compared": {
+			"week": "vs. letzte Woche",
+			"month": "vs. letzten Monat",
+			"year": "vs. letztes Jahr"
+		},
+		"plays": "Wiedergaben",
+		"new_songs": "{count} neue",
+		"streak": "Tages-Streak",
+		"best_streak": "Rekord: {count}",
+		"activity": "Höraktivität",
+		"daily_average": "Täglicher Durchschnitt",
+		"monthly_average": "Monatlicher Durchschnitt",
+		"top_songs": "Lieblingslieder",
+		"top_artists": "Lieblingskünstler",
+		"top_albums": "Lieblingsalben",
+		"share": "{percent} deines Hörens",
+		"when": "Während du hörst",
+		"dayparts": {
+			"morning": "Morgens",
+			"afternoon": "Nachmittags",
+			"evening": "Abends",
+			"night": "Nachts"
+		},
+		"persona": {
+			"morning": "Früher Vogel",
+			"afternoon": "Nachmittags-Hörer",
+			"evening": "Abend-Hörer",
+			"night": "Nachteule"
+		},
+		"persona_hint": "Meistens hörst du zwischen {from} und {to}.",
+		"less": "Weniger",
+		"more": "Mehr",
+		"nothing_in_range": "In dieser Zeit nichts gehört.",
+		"empty_title": "Deine Statistik beginnt hier",
+		"empty": "Hör ein wenig und diese Seite füllt sich rasant mit dem was, wann und wie lange du hörst.",
+		"on_device": "Auf diesem Gerät, nur in Limusic gezählt. Deine Daten bleiben bei uns.",
+		"clear": "Hörverlauf löschen",
+		"clear_title": "Hörverlauf wirklich löschen?",
+		"clear_desc": "Dies löscht jede Wiedergabe, die auf diesem Gerät gezählt wurde, deine Statistik setzt sich zurück und \"Auf Dauerschleife\" setzt sich zurück. Dein YouTube Music Verlauf bleibt unberührt.",
+		"clear_confirm": "Verlauf löschen",
+		"cleared": "Hörverlauf gelöscht"
+	},
+	"comments": {
+		"title": "Kommentare",
+		"sort_top": "Oben",
+		"sort_newest": "Neuste",
+		"count": "{count} Kommentare",
+		"count_one": "Ein Kommentar",
+		"replies": "{count} Antworten",
+		"replies_one": "Eine Antwort",
+		"show_replies": "Zeige Antworten",
+		"hide_replies": "Blende Antworten aus",
+		"show_more_replies": "Zeige mehr Antworten",
+		"load_more": "Mehr laden",
+		"disabled": "Kommentare sind für diese Lied deaktiviert oder nicht verfügbar.",
+		"empty": "Bisher keine Kommentare.",
+		"load_failed": "Kommentare konnten nicht geladen werden.",
+		"retry": "Erneut versuchen",
+		"pinned": "Angeheftet",
+		"hearted": "Gefällt dem Ersteller",
+		"verified": "Verifiziert",
+		"creator": "Ersteller",
+		"artist": "Künstler",
+		"show_more": "Zeige mehr",
+		"show_less": "Zeige weniger",
+		"vote": "Deine Stimme",
+		"like": "Gefällt mir",
+		"remove_like": "Like entfernen",
+		"dislike": "Gefällt mir nicht",
+		"remove_dislike": "Dislike entfernen",
+		"reload_needed": "Die Kommentare sind nicht mehr aktuell. Lade sie neu, um weiter zu machen.",
+		"reload": "Neu laden",
+		"composer_label": "Schreibe einen Kommentar",
+		"add_placeholder": "Füge einen Kommentar hinzu...",
+		"reply_placeholder": "Füge eine Antwort hinzu...",
+		"edit_label": "Kommentar bearbeiten",
+		"reply": "Antwort",
+		"edit": "Bearbeiten",
+		"delete": "Löschen",
+		"post": "Kommentar",
+		"post_reply": "Antworten",
+		"save": "Speichern",
+		"sending": "Wird abgeschickt...",
+		"delete_title": "Diesen Kommentar löschen?",
+		"delete_desc": "Dies kann nicht rückgängig gemacht werden. Alle Antworten werden mitgelöscht.",
+		"held": "Kommentare zu {title}",
+		"follow_current": "Zeige aktuelles Lied"
+	},
+	"columns": {
+		"label": "Spalten",
+		"choose": "Wähle Spalten aus",
+		"title": "Titel",
+		"album": "Album",
+		"added": "Datum hinzugefügt",
+		"by": "Hinzugefügt von",
+		"plays": "Wiedergaben",
+		"mine": "Deine Wiedergaben",
+		"duration": "Laufzeit"
 	}
 }
