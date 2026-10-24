@@ -145,6 +145,15 @@
 		{#each nav as n (n.href)}
 			<a
 				href={n.href}
+				onclick={n.href === '/search' ? async (e) => {
+					if (!isActive('/search') || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+					e.preventDefault();
+					// Run navigation hooks to dismiss the player before focusing the search field.
+					await goto(page.url, { keepFocus: true, replaceState: true });
+					const input = document.querySelector<HTMLInputElement>('#search-form input');
+					input?.focus();
+					input?.select();
+				} : undefined}
 				title={n.label}
 				class="group relative flex items-center justify-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors {wide(
 					'lg:justify-start'
