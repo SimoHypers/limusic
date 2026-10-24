@@ -1129,6 +1129,16 @@ export function playFrom(
 }
 
 /**
+ * Whether the current queue was started from this card's playlist, so its play button can show
+ * pause and toggle instead of restarting (#528). Playlists only: an album's queue carries its
+ * `OLAK…` playlist id, not the `MPREb…` browseId its card has, so album cards never match and keep
+ * the plain play button. Reads `playback` reactively, so it is fine inside a `$derived`.
+ */
+export function isQueueSource(item: BrowseItem): boolean {
+	return !!playback.queue.sourceId && playback.queue.sourceId === item.id;
+}
+
+/**
  * "Play next" / "Add to queue" from any surface (song menus, card menus, page headers). One
  * implementation so the wording is the same everywhere. Guests get their toast from the session
  * flow instead ("Added to the session queue."), so this one stays quiet for them.

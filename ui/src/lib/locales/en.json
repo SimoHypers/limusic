@@ -960,6 +960,7 @@
 		"close_comments": "Close comments",
 		"play": "Play",
 		"play_item": "Play {title}",
+		"pause_item": "Pause {title}",
 		"play_pause": "Play/pause",
 		"previous": "Previous",
 		"next": "Next",

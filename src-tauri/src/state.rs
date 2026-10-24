@@ -1929,7 +1929,19 @@ impl AppState {
                         me.prime_lookahead(gen).await;
                     }
                 } else {
-                    tracing::info!("queue exhausted");
+                    {
+                        let mut q = me.queue.lock().await;
+                        if me.generation.load(Ordering::SeqCst) != gen {
+                            return; // user started something else while the radio fetch ran
+                        }
+                        tracing::info!("queue exhausted");
+                        // The playlist is over, so it is nobody's context any more: with it kept,
+                        // the playlist card's Play still read as "resume" and replayed the last
+                        // track instead of starting over (#528).
+                        q.source_id = None;
+                    }
+                    me.emit_queue().await;
+                    me.persist_queue().await; // or a restart restores the stale id
                     let _ = me.app.emit("playback-state", "paused");
                     // mpv goes idle without flipping its pause flag, so no Paused event will fire
                     // — tell the OS widget + Discord ourselves or they show "playing" forever

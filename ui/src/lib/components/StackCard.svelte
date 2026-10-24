@@ -7,18 +7,20 @@
 	// The sheets are full-size siblings behind an opaque cover, scaled narrower and lifted, so only
 	// their top strips are ever visible. Transform-only, so the fan composites.
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { PlayIcon, MusicNote01Icon, ListRestartIcon } from '@hugeicons/core-free-icons';
-	import { ON_REPEAT_ID } from '$lib/api';
+	import { PlayIcon, PauseIcon, MusicNote01Icon, ListRestartIcon } from '@hugeicons/core-free-icons';
+	import { ON_REPEAT_ID, togglePause } from '$lib/api';
 	import type { BrowseItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import { setDragItem } from '$lib/dnd';
 	import { openItem, playItem } from '$lib/browse';
+	import { isQueueSource, playback } from '$lib/player.svelte';
 	import PlaylistMenu from './PlaylistMenu.svelte';
 	import { t } from '$lib/i18n.svelte';
 
 	let { item }: { item: BrowseItem } = $props();
 
 	const onRepeat = $derived(item.id === ON_REPEAT_ID);
+	const active = $derived(isQueueSource(item));
 
 	let attempt = $state(0);
 	$effect(() => {
@@ -32,6 +34,10 @@
 
 	let busy = $state(false);
 	async function play() {
+		if (active) {
+			togglePause();
+			return;
+		}
 		if (busy) return;
 		busy = true;
 		try {
@@ -101,13 +107,21 @@
 					class="absolute bottom-2 right-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-lg transition-opacity duration-200 ease-out focus-visible:opacity-100 group-hover:opacity-100"
 					class:animate-pulse={busy}
 					disabled={busy}
-					aria-label={t('a11y.play_item', { title: item.title })}
+					aria-label={active && !playback.paused
+						? t('a11y.pause_item', { title: item.title })
+						: t('a11y.play_item', { title: item.title })}
 					onclick={(e) => {
 						e.stopPropagation();
 						play();
 					}}
 				>
-					<HugeiconsIcon icon={PlayIcon} class="h-4 w-4" />
+					<!-- altIcon/showAlt, not a ternary on `icon`: `icon` is read once at mount. -->
+					<HugeiconsIcon
+						icon={PauseIcon}
+						altIcon={PlayIcon}
+						showAlt={!active || playback.paused}
+						class="h-4 w-4"
+					/>
 				</button>
 			</div>
 		</div>
