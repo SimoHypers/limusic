@@ -400,6 +400,7 @@
 			: ''}"
 	>
 		<form
+			id="search-form"
 			class="relative max-w-2xl"
 			onsubmit={(e) => {
 				e.preventDefault();
