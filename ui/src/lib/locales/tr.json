@@ -154,7 +154,10 @@
 		"song": "Müzik",
 		"video": "Video",
 		"comments": "Yorumlar",
-		"up_next": "Sıradaki"
+		"up_next": "Sıradaki",
+		"fullscreen_video": "Tam ekran video",
+		"exit_fullscreen_video": "Tam ekran videodan çık",
+		"scroll_to_end": "En alta kaydır"
 	},
 	"home": {
 		"good_morning": "Günaydın",
@@ -278,7 +281,9 @@
 		"suggestions_hint": "Bu çalma listesindeki şarkılar baz alınarak oluşturulur",
 		"suggestions_failed": "Öneriler yüklenemedi.",
 		"suggestion_add": "{title} parçasını bu çalma listesine ekle",
-		"saved_in_count": "{count} çalma listesi"
+		"saved_in_count": "{count} çalma listesi",
+		"suggestions_hide": "Gizle",
+		"suggestions_show": "Göster"
 	},
 	"local": {
 		"scanning": "Klasör taranıyor...",
@@ -365,7 +370,9 @@
 			"start_minimized": "Başlangıçta sistem tepsisine başlat",
 			"start_minimized_hint": "Limusic sisteminle birlikte başladığında siz açana kadar tepside kalır. Kendiniz açtığınızda ise pencere her zaman gösterilir.",
 			"track_notifications_focused": "Ayrıca Limusic'i kullanırken bildirimler",
-			"track_notifications_focused_hint": "Ayrıca, Limusic penceresi aktifken bir sonraki şarkı kendiliğinden başladığında bir bildirim göster. Kendi seçtiğin şarkılarda ise böyle bir bildirim gösterilmez."
+			"track_notifications_focused_hint": "Ayrıca, Limusic penceresi aktifken bir sonraki şarkı kendiliğinden başladığında bir bildirim göster. Kendi seçtiğin şarkılarda ise böyle bir bildirim gösterilmez.",
+			"play_on_start": "Açılışta çalmaya devam et",
+			"play_on_start_hint": "Limusic açıldığında son kuyruğunuzu otomatik olarak oynatır."
 		},
 		"themes": {
 			"interface_font": "Arayüz yazı tipi",
