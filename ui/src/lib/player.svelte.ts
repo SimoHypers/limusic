@@ -181,6 +181,7 @@ let libraryGeneration = 0;
 
 function resetLibraryForAccount() {
 	libraryGeneration++;
+	takesSongs.clear();
 	library.items = [];
 	savedIn.map = {};
 	library.loaded = false;
@@ -735,6 +736,60 @@ export function ownedByUser(item: BrowseItem): boolean {
 	// The library's own row wins: a card from a home shelf carries a different subtitle.
 	const row = library.items.find((i) => i.id === item.id) ?? item;
 	return (row.subtitle ?? '').split('\u2022')[0].trim() === me;
+}
+
+/**
+ * A library playlist songs can go into without asking: one on this machine, or the account's own
+ * by `ownedByUser`. On Repeat and Liked Music never take them (On Repeat is built from play counts,
+ * Liked Music takes likes).
+ */
+export function playlistTakesSongs(item: BrowseItem): boolean {
+	if (item.id === api.ON_REPEAT_ID || item.id === api.LIKED_MUSIC_ID) return false;
+	return api.isLocalPlaylist(item.id) || ownedByUser(item);
+}
+
+// Playlist id → whether its own page lets songs in. Kept for the session, cleared with the account.
+const takesSongs = new Map<string, Promise<boolean>>();
+const takesSongsQueue: (() => void)[] = [];
+let takesSongsAsking = 0;
+
+function nextTakesSongs() {
+	while (takesSongsAsking < 2 && takesSongsQueue.length) {
+		takesSongsAsking++;
+		takesSongsQueue.shift()!();
+	}
+}
+
+/**
+ * For a playlist `playlistTakesSongs` can't vouch for (saved from someone else, or one you were
+ * added to): what its page says. `owned` is the edit header, and `collaborative` covers both a
+ * playlist you contribute to and one you own with collaboration on, which has no edit header. One
+ * saved from someone else is in the library all the same, but YouTube refuses the add. Two pages
+ * at a time, so a library of saved playlists doesn't land on YouTube at once; a failed answer is
+ * forgotten, to be asked again next time.
+ */
+export function askPlaylistTakesSongs(item: BrowseItem): Promise<boolean> {
+	let answer = takesSongs.get(item.id);
+	if (!answer) {
+		answer = new Promise<boolean>((resolve) => {
+			takesSongsQueue.push(() => {
+				api
+					.getPlaylist(item.id)
+					.then((page) => resolve(page.owned || page.collaborative))
+					.catch(() => {
+						takesSongs.delete(item.id);
+						resolve(false);
+					})
+					.finally(() => {
+						takesSongsAsking--;
+						nextTakesSongs();
+					});
+			});
+			nextTakesSongs();
+		});
+		takesSongs.set(item.id, answer);
+	}
+	return answer;
 }
 
 /**

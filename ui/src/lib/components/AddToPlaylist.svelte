@@ -16,10 +16,20 @@
 	import type { BrowseItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
-	import { ui, toast, addSongsToPlaylists, openNewPlaylist, savedIn } from '$lib/player.svelte';
+	import {
+		ui,
+		toast,
+		addSongsToPlaylists,
+		askPlaylistTakesSongs,
+		openNewPlaylist,
+		playlistTakesSongs,
+		savedIn
+	} from '$lib/player.svelte';
 	import { Button } from '$lib/components/ui/button';
 
 	let playlists = $state<BrowseItem[]>([]);
+	// Which opening of the picker the playlist checks still in the air belong to.
+	let opens = 0;
 	let loading = $state(false);
 	let filter = $state('');
 	let selectedIds = $state<string[]>([]);
@@ -82,12 +92,24 @@
 					toast.error(String(e));
 					return api.getLocalPlaylists();
 				})
-				.then(
-					(p) =>
-						(playlists = p.filter(
-							(i) => i.id !== api.ON_REPEAT_ID && i.id !== api.LIKED_MUSIC_ID
-						))
-				)
+				// Only playlists that take songs: this machine's and your own at once, and any other
+				// (saved from someone else, or one you were added to) once its page says it does, in
+				// library order. A saved one is in the library too, but YouTube won't add to it.
+				.then((p) => {
+					const open = ++opens;
+					const all = p.filter((i) => i.id !== api.ON_REPEAT_ID && i.id !== api.LIKED_MUSIC_ID);
+					const ok = new Set(all.filter(playlistTakesSongs).map((i) => i.id));
+					const show = () => (playlists = all.filter((i) => ok.has(i.id)));
+					show();
+					for (const i of all) {
+						if (ok.has(i.id)) continue;
+						askPlaylistTakesSongs(i).then((yes) => {
+							if (!yes || open !== opens) return;
+							ok.add(i.id);
+							show();
+						});
+					}
+				})
 				.catch((e) => toast.error(String(e)))
 				.finally(() => (loading = false));
 		}
