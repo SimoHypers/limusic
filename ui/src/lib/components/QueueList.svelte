@@ -22,7 +22,7 @@
 	import { blockWindows, fullWindow, type RowWindow } from '$lib/rows';
 	import { rowScroller } from '$lib/rows.svelte';
 	import { dragScroll, QUEUE_ROW_MIME } from '$lib/dnd';
-	import { playback, prefs, setAutoplay, openAddToPlaylist } from '$lib/player.svelte';
+	import { playback, prefs, setAutoplay, openAddToPlaylist, removeQueueTrack } from '$lib/player.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import { appearance } from '$lib/theme.svelte';
 	import { currentLocale, t } from '$lib/i18n.svelte';
@@ -289,7 +289,7 @@
 					onplay={() => play(i)}
 					onAdd={() => openAddToPlaylist(item)}
 					onRemove={canEdit && i !== playback.queue.currentIndex
-						? () => api.removeFromQueue(i)
+						? () => removeQueueTrack(i)
 						: undefined}
 					removeLabel={t('player.remove_from_queue')}
 					playlistId={playback.queue.sourceId}

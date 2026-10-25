@@ -1,4 +1,10 @@
 {
+	"undo": {
+		"action": "Undo",
+		"removed_from_queue": "Removed from queue",
+		"restored": "Restored",
+		"account_changed": "The account changed. This removal cannot be undone here."
+	},
 	"selection": {
 		"actions": "Selected track actions",
 		"count": "{count} selected",

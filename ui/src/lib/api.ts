@@ -381,6 +381,9 @@ export const playIndex = (index: number) => invoke<void>('play_index', { index }
 export const switchVersion = () => invoke<void>('switch_version');
 /** Remove an upcoming track from the queue (host/local only — guests are add-only). */
 export const removeFromQueue = (index: number) => invoke<void>('remove_from_queue', { index });
+export interface RemovedQueueTrack { epoch: number; index: number; item: SongItem; before: SongItem | null; shuffle_index: number | null }
+export const takeFromQueue = (index: number) => invoke<RemovedQueueTrack | null>('take_from_queue', { index });
+export const restoreQueueTrack = (removed: RemovedQueueTrack) => invoke<void>('restore_queue_track', { removed });
 /** Drag-to-reorder: move the upcoming queue item at `from` to index `to` (both past the playing
  * track — the history and the playing row don't move). */
 export const moveInQueue = (from: number, to: number) =>
@@ -913,6 +916,8 @@ export const addToPlaylist = (playlistId: string, videoId: string, allowDuplicat
 	invoke<boolean>('add_to_playlist', { playlistId, videoId, allowDuplicates });
 export const removeFromPlaylist = (playlistId: string, videoId: string, setVideoId: string) =>
 	invoke<void>('remove_from_playlist', { playlistId, videoId, setVideoId });
+export const restorePlaylistTrack = (playlistId: string, song: SongItem, beforeSetVideoId: string | null) =>
+	invoke<[SongItem, string | null]>('restore_playlist_track', { playlistId, song, beforeSetVideoId });
 
 /** Bulk removal: one request, all or nothing. `tracks` is [videoId, setVideoId] per row. */
 export const removeManyFromPlaylist = (playlistId: string, tracks: [string, string][]) =>

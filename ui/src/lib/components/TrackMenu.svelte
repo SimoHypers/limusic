@@ -34,18 +34,16 @@
 	import {
 		addPick,
 		blockArtist,
-		bumpLibraryTrackCount,
 		enqueue,
 		inSongLibrary,
 		songLibraryToken,
 		openShare,
-		notePlaylistRemove,
-		noteUnsavedFrom,
 		personal,
 		playback,
 		prefs,
 		ratingOf,
 		removePick,
+		removePlaylistTrack,
 		savedIn,
 		toast,
 		startRadio,
@@ -57,7 +55,6 @@
 	import { listenbrainz } from '$lib/listenbrainz.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import { t } from '$lib/i18n.svelte';
-	import { invalidateCachedPrefix } from '$lib/pagecache';
 
 	let {
 		song,
@@ -68,7 +65,8 @@
 		playlistId,
 		queueIndex,
 		linksOnly = false,
-		inLibraryList = false
+		inLibraryList = false,
+		inLikedList = false
 	}: {
 		song: SongItem;
 		/** Classes for the ⋯ trigger button (positioning differs per host: inline vs overlay). */
@@ -77,6 +75,7 @@
 		onAdd?: () => void;
 		/** Adds a remove menu item (label via `removeLabel`). */
 		onRemove?: () => void;
+		inLikedList?: boolean;
 		removeLabel?: string;
 		/**
 		 * The playlist this row is *playing from* (the queue's `sourceId`), which gets the row its
@@ -170,20 +169,11 @@
 		if (!playlistId || !song.set_video_id) return;
 		const setVideoId = song.set_video_id;
 		try {
-			await api.removeFromPlaylist(playlistId, song.video_id, setVideoId);
+			await removePlaylistTrack(playlistId, song);
 		} catch (e) {
 			toast.error(String(e));
 			return; // nothing below happens on a failed write: the row is still in the playlist
 		}
-		bumpLibraryTrackCount(playlistId, -1);
-		noteUnsavedFrom(playlistId, song.video_id);
-		// An open page for this playlist drops the row now; the cache drop covers every other one,
-		// which has no rendered list to patch.
-		notePlaylistRemove(playlistId, setVideoId);
-		// Every order the page cached this playlist in, not just the bare key: a sort the user
-		// picked earlier still holds the row, and the playlist page serves that hit as it is.
-		invalidateCachedPrefix(`playlist:${playlistId}`);
-		toast.success(t('toasts.removed_from_playlist'));
 		// The song is out of the playlist, so it does not stay in the queue that playlist filled.
 		// The playing row can't just be dropped (`remove_from_queue` refuses the current index, and
 		// the user would keep listening to a track they just threw out), so skip past it first:
@@ -271,13 +261,13 @@
 				class="w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10 {linksOnly
 					? 'flex lg:hidden'
 					: 'flex'}"
-				onclick={(e) => run(e, () => toggleRating(song, 'like'))}
+				onclick={(e) => run(e, inLikedList ? onRemove : () => toggleRating(song, 'like'))}
 			>
 				<HugeiconsIcon
 					icon={ThumbsUpIcon}
 					class="h-4 w-4 {rated === 'like' ? 'fill-current text-primary' : ''}"
 				/>
-				{rated === 'like' ? t('player.remove_from_liked') : t('player.save_to_liked')}
+				{inLikedList || rated === 'like' ? t('player.remove_from_liked') : t('player.save_to_liked')}
 			</button>
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
@@ -410,7 +400,7 @@
 				<HugeiconsIcon icon={PlayListAddIcon} class="h-4 w-4" /> {t('player.save_to_playlist')}
 			</button>
 		{/if}
-		{#if onRemove}
+		{#if onRemove && !inLikedList}
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10"
 				onclick={(e) => run(e, onRemove)}

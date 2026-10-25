@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { untrack, tick } from 'svelte';
+	import { untrack, tick, onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { MediaQuery } from 'svelte/reactivity';
@@ -93,6 +93,8 @@
 		forgetPlaylist,
 		lastPlaylistAdd,
 		lastPlaylistRemove,
+		removePlaylistTrack,
+		offerUndo,
 		refreshLocalPlaylists
 	} from '$lib/player.svelte';
 
@@ -103,6 +105,8 @@
 	// here because every write below reassigns the whole object (`pl = { ...pl, … }`); nothing
 	// mutates `pl` in place. Keep it that way, or the page stops updating.
 	let pl = $state.raw<PlaylistPage | null>(null);
+	let active = true;
+	onDestroy(() => { active = false; });
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let loadingMore = $state(false);
@@ -605,8 +609,19 @@
 		// Stamped now, as the playlist itself stamps it, so Date added fills in at once. A song
 		// picked off another playlist would otherwise bring that one's date along.
 		const added_at = Math.floor(Date.now() / 1000);
-		const songs = lastPlaylistAdd.songs.map((s) => ({ ...s, added_at }));
-		pl = { ...pl, items: [...pl.items, ...songs] };
+		const songs = lastPlaylistAdd.songs
+			.filter((s) => !s.set_video_id || !pl!.items.some((row) => row.set_video_id === s.set_video_id))
+			.map((s) => ({ ...s, added_at }));
+		if (!songs.length) return;
+		const items = [...pl.items];
+		const before = lastPlaylistAdd.before;
+		if (before !== undefined && sort !== 'default' && sort !== 'plays') {
+			untrack(() => fetchSorted(id));
+			return;
+		}
+		const index = before ? items.findIndex((s) => s.set_video_id === before) : -1;
+		items.splice(index < 0 ? items.length : index, 0, ...songs);
+		pl = { ...pl, items };
 		cacheCurrent();
 		fillSetVideoIds();
 	});
@@ -1050,6 +1065,8 @@
 	async function removeTrack(track: SongItem) {
 		if (!pl) return;
 		if (!isLiked && !track.set_video_id) return;
+		const pid = id;
+		const epoch = auth.epoch;
 		const prev = pl.items;
 		// Reassign `pl` (not mutate `pl.items`) so the list re-renders immediately. Match by the
 		// per-instance setVideoId on normal playlists (duplicates), by videoId on liked music.
@@ -1063,15 +1080,39 @@
 				// is spelled as a removal, and the override, the player bar and the index all have
 				// to follow it.
 				await setRating(track, 'indifferent');
-				toast.success(t('toasts.removed_from_liked'));
+				if (epoch !== auth.epoch) return;
+				offerUndo(t('toasts.removed_from_liked'), async () => {
+					if (epoch !== auth.epoch) throw new Error(t('undo.account_changed'));
+					await setRating(track, 'like');
+					if (epoch !== auth.epoch) throw new Error(t('undo.account_changed'));
+					invalidateCachedPrefix(`playlist:${pid}`);
+					if (pid !== id || epoch !== auth.epoch || !pl) return;
+					const items = [...pl.items];
+					if (!items.some((s) => s.video_id === track.video_id)) {
+						items.splice(Math.min(prev.indexOf(track), items.length), 0, track);
+						pl = { ...pl, items };
+						cacheCurrent();
+					}
+				});
 			} else {
-				await api.removeFromPlaylist(id, track.video_id, track.set_video_id!);
-				bumpLibraryTrackCount(id, -1);
-				noteUnsavedFrom(id, track.video_id);
-				toast.success(t('toasts.removed_from_playlist'));
+				const index = prev.indexOf(track);
+				const before = sort === 'default' || sort === 'plays'
+					? prev[index + 1]?.set_video_id ?? (pl.continuation ? undefined : null)
+					: undefined;
+				await removePlaylistTrack(pid, track, before, (restored) => {
+					if (!active || pid !== id || !pl) return;
+					const items = pl.items.filter((row) => row.set_video_id !== restored.set_video_id);
+					items.splice(Math.min(index, items.length), 0, {
+						...restored, added_at: Math.floor(Date.now() / 1000)
+					});
+					pl = { ...pl, items };
+					cacheCurrent();
+				});
 			}
+			if (pid !== id || epoch !== auth.epoch) return;
 			cacheAfterRemoval();
 		} catch (e) {
+			if (pid !== id || epoch !== auth.epoch) return;
 			pl = { ...pl, items: prev }; // revert
 			cacheCurrent();
 			toast.error(String(e));
@@ -1372,6 +1413,7 @@
 									{/if}
 									<TrackRow
 										song={item}
+										inLikedList={isLiked}
 										{selection}
 										selectionKey={selection.visibleKeys[n]}
 										index={n}

@@ -361,6 +361,15 @@ struct QueueState {
     epoch: u64,
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct RemovedQueueTrack {
+    epoch: u64,
+    index: usize,
+    item: SongItem,
+    before: Option<SongItem>,
+    shuffle_index: Option<usize>,
+}
+
 /// What was playing before a click replaced the whole queue, so Previous can go back to it.
 ///
 /// Clicking a song outside the queue (a search result, a card) throws the queue away and starts a
@@ -383,6 +392,33 @@ struct PrevContext {
 }
 
 impl QueueState {
+    fn restore_removed(&mut self, removed: RemovedQueueTrack) -> Result<(), String> {
+        if self.epoch != removed.epoch {
+            return Err("The queue has changed. This song cannot be restored to it.".into());
+        }
+        let index = removed
+            .before
+            .as_ref()
+            .and_then(|before| {
+                self.items
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, item)| *item == before)
+                    .min_by_key(|(i, _)| i.abs_diff(removed.index))
+                    .map(|(i, _)| i)
+            })
+            .unwrap_or(removed.index.min(self.items.len()));
+        if let Some(original) = &mut self.shuffle_orig {
+            let position = removed.shuffle_index.unwrap_or(index).min(original.len());
+            original.insert(position, removed.item.clone());
+        }
+        self.items.insert(index, removed.item);
+        if index <= self.current {
+            self.current += 1;
+        }
+        Ok(())
+    }
+
     /// Move the play pointer within the same queue.
     fn seek_to(&mut self, index: usize) {
         self.current = index;
@@ -4016,19 +4052,42 @@ impl AppState {
     /// editing outside a session). The currently playing index can't be removed; guests can't
     /// remove anything (add-only).
     pub async fn remove_from_queue(self: &std::sync::Arc<Self>, index: usize) {
+        let _ = self.take_from_queue(index).await;
+    }
+
+    pub async fn take_from_queue(
+        self: &std::sync::Arc<Self>,
+        index: usize,
+    ) -> Option<RemovedQueueTrack> {
         if self.lt.is_guest().await {
-            return;
+            return None;
         }
-        let stale_lookahead = {
+        let (removed, stale_lookahead) = {
             let mut q = self.queue.lock().await;
             if index >= q.items.len() || index == q.current {
-                return;
+                return None;
             }
-            q.items.remove(index);
+            let mut removed = RemovedQueueTrack {
+                epoch: q.epoch,
+                index,
+                item: q.items.remove(index),
+                before: q.items.get(index).cloned(),
+                shuffle_index: None,
+            };
+            if let Some(original) = &mut q.shuffle_orig {
+                if let Some(i) = original
+                    .iter()
+                    .position(|s| s == &removed.item)
+                    .or_else(|| original.iter().position(|s| s.video_id == removed.item.video_id))
+                {
+                    original.remove(i);
+                    removed.shuffle_index = Some(i);
+                }
+            }
             if index < q.current {
                 q.current -= 1;
             }
-            match q.lookahead_loaded {
+            let stale = match q.lookahead_loaded {
                 // mpv holds the removed song as the gapless next — drop it. (Compared against the
                 // recorded index, not `current + 1`, so a primed repeat-all wrap target is caught.)
                 Some(i) if i == index => {
@@ -4042,7 +4101,8 @@ impl AppState {
                     false
                 }
                 _ => false,
-            }
+            };
+            (removed, stale)
         };
         self.emit_queue().await;
         self.persist_queue().await;
@@ -4050,6 +4110,28 @@ impl AppState {
             self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
         }
         self.lt_broadcast_queue().await;
+        Some(removed)
+    }
+
+    pub async fn restore_queue_track(
+        self: &Arc<Self>,
+        removed: RemovedQueueTrack,
+    ) -> Result<(), String> {
+        if self.lt.is_guest().await {
+            return Err("Guests cannot edit the queue.".into());
+        }
+        {
+            let mut q = self.queue.lock().await;
+            q.restore_removed(removed)?;
+            // Re-prime against the restored order; keep the track currently playing untouched.
+            q.lookahead_loaded = None;
+            let _ = self.player.clear_playlist();
+        }
+        self.emit_queue().await;
+        self.persist_queue().await;
+        self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
+        self.lt_broadcast_queue().await;
+        Ok(())
     }
 
     /// Drop a freshly blocked artist out of the live queue, and skip off them if they are what is
@@ -4926,6 +5008,55 @@ mod tests {
         trim_played, twin_position, unshuffled, upcoming_queued, QueueState, RepeatMode, VideoUrls,
         KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
     };
+
+    #[test]
+    fn undo_queue_removal_preserves_playing_track_and_shuffle_order() {
+        let a = song("a", None);
+        let b = song("b", Some("guest"));
+        let c = song("c", None);
+        let mut q = QueueState {
+            items: vec![a.clone(), c.clone()],
+            current: 1,
+            shuffle_orig: Some(vec![a.clone(), c.clone()]),
+            epoch: 7,
+            ..Default::default()
+        };
+        let removed = super::RemovedQueueTrack {
+            epoch: 7,
+            index: 1,
+            item: b.clone(),
+            before: Some(c.clone()),
+            shuffle_index: Some(1),
+        };
+        q.restore_removed(removed.clone()).unwrap();
+        assert_eq!(q.items, [a.clone(), b.clone(), c.clone()]);
+        assert_eq!(q.items[q.current], c);
+        assert_eq!(q.shuffle_orig.as_ref().unwrap(), &[a, b, c]);
+        q.epoch += 1;
+        assert!(q.restore_removed(removed).is_err());
+        assert_eq!(q.items.len(), 3, "an old undo cannot insert into a replacement queue");
+    }
+
+    #[test]
+    fn undo_queue_removal_follows_its_successor_after_other_edits() {
+        let mut q = QueueState {
+            items: vec![song("a", None), song("new", None), song("c", None)],
+            ..Default::default()
+        };
+        q.restore_removed(super::RemovedQueueTrack {
+            epoch: 0,
+            index: 1,
+            item: song("b", None),
+            before: Some(song("c", None)),
+            shuffle_index: None,
+        })
+        .unwrap();
+        assert_eq!(
+            q.items.iter().map(|s| s.video_id.as_str()).collect::<Vec<_>>(),
+            ["a", "new", "b", "c"]
+        );
+        assert_eq!(q.current, 0);
+    }
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
     /// entry has to hit and a stale one has to miss. Getting the second one wrong hands the proxy a
