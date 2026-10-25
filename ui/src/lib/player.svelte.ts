@@ -739,9 +739,9 @@ export function ownedByUser(item: BrowseItem): boolean {
 }
 
 /**
- * A library playlist songs can go into without asking: one on this machine, or the account's own
- * by `ownedByUser`. On Repeat and Liked Music never take them (On Repeat is built from play counts,
- * Liked Music takes likes).
+ * Whether a library playlist accepts songs without a network check: a local playlist, or one
+ * `ownedByUser` says belongs to the signed-in account. On Repeat and Liked Music never do (On
+ * Repeat is built from play counts, Liked Music takes likes).
  */
 export function playlistTakesSongs(item: BrowseItem): boolean {
 	if (item.id === api.ON_REPEAT_ID || item.id === api.LIKED_MUSIC_ID) return false;
@@ -761,12 +761,12 @@ function nextTakesSongs() {
 }
 
 /**
- * For a playlist `playlistTakesSongs` can't vouch for (saved from someone else, or one you were
- * added to): what its page says. `owned` is the edit header, and `collaborative` covers both a
- * playlist you contribute to and one you own with collaboration on, which has no edit header. One
- * saved from someone else is in the library all the same, but YouTube refuses the add. Two pages
- * at a time, so a library of saved playlists doesn't land on YouTube at once; a failed answer is
- * forgotten, to be asked again next time.
+ * Whether a playlist that `playlistTakesSongs` doesn't accept (saved from someone else, or shared
+ * with the user) accepts songs, from its own page: `owned` (the edit header) or `collaborative`.
+ * `collaborative` also covers the user's own playlist with collaboration on, which has no edit
+ * header. A playlist saved from someone else is in the library too, but YouTube refuses the add.
+ * At most two pages load at a time, so a library of saved playlists doesn't hit YouTube at once;
+ * a failed check is forgotten and tried again next time.
  */
 export function askPlaylistTakesSongs(item: BrowseItem): Promise<boolean> {
 	let answer = takesSongs.get(item.id);

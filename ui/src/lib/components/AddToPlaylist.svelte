@@ -92,9 +92,10 @@
 					toast.error(String(e));
 					return api.getLocalPlaylists();
 				})
-				// Only playlists that take songs: this machine's and your own at once, and any other
-				// (saved from someone else, or one you were added to) once its page says it does, in
-				// library order. A saved one is in the library too, but YouTube won't add to it.
+				// Only playlists that accept songs: local ones and the user's own straight away, and any
+				// other (saved from someone else, or shared with the user) once its page says it does,
+				// in library order. A playlist saved from someone else is in the library too, but
+				// YouTube won't add to it.
 				.then((p) => {
 					const open = ++opens;
 					const all = p.filter((i) => i.id !== api.ON_REPEAT_ID && i.id !== api.LIKED_MUSIC_ID);
