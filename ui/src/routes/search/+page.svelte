@@ -176,8 +176,10 @@
 		}
 		const c = page.url.searchParams.get('cat');
 		setCat(CATS.includes(c as Cat) ? c as Cat : 'all');
-		query = q;
-		if (latest !== q) runSearch();
+		if (latest !== q) {
+			query = q;
+			runSearch();
+		}
 	});
 
 	// --- Albums / Artists / Playlists tabs: a filtered search of their own, fetched on open ----------
