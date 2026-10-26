@@ -927,10 +927,12 @@ impl AppState {
     }
 
     /// The playlist membership index belongs to one account, so a sign-out or a channel switch
-    /// empties it. Its timestamp goes too, or the next sync would think it was still fresh.
+    /// empties it, and the list of playlists that refuse songs with it. Its timestamp goes too, or
+    /// the next sync would think it was still fresh.
     fn forget_playlist_index(&self) {
         self.db.clear_playlist_index();
-        self.db.delete_setting("playlist_index_synced_at");
+        self.db.delete_setting(crate::commands::READ_ONLY_PLAYLISTS);
+        self.db.delete_setting(crate::commands::PLAYLIST_INDEX_SYNCED_AT);
     }
 
     fn restore_auth_transport(&self, cookie: Option<String>, data_sync_id: Option<String>) {

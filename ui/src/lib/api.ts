@@ -759,6 +759,11 @@ export const playlistIndex = () => invoke<Record<string, string[]>>('playlist_in
  */
 export const syncPlaylistIndex = () => invoke<Record<string, string[]>>('sync_playlist_index');
 /**
+ * Library playlists that won't take songs (saved from someone else), as of the last
+ * `syncPlaylistIndex` crawl. Empty until that has run once.
+ */
+export const readOnlyPlaylists = () => invoke<string[]>('read_only_playlists');
+/**
  * videoId → times played, from the local listening history, over the trailing window On Repeat uses
  * (a month). A videoId that isn't in the map has not been played inside the window.
  */

@@ -16,20 +16,10 @@
 	import type { BrowseItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
-	import {
-		ui,
-		toast,
-		addSongsToPlaylists,
-		askPlaylistTakesSongs,
-		openNewPlaylist,
-		playlistTakesSongs,
-		savedIn
-	} from '$lib/player.svelte';
+	import { ui, toast, addSongsToPlaylists, openNewPlaylist, savedIn } from '$lib/player.svelte';
 	import { Button } from '$lib/components/ui/button';
 
 	let playlists = $state<BrowseItem[]>([]);
-	// Which opening of the picker the playlist checks still in the air belong to.
-	let opens = 0;
 	let loading = $state(false);
 	let filter = $state('');
 	let selectedIds = $state<string[]>([]);
@@ -78,39 +68,32 @@
 	// Fetch the library playlists fresh each time the picker opens (cheap; picks up new playlists).
 	// On Repeat and Liked Music are dropped: On Repeat is built from local play counts, and Liked
 	// Music takes likes rather than playlist edits (YouTube 400s the add). The command boundary
-	// refuses both too, but a target you can tap and can't use is the bug. When the account's half
-	// can't be fetched, the playlists on this machine still can: they need no network.
+	// refuses both too, but a target you can tap and can't use is the bug. So are playlists saved
+	// from someone else (#546): the membership crawl already opens each one and notes those, and a
+	// playlist it hasn't seen yet still shows. When the account's half can't be fetched, the
+	// playlists on this machine still can: they need no network.
 	$effect(() => {
 		if (ui.addSongs) {
 			loading = true;
 			filter = '';
 			selectedIds = [];
 			step = 'pick';
-			api
-				.getLibrary()
-				.catch((e) => {
+			Promise.all([
+				api.getLibrary().catch((e) => {
 					toast.error(String(e));
 					return api.getLocalPlaylists();
-				})
-				// Only playlists that accept songs: local ones and the user's own straight away, and any
-				// other (saved from someone else, or shared with the user) once its page says it does,
-				// in library order. A playlist saved from someone else is in the library too, but
-				// YouTube won't add to it.
-				.then((p) => {
-					const open = ++opens;
-					const all = p.filter((i) => i.id !== api.ON_REPEAT_ID && i.id !== api.LIKED_MUSIC_ID);
-					const ok = new Set(all.filter(playlistTakesSongs).map((i) => i.id));
-					const show = () => (playlists = all.filter((i) => ok.has(i.id)));
-					show();
-					for (const i of all) {
-						if (ok.has(i.id)) continue;
-						askPlaylistTakesSongs(i).then((yes) => {
-							if (!yes || open !== opens) return;
-							ok.add(i.id);
-							show();
-						});
-					}
-				})
+				}),
+				api.readOnlyPlaylists().catch(() => [] as string[])
+			])
+				.then(
+					([p, readOnly]) =>
+						(playlists = p.filter(
+							(i) =>
+								i.id !== api.ON_REPEAT_ID &&
+								i.id !== api.LIKED_MUSIC_ID &&
+								!readOnly.includes(i.id)
+						))
+				)
 				.catch((e) => toast.error(String(e)))
 				.finally(() => (loading = false));
 		}

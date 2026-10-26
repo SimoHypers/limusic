@@ -181,7 +181,6 @@ let libraryGeneration = 0;
 
 function resetLibraryForAccount() {
 	libraryGeneration++;
-	takesSongs.clear();
 	library.items = [];
 	savedIn.map = {};
 	library.loaded = false;
@@ -736,60 +735,6 @@ export function ownedByUser(item: BrowseItem): boolean {
 	// The library's own row wins: a card from a home shelf carries a different subtitle.
 	const row = library.items.find((i) => i.id === item.id) ?? item;
 	return (row.subtitle ?? '').split('\u2022')[0].trim() === me;
-}
-
-/**
- * Whether a library playlist accepts songs without a network check: a local playlist, or one
- * `ownedByUser` says belongs to the signed-in account. On Repeat and Liked Music never do (On
- * Repeat is built from play counts, Liked Music takes likes).
- */
-export function playlistTakesSongs(item: BrowseItem): boolean {
-	if (item.id === api.ON_REPEAT_ID || item.id === api.LIKED_MUSIC_ID) return false;
-	return api.isLocalPlaylist(item.id) || ownedByUser(item);
-}
-
-// Playlist id → whether its own page lets songs in. Kept for the session, cleared with the account.
-const takesSongs = new Map<string, Promise<boolean>>();
-const takesSongsQueue: (() => void)[] = [];
-let takesSongsAsking = 0;
-
-function nextTakesSongs() {
-	while (takesSongsAsking < 2 && takesSongsQueue.length) {
-		takesSongsAsking++;
-		takesSongsQueue.shift()!();
-	}
-}
-
-/**
- * Whether a playlist that `playlistTakesSongs` doesn't accept (saved from someone else, or shared
- * with the user) accepts songs, from its own page: `owned` (the edit header) or `collaborative`.
- * `collaborative` also covers the user's own playlist with collaboration on, which has no edit
- * header. A playlist saved from someone else is in the library too, but YouTube refuses the add.
- * At most two pages load at a time, so a library of saved playlists doesn't hit YouTube at once;
- * a failed check is forgotten and tried again next time.
- */
-export function askPlaylistTakesSongs(item: BrowseItem): Promise<boolean> {
-	let answer = takesSongs.get(item.id);
-	if (!answer) {
-		answer = new Promise<boolean>((resolve) => {
-			takesSongsQueue.push(() => {
-				api
-					.getPlaylist(item.id)
-					.then((page) => resolve(page.owned || page.collaborative))
-					.catch(() => {
-						takesSongs.delete(item.id);
-						resolve(false);
-					})
-					.finally(() => {
-						takesSongsAsking--;
-						nextTakesSongs();
-					});
-			});
-			nextTakesSongs();
-		});
-		takesSongs.set(item.id, answer);
-	}
-	return answer;
 }
 
 /**
