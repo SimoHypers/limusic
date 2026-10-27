@@ -156,7 +156,10 @@
 		"up_next": "A continuación",
 		"fullscreen_video": "Pantalla completa",
 		"exit_fullscreen_video": "Salir de pantalla completa",
-		"scroll_to_end": "Desplazar hasta el final"
+		"scroll_to_end": "Desplazar hasta el final",
+		"skip_back": "Retroceder {seconds} segundos",
+		"skip_forward": "Avanzar {seconds} segundos",
+		"speed": "Velocidad de reproducción"
 	},
 	"home": {
 		"good_morning": "Buenos días",
@@ -430,7 +433,9 @@
 			"classic_player": "Diseño clásico del reproductor",
 			"classic_player_hint": "El diseño original del reproductor: La carátula sola sobre una copia desenfocada de la misma, con los detalles de la canción a la izquierda del barra de reproducción. Desactivado usa el nuevo diseño, con el título, artista y álbum debajo de la carátula e iluminado con los colores de esta.",
 			"now_playing_pill": "Botón de reproduciendo ahora",
-			"now_playing_pill_hint": "Muestra un botón para volver a la canción en reproducción cuando queda fuera de la vista al desplazarte, en una playlist o en la cola."
+			"now_playing_pill_hint": "Muestra un botón para volver a la canción en reproducción cuando queda fuera de la vista al desplazarte, en una playlist o en la cola.",
+			"empty_click_player": "Haz clic en un espacio vacío para abrir o cerrar el reproductor",
+			"empty_click_player_hint": "Activado, al hacer clic en una zona vacía de la barra del reproductor se abre o se cierra la vista del reproductor, y al hacer clic alrededor de la carátula se cierra. Desactivado, solo lo hacen los botones de flecha, Esc y el atajo de teclado."
 		},
 		"playback": {
 			"audio_quality": "Calidad de audio",
@@ -744,10 +749,72 @@
 			"quit_app": "Salir de Limusic"
 		},
 		"tempo_pitch": {
-			"title": "Controles de tempo y tono",
+			"title": "Tempo, tono y reverberación",
 			"desc": "Se aplica a todo lo que reproduzcas, hasta que lo cambies o reinicies la aplicación.",
-			"tempo": "Tempo (velocidad)",
-			"pitch": "Tono (afinación)"
+			"tempo": "Tempo",
+			"pitch": "Tono",
+			"presets": "Preajustes",
+			"builtin": {
+				"original": "Original",
+				"slowed": "Slowed + reverb",
+				"nightcore": "Nightcore",
+				"practice": "Práctica",
+				"hall": "Sala de conciertos"
+			},
+			"builtin_hints": {
+				"original": "Tal como fue lanzada",
+				"slowed": "Más lenta y grave, en una sala grande",
+				"nightcore": "Más rápida y aguda, con un toque de reverberación",
+				"practice": "Más lenta, en la misma tonalidad",
+				"hall": "Como si sonara en vivo"
+			},
+			"preset_save": "Guardar como preajuste",
+			"preset_save_hint": "Conserva lo que oyes ahora para más tarde",
+			"preset_save_none": "Primero cambia algo de lo de abajo",
+			"preset_name": "Nombre del preajuste",
+			"preset_replace": "Reemplazar",
+			"preset_delete": "Eliminar {name}",
+			"preset_duplicate": "Ya tienes un preajuste con este nombre. Al guardar, se reemplaza.",
+			"preset_save_error": "No se pudieron guardar tus preajustes. Inténtalo de nuevo; tus preajustes guardados no han cambiado.",
+			"preset_load_error": "No se pudieron leer tus preajustes guardados. El guardado está desactivado para protegerlos.",
+			"preset_room_hint": "En una sala de escucha, los preajustes solo aplican el tono y la reverberación. El tempo guardado se conserva para la escucha en solitario.",
+			"adjust": "Ajustar",
+			"normal": "Normal",
+			"pitch_short": "tono {n}",
+			"slower": "Más lento",
+			"faster": "Más rápido",
+			"lower": "Más grave",
+			"higher": "Más agudo",
+			"song_length": "Esta canción dura {time}",
+			"tempo_room_locked": "El tempo se mantiene normal en una sala de escucha, para que todos oigan el mismo momento.",
+			"reverb": "Reverberación",
+			"reverb_hint": "Haz que suene como si se reprodujera en una sala.",
+			"reverb_room": "Sala",
+			"reverb_types": {
+				"small_room": "Sala pequeña",
+				"medium_room": "Sala mediana",
+				"large_room": "Sala grande",
+				"medium_hall": "Auditorio mediano",
+				"large_hall": "Auditorio grande",
+				"plate": "Plate"
+			},
+			"reverb_amount": "Cantidad",
+			"reverb_fine_tune": "Más ajustes de reverberación",
+			"reverb_controls": {
+				"dry": "Nivel de la canción",
+				"decay": "Duración",
+				"preDelay": "Pre-delay",
+				"damping": "Brillo",
+				"reflections": "Primeras reflexiones"
+			},
+			"reverb_control_hints": {
+				"dry": "Qué tan fuerte suena la canción en sí, por debajo de la reverberación.",
+				"decay": "Cuánto tiempo persiste la reverberación después de cada sonido.",
+				"preDelay": "Una breve pausa antes de que empiece la reverberación. Con más valor, suena como una sala más grande.",
+				"damping": "Un valor más bajo hace la reverberación más oscura. La canción en sí no se ve afectada.",
+				"reflections": "Cuánto se oye de los primeros ecos que rebotan en las paredes."
+			},
+			"reset_all": "Restablecer todo"
 		},
 		"link": {
 			"title": "Abrir enlace",
@@ -860,7 +927,7 @@
 		"sync_to_ytm": "Sincronizar {count} elementos guardados con YouTube Music",
 		"listen_together": "Escuchar juntos",
 		"saturation_brightness": "Saturación y brillo",
-		"hue": "Tono",
+		"hue": "Matiz",
 		"pick_colour": "Elegir un color de la pantalla",
 		"hex_colour": "Color hexadecimal",
 		"theme": "Tema",
