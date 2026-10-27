@@ -156,7 +156,10 @@
 		"up_next": "À suivre",
 		"fullscreen_video": "Vidéo en plein écran",
 		"exit_fullscreen_video": "Quitter la vidéo en plein écran",
-		"scroll_to_end": "Aller en bas"
+		"scroll_to_end": "Aller en bas",
+		"skip_back": "Reculer de {seconds} secondes",
+		"skip_forward": "Avancer de {seconds} secondes",
+		"speed": "Vitesse de lecture"
 	},
 	"home": {
 		"good_morning": "Bonjour",
@@ -430,7 +433,9 @@
 			"preview": "Aperçu",
 			"preview_hint": "Les curseurs et le sélecteur de couleur s'appliquent ici pendant que vous les faites glisser, et l'application suit dès que vous relâchez.",
 			"now_playing_pill": "Bouton En cours de lecture",
-			"now_playing_pill_hint": "Affiche un bouton pour revenir au titre en cours de lecture lorsqu'il n'est plus visible à cause du défilement, dans une playlist ou la file d'attente."
+			"now_playing_pill_hint": "Affiche un bouton pour revenir au titre en cours de lecture lorsqu'il n'est plus visible à cause du défilement, dans une playlist ou la file d'attente.",
+			"empty_click_player": "Cliquez dans un espace vide pour ouvrir ou fermer le lecteur",
+			"empty_click_player_hint": "Activé, un clic sur une zone vide de la barre du lecteur ouvre ou ferme la vue du lecteur, et un clic autour de la pochette la ferme. Désactivé, seuls les boutons fléchés, Échap et le raccourci clavier le font."
 		},
 		"playback": {
 			"audio_quality": "Qualité audio",
@@ -744,10 +749,72 @@
 			"quit_app": "Quitter Limusic"
 		},
 		"tempo_pitch": {
-			"title": "Contrôles du tempo et de la tonalité",
+			"title": "Tempo, tonalité et réverbération",
 			"desc": "S'applique à toutes vos écoutes jusqu'à réinitialisation ou redémarrage de l'application.",
-			"tempo": "Tempo (Vitesse)",
-			"pitch": "Tonalité (Hauteur)"
+			"tempo": "Tempo",
+			"pitch": "Tonalité",
+			"presets": "Préréglages",
+			"builtin": {
+				"nightcore": "Nightcore",
+				"practice": "Entraînement",
+				"hall": "Salle de concert",
+				"original": "Original",
+				"slowed": "Slowed + reverb"
+			},
+			"builtin_hints": {
+				"original": "Le titre tel qu'il est sorti",
+				"slowed": "Plus lent et plus grave, dans une grande salle",
+				"nightcore": "Plus rapide et plus aigu, avec une touche de réverbération",
+				"practice": "Plus lent, dans la même tonalité",
+				"hall": "Comme s'il était joué en direct"
+			},
+			"preset_save": "Enregistrer comme préréglage",
+			"preset_save_hint": "Conserve ce que vous entendez maintenant pour plus tard",
+			"preset_save_none": "Modifiez d'abord un réglage ci-dessous",
+			"preset_name": "Nom du préréglage",
+			"preset_replace": "Remplacer",
+			"preset_delete": "Supprimer {name}",
+			"preset_duplicate": "Vous avez déjà un préréglage portant ce nom. L'enregistrement le remplacera.",
+			"preset_save_error": "Impossible d'enregistrer vos préréglages. Réessayez ; vos préréglages enregistrés n'ont pas changé.",
+			"preset_load_error": "Impossible de lire vos préréglages enregistrés. L'enregistrement est désactivé pour les protéger.",
+			"preset_room_hint": "Dans une salle d'écoute, les préréglages n'appliquent que la hauteur tonale et la réverbération. Le tempo enregistré est conservé pour l'écoute en solo.",
+			"adjust": "Ajuster",
+			"pitch_short": "tonalité {n}",
+			"slower": "Plus lent",
+			"faster": "Plus rapide",
+			"lower": "Plus grave",
+			"higher": "Plus aigu",
+			"song_length": "Ce titre dure {time}",
+			"tempo_room_locked": "Le tempo reste normal dans une salle d'écoute, afin que tout le monde entende le même moment.",
+			"reverb": "Réverbération",
+			"reverb_hint": "Donne l'impression que le titre est joué dans une salle.",
+			"reverb_room": "Salle",
+			"reverb_types": {
+				"small_room": "Petite salle",
+				"medium_room": "Salle moyenne",
+				"large_room": "Grande salle",
+				"medium_hall": "Auditorium moyen",
+				"large_hall": "Grand auditorium",
+				"plate": "Plate"
+			},
+			"reverb_amount": "Quantité",
+			"reverb_fine_tune": "Plus de réglages de réverbération",
+			"reverb_controls": {
+				"dry": "Niveau du titre",
+				"decay": "Durée",
+				"preDelay": "Pré-délai",
+				"damping": "Brillance",
+				"reflections": "Premières réflexions"
+			},
+			"reverb_control_hints": {
+				"dry": "Le volume du titre lui-même, sous la réverbération.",
+				"decay": "Combien de temps la réverbération persiste après chaque son.",
+				"preDelay": "Un court délai avant le début de la réverbération. Plus la valeur est élevée, plus on a l'impression d'une grande salle.",
+				"damping": "Une valeur plus basse rend la réverbération plus sombre. Le titre lui-même n'est pas affecté.",
+				"reflections": "Dans quelle mesure on entend les premiers échos sur les murs."
+			},
+			"reset_all": "Tout réinitialiser",
+			"normal": "Normal"
 		},
 		"link": {
 			"title": "Ouvrir un lien",
