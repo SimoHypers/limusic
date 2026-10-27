@@ -1240,6 +1240,7 @@ pub async fn get_playlist(
             continuation: None,
             owned: false, // nothing to rename or delete; it rebuilds itself from what you play
             collaborative: false,
+            contributor: false,
             sort_menu: None, // built from local history, so YouTube has no order to give
             suggestions: None,
         });
@@ -1586,9 +1587,9 @@ const PLAYLIST_INDEX_MAX_PAGES: usize = 50;
 /// so an install with a fresh stamp re-crawls once instead of offering every saved playlist as a
 /// target for another six hours. (`_v2` was Liked Music joining the index.)
 pub(crate) const PLAYLIST_INDEX_SYNCED_AT: &str = "playlist_index_synced_at_v3";
-/// Library playlists the crawl found are neither yours nor collaborative, as a JSON array of ids:
-/// saved from someone else, so YouTube refuses songs into them. The add-to-playlist picker leaves
-/// them out.
+/// Library playlists the crawl found are neither yours nor ones you contribute to, as a JSON
+/// array of ids: saved from someone else, so YouTube refuses songs into them. The add-to-playlist
+/// picker leaves them out.
 pub(crate) const READ_ONLY_PLAYLISTS: &str = "read_only_playlists";
 
 /// videoId → the ids of your playlists holding it, straight from SQLite with no network at all,
@@ -1672,11 +1673,12 @@ pub async fn sync_playlist_index(
             indexed.push(item.id);
             continue;
         };
-        // A collaborative playlist reads `owned: false` (YouTube drops the editable header on it)
-        // but is one you add to and remove from, so the membership index has to cover it too.
-        // Liked Music is exempt: YouTube sends it without the editable header, so it reads
-        // `owned: false` even though it is yours.
-        if item.id != LIKED_MUSIC_ID && !page.owned && !page.collaborative {
+        // A collaborative playlist you were invited to reads `owned: false` (YouTube drops the
+        // editable header on it) but is one you add to and remove from, so the membership index
+        // has to cover it too. One you only saved is collaborative as well, but not yours to add
+        // to (#546): `contributor` tells them apart. Liked Music is exempt: YouTube sends it
+        // without the editable header, so it reads `owned: false` even though it is yours.
+        if item.id != LIKED_MUSIC_ID && !page.owned && !page.contributor {
             read_only.push(item.id);
             continue;
         }
@@ -2138,6 +2140,7 @@ fn local_playlist_page(state: &Arc<AppState>, id: &str) -> Result<PlaylistPage, 
         continuation: None, // it is all here: nothing to page through
         owned: true,
         collaborative: false,
+        contributor: false,
         sort_menu: None, // no server to keep an order, so every sort is done on the page
         suggestions: None, // YouTube suggests only for its own playlists
     })

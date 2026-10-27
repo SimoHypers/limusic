@@ -222,6 +222,13 @@ pub struct PlaylistPage {
     /// what you added (which is per row, see `SongItem::set_video_id`). YouTube says so by turning
     /// the header's facepile into the "Collaborate" panel's button.
     pub collaborative: bool,
+    /// The signed-in user may add to this collaborative playlist: they were invited, not merely
+    /// saved it. YouTube says so with a "You have permission to add songs and videos" banner
+    /// (`alertWithActionsRenderer`, icon `PEOPLE`) heading the track list, which a non-member's
+    /// page lacks although its facepile still opens the Collaborate panel (#546); failing that, the
+    /// up/down votes members get on each track. False on playlists the user owns, where `owned`
+    /// already says it.
+    pub contributor: bool,
     /// Absent on lists YouTube will not reorder at all: albums and its own radio mixes.
     pub sort_menu: Option<SortMenu>,
     /// Token for the "Suggestions" shelf YouTube Music puts under a playlist you own (#395), read
@@ -487,6 +494,17 @@ pub fn parse_playlist(root: &Value) -> PlaylistPage {
     let collaborative = find_all(root, "facepile")
         .iter()
         .any(|f| find_all(f, "tag").iter().any(|t| t.as_str() == Some("PAplaylist_collaborate")));
+    // The banner heads the track list's column; matched by its icon, since its text is localized.
+    // Members also get up/down votes on every track, which a non-member's rows lack: the fallback
+    // if the banner changes (an empty playlist has no rows to say it).
+    let banner = root
+        .pointer(
+            "/contents/twoColumnBrowseResultsRenderer/secondaryContents/sectionListRenderer\
+             /header/alertWithActionsRenderer/icon/iconType",
+        )
+        .and_then(|i| i.as_str())
+        == Some("PEOPLE");
+    let contributor = collaborative && (banner || !find_all(root, "votingViewModel").is_empty());
     PlaylistPage {
         title,
         subtitle,
@@ -498,6 +516,7 @@ pub fn parse_playlist(root: &Value) -> PlaylistPage {
         continuation: shelf_continuation(root),
         owned,
         collaborative,
+        contributor,
         sort_menu: sort_menu(root),
         suggestions: owned.then(|| suggestions_token(root)).flatten(),
     }
@@ -1751,6 +1770,48 @@ mod tests {
                 "identifier": { "tag": "PAplaylist_collaborate" } } } } } } } });
         assert!(!parse_playlist(&page(owner_only)).collaborative);
         assert!(parse_playlist(&page(collab)).collaborative);
+    }
+
+    /// A collaborative playlist someone only saved keeps the Collaborate facepile, so only the
+    /// member's "You have permission to add" banner says songs can go in (#546).
+    #[test]
+    fn only_a_member_of_a_collaborative_playlist_is_a_contributor() {
+        let facepile = json!({ "avatarStackViewModel": { "rendererContext": { "commandContext": {
+            "onTap": { "innertubeCommand": { "showEngagementPanelEndpoint": {
+                "identifier": { "tag": "PAplaylist_collaborate" } } } } } } } });
+        let page = |banner: Option<serde_json::Value>| {
+            let mut list = json!({ "contents": [] });
+            if let Some(b) = banner {
+                list["header"] = json!({ "alertWithActionsRenderer": b });
+            }
+            json!({ "contents": { "twoColumnBrowseResultsRenderer": {
+                "tabs": [{ "tabRenderer": { "content": { "sectionListRenderer": { "contents": [
+                    { "musicResponsiveHeaderRenderer": { "facepile": facepile } }
+                ] } } } }],
+                "secondaryContents": { "sectionListRenderer": list }
+            } } })
+        };
+        let banner = json!({
+            "alertMessage": { "runs": [{ "text": "You have permission to add songs and videos" }] },
+            "icon": { "iconType": "PEOPLE" }
+        });
+        let saved = parse_playlist(&page(None));
+        assert!(saved.collaborative && !saved.contributor);
+        let member = parse_playlist(&page(Some(banner.clone())));
+        assert!(member.collaborative && member.contributor);
+        // Only where YouTube puts it: the same banner anywhere else on the page doesn't count.
+        let mut elsewhere = page(None);
+        elsewhere["contents"]["twoColumnBrowseResultsRenderer"]["tabs"][0]["tabRenderer"]["content"]
+            ["sectionListRenderer"]["header"] = json!({ "alertWithActionsRenderer": banner });
+        assert!(!parse_playlist(&elsewhere).contributor);
+        // No banner, but the rows carry the members' votes.
+        let mut voted = page(None);
+        voted["contents"]["twoColumnBrowseResultsRenderer"]["secondaryContents"]
+            ["sectionListRenderer"]["contents"] = json!([{ "musicPlaylistShelfRenderer": {
+                "contents": [{ "musicResponsiveListItemRenderer": { "engagementBar": {
+                    "engagementBarViewModel": { "actions": [{ "votingViewModel": {} }] } } } }]
+            } }]);
+        assert!(parse_playlist(&voted).contributor);
     }
 
     /// An owned playlist's page carries a suggestions section ("add more to this playlist") with a

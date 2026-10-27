@@ -279,6 +279,8 @@ export interface PlaylistPage {
 	owned: boolean;
 	/** Collaboration is on: others can add to it, and each person may remove only what they added. */
 	collaborative: boolean;
+	/** A collaborative playlist the user was invited to, so may add to (not one only saved). */
+	contributor: boolean;
 	/** Absent on lists YouTube will not reorder: albums, its own radio mixes, On Repeat. */
 	sortMenu?: SortMenu;
 	/** YouTube's own suggestions shelf (`getPlaylistSuggestions`), on playlists you own under 100
