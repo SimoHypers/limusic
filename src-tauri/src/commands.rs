@@ -2841,6 +2841,76 @@ pub fn stop_matugen_watcher() {
     crate::matugen::stop();
 }
 
+/// Busy percent of one GPU, from the kernel's DRM counter the lite-mode auto-arm poll watches.
+/// amdgpu and i915 both keep `gpu_busy_percent`; NVIDIA answers only through NVML, so those
+/// machines get an empty list — auto-arm stands down there rather than guess. The UI sees
+/// `[{ device, busyPercent }]`, sorted by device (§5).
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GpuBusy {
+    device: String,
+    busy_percent: u8,
+}
+
+/// The poll's force-seam: `LIMUSIC_FORCE_GPU_BUSY` set to a valid u8 makes every card answer that
+/// value whatever sysfs says ("95" forces busy, "0" forces idle), so auto-arm can be acceptance-
+/// tested without loading a GPU (and the unit tests need no GPU either). Parsed here, away from
+/// both the environment and the read, so the tests cover the override without mutating the
+/// process env — which is global and would race the other tests of this binary.
+#[cfg(target_os = "linux")]
+fn forced_busy(raw: Option<&str>) -> Option<u8> {
+    raw?.trim().parse().ok()
+}
+
+/// The cards under `base` that have a usable counter. The real call passes `/sys/class/drm`; the
+/// tests pass a fake tree — that seam is why this is a function of a path. Std-only on purpose:
+/// a poll every 15 s earns one `read_dir` and one four-byte read per card, nothing more, and no
+/// /proc — this is DRM counter territory, and /proc has nothing to add.
+///
+/// Anything unreadable or unparseable drops out (a driver that answers "N/A", a counter that
+/// vanished between the listing and the read), and an unopenable base is simply an empty list:
+/// the UI reads `[]` as "nothing to watch", so no error can reach it and there is no failure
+/// mode here. Connector directories (`card0-HDMI-A-1`) are filtered by shape — their `device`
+/// symlink points at the very same counter, which would report twice. Sorted because `read_dir`
+/// yields filesystem order while the poll compares one sample to the next.
+#[cfg(target_os = "linux")]
+fn read_gpu_busy(base: &std::path::Path, forced: Option<u8>) -> Vec<GpuBusy> {
+    let Ok(entries) = std::fs::read_dir(base) else {
+        return Vec::new();
+    };
+    let mut cards = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(core) = name.strip_prefix("card") else { continue };
+        if core.is_empty() || !core.bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(base.join(&name).join("device/gpu_busy_percent"))
+        else {
+            continue;
+        };
+        let Ok(sysfs) = text.trim().parse::<u8>() else { continue };
+        cards.push(GpuBusy { device: name, busy_percent: forced.unwrap_or(sysfs) });
+    }
+    cards.sort_by(|a, b| a.device.cmp(&b.device));
+    cards
+}
+
+/// Per-GPU busy percentages for the lite-mode auto-arm (`ui/src/lib/lite-auto.svelte.ts`).
+/// Always answers — `[]` means "no counter to watch" — because a poll the UI has to error-handle
+/// is a poll the UI learns to ignore. Linux-only: the counter is a DRM thing, and where it has no
+/// equivalent the auto-arm simply never arms.
+#[tauri::command]
+pub async fn gpu_busy_percents() -> Vec<GpuBusy> {
+    #[cfg(target_os = "linux")]
+    {
+        let force = std::env::var("LIMUSIC_FORCE_GPU_BUSY").ok();
+        read_gpu_busy(std::path::Path::new("/sys/class/drm"), forced_busy(force.as_deref()))
+    }
+    #[cfg(not(target_os = "linux"))]
+    Vec::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2862,5 +2932,81 @@ mod tests {
             SongItem { video_id: "abc".into(), title: "Grace".into(), ..Default::default() }
         );
         assert_eq!(row.title, played.title, "the song itself survives");
+    }
+
+    /// A tree shaped like `/sys/class/drm` under a per-test temp dir (the house pattern:
+    /// `temp_dir()` + pid, no dev-dep). `None` contents means the card has no counter file.
+    #[cfg(target_os = "linux")]
+    fn fake_sysfs(name: &str, cards: &[(&str, Option<&str>)]) -> std::path::PathBuf {
+        let base =
+            std::env::temp_dir().join(format!("limusic-gpubusy-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base); // leftovers from a crashed earlier run
+        std::fs::create_dir_all(&base).unwrap();
+        // The real dir holds non-card entries too: a plain file, and a connector dir whose
+        // device/ symlink answers with the very same counter if the shape filter ever missed it.
+        std::fs::write(base.join("version"), "6.12.0\n").unwrap();
+        std::fs::create_dir_all(base.join("card0-HDMI-A-1/device")).unwrap();
+        std::fs::write(base.join("card0-HDMI-A-1/device/gpu_busy_percent"), "77").unwrap();
+        for (card, contents) in cards {
+            let dir = base.join(card).join("device");
+            std::fs::create_dir_all(&dir).unwrap();
+            if let Some(text) = contents {
+                std::fs::write(dir.join("gpu_busy_percent"), text).unwrap();
+            }
+        }
+        base
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn gpu_busy_reads_parses_and_skips() {
+        let base = fake_sysfs(
+            "read",
+            &[
+                ("card1", Some("44")),    // a plain reading
+                ("card0", Some(" 0 \n")), // padded zero parses: idle is a value, not a miss
+                ("card2", Some("N/A")),   // a driver with no real counter → skipped
+                ("card3", None),          // no counter file → skipped
+            ],
+        );
+        let got = read_gpu_busy(&base, None);
+        std::fs::remove_dir_all(&base).unwrap();
+        assert_eq!(
+            got,
+            vec![
+                GpuBusy { device: "card0".into(), busy_percent: 0 },
+                GpuBusy { device: "card1".into(), busy_percent: 44 },
+            ],
+            "sorted by device; unparseable, missing and connector-dir entries skipped"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn gpu_busy_unopenable_base_is_empty_not_a_panic() {
+        // No /sys here (or a fake tree removed mid-test): the answer is [], never a panic.
+        assert!(read_gpu_busy(std::path::Path::new("/limusic-not-a-sysfs"), None).is_empty());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn gpu_busy_force_seam_overrides_every_card() {
+        let base = fake_sysfs("force", &[("card0", Some("5")), ("card1", Some("100"))]);
+        let forced = read_gpu_busy(&base, forced_busy(Some("95")));
+        std::fs::remove_dir_all(&base).unwrap();
+        assert_eq!(
+            forced,
+            vec![
+                GpuBusy { device: "card0".into(), busy_percent: 95 },
+                GpuBusy { device: "card1".into(), busy_percent: 95 },
+            ],
+            "LIMUSIC_FORCE_GPU_BUSY wins over sysfs for every card"
+        );
+        // The env string itself: only a valid u8 is an override — junk leaves sysfs in charge.
+        assert_eq!(forced_busy(Some("0")), Some(0), "forces idle");
+        assert_eq!(forced_busy(Some(" 95 ")), Some(95), "whitespace from a shell export");
+        assert_eq!(forced_busy(Some("300")), None, "not a u8");
+        assert_eq!(forced_busy(Some("busy")), None);
+        assert_eq!(forced_busy(None), None, "unset env is not an override");
     }
 }

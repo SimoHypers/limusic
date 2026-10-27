@@ -32,6 +32,7 @@
 	import ColorPicker from '$lib/components/ColorPicker.svelte';
 	import ThemeMock from '$lib/components/ThemeMock.svelte';
 	import { LEVELS as ZOOM_LEVELS, setZoom, zoom } from '$lib/zoom.svelte';
+	import { IS_LINUX } from '$lib/shortcuts';
 	import { playback, toast } from '$lib/player.svelte';
 	import { thumb } from '$lib/thumb';
 	import { appIcon, chooseAppIcon } from '$lib/appicon.svelte';
@@ -409,6 +410,20 @@
 					desc: t('settings.themes.now_playing_pill_hint'),
 					control: nowPlayingPillSwitch
 				})}
+				{@render row({
+					title: t('settings.themes.lite_mode'),
+					desc: t('settings.themes.lite_mode_hint'),
+					control: liteModeSwitch
+				})}
+				{#if IS_LINUX}
+					<!-- The auto-arm polls /sys/class/drm counters; other platforms have none, so the
+					     switch would only promise a dead button. -->
+					{@render row({
+						title: t('settings.themes.lite_auto'),
+						desc: t('settings.themes.lite_auto_hint'),
+						control: liteAutoSwitch
+					})}
+				{/if}
 			</div>
 		</section>
 
@@ -684,6 +699,14 @@
 {#snippet nowPlayingPillSwitch()}<Switch
 		checked={appearance.nowPlayingPill}
 		onCheckedChange={(on) => setAppearance({ nowPlayingPill: on })}
+	/>{/snippet}
+{#snippet liteModeSwitch()}<Switch
+		checked={appearance.liteMode}
+		onCheckedChange={(on) => setAppearance({ liteMode: on })}
+	/>{/snippet}
+{#snippet liteAutoSwitch()}<Switch
+		checked={appearance.liteAuto}
+		onCheckedChange={(on) => setAppearance({ liteAuto: on })}
 	/>{/snippet}
 {#snippet classicPlayerSwitch()}<Switch
 		checked={appearance.classicPlayer}
