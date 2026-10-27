@@ -2,15 +2,17 @@
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		PlayIcon,
+		PauseIcon,
 		MusicNote01Icon,
 		UserIcon,
 		ListRestartIcon
 	} from '@hugeicons/core-free-icons';
-	import { ON_REPEAT_ID } from '$lib/api';
+	import { ON_REPEAT_ID, togglePause } from '$lib/api';
 	import type { BrowseItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import { setDragItem } from '$lib/dnd';
 	import { openItem, playItem } from '$lib/browse';
+	import { isQueueSource, playback } from '$lib/player.svelte';
 	import ItemMenu from './ItemMenu.svelte';
 	import ExplicitIcon from './ExplicitIcon.svelte';
 	import { t } from '$lib/i18n.svelte';
@@ -46,9 +48,15 @@
 	// Skip the retry when `thumb` left the URL untouched — it would refetch the same dead URL.
 	const imgFailed = () => (attempt = attempt === 0 && sized !== item.thumbnail ? 1 : 2);
 
+	const active = $derived(isQueueSource(item));
+
 	let playing = $state(false); // in-flight guard for the fetch-then-play path
 
 	async function playNow() {
+		if (active) {
+			togglePause();
+			return;
+		}
 		if (playing) return;
 		playing = true;
 		try {
@@ -148,13 +156,19 @@
 							: 'bottom-2 right-2 h-9 w-9'}"
 						class:animate-pulse={playing}
 						disabled={playing}
-						aria-label={t('player.play')}
+						aria-label={active && !playback.paused ? t('player.pause') : t('player.play')}
 						onclick={(e) => {
 							e.stopPropagation();
 							playNow();
 						}}
 					>
-						<HugeiconsIcon icon={PlayIcon} class={compact ? 'h-3 w-3' : 'h-4 w-4'} />
+						<!-- altIcon/showAlt, not a ternary on `icon`: `icon` is read once at mount. -->
+						<HugeiconsIcon
+							icon={PauseIcon}
+							altIcon={PlayIcon}
+							showAlt={!active || playback.paused}
+							class={compact ? 'h-3 w-3' : 'h-4 w-4'}
+						/>
 					</button>
 				{/if}
 			</div>

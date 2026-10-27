@@ -23,17 +23,18 @@
 		Add01Icon,
 		DashboardSquare02Icon,
 		PlayIcon,
+		PauseIcon,
 		MusicNote01Icon,
 		UserIcon,
 		ListRestartIcon
 	} from '@hugeicons/core-free-icons';
 	import SectionHeading from './SectionHeading.svelte';
 	import ShortcutPicker from './ShortcutPicker.svelte';
-	import { ON_REPEAT_ID } from '$lib/api';
+	import { ON_REPEAT_ID, togglePause } from '$lib/api';
 	import type { BrowseItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import { openItem, playItem } from '$lib/browse';
-	import { library, personal, placePick, removePick } from '$lib/player.svelte';
+	import { isQueueSource, library, personal, placePick, playback, removePick } from '$lib/player.svelte';
 	import { freshen, MAX_PICKS } from '$lib/personal';
 	import { getDragItem, isDragItem, setDragItem } from '$lib/dnd';
 	import { t } from '$lib/i18n.svelte';
@@ -83,6 +84,10 @@
 	}
 
 	async function play(item: BrowseItem) {
+		if (isQueueSource(item)) {
+			togglePause();
+			return;
+		}
 		if (busy) return;
 		busy = item.id;
 		try {
@@ -155,6 +160,7 @@
 				{#each picks as item (item.id)}
 					{@const round = item.kind === 'artist'}
 					{@const onRepeat = item.id === ON_REPEAT_ID}
+					{@const active = isQueueSource(item)}
 					<!-- group/pick, not `group`: nested unnamed groups would fire each other's hovers. -->
 					<div class="group/pick relative" data-ctx data-pick={item.id} animate:flip={{ duration: 200 }}>
 						<!-- Where the drop lands: a bar down the leading edge of the tile it goes in front of. -->
@@ -214,13 +220,21 @@
 										class="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/50 text-white opacity-0 transition-opacity hover:bg-black/60 focus-visible:opacity-100 group-hover/pick:opacity-100"
 										class:animate-pulse={busy === item.id}
 										disabled={busy === item.id}
-										aria-label={t('a11y.play_item', { title: item.title })}
+										aria-label={active && !playback.paused
+											? t('a11y.pause_item', { title: item.title })
+											: t('a11y.play_item', { title: item.title })}
 										onclick={(e) => {
 											e.stopPropagation();
 											play(item);
 										}}
 									>
-										<HugeiconsIcon icon={PlayIcon} class="h-5 w-5" />
+										<!-- altIcon/showAlt, not a ternary on `icon`: `icon` is read once at mount. -->
+										<HugeiconsIcon
+											icon={PauseIcon}
+											altIcon={PlayIcon}
+											showAlt={!active || playback.paused}
+											class="h-5 w-5"
+										/>
 									</button>
 								{/if}
 							</div>
