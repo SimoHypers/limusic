@@ -68,24 +68,30 @@
 	// Fetch the library playlists fresh each time the picker opens (cheap; picks up new playlists).
 	// On Repeat and Liked Music are dropped: On Repeat is built from local play counts, and Liked
 	// Music takes likes rather than playlist edits (YouTube 400s the add). The command boundary
-	// refuses both too, but a target you can tap and can't use is the bug. When the account's half
-	// can't be fetched, the playlists on this machine still can: they need no network.
+	// refuses both too, but a target you can tap and can't use is the bug. So are playlists saved
+	// from someone else (#546): the membership crawl already opens each one and notes those, and a
+	// playlist it hasn't seen yet still shows. When the account's half can't be fetched, the
+	// playlists on this machine still can: they need no network.
 	$effect(() => {
 		if (ui.addSongs) {
 			loading = true;
 			filter = '';
 			selectedIds = [];
 			step = 'pick';
-			api
-				.getLibrary()
-				.catch((e) => {
+			Promise.all([
+				api.getLibrary().catch((e) => {
 					toast.error(String(e));
 					return api.getLocalPlaylists();
-				})
+				}),
+				api.readOnlyPlaylists().catch(() => [] as string[])
+			])
 				.then(
-					(p) =>
+					([p, readOnly]) =>
 						(playlists = p.filter(
-							(i) => i.id !== api.ON_REPEAT_ID && i.id !== api.LIKED_MUSIC_ID
+							(i) =>
+								i.id !== api.ON_REPEAT_ID &&
+								i.id !== api.LIKED_MUSIC_ID &&
+								!readOnly.includes(i.id)
 						))
 				)
 				.catch((e) => toast.error(String(e)))

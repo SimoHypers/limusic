@@ -1241,6 +1241,7 @@ pub async fn get_playlist(
             continuation: None,
             owned: false, // nothing to rename or delete; it rebuilds itself from what you play
             collaborative: false,
+            contributor: false,
             sort_menu: None, // built from local history, so YouTube has no order to give
             suggestions: None,
         });
@@ -1583,6 +1584,14 @@ const PLAYLIST_INDEX_TTL_SECS: i64 = 6 * 3600;
 /// them. ponytail: a hard stop, not paging state. A playlist past it marks its first 5000 tracks
 /// and no more, which beats one pathological list turning a sync into hundreds of requests.
 const PLAYLIST_INDEX_MAX_PAGES: usize = 50;
+/// When the index was last crawled. `_v3`: the crawl started noting `READ_ONLY_PLAYLISTS` (#546),
+/// so an install with a fresh stamp re-crawls once instead of offering every saved playlist as a
+/// target for another six hours. (`_v2` was Liked Music joining the index.)
+pub(crate) const PLAYLIST_INDEX_SYNCED_AT: &str = "playlist_index_synced_at_v3";
+/// Library playlists the crawl found are neither yours nor ones you contribute to, as a JSON
+/// array of ids: saved from someone else, so YouTube refuses songs into them. The add-to-playlist
+/// picker leaves them out.
+pub(crate) const READ_ONLY_PLAYLISTS: &str = "read_only_playlists";
 
 /// videoId → the ids of your playlists holding it, straight from SQLite with no network at all,
 /// so a track list can draw the "saved" mark on its first paint. Empty until the first sync.
@@ -1591,13 +1600,29 @@ pub fn playlist_index(state: St<'_>) -> std::collections::HashMap<String, Vec<St
     state.db.playlist_memberships()
 }
 
+/// The library playlists that won't take songs, as of the last crawl. Empty until it has run; a
+/// playlist saved since then isn't in it, so the picker still offers that one.
+#[tauri::command]
+pub fn read_only_playlists(state: St<'_>) -> Vec<String> {
+    stored_read_only(&state)
+}
+
+fn stored_read_only(state: &AppState) -> Vec<String> {
+    state
+        .db
+        .get_setting(READ_ONLY_PLAYLISTS)
+        .and_then(|ids| serde_json::from_str(&ids).ok())
+        .unwrap_or_default()
+}
+
 /// Rebuild that index by walking the playlists you own, then answer with it.
 ///
 /// Nothing else knows playlist membership: the library browse gives cards, a playlist browse gives
 /// one list's tracks, and InnerTube's per-video add-to-playlist dialog would be a request per row.
 /// So the crawl is the price, and it is paid at most once every `PLAYLIST_INDEX_TTL_SECS`, on a
 /// launch or a sign-in. Playlists you merely saved are skipped: they are someone else's, so "you
-/// saved this song to it" would be a lie, and their long mixes would double the walk.
+/// saved this song to it" would be a lie, and their long mixes would double the walk. Their ids go
+/// to `READ_ONLY_PLAYLISTS` instead, since the page that says so is already in hand.
 #[tauri::command]
 pub async fn sync_playlist_index(
     state: St<'_>,
@@ -1609,9 +1634,7 @@ pub async fn sync_playlist_index(
     }
     let fresh_until = state
         .db
-        // `_v2`: the key changed when Liked Music joined the index, so an install with a fresh
-        // stamp re-crawls once instead of showing hearts empty for another six hours.
-        .get_setting("playlist_index_synced_at_v2")
+        .get_setting(PLAYLIST_INDEX_SYNCED_AT)
         .and_then(|at| at.parse::<i64>().ok())
         .map(|at| at + PLAYLIST_INDEX_TTL_SECS);
     if fresh_until.is_some_and(|until| now_secs() < until) {
@@ -1625,6 +1648,16 @@ pub async fn sync_playlist_index(
     if library.is_empty() {
         return Ok(state.db.playlist_memberships());
     }
+    // Whose crawl this is. A channel or account switch mid-walk forgets the index and starts the
+    // new account's own crawl, so this one stops before writing the old account's answers over it.
+    let who = || {
+        let cookie = state.it.cookie();
+        let account = cookie.as_deref().and_then(innertube::cookie_sapisid).map(str::to_owned);
+        (account, state.it.data_sync_id())
+    };
+    let started = who();
+    let known_read_only = stored_read_only(&state);
+    let mut read_only: Vec<String> = Vec::new();
     let mut indexed: Vec<String> = Vec::new();
     for item in library {
         if item.id == ON_REPEAT_ID {
@@ -1632,16 +1665,22 @@ pub async fn sync_playlist_index(
         }
         // One playlist failing (a deleted id, a hiccup) must not abandon the rest of the crawl,
         // and must not drop what is already indexed for it either: leaving it out of `indexed`
-        // would have `retain_playlists` forget the tracks we do know about.
+        // would have `retain_playlists` forget the tracks we do know about. Same for knowing it
+        // refuses songs.
         let Ok(page) = state.it.playlist(client, &item.id, None).await else {
+            if known_read_only.contains(&item.id) {
+                read_only.push(item.id.clone());
+            }
             indexed.push(item.id);
             continue;
         };
-        // A collaborative playlist reads `owned: false` (YouTube drops the editable header on it)
-        // but is one you add to and remove from, so the membership index has to cover it too.
-        // Liked Music is exempt: YouTube sends it without the editable header, so it reads
-        // `owned: false` even though it is yours.
-        if item.id != LIKED_MUSIC_ID && !page.owned && !page.collaborative {
+        // A collaborative playlist you were invited to reads `owned: false` (YouTube drops the
+        // editable header on it) but is one you add to and remove from, so the membership index
+        // has to cover it too. One you only saved is collaborative as well, but not yours to add
+        // to (#546): `contributor` tells them apart. Liked Music is exempt: YouTube sends it
+        // without the editable header, so it reads `owned: false` even though it is yours.
+        if item.id != LIKED_MUSIC_ID && !page.owned && !page.contributor {
+            read_only.push(item.id);
             continue;
         }
         let mut video_ids: Vec<String> = page.items.into_iter().map(|song| song.video_id).collect();
@@ -1652,11 +1691,18 @@ pub async fn sync_playlist_index(
             video_ids.extend(more.items.into_iter().map(|song| song.video_id));
             token = more.continuation;
         }
+        if who() != started {
+            return Ok(state.db.playlist_memberships());
+        }
         state.db.set_playlist_tracks(&item.id, &video_ids);
         indexed.push(item.id);
     }
+    if who() != started {
+        return Ok(state.db.playlist_memberships());
+    }
     state.db.retain_playlists(&indexed);
-    state.db.set_setting("playlist_index_synced_at_v2", &now_secs().to_string());
+    state.db.set_setting(READ_ONLY_PLAYLISTS, &serde_json::json!(read_only).to_string());
+    state.db.set_setting(PLAYLIST_INDEX_SYNCED_AT, &now_secs().to_string());
     Ok(state.db.playlist_memberships())
 }
 
@@ -2095,6 +2141,7 @@ fn local_playlist_page(state: &Arc<AppState>, id: &str) -> Result<PlaylistPage, 
         continuation: None, // it is all here: nothing to page through
         owned: true,
         collaborative: false,
+        contributor: false,
         sort_menu: None, // no server to keep an order, so every sort is done on the page
         suggestions: None, // YouTube suggests only for its own playlists
     })

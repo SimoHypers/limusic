@@ -279,6 +279,8 @@ export interface PlaylistPage {
 	owned: boolean;
 	/** Collaboration is on: others can add to it, and each person may remove only what they added. */
 	collaborative: boolean;
+	/** A collaborative playlist the user was invited to, so may add to (not one only saved). */
+	contributor: boolean;
 	/** Absent on lists YouTube will not reorder: albums, its own radio mixes, On Repeat. */
 	sortMenu?: SortMenu;
 	/** YouTube's own suggestions shelf (`getPlaylistSuggestions`), on playlists you own under 100
@@ -776,6 +778,11 @@ export const playlistIndex = () => invoke<Record<string, string[]>>('playlist_in
  * is still inside its window, so calling this on every launch is cheap.
  */
 export const syncPlaylistIndex = () => invoke<Record<string, string[]>>('sync_playlist_index');
+/**
+ * Library playlists that won't take songs (saved from someone else), as of the last
+ * `syncPlaylistIndex` crawl. Empty until that has run once.
+ */
+export const readOnlyPlaylists = () => invoke<string[]>('read_only_playlists');
 /**
  * videoId → times played, from the local listening history, over the trailing window On Repeat uses
  * (a month). A videoId that isn't in the map has not been played inside the window.
