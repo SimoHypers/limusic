@@ -13,7 +13,7 @@ import type {
 	SongItem
 } from './api';
 import { applyLtState, lt } from './lt.svelte';
-import { clearCached, invalidateCached, LIBRARY_SONGS_KEY } from './pagecache';
+import { clearCached, invalidateCached, invalidateCachedPrefix, LIBRARY_SONGS_KEY } from './pagecache';
 import * as pl from './personal';
 import type { Personal } from './personal';
 import { appearance } from './theme.svelte';
@@ -1247,21 +1247,21 @@ export function toggleSidebar() {
 	localStorage.setItem('sidebar_collapsed', ui.sidebarCollapsed ? '1' : '0');
 }
 
-export type Toast = { msg: string; kind: 'info' | 'success' | 'error' };
+export type Toast = { msg: string; kind: 'info' | 'success' | 'error'; undo?: () => Promise<void> };
 
 // A counter, not the toast itself: $state proxies the stored object, so `ui.toast === t` is never
 // true and the toast would never clear. It also means a repeated message can't cut its own retry short.
 let seq = 0;
 
-function show(msg: string, kind: Toast['kind']) {
+function show(msg: string, kind: Toast['kind'], undo?: () => Promise<void>) {
 	const id = ++seq;
 	// The one chokepoint every `toast.error(String(e))` and every `playback-error` event goes
 	// through, so a dead connection is worded once here instead of at forty call sites. Anything
 	// that isn't a network failure (including every `t()` string passing through) is untouched.
-	ui.toast = { msg: friendlyNetError(msg, t('errors.unreachable')), kind };
+	ui.toast = { msg: friendlyNetError(msg, t('errors.unreachable')), kind, undo };
 	setTimeout(() => {
 		if (seq === id) ui.toast = null;
-	}, 2500);
+	}, undo ? 8000 : 2500);
 }
 
 /** Sonner-shaped. Bare `toast(msg)` is a neutral notice; .success/.error pick the icon. */
@@ -1270,6 +1270,76 @@ export const toast = Object.assign((msg: string) => show(msg, 'info'), {
 	success: (msg: string) => show(msg, 'success'),
 	error: (msg: string) => show(msg, 'error')
 });
+
+export function offerUndo(msg: string, undo: () => Promise<void>) {
+	let used = false;
+	show(msg, 'success', async () => {
+		if (used) return;
+		used = true;
+		const current = seq;
+		ui.toast = null;
+		try {
+			await undo();
+			if (seq === current) toast.success(t('undo.restored'));
+		} catch (e) {
+			toast.error(String(e));
+		}
+	});
+}
+
+export async function removeQueueTrack(index: number) {
+	try {
+		const removed = await api.takeFromQueue(index);
+		if (removed) offerUndo(t('undo.removed_from_queue'), () => api.restoreQueueTrack(removed));
+	} catch (e) {
+		toast.error(String(e));
+	}
+}
+
+/** Remember the next row in manual order, including when it is on the following page. */
+async function playlistSuccessor(playlistId: string, song: SongItem): Promise<string | null> {
+	const epoch = auth.epoch;
+	let page = await api.getPlaylist(playlistId, 'default');
+	let found = false;
+	for (;;) {
+		if (epoch !== auth.epoch) throw new Error(t('undo.account_changed'));
+		for (const row of page.items) {
+			if (found) return row.set_video_id ?? null;
+			found = row.set_video_id === song.set_video_id;
+		}
+		if (!page.continuation) {
+			if (!found) throw new Error('The playlist changed. Reopen it before removing this song.');
+			return null;
+		}
+		page = { ...page, ...(await api.getPlaylistMore(page.continuation)) };
+	}
+}
+
+export async function removePlaylistTrack(
+	playlistId: string, song: SongItem, before?: string | null,
+	onRestored?: (song: SongItem) => void
+) {
+	const epoch = auth.epoch;
+	const successor = before === undefined ? await playlistSuccessor(playlistId, song) : before;
+	if (epoch !== auth.epoch) throw new Error(t('undo.account_changed'));
+	await api.removeFromPlaylist(playlistId, song.video_id, song.set_video_id!);
+	if (epoch !== auth.epoch) throw new Error(t('undo.account_changed'));
+	bumpLibraryTrackCount(playlistId, -1);
+	noteUnsavedFrom(playlistId, song.video_id);
+	notePlaylistRemove(playlistId, song.set_video_id!);
+	invalidateCachedPrefix(`playlist:${playlistId}`);
+	offerUndo(t('toasts.removed_from_playlist'), async () => {
+		if (epoch !== auth.epoch) throw new Error(t('undo.account_changed'));
+		const [restored, error] = await api.restorePlaylistTrack(playlistId, song, successor);
+		if (epoch !== auth.epoch) throw new Error(t('undo.account_changed'));
+		bumpLibraryTrackCount(playlistId, 1);
+		noteSavedIn(playlistId, [song.video_id]);
+		invalidateCachedPrefix(`playlist:${playlistId}`);
+		if (!error) onRestored?.(restored);
+		notePlaylistAdd(playlistId, [restored], error ? null : successor);
+		if (error) throw new Error(error);
+	});
+}
 
 export function openShare(item: BrowseItem) {
 	ui.share = item;
@@ -1467,7 +1537,7 @@ export function openAddManyToPlaylist(songs: SongItem[]) {
 }
 
 // Last successful add-to-playlist — the open playlist page appends these optimistically.
-export const lastPlaylistAdd = $state({ playlistId: '', songs: [] as SongItem[], epoch: 0 });
+export const lastPlaylistAdd = $state({ playlistId: '', songs: [] as SongItem[], before: undefined as string | null | undefined, epoch: 0 });
 
 // Last successful removal from a playlist made from somewhere that is *not* that playlist's page
 // (the player's track menu). The open page drops the row on it instead of waiting for a refetch.
@@ -1479,13 +1549,13 @@ export function notePlaylistRemove(playlistId: string, setVideoId: string) {
 	lastPlaylistRemove.epoch++;
 }
 
-export function notePlaylistAdd(playlistId: string, songs: SongItem[]) {
+export function notePlaylistAdd(playlistId: string, songs: SongItem[], before?: string | null) {
 	lastPlaylistAdd.playlistId = playlistId;
-	// Strip per-context fields: set_video_id belongs to the source playlist, the queue markers to
-	// the queue — none apply to the row's new home.
+	lastPlaylistAdd.before = before;
+	// Normal adds drop source ids; Undo already has the restored row's new id.
 	lastPlaylistAdd.songs = songs.map((s) => ({
 		...s,
-		set_video_id: undefined,
+		set_video_id: before === undefined ? undefined : s.set_video_id,
 		added_by: undefined,
 		added_by_avatars: undefined,
 		autoplay: undefined,

@@ -1113,13 +1113,33 @@ impl InnerTube {
         allow_duplicates: bool,
     ) -> Result<bool, Error> {
         match self
-            .edit_playlist(client, playlist_id, add_video_action(video_id, allow_duplicates))
+            .edit_playlist_value(
+                client,
+                playlist_id,
+                vec![add_video_action(video_id, allow_duplicates)],
+                !allow_duplicates,
+            )
             .await
         {
-            Ok(()) => Ok(true),
+            Ok(_) => Ok(true),
             Err(Error::AlreadyInPlaylist) => Ok(false),
             Err(e) => Err(e),
         }
+    }
+
+    /// Re-add a removed occurrence, returning its new playlist row id without retrying the add.
+    pub async fn playlist_restore(
+        &self,
+        client: &YouTubeClient,
+        playlist_id: &str,
+        video_id: &str,
+    ) -> Result<Option<String>, Error> {
+        let value = self
+            .edit_playlist_value(client, playlist_id, vec![add_video_action(video_id, true)], false)
+            .await?;
+        Ok(value["playlistEditResults"][0]["playlistEditVideoAddedResultData"]["setVideoId"]
+            .as_str()
+            .map(str::to_owned))
     }
 
     /// Add many videos in one `browse/edit_playlist` call, in order. The edit is all or nothing,
@@ -1328,6 +1348,7 @@ impl InnerTube {
                     "action": "ACTION_REMOVE_CUSTOM_THUMBNAIL",
                     "deletedCustomThumbnail": custom_thumbnail_key(),
                 })],
+                true,
             )
             .await
             .map_err(cover_refusal)?;
@@ -1349,7 +1370,7 @@ impl InnerTube {
         playlist_id: &str,
         actions: Vec<serde_json::Value>,
     ) -> Result<(), Error> {
-        self.edit_playlist_value(client, playlist_id, actions).await.map(|_| ())
+        self.edit_playlist_value(client, playlist_id, actions, true).await.map(|_| ())
     }
 
     async fn edit_playlist_value(
@@ -1357,6 +1378,7 @@ impl InnerTube {
         client: &YouTubeClient,
         playlist_id: &str,
         actions: Vec<serde_json::Value>,
+        replayable: bool,
     ) -> Result<serde_json::Value, Error> {
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
@@ -1370,7 +1392,12 @@ impl InnerTube {
             playlist_id: strip_vl(playlist_id).to_owned(),
             actions,
         };
-        let value = self.post("browse/edit_playlist", client, &body, true).await?;
+        let value = if replayable {
+            self.post("browse/edit_playlist", client, &body, true).await?
+        } else {
+            // A lost answer must not turn one duplicate-allowed add into several copies.
+            self.post_write("browse/edit_playlist", client, &body, true).await?
+        };
         match edit_rejection(&value) {
             Some(e) => Err(e),
             None => Ok(value),
@@ -1767,6 +1794,39 @@ mod tests {
 
     fn web() -> YouTubeClient {
         Clients::bundled().get(METADATA_CLIENT).unwrap().clone()
+    }
+
+    #[tokio::test]
+    async fn restore_playlist_returns_new_occurrence_without_retrying() {
+        let server = MockServer::start(|_| {
+            (200, r#"{"status":"STATUS_SUCCEEDED","playlistEditResults":[{"playlistEditVideoAddedResultData":{"setVideoId":"new-row"}}]}"#.into())
+        });
+        let it = it_against(&server, true);
+        assert_eq!(
+            it.playlist_restore(&web(), "VLtest", "song").await.unwrap().as_deref(),
+            Some("new-row")
+        );
+        let sent = server.requests();
+        let body: serde_json::Value = serde_json::from_str(&sent[0].body).unwrap();
+        assert_eq!(body["actions"][0]["dedupeOption"], "DEDUPE_OPTION_SKIP");
+        let server = MockServer::start(|_| (0, String::new()));
+        let it = it_against(&server, true);
+        assert!(it.playlist_restore(&web(), "VLtest", "song").await.is_err());
+        assert_eq!(server.requests().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn duplicate_allowed_add_is_sent_once() {
+        let server = MockServer::start(|_| (200, r#"{"status":"STATUS_SUCCEEDED"}"#.into()));
+        let it = it_against(&server, true);
+        assert!(it.playlist_add(&web(), "VLtest", "song", true).await.unwrap());
+        let sent = server.requests();
+        let body: serde_json::Value = serde_json::from_str(&sent[0].body).unwrap();
+        assert_eq!(body["actions"][0]["dedupeOption"], "DEDUPE_OPTION_SKIP");
+        let server = MockServer::start(|_| (0, String::new()));
+        let it = it_against(&server, true);
+        assert!(it.playlist_add(&web(), "VLtest", "song", true).await.is_err());
+        assert_eq!(server.requests().len(), 1, "a lost answer must not add another copy");
     }
 
     fn as_account(req: &Seen) -> bool {

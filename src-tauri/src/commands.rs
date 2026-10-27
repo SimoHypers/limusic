@@ -112,6 +112,22 @@ pub async fn remove_from_queue(state: St<'_>, index: usize) -> Result<(), String
     Ok(())
 }
 
+#[tauri::command]
+pub async fn take_from_queue(
+    state: St<'_>,
+    index: usize,
+) -> Result<Option<crate::state::RemovedQueueTrack>, String> {
+    Ok(state.inner().clone().take_from_queue(index).await)
+}
+
+#[tauri::command]
+pub async fn restore_queue_track(
+    state: St<'_>,
+    removed: crate::state::RemovedQueueTrack,
+) -> Result<(), String> {
+    state.inner().clone().restore_queue_track(removed).await
+}
+
 /// "Play next" from a ⋯ menu: one track or a whole album/playlist, inserted right after the
 /// current song (behind any earlier manual adds). `from` is the album/playlist title, which heads
 /// the block in the queue panel.
@@ -1671,11 +1687,15 @@ pub async fn add_to_playlist(
     allow_duplicates: Option<bool>,
 ) -> Result<bool, String> {
     let client = editable_playlist(&state, &playlist_id)?;
+    let identity = state.it.comments_identity();
     let added = state
         .it
         .playlist_add(client, &playlist_id, &video_id, allow_duplicates.unwrap_or(false))
         .await
         .map_err(|e| e.to_string())?;
+    if state.it.comments_identity() != identity {
+        return Err("The account changed. Reopen the playlist to check the result.".into());
+    }
     // Also on `false`: YouTube refusing a duplicate means the playlist holds the track, which is
     // exactly what the index should say. A stale index is how it got asked in the first place.
     state.db.add_playlist_track(&playlist_id, &video_id);
@@ -1701,6 +1721,50 @@ pub async fn remove_from_playlist(
         .map_err(|e| e.to_string())?;
     state.db.remove_playlist_track(&playlist_id, &video_id);
     Ok(())
+}
+
+/// Restore membership first, then move the new row back before its former neighbor.
+/// A move failure still returns the restored row so the UI can reflect the successful add.
+#[tauri::command]
+pub async fn restore_playlist_track(
+    state: St<'_>,
+    playlist_id: String,
+    song: SongItem,
+    before_set_video_id: Option<String>,
+) -> Result<(SongItem, Option<String>), String> {
+    let mut song = playlist_row(song);
+    if is_local_playlist(&playlist_id) {
+        let added =
+            add_to_local_playlist(state.clone(), playlist_id.clone(), vec![song.clone()]).await?;
+        if !added.contains(&true) {
+            return Err("The song is already in this playlist.".into());
+        }
+        song = local_playlist_page(&state, &playlist_id)?
+            .items
+            .into_iter()
+            .find(|s| s.video_id == song.video_id)
+            .ok_or(GONE)?;
+    } else {
+        let client = editable_playlist(&state, &playlist_id)?;
+        let identity = state.it.comments_identity();
+        song.set_video_id = state
+            .it
+            .playlist_restore(client, &playlist_id, &song.video_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        if state.it.comments_identity() != identity {
+            return Err("The account changed. Reopen the playlist to check the result.".into());
+        }
+        state.db.add_playlist_track(&playlist_id, &song.video_id);
+    }
+    let error = if before_set_video_id.is_none() {
+        None
+    } else if let Some(row) = &song.set_video_id {
+        move_in_playlist(state, playlist_id, row.clone(), before_set_video_id).await.err()
+    } else {
+        Some("The song was restored, but its position could not be restored.".into())
+    };
+    Ok((song, error))
 }
 
 /// Remove several tracks from one playlist in a single request (the bulk bar's Remove).

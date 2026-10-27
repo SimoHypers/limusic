@@ -351,16 +351,17 @@
 	{/if}
 
 	{#if ui.toast}
-		{@const t = ui.toast}
+		{@const notice = ui.toast}
 		<div
+			role="status"
 			transition:fly={{ y: 16, duration: 220, easing: cubicOut }}
-			class="fixed bottom-40 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-2 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
+			class="pointer-events-auto fixed bottom-40 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-2 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
 		>
 			<!-- Three branches instead of a ternary on `icon`: HugeiconsIcon freezes `icon` at mount, so a
 			     new toast replacing a visible one would keep the old glyph. -->
-			{#if t.kind === 'success'}
+			{#if notice.kind === 'success'}
 				<HugeiconsIcon icon={CheckmarkCircle02Icon} class="h-4 w-4 shrink-0 text-primary" />
-			{:else if t.kind === 'error'}
+			{:else if notice.kind === 'error'}
 				<HugeiconsIcon icon={AlertCircleIcon} class="h-4 w-4 shrink-0 text-destructive" />
 			{:else}
 				<HugeiconsIcon
@@ -368,7 +369,11 @@
 					class="h-4 w-4 shrink-0 text-muted-foreground"
 				/>
 			{/if}
-			{t.msg}
+			{notice.msg}
+			{#if notice.undo}
+				<Button variant="ghost" size="sm" onclick={notice.undo}
+					onkeydown={(e) => { if (e.key === ' ') e.stopPropagation(); }}>{t('undo.action')}</Button>
+			{/if}
 		</div>
 	{/if}
 {/if}

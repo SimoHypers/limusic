@@ -41,6 +41,7 @@
 		onAdd,
 		onRemove,
 		removeLabel = t('player.remove_from_playlist'),
+		inLikedList = false,
 		playlistId,
 		queueIndex,
 		inLibraryList = false,
@@ -86,6 +87,7 @@
 		onAdd?: () => void;
 		/** Adds a remove menu item (label via `removeLabel`). */
 		onRemove?: () => void;
+		inLikedList?: boolean;
 		removeLabel?: string;
 		/** The playlist this row is playing from — adds "Remove from this playlist" to its menu. */
 		playlistId?: string | null;
@@ -491,6 +493,7 @@
 			onAdd={rowAdd}
 			{onRemove}
 			{removeLabel}
+			{inLikedList}
 			{playlistId}
 			{queueIndex}
 			{inLibraryList}
