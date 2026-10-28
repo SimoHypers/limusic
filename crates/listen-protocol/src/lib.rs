@@ -127,9 +127,9 @@ impl Playback {
     }
 }
 
-/// A control the phone sends to the device that is playing (device link). The server forwards it
-/// to the room's host without applying it; the player runs it through its own code path and then
-/// publishes the result like any other change.
+/// A control for another linked device (device link). Clients send it inside `remote`; the server
+/// forwards the JSON without reading it, so a new action needs no server change, and a client
+/// ignores an action it doesn't know.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RemoteAction {
@@ -144,9 +144,103 @@ pub enum RemoteAction {
     SetVolume {
         volume: f64,
     },
+    /// One song, with its radio behind it.
     PlayTrack {
         track: Track,
     },
+    /// A list: a playlist, album or radio. `start` is the tapped row, `None` = just play it.
+    PlayTracks {
+        tracks: Vec<Track>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        start: Option<usize>,
+        /// Lets autoplay carry on with the list's radio when it runs out.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source_name: Option<String>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        shuffle: bool,
+    },
+    /// The queue row at `index` in the player's whole queue ([`LinkStatus::offset`] + position).
+    /// `id` is the row's track: a queue that moved meanwhile is searched for it instead.
+    PlayIndex {
+        index: usize,
+        id: String,
+    },
+    Remove {
+        index: usize,
+        id: String,
+    },
+    /// Drag to reorder: queue indices, as `move_in_queue` takes them.
+    Move {
+        from: usize,
+        to: usize,
+    },
+    PlayNext {
+        tracks: Vec<Track>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<String>,
+    },
+    AddToQueue {
+        tracks: Vec<Track>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<String>,
+    },
+    ClearQueued,
+    SetShuffle {
+        on: bool,
+    },
+    /// "off" | "all" | "one"
+    SetRepeat {
+        mode: String,
+    },
+    /// To a device that isn't playing: play what the player plays, from where it is now, with its
+    /// queue (Continue here, asked from another device).
+    TakeOver,
+}
+
+/// The player's queue, for the other devices' player views (device link). Sent as `link_status`
+/// whenever it changes; the server keeps the last one without reading it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct LinkStatus {
+    /// The queue around the playing track, in play order.
+    pub items: Vec<LinkItem>,
+    /// Where `items[0]` is in the whole queue: remote actions name rows by queue index.
+    #[serde(default)]
+    pub offset: usize,
+    /// The playing row, in `items`.
+    #[serde(default)]
+    pub current: usize,
+    #[serde(default)]
+    pub shuffle: bool,
+    /// "off" | "all" | "one"
+    #[serde(default)]
+    pub repeat: String,
+    /// The playlist or album the queue plays from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
+/// A queue row with the marks the queue panel draws.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LinkItem {
+    #[serde(flatten)]
+    pub track: Track,
+    /// Play next.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub queued: bool,
+    /// Add to queue.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub queued_end: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued_from: Option<String>,
+    /// Put there by autoplay.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub autoplay: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// Client → server. Internally tagged on `type`.
@@ -213,9 +307,16 @@ pub enum ClientMessage {
     PairClaim {
         code: String,
     },
-    /// Device link: a control for the device that is playing.
+    /// Device link: a control for another device, the player unless `to` names one. `action` is
+    /// a [`RemoteAction`]; the server forwards it unread.
     Remote {
-        action: RemoteAction,
+        action: serde_json::Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        to: Option<String>,
+    },
+    /// Device link, from the player: its queue as a [`LinkStatus`], kept and passed on unread.
+    LinkStatus {
+        status: serde_json::Value,
     },
 }
 
@@ -287,8 +388,11 @@ pub enum ServerMessage {
     },
     Pong,
     /// Device link: reply to `JoinLink`. `room_code` is empty so the secret is never echoed.
+    /// `status` is the player's last `link_status`.
     LinkJoined {
         state: RoomState,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<serde_json::Value>,
     },
     PairCode {
         code: String,
@@ -297,10 +401,14 @@ pub enum ServerMessage {
     Paired {
         secret: String,
     },
-    /// Device link: a control forwarded to the player. `from` is the sender's device id.
+    /// Device link: a control forwarded from another device. `from` is the sender's device id.
     Remote {
         from: String,
-        action: RemoteAction,
+        action: serde_json::Value,
+    },
+    /// Device link: the player's queue changed.
+    LinkStatus {
+        status: serde_json::Value,
     },
 }
 
@@ -419,6 +527,7 @@ mod tests {
                     volume: 1.0,
                     ..Default::default()
                 },
+                status: None,
             },
         );
         client_line(r#"{"type":"pair_start"}"#, ClientMessage::PairStart);
@@ -436,24 +545,52 @@ mod tests {
         );
         client_line(
             r#"{"type":"remote","action":{"kind":"seek","position_ms":61000}}"#,
-            ClientMessage::Remote { action: RemoteAction::Seek { position_ms: 61000 } },
+            ClientMessage::Remote {
+                action: serde_json::json!({"kind": "seek", "position_ms": 61000}),
+                to: None,
+            },
+        );
+        client_line(
+            &format!(r#"{{"type":"remote","action":{{"kind":"take_over"}},"to":"{DEVICE}"}}"#),
+            ClientMessage::Remote {
+                action: serde_json::json!({"kind": "take_over"}),
+                to: Some(DEVICE.into()),
+            },
         );
         server_line(
             &format!(r#"{{"type":"remote","from":"{DEVICE}","action":{{"kind":"next"}}}}"#),
-            ServerMessage::Remote { from: DEVICE.into(), action: RemoteAction::Next },
+            ServerMessage::Remote {
+                from: DEVICE.into(),
+                action: serde_json::json!({"kind": "next"}),
+            },
+        );
+        client_line(
+            r#"{"type":"link_status","status":{"current":0,"items":[],"offset":0}}"#,
+            ClientMessage::LinkStatus {
+                status: serde_json::json!({"current": 0, "items": [], "offset": 0}),
+            },
+        );
+        server_line(
+            r#"{"type":"link_status","status":{"current":0,"items":[],"offset":0}}"#,
+            ServerMessage::LinkStatus {
+                status: serde_json::json!({"current": 0, "items": [], "offset": 0}),
+            },
         );
     }
 
-    #[test]
-    fn remote_actions_roundtrip() {
-        let track = Track {
+    fn track() -> Track {
+        Track {
             id: "dQw4w9WgXcQ".into(),
             title: "x".into(),
             artist: "y".into(),
             thumbnail: None,
             duration_ms: 0,
             queued_by: None,
-        };
+        }
+    }
+
+    #[test]
+    fn remote_actions_roundtrip() {
         for a in [
             RemoteAction::Play,
             RemoteAction::Pause,
@@ -461,17 +598,84 @@ mod tests {
             RemoteAction::Previous,
             RemoteAction::Seek { position_ms: 5 },
             RemoteAction::SetVolume { volume: 0.5 },
-            RemoteAction::PlayTrack { track },
+            RemoteAction::PlayTrack { track: track() },
+            RemoteAction::PlayTracks {
+                tracks: vec![track(), track()],
+                start: Some(1),
+                source_id: Some("PL1".into()),
+                source_name: Some("Mix".into()),
+                shuffle: true,
+            },
+            RemoteAction::PlayIndex { index: 3, id: "a".into() },
+            RemoteAction::Remove { index: 4, id: "b".into() },
+            RemoteAction::Move { from: 5, to: 2 },
+            RemoteAction::PlayNext { tracks: vec![track()], from: Some("Album".into()) },
+            RemoteAction::AddToQueue { tracks: vec![track()], from: None },
+            RemoteAction::ClearQueued,
+            RemoteAction::SetShuffle { on: true },
+            RemoteAction::SetRepeat { mode: "one".into() },
+            RemoteAction::TakeOver,
         ] {
-            let json = ClientMessage::Remote { action: a.clone() }.to_json();
+            // Through the wire message the way a client sends it and the server passes it on.
+            let json =
+                ClientMessage::Remote { action: serde_json::to_value(&a).unwrap(), to: None }
+                    .to_json();
             match serde_json::from_str::<ClientMessage>(&json).unwrap() {
-                ClientMessage::Remote { action } => assert_eq!(action, a, "{json}"),
+                ClientMessage::Remote { action, .. } => {
+                    assert_eq!(serde_json::from_value::<RemoteAction>(action).unwrap(), a, "{json}")
+                }
                 m => panic!("wrong variant {m:?}"),
             }
         }
+        // Android writes these by hand: the shapes, field for field.
         assert_eq!(
-            ClientMessage::Remote { action: RemoteAction::SetVolume { volume: 0.5 } }.to_json(),
-            r#"{"type":"remote","action":{"kind":"set_volume","volume":0.5}}"#
+            serde_json::to_string(&RemoteAction::SetVolume { volume: 0.5 }).unwrap(),
+            r#"{"kind":"set_volume","volume":0.5}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&RemoteAction::PlayIndex { index: 3, id: "a".into() }).unwrap(),
+            r#"{"kind":"play_index","index":3,"id":"a"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&RemoteAction::SetShuffle { on: false }).unwrap(),
+            r#"{"kind":"set_shuffle","on":false}"#
+        );
+        // A newer client's action: an error to skip, not a crash.
+        assert!(serde_json::from_value::<RemoteAction>(serde_json::json!({"kind": "teleport"}))
+            .is_err());
+    }
+
+    #[test]
+    fn link_status_roundtrips() {
+        let s = LinkStatus {
+            items: vec![
+                LinkItem {
+                    track: track(),
+                    queued: false,
+                    queued_end: false,
+                    queued_from: None,
+                    autoplay: false,
+                },
+                LinkItem {
+                    track: track(),
+                    queued: true,
+                    queued_end: false,
+                    queued_from: Some("Album".into()),
+                    autoplay: true,
+                },
+            ],
+            offset: 2,
+            current: 1,
+            shuffle: true,
+            repeat: "all".into(),
+            source: Some("Mix".into()),
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        assert_eq!(serde_json::from_str::<LinkStatus>(&json).unwrap(), s);
+        // Unset marks stay off the wire.
+        assert_eq!(
+            serde_json::to_string(&s.items[0]).unwrap(),
+            r#"{"id":"dQw4w9WgXcQ","title":"x","artist":"y","thumbnail":null,"duration_ms":0}"#
         );
     }
 }

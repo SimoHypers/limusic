@@ -40,8 +40,11 @@ const MAX_MESSAGE: usize = 256 * 1024;
 const IDLE_LIMIT: Duration = Duration::from_secs(90);
 /// Device link rooms held at once. Counted apart from [`MAX_ROOMS`], so linked desktops can never
 /// lock anyone out of Listen Together. ponytail: a link room holds up to a 50-track queue
-/// (~40 KiB), so the worst case is ~80 MB on the owner's laptop; raise it only with a bigger host.
+/// (~40 KiB) and a [`MAX_LINK_STATUS`] status, so the worst case is ~210 MB on the owner's laptop;
+/// raise it only with a bigger host.
 const MAX_LINK_ROOMS: usize = 2000;
+/// Largest `link_status` kept. The player's queue window (~120 rows) is about half of it.
+const MAX_LINK_STATUS: usize = 64 * 1024;
 const MAX_LINK_DEVICES: usize = 8;
 /// A link room with no device connected is forgotten after this. Its devices just join again.
 const LINK_IDLE_TTL: Duration = Duration::from_secs(12 * 60 * 60);
@@ -89,6 +92,8 @@ struct Room {
     idle_since: Option<Instant>,
     /// Link rooms: the live pairing code and when it expires. One per room.
     pair: Option<(String, Instant)>,
+    /// Link rooms: the player's last `link_status` (its queue), kept unread for devices that join.
+    status: Option<serde_json::Value>,
 }
 
 impl Room {
@@ -107,6 +112,7 @@ impl Room {
             link,
             idle_since: None,
             pair: None,
+            status: None,
         }
     }
 
@@ -167,6 +173,10 @@ impl Room {
 
     /// Hand the host role to `id` and tell everyone.
     fn set_host(&mut self, id: String) {
+        // A new player's queue is its own, which it sends next.
+        if self.host_id != id {
+            self.status = None;
+        }
         self.host_id = id.clone();
         self.broadcast(&ServerMessage::HostChanged { host_id: id }, None);
         self.brief_host();
@@ -691,24 +701,46 @@ impl Server {
                 let mut state = room.wire_state(&key);
                 state.position_ms = state.live_position_ms(now);
                 state.last_update_ms = now;
-                let _ = tx.send(ServerMessage::LinkJoined { state });
+                let _ = tx.send(ServerMessage::LinkJoined { state, status: room.status.clone() });
                 *uid = Some(device_id);
                 *room_code = Some(key);
             }
 
-            ClientMessage::Remote { action } => {
+            ClientMessage::Remote { action, to } => {
                 let (Some(me), Some(code)) = (uid.clone(), room_code.clone()) else { return };
                 let rooms = self.rooms.lock().await;
                 let Some(room) = rooms.get(&code) else { return };
                 if !room.link || !room.peers.contains_key(&me) {
                     return;
                 }
-                // Forwarded, not applied: the player runs it and publishes the result.
-                if room.is_host(&me) || !room.host_is_reachable() {
-                    let _ = tx.send(err("no_player", "No other device is playing right now."));
+                // Forwarded, not applied (nor read): the device runs it and publishes the result.
+                let named = to.is_some();
+                let target = to.unwrap_or_else(|| room.host_id.clone());
+                if target == me || !room.peers.get(&target).is_some_and(|p| p.connected) {
+                    let _ = tx.send(if named {
+                        err("no_device", "That device isn't online.")
+                    } else {
+                        err("no_player", "No other device is playing right now.")
+                    });
                     return;
                 }
-                room.send_to(&room.host_id, ServerMessage::Remote { from: me, action });
+                room.send_to(&target, ServerMessage::Remote { from: me, action });
+            }
+
+            ClientMessage::LinkStatus { status } => {
+                let (Some(me), Some(code)) = (uid.clone(), room_code.clone()) else { return };
+                let mut rooms = self.rooms.lock().await;
+                let Some(room) = rooms.get_mut(&code) else { return };
+                // Only the player's queue is the room's; a takeover's status follows its track.
+                if !room.link || !room.is_host(&me) || !room.peers.contains_key(&me) {
+                    return;
+                }
+                if status.to_string().len() > MAX_LINK_STATUS {
+                    let _ = tx.send(err("too_large", "The queue is too big to share."));
+                    return;
+                }
+                room.status = Some(status.clone());
+                room.broadcast(&ServerMessage::LinkStatus { status }, Some(&me));
             }
 
             ClientMessage::PairStart => {
@@ -1445,7 +1477,7 @@ mod tests {
         let server = Server::default();
         let mut a = link(&server, "a").await;
         match &a.drain()[..] {
-            [ServerMessage::LinkJoined { state }] => {
+            [ServerMessage::LinkJoined { state, .. }] => {
                 assert_eq!(state.room_code, "", "the secret must not be echoed");
                 assert_eq!(state.host_id, "");
                 assert_eq!(state.users.len(), 1);
@@ -1454,7 +1486,7 @@ mod tests {
         }
         let mut b = link(&server, "b").await;
         match &b.drain()[..] {
-            [ServerMessage::LinkJoined { state }] => {
+            [ServerMessage::LinkJoined { state, .. }] => {
                 let mut ids: Vec<_> = state.users.iter().map(|u| u.user_id.as_str()).collect();
                 ids.sort();
                 assert_eq!(ids, ["a", "b"]);
@@ -1551,7 +1583,8 @@ mod tests {
         let (mut a, mut b) = two_devices(&server).await;
         let mut c = link(&server, "c").await;
         c.drain();
-        let next = || ClientMessage::Remote { action: listen_protocol::RemoteAction::Next };
+        let next =
+            || ClientMessage::Remote { action: serde_json::json!({"kind": "next"}), to: None };
 
         // Nobody has played yet.
         b.send(&server, next()).await;
@@ -1564,7 +1597,7 @@ mod tests {
         b.send(&server, next()).await;
         let got = a.drain();
         assert!(
-            matches!(&got[..], [ServerMessage::Remote { from, action: listen_protocol::RemoteAction::Next }] if from == "b"),
+            matches!(&got[..], [ServerMessage::Remote { from, action }] if from == "b" && action["kind"] == "next"),
             "{got:?}"
         );
         assert!(b.drain().is_empty());
@@ -1578,6 +1611,80 @@ mod tests {
         b.drain();
         b.send(&server, next()).await;
         assert_eq!(error_code(&b.drain()), Some("no_player"));
+    }
+
+    #[tokio::test]
+    async fn remote_to_a_named_device() {
+        let server = Server::default();
+        let (mut a, mut b) = two_devices(&server).await;
+        let take_over = |to: &str| ClientMessage::Remote {
+            action: serde_json::json!({"kind": "take_over"}),
+            to: Some(to.into()),
+        };
+        a.send(&server, play("one")).await;
+        a.drain();
+        b.drain();
+        // The player asks a device that isn't playing to take over.
+        a.send(&server, take_over("b")).await;
+        let got = b.drain();
+        assert!(
+            matches!(&got[..], [ServerMessage::Remote { from, action }] if from == "a" && action["kind"] == "take_over"),
+            "{got:?}"
+        );
+        assert!(a.drain().is_empty());
+        // Not to itself, nor to a device that is offline or unknown.
+        a.send(&server, take_over("a")).await;
+        assert_eq!(error_code(&a.drain()), Some("no_device"));
+        a.send(&server, take_over("z")).await;
+        assert_eq!(error_code(&a.drain()), Some("no_device"));
+        server.handle_disconnect(b.uid.clone(), b.code.clone(), &b.tx).await;
+        a.drain();
+        a.send(&server, take_over("b")).await;
+        assert_eq!(error_code(&a.drain()), Some("no_device"));
+    }
+
+    #[tokio::test]
+    async fn link_status_is_the_players_and_kept_for_joiners() {
+        let server = Server::default();
+        let (mut a, mut b) = two_devices(&server).await;
+        let status =
+            |n: u64| ClientMessage::LinkStatus { status: serde_json::json!({"current": n}) };
+
+        // Nobody plays yet: nobody's queue is the room's.
+        a.send(&server, status(0)).await;
+        assert!(b.drain().is_empty());
+
+        a.send(&server, play("one")).await;
+        a.drain();
+        b.drain();
+        a.send(&server, status(1)).await;
+        let got = b.drain();
+        assert!(
+            matches!(&got[..], [ServerMessage::LinkStatus { status }] if status["current"] == 1),
+            "{got:?}"
+        );
+        assert!(a.drain().is_empty(), "not echoed to the player");
+        // A device that isn't playing can't overwrite it.
+        b.send(&server, status(9)).await;
+        assert!(a.drain().is_empty());
+
+        // A device that joins gets it with the room.
+        let mut c = link(&server, "c").await;
+        match &c.drain()[..] {
+            [ServerMessage::LinkJoined { status: Some(s), .. }] => assert_eq!(s["current"], 1),
+            got => panic!("{got:?}"),
+        }
+
+        // Too big is refused and the last one stands.
+        let big = "x".repeat(MAX_LINK_STATUS);
+        a.send(&server, ClientMessage::LinkStatus { status: serde_json::json!({"pad": big}) })
+            .await;
+        assert_eq!(error_code(&a.drain()), Some("too_large"));
+        assert_eq!(server.rooms.lock().await[KEY].status.as_ref().unwrap()["current"], 1);
+
+        // A takeover drops the old player's queue.
+        b.send(&server, play("two")).await;
+        assert!(server.rooms.lock().await[KEY].status.is_none());
     }
 
     async fn pair_code(server: &Server, c: &mut Conn) -> String {
