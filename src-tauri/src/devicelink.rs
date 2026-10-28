@@ -40,6 +40,24 @@ pub enum LinkCommand {
     Republish,
     /// Another device asks this one to play what the player plays (Continue here, from there).
     TakeOver,
+    /// The link's state changed: whether this desktop shows another device's playback may have.
+    Changed,
+}
+
+/// Paused longer than this, the device that played last stops being the one this desktop shows
+/// and controls (the phone's rule too).
+const STALE_PAUSE_MS: i64 = 10 * 60 * 1000;
+
+/// What another linked device plays, for this desktop to show and control (Spotify Connect style).
+pub struct RemoteView {
+    pub track: Track,
+    pub playing: bool,
+    /// Live, extrapolated from its last report.
+    pub position_ms: i64,
+    /// Its queue, once it has sent one.
+    pub status: Option<LinkStatus>,
+    /// The room's upcoming tracks, until it has.
+    pub upcoming: Vec<Track>,
 }
 
 /// What [`LinkSession::publish`] did with a message. See [`send_rule`].
@@ -101,6 +119,8 @@ struct Inner {
     status: Option<LinkStatus>,
     /// The last `link_status` we sent as the player, so an unchanged queue isn't sent again.
     sent_status: Option<String>,
+    /// The player bar shows another device's playback right now (`AppState` decides).
+    showing_remote: bool,
     outbound: Option<mpsc::UnboundedSender<ClientMessage>>,
 }
 
@@ -205,6 +225,55 @@ impl LinkSession {
         }
         inner.sent_status = Some(json);
         inner.send(ClientMessage::LinkStatus { status: value });
+    }
+
+    /// Another device's playback, while it is the player, online, and playing or paused less than
+    /// [`STALE_PAUSE_MS`] ago.
+    pub fn remote_view(&self) -> Option<RemoteView> {
+        let inner = self.lock();
+        if !inner.joined || inner.is_player() {
+            return None;
+        }
+        let host = inner.room.users.iter().find(|u| u.user_id == inner.room.host_id)?;
+        if !host.is_connected {
+            return None;
+        }
+        let track = inner.room.current_track.clone()?;
+        let now = now_ms();
+        if !inner.room.is_playing && now - inner.room.last_update_ms > STALE_PAUSE_MS {
+            return None;
+        }
+        Some(RemoteView {
+            track,
+            playing: inner.room.is_playing,
+            position_ms: inner.room.live_position_ms(now),
+            status: inner.status.clone(),
+            upcoming: inner.room.queue.clone(),
+        })
+    }
+
+    /// A control for the device that plays, or for `to`.
+    pub fn remote(&self, action: RemoteAction, to: Option<String>) {
+        if let Ok(action) = serde_json::to_value(&action) {
+            self.lock().send(ClientMessage::Remote { action, to });
+        }
+    }
+
+    /// The room's player, when it is another device.
+    pub fn player_id(&self) -> Option<String> {
+        let inner = self.lock();
+        (!inner.room.host_id.is_empty() && !inner.is_player()).then(|| inner.room.host_id.clone())
+    }
+
+    /// `AppState` says whether the player bar shows another device; the device picker reads it.
+    pub fn set_showing_remote(&self, on: bool) {
+        let changed = {
+            let mut inner = self.lock();
+            std::mem::replace(&mut inner.showing_remote, on) != on
+        };
+        if changed {
+            let _ = self.app.emit("link-state", self.snapshot());
+        }
     }
 
     /// The room's track, upcoming queue and live position, when another device holds them and
@@ -349,11 +418,13 @@ impl LinkSession {
             })),
             "track": inner.room.current_track,
             "isPlaying": inner.room.is_playing,
+            "remote": inner.showing_remote,
         })
     }
 
     fn emit_state(&self) {
         let _ = self.app.emit("link-state", self.snapshot());
+        let _ = self.cmd_tx.send(LinkCommand::Changed);
     }
 
     fn give_up_unsupported(&self) {

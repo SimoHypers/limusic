@@ -271,7 +271,6 @@
 				/>{/if}
 			{#if showQueue}<QueuePanel onClose={() => (queueOpen = false)} />{/if}
 		</div>
-		<LinkStrip />
 		{#if playback.now}
 			<!-- Slides up from its own height on first play; leaves instantly (bar removal is rare).
 			     z-20 on the wrapper, not the bar: the intro's transform makes this a stacking context,
@@ -298,6 +297,7 @@
 					}}
 					commentsOpen={tabbed ? np.tab === 'comments' : commentsOpen}
 				/>
+				<LinkStrip />
 			</div>
 		{/if}
 	</div>

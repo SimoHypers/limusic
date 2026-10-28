@@ -1194,7 +1194,7 @@ export const ui = $state({
 	toast: null as Toast | null,
 	settingsOpen: false, // the settings modal
 	tempoPitchOpen: false, // playback effects stay open when the current track menu is replaced
-	settingsFocus: null as 'lyrics' | 'scrobbling' | null, // a section to open settings on, once
+	settingsFocus: null as 'lyrics' | 'scrobbling' | 'devices' | null, // a section to open settings on, once
 	scrobbleTrack: null as SongItem | null, // "Edit scrobble" from a track menu: the track to edit
 	ltOpen: false, // the Listen Together modal
 	linkOpen: false, // the "open a pasted link" modal
@@ -1518,6 +1518,8 @@ export function initApp(mini = false): () => void {
 		}),
 		api.onNowPlaying((n) => {
 			playback.now = n;
+			// Nothing of its own to show after a linked device's playback (devicelink).
+			if (!n) return;
 			playback.rating = n.rating ?? 'indifferent'; // the track's real rating when known
 			// Feeds Shortcuts recency. Every track start lands here, gapless advances included, so
 			// it's the one hook that sees them all. Never count plays here: skips and the track

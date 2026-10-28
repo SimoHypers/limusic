@@ -10,7 +10,8 @@ export const link = $state<LinkState>({
 	devices: [],
 	player: null,
 	track: null,
-	isPlaying: false
+	isPlaying: false,
+	remote: false
 });
 
 export function applyLinkState(s: LinkState) {

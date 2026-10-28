@@ -1362,6 +1362,8 @@ export interface LinkState {
 	player: { id: string; name: string; online: boolean } | null;
 	track: LtTrack | null;
 	isPlaying: boolean;
+	/** The player bar shows and controls the player's playback, not this desktop's. */
+	remote: boolean;
 }
 
 export const linkState = () => invoke<LinkState>('link_state');
@@ -1370,6 +1372,8 @@ export const linkCancelPairing = () => invoke<void>('link_cancel_pairing');
 export const linkUnlink = (deviceId: string) => invoke<void>('link_unlink', { deviceId });
 export const linkForget = () => invoke<void>('link_forget');
 export const linkContinueHere = () => invoke<void>('link_continue_here');
+/** The device picker: play on `deviceId`, or on this desktop when it is empty. */
+export const linkPlayOn = (deviceId: string) => invoke<void>('link_play_on', { deviceId });
 export const onLinkState = (cb: (s: LinkState) => void): Promise<UnlistenFn> =>
 	listen<LinkState>('link-state', (e) => cb(e.payload));
 

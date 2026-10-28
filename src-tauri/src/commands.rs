@@ -2378,6 +2378,13 @@ pub async fn link_continue_here(state: St<'_>) -> Result<(), String> {
     Ok(())
 }
 
+/// The device picker: play on a linked device, or on this desktop when `device_id` is empty.
+#[tauri::command]
+pub async fn link_play_on(state: St<'_>, device_id: String) -> Result<(), String> {
+    state.inner().clone().link_play_on(device_id).await;
+    Ok(())
+}
+
 // --- Listen Together (context/19) ----------------------------------------------------------
 
 /// Current client-side LT state (status, role, room, participants, pending joins, suggestions).
