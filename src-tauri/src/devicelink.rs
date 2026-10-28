@@ -18,7 +18,8 @@ use std::time::Duration;
 use base64::Engine as _;
 use futures_util::{SinkExt, StreamExt};
 use listen_protocol::{
-    ClientMessage, Playback, PlaybackKind, RemoteAction, RoomState, ServerMessage, Track, User,
+    ClientMessage, LinkStatus, Playback, PlaybackKind, RemoteAction, RoomState, ServerMessage,
+    Track, User,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -37,6 +38,8 @@ pub enum LinkCommand {
     HostLost,
     /// We (re)joined the room: if we are playing, say so, or the room keeps what it last heard.
     Republish,
+    /// Another device asks this one to play what the player plays (Continue here, from there).
+    TakeOver,
 }
 
 /// What [`LinkSession::publish`] did with a message. See [`send_rule`].
@@ -94,6 +97,10 @@ struct Inner {
     pair: Option<(String, i64)>,
     /// The room as the server last described it.
     room: RoomState,
+    /// The player's queue, when another device plays.
+    status: Option<LinkStatus>,
+    /// The last `link_status` we sent as the player, so an unchanged queue isn't sent again.
+    sent_status: Option<String>,
     outbound: Option<mpsc::UnboundedSender<ClientMessage>>,
 }
 
@@ -176,6 +183,28 @@ impl LinkSession {
             self.emit_state();
         }
         decision
+    }
+
+    /// Our queue for the other devices, while we are the player. Local files keep their place in
+    /// it with their name only, as the playing track does (`keep_linkable`). Never blocks.
+    pub fn publish_status(&self, mut status: LinkStatus) {
+        let mut inner = self.lock();
+        if !inner.joined || !inner.is_player() {
+            return;
+        }
+        for item in &mut status.items {
+            if !shareable(&item.track) {
+                item.track.id.clear();
+                item.track.thumbnail = None;
+            }
+        }
+        let Ok(value) = serde_json::to_value(&status) else { return };
+        let json = value.to_string();
+        if inner.sent_status.as_deref() == Some(json.as_str()) {
+            return;
+        }
+        inner.sent_status = Some(json);
+        inner.send(ClientMessage::LinkStatus { status: value });
     }
 
     /// The room's track, upcoming queue and live position, when another device holds them and
@@ -472,9 +501,12 @@ impl LinkSession {
         {
             let mut inner = self.lock();
             match sm {
-                ServerMessage::LinkJoined { mut state } => {
+                ServerMessage::LinkJoined { mut state, status } => {
                     state.queue.retain(shareable);
                     inner.room = state;
+                    inner.status = status.and_then(|s| serde_json::from_value(s).ok());
+                    // A restarted server has none of ours: the republish below sends it again.
+                    inner.sent_status = None;
                     inner.joined = true;
                     inner.connecting = false;
                     if inner.want_pair {
@@ -513,6 +545,9 @@ impl LinkSession {
                         u.is_host = u.user_id == host_id;
                     }
                     inner.room.host_id = host_id;
+                    // The new player's queue follows; ours goes out again if we play again.
+                    inner.status = None;
+                    inner.sent_status = None;
                     if !inner.is_player() {
                         let _ = self.cmd_tx.send(LinkCommand::HostLost);
                     }
@@ -527,9 +562,23 @@ impl LinkSession {
                     state.queue.retain(shareable);
                     inner.room = state;
                 }
+                ServerMessage::LinkStatus { status } => {
+                    inner.status = serde_json::from_value(status).ok();
+                }
                 ServerMessage::Remote { action, .. } => {
-                    if inner.is_player() {
-                        let _ = self.cmd_tx.send(LinkCommand::Remote(action));
+                    match serde_json::from_value::<RemoteAction>(action) {
+                        // Only a device that isn't playing can take over; everything else is for
+                        // the player.
+                        Ok(RemoteAction::TakeOver) if !inner.is_player() => {
+                            let _ = self.cmd_tx.send(LinkCommand::TakeOver);
+                        }
+                        Ok(RemoteAction::TakeOver) => {}
+                        Ok(action) if inner.is_player() => {
+                            let _ = self.cmd_tx.send(LinkCommand::Remote(action));
+                        }
+                        Ok(_) => {}
+                        // A newer device's action: nothing to do with it here.
+                        Err(e) => tracing::debug!(error = %e, "device link: unknown remote action"),
                     }
                 }
                 ServerMessage::Kicked { .. } => {

@@ -2846,6 +2846,9 @@ impl AppState {
             })
         };
         let _ = self.app.emit(if unchanged { "queue-index" } else { "queue-changed" }, payload);
+        if self.link.linked() {
+            self.link.publish_status(link_status(&q));
+        }
     }
 
     /// A pure tail append: ship the added rows, not the whole list.
@@ -2867,6 +2870,9 @@ impl AppState {
         // `queue-index` for a list that grew, leaving the panel stale.
         self.last_queue_fingerprint.store(queue_fingerprint(&q.items), Ordering::Relaxed);
         let _ = self.app.emit("queue-appended", payload);
+        if self.link.linked() {
+            self.link.publish_status(link_status(&q));
+        }
     }
 
     fn emit_error(&self, video_id: &str, message: &str) {
@@ -3698,6 +3704,7 @@ impl AppState {
         let Some(p) = self.current_change_track(position_ms, playing).await else { return };
         if self.link.publish(p.clone()) == Publish::Sent {
             self.link_publish_volume();
+            self.link_publish_status().await;
         }
         if lt_host {
             self.lt.broadcast_playback(p).await;
@@ -3722,8 +3729,29 @@ impl AppState {
             if let Some(ct) = self.current_change_track(p.position_ms, true).await {
                 self.link.publish(ct);
                 self.link_publish_volume();
+                self.link_publish_status().await;
             }
         }
+    }
+
+    /// Our queue for the other devices' player views. The session sends it only while we are the
+    /// player, and only when it changed.
+    async fn link_publish_status(&self) {
+        if self.link.linked() {
+            self.link.publish_status(link_status(&*self.queue.lock().await));
+        }
+    }
+
+    /// A row named by a remote: `index` in our whole queue, unless the queue moved since the
+    /// remote looked and another row holds `id` now. Then the nearest row with `id`, if any.
+    async fn link_row(&self, index: usize, id: &str) -> Option<usize> {
+        let q = self.queue.lock().await;
+        let at = |i: usize| q.items.get(i).map(|s| s.video_id.as_str());
+        // A local file crosses the wire without its id: only its place names it.
+        if at(index).is_some_and(|v| v == id || (id.is_empty() && crate::local::is_local_song(v))) {
+            return Some(index);
+        }
+        (!id.is_empty()).then(|| q.items.iter().position(|s| s.video_id == id)).flatten()
     }
 
     /// The remote's volume slider starts from what the player last said.
@@ -4305,7 +4333,43 @@ impl AppState {
                         self.play_song(track_to_song(&track)).await;
                     }
                 }
+                RemoteAction::PlayTracks { tracks, start, source_id, source_name, shuffle } => {
+                    let (items, start) = linkable_songs(&tracks, start);
+                    self.play_tracks(items, start, source_id, source_name, shuffle, None).await;
+                }
+                RemoteAction::PlayIndex { index, id } => {
+                    if let Some(i) = self.link_row(index, &id).await {
+                        self.play_index(i).await;
+                    }
+                }
+                RemoteAction::Remove { index, id } => {
+                    if let Some(i) = self.link_row(index, &id).await {
+                        self.remove_from_queue(i).await;
+                    }
+                }
+                RemoteAction::Move { from, to } => self.move_in_queue(from, to).await,
+                RemoteAction::PlayNext { tracks, from } => {
+                    self.play_next(linkable_songs(&tracks, None).0, from).await
+                }
+                RemoteAction::AddToQueue { tracks, from } => {
+                    self.add_to_queue(linkable_songs(&tracks, None).0, from, None).await
+                }
+                RemoteAction::ClearQueued => self.clear_queued().await,
+                RemoteAction::SetShuffle { on } => {
+                    let shuffled = self.queue.lock().await.shuffle_orig.is_some();
+                    if shuffled != on {
+                        self.toggle_shuffle().await;
+                    }
+                }
+                RemoteAction::SetRepeat { mode } => {
+                    if let Ok(mode) = serde_json::from_value(serde_json::Value::String(mode)) {
+                        self.set_repeat(mode).await;
+                    }
+                }
+                // The session only hands this over when we aren't the player.
+                RemoteAction::TakeOver => {}
             },
+            LinkCommand::TakeOver => self.link_continue_here().await,
             LinkCommand::HostLost => {
                 if self.is_playing.load(Ordering::Relaxed) {
                     let _ = self.player.pause();
@@ -4317,6 +4381,7 @@ impl AppState {
                     if let Some(p) = self.current_change_track(pos_ms, true).await {
                         self.link.publish(p);
                         self.link_publish_volume();
+                        self.link_publish_status().await;
                     }
                 }
             }
@@ -4383,6 +4448,55 @@ pub(crate) fn song_to_track(s: &SongItem) -> Track {
         duration_ms: parse_duration_ms(s.duration.as_deref()),
         queued_by: s.queued_by.clone(),
     }
+}
+
+/// Rows of history and of what's coming that a linked device's queue view gets. ponytail: a
+/// window, not the queue; a 5,000-track queue would blow the server's status cap. A remote that
+/// scrolls past the window sees where it ends.
+const LINK_HISTORY: usize = 20;
+const LINK_UPCOMING: usize = 100;
+
+/// The queue around the playing track, for the linked devices (`devicelink::publish_status`).
+fn link_status(q: &QueueState) -> listen_protocol::LinkStatus {
+    let start = q.current.saturating_sub(LINK_HISTORY).min(q.items.len());
+    let end = (q.current + 1 + LINK_UPCOMING).min(q.items.len());
+    listen_protocol::LinkStatus {
+        items: q.items[start..end]
+            .iter()
+            .map(|s| listen_protocol::LinkItem {
+                track: song_to_track(s),
+                queued: s.queued,
+                queued_end: s.queued_end,
+                queued_from: s.queued_from.clone(),
+                autoplay: s.autoplay,
+            })
+            .collect(),
+        offset: start,
+        current: q.current.saturating_sub(start),
+        shuffle: q.shuffle_orig.is_some(),
+        repeat: serde_json::to_value(q.repeat)
+            .ok()
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default(),
+        source: q.source_name.clone(),
+    }
+}
+
+/// A remote's list as queue rows, with its tapped row's index kept on the same track. Only
+/// YouTube ids can be played here; anything else is dropped on the way.
+fn linkable_songs(tracks: &[Track], start: Option<usize>) -> (Vec<SongItem>, Option<usize>) {
+    let mut out = Vec::with_capacity(tracks.len());
+    let mut at = None;
+    for (i, t) in tracks.iter().enumerate() {
+        if !crate::listentogether::shareable(t) {
+            continue;
+        }
+        if start == Some(i) {
+            at = Some(out.len());
+        }
+        out.push(track_to_song(t));
+    }
+    (out, at)
 }
 
 fn track_to_song(t: &Track) -> SongItem {

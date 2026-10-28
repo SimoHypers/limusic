@@ -475,7 +475,8 @@ impl LtSession {
             ServerMessage::LinkJoined { .. }
             | ServerMessage::PairCode { .. }
             | ServerMessage::Paired { .. }
-            | ServerMessage::Remote { .. } => return false,
+            | ServerMessage::Remote { .. }
+            | ServerMessage::LinkStatus { .. } => return false,
 
             ServerMessage::RoomCreated { room_code: _, user_id, session_token, state } => {
                 {
@@ -758,7 +759,7 @@ fn sanitize(sm: &mut ServerMessage) {
         | ServerMessage::JoinApproved { state, .. }
         | ServerMessage::Reconnected { state, .. }
         | ServerMessage::SyncState { state }
-        | ServerMessage::LinkJoined { state } => {
+        | ServerMessage::LinkJoined { state, .. } => {
             state.current_track = state.current_track.take().filter(shareable);
             state.queue.retain(shareable);
         }
@@ -779,7 +780,8 @@ fn sanitize(sm: &mut ServerMessage) {
         // Link only (`handle` ignores them); a remote `play_track` never reaches this socket.
         | ServerMessage::Remote { .. }
         | ServerMessage::PairCode { .. }
-        | ServerMessage::Paired { .. } => {}
+        | ServerMessage::Paired { .. }
+        | ServerMessage::LinkStatus { .. } => {}
     }
 }
 
