@@ -5,6 +5,9 @@
 //! own response. So it slots in at the videoId level only: "our direct clients all failed →
 //! ask rustypipe to resolve the whole id." It must be able to carry the queue SOLO.
 
+use std::panic::AssertUnwindSafe;
+
+use futures_util::FutureExt;
 use rustypipe::client::RustyPipe;
 use rustypipe::error::{Error as RpError, ExtractionError, UnavailabilityReason};
 use rustypipe::model::AudioStream;
@@ -62,13 +65,23 @@ pub async fn resolve(video_id: &str, prefer_high: bool) -> Result<StreamCandidat
     // ./rustypipe_reports/, and an installed app's CWD may not be writable).
     let storage = std::env::temp_dir().join("limusic-rustypipe");
     std::fs::create_dir_all(&storage).ok();
-    let player = RustyPipe::builder()
+    let rp = RustyPipe::builder()
         .storage_dir(storage)
         .build()
-        .map_err(|e| FallbackError::RustyPipe(e.to_string()))?
-        .query()
-        .player(video_id)
+        .map_err(|e| FallbackError::RustyPipe(e.to_string()))?;
+    // rustypipe 0.11 panics instead of erroring when music.youtube.com won't hand it visitor data
+    // (`VisitorDataCache::new_visitor_data` unwraps the fetch): offline, or in a country without
+    // YouTube Music. Uncaught, that panic killed the whole play task and the user never heard
+    // back (#564). `AssertUnwindSafe` is sound: `rp` is dropped with whatever the panic poisoned.
+    let player = AssertUnwindSafe(rp.query().player(video_id))
+        .catch_unwind()
         .await
+        .map_err(|p| {
+            // The message is what makes the next report readable: it names the failed request.
+            let msg = p.downcast_ref::<String>().map(String::as_str);
+            let msg = msg.or_else(|| p.downcast_ref::<&str>().copied()).unwrap_or("");
+            FallbackError::RustyPipe(format!("panicked: {msg}"))
+        })?
         .map_err(map_err)?;
 
     let best = pick_audio(&player.audio_streams, prefer_high).ok_or(FallbackError::NoAudio)?;
