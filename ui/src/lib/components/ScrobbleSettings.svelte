@@ -355,6 +355,19 @@
 	</div>
 {/snippet}
 
+{#snippet queueStatus(connected: boolean, pending: number, failed: number)}
+	{#if connected && (pending > 0 || failed > 0)}
+		<div class="flex flex-wrap gap-x-3 gap-y-1 border-t border-border/60 px-4 py-2.5 text-xs" role="status">
+			{#if pending > 0}
+				<p class="text-muted-foreground">{t('settings.scrobbling.queue_pending', { count: num(pending) })}</p>
+			{/if}
+			{#if failed > 0}
+				<p class="text-destructive">{t('settings.scrobbling.queue_failed', { count: num(failed) })}</p>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+
 <div class="flex min-h-0 flex-1 max-lg:flex-col">
 	<div class="min-w-0 flex-1 overflow-y-auto px-6 py-5">
 		<section class={GROUP}>
@@ -405,6 +418,7 @@
 					</div>
 					{@render accountButton()}
 				</div>
+				{@render queueStatus(lastfm.connected, lastfm.pending, lastfm.failed)}
 				{#if lastfm.connected && STATS.length}
 					<div class="grid grid-cols-3 divide-x divide-border/60 border-t border-border/60">
 						{#each STATS as s (s.label)}
@@ -477,6 +491,7 @@
 					</div>
 					{@render lbAccountButton()}
 				</div>
+				{@render queueStatus(listenbrainz.connected, listenbrainz.pending, listenbrainz.failed)}
 				{#if listenbrainz.connected && lbProfile}
 					<div class="grid grid-cols-1 divide-x divide-border/60 border-t border-border/60">
 						<div class="min-w-0 px-4 py-2.5">

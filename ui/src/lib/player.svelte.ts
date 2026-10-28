@@ -43,6 +43,27 @@ export const playback = $state({
 	rating: 'indifferent' as Rating
 });
 
+/** The backend owns the clock; its app-wide events keep the main and mini windows in sync. */
+export const sleepTimer = $state({ snapshot: { mode: 'off' } as api.SleepTimerSnapshot });
+let sleepTimerRevision = 0;
+
+function applySleepTimer(snapshot: api.SleepTimerSnapshot) {
+	sleepTimerRevision++;
+	sleepTimer.snapshot = snapshot;
+}
+
+export async function setSleepTimer(minutes: number | null, afterTrack = false): Promise<boolean> {
+	const revision = sleepTimerRevision;
+	try {
+		const snapshot = await api.setSleepTimer(minutes, afterTrack);
+		if (sleepTimerRevision === revision) applySleepTimer(snapshot);
+		return true;
+	} catch (error) {
+		toast.error(String(error));
+		return false;
+	}
+}
+
 /**
  * The full-window now-playing view (NowPlaying.svelte): big artwork, plus the Queue/Lyrics/Comments tabs.
  * It lives here rather than in the layout because starting something playing opens it, and every
@@ -1510,7 +1531,14 @@ export function initApp(mini = false): () => void {
 	if (started) return () => {};
 	started = true;
 	let receivedEffects = false;
+	const initialSleepRevision = sleepTimerRevision;
+	const sleepSub = api.onSleepTimer(applySleepTimer);
+	// Subscribe before hydrating, and do not let an older command response replace a newer event.
+	sleepSub.then(() => api.getSleepTimer()).then((snapshot) => {
+		if (sleepTimerRevision === initialSleepRevision) applySleepTimer(snapshot);
+	}).catch(() => {});
 	const subs = [
+		sleepSub,
 		api.onPlaybackParams((p) => {
 			receivedEffects = true;
 			Object.assign(playback, p);

@@ -30,7 +30,10 @@ mod notify;
 mod orchestrator;
 mod potoken;
 mod romanize;
+mod scrobble_outbox;
+mod secrets;
 mod session;
+mod sleep_timer;
 mod spotify;
 mod state;
 mod stats;
@@ -716,21 +719,9 @@ pub fn run() {
             let proxy = std::env::var("LIMUSIC_PROXY")
                 .ok()
                 .filter(|p| !p.trim().is_empty())
-                .or_else(|| db.get_setting("proxy").filter(|p| !p.trim().is_empty()))
-                // The setting is free text from the UI. An unparseable one used to fail
-                // `InnerTube::new` below, and that `expect` bricks the app: no window, so no way
-                // to reach settings and undo it. Drop it once here, for every consumer.
-                .filter(|p| match reqwest::Proxy::all(p.as_str()) {
-                    Ok(_) => true,
-                    // Scheme only: the URI can carry credentials in its userinfo (see http.rs).
-                    Err(e) => {
-                        let scheme = p.split_once("://").map_or("(none)", |(s, _)| s);
-                        tracing::warn!(scheme, "unusable proxy setting, going direct: {e}");
-                        false
-                    }
-                });
+                .or_else(|| db.get_setting("proxy").filter(|p| !p.trim().is_empty()));
             // Before the first fetch: the shared client builds itself on first use.
-            http::set_proxy(proxy.as_deref());
+            if let Err(error) = http::set_proxy(proxy.as_deref()) { fatal("Limusic cannot safely use the configured proxy", error); }
             // Built here instead of from the config (`create: false`), because WebView2 only takes
             // a proxy at creation and it isn't known until the database is open (#465).
             if let Some(config) = app.config().app.windows.first() {
@@ -739,7 +730,10 @@ pub fn run() {
                         .build()?;
                 keep_on_screen(&w);
             }
-            let cookie = db.get_setting("session_cookie").filter(|s| !s.is_empty());
+            let read_secret = |key: &str| db.get_setting_checked(key)
+                .unwrap_or_else(|e| fatal("Limusic could not unlock saved credentials", &e.to_string()))
+                .filter(|s| !s.is_empty());
+            let cookie = read_secret("session_cookie");
             let data_sync_id = state::persisted_data_sync_id(&db);
             let visitor_data = db.get_setting("visitor_data").filter(|s| !s.is_empty());
             // First run (no stored visitorData): bootstrap it in the background after the window is
@@ -783,7 +777,7 @@ pub fn run() {
             };
             // The audio bytes are the one request that never went through the proxy setting (#241).
             if let Err(e) = player.set_http_proxy(proxy.as_deref()) {
-                tracing::warn!("mpv refused the proxy setting: {e}");
+                fatal("Limusic could not apply the audio proxy", &e.to_string());
             }
             // Before anything can play: the first track of a restored queue has to come out at the
             // level the user left, not at 100.
@@ -835,8 +829,9 @@ pub fn run() {
             // its own credential exists (session key via the titlebar flow, user token via settings).
             let lastfm = lastfm::spawn(
                 handle.clone(),
-                db.get_setting("lastfm_session_key").filter(|s| !s.is_empty()),
-                db.get_setting("listenbrainz_token").filter(|s| !s.is_empty()),
+                db.clone(),
+                read_secret("lastfm_session_key"),
+                read_secret("listenbrainz_token"),
                 lastfm::ScrobbleConfig::load(&db),
             );
 
@@ -861,6 +856,18 @@ pub fn run() {
                 lastfm,
             ));
             app.manage(app_state.clone());
+            let timer_state = app_state.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut ticks = tokio::time::interval(std::time::Duration::from_secs(1));
+                loop {
+                    ticks.tick().await;
+                    timer_state.finish_sleep_timer(false).await;
+                    let snapshot = timer_state.sleep_timer.snapshot();
+                    if snapshot != sleep_timer::Snapshot::Off {
+                        let _ = timer_state.app.emit("sleep-timer", snapshot);
+                    }
+                }
+            });
 
             // The player view's <video> pulls its bytes from Rust over loopback, so the webview
             // never sees a googlevideo URL (context/11). videoproxy.rs explains why a socket and
@@ -999,7 +1006,7 @@ pub fn run() {
                                 )
                                 .await;
                             }
-                            _ = rotated.notified() => st.persist_rotated_cookie(),
+                            _ = rotated.notified() => st.persist_rotated_cookie().await,
                             _ = keepalive.tick() => st.keep_session_alive().await,
                         }
                     }
@@ -1121,6 +1128,8 @@ pub fn run() {
             commands::toggle_shuffle,
             commands::set_repeat,
             commands::toggle_pause,
+            commands::get_sleep_timer,
+            commands::set_sleep_timer,
             commands::seek,
             commands::set_volume,
             commands::set_playback_params,
@@ -1253,6 +1262,7 @@ pub fn run() {
             commands::release_notes,
             commands::can_self_update,
             commands::check_beta_update,
+            commands::check_stable_update,
             commands::open_external,
             commands::quit_app,
             commands::diagnostics,

@@ -47,6 +47,7 @@
 	import Marquee from './Marquee.svelte';
 	import SpeedPicker from './SpeedPicker.svelte';
 	import TrackMenu from './TrackMenu.svelte';
+	import SleepTimer from './SleepTimer.svelte';
 	import { t } from '$lib/i18n.svelte';
 
 	let {
@@ -422,6 +423,7 @@
 		</div>
 		<!-- One cluster, so they sit tighter to each other than to the volume slider. -->
 		<div class="flex items-center gap-0.5">
+			<SleepTimer />
 			<Button
 				variant={ui.tempoPitchOpen ? 'secondary' : 'ghost'}
 				size="icon-sm"

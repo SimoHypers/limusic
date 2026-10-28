@@ -7,6 +7,7 @@
 //! Google's short-lived `__Secure-*SIDTS` cookies rotate and a pasted cookie eventually stops
 //! authenticating.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -15,6 +16,93 @@ use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use crate::state::{AppState, SignInOutcome};
+
+static LOGIN_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+pub(crate) fn login_generation() -> u64 {
+    LOGIN_GENERATION.load(Ordering::SeqCst)
+}
+
+pub(crate) async fn lock_login(
+    auth: &tokio::sync::Mutex<()>,
+    captured: u64,
+) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
+    let turn = auth.lock().await;
+    if captured != login_generation() {
+        return Err("Sign-in was cancelled because an account was forgotten.".into());
+    }
+    Ok(turn)
+}
+
+/// Clear shared browser login cookies after closing Google pages that could recreate them.
+/// Other accounts saved in the app database are deliberately left to the caller.
+pub async fn forget_browser_sign_in(app: &AppHandle) -> Result<(), String> {
+    LOGIN_GENERATION.fetch_add(1, Ordering::SeqCst);
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let app2 = app.clone();
+    app.run_on_main_thread(move || {
+        for label in [LOGIN_LABEL, REFRESH_LABEL] {
+            if let Some(window) = app2.get_webview_window(label) {
+                if window.destroy().is_err() {
+                    let _ = tx.send(Err("Could not close the Google sign-in window. Close it and try Forget Account again.".into()));
+                    return;
+                }
+            }
+        }
+        let Some(main) = app2.get_webview_window("main") else {
+            let _ = tx.send(Err("Main window is unavailable; browser sign-in data was not cleared.".into()));
+            return;
+        };
+        #[cfg(windows)]
+        {
+            let done = Arc::new(Mutex::new(Some(tx)));
+            let callback_done = done.clone();
+            let dispatched = main.with_webview(move |webview| {
+                use windows::core::Interface;
+                use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2_13, ICoreWebView2Profile2, COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES};
+                let reply = callback_done.clone();
+                let result = (|| -> windows::core::Result<()> {
+                    unsafe {
+                        webview.controller().CoreWebView2()?.cast::<ICoreWebView2_13>()?.Profile()?.cast::<ICoreWebView2Profile2>()?.ClearBrowsingData(
+                            COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES,
+                            &webview2_com::ClearBrowsingDataCompletedHandler::create(Box::new(move |status| {
+                                if let Some(tx) = reply.lock().unwrap().take() {
+                                    let _ = tx.send(status.map_err(|_| "Windows could not clear browser sign-in data. Try Forget Account again.".to_owned()));
+                                }
+                                Ok(())
+                            }))
+                        )
+                    }
+                })();
+                if result.is_err() {
+                    if let Some(tx) = callback_done.lock().unwrap().take() {
+                        let _ = tx.send(Err("Windows could not start clearing browser sign-in data. Update WebView2 and retry Forget Account.".into()));
+                    }
+                }
+            });
+            if dispatched.is_err() {
+                if let Some(tx) = done.lock().unwrap().take() {
+                    let _ = tx.send(Err("Could not reach the browser to clear sign-in data. Try Forget Account again.".into()));
+                }
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = main;
+            let result = clear_google_webview_cookies(&app2);
+            let _ = tx.send(result);
+        }
+    }).map_err(|_| "Could not reach the browser to clear sign-in data. Try Forget Account again.".to_owned())?;
+    tokio::time::timeout(Duration::from_secs(30), rx)
+        .await
+        .map_err(|_| {
+            "Browser sign-in cleanup timed out. Keep Limusic open and retry Forget Account."
+                .to_owned()
+        })?
+        .map_err(|_| {
+            "Browser sign-in cleanup did not finish. Try Forget Account again.".to_owned()
+        })?
+}
 
 const LOGIN_LABEL: &str = "login";
 /// The hidden twin of [`LOGIN_LABEL`], used by [`refresh_session`]. Its own label so a refresh can
@@ -61,6 +149,7 @@ const ADD_ACCOUNT_URL: &str =
 /// the `auth-changed` event, or `login-error` on failure). `add_account` picks the AddSession
 /// flow so an additional Google account can be added while another is signed in.
 pub fn open_login(app: AppHandle, state: Arc<AppState>, add_account: bool) {
+    let generation = login_generation();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
 
     // When the webview lands on music.youtube.com, capture cookies + sign in. Runs off the
@@ -74,8 +163,11 @@ pub fn open_login(app: AppHandle, state: Arc<AppState>, add_account: bool) {
                 // after the page finishes, so poll briefly.
                 for _ in 0..6 {
                     let cookie = read_login_cookies(&app, LOGIN_LABEL).await;
+                    if generation != login_generation() {
+                        return;
+                    }
                     if innertube::cookie_sapisid(&cookie).is_some() {
-                        match state.sign_in(cookie, None).await {
+                        match state.sign_in(cookie, None, generation).await {
                             Ok(SignInOutcome::Complete) => {
                                 let _ = app.emit("login-done", ());
                             }
@@ -100,6 +192,9 @@ pub fn open_login(app: AppHandle, state: Arc<AppState>, add_account: bool) {
     // Window creation must happen on the main thread (GTK).
     let app2 = app.clone();
     let dispatched = app.run_on_main_thread(move || {
+        if generation != login_generation() {
+            return;
+        }
         // Reclaim the label if a prior login window is still around.
         if let Some(w) = app2.get_webview_window(LOGIN_LABEL) {
             let _ = w.destroy();
@@ -181,12 +276,16 @@ fn no_webgl(win: &tauri::WebviewWindow) {
 /// Nothing is emitted on failure: the user is already looking at "sign in again", and a webview
 /// session that has genuinely expired leaves them exactly where they were.
 pub async fn refresh_session(app: AppHandle, state: Arc<AppState>) {
+    let generation = login_generation();
     if !state.it.is_logged_in() || !claim_refresh() {
         return;
     }
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
     let app2 = app.clone();
     let dispatched = app.run_on_main_thread(move || {
+        if generation != login_generation() {
+            return;
+        }
         if let Some(w) = app2.get_webview_window(REFRESH_LABEL) {
             let _ = w.destroy();
         }
@@ -247,10 +346,13 @@ pub async fn refresh_session(app: AppHandle, state: Arc<AppState>) {
             return;
         };
         let cookie = read_login_cookies(&app, REFRESH_LABEL).await;
+        if generation != login_generation() {
+            return;
+        }
         if innertube::cookie_sapisid(&cookie) == Some(account) && !same_jar(&cookie, &current) {
             // The switch could still land during the export above, so the account is checked once
             // more under `AppState::auth`, where nothing can move underneath it.
-            match state.sign_in(cookie, Some(account)).await {
+            match state.sign_in(cookie, Some(account), generation).await {
                 Ok(_) => tracing::info!("re-minted the login session from the login webview"),
                 Err(error) => tracing::warn!(%error, "could not re-mint the login session"),
             }
@@ -362,6 +464,21 @@ fn youtube_cookie_header(mut cookies: Vec<Cookie<'static>>) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn exported_cookies_cannot_wait_past_forget_and_sign_back_in() {
+        let auth = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+        let forgotten = auth.lock().await;
+        let exported_generation = super::login_generation();
+        let pending = {
+            let auth = auth.clone();
+            tokio::spawn(async move { super::lock_login(&auth, exported_generation).await.is_ok() })
+        };
+        tokio::task::yield_now().await;
+        super::LOGIN_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        drop(forgotten);
+        assert!(!pending.await.unwrap());
+        assert!(super::lock_login(&auth, super::login_generation()).await.is_ok());
+    }
     use super::*;
 
     fn cookie(s: &str) -> Cookie<'static> {

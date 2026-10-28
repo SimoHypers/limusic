@@ -14,6 +14,8 @@ use crate::http::WEB_UA;
 
 const IFRAME_API: &str = "https://www.youtube.com/iframe_api";
 const CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+/// Reqwest's request deadline includes receiving the complete response body.
+const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -83,7 +85,7 @@ impl PlayerJsFetcher {
 /// GET as the desktop web player. Both of this module's requests decide what YouTube hands
 /// back based on the User-Agent, so neither may go out without it.
 async fn get(url: &str) -> reqwest::Result<reqwest::Response> {
-    crate::http::client().get(url).header("User-Agent", WEB_UA).send().await
+    crate::http::client().get(url).header("User-Agent", WEB_UA).timeout(FETCH_TIMEOUT).send().await
 }
 
 /// Extract the player hash from `iframe_api`. The URL there has escaped slashes
@@ -110,6 +112,39 @@ fn now_secs() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn deadline_covers_stalled_headers_and_body() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        async fn stalled(headers: bool) {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0; 4096];
+                assert!(socket.read(&mut request).await.unwrap() > 0);
+                if headers {
+                    socket
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\npartial")
+                        .await
+                        .unwrap();
+                }
+                tokio::time::sleep(Duration::from_secs(20)).await;
+            });
+            let started = std::time::Instant::now();
+            let result = tokio::time::timeout(Duration::from_secs(12), async {
+                get(&format!("http://{addr}/player.js")).await?.text().await
+            })
+            .await;
+            server.abort();
+            let error = result
+                .expect("fetch must finish before the outer watchdog")
+                .expect_err("stalled fetch must return an error for fallback");
+            assert!(error.is_timeout(), "{error}");
+            assert!(started.elapsed() < Duration::from_secs(12));
+        }
+        tokio::join!(stalled(false), stalled(true));
+    }
 
     #[test]
     fn hash_from_escaped_iframe_api() {

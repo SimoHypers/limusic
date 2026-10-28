@@ -2,7 +2,8 @@
 // startup check is silent unless an update exists, the Settings check always reports a result.
 // Only self-updates the AppImage build on Linux (Tauri limitation) — .deb, .rpm and distro packages
 // update through their package manager, so they get a download link instead. See `canInstall`.
-import { check, Update } from '@tauri-apps/plugin-updater';
+import { Update } from '@tauri-apps/plugin-updater';
+import { invoke } from '@tauri-apps/api/core';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { toast } from './player.svelte';
 import { t } from './i18n.svelte';
@@ -60,7 +61,8 @@ async function look(): Promise<boolean> {
 			// instead of being offered a downgrade to the last release. A dev build after the version
 			// bump is the other build ahead of Latest; it gets the rollback banner, which only costs a
 			// banner in dev.
-			u = await check({ allowDowngrades: !isPrerelease(current) });
+			const meta = await invoke<Awaited<ReturnType<typeof checkBetaUpdate>>>('check_stable_update', { allowDowngrades: !isPrerelease(current) });
+			u = meta && new Update(meta);
 		}
 	} catch (e) {
 		// The plugin resolves this platform's entry in latest.json BEFORE it compares versions, so a

@@ -99,7 +99,7 @@
 		confirmOpen = true;
 	}
 
-	/** Delete a saved account. Only inactive ones are listed, so this never signs the user out. */
+	/** Forget credentials on this device; the active account signs out too. */
 	async function removeAccount() {
 		const account = removing;
 		if (!account) return;
@@ -208,8 +208,8 @@
 							type="button"
 							onclick={() => askRemove(account)}
 							disabled={busy}
-							title={t('nav.remove_account')}
-							aria-label={t('nav.remove_account')}
+							title={t('nav.forget_account')}
+							aria-label={t('nav.forget_account')}
 							class="shrink-0 cursor-pointer rounded p-0.5 text-muted-foreground transition-colors hover:text-destructive disabled:cursor-wait"
 						>
 							<HugeiconsIcon icon={Cancel01Icon} class="h-3.5 w-3.5" />
@@ -238,6 +238,12 @@
 				<HugeiconsIcon icon={Logout01Icon} class="size-5 shrink-0" />
 				{t('nav.sign_out')}
 			</Button>
+			{#each accounts.filter((a) => a.active) as active (active.id)}
+				<Button variant="outline" size="sm" class="mt-2 w-full justify-start gap-2" disabled={busy} onclick={() => askRemove(active)}>
+					<HugeiconsIcon icon={UserMinus01Icon} class="size-5 shrink-0" />
+					{t('nav.forget_account')}
+				</Button>
+			{/each}
 		{:else}
 			{#if others.length === 0}
 				<p class="text-sm font-medium">{t('nav.sign_in')}</p>
@@ -272,15 +278,15 @@
 			<AlertDialog.Media class="text-muted-foreground">
 				<HugeiconsIcon icon={UserMinus01Icon} />
 			</AlertDialog.Media>
-			<AlertDialog.Title>{t('nav.remove_account_title')}</AlertDialog.Title>
+			<AlertDialog.Title>{t('nav.forget_account_title')}</AlertDialog.Title>
 			<AlertDialog.Description>
-				{t('nav.remove_account_desc', { name: removing?.name ?? t('nav.account') })}
+				{t('nav.forget_account_desc', { name: removing?.name ?? t('nav.account') })}
 			</AlertDialog.Description>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>
 			<AlertDialog.Cancel>{t('common.cancel')}</AlertDialog.Cancel>
 			<AlertDialog.Action onclick={removeAccount}>
-				{t('common.remove')}
+				{t('nav.forget_account')}
 			</AlertDialog.Action>
 		</AlertDialog.Footer>
 	</AlertDialog.Content>

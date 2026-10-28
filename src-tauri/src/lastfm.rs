@@ -11,10 +11,9 @@
 //! `submit-listens` calls in [`crate::listenbrainz`]. A fix to when a play counts (repeat-one,
 //! real played time) lands once, not in two tasks.
 //!
-//! Everything is best-effort (context/16 fail-soft, same as Discord/media): a failed scrobble is
-//! a `debug!` line, never a user-facing error. No offline queue — Last.fm accepts scrobbles up to
-//! two weeks late, but a queue is complexity we add only if dropped scrobbles ever show up.
-//! ponytail: no offline queue; add one if scrobbles visibly go missing.
+//! Eligible listens are persisted per provider before submission, with bounded retry across
+//! restarts. Now-playing remains transient. Credential fingerprints bind pending listens to
+//! the account that was connected when the play qualified.
 //!
 //! Auth is the desktop flow: `auth.getToken` → open the user's browser on the authorize page →
 //! poll `auth.getSession` until they approve. Session keys never expire, so the key + username in
@@ -287,15 +286,25 @@ impl LastfmHandle {
 /// for telling the UI when ListenBrainz refuses listens (see [`Scrobbler::lb_sent`]).
 pub fn spawn(
     app: tauri::AppHandle,
+    db: Arc<crate::db::Db>,
     session_key: Option<String>,
     lb_token: Option<String>,
     cfg: ScrobbleConfig,
 ) -> LastfmHandle {
     let (tx, mut rx) = unbounded_channel::<Msg>();
     tauri::async_runtime::spawn(async move {
-        let mut s = Scrobbler::new(app, session_key, lb_token, cfg);
-        while let Some(msg) = rx.recv().await {
-            s.apply(msg).await;
+        let mut s = Scrobbler::new(app, db, session_key, lb_token, cfg);
+        s.discard_other_accounts();
+        let mut retry = tokio::time::interval(Duration::from_secs(15));
+        retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                msg = rx.recv() => match msg {
+                    Some(msg) => s.apply(msg).await,
+                    None => break,
+                },
+                _ = retry.tick() => s.retry_pending().await,
+            }
         }
     });
     LastfmHandle { tx, auth_gen: AtomicU64::new(0) }
@@ -303,6 +312,7 @@ pub fn spawn(
 
 struct Scrobbler {
     app: tauri::AppHandle,
+    db: Arc<crate::db::Db>,
     session: Option<String>,
     lb_token: Option<String>,
     /// What ListenBrainz last said is wrong with the token (`listenbrainz::problem`), so the UI
@@ -314,17 +324,22 @@ struct Scrobbler {
     started_at: u64,
     duration: f64,
     scrobbled: bool,
+    event: String,
+    queue_counts: Option<((usize, usize), (usize, usize))>,
+    queued_accounts: Option<Vec<crate::scrobble_outbox::Enrollment>>,
 }
 
 impl Scrobbler {
     fn new(
         app: tauri::AppHandle,
+        db: Arc<crate::db::Db>,
         session: Option<String>,
         lb_token: Option<String>,
         cfg: ScrobbleConfig,
     ) -> Self {
         Scrobbler {
             app,
+            db,
             session,
             lb_token,
             lb_problem: None,
@@ -333,6 +348,9 @@ impl Scrobbler {
             started_at: 0,
             duration: 0.0,
             scrobbled: false,
+            event: String::new(),
+            queue_counts: None,
+            queued_accounts: None,
         }
     }
 
@@ -350,6 +368,8 @@ impl Scrobbler {
                     return;
                 }
                 self.started_at = now_secs();
+                self.event = format!("{}-{:016x}", self.started_at, rand::random::<u64>());
+                self.queued_accounts = None;
                 self.duration = 0.0;
                 self.scrobbled = false;
                 self.now_playing().await;
@@ -366,13 +386,16 @@ impl Scrobbler {
             Msg::Duration(secs) => self.duration = secs,
             Msg::Position(pos) => {
                 if !self.scrobbled && crosses_threshold(pos, self.duration, &self.cfg) {
-                    self.scrobbled = true; // latch even on failure — never re-fire per tick
-                    self.scrobble().await;
+                    self.scrobbled = self.scrobble().await;
                 }
             }
-            Msg::Session(key) => self.session = key,
+            Msg::Session(key) => {
+                self.session = key;
+                self.discard_other_accounts();
+            }
             Msg::Token(token) => {
                 self.lb_token = token;
+                self.discard_other_accounts();
                 self.lb_problem = None; // the UI clears its copy on the connect/disconnect event
             }
             // ponytail: "now playing" isn't re-sent on a config change. The tab saves as the user
@@ -418,7 +441,9 @@ impl Scrobbler {
         }
         match call("track.updateNowPlaying", params, true).await {
             Ok(_) => tracing::debug!(track = %r.title, "last.fm now playing sent"),
-            Err(e) => tracing::debug!(error = %e.message, "last.fm now playing failed"),
+            Err(e) => {
+                tracing::debug!(code = ?e.code, status = ?e.status, "last.fm now playing failed")
+            }
         }
     }
 
@@ -430,53 +455,125 @@ impl Scrobbler {
         let sent = crate::listenbrainz::submit(token, "playing_now", payload).await;
         match &sent {
             Ok(_) => tracing::debug!(track = %r.title, "listenbrainz now playing sent"),
-            Err(e) => tracing::debug!(error = %e, "listenbrainz now playing failed"),
+            Err(e) => tracing::debug!(problem = ?e.problem, "listenbrainz now playing failed"),
         }
         sent
     }
 
-    async fn scrobble(&mut self) {
-        let Some(r) = self.outgoing() else { return };
-        if let Some(sk) = self.session.as_deref() {
-            self.scrobble_lastfm(sk, &r).await;
-        }
-        if let Some(token) = self.lb_token.clone() {
-            let sent = self.scrobble_listenbrainz(&token, &r).await;
-            self.lb_sent(sent);
-        }
-    }
-
-    async fn scrobble_lastfm(&self, sk: &str, r: &Resolved) {
-        let mut params = vec![
-            ("artist".to_string(), r.artist.clone()),
-            ("track".to_string(), r.title.clone()),
-            ("timestamp".to_string(), self.started_at.to_string()),
-            ("sk".to_string(), sk.to_string()),
-        ];
-        if !r.album.is_empty() {
-            params.push(("album".to_string(), r.album.clone()));
-        }
-        if self.duration > 0.0 {
-            params.push(("duration".to_string(), (self.duration as i64).to_string()));
-        }
-        match call("track.scrobble", params, true).await {
-            Ok(_) => tracing::info!(track = %r.title, "scrobbled to last.fm"),
-            Err(e) => tracing::warn!(error = %e.message, "last.fm scrobble failed"),
-        }
-    }
-
-    async fn scrobble_listenbrainz(&self, token: &str, r: &Resolved) -> LbSent {
+    async fn scrobble(&mut self) -> bool {
+        let Some(r) = self.outgoing() else { return true };
         let video_id = self.track.as_ref().map(|t| t.video_id.as_str()).unwrap_or("");
-        let payload = serde_json::json!([{
-            "listened_at": self.started_at,
-            "track_metadata": crate::listenbrainz::track_metadata(r, video_id, self.duration),
-        }]);
-        let sent = crate::listenbrainz::submit(token, "single", payload).await;
-        match &sent {
-            Ok(_) => tracing::info!(track = %r.title, "submitted listen to listenbrainz"),
-            Err(e) => tracing::warn!(error = %e, "listenbrainz listen failed"),
+        let listen = QueuedListen {
+            artist: r.artist.clone(),
+            title: r.title.clone(),
+            album: r.album.clone(),
+            duration: self.duration,
+            started_at: self.started_at,
+            metadata: crate::listenbrainz::track_metadata(&r, video_id, self.duration),
+        };
+        let Ok(payload) = serde_json::to_string(&listen) else { return false };
+        if self.queued_accounts.is_none() {
+            self.queued_accounts = Some(
+                [("lastfm", self.session.as_deref()), ("listenbrainz", self.lb_token.as_deref())]
+                    .into_iter()
+                    .filter_map(|(provider, credential)| {
+                        credential.map(|key| crate::scrobble_outbox::Enrollment::new(provider, key))
+                    })
+                    .collect(),
+            );
         }
-        sent
+        let mut persisted = true;
+        for enrollment in self.queued_accounts.as_mut().unwrap() {
+            let provider = enrollment.provider;
+            let credential = if provider == "lastfm" {
+                self.session.as_deref()
+            } else {
+                self.lb_token.as_deref()
+            };
+            if enrollment
+                .enqueue(
+                    &self.db,
+                    credential,
+                    &self.event,
+                    &payload,
+                    self.started_at as i64,
+                    now_secs() as i64,
+                )
+                .is_err()
+            {
+                tracing::warn!(
+                    provider,
+                    "could not persist pending listen; will retry before submitting"
+                );
+                persisted = false;
+                break;
+            }
+        }
+        self.emit_queue_counts();
+        if !persisted {
+            return false;
+        }
+        self.retry_pending().await;
+        true // Persisted once, independently of the provider's current availability.
+    }
+
+    fn discard_other_accounts(&mut self) {
+        for (provider, credential) in
+            [("lastfm", self.session.as_deref()), ("listenbrainz", self.lb_token.as_deref())]
+        {
+            let account = credential.map(|key| crate::scrobble_outbox::account_key(provider, key));
+            if self.db.discard_scrobbles(provider, account.as_deref()).is_err() {
+                tracing::warn!(
+                    provider,
+                    "could not clear pending listens for a disconnected account"
+                );
+            }
+        }
+        self.emit_queue_counts();
+    }
+
+    fn emit_queue_counts(&mut self) {
+        let lastfm = self.db.scrobble_counts("lastfm");
+        let listenbrainz = self.db.scrobble_counts("listenbrainz");
+        let counts = (lastfm, listenbrainz);
+        if self.queue_counts != Some(counts) {
+            self.queue_counts = Some(counts);
+            let _ = self.app.emit(
+                "scrobble-outbox-changed",
+                serde_json::json!({
+                    "lastfm": { "pending": lastfm.0, "failed": lastfm.1 },
+                    "listenbrainz": { "pending": listenbrainz.0, "failed": listenbrainz.1 },
+                }),
+            );
+        }
+    }
+
+    async fn retry_pending(&mut self) {
+        if !self.cfg.enabled {
+            return;
+        }
+        let mut accounts = Vec::new();
+        if !API_KEY.is_empty() && !API_SECRET.is_empty() {
+            if let Some(key) = self.session.as_deref() {
+                accounts.push(("lastfm", key));
+            }
+        }
+        if let Some(token) = self.lb_token.as_deref() {
+            accounts.push(("listenbrainz", token));
+        }
+        let app = &self.app;
+        if crate::scrobble_outbox::drain(
+            &self.db,
+            &accounts,
+            now_secs() as i64,
+            |pending, credential| send_queued(app, pending, credential),
+        )
+        .await
+        .is_err()
+        {
+            tracing::warn!("could not update the pending scrobble queue");
+        }
+        self.emit_queue_counts();
     }
 
     /// ListenBrainz accepts the token at connect even when it will refuse every listen (an
@@ -493,6 +590,83 @@ impl Scrobbler {
             self.lb_problem = problem;
             crate::listenbrainz::emit_problem(&self.app, problem);
         }
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct QueuedListen {
+    artist: String,
+    title: String,
+    album: String,
+    duration: f64,
+    started_at: u64,
+    metadata: serde_json::Value,
+}
+
+async fn send_queued(
+    app: &tauri::AppHandle,
+    pending: crate::scrobble_outbox::Pending,
+    credential: String,
+) -> crate::scrobble_outbox::Delivery {
+    use crate::scrobble_outbox::Delivery;
+    let Ok(listen) = serde_json::from_str::<QueuedListen>(&pending.payload) else {
+        return Delivery::Permanent;
+    };
+    match pending.provider.as_str() {
+        "lastfm" => {
+            let mut params = vec![
+                ("artist".into(), listen.artist),
+                ("track".into(), listen.title),
+                ("timestamp".into(), listen.started_at.to_string()),
+                ("sk".into(), credential),
+            ];
+            if !listen.album.is_empty() {
+                params.push(("album".into(), listen.album));
+            }
+            if listen.duration > 0.0 {
+                params.push(("duration".into(), (listen.duration as i64).to_string()));
+            }
+            match call("track.scrobble", params, true).await {
+                Ok(body) => lastfm_delivery(&body),
+                Err(e) if e.scrobble_retryable() => Delivery::Retry,
+                Err(_) => Delivery::Permanent,
+            }
+        }
+        "listenbrainz" => {
+            let payload = serde_json::json!([{ "listened_at": listen.started_at, "track_metadata": listen.metadata }]);
+            match crate::listenbrainz::submit(&credential, "single", payload).await {
+                Ok(()) => {
+                    crate::listenbrainz::emit_problem(app, None);
+                    Delivery::Accepted
+                }
+                Err(e) => {
+                    if e.problem.is_some() {
+                        crate::listenbrainz::emit_problem(app, e.problem);
+                    }
+                    if e.retryable {
+                        Delivery::Retry
+                    } else {
+                        Delivery::Permanent
+                    }
+                }
+            }
+        }
+        _ => Delivery::Permanent,
+    }
+}
+
+fn lastfm_delivery(body: &serde_json::Value) -> crate::scrobble_outbox::Delivery {
+    use crate::scrobble_outbox::Delivery;
+    let number = |v: Option<&serde_json::Value>| {
+        v.and_then(|v| v.as_u64().or_else(|| v.as_str()?.parse().ok()))
+    };
+    if number(body.pointer("/scrobbles/@attr/accepted")).is_some_and(|n| n > 0) {
+        return Delivery::Accepted;
+    }
+    match number(body.pointer("/scrobbles/scrobble/ignoredMessage/code")) {
+        Some(4 | 5) => Delivery::Retry,
+        Some(_) => Delivery::Permanent,
+        None => Delivery::Retry, // A malformed response cannot acknowledge a durable listen.
     }
 }
 
@@ -714,14 +888,24 @@ struct ApiError {
     /// Last.fm's numeric error code, when the response carried one (vs a transport failure).
     code: Option<i64>,
     message: String,
+    status: Option<u16>,
 }
 
 impl ApiError {
     fn transport(e: impl std::fmt::Display) -> Self {
-        ApiError { code: None, message: e.to_string() }
+        ApiError { code: None, message: e.to_string(), status: None }
     }
     fn retryable(&self) -> bool {
-        matches!(self.code, Some(ERR_TOKEN_PENDING) | Some(ERR_TEMP_UNAVAILABLE) | None)
+        self.code == Some(ERR_TOKEN_PENDING) || self.scrobble_retryable()
+    }
+    fn scrobble_retryable(&self) -> bool {
+        match self.code {
+            Some(8 | 11 | ERR_TEMP_UNAVAILABLE | 29) => true,
+            Some(_) => false,
+            None => self
+                .status
+                .map_or(true, |s| (200..300).contains(&s) || s == 408 || s == 429 || s >= 500),
+        }
     }
 }
 
@@ -742,14 +926,26 @@ async fn call(
     let req =
         if post { http.post(API_ROOT).form(&params) } else { http.get(API_ROOT).query(&params) };
     let resp = req.timeout(Duration::from_secs(15)).send().await.map_err(ApiError::transport)?;
-    let body: serde_json::Value = resp.json().await.map_err(ApiError::transport)?;
+    let status = resp.status();
+    let body: serde_json::Value = resp.json().await.map_err(|e| ApiError {
+        code: None,
+        message: e.to_string(),
+        status: Some(status.as_u16()),
+    })?;
     if let Some(code) = body.get("error").and_then(|v| v.as_i64()) {
         let message = body
             .get("message")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown last.fm error")
             .to_string();
-        return Err(ApiError { code: Some(code), message });
+        return Err(ApiError { code: Some(code), message, status: Some(status.as_u16()) });
+    }
+    if !status.is_success() {
+        return Err(ApiError {
+            code: None,
+            message: format!("Last.fm HTTP {status}"),
+            status: Some(status.as_u16()),
+        });
     }
     Ok(body)
 }
@@ -821,8 +1017,15 @@ pub async fn connect(state: Arc<AppState>) -> Result<(), String> {
                         );
                         return;
                     };
-                    state.db.set_setting("lastfm_session_key", key);
-                    state.db.set_setting("lastfm_username", name);
+                    if state
+                        .db
+                        .set_setting_checked("lastfm_session_key", key)
+                        .and_then(|_| state.db.set_setting_checked("lastfm_username", name))
+                        .is_err()
+                    {
+                        emit_state(&state.app, false, None, Some("Could not securely save the Last.fm account. Try connecting again."));
+                        return;
+                    }
                     state.lastfm.set_session(Some(key.to_string()));
                     tracing::info!(user = name, "last.fm connected");
                     emit_state(&state.app, true, Some(name), None);
@@ -840,18 +1043,30 @@ pub async fn connect(state: Arc<AppState>) -> Result<(), String> {
     Ok(())
 }
 
-pub fn disconnect(state: &AppState) {
+pub fn disconnect(state: &AppState) -> Result<(), String> {
     state.lastfm.bump_gen(); // cancels any in-flight auth poll
-    state.db.set_setting("lastfm_session_key", "");
-    state.db.set_setting("lastfm_username", "");
+    state
+        .db
+        .set_setting_checked("lastfm_session_key", "")
+        .map_err(|_| "Could not securely disconnect Last.fm".to_owned())?;
     state.lastfm.set_session(None);
+    state
+        .db
+        .discard_scrobbles("lastfm", None)
+        .map_err(|_| "Could not clear pending Last.fm listens".to_owned())?;
+    state
+        .db
+        .set_setting_checked("lastfm_username", "")
+        .map_err(|_| "Could not clear the Last.fm account name".to_owned())?;
     emit_state(&state.app, false, None, None);
+    Ok(())
 }
 
 pub fn status(state: &AppState) -> serde_json::Value {
     let key = state.db.get_setting("lastfm_session_key").filter(|s| !s.is_empty());
     let username = state.db.get_setting("lastfm_username").filter(|s| !s.is_empty());
-    serde_json::json!({ "connected": key.is_some(), "username": username })
+    let (pending, failed) = state.db.scrobble_counts("lastfm");
+    serde_json::json!({ "connected": key.is_some(), "username": username, "pending": pending, "failed": failed })
 }
 
 /// The connected user's public profile, for the Scrobbling tab's account card. `None` when nobody
@@ -996,6 +1211,46 @@ fn now_secs() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scrobble_delivery_distinguishes_accepted_filtered_and_retryable_provider_responses() {
+        use crate::scrobble_outbox::Delivery;
+        assert_eq!(
+            lastfm_delivery(&serde_json::json!({"scrobbles":{"@attr":{"accepted":"1"}}})),
+            Delivery::Accepted
+        );
+        for (code, wanted) in [
+            (1, Delivery::Permanent),
+            (2, Delivery::Permanent),
+            (3, Delivery::Permanent),
+            (4, Delivery::Retry),
+            (5, Delivery::Retry),
+        ] {
+            assert_eq!(
+                lastfm_delivery(
+                    &serde_json::json!({"scrobbles":{"@attr":{"accepted":"0"},"scrobble":{"ignoredMessage":{"code":code.to_string()}}}})
+                ),
+                wanted
+            );
+        }
+        assert_eq!(lastfm_delivery(&serde_json::json!({})), Delivery::Retry);
+        for (code, retry) in
+            [(6, false), (9, false), (10, false), (11, true), (16, true), (29, true)]
+        {
+            assert_eq!(
+                ApiError { code: Some(code), message: String::new(), status: Some(200) }
+                    .scrobble_retryable(),
+                retry
+            );
+        }
+        for (status, retry) in [(400, false), (401, false), (408, true), (429, true), (503, true)] {
+            assert_eq!(
+                ApiError { code: None, message: String::new(), status: Some(status) }
+                    .scrobble_retryable(),
+                retry
+            );
+        }
+    }
 
     #[test]
     fn only_plain_web_urls_reach_the_browser() {

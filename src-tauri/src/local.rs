@@ -118,13 +118,19 @@ pub fn scan(db: &Db, covers_dir: &Path) -> LocalLibrary {
     let reparse = db.get_setting(SCAN_VERSION_SETTING).as_deref() != Some(SCAN_VERSION);
     let mut found: HashSet<String> = HashSet::new();
     let mut fresh: Vec<LocalTrack> = Vec::new();
+    let mut unavailable = Vec::new();
+    let mut unreadable_tags = false;
 
     let mut seen_dirs: HashSet<PathBuf> = HashSet::new();
     for folder in folders(db) {
-        walk(Path::new(&folder), 0, &mut seen_dirs, &mut |file| {
+        walk(Path::new(&folder), 0, &mut seen_dirs, &mut unavailable, &mut |file| {
             let path = file.to_string_lossy().to_string();
             let mtime = mtime_of(file);
             found.insert(path.clone());
+            if known.contains_key(&path) && (mtime == 0 || std::fs::File::open(file).is_err()) {
+                unreadable_tags = true;
+                return; // Keep stored tags when the file cannot currently be read.
+            }
             if !reparse && known.get(&path) == Some(&mtime) {
                 return; // unchanged since the last scan
             }
@@ -134,11 +140,17 @@ pub fn scan(db: &Db, covers_dir: &Path) -> LocalLibrary {
     // One transaction for the whole scan: a per-file INSERT is a per-file fsync, which turns a
     // first scan of a few thousand tracks into minutes of waiting.
     db.put_local_tracks(&fresh);
-    if reparse {
+    if reparse && unavailable.is_empty() && !unreadable_tags {
         db.set_setting(SCAN_VERSION_SETTING, SCAN_VERSION);
     }
 
-    let gone: Vec<String> = known.keys().filter(|p| !found.contains(*p)).cloned().collect();
+    let gone: Vec<String> = known
+        .keys()
+        .filter(|p| {
+            !found.contains(*p) && !unavailable.iter().any(|dir| Path::new(p).starts_with(dir))
+        })
+        .cloned()
+        .collect();
     if !gone.is_empty() {
         tracing::info!(count = gone.len(), "local files disappeared — dropped from the library");
         db.delete_local_tracks(&gone);
@@ -167,18 +179,35 @@ pub fn scan(db: &Db, covers_dir: &Path) -> LocalLibrary {
 /// refusing to follow them means those users see an empty library. `seen` (canonical paths) is what
 /// keeps a link that points back up the tree from recursing forever; the depth cap is the backstop
 /// for paths that can't be canonicalized.
-fn walk(dir: &Path, depth: usize, seen: &mut HashSet<PathBuf>, on_file: &mut impl FnMut(&Path)) {
+fn walk(
+    dir: &Path,
+    depth: usize,
+    seen: &mut HashSet<PathBuf>,
+    unavailable: &mut Vec<PathBuf>,
+    on_file: &mut impl FnMut(&Path),
+) {
     if depth > MAX_DEPTH || !seen.insert(dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf())) {
+        unavailable.push(dir.to_path_buf());
         return;
     }
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
-    for entry in entries.flatten() {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        unavailable.push(dir.to_path_buf());
+        return;
+    };
+    for entry in entries {
+        let Ok(entry) = entry else {
+            unavailable.push(dir.to_path_buf());
+            continue;
+        };
         let path = entry.path();
         // `metadata` follows symlinks (unlike `entry.file_type`), so a linked album folder or a
         // linked file is treated as what it points at.
-        let Ok(meta) = std::fs::metadata(&path) else { continue };
+        let Ok(meta) = std::fs::metadata(&path) else {
+            unavailable.push(path);
+            continue;
+        };
         if meta.is_dir() {
-            walk(&path, depth + 1, seen, on_file);
+            walk(&path, depth + 1, seen, unavailable, on_file);
         } else if meta.is_file() && is_audio(&path) {
             on_file(&path);
         }
@@ -872,6 +901,45 @@ mod tests {
         assert_eq!(folders(&db), vec!["/music".to_string(), "/other".to_string()]);
         remove_folder(&db, "/music");
         assert_eq!(folders(&db), vec!["/other".to_string()]);
+    }
+
+    #[test]
+    fn an_unavailable_root_keeps_its_catalog() {
+        let db = Db::open(Path::new(":memory:")).unwrap();
+        let dir = std::env::temp_dir().join(format!("limusic-offline-{}", rand::random::<u64>()));
+        add_folder(&db, dir.to_string_lossy().into_owned());
+        let path = dir.join("song.mp3").to_string_lossy().into_owned();
+        db.put_local_tracks(&[track(&path, "Band", "Album", "band--album")]);
+        let lib = scan(&db, &dir.join("covers"));
+        assert_eq!(lib.songs.len(), 1);
+        assert!(lib.removed.is_empty());
+        remove_folder(&db, &dir.to_string_lossy());
+        let lib = scan(&db, &dir.join("covers"));
+        assert!(lib.songs.is_empty(), "explicit folder removal still prunes its catalog");
+        assert!(lib.removed.contains(&format!("{SONG_PREFIX}{path}")));
+    }
+
+    #[test]
+    fn an_unscanned_subtree_survives_while_confirmed_deletions_are_pruned() {
+        let db = Db::open(Path::new(":memory:")).unwrap();
+        let dir = std::env::temp_dir().join(format!("limusic-partial-{}", rand::random::<u64>()));
+        let mut deep = dir.clone();
+        for _ in 0..=MAX_DEPTH {
+            deep = deep.join("album");
+        }
+        std::fs::create_dir_all(&deep).unwrap();
+        add_folder(&db, dir.to_string_lossy().into_owned());
+        let protected = deep.join("song.mp3").to_string_lossy().into_owned();
+        let deleted = dir.join("gone.mp3").to_string_lossy().into_owned();
+        db.put_local_tracks(&[
+            track(&protected, "Band", "Album", "band--album"),
+            track(&deleted, "Band", "Album", "band--album"),
+        ]);
+        let lib = scan(&db, &dir.join("covers"));
+        assert_eq!(lib.songs.len(), 1);
+        assert_eq!(db.local_tracks(None)[0].path, protected);
+        assert!(lib.removed.contains(&format!("{SONG_PREFIX}{deleted}")));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

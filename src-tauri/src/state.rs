@@ -73,6 +73,9 @@ pub struct AppState {
     /// Last.fm + ListenBrainz scrobbler. Same feed again; each half parks until its own
     /// credential is set (session key via the titlebar button, user token via Scrobbling settings).
     pub lastfm: crate::lastfm::LastfmHandle,
+    pub sleep_timer: crate::sleep_timer::Timer,
+    /// Keep queued EOF/error events from restarting playback after expiry.
+    sleep_stopped: AtomicBool,
     queue: Mutex<QueueState>,
     /// Bumped on every explicit `play`/jump so superseded async resolves discard their result
     /// (cancellation without JoinHandle bookkeeping). context/06 §6.
@@ -104,6 +107,7 @@ pub struct AppState {
     /// Latest mpv position (f64 bits) + wall-clock secs of the last DB write, for throttled
     /// resume-position persistence.
     latest_position: AtomicU64,
+    position_owner: std::sync::Mutex<String>,
     last_pos_persist: AtomicU64,
     /// Wall-clock secs of the last position push to the OS media controls (throttled ~1s).
     last_media_push: AtomicU64,
@@ -494,6 +498,8 @@ impl AppState {
             lastfm,
             queue: Mutex::new(QueueState::default()),
             playback_effects: Mutex::new(()),
+            sleep_timer: crate::sleep_timer::Timer::default(),
+            sleep_stopped: AtomicBool::new(false),
             auth: tokio::sync::Mutex::default(),
             history_pinged: AtomicBool::new(false),
             listen: std::sync::Mutex::default(),
@@ -504,6 +510,7 @@ impl AppState {
             pending_seek: std::sync::Mutex::new(None),
             video_urls: std::sync::Mutex::new(std::collections::HashMap::new()),
             latest_position: AtomicU64::new(0),
+            position_owner: std::sync::Mutex::new(String::new()),
             last_pos_persist: AtomicU64::new(0),
             last_media_push: AtomicU64::new(0),
             last_media_state: std::sync::Mutex::new(None),
@@ -632,20 +639,23 @@ impl AppState {
         &self,
         cookie: String,
         expect_account: Option<&str>,
+        login_generation: u64,
     ) -> Result<SignInOutcome, String> {
         // Validating a cookie already in hand: a 401 here is the answer, not something to wait on
         // a heal for. `refresh_session` also reaches `sign_in` while healing, and a wait there
         // would park the healing task on the heal it is performing, holding `auth` for the whole
         // timeout.
-        innertube::without_healing(self.sign_in_inner(cookie, expect_account)).await
+        innertube::without_healing(self.sign_in_inner(cookie, expect_account, login_generation))
+            .await
     }
 
     async fn sign_in_inner(
         &self,
         cookie: String,
         expect_account: Option<&str>,
+        login_generation: u64,
     ) -> Result<SignInOutcome, String> {
-        let _turn = self.auth.lock().await;
+        let _turn = crate::session::lock_login(&self.auth, login_generation).await?;
         if let Some(expect) = expect_account {
             let live = self.it.cookie().unwrap_or_default();
             if innertube::cookie_sapisid(&live) != Some(expect) {
@@ -966,10 +976,12 @@ impl AppState {
 
     /// Saved Google accounts for the account menu. Display fields only: cookies, delegated ids and
     /// visitorData never cross the Tauri boundary (context/15).
-    pub fn google_accounts(&self) -> Vec<serde_json::Value> {
+    pub fn google_accounts(&self) -> Result<Vec<serde_json::Value>, String> {
         let active = self.db.get_setting("active_account");
-        self.db
-            .list_accounts()
+        Ok(self
+            .db
+            .list_accounts_checked()
+            .map_err(|e| e.to_string())?
             .into_iter()
             .map(|account| {
                 let info = account
@@ -986,7 +998,7 @@ impl AppState {
                     "active": active.as_deref() == Some(account.id.as_str()),
                 })
             })
-            .collect()
+            .collect())
     }
 
     /// Activate a saved Google account without a webview round trip. The stored cookie is
@@ -1001,7 +1013,11 @@ impl AppState {
 
     async fn switch_google_account_inner(&self, id: &str) -> Result<serde_json::Value, String> {
         let _turn = self.auth.lock().await;
-        let account = self.db.get_account(id).ok_or("That account is no longer saved.")?;
+        let account = self
+            .db
+            .get_account_checked(id)
+            .map_err(|e| e.to_string())?
+            .ok_or("That account is no longer saved.")?;
         let previous_cookie = self.it.cookie();
         let previous_data_sync_id = self.it.data_sync_id();
         let previous_visitor = self.it.visitor_data();
@@ -1060,23 +1076,25 @@ impl AppState {
     }
 
     /// Remove a saved Google account from the menu. Removing the active one signs out too.
-    pub async fn remove_google_account(&self, id: &str) {
+    pub async fn remove_google_account(&self, id: &str) -> Result<(), String> {
         let _turn = self.auth.lock().await;
-        self.forget_account(id);
+        crate::session::forget_browser_sign_in(&self.app).await?;
+        self.forget_account(id)
     }
 
     /// Delete a saved row, dropping to guest when it is the one driving requests. Active-ness
     /// comes from the live session cookie first, with `active_account` as the fallback for an
     /// already signed-out transport, so removing an account can never leave the transport holding
     /// its credentials.
-    fn forget_account(&self, id: &str) {
+    fn forget_account(&self, id: &str) -> Result<(), String> {
         let live = self.it.cookie().and_then(|cookie| crate::db::account_key(&cookie));
         let active = live.as_deref() == Some(id)
             || self.db.get_setting("active_account").as_deref() == Some(id);
-        self.db.remove_account(id);
+        self.db.forget_account_checked(id, active).map_err(|e| e.to_string())?;
         if active {
             self.clear_session();
         }
+        Ok(())
     }
 
     /// A sign-in, sign-out, account or channel switch, or a heal that re-minted the session: the
@@ -1127,11 +1145,14 @@ impl AppState {
     /// launch and the next account switch read it: the `session_cookie` projection and the
     /// account's own row. Keyed on the jar's own SAPISID, so a switch racing this write cannot
     /// file one account's cookies under another account's row.
-    pub fn persist_rotated_cookie(&self) {
+    pub async fn persist_rotated_cookie(&self) {
+        let _auth = self.auth.lock().await;
         let Some(cookie) = self.it.cookie() else { return };
         let Some(id) = crate::db::account_key(&cookie) else { return };
         self.db.set_setting("session_cookie", &cookie);
-        self.db.update_account_cookie(&id, &cookie);
+        if let Err(error) = self.db.update_account_cookie(&id, &cookie) {
+            tracing::warn!(%error, "could not persist rotated account credentials");
+        }
     }
 
     /// Keep-alive ping: rolls the session tokens and returns a fresh login-bound visitorData.
@@ -1150,6 +1171,7 @@ impl AppState {
         let Some(client) = self.clients.get(innertube::METADATA_CLIENT) else { return };
         match self.it.account_menu(client).await {
             Ok(info) if info.name.is_some() => {
+                let _auth = self.auth.lock().await;
                 let live = self.it.cookie().and_then(|c| crate::db::account_key(&c));
                 if live.as_deref() != Some(active.as_str())
                     || self.db.get_setting("active_account").as_deref() != Some(active.as_str())
@@ -1198,14 +1220,10 @@ impl AppState {
     ) -> Result<PlaybackData, ResolveError> {
         // A local file is its own "stream": no network, no cache, no extraction (local.rs).
         if let Some(path) = crate::local::song_path(video_id) {
-            return crate::local::playback_data(video_id, path).map_err(|_| {
-                // Gone since the last scan. Forget it here rather than at the next scan, and say
-                // so — the UI drops the row (and any Shortcuts tile) on the spot instead of
-                // leaving something that can only fail again.
-                let removed = crate::local::forget_missing(&self.db, path);
-                let _ = self.app.emit("local-changed", serde_json::json!({ "removed": removed }));
-                ResolveError::LocalMissing(path.to_owned())
-            });
+            // Playback cannot tell a deleted file from a disconnected drive. Only a successful
+            // directory scan may prune the catalog and its personal shortcuts.
+            return crate::local::playback_data(video_id, path)
+                .map_err(|_| ResolveError::LocalMissing(path.to_owned()));
         }
         // Latency cache first (context/11) — honor expiry, never a source of truth.
         //
@@ -1288,6 +1306,7 @@ impl AppState {
     /// Start a fresh queue from one track (a search-result click), then hydrate the radio via
     /// `next` (skipped when autoplay is off) and prime the gapless lookahead.
     pub async fn play_song(self: &std::sync::Arc<Self>, seed: SongItem) {
+        self.sleep_stopped.store(false, Ordering::SeqCst);
         if self.lt.is_guest().await {
             // Guests follow the host; clicking a song adds it to the shared queue instead
             // (Spotify-Jam-style). The host client auto-approves and stamps who added it.
@@ -1442,6 +1461,7 @@ impl AppState {
             self.emit_guest_hint();
             return;
         }
+        self.sleep_stopped.store(false, Ordering::SeqCst);
         // A mix has no "rest of the playlist" worth walking (see `is_mix`) — drop the token.
         let continuation = continuation.filter(|_| !is_mix(source_id.as_deref()));
         let sticky = self.sticky_shuffle();
@@ -1762,6 +1782,7 @@ impl AppState {
     /// loaded but the queue is non-empty, load the current track (applying any resume position);
     /// otherwise just toggle mpv. Keeps the UI's single play/pause button working after a restart.
     pub async fn resume_or_toggle(self: &std::sync::Arc<Self>) {
+        self.sleep_stopped.store(false, Ordering::SeqCst);
         if self.lt.is_guest().await {
             return; // guest playback is host-driven
         }
@@ -1780,6 +1801,7 @@ impl AppState {
 
     /// Jump to a specific queue index.
     pub async fn play_index(self: &std::sync::Arc<Self>, index: usize) {
+        self.sleep_stopped.store(false, Ordering::SeqCst);
         if self.lt.is_guest().await {
             self.emit_guest_hint(); // guest playback is host-driven
             return;
@@ -1831,6 +1853,7 @@ impl AppState {
             if !swap_version(item) {
                 return;
             }
+            self.sleep_stopped.store(false, Ordering::SeqCst);
             // A video's cut runs its own length; `backfill_metadata` reads it off `/player`.
             item.duration = None;
             if resume {
@@ -1900,6 +1923,12 @@ impl AppState {
     /// track errored on a single-entry playlist) load the next track explicitly, otherwise
     /// playback silently stalls while the UI shows a phantom "now playing".
     pub async fn on_track_ended(self: &std::sync::Arc<Self>) {
+        if self.sleep_stopped.load(Ordering::SeqCst) {
+            return;
+        }
+        if self.finish_sleep_timer(true).await {
+            return;
+        }
         if self.lt.is_guest().await {
             return; // the host drives track changes for guests; don't auto-advance locally
         }
@@ -2024,6 +2053,9 @@ impl AppState {
     /// PoToken-enforced/niche videos playable — before giving up and advancing the queue.
     /// Returns true when the track was retried (so the caller can skip the error toast).
     pub async fn on_track_failed(self: &std::sync::Arc<Self>) -> bool {
+        if self.sleep_stopped.load(Ordering::SeqCst) {
+            return false;
+        }
         let (video_id, client, already_retried) = {
             let q = self.queue.lock().await;
             let vid = q.items.get(q.current).map(|i| i.video_id.clone());
@@ -2128,6 +2160,9 @@ impl AppState {
     /// Resolve + load the current track into mpv (replace). Returns false if resolve failed or the
     /// request was superseded.
     async fn start_current(self: &std::sync::Arc<Self>, gen: u64) -> bool {
+        if self.sleep_stopped.load(Ordering::SeqCst) {
+            return false;
+        }
         // Resolve the current track, auto-skipping any that no client can play (dead / region-locked
         // videos — context/06 "no client could resolve") instead of stalling the queue on them.
         // Bounded: each failure advances current by one, so the loop terminates at the queue tail.
@@ -2224,17 +2259,27 @@ impl AppState {
             .filter(|(vid, _)| *vid == item.video_id)
             .map(|(_, pos)| pos);
         let stream_url = mpv_stream_url(&data);
-        if let Err(e) =
-            self.player.load(&stream_url, &data.headers, self.track_gain(data.loudness_db), seek)
         {
-            self.emit_error(&item.video_id, &e.to_string());
-            return false;
+            // Serialize the final load with sleep expiry; a late resolve must never restart it.
+            let Some(_q) =
+                lock_current_queue(&self.queue, &self.generation, gen, &self.sleep_stopped).await
+            else {
+                return false;
+            };
+            if let Err(e) = self.player.load(
+                &stream_url,
+                &data.headers,
+                self.track_gain(data.loudness_db),
+                seek,
+            ) {
+                self.emit_error(&item.video_id, &e.to_string());
+                return false;
+            }
         }
         // Listen Together host: announce the track before `play`, whose pause-flag change is the
         // room's Play. Sent after, a skip while paused reaches guests as "play" on the old track
         // first. At the position mpv starts at, so a retry or a restored context isn't sent as 0.
         self.lt_broadcast_current_track((seek.unwrap_or(0.0) * 1000.0) as i64, true).await;
-        let _ = self.player.play();
         // Items played from cards/radio can arrive without a duration; the player response knows
         // the exact length of the cut we stream. Backfill before emitting — lyrics matching keys
         // on it (a wrong-cut LRCLIB match plays lyrics seconds off the audio).
@@ -2247,7 +2292,12 @@ impl AppState {
         );
         self.attach_video(&item.video_id, item.is_video, &stream_url);
         {
-            let mut q = self.queue.lock().await;
+            let Some(mut q) =
+                lock_current_queue(&self.queue, &self.generation, gen, &self.sleep_stopped).await
+            else {
+                return false;
+            };
+            let _ = self.player.play();
             q.current_client = Some(data.stream_client.clone());
             q.current_loudness_db = data.loudness_db;
             // Fresh play → fresh history state (context/01 §registerPlayback).
@@ -2270,16 +2320,12 @@ impl AppState {
                     );
                 }
             }
+            self.emit_now_playing(&item, &data.stream_client);
+            self.media_set_playing(true);
         }
-        self.emit_now_playing(&item, &data.stream_client);
         // The rating just emitted is whatever the row was parsed with, which for a search result
         // or a radio track is nothing at all (issue #93). Ask.
         self.refresh_from_next(&item.video_id, gen);
-        // We just told mpv to play, but its `pause` flag was already `false`, so no property event
-        // will announce it (see `Player::is_playing`). Say so ourselves — otherwise MPRIS and
-        // Discord never learn the track started. After `emit_now_playing`, so the new track is the
-        // current one before anything renders it as playing.
-        self.media_set_playing(true);
         self.emit_queue().await;
         self.persist_queue().await;
         // Autoplay early trigger: extend the queue while the tail still plays, so the gapless
@@ -2297,6 +2343,9 @@ impl AppState {
     /// waterfall fails again on the event pump (and used to wedge until a manual skip).
     /// ponytail: at most 3 removals per prime so a network outage can't eat the whole queue.
     async fn prime_lookahead(self: &std::sync::Arc<Self>, gen: u64) {
+        if self.sleep_timer.is_after_track() {
+            return;
+        }
         // A guest plays whatever the host announces next, and a primed entry would let mpv move on
         // by itself into a track the room may not be playing.
         if self.lt.is_guest().await {
@@ -2374,7 +2423,9 @@ impl AppState {
         let mut q = self.queue.lock().await;
         // The queue can change under a resolve (a guest add inserts at current+1) — enqueueing
         // then would gaplessly play the wrong song. Verify the slot still holds the same track.
-        if q.items.get(next_idx).map(|i| i.video_id != next_video).unwrap_or(true) {
+        if self.sleep_timer.is_after_track()
+            || q.items.get(next_idx).map(|i| i.video_id != next_video).unwrap_or(true)
+        {
             tracing::debug!(index = next_idx, "queue changed during lookahead resolve — dropped");
             return;
         }
@@ -2575,6 +2626,14 @@ impl AppState {
     }
 
     fn emit_now_playing(&self, item: &SongItem, stream_client: &str) {
+        {
+            let mut owner = self.position_owner.lock().unwrap();
+            *owner = item.video_id.clone();
+            if stream_client != "restored" {
+                self.latest_position.store(0f64.to_bits(), Ordering::SeqCst);
+            }
+            self.db.set_setting("queue_position", &position_json(&owner, self.current_position()));
+        }
         let _ = self.app.emit("now-playing", Self::now_playing_json(item, stream_client));
         let _ = self.app.emit("playback-state", "playing");
         // Push the same metadata to the OS media widget (context/16) and Discord.
@@ -2772,6 +2831,7 @@ impl AppState {
     /// Also the queue panel's "Back to …" line (`prev_track_title`), which is why this is public:
     /// that button isn't Previous, so it works however long the new track has been playing.
     pub async fn restore_prev_context(self: &std::sync::Arc<Self>) -> bool {
+        self.sleep_stopped.store(false, Ordering::SeqCst);
         if self.lt.is_guest().await {
             return false; // host-driven; the fall-through hits `play_index`, which says so
         }
@@ -3259,7 +3319,10 @@ impl AppState {
                 repeat = r;
             }
         }
-        let pos = self.db.get_setting("queue_position").and_then(|s| s.parse::<f64>().ok());
+        let pos = self
+            .db
+            .get_setting("queue_position")
+            .and_then(|s| resume_position(&s, &items[current].video_id));
         if let Some(p) = pos.filter(|p| *p > 0.0) {
             *self.pending_seek.lock().unwrap() = Some((items[current].video_id.clone(), p));
             // Also what the seekbar shows, and what an exit before the first play saves back.
@@ -3328,11 +3391,14 @@ impl AppState {
     /// Throttled position persistence for resume-on-restart. Records the latest position always
     /// (for a precise flush on pause) and writes it to the DB at most every 5s.
     fn record_position(&self, pos: f64) {
-        self.latest_position.store(pos.to_bits(), Ordering::SeqCst);
+        {
+            let _owner = self.position_owner.lock().unwrap();
+            self.latest_position.store(pos.to_bits(), Ordering::SeqCst);
+        }
         let now = now_secs() as u64;
         if now.saturating_sub(self.last_pos_persist.load(Ordering::Relaxed)) >= 5 {
             self.last_pos_persist.store(now, Ordering::Relaxed);
-            self.db.set_setting("queue_position", &pos.to_string());
+            self.persist_position();
         }
         // Update the OS scrubber (~1s), throttled separately from the DB write. Discord rides the
         // same tick — not to redraw its bar (it runs its own clock off the timestamps we pushed)
@@ -3373,6 +3439,12 @@ impl AppState {
     /// so nothing else resets them, and the whole loop used to count once. The duration is kept:
     /// it is the same file, and mpv won't report it again.
     pub async fn on_looped(&self) {
+        if self.sleep_stopped.load(Ordering::SeqCst) {
+            return;
+        }
+        if self.finish_sleep_timer(true).await {
+            return;
+        }
         let duration = {
             let mut q = self.queue.lock().await;
             q.cpn = innertube::generate_cpn();
@@ -3389,9 +3461,89 @@ impl AppState {
     /// Flush the latest known position to the DB immediately (e.g. on pause), and the time heard
     /// of the play it belongs to.
     pub fn flush_position(&self) {
-        let pos = f64::from_bits(self.latest_position.load(Ordering::SeqCst));
-        self.db.set_setting("queue_position", &pos.to_string());
+        self.persist_position();
         self.save_listen(&mut self.listen.lock().unwrap());
+    }
+
+    pub async fn set_sleep_timer(
+        self: &Arc<Self>,
+        minutes: Option<i64>,
+        after_track: bool,
+    ) -> Result<crate::sleep_timer::Snapshot, String> {
+        if minutes.is_some() && after_track {
+            return Err("Choose a duration or after current track, not both.".into());
+        }
+        if minutes.is_some_and(|m| !(1..=1440).contains(&m)) {
+            return Err("Sleep timer duration must be from 1 to 1440 minutes.".into());
+        }
+        if (minutes.is_some() || after_track) && self.lt.in_room().await {
+            return Err("Leave Listen Together before starting a sleep timer.".into());
+        }
+        let (snapshot, re_prime) = {
+            let mut q = self.queue.lock().await;
+            if after_track && q.items.is_empty() {
+                return Err("Choose a track before setting this timer.".into());
+            }
+            let re_prime = self.sleep_timer.is_after_track() && !after_track;
+            // Removing the native lookahead stops gapless/crossfade from starting the next song
+            // before the app receives EOF. An in-flight resolve rechecks this under the same lock.
+            if after_track {
+                q.lookahead_loaded = None;
+                self.player.clear_playlist().map_err(|e| e.to_string())?;
+            }
+            self.player
+                .set_loop_file(q.repeat == RepeatMode::One && !after_track)
+                .map_err(|e| e.to_string())?;
+            let snapshot = if let Some(minutes) = minutes {
+                self.sleep_timer.set_duration(minutes).map_err(str::to_owned)?
+            } else if after_track {
+                self.sleep_timer.after_track()
+            } else {
+                self.sleep_timer.cancel()
+            };
+            (snapshot, re_prime)
+        };
+        let _ = self.app.emit("sleep-timer", &snapshot);
+        if re_prime {
+            let state = self.clone();
+            let gen = self.generation.load(Ordering::SeqCst);
+            tauri::async_runtime::spawn(async move {
+                state.prime_lookahead(gen).await;
+            });
+        }
+        Ok(snapshot)
+    }
+
+    /// Called from the native clock or a track boundary, including repeat-one.
+    pub async fn finish_sleep_timer(&self, track_end: bool) -> bool {
+        let q = self.queue.lock().await;
+        let due = if track_end {
+            self.sleep_timer.take_at_track_end()
+        } else {
+            self.sleep_timer.take_if_due()
+        };
+        if !due {
+            return false;
+        }
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.sleep_stopped.store(true, Ordering::SeqCst);
+        if let Err(error) = self.player.pause() {
+            self.emit_error("", &format!("Sleep timer could not pause playback: {error}"));
+        }
+        let _ = self.player.set_loop_file(q.repeat == RepeatMode::One);
+        drop(q);
+        self.media_set_playing(false);
+        self.flush_position();
+        let _ = self.app.emit("playback-state", "paused");
+        let _ = self.app.emit("sleep-timer", self.sleep_timer.snapshot());
+        true
+    }
+
+    fn persist_position(&self) {
+        let owner = self.position_owner.lock().unwrap();
+        if !owner.is_empty() {
+            self.db.set_setting("queue_position", &position_json(&owner, self.current_position()));
+        }
     }
 
     /// Credit the time since the last position tick to the play being heard (#396). mpv ticks
@@ -3455,6 +3607,7 @@ impl AppState {
         }
         match cmd {
             SyncCommand::HostSeed => {
+                self.sleep_stopped.store(false, Ordering::SeqCst);
                 self.apply_crossfade().await;
                 self.lt_host_seed().await
             }
@@ -3469,6 +3622,7 @@ impl AppState {
                 self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
             }
             SyncCommand::ApplyState(state) => {
+                self.sleep_stopped.store(false, Ordering::SeqCst);
                 self.apply_crossfade().await;
                 self.lt_apply_state(state).await
             }
@@ -3841,7 +3995,9 @@ impl AppState {
         {
             let mut q = self.queue.lock().await;
             q.repeat = next(q.repeat);
-            let _ = self.player.set_loop_file(q.repeat == RepeatMode::One);
+            let _ = self
+                .player
+                .set_loop_file(q.repeat == RepeatMode::One && !self.sleep_timer.is_after_track());
         }
         self.emit_queue().await; // carries the new repeat state to the UI
         self.persist_queue().await;
@@ -4048,7 +4204,7 @@ impl AppState {
             if index >= q.items.len() || index == q.current {
                 return;
             }
-            q.items.remove(index);
+            remove_queue_row(&mut q, index);
             if index < q.current {
                 q.current -= 1;
             }
@@ -4335,6 +4491,56 @@ fn drop_duplicates(items: &mut Vec<SongItem>, current: &mut usize, ids: &HashSet
         }
     }
     removed
+}
+
+async fn lock_current_queue<'a>(
+    queue: &'a Mutex<QueueState>,
+    generation: &AtomicU64,
+    expected: u64,
+    sleep_stopped: &AtomicBool,
+) -> Option<tokio::sync::MutexGuard<'a, QueueState>> {
+    let queue = queue.lock().await;
+    (generation.load(Ordering::SeqCst) == expected && !sleep_stopped.load(Ordering::SeqCst))
+        .then_some(queue)
+}
+
+fn remove_queue_row(q: &mut QueueState, index: usize) {
+    let same = |a: &SongItem, b: &SongItem| {
+        a.video_id == b.video_id
+            && a.set_video_id == b.set_video_id
+            && a.queued == b.queued
+            && a.queued_end == b.queued_end
+            && a.queued_from == b.queued_from
+            && a.queued_by == b.queued_by
+            && a.autoplay == b.autoplay
+    };
+    let occurrence = q.items[..index].iter().filter(|r| same(r, &q.items[index])).count();
+    let removed = q.items.remove(index);
+    if let Some(orig) = &mut q.shuffle_orig {
+        let at = orig
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| same(r, &removed))
+            .nth(occurrence)
+            .map(|(i, _)| i)
+            .or_else(|| orig.iter().position(|r| same(r, &removed)))
+            .or_else(|| orig.iter().position(|r| r.video_id == removed.video_id));
+        if let Some(at) = at {
+            orig.remove(at);
+        }
+    }
+}
+
+fn position_json(video_id: &str, seconds: f64) -> String {
+    serde_json::json!({"videoId": video_id, "seconds": seconds}).to_string()
+}
+
+fn resume_position(saved: &str, video_id: &str) -> Option<f64> {
+    let saved: serde_json::Value = serde_json::from_str(saved).ok()?;
+    if saved.get("videoId")?.as_str()? != video_id {
+        return None;
+    }
+    saved.get("seconds")?.as_f64().filter(|p| p.is_finite() && *p >= 0.0)
 }
 
 /// Keep only the upcoming tracks `keep` accepts; played and playing ones always stay. Returns
@@ -4956,6 +5162,76 @@ mod tests {
         trim_played, twin_position, unshuffled, upcoming_queued, QueueState, RepeatMode, VideoUrls,
         KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
     };
+
+    #[test]
+    fn removed_shuffle_occurrence_does_not_return() {
+        let row = |id: &str| innertube::SongItem { video_id: id.into(), ..Default::default() };
+        let mut q = QueueState::default();
+        let mut added = row("b");
+        added.queued = true;
+        q.items = vec![row("a"), row("b"), added.clone(), row("b"), row("c")];
+        q.shuffle_orig = Some(vec![row("a"), row("b"), row("c"), added, row("b")]);
+        super::remove_queue_row(&mut q, 3);
+        let orig = q.shuffle_orig.clone().unwrap();
+        assert_eq!(orig.iter().filter(|r| r.video_id == "b").count(), 2);
+        assert!(orig.iter().any(|r| r.video_id == "b" && r.queued));
+        super::remove_queue_row(&mut q, 2);
+        let orig = q.shuffle_orig.clone().unwrap();
+        assert_eq!(orig.iter().filter(|r| r.video_id == "b").count(), 1);
+        assert!(!orig.iter().any(|r| r.queued));
+        let (restored, _) = unshuffled(orig, &Default::default(), "a", 0);
+        assert_eq!(
+            restored.iter().map(|r| r.video_id.as_str()).collect::<Vec<_>>(),
+            ["a", "b", "c"]
+        );
+    }
+
+    #[test]
+    fn crash_resume_never_borrows_another_tracks_position() {
+        let saved = super::position_json("a", 119.0);
+        assert_eq!(super::resume_position(&saved, "a"), Some(119.0));
+        assert_eq!(super::resume_position(&saved, "b"), None);
+        assert_eq!(super::resume_position("119", "b"), None, "legacy scalar has no known owner");
+        assert_eq!(super::resume_position(&super::position_json("a", -1.0), "a"), None);
+        assert_eq!(super::resume_position(&super::position_json("a", f64::INFINITY), "a"), None);
+        assert_eq!(super::resume_position("{}", "a"), None);
+    }
+
+    #[tokio::test]
+    async fn sleep_expiry_blocks_a_resolve_waiting_to_load_or_play() {
+        use std::sync::{
+            atomic::{AtomicBool, AtomicU64, Ordering},
+            Arc,
+        };
+        let queue = Arc::new(tokio::sync::Mutex::new(QueueState::default()));
+        let generation = Arc::new(AtomicU64::new(4));
+        let stopped = Arc::new(AtomicBool::new(false));
+        // A load completed before the deadline; the later play must be checked independently.
+        assert!(super::lock_current_queue(&queue, &generation, 4, &stopped).await.is_some());
+        let expiry = queue.lock().await;
+        let pending = {
+            let queue = queue.clone();
+            let generation = generation.clone();
+            let stopped = stopped.clone();
+            tokio::spawn(async move {
+                super::lock_current_queue(&queue, &generation, 4, &stopped).await.is_some()
+            })
+        };
+        tokio::task::yield_now().await;
+        generation.fetch_add(1, Ordering::SeqCst);
+        stopped.store(true, Ordering::SeqCst);
+        drop(expiry);
+        assert!(!pending.await.unwrap(), "a late resolve must not load or resume after expiry");
+        assert!(
+            super::lock_current_queue(&queue, &generation, 5, &stopped).await.is_none(),
+            "a queued EOF with a fresh generation cannot autoplay"
+        );
+        stopped.store(false, Ordering::SeqCst);
+        assert!(
+            super::lock_current_queue(&queue, &generation, 5, &stopped).await.is_some(),
+            "a fresh user play is allowed"
+        );
+    }
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
     /// entry has to hit and a stale one has to miss. Getting the second one wrong hands the proxy a

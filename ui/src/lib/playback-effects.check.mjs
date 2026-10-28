@@ -32,6 +32,7 @@ function harness() {
 	const playback = { speed: 1, semitones: 0, reverb: { wet: 25 } };
 	const api = new Proxy({
 		getPlayback: () => snapshot.promise,
+		getSleepTimer: () => Promise.resolve({ mode: 'off' }),
 		getQueue: () => Promise.resolve({ items: [] }),
 		setPlaybackParams: (speed, semitones, reverb) => {
 			const result = deferred();
@@ -47,6 +48,7 @@ function harness() {
 		}
 	});
 	const context = { api, playback, toast: { error: (e) => errors.push(e) },
+		sleepTimerRevision: 0, applySleepTimer() {},
 		forgetLocal() {}, applyLtState() {}, performance };
 	const handlers = runInNewContext(code + '\n({ setTempoPitch, initApp })', context);
 	handlers.initApp(true);

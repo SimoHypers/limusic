@@ -1,6 +1,6 @@
 //! HTTP transport. context/01. Pure — no Tauri/webview/mpv.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -17,6 +17,30 @@ pub const BASE_URL: &str = "https://music.youtube.com/youtubei/v1/";
 pub const ORIGIN: &str = "https://music.youtube.com";
 pub const REFERER: &str = "https://music.youtube.com/";
 pub const SW_JS_DATA_URL: &str = "https://music.youtube.com/sw.js_data";
+
+/// The proxy format every app transport (including mpv and the WebView) can honor.
+/// WebView proxy authentication is unsupported, and its URL parser drops HTTP's default port.
+pub fn validate_proxy(proxy: &str) -> Result<(), &'static str> {
+    const INVALID: &str = "Proxy must be http://host:port with an explicit port other than 0 or 80, and no credentials, path, query or fragment. HTTPS and SOCKS proxies are unsupported.";
+    if !proxy.starts_with("http://")
+        || proxy.chars().any(char::is_whitespace)
+        || proxy.contains(['@', '\\'])
+    {
+        return Err(INVALID);
+    }
+    let url = reqwest::Url::parse(proxy).map_err(|_| INVALID)?;
+    if url.host_str().is_none()
+        || url.port().map_or(true, |port| port == 0)
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.path() != "/"
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(INVALID);
+    }
+    Ok(())
+}
 
 /// How long a rejected request waits for a heal it has no evidence is running.
 ///
@@ -179,6 +203,8 @@ struct HealState {
 pub struct InnerTube {
     http: reqwest::Client,
     session: Arc<RwLock<Session>>,
+    // Always read or changed while holding `session`, alongside the request cookie.
+    session_generation: Arc<AtomicU64>,
     /// "Hide music videos" (off by default): drop non-ATV rows from the surfaces YouTube
     /// generates. Shared like `session` so a settings toggle reaches every clone, and an atomic
     /// rather than part of `Session` because the endpoints read it on every parse.
@@ -219,16 +245,20 @@ impl InnerTube {
             .pool_idle_timeout(Duration::from_secs(300))
             .pool_max_idle_per_host(10);
         if let Some(p) = proxy {
+            validate_proxy(p).map_err(|message| Error::Other(message.into()))?;
             builder = builder.proxy(reqwest::Proxy::all(p)?);
         }
         // Tests talk to a server on localhost: a system proxy must not get in the way.
         #[cfg(test)]
         {
-            builder = builder.no_proxy();
+            if proxy.is_none() {
+                builder = builder.no_proxy();
+            }
         }
         Ok(InnerTube {
             http: builder.build()?,
             session: Arc::new(RwLock::new(session)),
+            session_generation: Arc::new(AtomicU64::new(0)),
             hide_videos: Arc::new(AtomicBool::new(false)),
             blocked: Arc::new(RwLock::new(BlockList::default())),
             session_rejected: Arc::new(Notify::new()),
@@ -269,7 +299,7 @@ impl InnerTube {
     /// into every session — issue #165 / KI-2. Note that `cookie_store(true)` would not help:
     /// reqwest skips its own store whenever a `Cookie` header is already set, and `headers()`
     /// always sets one.
-    fn absorb_cookies(&self, headers: &HeaderMap) {
+    fn absorb_cookies(&self, headers: &HeaderMap, generation: u64) {
         if headers.get(SET_COOKIE).is_none() {
             return;
         }
@@ -277,6 +307,9 @@ impl InnerTube {
             headers.get_all(SET_COOKIE).iter().filter_map(|v| v.to_str().ok()).collect();
         {
             let mut s = self.session.write().unwrap();
+            if self.session_generation.load(Ordering::Relaxed) != generation {
+                return;
+            }
             let Some(merged) = s.cookie.as_deref().and_then(|c| merge_set_cookie(c, &set_cookie))
             else {
                 return;
@@ -331,7 +364,9 @@ impl InnerTube {
     }
 
     pub fn set_cookie(&self, cookie: Option<String>) {
-        self.session.write().unwrap().cookie = cookie;
+        let mut session = self.session.write().unwrap();
+        self.session_generation.fetch_add(1, Ordering::Relaxed);
+        session.cookie = cookie;
     }
 
     pub fn set_data_sync_id(&self, id: Option<String>) {
@@ -476,7 +511,7 @@ impl InnerTube {
         loop {
             attempt += 1;
             // Rebuild headers on every iteration so retried requests use the updated session cookie.
-            let headers = self.headers(client, set_login);
+            let (headers, generation) = self.headers(client, set_login);
 
             let res = self
                 .http
@@ -489,7 +524,7 @@ impl InnerTube {
 
             match res {
                 Ok(resp) => {
-                    self.absorb_cookies(resp.headers());
+                    self.absorb_cookies(resp.headers(), generation);
                     return Ok(resp.json().await?);
                 }
                 // Retry only on connect/timeout (transient), matching Metrolist's IOException filter.
@@ -561,7 +596,7 @@ impl InnerTube {
         extra: &[(&'static str, String)],
         body: Vec<u8>,
     ) -> Result<(HeaderMap, Vec<u8>), Error> {
-        let mut headers = self.headers(client, true);
+        let (mut headers, generation) = self.headers(client, true);
         for (name, value) in extra {
             if let Ok(v) = HeaderValue::from_str(value) {
                 headers.insert(HeaderName::from_static(name), v);
@@ -582,13 +617,13 @@ impl InnerTube {
             .await?
             .error_for_status()?;
         let headers = resp.headers().clone();
-        self.absorb_cookies(&headers);
+        self.absorb_cookies(&headers, generation);
         Ok((headers, resp.bytes().await?.to_vec()))
     }
 
     /// Per-request headers. context/01 §ytClient. Note `X-YouTube-Client-Name` carries the
     /// numeric client **id**, not the name string — intentional and required.
-    fn headers(&self, client: &YouTubeClient, set_login: bool) -> HeaderMap {
+    fn headers(&self, client: &YouTubeClient, set_login: bool) -> (HeaderMap, u64) {
         let mut h = HeaderMap::new();
         let set = |h: &mut HeaderMap, k: &'static str, v: &str| {
             if let Ok(val) = HeaderValue::from_str(v) {
@@ -621,7 +656,7 @@ impl InnerTube {
                 }
             }
         }
-        h
+        (h, self.session_generation.load(Ordering::Relaxed))
     }
 
     /// Bootstrap `visitorData` anonymously by scraping `sw.js_data`. context/04 §A.
@@ -642,9 +677,9 @@ impl InnerTube {
         playlist_id: Option<&str>,
     ) -> Result<(), Error> {
         let url = build_playback_url(base_url, &client.client_name, cpn, playlist_id);
-        let headers = self.headers(client, true);
+        let (headers, generation) = self.headers(client, true);
         let resp = self.http.get(&url).headers(headers).send().await?.error_for_status()?;
-        self.absorb_cookies(resp.headers());
+        self.absorb_cookies(resp.headers(), generation);
         Ok(())
     }
 
@@ -801,6 +836,88 @@ fn parse_visitor_data(body: &str) -> Result<String, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn delayed_cookie_response_does_not_change_a_replaced_session() {
+        let it = InnerTube::new(
+            Session { cookie: Some("SAPISID=A".into()), ..Default::default() },
+            None,
+        )
+        .unwrap();
+        let clients = crate::clients::Clients::bundled();
+        let web = clients.get(crate::clients::METADATA_CLIENT).unwrap();
+        let (_request, generation) = it.headers(web, true);
+        it.set_cookie(Some("SAPISID=B".into()));
+        let mut response = HeaderMap::new();
+        response.insert(SET_COOKIE, HeaderValue::from_static("SAPISID=staleA; Path=/"));
+        it.absorb_cookies(&response, generation);
+        assert_eq!(it.cookie().as_deref(), Some("SAPISID=B"));
+    }
+
+    #[test]
+    fn innertube_refuses_proxy_values_other_consumers_cannot_honor() {
+        for proxy in [
+            "socks5://proxy.lan:1080",
+            "https://proxy.lan:8443",
+            "http://user:secret@proxy.lan:8080",
+            "http://proxy.lan:80",
+            "http://proxy.lan",
+            "http://proxy.lan:8080/path",
+            "not a proxy",
+        ] {
+            assert!(InnerTube::new(Session::default(), Some(proxy)).is_err(), "accepted {proxy}");
+        }
+    }
+
+    #[test]
+    fn replacing_session_with_identical_cookie_still_discards_in_flight_rotations() {
+        let it = InnerTube::new(
+            Session { cookie: Some("SAPISID=A".into()), ..Default::default() },
+            None,
+        )
+        .unwrap();
+        let clients = crate::clients::Clients::bundled();
+        let web = clients.get(crate::clients::METADATA_CLIENT).unwrap();
+        let (_request, generation) = it.headers(web, true);
+        it.set_cookie(Some("SAPISID=A".into()));
+        let mut response = HeaderMap::new();
+        response.insert(SET_COOKIE, HeaderValue::from_static("ROTATED=stale; Path=/"));
+        it.absorb_cookies(&response, generation);
+        assert_eq!(it.cookie().as_deref(), Some("SAPISID=A"));
+    }
+
+    #[test]
+    fn concurrent_same_session_responses_merge_their_cookie_rotations() {
+        let it = InnerTube::new(
+            Session { cookie: Some("SAPISID=A".into()), ..Default::default() },
+            None,
+        )
+        .unwrap();
+        let clients = crate::clients::Clients::bundled();
+        let web = clients.get(crate::clients::METADATA_CLIENT).unwrap();
+        let (_first_request, generation) = it.headers(web, true);
+        let _second_request = it.headers(web, true);
+        let mut response = HeaderMap::new();
+        response.insert(SET_COOKIE, HeaderValue::from_static("FIRST=one; Path=/"));
+        it.absorb_cookies(&response, generation);
+        response.insert(SET_COOKIE, HeaderValue::from_static("SECOND=two; Path=/"));
+        it.absorb_cookies(&response, generation);
+        assert_eq!(it.cookie().as_deref(), Some("SAPISID=A; FIRST=one; SECOND=two"));
+    }
+
+    #[tokio::test]
+    async fn configured_proxy_failure_never_sends_request_directly() {
+        let server = crate::test_server::MockServer::start(|_| (200, "{}".into()));
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let proxy = format!("http://{}", closed.local_addr().unwrap());
+        drop(closed);
+        let mut it = InnerTube::new(Session::default(), Some(&proxy)).unwrap();
+        it.set_base_url(&server.base_url);
+        let clients = crate::clients::Clients::bundled();
+        let web = clients.get(crate::clients::METADATA_CLIENT).unwrap();
+        assert!(it.post_write("next", web, &serde_json::json!({}), false).await.is_err());
+        assert!(server.requests().is_empty(), "proxy failure leaked a direct request");
+    }
 
     #[test]
     fn sha1_known_vector() {

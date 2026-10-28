@@ -61,6 +61,13 @@ pub enum Error {
     Transient(String),
 }
 
+fn ensure_network_allowed(proxy_configured: bool) -> Result<(), Error> {
+    if proxy_configured {
+        return Err(Error::Transient("BotGuard cannot honor the configured proxy. Clear the proxy setting and restart Limusic to enable PoToken generation.".into()));
+    }
+    Ok(())
+}
+
 /// Everything BotGuard itself can fail at is transient, `BgError::Js` included: a JS error here
 /// means the program YouTube shipped today threw, which is the case that fixes itself the next time
 /// the program is downloaded. Latching on it (as the webview path did, where a JS error really did
@@ -170,6 +177,7 @@ impl Minter {
     /// Stand up a BotGuard runtime bound to `session_ident` (visitorData), re-rolling the whole
     /// bootstrap while it lands in the rejected integrity-token class (see [`bootstrap`]).
     pub async fn spawn(user_agent: String, session_ident: String) -> Result<Bootstrap, Error> {
+        ensure_network_allowed(crate::http::has_proxy())?;
         let (reply, rx) = oneshot::channel();
         host()
             .send(Cmd::Bootstrap { user_agent, session_ident, reply })
@@ -182,6 +190,7 @@ impl Minter {
 
     /// Mint one PoToken for `ident` (a videoId, for the `&pot=` URL parameter).
     pub async fn mint(&self, ident: &str) -> Result<String, Error> {
+        ensure_network_allowed(crate::http::has_proxy())?;
         let (reply, rx) = oneshot::channel();
         host()
             .send(Cmd::Mint { generation: self.generation, ident: ident.to_owned(), reply })
@@ -201,6 +210,7 @@ async fn bootstrap(
     user_agent: &str,
     session_ident: &str,
 ) -> Result<(Botguard, String, u64), Error> {
+    ensure_network_allowed(crate::http::has_proxy())?;
     let mut last = None;
     for attempt in 1..=MAX_BOOTSTRAPS {
         // Drop the previous attempt's runtime before building the next: v8 asserts isolates are
@@ -260,6 +270,13 @@ fn integrity_token_len(pot: &str, ident: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_configured_proxy_blocks_botguard_instead_of_allowing_direct_requests() {
+        let error = ensure_network_allowed(true).expect_err("BotGuard cannot honor the proxy");
+        assert!(error.to_string().contains("proxy"));
+        assert!(ensure_network_allowed(false).is_ok());
+    }
 
     /// Real tokens, each pair tested against one live WEB_REMIX stream URL. If this arithmetic
     /// drifts, every mint is classified wrong and WEB_REMIX silently stops resolving again, so pin

@@ -4,7 +4,7 @@
 use std::sync::Mutex;
 
 use md5::{Digest, Md5};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 /// Clearing the lyrics cache spares songs whose source was picked by hand in the lyrics footer (or
 /// their timing nudged): those are the user's choices, not a cache.
@@ -91,6 +91,76 @@ pub struct CachedStream {
     /// and a failure toast can name it. `ping_client` is not a substitute: the orchestrator prefers
     /// the *main* client's tracking block even when a fallback won the stream.
     pub client: Option<String>,
+}
+
+pub(crate) fn secret_setting(key: &str) -> bool {
+    matches!(key, "session_cookie" | "lastfm_session_key" | "listenbrainz_token")
+}
+
+fn protect_secret(value: &str) -> rusqlite::Result<String> {
+    crate::secrets::protect(value)
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
+}
+
+fn unprotect_secret(value: &str) -> rusqlite::Result<String> {
+    crate::secrets::unprotect(value).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(error))
+    })
+}
+
+/// Validate existing ciphertext before committing any plaintext-to-DPAPI replacement.
+fn migrate_credentials(conn: &mut Connection) -> rusqlite::Result<bool> {
+    let tx = conn.transaction()?;
+    let settings = {
+        let mut stmt = tx.prepare("SELECT key,value FROM settings WHERE key IN ('session_cookie','lastfm_session_key','listenbrainz_token')")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    let accounts = {
+        let mut stmt = tx.prepare("SELECT id,session_cookie FROM accounts")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    let mut changed = false;
+    for (table, rows) in [("settings", settings), ("accounts", accounts)] {
+        for (key, value) in rows {
+            let plaintext = unprotect_secret(&value)?;
+            if value.starts_with(crate::secrets::PREFIX) {
+                continue;
+            }
+            let protected = protect_secret(&plaintext)?;
+            if protected != value {
+                let query = if table == "settings" {
+                    "UPDATE settings SET value=?1 WHERE key=?2"
+                } else {
+                    "UPDATE accounts SET session_cookie=?1 WHERE id=?2"
+                };
+                tx.execute(query, [&protected, &key])?;
+                changed = true;
+            }
+        }
+    }
+    tx.commit()?;
+    Ok(changed)
+}
+
+fn compact_credential_remnants(conn: &Connection) {
+    // Best effort for SQLite pages and WAL, not a guarantee about SSDs, backups or snapshots.
+    let cleanup = || -> rusqlite::Result<()> {
+        let busy: i64 = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0))?;
+        if busy != 0 {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        conn.execute_batch("VACUUM")?;
+        let busy: i64 = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0))?;
+        if busy != 0 {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        Ok(())
+    };
+    if cleanup().is_err() {
+        tracing::warn!("Credentials were protected, but SQLite credential-remnant cleanup could not finish; retry on next migration or compact the database while Limusic is closed.");
+    }
 }
 
 impl Db {
@@ -338,13 +408,18 @@ impl Db {
         if let Err(e) = migrate_plays(&mut conn) {
             tracing::warn!(error = %e, "moving plays into listens failed, will retry");
         }
+        #[cfg(windows)]
+        conn.pragma_update(None, "secure_delete", "ON")?;
+        let migrated_credentials = migrate_credentials(&mut conn)?;
         // One-time migration of the pre-multi-account single session into `accounts`. The legacy
         // settings rows stay in place as projections of the active account (see `StoredAccount`).
         let legacy_cookie = conn
             .query_row("SELECT value FROM settings WHERE key = 'session_cookie'", [], |r| {
                 r.get::<_, String>(0)
             })
-            .ok();
+            .optional()?
+            .map(|value| unprotect_secret(&value))
+            .transpose()?;
         if let (Some(cookie), Some(id)) =
             (legacy_cookie.as_deref(), legacy_cookie.as_deref().and_then(account_key))
         {
@@ -361,7 +436,7 @@ impl Db {
                      VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                     rusqlite::params![
                         id,
-                        cookie,
+                        protect_secret(cookie)?,
                         get("data_sync_id"),
                         get("selected_identity_json"),
                         get("account_json"),
@@ -386,7 +461,11 @@ impl Db {
             if let Ok(mut stmt) = conn.prepare("SELECT id, session_cookie, added_at FROM accounts")
             {
                 if let Ok(rows) = stmt.query_map([], |r| {
-                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        unprotect_secret(&r.get::<_, String>(1)?)?,
+                        r.get::<_, i64>(2)?,
+                    ))
                 }) {
                     found.extend(rows.flatten());
                 }
@@ -431,23 +510,86 @@ impl Db {
                 let _ = tx.commit();
             }
         }
+        crate::scrobble_outbox::init(&conn)?;
+        if migrated_credentials {
+            compact_credential_remnants(&conn);
+        }
         Ok(Db(Mutex::new(conn)))
+    }
+
+    pub fn enqueue_scrobble(
+        &self,
+        provider: &str,
+        account: &str,
+        event: &str,
+        payload: &str,
+        listened_at: i64,
+        now: i64,
+    ) -> rusqlite::Result<()> {
+        crate::scrobble_outbox::enqueue(
+            &mut self.0.lock().unwrap(),
+            provider,
+            account,
+            event,
+            payload,
+            listened_at,
+            now,
+        )
+    }
+    pub fn due_scrobbles(
+        &self,
+        now: i64,
+    ) -> rusqlite::Result<Vec<crate::scrobble_outbox::Pending>> {
+        crate::scrobble_outbox::due(&self.0.lock().unwrap(), now)
+    }
+    pub fn finish_scrobble(
+        &self,
+        id: i64,
+        retry: Option<(u32, i64)>,
+        failed: bool,
+    ) -> rusqlite::Result<()> {
+        crate::scrobble_outbox::finish(&self.0.lock().unwrap(), id, retry, failed)
+    }
+    pub fn scrobble_counts(&self, provider: &str) -> (usize, usize) {
+        crate::scrobble_outbox::counts(&self.0.lock().unwrap(), provider).unwrap_or_default()
+    }
+    pub fn discard_scrobbles(&self, provider: &str, account: Option<&str>) -> rusqlite::Result<()> {
+        crate::scrobble_outbox::discard(&self.0.lock().unwrap(), provider, account)
     }
 
     // --- settings ---------------------------------------------------------------------------
 
-    pub fn get_setting(&self, key: &str) -> Option<String> {
+    pub fn get_setting_checked(&self, key: &str) -> rusqlite::Result<Option<String>> {
         let conn = self.0.lock().unwrap();
-        conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0)).ok()
+        let value: Option<String> = conn
+            .query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0))
+            .optional()?;
+        value
+            .map(|value| if secret_setting(key) { unprotect_secret(&value) } else { Ok(value) })
+            .transpose()
+    }
+
+    pub fn get_setting(&self, key: &str) -> Option<String> {
+        match self.get_setting_checked(key) {
+            Ok(value) => value,
+            Err(_) => {
+                tracing::error!("A saved setting could not be read. Saved credentials may be unavailable to this Windows user; the stored row was preserved.");
+                None
+            }
+        }
+    }
+
+    pub fn set_setting_checked(&self, key: &str, value: &str) -> rusqlite::Result<()> {
+        let value = if secret_setting(key) { protect_secret(value)? } else { value.to_owned() };
+        let conn = self.0.lock().unwrap();
+        conn.execute("INSERT INTO settings(key, value) VALUES(?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [key, &value])?;
+        Ok(())
     }
 
     pub fn set_setting(&self, key: &str, value: &str) {
-        let conn = self.0.lock().unwrap();
-        let _ = conn.execute(
-            "INSERT INTO settings(key, value) VALUES(?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            [key, value],
-        );
+        if self.set_setting_checked(key, value).is_err() {
+            tracing::error!("A setting could not be saved. Credential protection may be unavailable; the existing stored row was preserved.");
+        }
     }
 
     pub fn delete_setting(&self, key: &str) {
@@ -470,7 +612,7 @@ impl Db {
         tx.execute(
             "INSERT INTO settings(key, value) VALUES('session_cookie', ?1)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            [session_cookie],
+            [protect_secret(session_cookie)?],
         )?;
         tx.execute(
             "INSERT INTO settings(key, value) VALUES('selected_identity_json', ?1)
@@ -508,7 +650,7 @@ impl Db {
         tx.execute(
             "INSERT INTO settings(key, value) VALUES('session_cookie', ?1)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            [session_cookie],
+            [protect_secret(session_cookie)?],
         )?;
         for key in ["selected_identity_json", "data_sync_id", "account_json"] {
             tx.execute("DELETE FROM settings WHERE key = ?1", [key])?;
@@ -557,7 +699,7 @@ impl Db {
                 visitor_data = excluded.visitor_data",
             rusqlite::params![
                 account.id,
-                account.session_cookie,
+                protect_secret(&account.session_cookie)?,
                 account.data_sync_id,
                 account.selected_identity_json,
                 account.account_json,
@@ -570,32 +712,32 @@ impl Db {
 
     /// Saved accounts, oldest first. No raw auth material leaves this function's callers except
     /// back into the transport; the UI only ever sees display fields plus the opaque id.
-    pub fn list_accounts(&self) -> Vec<StoredAccount> {
+    pub fn list_accounts_checked(&self) -> rusqlite::Result<Vec<StoredAccount>> {
         let conn = self.0.lock().unwrap();
-        let mut out = Vec::new();
-        if let Ok(mut stmt) = conn.prepare(
-            "SELECT id, session_cookie, data_sync_id, selected_identity_json, account_json, \
-             visitor_data, added_at FROM accounts ORDER BY added_at, id",
-        ) {
-            if let Ok(rows) = stmt.query_map([], |r| {
-                Ok(StoredAccount {
-                    id: r.get(0)?,
-                    session_cookie: r.get(1)?,
-                    data_sync_id: r.get(2)?,
-                    selected_identity_json: r.get(3)?,
-                    account_json: r.get(4)?,
-                    visitor_data: r.get(5)?,
-                    added_at: r.get(6)?,
-                })
-            }) {
-                out.extend(rows.flatten());
-            }
-        }
-        out
+        let mut stmt = conn.prepare("SELECT id, session_cookie, data_sync_id, selected_identity_json, account_json, visitor_data, added_at FROM accounts ORDER BY added_at, id")?;
+        let rows = stmt.query_map([], |r| {
+            Ok(StoredAccount {
+                id: r.get(0)?,
+                session_cookie: unprotect_secret(&r.get::<_, String>(1)?)?,
+                data_sync_id: r.get(2)?,
+                selected_identity_json: r.get(3)?,
+                account_json: r.get(4)?,
+                visitor_data: r.get(5)?,
+                added_at: r.get(6)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn list_accounts(&self) -> Vec<StoredAccount> {
+        self.list_accounts_checked().unwrap_or_else(|_| {
+            tracing::error!("Saved accounts could not be unlocked; encrypted rows were preserved.");
+            Vec::new()
+        })
     }
 
     /// One saved account by id, or `None` when it isn't saved.
-    pub fn get_account(&self, id: &str) -> Option<StoredAccount> {
+    pub fn get_account_checked(&self, id: &str) -> rusqlite::Result<Option<StoredAccount>> {
         let conn = self.0.lock().unwrap();
         conn.query_row(
             "SELECT id, session_cookie, data_sync_id, selected_identity_json, account_json, \
@@ -604,7 +746,7 @@ impl Db {
             |r| {
                 Ok(StoredAccount {
                     id: r.get(0)?,
-                    session_cookie: r.get(1)?,
+                    session_cookie: unprotect_secret(&r.get::<_, String>(1)?)?,
                     data_sync_id: r.get(2)?,
                     selected_identity_json: r.get(3)?,
                     account_json: r.get(4)?,
@@ -613,23 +755,45 @@ impl Db {
                 })
             },
         )
-        .ok()
+        .optional()
+    }
+
+    pub fn get_account(&self, id: &str) -> Option<StoredAccount> {
+        self.get_account_checked(id).unwrap_or_else(|_| {
+            tracing::error!(
+                "A saved account could not be unlocked; its encrypted row was preserved."
+            );
+            None
+        })
     }
 
     /// Write a rotated cookie jar into one account's row, leaving its identity fields alone.
     /// Nothing happens when the row is gone (the account was removed while a request was in
     /// flight), which is what should happen.
-    pub fn update_account_cookie(&self, id: &str, session_cookie: &str) {
+    pub fn update_account_cookie(&self, id: &str, session_cookie: &str) -> rusqlite::Result<()> {
+        let protected = protect_secret(session_cookie)?;
         let conn = self.0.lock().unwrap();
-        let _ = conn
-            .execute("UPDATE accounts SET session_cookie = ?1 WHERE id = ?2", [session_cookie, id]);
+        conn.execute("UPDATE accounts SET session_cookie = ?1 WHERE id = ?2", [&protected, id])?;
+        Ok(())
     }
 
     /// Delete a saved account row. Whether removing it signs the app out is the caller's decision
     /// (see `AppState::remove_google_account`), not this row's.
-    pub fn remove_account(&self, id: &str) {
+    pub fn remove_account(&self, id: &str) -> rusqlite::Result<()> {
         let conn = self.0.lock().unwrap();
-        let _ = conn.execute("DELETE FROM accounts WHERE id = ?1", [id]);
+        conn.execute("DELETE FROM accounts WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    /// Forget only the selected saved account; remove active auth projections in the same commit.
+    pub fn forget_account_checked(&self, id: &str, active: bool) -> rusqlite::Result<()> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM accounts WHERE id=?1", [id])?;
+        if active {
+            tx.execute("DELETE FROM settings WHERE key IN ('session_cookie','active_account','selected_identity_json','data_sync_id','account_json','account_selection_pending','visitor_data')", [])?;
+        }
+        tx.commit()
     }
 
     /// Write a saved account's fields into the active-account `settings` projections and flip the
@@ -642,7 +806,7 @@ impl Db {
         tx.execute(
             "INSERT INTO settings(key, value) VALUES('session_cookie', ?1)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            [&account.session_cookie],
+            [protect_secret(&account.session_cookie)?],
         )?;
         for (key, value) in [
             ("data_sync_id", account.data_sync_id.as_deref()),
@@ -676,7 +840,12 @@ impl Db {
         let conn = self.0.lock().unwrap();
         let mut out = Vec::new();
         if let Ok(mut stmt) = conn.prepare("SELECT key, value FROM settings") {
-            if let Ok(rows) = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))) {
+            if let Ok(rows) = stmt.query_map([], |r| {
+                let key: String = r.get(0)?;
+                let value: String = r.get(1)?;
+                let value = if secret_setting(&key) { unprotect_secret(&value)? } else { value };
+                Ok((key, value))
+            }) {
                 out.extend(rows.flatten());
             }
         }
@@ -1231,6 +1400,44 @@ impl Db {
         Ok(())
     }
 
+    /// Commit imported rows and their source checkpoint together, so interrupted imports retry
+    /// only work that did not land. Row removals stay scoped to this playlist.
+    pub fn apply_local_playlist_import(
+        &self,
+        id: i64,
+        songs: &[(String, String)],
+        remove_rows: &[i64],
+        source_key: &str,
+        source_json: &str,
+        now: i64,
+    ) -> rusqlite::Result<Vec<bool>> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.query_row("SELECT id FROM local_playlists WHERE id = ?1", [id], |_| Ok(()))?;
+        for row in remove_rows {
+            tx.execute(
+                "DELETE FROM local_playlist_tracks WHERE playlist_id = ?1 AND id = ?2",
+                [id, *row],
+            )?;
+        }
+        let mut added = Vec::with_capacity(songs.len());
+        for (video_id, json) in songs {
+            added.push(tx.execute(
+                "INSERT OR IGNORE INTO local_playlist_tracks(playlist_id, video_id, song_json, added_at, pos) \
+                 VALUES(?1, ?2, ?3, ?4, \
+                 (SELECT COALESCE(MAX(pos), 0) + 1 FROM local_playlist_tracks WHERE playlist_id = ?1))",
+                rusqlite::params![id, video_id, json, now],
+            )? > 0);
+        }
+        tx.execute(
+            "INSERT OR REPLACE INTO settings(key, value) VALUES(?1, ?2)",
+            [source_key, source_json],
+        )?;
+        tx.execute("UPDATE local_playlists SET updated_at = ?1 WHERE id = ?2", [now, id])?;
+        tx.commit()?;
+        Ok(added)
+    }
+
     /// Drop rows by their row id. Scoped to the playlist, so a stale id from another list can
     /// never take out someone else's row.
     pub fn remove_local_playlist_tracks(
@@ -1530,6 +1737,253 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
+    fn credential_settings_are_encrypted_at_the_shared_db_boundary() {
+        let d = db();
+        for key in ["session_cookie", "lastfm_session_key", "listenbrainz_token"] {
+            d.set_setting(key, "fixture-secret-settings");
+            assert_eq!(d.get_setting(key).as_deref(), Some("fixture-secret-settings"));
+            let stored: String =
+                d.0.lock()
+                    .unwrap()
+                    .query_row("SELECT value FROM settings WHERE key=?1", [key], |r| r.get(0))
+                    .unwrap();
+            assert!(stored.starts_with(crate::secrets::PREFIX));
+            assert!(!stored.contains("fixture-secret-settings"));
+        }
+        d.set_setting("volume", "42");
+        assert_eq!(d.get_setting("volume").as_deref(), Some("42"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn account_credential_writes_and_reads_preserve_encryption() {
+        let d = db();
+        let account = StoredAccount {
+            id: account_key("SAPISID=fixture-account").unwrap(),
+            session_cookie: "SAPISID=fixture-account".into(),
+            data_sync_id: None,
+            selected_identity_json: None,
+            account_json: None,
+            visitor_data: None,
+            added_at: 1,
+        };
+        d.upsert_account(&account).unwrap();
+        d.restore_account(&account).unwrap();
+        assert_eq!(d.get_account(&account.id).unwrap().session_cookie, account.session_cookie);
+        assert_eq!(d.list_accounts()[0].session_cookie, account.session_cookie);
+        let stored: String =
+            d.0.lock()
+                .unwrap()
+                .query_row("SELECT session_cookie FROM accounts WHERE id=?1", [&account.id], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+        assert!(stored.starts_with(crate::secrets::PREFIX));
+        d.update_account_cookie(&account.id, "SAPISID=fixture-account; SID=rotated").unwrap();
+        assert_eq!(
+            d.get_account(&account.id).unwrap().session_cookie,
+            "SAPISID=fixture-account; SID=rotated"
+        );
+        let stored: String =
+            d.0.lock()
+                .unwrap()
+                .query_row("SELECT session_cookie FROM accounts WHERE id=?1", [&account.id], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+        assert!(stored.starts_with(crate::secrets::PREFIX));
+        assert!(!stored.contains("rotated"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn opening_migrates_plaintext_credentials_once_and_scrubs_sqlite_pages() {
+        let path = std::env::temp_dir().join(format!(
+            "limusic-credential-migration-{}.sqlite",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        {
+            let d = Db::open(&path).unwrap();
+            let conn = d.0.lock().unwrap();
+            for key in ["session_cookie", "lastfm_session_key", "listenbrainz_token"] {
+                conn.execute(
+                    "INSERT INTO settings(key,value) VALUES(?1,?2)",
+                    [key, "SAPISID=fixture-legacy-credential"],
+                )
+                .unwrap();
+            }
+            conn.execute("INSERT INTO settings(key,value) VALUES('volume','55')", []).unwrap();
+        }
+        let first;
+        {
+            let d = Db::open(&path).unwrap();
+            assert_eq!(
+                d.get_setting("session_cookie").as_deref(),
+                Some("SAPISID=fixture-legacy-credential")
+            );
+            assert_eq!(d.get_setting("volume").as_deref(), Some("55"));
+            assert_eq!(d.list_accounts().len(), 1);
+            first =
+                d.0.lock()
+                    .unwrap()
+                    .query_row("SELECT value FROM settings WHERE key='session_cookie'", [], |r| {
+                        r.get::<_, String>(0)
+                    })
+                    .unwrap();
+            assert!(first.starts_with(crate::secrets::PREFIX));
+        }
+        {
+            let d = Db::open(&path).unwrap();
+            let second: String =
+                d.0.lock()
+                    .unwrap()
+                    .query_row("SELECT value FROM settings WHERE key='session_cookie'", [], |r| {
+                        r.get(0)
+                    })
+                    .unwrap();
+            assert_eq!(first, second, "migration must not re-encrypt ciphertext");
+        }
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(!bytes
+            .windows(b"fixture-legacy-credential".len())
+            .any(|part| part == b"fixture-legacy-credential"));
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn unusable_credential_ciphertext_is_not_quarantined_or_replaced_with_an_empty_database() {
+        let path = std::env::temp_dir().join(format!(
+            "limusic-credential-unavailable-{}.sqlite",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        {
+            let d = Db::open(&path).unwrap();
+            d.set_setting("volume", "55");
+            d.0.lock().unwrap().execute("INSERT INTO settings(key,value) VALUES('session_cookie','limusic-dpapi:v1:AAAA')", []).unwrap();
+        }
+        assert!(Db::open_or_quarantine(&path).is_err());
+        let conn = Connection::open(&path).unwrap();
+        assert_eq!(
+            conn.query_row("SELECT value FROM settings WHERE key='session_cookie'", [], |r| r
+                .get::<_, String>(
+                0
+            ))
+            .unwrap(),
+            "limusic-dpapi:v1:AAAA"
+        );
+        assert_eq!(
+            conn.query_row("SELECT value FROM settings WHERE key='volume'", [], |r| r
+                .get::<_, String>(0))
+                .unwrap(),
+            "55"
+        );
+        drop(conn);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn forgetting_credentials_is_atomic_and_preserves_other_saved_accounts() {
+        let d = db();
+        let account = |value: &str| StoredAccount {
+            id: account_key(&format!("SAPISID={value}")).unwrap(),
+            session_cookie: format!("SAPISID={value}"),
+            data_sync_id: None,
+            selected_identity_json: None,
+            account_json: None,
+            visitor_data: None,
+            added_at: 1,
+        };
+        let first = account("fixture-forget-a");
+        let other = account("fixture-forget-b");
+        d.upsert_account(&first).unwrap();
+        d.upsert_account(&other).unwrap();
+        d.restore_account(&first).unwrap();
+        d.set_setting("volume", "44");
+        d.forget_account_checked(&first.id, true).unwrap();
+        assert!(d.get_account(&first.id).is_none());
+        assert_eq!(d.get_account(&other.id).unwrap().session_cookie, other.session_cookie);
+        assert!(d.get_setting("session_cookie").is_none());
+        assert!(d.get_setting("active_account").is_none());
+        assert_eq!(d.get_setting("volume").as_deref(), Some("44"));
+    }
+
+    #[test]
+    fn failed_forget_preserves_credentials_and_account_rows_together() {
+        let d = db();
+        let account = StoredAccount {
+            id: account_key("SAPISID=fixture-forget-failure").unwrap(),
+            session_cookie: "SAPISID=fixture-forget-failure".into(),
+            data_sync_id: None,
+            selected_identity_json: None,
+            account_json: None,
+            visitor_data: None,
+            added_at: 1,
+        };
+        d.upsert_account(&account).unwrap();
+        d.restore_account(&account).unwrap();
+        d.0.lock().unwrap().execute_batch("CREATE TRIGGER block_forget BEFORE DELETE ON settings BEGIN SELECT RAISE(ABORT,'fixture deletion failure'); END;").unwrap();
+        assert!(d.forget_account_checked(&account.id, true).is_err());
+        assert_eq!(d.get_account(&account.id).unwrap().session_cookie, account.session_cookie);
+        assert_eq!(
+            d.get_setting("session_cookie").as_deref(),
+            Some(account.session_cookie.as_str())
+        );
+    }
+
+    #[test]
+    fn credential_migration_failure_rolls_back_all_rows_without_exposing_ciphertext() {
+        let d = db();
+        let mut conn = d.0.lock().unwrap();
+        conn.execute(
+            "INSERT INTO settings(key,value) VALUES('lastfm_session_key','fixture-legacy-key')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO settings(key,value) VALUES('listenbrainz_token','limusic-dpapi:v1:AAAA')",
+            [],
+        )
+        .unwrap();
+        assert!(migrate_credentials(&mut conn).is_err());
+        assert_eq!(
+            conn.query_row("SELECT value FROM settings WHERE key='lastfm_session_key'", [], |r| {
+                r.get::<_, String>(0)
+            })
+            .unwrap(),
+            "fixture-legacy-key"
+        );
+        drop(conn);
+        assert!(d.get_setting_checked("listenbrainz_token").is_err());
+    }
+
+    #[test]
+    fn forgetting_inactive_credentials_preserves_the_active_account() {
+        let d = db();
+        let account = |value: &str| StoredAccount {
+            id: account_key(&format!("SAPISID={value}")).unwrap(),
+            session_cookie: format!("SAPISID={value}"),
+            data_sync_id: None,
+            selected_identity_json: None,
+            account_json: None,
+            visitor_data: None,
+            added_at: 1,
+        };
+        let inactive = account("fixture-inactive");
+        let active = account("fixture-active");
+        d.upsert_account(&inactive).unwrap();
+        d.upsert_account(&active).unwrap();
+        d.restore_account(&active).unwrap();
+        d.forget_account_checked(&inactive.id, false).unwrap();
+        assert!(d.get_account_checked(&inactive.id).unwrap().is_none());
+        assert_eq!(
+            d.get_setting_checked("session_cookie").unwrap().as_deref(),
+            Some(active.session_cookie.as_str())
+        );
+        assert_eq!(d.get_setting("active_account").as_deref(), Some(active.id.as_str()));
+    }
+
+    #[test]
     fn top_plays_ranks_by_count_then_recency_and_carries_the_latest_metadata() {
         let d = db();
         // "a" twice, "b" three times, "c" once but most recently, "old" outside the window.
@@ -1691,6 +2145,59 @@ mod tests {
             rows.iter().map(|r| r.1.clone()).collect::<Vec<_>>(),
             vec![song("t1").1, song("t2").1, song("t3").1]
         );
+    }
+
+    #[test]
+    fn import_appends_after_existing_reordered_tracks() {
+        let d = db();
+        let song = |v: &str| (v.to_string(), format!(r#"{{"video_id":"{v}"}}"#));
+        let id = d.create_local_playlist("Import", 1).unwrap();
+        d.add_local_playlist_tracks(id, &[song("first"), song("second")], 1).unwrap();
+        let rows = d.local_playlist_tracks(id);
+        d.move_local_playlist_track(id, rows[1].0, Some(rows[0].0), 2).unwrap();
+        d.apply_local_playlist_import(id, &[song("new-a"), song("new-b")], &[], "source", "{}", 3)
+            .unwrap();
+        assert_eq!(
+            d.local_playlist_tracks(id).into_iter().map(|(_, json, _)| json).collect::<Vec<_>>(),
+            [song("second").1, song("first").1, song("new-a").1, song("new-b").1]
+        );
+    }
+
+    #[test]
+    fn import_checkpoint_and_tracks_commit_or_rollback_together() {
+        let d = db();
+        let id = d.create_local_playlist("Import", 1).unwrap();
+        let other = d.create_local_playlist("Other", 1).unwrap();
+        let song = |v: &str| (v.to_string(), format!(r#"{{"video_id":"{v}"}}"#));
+        d.add_local_playlist_tracks(other, &[song("untouched")], 1).unwrap();
+        let other_row = d.local_playlist_tracks(other)[0].0;
+        assert_eq!(
+            d.apply_local_playlist_import(
+                id,
+                &[song("a"), song("a")],
+                &[other_row],
+                "import_test",
+                "first",
+                2
+            )
+            .unwrap(),
+            [true, false]
+        );
+        assert_eq!(d.local_playlist_tracks(other).len(), 1);
+        assert_eq!(d.get_setting("import_test").as_deref(), Some("first"));
+        let old_row = d.local_playlist_tracks(id)[0].0;
+        d.0.lock().unwrap().execute_batch(
+            "CREATE TRIGGER fail_checkpoint BEFORE INSERT ON settings WHEN NEW.key = 'import_test' \
+             BEGIN SELECT RAISE(ABORT, 'disk write failed'); END;",
+        ).unwrap();
+        assert!(d
+            .apply_local_playlist_import(id, &[song("b")], &[old_row], "import_test", "second", 3)
+            .is_err());
+        assert_eq!(d.local_playlist_tracks(id)[0].0, old_row);
+        assert_eq!(d.local_playlist_tracks(id).len(), 1);
+        assert_eq!(d.get_setting("import_test").as_deref(), Some("first"));
+        assert!(d.apply_local_playlist_import(9999, &[], &[], "missing", "{}", 3).is_err());
+        assert!(d.get_setting("missing").is_none());
     }
 
     #[test]
@@ -1972,12 +2479,12 @@ mod tests {
         assert_eq!(d.get_account(&a.id).unwrap().visitor_data.as_deref(), Some("vd-a2"));
 
         // Rotation writes the jar back without disturbing the identity fields.
-        d.update_account_cookie(&a.id, "SAPISID=aaa; __Secure-3PSIDTS=rotated");
+        d.update_account_cookie(&a.id, "SAPISID=aaa; __Secure-3PSIDTS=rotated").unwrap();
         let rotated = d.get_account(&a.id).unwrap();
         assert_eq!(rotated.session_cookie, "SAPISID=aaa; __Secure-3PSIDTS=rotated");
         assert_eq!(rotated.account_json.as_deref(), Some(r#"{"name":"A renamed"}"#));
 
-        d.remove_account(&a.id);
+        d.remove_account(&a.id).unwrap();
         assert!(d.get_account(&a.id).is_none());
         assert_eq!(d.list_accounts().len(), 1);
     }

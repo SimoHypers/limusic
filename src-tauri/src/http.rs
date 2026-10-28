@@ -27,10 +27,26 @@ static PROXY: OnceLock<String> = OnceLock::new();
 ///
 /// The `proxy` setting used to reach `crates/innertube` alone, which left player.js, the BotGuard
 /// endpoints, lyrics and the music-video proxy going direct (#241).
-pub fn set_proxy(proxy: Option<&str>) {
+pub fn set_proxy(proxy: Option<&str>) -> Result<(), &'static str> {
     if let Some(p) = proxy.map(str::trim).filter(|p| !p.is_empty()) {
+        validate_proxy(p)?;
         let _ = PROXY.set(p.to_owned());
     }
+    Ok(())
+}
+
+/// Validate before saving settings or starting any network-capable component.
+pub fn validate_proxy(proxy: &str) -> Result<(), &'static str> {
+    if proxy.trim().is_empty() {
+        return Ok(());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = proxy;
+        Err("Configured proxies are unsupported by the macOS WebView. Clear the proxy setting before starting Limusic.")
+    }
+    #[cfg(not(target_os = "macos"))]
+    innertube::transport::validate_proxy(proxy)
 }
 
 /// Whether [`client`] was pointed at a user proxy. mpv gets the same setting as its `http-proxy`
@@ -40,34 +56,17 @@ pub fn has_proxy() -> bool {
     PROXY.get().is_some()
 }
 
-/// The proxy setting in the one shape a webview takes: `http://` or `socks5://` with an explicit
-/// port. Anything else fails the window build in `tauri-runtime-wry` (`parse_proxy_url`), so it
-/// leaves the webviews on the system proxy instead. Credentials do not reach WebView2, which wry
-/// only hands a host and port.
-///
-/// The webviews load the artwork and the sign-in page themselves, so before this the setting never
-/// reached them and the images broke behind a proxy that only Limusic knew about (#465).
+/// The validated proxy shared by every WebView. Startup rejects unsupported settings before
+/// building a window; this must never fall back to direct routing for a configured proxy.
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn webview_proxy() -> Option<tauri::Url> {
-    static URL: OnceLock<Option<tauri::Url>> = OnceLock::new();
-    URL.get_or_init(|| {
-        let p = PROXY.get()?;
-        let url = webview_url(p);
-        if url.is_none() {
-            // Scheme only, as in `client`.
-            let scheme = p.split_once("://").map_or("(none)", |(s, _)| s);
-            tracing::warn!(scheme, "webviews need http:// or socks5:// with a port, going direct");
-        }
-        url
-    })
-    .clone()
+    PROXY.get().map(|proxy| webview_url(proxy).expect("validated WebView proxy"))
 }
 
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 fn webview_url(proxy: &str) -> Option<tauri::Url> {
-    tauri::Url::parse(proxy).ok().filter(|u| {
-        matches!(u.scheme(), "http" | "socks5") && u.host_str().is_some() && u.port().is_some()
-    })
+    innertube::transport::validate_proxy(proxy).ok()?;
+    tauri::Url::parse(proxy).ok()
 }
 
 /// Gives a webview window the user's proxy, on Windows. Every webview has to get the same one:
@@ -92,17 +91,9 @@ pub fn client() -> &'static reqwest::Client {
         // that actually need them.
         let mut b = reqwest::Client::builder();
         if let Some(p) = PROXY.get() {
-            match reqwest::Proxy::all(p.as_str()) {
-                Ok(proxy) => b = b.proxy(proxy),
-                // Scheme only: the URI can carry credentials in its userinfo, and this lands in
-                // limusic.log, which is what users attach to bug reports.
-                Err(e) => {
-                    let scheme = p.split_once("://").map_or("(none)", |(s, _)| s);
-                    tracing::warn!(scheme, "unusable proxy setting, going direct: {e}")
-                }
-            }
+            b = b.proxy(reqwest::Proxy::all(p).expect("validated HTTP proxy"));
         }
-        b.build().unwrap_or_default()
+        b.build().expect("outbound HTTP client")
     })
 }
 
@@ -131,13 +122,33 @@ pub async fn wait_for_network() -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn clearing_a_saved_proxy_is_allowed() {
+        assert!(super::validate_proxy("").is_ok());
+        assert!(super::validate_proxy("   ").is_ok());
+    }
     use super::webview_url;
+
+    #[test]
+    fn webview_proxy_refuses_unsupported_authentication_and_schemes() {
+        for proxy in [
+            "http://user:secret@proxy.lan:8080",
+            "socks5://proxy.lan:1080",
+            "http://proxy.lan:8080/path",
+            "http://proxy.lan:8080?q=1",
+            "http://proxy.lan:8080#fragment",
+            "http://proxy.lan:0",
+            "http://@proxy.lan:8080",
+        ] {
+            assert!(webview_url(proxy).is_none(), "accepted unsupported proxy");
+        }
+    }
 
     #[test]
     fn webview_url_takes_only_what_wry_can_build() {
         assert!(webview_url("http://127.0.0.1:7890").is_some());
-        assert!(webview_url("socks5://user:pass@proxy.lan:1080").is_some());
-        // `parse_proxy_url` refuses these schemes, which would fail the window build.
+        assert!(webview_url("http://[::1]:8080").is_some());
+        // Every transport must support the configured scheme.
         assert!(webview_url("https://proxy.lan:8443").is_none());
         assert!(webview_url("socks5h://proxy.lan:1080").is_none());
         // No port reaches wry as an empty one, and the url crate drops a default :80.

@@ -1,4 +1,18 @@
 {
+	"sleep": {
+		"title": "Sleep timer",
+		"off": "Off",
+		"after_track": "After current track",
+		"after_track_short": "Track end",
+		"remaining": "Pauses in {time}",
+		"preset": "{minutes} min",
+		"custom": "Custom minutes",
+		"start": "Start timer",
+		"cancel": "Cancel timer",
+		"hint": "Playback pauses when the timer ends.",
+		"invalid": "Enter a whole number from 1 to 1440."
+	},
+
 	"selection": {
 		"actions": "Selected track actions",
 		"count": "{count} selected",
@@ -133,9 +147,9 @@
 		"cancel_sign_in": "Cancel sign in",
 		"sign_in_hint": "Sign in with your Google account to reach your YouTube Music library and playlists.",
 		"add_account": "Add account",
-		"remove_account": "Remove account",
-		"remove_account_title": "Remove from Limusic?",
-		"remove_account_desc": "{name} is only removed from this list. The Google account itself is not affected, and you can sign in with it again whenever you like.",
+		"forget_account": "Forget account",
+		"forget_account_title": "Forget this account on this device?",
+		"forget_account_desc": "Remove {name}'s saved login from Limusic and clear shared browser sign-in cookies. This signs out the active account if selected. Other saved Limusic accounts and your library stay. Your Google account itself is not deleted.",
 		"saved_accounts_hint": "Pick a saved account to switch to it.",
 		"history": "History",
 		"stats": "Stats",
@@ -491,7 +505,7 @@
 			"update_banner": "Update notifications",
 			"update_banner_hint": "Show a banner when a new version of Limusic is available.",
 			"proxy": "HTTP/HTTPS Proxy",
-			"proxy_hint": "Route all network requests through a custom proxy server.",
+			"proxy_hint": "Use an HTTP proxy with an explicit port other than 80, without a username or password. Unsupported network features are blocked. Restart to apply.",
 			"proxy_placeholder": "http://host:port (blank = none)",
 			"stream_clients": "Stream clients",
 			"stream_clients_hint": "Turn a client off to skip it when resolving streams. Overridden by the {var} env var."
@@ -745,6 +759,8 @@
 			"stat_scrobbles": "Scrobbles",
 			"stat_artists": "Artists",
 			"stat_tracks": "Tracks",
+			"queue_pending": "Pending retries: {count}",
+			"queue_failed": "Failed submissions: {count}",
 			"enable": "Scrobble",
 			"enable_hint": "Turn off to stop scrobbling for a while without disconnecting your account.",
 			"now_playing": "Show what's playing",

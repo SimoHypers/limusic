@@ -527,6 +527,12 @@ impl Orchestrator {
             tracing::warn!(video_id, "no authenticated client could stream this upload");
             return Err(ResolveError::UploadUnavailable(video_id.to_owned()));
         }
+        if crate::http::has_proxy() {
+            tracing::warn!("RustyPipe fallback cannot honor the configured proxy");
+            return Err(ResolveError::Unreachable(
+                "Playback fallback cannot use the configured proxy".into(),
+            ));
+        }
         tracing::info!(video_id, "all InnerTube clients exhausted → rustypipe fallback");
         match rustypipe_fallback::resolve(video_id, prefer_high).await {
             Ok(c) if !self.validate_stream(&c.url, &HashMap::new(), Some(c.size)).await => {

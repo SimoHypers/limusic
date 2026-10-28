@@ -29,6 +29,8 @@ pub enum Error {
     Reverb(String),
     #[error("Invalid playback effect values")]
     InvalidParams,
+    #[error("Audio requires an http:// proxy; this proxy cannot be used safely")]
+    UnsupportedProxy,
 }
 
 /// Events pumped from mpv's event thread. context/14 §player surface.
@@ -214,6 +216,7 @@ struct Decks {
     /// into the one behind it. Mirrored here because the trigger runs on the event thread, where
     /// asking mpv for a property can stall the pump.
     loop_file: AtomicBool,
+    manual_seek: AtomicBool,
     cache_dir: String,
     afir_normalization: OnceLock<&'static str>,
     tx: UnboundedSender<PlayerEvent>,
@@ -411,6 +414,7 @@ impl Player {
             fade_gen: AtomicU64::new(0),
             pending: Mutex::new(None),
             loop_file: AtomicBool::new(false),
+            manual_seek: AtomicBool::new(false),
             cache_dir: cache_dir.to_owned(),
             afir_normalization: OnceLock::new(),
             tx,
@@ -655,7 +659,11 @@ impl Player {
         let cached_to = self.mpv().get_property::<f64>("demuxer-cache-time").ok();
         let past_cache_end = cached_to.map_or(true, |c| position_secs > c);
         tracing::info!(to = position_secs, cached_to, past_cache_end, "seek");
-        self.mpv().command("seek", &[&position_secs.to_string(), "absolute"])?;
+        self.decks.manual_seek.store(true, Ordering::SeqCst);
+        if let Err(error) = self.mpv().command("seek", &[&position_secs.to_string(), "absolute"]) {
+            self.decks.manual_seek.store(false, Ordering::SeqCst);
+            return Err(error.into());
+        }
         Ok(())
     }
 
@@ -696,9 +704,7 @@ impl Player {
         let p = proxy.unwrap_or("").trim();
         let usable = p.is_empty() || p.starts_with("http://");
         if !usable {
-            let scheme = p.split_once("://").map_or("(none)", |(s, _)| s);
-            tracing::warn!(scheme, "mpv only speaks http:// proxies, audio will stream direct");
-            return Ok(());
+            return Err(Error::UnsupportedProxy);
         }
         self.mpv().set_property("http-proxy", p)?;
         Ok(())
@@ -1125,6 +1131,7 @@ fn event_loop(mut ev: EventContext, deck: usize, decks: Arc<Decks>) {
                         }
                         if live()
                             && decks.loop_file.load(Ordering::Relaxed)
+                            && !decks.manual_seek.load(Ordering::SeqCst)
                             && loop_wrapped(last_pos, p, duration)
                         {
                             let _ = tx.send(PlayerEvent::Looped);
@@ -1176,11 +1183,21 @@ fn event_loop(mut ev: EventContext, deck: usize, decks: Arc<Decks>) {
                     // The idle deck has its file open, so the fade has something to bring up.
                     // A cancelled preload gets here too (mpv delivers the event before the
                     // `stop`), which is what the generation check is for.
+                    Event::PlaybackRestart => {
+                        // An explicit backward seek is not another completed play.
+                        if live() && decks.manual_seek.swap(false, Ordering::SeqCst) {
+                            last_pos = f64::NAN;
+                        }
+                        None
+                    }
                     Event::FileLoaded => {
                         // A new file, so the old one's end is not this one's: a skip from a
                         // track's last seconds under repeat-one is not a wrap. Looping is a seek
                         // inside mpv and never loads the file again.
                         last_pos = f64::NAN;
+                        if live() {
+                            decks.manual_seek.store(false, Ordering::SeqCst);
+                        }
                         video::file_loaded(&decks, deck);
                         if !live()
                             && decks.preload_armed.load(Ordering::SeqCst)
@@ -1558,6 +1575,68 @@ mod tests {
         assert!(!loop_wrapped(2.0, 0.0, 2.5), "too short to tell the end from the start");
     }
 
+    #[tokio::test]
+    async fn native_repeat_counts_each_pass_but_not_a_manual_seek() {
+        use super::{Player, PlayerEvent};
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+        let dir = std::env::temp_dir().join(format!(
+            "limusic-repeat-{}",
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("silence.wav");
+        let bytes = 8000u32 * 2 * 4;
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(bytes + 36).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&8000u32.to_le_bytes());
+        wav.extend_from_slice(&16000u32.to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&bytes.to_le_bytes());
+        wav.resize(44 + bytes as usize, 0);
+        std::fs::write(&path, wav).unwrap();
+        let mut p = Player::new(dir.to_str().unwrap()).unwrap();
+        p.mpv().set_property("ao", "null").unwrap();
+        let mut events = p.take_events().unwrap();
+        p.set_loop_file(true).unwrap();
+        p.load(path.to_str().unwrap(), &Default::default(), None, None).unwrap();
+        tokio::time::timeout(Duration::from_secs(15), async {
+            let mut loops = 0;
+            while loops < 2 {
+                if let Some(PlayerEvent::Looped) = events.recv().await {
+                    loops += 1;
+                }
+            }
+            while let Some(event) = events.recv().await {
+                if matches!(event, PlayerEvent::Position(at) if at > 2.7) {
+                    break;
+                }
+            }
+            p.seek(0.0).unwrap();
+            while let Some(event) = events.recv().await {
+                assert!(
+                    !matches!(event, PlayerEvent::Looped),
+                    "manual seek counted as a completed play"
+                );
+                if matches!(event, PlayerEvent::Position(at) if at < 0.5) {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("two native loops and a seek complete");
+        p.stop().unwrap();
+        drop(p);
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_dir(dir);
+    }
+
     #[test]
     fn afir_normalization_probes_options_in_compatibility_order() {
         use super::choose_afir_normalization;
@@ -1700,13 +1779,13 @@ mod tests {
         // takes but ffmpeg ignores is worse than none: it looks applied and streams direct.
         p.set_http_proxy(Some("http://127.0.0.1:8080")).unwrap();
         assert_eq!(p.mpv().get_property::<String>("http-proxy").unwrap(), "http://127.0.0.1:8080");
-        p.set_http_proxy(Some("socks5://127.0.0.1:1080")).unwrap();
+        assert!(p.set_http_proxy(Some("socks5://127.0.0.1:1080")).is_err());
         assert_eq!(
             p.mpv().get_property::<String>("http-proxy").unwrap(),
             "http://127.0.0.1:8080",
             "a socks proxy must not replace a usable one"
         );
-        p.set_http_proxy(Some("https://127.0.0.1:8443")).unwrap();
+        assert!(p.set_http_proxy(Some("https://127.0.0.1:8443")).is_err());
         assert_eq!(
             p.mpv().get_property::<String>("http-proxy").unwrap(),
             "http://127.0.0.1:8080",

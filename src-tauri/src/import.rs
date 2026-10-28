@@ -1063,7 +1063,7 @@ struct Plan {
     name: String,
     cover: Option<String>,
     url: Option<String>,
-    keys: Vec<String>,
+    matches: Vec<(String, String)>,
     songs: Vec<SongItem>,
     missing: usize,
 }
@@ -1085,6 +1085,16 @@ fn songs_for(j: &Job, keys: &[String]) -> (Vec<SongItem>, usize) {
         }
     }
     (songs, missing)
+}
+
+fn matched_pairs(j: &Job, keys: &[String]) -> Vec<(String, String)> {
+    keys.iter()
+        .filter_map(|k| {
+            let row = &j.rows[*j.index.get(k)?];
+            matches!(row.tier, Tier::Matched | Tier::Check)
+                .then(|| row.pick.as_ref().map(|p| (k.clone(), p.video_id.clone())))?
+        })
+        .collect()
 }
 
 async fn run_create(state: Arc<AppState>, gen: u64, names: HashMap<usize, String>, local: bool) {
@@ -1113,7 +1123,7 @@ async fn run_create(state: Arc<AppState>, gen: u64, names: HashMap<usize, String
                         .url
                         .clone()
                         .filter(|_| n == 0 && missing + songs.len() <= YTM_PLAYLIST_MAX),
-                    keys: l.keys.clone(),
+                    matches: matched_pairs(j, &l.keys),
                     songs,
                     missing: if n == 0 { missing } else { 0 },
                 });
@@ -1129,7 +1139,9 @@ async fn run_create(state: Arc<AppState>, gen: u64, names: HashMap<usize, String
 
     for p in plan {
         if !p.songs.is_empty() {
-            match make_playlist(&state, gen, &p.name, &p.songs, local).await {
+            match make_playlist(&state, gen, &p.name, &p.songs, local, p.url.as_deref(), &p.matches)
+                .await
+            {
                 Ok((id, added)) => {
                     // On the account the cover is three more requests to YouTube (the upload),
                     // so it waits its turn like any write, and is skipped rather than pushed
@@ -1138,9 +1150,6 @@ async fn run_create(state: Arc<AppState>, gen: u64, names: HashMap<usize, String
                         if local || before_youtube(&state, Some(gen), Ask::Write).await.is_ok() {
                             set_cover(&state, &id, url).await;
                         }
-                    }
-                    if let Some(url) = &p.url {
-                        save_source(&state, &id, url, &p.keys);
                     }
                     let result = ListResult {
                         kind: p.kind,
@@ -1163,29 +1172,58 @@ async fn run_create(state: Arc<AppState>, gen: u64, names: HashMap<usize, String
 }
 
 /// Add `ids` to an account playlist, answering the ones that went in. YouTube applies a batch
-/// whole or not at all, so a refused one is halved until the track it won't take (taken down,
-/// blocked in the region) is alone: a few requests to find it, not one per track. Pushback or an
-/// expired session stops it at once.
+/// whole or not at all. Only a recognized duplicate rejection is split; unknown rejections,
+/// transport failures and server errors stop immediately, preserving completed batches.
 async fn add_all(
     state: &AppState,
     gen: Option<u64>,
     playlist_id: &str,
     ids: &[String],
+    mut accepted: impl FnMut(&[String]),
 ) -> Result<Vec<String>, Halt> {
     let client = metadata_client(state).map_err(Halt::Failed)?;
+    add_batches(
+        ids,
+        |piece| async move {
+            before_youtube(state, gen, Ask::Write).await.map_err(BatchError::Halt)?;
+            state.it.playlist_add_many(client, playlist_id, &piece).await.map_err(|e| {
+                if matches!(e, innertube::Error::AlreadyInPlaylist) {
+                    BatchError::Duplicate
+                } else {
+                    BatchError::Halt(halt_for(state, e))
+                }
+            })
+        },
+        |ids| accepted(ids),
+    )
+    .await
+}
+
+enum BatchError {
+    Duplicate,
+    Halt(Halt),
+}
+
+async fn add_batches<F, Fut>(
+    ids: &[String],
+    mut send: F,
+    mut accepted: impl FnMut(&[String]),
+) -> Result<Vec<String>, Halt>
+where
+    F: FnMut(Vec<String>) -> Fut,
+    Fut: std::future::Future<Output = Result<(), BatchError>>,
+{
     let mut added = Vec::new();
     let mut todo: VecDeque<&[String]> = ids.chunks(100).collect();
     while let Some(piece) = todo.pop_front() {
-        before_youtube(state, gen, Ask::Write).await?;
-        match state.it.playlist_add_many(client, playlist_id, piece).await {
-            Ok(()) => added.extend_from_slice(piece),
-            Err(e) if pushed_back(&e) || matches!(e, innertube::Error::SessionExpired) => {
-                return Err(halt_for(state, e));
+        match send(piece.to_vec()).await {
+            Ok(()) => {
+                added.extend_from_slice(piece);
+                accepted(piece);
             }
-            Err(e) if piece.len() == 1 => {
-                tracing::warn!(error = %e, video_id = %piece[0], "import: YouTube won't take this track")
-            }
-            Err(_) => {
+            Err(BatchError::Halt(h)) => return Err(h),
+            Err(BatchError::Duplicate) if piece.len() == 1 => accepted(piece),
+            Err(BatchError::Duplicate) => {
                 let (a, b) = piece.split_at(piece.len() / 2);
                 todo.push_front(b);
                 todo.push_front(a);
@@ -1202,6 +1240,8 @@ async fn make_playlist(
     name: &str,
     songs: &[SongItem],
     local: bool,
+    url: Option<&str>,
+    matches: &[(String, String)],
 ) -> Result<(String, usize), Halt> {
     if local {
         let failed = |e: &dyn std::fmt::Display| Halt::Failed(e.to_string());
@@ -1214,7 +1254,23 @@ async fn make_playlist(
             })
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| failed(&e))?;
-        state.db.add_local_playlist_tracks(id, &rows, now_secs()).map_err(|e| failed(&e))?;
+        if let Some(url) = url {
+            let mut src = Source::new(url);
+            src.record(matches, &songs.iter().map(|s| s.video_id.clone()).collect::<Vec<_>>());
+            state
+                .db
+                .apply_local_playlist_import(
+                    id,
+                    &rows,
+                    &[],
+                    &source_key(&format!("{LOCAL_PLAYLIST_PREFIX}{id}")),
+                    &serde_json::to_string(&src).map_err(|e| failed(&e))?,
+                    now_secs(),
+                )
+                .map_err(|e| failed(&e))?;
+        } else {
+            state.db.add_local_playlist_tracks(id, &rows, now_secs()).map_err(|e| failed(&e))?;
+        }
         return Ok((format!("{LOCAL_PLAYLIST_PREFIX}{id}"), rows.len()));
     }
     let client = metadata_client(state).map_err(Halt::Failed)?;
@@ -1222,8 +1278,20 @@ async fn make_playlist(
     let id = state.it.create_playlist(client, name).await.map_err(|e| halt_for(state, e))?;
     let browse_id = format!("VL{id}");
     let ids: Vec<String> = songs.iter().map(|s| s.video_id.clone()).collect();
-    let added = add_all(state, Some(gen), &browse_id, &ids).await?;
-    state.db.set_playlist_tracks(&browse_id, &added);
+    let mut src = url.map(Source::new);
+    if let Some(src) = &src {
+        save_source(state, &browse_id, src);
+    }
+    let added = add_all(state, Some(gen), &browse_id, &ids, |accepted| {
+        for video in accepted {
+            state.db.add_playlist_track(&browse_id, video);
+        }
+        if let Some(src) = &mut src {
+            src.record(matches, accepted);
+            save_source(state, &browse_id, src);
+        }
+    })
+    .await?;
     Ok((browse_id, added.len()))
 }
 
@@ -1278,26 +1346,79 @@ async fn find_album(state: &AppState, want: &SavedAlbum) -> Result<Option<Browse
 
 // --- "Update from Spotify" -----------------------------------------------------------------------
 
-/// What a playlist imported from a link remembers: the link, and the Spotify tracks it held, so an
-/// update knows what is new and what left.
+/// Source identities successfully acknowledged by the destination. Pending matches/adds stay
+/// absent so an update can retry them; acknowledged identities survive user removals.
 #[derive(Serialize, Deserialize)]
 struct Source {
     url: String,
     keys: Vec<String>,
+    #[serde(default)]
+    videos: HashMap<String, String>,
+    #[serde(default)]
+    version: u8,
+}
+
+impl Source {
+    fn new(url: &str) -> Self {
+        Self { url: url.into(), keys: Vec::new(), videos: HashMap::new(), version: 1 }
+    }
+
+    fn record(&mut self, matches: &[(String, String)], accepted: &[String]) {
+        for (key, video) in matches {
+            if accepted.contains(video) {
+                if !self.keys.contains(key) {
+                    self.keys.push(key.clone());
+                }
+                self.videos.entry(key.clone()).or_insert_with(|| video.clone());
+            }
+        }
+    }
+
+    fn additions(&self, matches: &[(String, String)], have: &HashSet<&str>) -> Vec<String> {
+        let mut seen = HashSet::new();
+        matches
+            .iter()
+            .filter(|(key, _)| !self.keys.contains(key))
+            .filter(|(_, video)| !have.contains(video.as_str()) && seen.insert(video.clone()))
+            .map(|(_, video)| video.clone())
+            .collect()
+    }
+
+    fn retain(&mut self, keys: &[String]) {
+        self.keys.retain(|k| keys.contains(k));
+        self.videos.retain(|k, _| keys.contains(k));
+    }
 }
 
 fn source_key(playlist_id: &str) -> String {
     format!("spotify_source:{}", playlist_id.strip_prefix("VL").unwrap_or(playlist_id))
 }
 
-fn save_source(state: &AppState, playlist_id: &str, url: &str, keys: &[String]) {
-    if let Ok(json) = serde_json::to_string(&Source { url: url.to_owned(), keys: keys.to_vec() }) {
+fn save_source(state: &AppState, playlist_id: &str, source: &Source) {
+    if let Ok(json) = serde_json::to_string(source) {
         state.db.set_setting(&source_key(playlist_id), &json);
     }
 }
 
 fn source(state: &AppState, playlist_id: &str) -> Option<Source> {
-    serde_json::from_str(&state.db.get_setting(&source_key(playlist_id))?).ok()
+    let mut src: Source =
+        serde_json::from_str(&state.db.get_setting(&source_key(playlist_id))?).ok()?;
+    if src.version == 0 {
+        // Legacy matched-but-absent rows may be user removals; only known unmatched rows retry.
+        src.keys.retain(|k| match state.db.get_import_match(k) {
+            Some(m) => match m.video_id {
+                Some(video) => {
+                    src.videos.insert(k.clone(), video);
+                    true
+                }
+                None => false,
+            },
+            None => true,
+        });
+        src.version = 1;
+        save_source(state, playlist_id, &src);
+    }
+    Some(src)
 }
 
 /// The Spotify link a playlist was imported from, for its "Update from Spotify" banner.
@@ -1376,13 +1497,13 @@ async fn current_rows(
 /// Apply an update: append what is new on Spotify, take out what left it. Spotify reordering
 /// its playlist is not mirrored, and neither is anything the user added here by hand.
 async fn run_update(state: Arc<AppState>, gen: u64, playlist_id: String) {
-    let Some(old) = source(&state, &playlist_id) else {
+    let Some(mut old) = source(&state, &playlist_id) else {
         return finish(&state, gen, Phase::Failed, Some("gone".into()));
     };
-    let Some((name, new_keys, songs, missing)) = with_job(gen, |j| {
+    let Some((name, new_keys, songs, matches, missing)) = with_job(gen, |j| {
         let l = &j.lists[0];
         let (songs, missing) = songs_for(j, &l.keys);
-        (l.name.clone(), l.keys.clone(), songs, missing)
+        (l.name.clone(), l.keys.clone(), songs, matched_pairs(j, &l.keys), missing)
     }) else {
         return;
     };
@@ -1391,45 +1512,48 @@ async fn run_update(state: Arc<AppState>, gen: u64, playlist_id: String) {
         Err(h) => return halt(&state, gen, h),
     };
     let have: HashSet<&str> = current.iter().map(|(v, _)| v.as_str()).collect();
-    let old_keys: HashSet<&str> = old.keys.iter().map(String::as_str).collect();
     let kept: HashSet<&str> = new_keys.iter().map(String::as_str).collect();
 
     // New on Spotify and not here already, in Spotify's order.
-    let add: Vec<SongItem> = with_job(gen, |j| {
-        let mut seen = HashSet::new();
-        new_keys
-            .iter()
-            .filter(|k| !old_keys.contains(k.as_str()))
-            .filter_map(|k| j.index.get(k).map(|&i| &j.rows[i]))
-            .filter(|r| matches!(r.tier, Tier::Matched | Tier::Check))
-            .filter_map(|r| r.pick.clone())
-            .filter(|p| !have.contains(p.video_id.as_str()) && seen.insert(p.video_id.clone()))
-            .collect()
-    })
-    .unwrap_or_default();
+    let ids = old.additions(&matches, &have);
+    let add: Vec<SongItem> = songs.iter().filter(|s| ids.contains(&s.video_id)).cloned().collect();
 
     // Gone from Spotify: their videos, unless a track still there maps to the same one.
-    let still: HashSet<&str> = songs.iter().map(|s| s.video_id.as_str()).collect();
+    let still: HashSet<&str> = songs
+        .iter()
+        .map(|s| s.video_id.as_str())
+        .chain(
+            old.videos
+                .iter()
+                .filter(|(key, _)| kept.contains(key.as_str()))
+                .map(|(_, video)| video.as_str()),
+        )
+        .collect();
     let gone_videos: HashSet<String> = old
         .keys
         .iter()
         .filter(|k| !kept.contains(k.as_str()))
-        .filter_map(|k| state.db.get_import_match(k)?.video_id)
+        .filter_map(|k| {
+            old.videos.get(k).cloned().or_else(|| state.db.get_import_match(k)?.video_id)
+        })
         .filter(|v| !still.contains(v.as_str()))
         .collect();
     let remove: Vec<(String, String)> =
         current.iter().filter(|(v, _)| gone_videos.contains(v)).cloned().collect();
 
+    // Existing destination rows also acknowledge previously pending source identities.
+    old.record(&matches, &current.iter().map(|(v, _)| v.clone()).collect::<Vec<_>>());
     let applied = if is_local_playlist(&playlist_id) {
-        apply_local(&state, &playlist_id, &add, &remove).map_err(Halt::Failed)
+        old.retain(&new_keys);
+        old.record(&matches, &ids);
+        apply_local(&state, &playlist_id, &add, &remove, &old).map_err(Halt::Failed)
     } else {
-        apply_account(&state, gen, &playlist_id, &add, &remove).await
+        apply_account(&state, gen, &playlist_id, &add, &remove, &mut old, &new_keys, &matches).await
     };
     let added = match applied {
         Ok(n) => n,
         Err(h) => return halt(&state, gen, h),
     };
-    save_source(&state, &playlist_id, &old.url, &new_keys);
     let result = ListResult {
         kind: ListKind::Playlist,
         name,
@@ -1448,15 +1572,13 @@ fn apply_local(
     playlist_id: &str,
     add: &[SongItem],
     remove: &[(String, String)],
+    source: &Source,
 ) -> Result<usize, String> {
     let key: i64 = playlist_id
         .strip_prefix(LOCAL_PLAYLIST_PREFIX)
         .and_then(|n| n.parse().ok())
         .ok_or("gone")?;
     let rows: Vec<i64> = remove.iter().filter_map(|(_, r)| r.parse().ok()).collect();
-    if !rows.is_empty() {
-        state.db.remove_local_playlist_tracks(key, &rows, now_secs()).map_err(|e| e.to_string())?;
-    }
     let add = add
         .iter()
         .map(|s| {
@@ -1465,11 +1587,18 @@ fn apply_local(
         })
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
-    if add.is_empty() {
-        return Ok(0);
-    }
-    let went_in =
-        state.db.add_local_playlist_tracks(key, &add, now_secs()).map_err(|e| e.to_string())?;
+    let source_json = serde_json::to_string(source).map_err(|e| e.to_string())?;
+    let went_in = state
+        .db
+        .apply_local_playlist_import(
+            key,
+            &add,
+            &rows,
+            &source_key(playlist_id),
+            &source_json,
+            now_secs(),
+        )
+        .map_err(|e| e.to_string())?;
     Ok(went_in.into_iter().filter(|&b| b).count())
 }
 
@@ -1479,11 +1608,17 @@ async fn apply_account(
     playlist_id: &str,
     add: &[SongItem],
     remove: &[(String, String)],
+    source: &mut Source,
+    new_keys: &[String],
+    matches: &[(String, String)],
 ) -> Result<usize, Halt> {
     let client = metadata_client(state).map_err(Halt::Failed)?;
     // A row without its handle can't be removed, and one bad entry would sink the whole batch.
-    let remove: Vec<(String, String)> =
-        remove.iter().filter(|(_, h)| !h.is_empty()).cloned().collect();
+    if remove.iter().any(|(_, h)| h.is_empty()) {
+        return Err(Halt::Failed(
+            "A playlist row could not be removed; try updating again.".into(),
+        ));
+    }
     if !remove.is_empty() {
         before_youtube(state, Some(gen), Ask::Write).await?;
         state
@@ -1491,15 +1626,21 @@ async fn apply_account(
             .playlist_remove_many(client, playlist_id, &remove)
             .await
             .map_err(|e| halt_for(state, e))?;
-        for (v, _) in &remove {
+        for (v, _) in remove {
             state.db.remove_playlist_track(playlist_id, v);
         }
     }
+    source.retain(new_keys);
+    save_source(state, playlist_id, source);
     let ids: Vec<String> = add.iter().map(|s| s.video_id.clone()).collect();
-    let added = add_all(state, Some(gen), playlist_id, &ids).await?;
-    for v in &added {
-        state.db.add_playlist_track(playlist_id, v);
-    }
+    let added = add_all(state, Some(gen), playlist_id, &ids, |accepted| {
+        for video in accepted {
+            state.db.add_playlist_track(playlist_id, video);
+        }
+        source.record(matches, accepted);
+        save_source(state, playlist_id, source);
+    })
+    .await?;
     Ok(added.len())
 }
 
@@ -1573,6 +1714,125 @@ pub async fn resolve(state: &AppState, link: &str) -> Result<Resolved, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_server_failure_halts_without_splitting_or_losing_completed_batches() {
+        let ids: Vec<String> = (0..200).map(|n| n.to_string()).collect();
+        let mut calls = 0;
+        let mut recorded = Vec::new();
+        let result = add_batches(
+            &ids,
+            |_| {
+                calls += 1;
+                std::future::ready(if calls == 1 {
+                    Ok(())
+                } else {
+                    Err(BatchError::Halt(Halt::Failed("503".into())))
+                })
+            },
+            |ids| recorded.extend_from_slice(ids),
+        )
+        .await;
+        assert!(matches!(result, Err(Halt::Failed(_))));
+        assert_eq!(calls, 2);
+        assert_eq!(recorded.len(), 100);
+        assert_eq!(recorded[99], "99");
+    }
+
+    #[tokio::test]
+    async fn duplicate_rejections_split_and_acknowledge_existing_tracks() {
+        let ids = vec!["a".into(), "b".into(), "c".into()];
+        let mut calls = 0;
+        let mut recorded = Vec::new();
+        let added = add_batches(
+            &ids,
+            |piece| {
+                calls += 1;
+                std::future::ready(if piece.contains(&"b".to_owned()) {
+                    Err(BatchError::Duplicate)
+                } else {
+                    Ok(())
+                })
+            },
+            |ids| recorded.extend_from_slice(ids),
+        )
+        .await
+        .unwrap_or_else(|_| panic!("unexpected halt"));
+        assert_eq!(calls, 5);
+        assert_eq!(recorded, ids);
+        assert_eq!(added, vec!["a", "c"]);
+    }
+
+    #[test]
+    fn partial_source_retries_missing_and_failed_tracks_but_preserves_user_removals() {
+        let pairs = vec![("first".into(), "a".into()), ("failed".into(), "b".into())];
+        let mut source = Source::new("https://open.spotify.com/playlist/example");
+        source.record(&pairs, &["a".into()]);
+        assert_eq!(source.keys, vec!["first"]);
+        // A later match/add succeeds. The first destination was deliberately removed by the user.
+        let pairs = vec![
+            ("first".into(), "a".into()),
+            ("failed".into(), "b".into()),
+            ("unmatched".into(), "c".into()),
+        ];
+        let add = source.additions(&pairs, &HashSet::new());
+        assert_eq!(add, vec!["b", "c"]);
+        source.record(&pairs, &add);
+        assert_eq!(source.keys, vec!["first", "failed", "unmatched"]);
+        assert!(source.additions(&pairs, &HashSet::new()).is_empty());
+    }
+
+    #[test]
+    fn a_partial_local_import_updates_atomically_without_restoring_a_user_removed_song() {
+        let db = crate::db::Db::open(std::path::Path::new(":memory:")).unwrap();
+        let playlist = db.create_local_playlist("Imported", 1).unwrap();
+        let setting = source_key(&format!("{LOCAL_PLAYLIST_PREFIX}{playlist}"));
+        let pairs = vec![("first".into(), "a".into()), ("failed".into(), "b".into())];
+        let row = |id: &str| {
+            (id.to_owned(), serde_json::to_string(&song(id, id, "Band", None, "3:00")).unwrap())
+        };
+        let mut source = Source::new("https://open.spotify.com/playlist/example");
+        source.record(&pairs, &["a".into()]);
+        db.apply_local_playlist_import(
+            playlist,
+            &[row("a")],
+            &[],
+            &setting,
+            &serde_json::to_string(&source).unwrap(),
+            2,
+        )
+        .unwrap();
+        let removed = db.local_playlist_tracks(playlist)[0].0;
+        db.remove_local_playlist_tracks(playlist, &[removed], 3).unwrap();
+
+        // Reload persisted state as an update after a restart would.
+        let mut source: Source = serde_json::from_str(&db.get_setting(&setting).unwrap()).unwrap();
+        let pairs = vec![
+            ("first".into(), "a".into()),
+            ("failed".into(), "b".into()),
+            ("unmatched".into(), "c".into()),
+        ];
+        let ids = source.additions(&pairs, &HashSet::new());
+        assert_eq!(ids, ["b", "c"]);
+        source.record(&pairs, &ids);
+        db.apply_local_playlist_import(
+            playlist,
+            &ids.iter().map(|id| row(id)).collect::<Vec<_>>(),
+            &[],
+            &setting,
+            &serde_json::to_string(&source).unwrap(),
+            4,
+        )
+        .unwrap();
+        let videos = db
+            .local_playlist_tracks(playlist)
+            .into_iter()
+            .map(|(_, json, _)| serde_json::from_str::<SongItem>(&json).unwrap().video_id)
+            .collect::<Vec<_>>();
+        assert_eq!(videos, ["b", "c"]);
+        let source: Source = serde_json::from_str(&db.get_setting(&setting).unwrap()).unwrap();
+        assert!(source.additions(&pairs, &HashSet::new()).is_empty());
+    }
 
     fn src(title: &str, artists: &[&str], album: Option<&str>, secs: Option<u64>) -> SourceTrack {
         SourceTrack {

@@ -91,6 +91,17 @@ export interface NowPlaying {
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
+export type SleepTimerSnapshot =
+	| { mode: 'off' }
+	| { mode: 'duration'; remainingSeconds: number }
+	| { mode: 'afterTrack' };
+
+export const getSleepTimer = () => invoke<SleepTimerSnapshot>('get_sleep_timer');
+export const setSleepTimer = (minutes: number | null, afterTrack = false) =>
+	invoke<SleepTimerSnapshot>('set_sleep_timer', { minutes, afterTrack });
+export const onSleepTimer = (cb: (state: SleepTimerSnapshot) => void): Promise<UnlistenFn> =>
+	listen<SleepTimerSnapshot>('sleep-timer', (e) => cb(e.payload));
+
 export interface QueueState {
 	items: SongItem[];
 	currentIndex: number;
@@ -1200,6 +1211,9 @@ export const theaterFullscreen = (on: boolean) => invoke<void>('theater_fullscre
 export interface LastfmState {
 	connected: boolean;
 	username?: string | null;
+	/** Status snapshots include queue counts; auth events may omit them. */
+	pending?: number;
+	failed?: number;
 	/** Set when a connect attempt failed (timeout, network, rejected) — show it as a toast. */
 	error?: string | null;
 }
@@ -1210,6 +1224,16 @@ export const lastfmConnect = () => invoke<void>('lastfm_connect');
 export const lastfmDisconnect = () => invoke<void>('lastfm_disconnect');
 export const onLastfmState = (cb: (s: LastfmState) => void): Promise<UnlistenFn> =>
 	listen<LastfmState>('lastfm-state', (e) => cb(e.payload));
+export interface ScrobbleQueueCounts {
+	pending: number;
+	failed: number;
+}
+export interface ScrobbleOutboxState {
+	lastfm: ScrobbleQueueCounts;
+	listenbrainz: ScrobbleQueueCounts;
+}
+export const onScrobbleOutboxChanged = (cb: (s: ScrobbleOutboxState) => void): Promise<UnlistenFn> =>
+	listen<ScrobbleOutboxState>('scrobble-outbox-changed', (e) => cb(e.payload));
 /** `Profile` in lastfm.rs. Counts are 0 when Last.fm left them out. */
 export interface LastfmProfile {
 	image: string | null;
@@ -1253,6 +1277,8 @@ export const lastfmPreview = (config: string, track: ScrobbleTrack) =>
 export interface ListenBrainzState {
 	connected: boolean;
 	username?: string | null;
+	pending?: number;
+	failed?: number;
 	error?: string | null;
 }
 export const listenbrainzStatus = () => invoke<ListenBrainzState>('listenbrainz_status');

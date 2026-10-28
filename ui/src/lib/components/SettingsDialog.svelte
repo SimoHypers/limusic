@@ -411,9 +411,13 @@
 	}
 
 	async function saveProxy() {
-		settings.proxy = proxyInput.trim();
-		await api.setSetting('proxy', settings.proxy);
-		toast.success(t('toasts.proxy_saved'));
+		try {
+			await api.setSetting('proxy', proxyInput.trim());
+			settings.proxy = proxyInput.trim();
+			toast.success(t('toasts.proxy_saved'));
+		} catch (e) {
+			toast.error(String(e));
+		}
 	}
 
 	async function doClearCaches() {

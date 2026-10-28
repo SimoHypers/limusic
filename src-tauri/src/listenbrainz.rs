@@ -9,8 +9,7 @@
 //! Validation is `GET /1/validate-token`; listens go to `POST /1/submit-listens` as
 //! `playing_now` on track start and one `single` once the track crosses the threshold.
 //!
-//! Everything is best-effort, like Last.fm: a failed listen is a `debug!` line, never a
-//! user-facing error. No offline queue.
+//! Durable listens and bounded retries share the Last.fm worker's outbox; now-playing is transient.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -59,6 +58,7 @@ pub(crate) fn track_metadata(r: &Resolved, video_id: &str, duration: f64) -> ser
 /// user can fix (see [`problem`]); anything else is a hiccup that stays a log line.
 pub(crate) struct SubmitError {
     pub problem: Option<&'static str>,
+    pub retryable: bool,
     message: String,
 }
 
@@ -82,13 +82,16 @@ pub(crate) async fn submit(
         .timeout(Duration::from_secs(15))
         .send()
         .await
-        .map_err(|e| SubmitError { problem: None, message: e.to_string() })?;
+        .map_err(|e| SubmitError { problem: None, retryable: true, message: e.to_string() })?;
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         let short: String = text.chars().take(300).collect();
         return Err(SubmitError {
             problem: problem(status, &text),
+            retryable: status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                || status == reqwest::StatusCode::REQUEST_TIMEOUT
+                || status.is_server_error(),
             message: format!("{status}: {short}"),
         });
     }
@@ -157,8 +160,13 @@ fn emit_state(
 pub async fn connect(state: Arc<AppState>, token: String) -> Result<(), String> {
     let token = token.trim().to_owned();
     let username = validate(&token).await.map_err(|e| format!("ListenBrainz: {e}"))?;
-    state.db.set_setting("listenbrainz_token", &token);
-    state.db.set_setting("listenbrainz_username", &username);
+    state
+        .db
+        .set_setting_checked("listenbrainz_token", &token)
+        .and_then(|_| state.db.set_setting_checked("listenbrainz_username", &username))
+        .map_err(|_| {
+            "Could not securely save the ListenBrainz account. Try connecting again.".to_owned()
+        })?;
     // Same task, same clock: the Last.fm scrobbler holds this token next to its session key.
     state.lastfm.set_token(Some(token));
     tracing::info!(user = %username, "listenbrainz connected");
@@ -166,17 +174,29 @@ pub async fn connect(state: Arc<AppState>, token: String) -> Result<(), String> 
     Ok(())
 }
 
-pub fn disconnect(state: &AppState) {
-    state.db.set_setting("listenbrainz_token", "");
-    state.db.set_setting("listenbrainz_username", "");
+pub fn disconnect(state: &AppState) -> Result<(), String> {
+    state
+        .db
+        .set_setting_checked("listenbrainz_token", "")
+        .map_err(|_| "Could not securely disconnect ListenBrainz".to_owned())?;
     state.lastfm.set_token(None);
+    state
+        .db
+        .discard_scrobbles("listenbrainz", None)
+        .map_err(|_| "Could not clear pending ListenBrainz listens".to_owned())?;
+    state
+        .db
+        .set_setting_checked("listenbrainz_username", "")
+        .map_err(|_| "Could not clear the ListenBrainz account name".to_owned())?;
     emit_state(&state.app, false, None, None);
+    Ok(())
 }
 
 pub fn status(state: &AppState) -> serde_json::Value {
     let token = state.db.get_setting("listenbrainz_token").filter(|s| !s.is_empty());
     let username = state.db.get_setting("listenbrainz_username").filter(|s| !s.is_empty());
-    serde_json::json!({ "connected": token.is_some(), "username": username })
+    let (pending, failed) = state.db.scrobble_counts("listenbrainz");
+    serde_json::json!({ "connected": token.is_some(), "username": username, "pending": pending, "failed": failed })
 }
 
 /// The connected user's listen count, for the Scrobbling tab's account card. `None` when nobody

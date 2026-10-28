@@ -34,6 +34,9 @@ const MAX_USERS_PER_ROOM: usize = 50;
 const MAX_ROOMS: usize = 1000;
 /// Upcoming tracks a room keeps. The client sends at most 50.
 const MAX_QUEUE: usize = 50;
+/// Bound pending guest requests even while the host is offline or not answering.
+const MAX_SUGGESTIONS_PER_PEER: usize = 10;
+const MAX_SUGGESTIONS_PER_ROOM: usize = 100;
 /// Largest message accepted. A full 50-track queue is ~40 KiB; tungstenite's default is 64 MiB.
 const MAX_MESSAGE: usize = 256 * 1024;
 /// A connection that sends nothing for this long is dropped. Clients ping every 25s.
@@ -435,6 +438,20 @@ impl Server {
                     return; // host adds tracks directly
                 }
                 let Some(peer) = room.peers.get(&me) else { return };
+                if !bounded_track_metadata(&track) {
+                    let _ = tx.send(err("invalid_track", "Track metadata is too large."));
+                    return;
+                }
+                if room.suggestions.len() >= MAX_SUGGESTIONS_PER_ROOM
+                    || room.suggestions.values().filter(|s| s.from_user_id == me).count()
+                        >= MAX_SUGGESTIONS_PER_PEER
+                {
+                    let _ = tx.send(err(
+                        "suggestion_limit",
+                        "Too many pending suggestions. Wait for the host to answer.",
+                    ));
+                    return;
+                }
                 let suggestion = Suggestion {
                     id: gen_token(),
                     from_user_id: me.clone(),
@@ -487,6 +504,7 @@ impl Server {
                     return;
                 }
                 if let Some(p) = room.peers.remove(&target) {
+                    room.suggestions.retain(|_, s| s.from_user_id != target);
                     let _ = p.tx.send(ServerMessage::Kicked {
                         reason: "The host removed you from the room.".into(),
                     });
@@ -568,6 +586,7 @@ impl Server {
     ) {
         let Some(room) = rooms.get_mut(code) else { return };
         room.drop_pending(me);
+        room.suggestions.retain(|_, s| s.from_user_id != me);
         if room.peers.remove(me).is_some() && graceful {
             room.broadcast(&ServerMessage::UserLeft { user_id: me.to_string() }, None);
         }
@@ -656,6 +675,14 @@ impl Server {
 }
 
 /// Trim + cap a user-supplied string (username), stripping control chars.
+fn bounded_track_metadata(t: &Track) -> bool {
+    t.id.len() <= 64
+        && t.title.len() <= 512
+        && t.artist.len() <= 256
+        && t.thumbnail.as_ref().map_or(true, |s| s.len() <= 2048)
+        && t.queued_by.as_ref().map_or(true, |s| s.len() <= 64)
+}
+
 fn sanitize(s: &str) -> String {
     let cleaned: String = s.trim().chars().filter(|c| !c.is_control()).take(50).collect();
     if cleaned.is_empty() {
@@ -799,6 +826,121 @@ mod tests {
             .expect("guest approved");
         host.drain();
         (host, guest, token)
+    }
+
+    fn suggestion_track() -> Track {
+        Track {
+            id: "dQw4w9WgXcQ".into(),
+            title: "song".into(),
+            artist: "artist".into(),
+            thumbnail: None,
+            duration_ms: 0,
+            queued_by: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn suggestion_peer_limit_rejects_and_releases_on_decisions() {
+        let server = Server::default();
+        let (mut host, mut guest, _) = room_with_guest(&server).await;
+        for _ in 0..10 {
+            guest.send(&server, ClientMessage::Suggest { track: suggestion_track() }).await;
+        }
+        guest.send(&server, ClientMessage::Suggest { track: suggestion_track() }).await;
+        assert!(
+            matches!(guest.drain().last(), Some(ServerMessage::Error { code, .. }) if code == "suggestion_limit")
+        );
+        let received = host.drain();
+        assert_eq!(received.len(), 10);
+        for (i, message) in received.into_iter().take(2).enumerate() {
+            let ServerMessage::SuggestionReceived { suggestion } = message else {
+                panic!("expected suggestion")
+            };
+            let decision = if i == 0 {
+                ClientMessage::ApproveSuggestion { id: suggestion.id }
+            } else {
+                ClientMessage::RejectSuggestion { id: suggestion.id }
+            };
+            host.send(&server, decision).await;
+            guest.send(&server, ClientMessage::Suggest { track: suggestion_track() }).await;
+            assert!(matches!(host.drain().last(), Some(ServerMessage::SuggestionReceived { .. })));
+        }
+        let rooms = server.rooms.lock().await;
+        assert_eq!(rooms[guest.code.as_ref().unwrap()].suggestions.len(), 10);
+    }
+
+    #[tokio::test]
+    async fn suggestion_room_limit_and_member_cleanup() {
+        let server = Server::default();
+        let (mut host, mut guest, _) = room_with_guest(&server).await;
+        let code = host.code.clone().unwrap();
+        let mut guests = Vec::new();
+        for _ in 0..10 {
+            let mut other = Conn::new();
+            other
+                .send(
+                    &server,
+                    ClientMessage::JoinRoom { room_code: code.clone(), username: "other".into() },
+                )
+                .await;
+            host.send(&server, ClientMessage::ApproveJoin { user_id: other.id() }).await;
+            other.drain();
+            for _ in 0..10 {
+                other.send(&server, ClientMessage::Suggest { track: suggestion_track() }).await;
+            }
+            guests.push(other);
+        }
+        guest.drain();
+        guest.send(&server, ClientMessage::Suggest { track: suggestion_track() }).await;
+        assert!(
+            matches!(guest.drain().last(), Some(ServerMessage::Error { code, .. }) if code == "suggestion_limit")
+        );
+        assert_eq!(server.rooms.lock().await[&code].suggestions.len(), 100);
+        guests[0].send(&server, ClientMessage::LeaveRoom).await;
+        assert_eq!(server.rooms.lock().await[&code].suggestions.len(), 90);
+        host.send(&server, ClientMessage::KickUser { user_id: guests[1].id() }).await;
+        assert_eq!(server.rooms.lock().await[&code].suggestions.len(), 80);
+        server
+            .handle_disconnect(guests[2].uid.clone(), guests[2].code.clone(), &guests[2].tx)
+            .await;
+        // Keep a disconnected member's bounded requests through their reconnect grace.
+        assert_eq!(server.rooms.lock().await[&code].suggestions.len(), 80);
+        server
+            .rooms
+            .lock()
+            .await
+            .get_mut(&code)
+            .unwrap()
+            .peers
+            .get_mut(&guests[2].id())
+            .unwrap()
+            .disconnected_at = Some(Instant::now() - RECONNECT_GRACE - Duration::from_secs(1));
+        server.cleanup().await;
+        assert_eq!(server.rooms.lock().await[&code].suggestions.len(), 70);
+        guest.send(&server, ClientMessage::Suggest { track: suggestion_track() }).await;
+        assert_eq!(server.rooms.lock().await[&code].suggestions.len(), 71);
+    }
+
+    #[tokio::test]
+    async fn oversized_suggestion_metadata_is_rejected_before_storage() {
+        let server = Server::default();
+        let (mut host, mut guest, _) = room_with_guest(&server).await;
+        for field in 0..5 {
+            let mut track = suggestion_track();
+            match field {
+                0 => track.id = "x".repeat(65),
+                1 => track.title = "x".repeat(513),
+                2 => track.artist = "x".repeat(257),
+                3 => track.thumbnail = Some("x".repeat(2049)),
+                _ => track.queued_by = Some("x".repeat(65)),
+            }
+            guest.send(&server, ClientMessage::Suggest { track }).await;
+            assert!(
+                matches!(guest.drain().last(), Some(ServerMessage::Error { code, .. }) if code == "invalid_track")
+            );
+        }
+        assert!(host.drain().is_empty());
+        assert!(server.rooms.lock().await[guest.code.as_ref().unwrap()].suggestions.is_empty());
     }
 
     /// A join request and a guest add are sent to the host at the time. When the role moves, the

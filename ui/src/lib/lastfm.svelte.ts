@@ -9,6 +9,8 @@ import { t } from '$lib/i18n.svelte';
 export const lastfm = $state({
 	connected: false,
 	username: null as string | null,
+	pending: 0,
+	failed: 0,
 	/** UI-local: set on connect, cleared by the `lastfm-state` event (success, failure, or timeout),
 	 *  which the backend always sends. */
 	connecting: false
@@ -16,22 +18,51 @@ export const lastfm = $state({
 
 /** Load the stored session and follow the backend's answers. Call once; returns the unlisten. */
 export function watchLastfm(): () => void {
-	api.lastfmStatus()
-		.then((s) => {
-			lastfm.connected = s.connected;
-			lastfm.username = s.username ?? null;
-		})
-		.catch(() => {});
+	let active = true;
+	let stateRevision = 0;
+	let queueRevision = 0;
+	function refresh() {
+		const stateAt = stateRevision;
+		const queueAt = queueRevision;
+		api.lastfmStatus().then((s) => {
+			if (!active) return;
+			if (stateAt === stateRevision) {
+				lastfm.connected = s.connected;
+				lastfm.username = s.username ?? null;
+			}
+			if (queueAt === queueRevision) {
+				lastfm.pending = s.pending ?? 0;
+				lastfm.failed = s.failed ?? 0;
+			}
+		}).catch(() => {});
+	}
 	const sub = api.onLastfmState((s) => {
+		if (!active) return;
+		stateRevision++;
+		queueRevision++;
 		const wasConnecting = lastfm.connecting;
 		lastfm.connecting = false;
 		lastfm.connected = s.connected;
 		lastfm.username = s.username ?? null;
+		lastfm.pending = s.pending ?? 0;
+		lastfm.failed = s.failed ?? 0;
+		refresh();
 		if (s.error) toast.error(s.error);
 		else if (s.connected) toast.success(t('integrations.lastfm_scrobbling_as', { user: s.username ?? '' }));
 		else if (!wasConnecting) toast.success(t('integrations.lastfm_disconnected'));
 	});
-	return () => void sub.then((u) => u());
+	const queue = api.onScrobbleOutboxChanged((s) => {
+		if (!active) return;
+		queueRevision++;
+		lastfm.pending = s.lastfm.pending;
+		lastfm.failed = s.lastfm.failed;
+	});
+	void Promise.all([sub, queue]).then(() => { if (active) refresh(); }).catch(() => {});
+	return () => {
+		active = false;
+		void sub.then((u) => u());
+		void queue.then((u) => u());
+	};
 }
 
 /** Open the browser authorization. The outcome arrives through `watchLastfm`'s listener. */

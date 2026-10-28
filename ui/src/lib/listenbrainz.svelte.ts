@@ -7,6 +7,8 @@ import { t } from '$lib/i18n.svelte';
 export const listenbrainz = $state({
 	connected: false,
 	username: null as string | null,
+	pending: 0,
+	failed: 0,
 	/** UI-local: set while the token validates, cleared by the `listenbrainz-state` event. */
 	connecting: false,
 	/** ListenBrainz refusing listens, from the scrobbler. Cleared by the next accepted listen
@@ -24,35 +26,59 @@ export const problemText = (p: api.ListenBrainzProblem) =>
 
 /** Load the stored token and follow the backend's answers. Call once; returns the unlisten. */
 export function watchListenBrainz(): () => void {
-	// Subscribe before snapshotting: a state event arriving while the status request is in
-	// flight is newer than the snapshot, so the snapshot must not overwrite it.
-	let eventSeen = false;
+	// Connection and queue events can race the initial snapshot independently.
+	let active = true;
+	let stateRevision = 0;
+	let queueRevision = 0;
+	function refresh() {
+		const stateAt = stateRevision;
+		const queueAt = queueRevision;
+		api.listenbrainzStatus().then((s) => {
+			if (!active) return;
+			if (stateAt === stateRevision) {
+				listenbrainz.connected = s.connected;
+				listenbrainz.username = s.username ?? null;
+			}
+			if (queueAt === queueRevision) {
+				listenbrainz.pending = s.pending ?? 0;
+				listenbrainz.failed = s.failed ?? 0;
+			}
+		}).catch(() => {});
+	}
 	const sub = api.onListenBrainzState((s) => {
-		eventSeen = true;
+		if (!active) return;
+		stateRevision++;
+		queueRevision++;
 		const wasConnecting = listenbrainz.connecting;
 		listenbrainz.connecting = false;
 		listenbrainz.problem = null;
 		listenbrainz.connected = s.connected;
 		listenbrainz.username = s.username ?? null;
+		listenbrainz.pending = s.pending ?? 0;
+		listenbrainz.failed = s.failed ?? 0;
+		refresh();
 		if (s.error) toast.error(s.error);
 		else if (s.connected)
 			toast.success(t('integrations.listenbrainz_connected_as', { user: s.username ?? '' }));
 		else if (!wasConnecting) toast.success(t('integrations.listenbrainz_disconnected'));
 	});
-	api.listenbrainzStatus()
-		.then((s) => {
-			if (eventSeen) return;
-			listenbrainz.connected = s.connected;
-			listenbrainz.username = s.username ?? null;
-		})
-		.catch(() => {});
+	const queue = api.onScrobbleOutboxChanged((s) => {
+		if (!active) return;
+		queueRevision++;
+		listenbrainz.pending = s.listenbrainz.pending;
+		listenbrainz.failed = s.listenbrainz.failed;
+	});
+	void Promise.all([sub, queue]).then(() => { if (active) refresh(); }).catch(() => {});
 	// One toast when refusing starts (the card keeps saying it), none per track or on recovery.
 	const problem = api.onListenBrainzProblem((p) => {
+		if (!active) return;
 		listenbrainz.problem = p;
 		if (p) toast.error(problemText(p));
 	});
 	return () => {
+		active = false;
 		void sub.then((u) => u());
+		void queue.then((u) => u());
 		void problem.then((u) => u());
 	};
 }

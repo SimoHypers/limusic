@@ -54,6 +54,22 @@ export const typing = (t: EventTarget | null) =>
 const KEEPS_FOCUS =
 	'[role=dialog],[role=alertdialog],[role=menu],[role=listbox],[data-selected],[data-track-selection]';
 
+const CONTROL_ROLES = new Set([
+	'button', 'checkbox', 'switch', 'radio', 'tab', 'menuitem', 'menuitemcheckbox',
+	'menuitemradio', 'slider', 'spinbutton', 'scrollbar', 'combobox', 'listbox',
+	'option', 'textbox', 'searchbox', 'treeitem'
+]);
+
+/** Let a focused control (or an icon inside it) own its native activation keys. */
+function ownsPlaybackKeys(target: EventTarget | null): boolean {
+	for (let node = target instanceof Element ? target : null; node; node = node.parentElement) {
+		if (typing(node) || ['BUTTON', 'SUMMARY', 'AUDIO', 'VIDEO'].includes(node.tagName) ||
+			(node.tagName === 'A' && node.getAttribute('href') !== null) ||
+			(node.getAttribute('role') ?? '').split(/\s+/).some((role) => CONTROL_ROLES.has(role))) return true;
+	}
+	return false;
+}
+
 /** `mini` = the mini-player window: same transport keys, minus the ones that toggle a piece of
  *  chrome that window doesn't render (palette, shortcut list, now-playing view). */
 export function initShortcuts(mini = false) {
@@ -69,10 +85,9 @@ export function initShortcuts(mini = false) {
 			return;
 		}
 		if (!e.ctrlKey && !e.metaKey) {
-			// Space also activates a focused button and scrolls the page, so it is swallowed either
-			// way once we know it isn't being typed.
+			// Focused controls keep native activation; bare keys on the background control playback.
 			if (e.key !== ' ' && e.key !== ';') return;
-			if (typing(e.target) || e.altKey || e.shiftKey) return;
+			if (ownsPlaybackKeys(e.target) || e.altKey || e.shiftKey) return;
 			api.togglePause();
 			e.preventDefault();
 			return;

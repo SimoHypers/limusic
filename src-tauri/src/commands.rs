@@ -203,6 +203,20 @@ pub async fn toggle_pause(state: St<'_>) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn get_sleep_timer(state: St<'_>) -> crate::sleep_timer::Snapshot {
+    state.sleep_timer.snapshot()
+}
+
+#[tauri::command]
+pub async fn set_sleep_timer(
+    state: St<'_>,
+    minutes: Option<i64>,
+    after_track: bool,
+) -> Result<crate::sleep_timer::Snapshot, String> {
+    state.inner().clone().set_sleep_timer(minutes, after_track).await
+}
+
+#[tauri::command]
 pub async fn seek(state: St<'_>, position: f64) -> Result<(), String> {
     // Routed through AppState so a Listen Together host broadcasts the seek and a guest is blocked.
     state.user_seek(position).await
@@ -414,6 +428,9 @@ pub async fn set_setting(
 ) -> Result<(), String> {
     if !UI_SETTINGS.contains(&key.as_str()) {
         return Err(format!("unknown setting: {key}"));
+    }
+    if key == "proxy" {
+        crate::http::validate_proxy(value.trim()).map_err(str::to_owned)?;
     }
     // Registers/removes the login autostart entry on toggle; the OS persists it from there, and
     // startup repoints an existing entry at the running binary (lib.rs). Before the write, so a
@@ -711,7 +728,7 @@ pub async fn sign_out(state: St<'_>) -> Result<(), String> {
 /// visitorData never cross the Tauri boundary.
 #[tauri::command]
 pub async fn get_google_accounts(state: St<'_>) -> Result<Vec<serde_json::Value>, String> {
-    Ok(state.google_accounts())
+    state.google_accounts()
 }
 
 /// Activate a saved Google account without a Google re-login. Fails if the stored cookie no
@@ -724,8 +741,7 @@ pub async fn switch_google_account(state: St<'_>, id: String) -> Result<serde_js
 /// Delete a saved account. Removing the active one signs out; the others stay listed.
 #[tauri::command]
 pub async fn remove_google_account(state: St<'_>, id: String) -> Result<(), String> {
-    state.remove_google_account(&id).await;
-    Ok(())
+    state.remove_google_account(&id).await
 }
 
 /// Open the in-app Google sign-in webview (context/15 Path A). Completes asynchronously; the UI
@@ -2359,12 +2375,14 @@ pub async fn lt_set_server_url(state: St<'_>, url: String) -> Result<(), String>
 
 #[tauri::command]
 pub async fn lt_create_room(state: St<'_>, username: String) -> Result<(), String> {
+    state.inner().clone().set_sleep_timer(None, false).await?;
     state.lt.create_room(username).await;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn lt_join_room(state: St<'_>, code: String, username: String) -> Result<(), String> {
+    state.inner().clone().set_sleep_timer(None, false).await?;
     state.lt.join_room(code, username).await;
     Ok(())
 }
@@ -2586,14 +2604,40 @@ pub struct BetaUpdate {
 /// by itself, so a lower version there is a beta rollback somebody made on purpose.
 #[tauri::command]
 pub async fn check_beta_update(webview: tauri::Webview) -> Result<Option<BetaUpdate>, String> {
+    check_update(webview, true, true).await
+}
+
+#[tauri::command]
+pub async fn check_stable_update(
+    webview: tauri::Webview,
+    allow_downgrades: bool,
+) -> Result<Option<BetaUpdate>, String> {
+    check_update(webview, false, allow_downgrades).await
+}
+
+async fn check_update(
+    webview: tauri::Webview,
+    beta: bool,
+    allow_downgrades: bool,
+) -> Result<Option<BetaUpdate>, String> {
     use tauri::Manager;
     use tauri_plugin_updater::UpdaterExt;
-    let url = tauri::Url::parse(BETA_MANIFEST).map_err(|e| e.to_string())?;
-    let update = webview
-        .updater_builder()
-        .endpoints(vec![url])
-        .map_err(|e| e.to_string())?
-        .version_comparator(|current, remote| remote.version != current)
+    let mut builder = webview.updater_builder();
+    if beta {
+        let url = tauri::Url::parse(BETA_MANIFEST).map_err(|e| e.to_string())?;
+        builder = builder.endpoints(vec![url]).map_err(|e| e.to_string())?;
+    }
+    if let Some(proxy) = crate::http::webview_proxy() {
+        builder = builder.proxy(proxy);
+    }
+    let update = builder
+        .version_comparator(move |current, remote| {
+            if allow_downgrades {
+                remote.version != current
+            } else {
+                remote.version > current
+            }
+        })
         .build()
         .map_err(|e| e.to_string())?
         .check()
@@ -2669,8 +2713,7 @@ pub async fn lastfm_connect(state: St<'_>) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn lastfm_disconnect(state: St<'_>) -> Result<(), String> {
-    crate::lastfm::disconnect(&state);
-    Ok(())
+    crate::lastfm::disconnect(&state)
 }
 
 /// `{ connected, username }` from the persisted session — seeds the titlebar button on mount.
@@ -2710,8 +2753,7 @@ pub async fn listenbrainz_connect(state: St<'_>, token: String) -> Result<(), St
 
 #[tauri::command]
 pub async fn listenbrainz_disconnect(state: St<'_>) -> Result<(), String> {
-    crate::listenbrainz::disconnect(&state);
-    Ok(())
+    crate::listenbrainz::disconnect(&state)
 }
 
 /// `{ connected, username }` from the persisted token — seeds the Scrobbling tab on mount.

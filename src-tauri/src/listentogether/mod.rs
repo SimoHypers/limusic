@@ -335,7 +335,7 @@ impl LtSession {
             }
             self.emit_state().await;
 
-            match connect_ws(&url).await {
+            match connect_ws(&url, crate::http::has_proxy()).await {
                 Ok(ws) => {
                     // A connect that outlived its cancellation must not touch shared state:
                     // `leave()` and a second Host/Join click bump `gen`, but neither can interrupt
@@ -434,6 +434,10 @@ impl LtSession {
                     if tokio::time::timeout(Duration::from_secs(2), &mut writer).await.is_err() {
                         writer.abort();
                     }
+                }
+                Err(WsError::Io(e)) if e.kind() == std::io::ErrorKind::Unsupported => {
+                    self.close_locally(&e.to_string()).await;
+                    return;
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "listen-together connect failed");
@@ -744,6 +748,12 @@ fn keep_shareable(p: &mut Playback) {
     }
 }
 
+/// Relay artwork is untrusted too: never let it cause a local-file or arbitrary-host request.
+fn safe_artwork(track: &mut Track) {
+    track.thumbnail =
+        shareable(track).then(|| format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", track.id));
+}
+
 /// Drop every track that isn't [`shareable`] before anything reads the message. Suggestions are
 /// checked where they're handled, so a bad one can be rejected rather than left pending. No
 /// wildcard arm: a new message that carries tracks has to be decided on here.
@@ -755,10 +765,18 @@ fn sanitize(sm: &mut ServerMessage) {
         | ServerMessage::SyncState { state } => {
             state.current_track = state.current_track.take().filter(shareable);
             state.queue.retain(shareable);
+            for track in state.current_track.iter_mut().chain(state.queue.iter_mut()) {
+                safe_artwork(track);
+            }
         }
-        ServerMessage::SyncPlayback(p) => keep_shareable(p),
-        ServerMessage::SuggestionReceived { .. }
-        | ServerMessage::Pong
+        ServerMessage::SyncPlayback(p) => {
+            keep_shareable(p);
+            for track in p.track.iter_mut().chain(p.queue.iter_mut().flatten()) {
+                safe_artwork(track);
+            }
+        }
+        ServerMessage::SuggestionReceived { suggestion } => safe_artwork(&mut suggestion.track),
+        ServerMessage::Pong
         | ServerMessage::JoinRequest { .. }
         | ServerMessage::JoinRejected { .. }
         | ServerMessage::UserJoined { .. }
@@ -788,7 +806,17 @@ const SILENCE_LIMIT: Duration = Duration::from_secs(60);
 /// AAAA ingress is a black hole from some networks; glibc sorts IPv6 first, so a host with working
 /// IPv6 burned six minutes on dead addresses before ever trying the IPv4 that works. Same reason a
 /// join request never reached the host: the socket carrying it was still in a SYN retry.
-async fn connect_ws(url: &str) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, WsError> {
+async fn connect_ws(
+    url: &str,
+    proxy_configured: bool,
+) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, WsError> {
+    // This raw TCP transport cannot use the configured proxy. Refuse before DNS or dialing.
+    if proxy_configured {
+        return Err(WsError::Io(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Listen Together is unavailable while a proxy is configured.",
+        )));
+    }
     let req = url.into_client_request()?;
     let uri = req.uri().clone();
     let host = uri
@@ -831,6 +859,15 @@ async fn connect_first(addrs: &[SocketAddr]) -> std::io::Result<TcpStream> {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn configured_proxy_blocks_the_direct_relay_transport() {
+        let result = connect_ws("ws://127.0.0.1:1", true).await;
+        assert!(
+            matches!(result, Err(WsError::Io(ref e)) if e.kind() == std::io::ErrorKind::Unsupported),
+            "a configured proxy must prevent direct network access: {result:?}"
+        );
+    }
+
     fn track(id: &str) -> Track {
         Track {
             id: id.into(),
@@ -839,6 +876,79 @@ mod tests {
             thumbnail: None,
             duration_ms: 0,
             queued_by: None,
+        }
+    }
+
+    #[test]
+    fn remote_artwork_is_derived_for_every_inbound_track_path() {
+        let expected = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg";
+        for image in [
+            None,
+            Some("file:///C:/secret.jpg"),
+            Some(r"\\evil\share\art.jpg"),
+            Some("http://127.0.0.1/art"),
+            Some("https://unknown.example/art"),
+            Some("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"),
+        ] {
+            let mut t = track("dQw4w9WgXcQ");
+            t.thumbnail = image.map(str::to_owned);
+            let state = RoomState {
+                current_track: Some(t.clone()),
+                queue: vec![t.clone()],
+                ..Default::default()
+            };
+            let mut messages = [
+                ServerMessage::RoomCreated {
+                    room_code: "room".into(),
+                    user_id: "u".into(),
+                    session_token: "token".into(),
+                    state: state.clone(),
+                },
+                ServerMessage::JoinApproved {
+                    user_id: "u".into(),
+                    session_token: "token".into(),
+                    state: state.clone(),
+                },
+                ServerMessage::Reconnected {
+                    user_id: "u".into(),
+                    is_host: false,
+                    state: state.clone(),
+                },
+                ServerMessage::SyncState { state },
+                ServerMessage::SyncPlayback(Playback {
+                    track: Some(t.clone()),
+                    queue: Some(vec![t.clone()]),
+                    ..Playback::new(PlaybackKind::ChangeTrack)
+                }),
+                ServerMessage::SuggestionReceived {
+                    suggestion: Suggestion {
+                        id: "s".into(),
+                        from_user_id: "u".into(),
+                        from_username: "guest".into(),
+                        track: t,
+                    },
+                },
+            ];
+            for message in &mut messages {
+                sanitize(message);
+                let tracks: Vec<&Track> = match message {
+                    ServerMessage::RoomCreated { state, .. }
+                    | ServerMessage::JoinApproved { state, .. }
+                    | ServerMessage::Reconnected { state, .. }
+                    | ServerMessage::SyncState { state } => {
+                        state.current_track.iter().chain(state.queue.iter()).collect()
+                    }
+                    ServerMessage::SyncPlayback(p) => {
+                        p.track.iter().chain(p.queue.iter().flatten()).collect()
+                    }
+                    ServerMessage::SuggestionReceived { suggestion } => vec![&suggestion.track],
+                    _ => unreachable!(),
+                };
+                assert!(!tracks.is_empty());
+                for t in tracks {
+                    assert_eq!(t.thumbnail.as_deref(), Some(expected));
+                }
+            }
         }
     }
 
