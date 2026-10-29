@@ -11,7 +11,7 @@ import { canSelfUpdate, checkBetaUpdate, getSettings, openExternal, releaseNotes
 import { isNewer, isPrerelease } from './version';
 import { getVersion } from '@tauri-apps/api/app';
 
-const RELEASES_URL = 'https://github.com/SimoHypers/limusic/releases/latest';
+const RELEASES_URL = 'https://github.com/kiranojhanp/limusic-enhanced/releases/latest';
 
 /** How often the quiet check repeats while the app stays open. */
 export const QUIET_INTERVAL_MS = 6 * 60 * 60 * 1000;
