@@ -217,6 +217,75 @@ Windows and macOS instructions live in [docs/BUILD-PLATFORMS.md](docs/BUILD-PLAT
 
 ---
 
+## Releasing (this fork)
+
+This fork ships its own signed builds from GitHub Actions. The full runbook is
+[docs/RELEASING-FROM-ACTIONS.md](docs/RELEASING-FROM-ACTIONS.md); this section is the
+checklist to read before touching a release.
+
+**The setup, so you do not have to rediscover it**
+
+| Thing | Where it lives | Why it matters |
+| --- | --- | --- |
+| Signing private key | `~/.tauri/limusic-enhanced.key` and repo secret `TAURI_SIGNING_PRIVATE_KEY` | Signs every updater artifact. **Back it up.** Lose it and every installed copy refuses all future updates; there is no recovery but a manual reinstall |
+| Signing public key | `src-tauri/tauri.conf.json` → `plugins.updater.pubkey` | Must match the private key. Changing it invalidates updates for existing installs |
+| Updater endpoint | `src-tauri/tauri.conf.json` → `plugins.updater.endpoints` | This fork's `releases/latest/download/latest.json` |
+| Beta endpoint | `src-tauri/src/commands.rs` → `BETA_MANIFEST` | This fork's `releases/download/beta/latest.json` |
+| `beta` release | GitHub release tagged `beta`, marked prerelease | Permanent pointer that RC installs read. **Never delete it** |
+| `Create release` workflow | `.github/workflows/release.yml` | Bumps, tags, publishes, and dispatches the three platform builds |
+
+**Cutting a release**
+
+1. Wait for upstream to tag the version you are shipping and merge it, so the number means
+   the same thing in both repos.
+2. Actions → **Create release** → Run workflow with `dry_run: true`. It validates the
+   version and prints the plan without changing anything.
+3. Re-run with `dry_run: false`. It bumps `Cargo.toml`, `Cargo.lock` and
+   `src-tauri/tauri.conf.json`, commits to `master`, pushes the tag, creates the release
+   (not Latest), and dispatches Linux, Windows and macOS.
+
+From a terminal:
+
+```bash
+gh workflow run "Create release" --repo kiranojhanp/limusic-enhanced --ref master \
+  -f version=1.4.0 -f dry_run=true
+gh workflow run "Create release" --repo kiranojhanp/limusic-enhanced --ref master \
+  -f version=1.4.0 -f dry_run=false
+```
+
+**Rules that are easy to forget**
+
+- **Continue upstream's version numbers.** Never restart at `1.0.0`: the updater compares
+  semver, so a lower number is never offered to an installed copy.
+- **Never re-release a tag.** Bump instead; the workflow refuses an existing tag or release.
+- **Release candidates never become Latest.** `1.4.0-rc.5` lands on the `beta` channel only.
+  `/releases/latest/download/latest.json` keeps resolving to the last stable release, and
+  returns 404 until this fork ships its first stable.
+- **Only all three platforms flip `latest`.** If one fails, the release stays un-Latest and
+  installed clients keep seeing the previous complete release. Re-dispatch just the failed
+  one:
+
+  ```bash
+  gh workflow run "Linux release binaries" --repo kiranojhanp/limusic-enhanced \
+    --ref master -f tag=v1.4.0
+  ```
+- **The `.rpm` is not built in Actions.** It needs Fedora; build it separately if you want one.
+- **`RELEASE_TOKEN`** is only needed once `master` has branch protection, because
+  `GITHUB_TOKEN` cannot push past it.
+
+**Checking a release**
+
+```bash
+gh release view v1.4.0 --repo kiranojhanp/limusic-enhanced
+curl -sL https://github.com/kiranojhanp/limusic-enhanced/releases/latest/download/latest.json | jq
+curl -sL https://github.com/kiranojhanp/limusic-enhanced/releases/download/beta/latest.json | jq
+```
+
+A complete release has a `.sig` next to every updater artifact (AppImage, setup.exe,
+`.app.tar.gz`) and all three platform keys in `latest.json`.
+
+---
+
 ## How It Works, Briefly
 
 - A pure Rust crate speaks YouTube's InnerTube API, impersonating several
