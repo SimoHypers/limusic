@@ -45,7 +45,7 @@ YouTube Music client, and grew from there.
 - **Mini Player and theater mode**: shrink to a strip that keeps playing, or go fullscreen with cover and lyrics side by side
 - **Local Music**: play your own files, with all metadata still intact
 - **Last.fm scrobbling**: connect once from the title bar, every play is scrobbled
-- **ListenBrainz scrobbling**: paste a user token in the Scrobbling settings, same plays go there too
+- **ListenBrainz scrobbling**: paste a user token in the Scrobbling settings, or point it at a self-hosted ListenBrainz-compatible server such as Koito
 - **Discord Rich Presence**: artwork, live progress bar, one click to toggle
 - **OS media keys** and now-playing integration (MPRIS on Linux, SMTC on Windows, plus playback buttons on the Windows taskbar preview)
 - **System tray**: close the window, keep the music; play/pause and skip from the tray, optional start-on-login
@@ -114,7 +114,10 @@ play counts as).
   [listenbrainz.org/settings](https://listenbrainz.org/settings/) and connect.
   Plays submit as `playing_now` on start and one `single` listen at the same
   halfway-or-four-minutes point. A new MetaBrainz account has to verify its email first, or
-  ListenBrainz turns every listen away (the Scrobbling tab says so).
+  ListenBrainz turns every listen away (the Scrobbling tab says so). The server field defaults
+  to the official service; to use a self-hosted ListenBrainz-compatible server such as
+  [Koito](https://koito.io), enter its API base (for Koito,
+  `https://your-server/apis/listenbrainz`) and connect with that server's user token.
 - **Discord**: click the Discord mark to toggle Rich Presence. Green dot means
   it's live. The card shows the track, artist, album art, and a progress bar, and
   it disappears when you pause.

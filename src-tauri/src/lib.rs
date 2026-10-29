@@ -833,10 +833,16 @@ pub fn run() {
 
             // Scrobbler — one task, one clock for Last.fm + ListenBrainz. Each half parks until
             // its own credential exists (session key via the titlebar flow, user token via settings).
+            // The ListenBrainz half carries its API root too: self-hosted servers (Koito, …) are
+            // configured, not hardcoded.
+            let lb_token = db.get_setting("listenbrainz_token").filter(|s| !s.is_empty());
             let lastfm = lastfm::spawn(
                 handle.clone(),
                 db.get_setting("lastfm_session_key").filter(|s| !s.is_empty()),
-                db.get_setting("listenbrainz_token").filter(|s| !s.is_empty()),
+                lb_token.map(|token| listenbrainz::Credentials {
+                    token,
+                    api_root: listenbrainz::api_root(&db),
+                }),
                 lastfm::ScrobbleConfig::load(&db),
             );
 

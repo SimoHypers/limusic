@@ -9,6 +9,12 @@
 //! Validation is `GET /1/validate-token`; listens go to `POST /1/submit-listens` as
 //! `playing_now` on track start and one `single` once the track crosses the threshold.
 //!
+//! The API root is configurable (`listenbrainz_api_root`): any server that speaks the
+//! ListenBrainz API works, e.g. a self-hosted [Koito](https://koito.io) at
+//! `https://koito.example.com/apis/listenbrainz`. [`normalize_api_root`] makes a pasted host,
+//! a full listen URL, or the official root all land on the same canonical base the two calls
+//! above append `/1/…` to.
+//!
 //! Everything is best-effort, like Last.fm: a failed listen is a `debug!` line, never a
 //! user-facing error. No offline queue.
 
@@ -17,12 +23,73 @@ use std::time::Duration;
 
 use tauri::Emitter;
 
+use crate::db::Db;
 use crate::lastfm::Resolved;
 use crate::state::AppState;
 
-const API_ROOT: &str = "https://api.listenbrainz.org";
+/// The official service; what an empty/unset setting means.
+pub(crate) const DEFAULT_API_ROOT: &str = "https://api.listenbrainz.org";
+const API_ROOT_SETTING: &str = "listenbrainz_api_root";
 const USER_AGENT: &str =
     concat!("Limusic/", env!("CARGO_PKG_VERSION"), " (https://github.com/SimoHypers/limusic)");
+
+/// A connected listen target. The scrobbler needs both halves together: a token with no root
+/// would silently go to the official service, and a root with no token has nowhere to send.
+#[derive(Debug, Clone)]
+pub(crate) struct Credentials {
+    pub token: String,
+    pub api_root: String,
+}
+
+/// Canonical API base for a user-supplied server URL.
+///
+/// Accepts what people actually paste: a bare host (`koito.example.com`), the official root,
+/// a Koito root (`…/apis/listenbrainz`), or a full endpoint copied from API docs
+/// (`…/apis/listenbrainz/1/submit-listens`). The returned value never ends in `/` or `/1`, so
+/// callers append `/1/validate-token` and `/1/submit-listens` exactly once.
+pub(crate) fn normalize_api_root(input: &str) -> Result<String, String> {
+    let input = input.trim();
+    if input.is_empty() {
+        return Ok(DEFAULT_API_ROOT.to_string());
+    }
+    // A bare host is the common case ("koito.example.com/apis/listenbrainz"); default it to
+    // https rather than failing with a parse error that does not say what to do.
+    let with_scheme =
+        if input.contains("://") { input.to_string() } else { format!("https://{input}") };
+    let mut url = reqwest::Url::parse(&with_scheme)
+        .map_err(|_| format!("That server URL is not valid: {input}"))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("The server URL must start with http:// or https://".into());
+    }
+    if url.host_str().is_none() {
+        return Err("The server URL needs a host, for example https://api.listenbrainz.org".into());
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("Put credentials in the token field, not in the server URL".into());
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err("The server URL cannot carry a query string or fragment".into());
+    }
+    // Both the official service and Koito expose their API under `/1`, so a pasted `/1` (or a
+    // full endpoint) is the same base as the host + prefix above it.
+    let mut path = url.path().trim_end_matches('/').to_string();
+    for suffix in ["/1/submit-listens", "/1/validate-token", "/1"] {
+        if let Some(stripped) = path.strip_suffix(suffix) {
+            path = stripped.trim_end_matches('/').to_string();
+            break;
+        }
+    }
+    url.set_path(&path);
+    Ok(url.as_str().trim_end_matches('/').to_string())
+}
+
+/// The stored API base, normalized. A value that was valid when stored stays valid; anything
+/// unreadable falls back to the official service instead of wedging scrobbling.
+pub(crate) fn api_root(db: &Db) -> String {
+    db.get_setting(API_ROOT_SETTING)
+        .and_then(|s| normalize_api_root(&s).ok())
+        .unwrap_or_else(|| DEFAULT_API_ROOT.to_string())
+}
 
 /// The `track_metadata` object for one listen. `video_id` feeds `origin_url` for YouTube tracks
 /// (and picks the music service); local files carry no URL.
@@ -69,13 +136,14 @@ impl std::fmt::Display for SubmitError {
 }
 
 pub(crate) async fn submit(
+    api_root: &str,
     token: &str,
     listen_type: &str,
     payload: serde_json::Value,
 ) -> Result<(), SubmitError> {
     let body = serde_json::json!({ "listen_type": listen_type, "payload": payload });
     let resp = crate::http::client()
-        .post(format!("{API_ROOT}/1/submit-listens"))
+        .post(format!("{api_root}/1/submit-listens"))
         .header("Authorization", format!("Token {token}"))
         .header("User-Agent", USER_AGENT)
         .json(&body)
@@ -116,16 +184,21 @@ pub(crate) fn emit_problem(app: &tauri::AppHandle, problem: Option<&str>) {
     let _ = app.emit("listenbrainz-problem", problem);
 }
 
-async fn validate(token: &str) -> Result<String, String> {
+async fn validate(api_root: &str, token: &str) -> Result<String, String> {
     let resp = crate::http::client()
-        .get(format!("{API_ROOT}/1/validate-token"))
+        .get(format!("{api_root}/1/validate-token"))
         .header("Authorization", format!("Token {token}"))
         .header("User-Agent", USER_AGENT)
         .timeout(Duration::from_secs(15))
         .send()
         .await
         .map_err(|e| e.to_string())?;
-    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    // Self-hosted servers sometimes answer errors as plain text; keep that text rather than
+    // surfacing a JSON decode error the user can do nothing with.
+    let status = resp.status();
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    let body: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|_| format!("{status}: {}", text.chars().take(300).collect::<String>()))?;
     if body.get("valid").and_then(|v| v.as_bool()) != Some(true) {
         let msg = body
             .get("message")
@@ -144,69 +217,97 @@ fn emit_state(
     app: &tauri::AppHandle,
     connected: bool,
     username: Option<&str>,
+    server: &str,
     error: Option<&str>,
 ) {
     let _ = app.emit(
         "listenbrainz-state",
-        serde_json::json!({ "connected": connected, "username": username, "error": error }),
+        serde_json::json!({
+            "connected": connected,
+            "username": username,
+            "server": server,
+            "error": error,
+        }),
     );
 }
 
-/// Connect with a user token pasted from ListenBrainz settings. Validates it first, so a typo
-/// is an error rather than a stored token that silently scrobbles nothing.
-pub async fn connect(state: Arc<AppState>, token: String) -> Result<(), String> {
+/// Connect with a user token. `api_root` is the server to send to: empty means the official
+/// ListenBrainz, anything else must speak the same API (Koito, Maloja's LB endpoint, …). The
+/// token is validated against that server first, so a typo or a wrong URL is an error rather
+/// than a stored credential that silently scrobbles nowhere.
+pub async fn connect(
+    state: Arc<AppState>,
+    token: String,
+    api_root: Option<String>,
+) -> Result<(), String> {
     let token = token.trim().to_owned();
-    let username = validate(&token).await.map_err(|e| format!("ListenBrainz: {e}"))?;
+    if token.is_empty() {
+        return Err("Paste a ListenBrainz user token first".into());
+    }
+    let api_root = normalize_api_root(api_root.as_deref().unwrap_or_default())?;
+    let username = validate(&api_root, &token).await.map_err(|e| format!("ListenBrainz: {e}"))?;
     state.db.set_setting("listenbrainz_token", &token);
     state.db.set_setting("listenbrainz_username", &username);
-    // Same task, same clock: the Last.fm scrobbler holds this token next to its session key.
-    state.lastfm.set_token(Some(token));
-    tracing::info!(user = %username, "listenbrainz connected");
-    emit_state(&state.app, true, Some(&username), None);
+    state.db.set_setting(API_ROOT_SETTING, &api_root);
+    // Same task, same clock: the Last.fm scrobbler holds this credential next to its session key.
+    state
+        .lastfm
+        .set_listenbrainz(Some(Credentials { token: token.clone(), api_root: api_root.clone() }));
+    tracing::info!(user = %username, server = %api_root, "listenbrainz connected");
+    emit_state(&state.app, true, Some(&username), &api_root, None);
     Ok(())
 }
 
 pub fn disconnect(state: &AppState) {
     state.db.set_setting("listenbrainz_token", "");
     state.db.set_setting("listenbrainz_username", "");
-    state.lastfm.set_token(None);
-    emit_state(&state.app, false, None, None);
+    // The server URL stays: reconnecting to the same self-hosted instance should not mean
+    // typing it again. It is not a credential, and the UI prefills it from here.
+    state.lastfm.set_listenbrainz(None);
+    emit_state(&state.app, false, None, &api_root(&state.db), None);
 }
 
 pub fn status(state: &AppState) -> serde_json::Value {
     let token = state.db.get_setting("listenbrainz_token").filter(|s| !s.is_empty());
     let username = state.db.get_setting("listenbrainz_username").filter(|s| !s.is_empty());
-    serde_json::json!({ "connected": token.is_some(), "username": username })
+    serde_json::json!({
+        "connected": token.is_some(),
+        "username": username,
+        "server": api_root(&state.db),
+    })
 }
 
 /// The connected user's listen count, for the Scrobbling tab's account card. `None` when nobody
-/// is connected or ListenBrainz didn't answer.
+/// is connected. A server that does not implement the public listen-count endpoint (Koito, for
+/// one) leaves the count empty; the account still reads as connected.
 pub async fn profile(state: &AppState) -> Option<Profile> {
     let username = state.db.get_setting("listenbrainz_username").filter(|s| !s.is_empty())?;
+    let root = api_root(&state.db);
     // Listen counts are public: no token needed.
-    let body: serde_json::Value = crate::http::client()
-        .get(format!("{API_ROOT}/1/user/{username}/listen-count"))
+    let count = match crate::http::client()
+        .get(format!("{root}/1/user/{username}/listen-count"))
         .header("User-Agent", USER_AGENT)
         .timeout(Duration::from_secs(15))
         .send()
         .await
-        .ok()?
-        .json()
-        .await
-        .ok()?;
-    let count = body.pointer("/payload/count").and_then(|v| v.as_u64()).unwrap_or(0);
-    Some(Profile {
-        username: username.clone(),
-        url: format!("https://listenbrainz.org/user/{username}/"),
-        listens: count,
-    })
+    {
+        Ok(resp) => match resp.json::<serde_json::Value>().await {
+            Ok(body) => body.pointer("/payload/count").and_then(|v| v.as_u64()),
+            Err(_) => None,
+        },
+        Err(_) => None,
+    };
+    // The link only exists on the official site; a self-hosted server has no per-user page.
+    let url =
+        (root == DEFAULT_API_ROOT).then(|| format!("https://listenbrainz.org/user/{username}/"));
+    Some(Profile { username: username.clone(), url, listens: count })
 }
 
 #[derive(Debug, PartialEq, serde::Serialize)]
 pub struct Profile {
     pub username: String,
-    pub url: String,
-    pub listens: u64,
+    pub url: Option<String>,
+    pub listens: Option<u64>,
 }
 
 #[cfg(test)]
@@ -255,5 +356,53 @@ mod tests {
         // Not the user's to fix: stays a log line.
         assert_eq!(problem(StatusCode::BAD_REQUEST, unverified), None);
         assert_eq!(problem(StatusCode::SERVICE_UNAVAILABLE, ""), None);
+    }
+
+    #[test]
+    fn the_official_server_is_what_an_empty_setting_means() {
+        assert_eq!(normalize_api_root("").unwrap(), DEFAULT_API_ROOT);
+        assert_eq!(normalize_api_root("   ").unwrap(), DEFAULT_API_ROOT);
+        assert_eq!(normalize_api_root("https://api.listenbrainz.org/").unwrap(), DEFAULT_API_ROOT);
+        assert_eq!(normalize_api_root("https://api.listenbrainz.org/1").unwrap(), DEFAULT_API_ROOT);
+    }
+
+    #[test]
+    fn a_self_hosted_server_keeps_its_path_without_a_trailing_slash_or_version() {
+        // Koito's API lives under `/apis/listenbrainz`, and callers append `/1/...` to it.
+        for pasted in [
+            "https://koito.example.com/apis/listenbrainz",
+            "https://koito.example.com/apis/listenbrainz/",
+            "https://koito.example.com/apis/listenbrainz/1",
+            "https://koito.example.com/apis/listenbrainz/1/submit-listens",
+            "https://koito.example.com/apis/listenbrainz/1/validate-token",
+            "  https://koito.example.com/apis/listenbrainz/1  ",
+        ] {
+            assert_eq!(
+                normalize_api_root(pasted).unwrap(),
+                "https://koito.example.com/apis/listenbrainz",
+                "{pasted}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bare_host_defaults_to_https_and_keeps_an_explicit_http_port() {
+        assert_eq!(
+            normalize_api_root("koito.example.com/apis/listenbrainz").unwrap(),
+            "https://koito.example.com/apis/listenbrainz"
+        );
+        assert_eq!(
+            normalize_api_root("http://localhost:4110/apis/listenbrainz").unwrap(),
+            "http://localhost:4110/apis/listenbrainz"
+        );
+    }
+
+    #[test]
+    fn a_server_url_that_could_leak_or_go_somewhere_else_is_refused() {
+        assert!(normalize_api_root("ftp://example.com").is_err());
+        assert!(normalize_api_root("https://user:pass@example.com").is_err());
+        assert!(normalize_api_root("https://example.com/?token=x").is_err());
+        assert!(normalize_api_root("https://example.com/#frag").is_err());
+        assert!(normalize_api_root("not a url").is_err());
     }
 }

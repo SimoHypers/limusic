@@ -35,6 +35,7 @@
 	import LastFmIcon from '$lib/components/LastFmIcon.svelte';
 	import { connectLastfm, disconnectLastfm, lastfm } from '$lib/lastfm.svelte';
 	import {
+		DEFAULT_LISTENBRAINZ_SERVER,
 		METABRAINZ_PROFILE,
 		connectListenBrainz,
 		disconnectListenBrainz,
@@ -103,6 +104,27 @@
 	// (same as Last.fm's `watchLastfm`): a second subscription here would double the toasts.
 	let lbProfile = $state<api.ListenBrainzProfile | null>(null);
 	let lbToken = $state('');
+	// Seeded from the backend so a self-hosted server is one paste away from reconnecting.
+	// `settings` is loaded before this tab mounts (SettingsDialog gates it on `loaded`).
+	let lbServer = $state(
+		untrack(() => settings.listenbrainz_api_root || DEFAULT_LISTENBRAINZ_SERVER)
+	);
+	// Only the official service has the token page linked below; a self-hosted server's own UI
+	// is where its tokens are made, and we cannot know its URL shape.
+	const lbOfficialServer = $derived(
+		!lbServer.trim() || lbServer.trim().replace(/\/+$/, '') === DEFAULT_LISTENBRAINZ_SERVER
+	);
+	// Host + path of a connected custom server, for the account card's subline.
+	const lbConnectedServer = $derived.by(() => {
+		const server = listenbrainz.server;
+		if (!server || server === DEFAULT_LISTENBRAINZ_SERVER) return null;
+		try {
+			const u = new URL(server);
+			return u.host + u.pathname.replace(/\/$/, '');
+		} catch {
+			return server;
+		}
+	});
 	$effect(() => {
 		const name = listenbrainz.connected ? listenbrainz.username : null;
 		lbProfile = null;
@@ -114,8 +136,12 @@
 	function connectLb() {
 		const token = lbToken.trim();
 		if (!token) return;
+		const server = lbServer.trim() || DEFAULT_LISTENBRAINZ_SERVER;
+		// Keep the dialog's copy in step so disconnecting in this session prefills what was used,
+		// not what was there when the tab opened.
+		settings.listenbrainz_api_root = server;
 		lbToken = '';
-		connectListenBrainz(token);
+		connectListenBrainz(token, server);
 	}
 	const num = (n: number) => n.toLocaleString(currentLocale.id);
 	const since = $derived(
@@ -465,6 +491,11 @@
 								<p class="truncate text-xs text-muted-foreground">
 									{t('integrations.listenbrainz_connected_as', { user: listenbrainz.username ?? '' })}
 								</p>
+								{#if lbConnectedServer}
+									<p class="truncate text-xs text-muted-foreground">
+										{t('settings.scrobbling.lb_server_connected', { server: lbConnectedServer })}
+									</p>
+								{/if}
 							{/if}
 						{:else}
 							<p class="text-sm font-semibold">ListenBrainz</p>
@@ -477,7 +508,7 @@
 					</div>
 					{@render lbAccountButton()}
 				</div>
-				{#if listenbrainz.connected && lbProfile}
+				{#if listenbrainz.connected && lbProfile?.listens != null}
 					<div class="grid grid-cols-1 divide-x divide-border/60 border-t border-border/60">
 						<div class="min-w-0 px-4 py-2.5">
 							<div
@@ -485,45 +516,70 @@
 							>
 								{t('settings.scrobbling.stat_listens')}
 							</div>
-							<div class="truncate text-base font-semibold tabular-nums">{num(lbProfile.listens)}</div>
+							<div class="truncate text-base font-semibold tabular-nums">{num(lbProfile.listens ?? 0)}</div>
 						</div>
 					</div>
 				{/if}
 				{#if !listenbrainz.connected}
-					<div class="border-t border-border/60 px-4 py-3">
-						<p class="mb-2 text-xs leading-relaxed text-muted-foreground">
-							{t('settings.scrobbling.lb_token_hint')}
-						</p>
-						<Button
-							variant="secondary"
-							size="sm"
-							class="mb-2.5 gap-1.5"
-							onclick={() => api.openExternal('https://listenbrainz.org/settings/')}
-						>
-							<HugeiconsIcon icon={LinkSquare02Icon} size={15} />
-							{t('settings.scrobbling.lb_open_settings')}
-						</Button>
-						<div class="flex gap-2">
+					<div class="space-y-3 border-t border-border/60 px-4 py-3">
+						<div>
+							<label
+								class="mb-1.5 block px-0.5 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase"
+								for="lb-server"
+							>
+								{t('settings.scrobbling.lb_server_label')}
+							</label>
 							<Input
+								id="lb-server"
 								class="h-8 font-mono text-xs"
-								type="password"
-								bind:value={lbToken}
-								placeholder={t('settings.scrobbling.lb_token_placeholder')}
-								aria-label={t('settings.scrobbling.lb_token_placeholder')}
+								bind:value={lbServer}
+								placeholder={t('settings.scrobbling.lb_server_placeholder')}
 								spellcheck={false}
+								autocomplete="url"
 								onkeydown={(e) => e.key === 'Enter' && connectLb()}
 							/>
-							<Button
-								size="sm"
-								disabled={!lbToken.trim() || listenbrainz.connecting}
-								onclick={connectLb}
-							>
-								{#if listenbrainz.connecting}
-									<HugeiconsIcon icon={Loading03Icon} size={15} class="animate-spin" />
-								{:else}
-									{t('settings.scrobbling.connect')}
-								{/if}
-							</Button>
+							<p class="mt-1.5 px-0.5 text-xs leading-relaxed text-muted-foreground">
+								{t('settings.scrobbling.lb_server_hint')}
+							</p>
+						</div>
+						<div>
+							<p class="mb-2 text-xs leading-relaxed text-muted-foreground">
+								{t('settings.scrobbling.lb_token_hint')}
+							</p>
+							{#if lbOfficialServer}
+								<Button
+									variant="secondary"
+									size="sm"
+									class="mb-2.5 gap-1.5"
+									onclick={() => api.openExternal('https://listenbrainz.org/settings/')}
+								>
+									<HugeiconsIcon icon={LinkSquare02Icon} size={15} />
+									{t('settings.scrobbling.lb_open_settings')}
+								</Button>
+							{/if}
+							<div class="flex gap-2">
+								<Input
+									class="h-8 font-mono text-xs"
+									type="password"
+									bind:value={lbToken}
+									placeholder={t('settings.scrobbling.lb_token_placeholder')}
+									aria-label={t('settings.scrobbling.lb_token_placeholder')}
+									spellcheck={false}
+									autocomplete="off"
+									onkeydown={(e) => e.key === 'Enter' && connectLb()}
+								/>
+								<Button
+									size="sm"
+									disabled={!lbToken.trim() || listenbrainz.connecting}
+									onclick={connectLb}
+								>
+									{#if listenbrainz.connecting}
+										<HugeiconsIcon icon={Loading03Icon} size={15} class="animate-spin" />
+									{:else}
+										{t('settings.scrobbling.connect')}
+									{/if}
+								</Button>
+							</div>
 						</div>
 					</div>
 				{/if}

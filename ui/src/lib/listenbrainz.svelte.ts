@@ -4,9 +4,14 @@ import * as api from '$lib/api';
 import { toast } from '$lib/player.svelte';
 import { t } from '$lib/i18n.svelte';
 
+export const DEFAULT_LISTENBRAINZ_SERVER = 'https://api.listenbrainz.org';
+
 export const listenbrainz = $state({
 	connected: false,
 	username: null as string | null,
+	/** API base currently in use, from the backend. `DEFAULT_LISTENBRAINZ_SERVER` for the
+	 *  official service, `…/apis/listenbrainz` for a self-hosted Koito. */
+	server: null as string | null,
 	/** UI-local: set while the token validates, cleared by the `listenbrainz-state` event. */
 	connecting: false,
 	/** ListenBrainz refusing listens, from the scrobbler. Cleared by the next accepted listen
@@ -34,6 +39,7 @@ export function watchListenBrainz(): () => void {
 		listenbrainz.problem = null;
 		listenbrainz.connected = s.connected;
 		listenbrainz.username = s.username ?? null;
+		listenbrainz.server = s.server ?? null;
 		if (s.error) toast.error(s.error);
 		else if (s.connected)
 			toast.success(t('integrations.listenbrainz_connected_as', { user: s.username ?? '' }));
@@ -44,6 +50,7 @@ export function watchListenBrainz(): () => void {
 			if (eventSeen) return;
 			listenbrainz.connected = s.connected;
 			listenbrainz.username = s.username ?? null;
+			listenbrainz.server = s.server ?? null;
 		})
 		.catch(() => {});
 	// One toast when refusing starts (the card keeps saying it), none per track or on recovery.
@@ -57,11 +64,12 @@ export function watchListenBrainz(): () => void {
 	};
 }
 
-/** Validate and store a pasted user token. */
-export async function connectListenBrainz(token: string) {
+/** Validate and store a pasted user token against `server`. Empty `server` means the official
+ *  ListenBrainz; a self-hosted server gets its API base (Koito: `…/apis/listenbrainz`). */
+export async function connectListenBrainz(token: string, server: string) {
 	listenbrainz.connecting = true;
 	try {
-		await api.listenbrainzConnect(token);
+		await api.listenbrainzConnect(token, server);
 	} catch (err) {
 		listenbrainz.connecting = false;
 		toast.error(String(err));

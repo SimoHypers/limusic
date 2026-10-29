@@ -34,6 +34,7 @@ use md5::{Digest, Md5};
 use tauri::Emitter;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
+use crate::listenbrainz::Credentials;
 use crate::state::AppState;
 
 /// Last.fm API credentials. Baked in at compile time from the gitignored `src-tauri/lastfm.keys`
@@ -195,8 +196,9 @@ enum Msg {
     Position(f64),
     /// Session key set (connect) or cleared (disconnect).
     Session(Option<String>),
-    /// ListenBrainz user token set (connect) or cleared (disconnect).
-    Token(Option<String>),
+    /// ListenBrainz credentials set (connect) or cleared (disconnect). The token and API root
+    /// travel together: the scrobbler must never send a custom server's token to the official one.
+    ListenBrainz(Option<Credentials>),
     Config(Box<ScrobbleConfig>),
 }
 
@@ -268,9 +270,9 @@ impl LastfmHandle {
     }
 
     /// ListenBrainz connect/disconnect writes here (see `crate::listenbrainz`): same task, same
-    /// clock, second credential.
-    pub(crate) fn set_token(&self, token: Option<String>) {
-        let _ = self.tx.send(Msg::Token(token));
+    /// clock, second credential. `None` parks that half; the server root goes with the token.
+    pub(crate) fn set_listenbrainz(&self, creds: Option<Credentials>) {
+        let _ = self.tx.send(Msg::ListenBrainz(creds));
     }
 
     fn bump_gen(&self) -> u64 {
@@ -282,18 +284,18 @@ impl LastfmHandle {
     }
 }
 
-/// Spawn the scrobbler task. `session_key` is the persisted Last.fm login and `lb_token` the
-/// persisted ListenBrainz user token; `None` parks that half until the user connects. `app` is
-/// for telling the UI when ListenBrainz refuses listens (see [`Scrobbler::lb_sent`]).
+/// Spawn the scrobbler task. `session_key` is the persisted Last.fm login and `lb` the persisted
+/// ListenBrainz credentials (token + API root); `None` parks that half until the user connects.
+/// `app` is for telling the UI when ListenBrainz refuses listens (see [`Scrobbler::lb_sent`]).
 pub fn spawn(
     app: tauri::AppHandle,
     session_key: Option<String>,
-    lb_token: Option<String>,
+    lb: Option<Credentials>,
     cfg: ScrobbleConfig,
 ) -> LastfmHandle {
     let (tx, mut rx) = unbounded_channel::<Msg>();
     tauri::async_runtime::spawn(async move {
-        let mut s = Scrobbler::new(app, session_key, lb_token, cfg);
+        let mut s = Scrobbler::new(app, session_key, lb, cfg);
         while let Some(msg) = rx.recv().await {
             s.apply(msg).await;
         }
@@ -304,7 +306,7 @@ pub fn spawn(
 struct Scrobbler {
     app: tauri::AppHandle,
     session: Option<String>,
-    lb_token: Option<String>,
+    lb: Option<Credentials>,
     /// What ListenBrainz last said is wrong with the token (`listenbrainz::problem`), so the UI
     /// hears about a change once instead of once per track.
     lb_problem: Option<&'static str>,
@@ -320,13 +322,13 @@ impl Scrobbler {
     fn new(
         app: tauri::AppHandle,
         session: Option<String>,
-        lb_token: Option<String>,
+        lb: Option<Credentials>,
         cfg: ScrobbleConfig,
     ) -> Self {
         Scrobbler {
             app,
             session,
-            lb_token,
+            lb,
             lb_problem: None,
             cfg,
             track: None,
@@ -371,8 +373,8 @@ impl Scrobbler {
                 }
             }
             Msg::Session(key) => self.session = key,
-            Msg::Token(token) => {
-                self.lb_token = token;
+            Msg::ListenBrainz(creds) => {
+                self.lb = creds;
                 self.lb_problem = None; // the UI clears its copy on the connect/disconnect event
             }
             // ponytail: "now playing" isn't re-sent on a config change. The tab saves as the user
@@ -401,8 +403,8 @@ impl Scrobbler {
         if let Some(sk) = self.session.as_deref() {
             self.now_playing_lastfm(sk, &r).await;
         }
-        if let Some(token) = self.lb_token.clone() {
-            let sent = self.now_playing_listenbrainz(&token, &r).await;
+        if let Some(lb) = self.lb.clone() {
+            let sent = self.now_playing_listenbrainz(&lb, &r).await;
             self.lb_sent(sent);
         }
     }
@@ -422,12 +424,13 @@ impl Scrobbler {
         }
     }
 
-    async fn now_playing_listenbrainz(&self, token: &str, r: &Resolved) -> LbSent {
+    async fn now_playing_listenbrainz(&self, lb: &Credentials, r: &Resolved) -> LbSent {
         let video_id = self.track.as_ref().map(|t| t.video_id.as_str()).unwrap_or("");
         let payload = serde_json::json!([{
             "track_metadata": crate::listenbrainz::track_metadata(r, video_id, self.duration),
         }]);
-        let sent = crate::listenbrainz::submit(token, "playing_now", payload).await;
+        let sent =
+            crate::listenbrainz::submit(&lb.api_root, &lb.token, "playing_now", payload).await;
         match &sent {
             Ok(_) => tracing::debug!(track = %r.title, "listenbrainz now playing sent"),
             Err(e) => tracing::debug!(error = %e, "listenbrainz now playing failed"),
@@ -440,8 +443,8 @@ impl Scrobbler {
         if let Some(sk) = self.session.as_deref() {
             self.scrobble_lastfm(sk, &r).await;
         }
-        if let Some(token) = self.lb_token.clone() {
-            let sent = self.scrobble_listenbrainz(&token, &r).await;
+        if let Some(lb) = self.lb.clone() {
+            let sent = self.scrobble_listenbrainz(&lb, &r).await;
             self.lb_sent(sent);
         }
     }
@@ -465,13 +468,13 @@ impl Scrobbler {
         }
     }
 
-    async fn scrobble_listenbrainz(&self, token: &str, r: &Resolved) -> LbSent {
+    async fn scrobble_listenbrainz(&self, lb: &Credentials, r: &Resolved) -> LbSent {
         let video_id = self.track.as_ref().map(|t| t.video_id.as_str()).unwrap_or("");
         let payload = serde_json::json!([{
             "listened_at": self.started_at,
             "track_metadata": crate::listenbrainz::track_metadata(r, video_id, self.duration),
         }]);
-        let sent = crate::listenbrainz::submit(token, "single", payload).await;
+        let sent = crate::listenbrainz::submit(&lb.api_root, &lb.token, "single", payload).await;
         match &sent {
             Ok(_) => tracing::info!(track = %r.title, "submitted listen to listenbrainz"),
             Err(e) => tracing::warn!(error = %e, "listenbrainz listen failed"),

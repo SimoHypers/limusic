@@ -242,7 +242,7 @@ pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
 /// `visitor_data`) and internal blobs (`queue_json`, `queue_index`, `queue_position`) never cross
 /// into the webview: they'd otherwise ship the login credential to the renderer on every open, and
 /// the webview can't overwrite them either.
-const UI_SETTINGS: [&str; 32] = [
+const UI_SETTINGS: [&str; 33] = [
     "volume",
     "proxy",
     "quality",
@@ -274,6 +274,7 @@ const UI_SETTINGS: [&str; 32] = [
     "lastfm_config",
     "crossfade",
     "crossfade_secs",
+    "listenbrainz_api_root",
     "locale",
 ];
 
@@ -2701,11 +2702,17 @@ pub async fn lastfm_preview(
 // Same scrobbling settings as Last.fm (the shared `lastfm_config` blob); only the account
 // differs: a user token pasted from ListenBrainz settings, validated before it is stored.
 
-/// Validate `token` against ListenBrainz and store it. Returns the error rather than emitting
-/// it: a pasted token is validated synchronously, unlike Last.fm's browser round-trip.
+/// Validate `token` against the chosen server and store it. `api_root` is empty for the official
+/// ListenBrainz, or a self-hosted ListenBrainz-compatible base (Koito's
+/// `https://host/apis/listenbrainz`). Returns the error rather than emitting it: a pasted token is
+/// validated synchronously, unlike Last.fm's browser round-trip.
 #[tauri::command]
-pub async fn listenbrainz_connect(state: St<'_>, token: String) -> Result<(), String> {
-    crate::listenbrainz::connect(state.inner().clone(), token).await
+pub async fn listenbrainz_connect(
+    state: St<'_>,
+    token: String,
+    api_root: Option<String>,
+) -> Result<(), String> {
+    crate::listenbrainz::connect(state.inner().clone(), token, api_root).await
 }
 
 #[tauri::command]

@@ -1253,12 +1253,15 @@ export const lastfmPreview = (config: string, track: ScrobbleTrack) =>
 export interface ListenBrainzState {
 	connected: boolean;
 	username?: string | null;
+	/** API base in use (`https://api.listenbrainz.org` or a self-hosted ListenBrainz base). */
+	server?: string | null;
 	error?: string | null;
 }
 export const listenbrainzStatus = () => invoke<ListenBrainzState>('listenbrainz_status');
-/** Validates the pasted user token and stores it. Rejects on a bad token or no network. */
-export const listenbrainzConnect = (token: string) =>
-	invoke<void>('listenbrainz_connect', { token });
+/** Validates the pasted user token against `apiRoot` and stores both. Empty `apiRoot` means the
+ *  official ListenBrainz; a self-hosted server gets e.g. `https://host/apis/listenbrainz`. */
+export const listenbrainzConnect = (token: string, apiRoot: string) =>
+	invoke<void>('listenbrainz_connect', { token, apiRoot });
 export const listenbrainzDisconnect = () => invoke<void>('listenbrainz_disconnect');
 export const onListenBrainzState = (cb: (s: ListenBrainzState) => void): Promise<UnlistenFn> =>
 	listen<ListenBrainzState>('listenbrainz-state', (e) => cb(e.payload));
@@ -1269,11 +1272,12 @@ export const onListenBrainzProblem = (
 	cb: (p: ListenBrainzProblem | null) => void
 ): Promise<UnlistenFn> =>
 	listen<ListenBrainzProblem | null>('listenbrainz-problem', (e) => cb(e.payload));
-/** `Profile` in listenbrainz.rs. */
+/** `Profile` in listenbrainz.rs. `url` is only set for the official site (self-hosted servers
+ *  have no per-user page), and `listens` is null when the server doesn't expose the public count. */
 export interface ListenBrainzProfile {
 	username: string;
-	url: string;
-	listens: number;
+	url: string | null;
+	listens: number | null;
 }
 /** `null` when not connected or ListenBrainz didn't answer. */
 export const listenbrainzProfile = () => invoke<ListenBrainzProfile | null>('listenbrainz_profile');
