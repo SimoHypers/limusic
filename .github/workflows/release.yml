@@ -1,0 +1,312 @@
+name: Create release
+
+# Cuts a release entirely from the GitHub Actions UI.
+#
+# The three platform workflows (linux-release.yml, windows-release.yml, macos-release.yml) are
+# DISPATCH ONLY: they attach binaries to a release that already exists. Upstream creates that
+# release from a Fedora laptop with scripts/release.sh, which also builds the .rpm there. That is
+# why publishing a release from the GitHub UI builds nothing.
+#
+# This workflow is the GitHub-hosted replacement for the "publish the release + dispatch the three
+# builds" half of scripts/release.sh. It does NOT build the .rpm (an rpm links against the build
+# host's libraries, so it stays a Fedora job).
+#
+# What it does, in order:
+#   1. validates the version and refuses to release something that is not newer than the last one
+#   2. bumps Cargo.toml (workspace version), src-tauri/tauri.conf.json and Cargo.lock
+#   3. commits the bump to master and pushes the tag
+#   4. creates the GitHub release, NOT marked Latest, with an empty latest.json
+#   5. dispatches the three platform workflows against that tag
+#
+# The release becomes "Latest" only when all three platforms have merged their entry into
+# latest.json (the promotion block at the end of each platform workflow). Installed clients never
+# read a half-published manifest.
+#
+# REQUIRED BEFORE THE FIRST REAL RUN (see docs/RELEASING-FROM-ACTIONS.md):
+#   - Actions enabled on the repository
+#   - secrets.TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+#   - the matching public key in src-tauri/tauri.conf.json -> plugins.updater.pubkey
+#   - a `beta` release if the version is a release candidate (1.4.0-rc.1)
+#
+# If master is protected against direct pushes, set a RELEASE_TOKEN secret (a PAT with `repo` and
+# `workflow` scope, or a fine-grained token with Contents: write and Actions: write). The default
+# GITHUB_TOKEN cannot bypass branch protection.
+#
+# Always run once with dry_run=true first. It validates and prints the plan without changing
+# anything.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the v (e.g. 1.4.0 or 1.4.0-rc.1)"
+        required: true
+        type: string
+      notes:
+        description: "Release notes (Markdown). Leave empty for a default line."
+        required: false
+        default: ""
+        type: string
+      bump:
+        description: "Bump Cargo.toml + tauri.conf.json and commit the bump to master"
+        required: false
+        default: true
+        type: boolean
+      dry_run:
+        description: "Validate and print the plan only; do not commit, tag, publish or dispatch"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write # push the bump commit + tag, create the release
+  actions: write  # dispatch the three build workflows
+
+# Never let two releases race on the version bump / tag.
+concurrency:
+  group: create-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Resolve inputs
+        id: rel
+        shell: bash
+        env:
+          # Inputs go through env, never straight into the script: a release note containing a
+          # quote or `$(...)` must not be able to break (or execute inside) the shell.
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_NOTES: ${{ inputs.notes }}
+        run: |
+          set -euo pipefail
+          VERSION="$INPUT_VERSION"
+          VERSION="${VERSION#v}" # tolerate a leading v
+          TAG="v$VERSION"
+          NOTES="$INPUT_NOTES"
+
+          # Semver, with an optional prerelease suffix. 1.4.0 and 1.4.0-rc.1 are valid; 1.4 and
+          # 1.4.0.1 are not. The suffix is what tells every workflow this is a release candidate.
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] \
+            || { echo "::error::$VERSION is not a semver version (try 1.4.0 or 1.4.0-rc.1)"; exit 1; }
+
+          {
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            if [[ "$VERSION" == *-* ]]; then
+              echo "prerelease=true"
+            else
+              echo "prerelease=false"
+            fi
+            if [ -n "$NOTES" ]; then
+              echo "notes<<LIMUSIC_NOTES_EOF"
+              printf '%s\n' "$NOTES"
+              echo "LIMUSIC_NOTES_EOF"
+            else
+              echo "notes=See the commit history for changes."
+            fi
+          } >> "$GITHUB_OUTPUT"
+
+      # Full history so the tag points at a commit that is really on master, and so the version
+      # comparison below sees every release tag. RELEASE_TOKEN is optional; without it the run uses
+      # GITHUB_TOKEN, which cannot push past branch protection.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: master
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+
+      - name: Preflight
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.rel.outputs.version }}"
+          TAG="${{ steps.rel.outputs.tag }}"
+
+          # The tag must not already exist, locally or on the remote.
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error::tag $TAG already exists"; exit 1
+          fi
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::$TAG already has a release. Bump the version instead of re-releasing it."
+            exit 1
+          fi
+
+          # semver_gt A B: A ranks above B. x.y.z numerically, then a release above its own
+          # prereleases, then prerelease suffixes by version sort. Same function as
+          # scripts/release.sh and the promotion block in the platform workflows.
+          semver_gt() {
+            [ "$1" != "$2" ] || return 1
+            local a="${1%%-*}" b="${2%%-*}"
+            if [ "$a" != "$b" ]; then
+              [ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -1)" = "$a" ]
+              return
+            fi
+            [ "$1" != "$a" ] || return 0
+            [ "$2" != "$b" ] || return 1
+            [ "$(printf '%s\n%s\n' "${1#*-}" "${2#*-}" | sort -V | tail -1)" = "${1#*-}" ]
+          }
+
+          # Compare against what is actually published, not local tags. A stable release is compared
+          # with stable releases only; a release candidate is compared with everything, because it
+          # has to land above whatever the beta channel already holds.
+          RC=0; [[ "$VERSION" != *-* ]] || RC=1
+          HIGHEST=""
+          while read -r v; do
+            [ "$RC" = 1 ] || [[ "$v" != *-* ]] || continue
+            if [ -z "$HIGHEST" ] || semver_gt "$v" "$HIGHEST"; then HIGHEST="$v"; fi
+          done < <(gh release list --repo "$GITHUB_REPOSITORY" --limit 50 --json tagName \
+                   --jq '.[].tagName' | sed -n 's/^v\([0-9]\)/\1/p')
+          if [ -n "$HIGHEST" ] && ! semver_gt "$VERSION" "$HIGHEST"; then
+            echo "::error::$VERSION is not above the newest published release ($HIGHEST). Installed users would never be prompted."
+            exit 1
+          fi
+          echo "version $VERSION is above ${HIGHEST:-nothing}"
+
+          # A release candidate exists for the beta channel, and the platform workflows refuse to
+          # publish one without this pointer release. Stable releases only warn when it is absent.
+          if [ "$RC" = 1 ]; then
+            gh release view beta --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+              || { echo "::error::no \`beta\` release. Create it once (see docs/RELEASING-FROM-ACTIONS.md) before an RC."; exit 1; }
+          fi
+
+          echo "==> Plan"
+          echo "    version:     $VERSION"
+          echo "    tag:         $TAG"
+          echo "    prerelease:  $([ "$RC" = 1 ] && echo yes || echo no)"
+          echo "    bump commit: ${{ inputs.bump }}"
+          echo "    dry run:     ${{ inputs.dry_run }}"
+
+      # cargo metadata below needs a toolchain on this runner. Pinned to a SHA for the same reason
+      # the build workflows pin theirs.
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+
+      # The two version files are the contract: tauri.conf.json is what the updater compares, and
+      # the workspace Cargo.toml is what the binary reports. Bumping only one is how a release gets
+      # shipped under the wrong number. Cargo.lock carries the workspace version too, so refresh it
+      # with cargo metadata (resolves only; it does not compile).
+      - name: Bump versions
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        env:
+          INPUT_BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.rel.outputs.version }}"
+          BUMP="$INPUT_BUMP"
+
+          OLD_CARGO="$(sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -1)"
+          OLD_TAURI="$(jq -r .version src-tauri/tauri.conf.json)"
+
+          if [ "$BUMP" = "true" ]; then
+            if [ "$OLD_CARGO" != "$VERSION" ]; then
+              sed -i "s/^version = \"$OLD_CARGO\"/version = \"$VERSION\"/" Cargo.toml
+            fi
+            if [ "$OLD_TAURI" != "$VERSION" ]; then
+              # A targeted line edit, not `jq '.version = ...'`: jq re-serialises the whole file and
+              # expands the one-line arrays (`targets`, `deb.depends`, `rpm.depends`) into 18 extra
+              # lines, which would pollute every bump commit. The file has exactly one "version" key.
+              sed -i "s/\"version\": \"$OLD_TAURI\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
+            fi
+            cargo metadata --format-version 1 >/dev/null
+          else
+            [ "$OLD_CARGO" = "$VERSION" ] \
+              || { echo "::error::Cargo.toml says $OLD_CARGO, not $VERSION, and bump=false. Bump both files and commit first."; exit 1; }
+            [ "$OLD_TAURI" = "$VERSION" ] \
+              || { echo "::error::src-tauri/tauri.conf.json says $OLD_TAURI, not $VERSION, and bump=false. Bump both files and commit first."; exit 1; }
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "versions already at $VERSION; nothing to commit"
+          else
+            git add Cargo.toml Cargo.lock src-tauri/tauri.conf.json
+            git commit -m "chore: bump to $VERSION"
+            git push origin HEAD:master
+            echo "pushed the bump commit to master"
+          fi
+
+      - name: Tag the release commit
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.rel.outputs.tag }}"
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - name: Create the GitHub release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          NOTES: ${{ steps.rel.outputs.notes }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.rel.outputs.version }}"
+          TAG="${{ steps.rel.outputs.tag }}"
+          PRE=(); [ "${{ steps.rel.outputs.prerelease }}" = "true" ] && PRE=(--prerelease)
+
+          # Empty platforms on purpose. Each platform workflow merges its own entry in after the
+          # binary is uploaded; the release is promoted to Latest only when all three are present.
+          jq -n --arg v "$VERSION" --arg n "$NOTES" \
+                --arg d "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{version:$v, notes:$n, pub_date:$d, platforms:{}}' > latest.json
+
+          # --latest=false: see above. Publishing it as Latest here would point every installed
+          # client at a manifest with no binaries in it.
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --notes "$NOTES" \
+            --latest=false \
+            "${PRE[@]}" \
+            latest.json
+
+      - name: Dispatch the three platform builds
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.rel.outputs.tag }}"
+          # --ref master on purpose: the run executes on master so it can read the shared Actions
+          # cache, while each workflow checks out $TAG for the actual build. A release-triggered run
+          # would execute on the tag ref and recompile everything from scratch.
+          gh workflow run "Linux release binaries"   --repo "$GITHUB_REPOSITORY" --ref master -f tag="$TAG"
+          gh workflow run "Windows release binaries" --repo "$GITHUB_REPOSITORY" --ref master -f tag="$TAG"
+          gh workflow run "macOS release binaries"   --repo "$GITHUB_REPOSITORY" --ref master -f tag="$TAG"
+
+      - name: Dry run
+        if: ${{ inputs.dry_run }}
+        shell: bash
+        run: |
+          echo "Dry run: every check passed. Nothing was committed, tagged, published or dispatched."
+          echo "Re-run with dry_run=false to cut ${{ steps.rel.outputs.tag }}."
+
+      - name: Summary
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Release ${{ steps.rel.outputs.tag }} started
+
+          - Version bumped and tagged: \`${{ steps.rel.outputs.tag }}\`
+          - Release created (not Latest until all three platforms report in)
+          - Three build workflows dispatched
+
+          Watch them:
+          \`\`\`
+          gh run list --repo $GITHUB_REPOSITORY --limit 5
+          gh run watch --repo $GITHUB_REPOSITORY
+          \`\`\`
+
+          The release is marked **Latest** automatically once \`latest.json\` contains
+          \`linux-x86_64\`, \`windows-x86_64\` and \`darwin-aarch64\`.
+          EOF
