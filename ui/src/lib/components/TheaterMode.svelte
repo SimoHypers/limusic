@@ -114,6 +114,16 @@
 		clearTimeout(idleTimer);
 		idleTimer = setTimeout(() => (idle = true), 3500);
 	}
+	// Only a pointer that went somewhere wakes it. WebKit sends a pointermove of its own when content
+	// scrolls under a still pointer, so every lyrics line brought the dock and the pointer back (#573).
+	let lastX = NaN;
+	let lastY = NaN;
+	function onPointerMove(e: PointerEvent) {
+		if (e.screenX === lastX && e.screenY === lastY) return;
+		lastX = e.screenX;
+		lastY = e.screenY;
+		wake();
+	}
 	onMount(() => {
 		wake();
 		return () => clearTimeout(idleTimer);
@@ -398,13 +408,15 @@
 	}
 </script>
 
-<svelte:window onkeydown={onKey} onpointermove={wake} />
+<svelte:window onkeydown={onKey} onpointermove={onPointerMove} />
 
 <!-- Above the whole app including the titlebar (the chrome tops out at z-20): fullscreen means
      fullscreen. Below the dialogs and menus (z-50 and up) and the toast/update banners (z-100),
      which have to stay reachable from in here: Ctrl+K opened the palette behind this view.
      Transparent while mpv's picture shows through it; `inert:` is the fade out, when Svelte stops
-     updating classes here and the background has to come back on its own. -->
+     updating classes here and the background has to come back on its own.
+     Calm hides the pointer on everything inside, not just here: a `cursor-pointer` child (a lyrics
+     line, the cover, cinema's play/pause) overrides an inherited `cursor-none` (#573). -->
 <section
 	bind:this={view}
 	transition:fade={{ duration: 220 }}
@@ -414,7 +426,7 @@
 		? ''
 		: cinema
 			? 'bg-black'
-			: 'bg-background'} {cinema ? CINEMA_INK : ''} {calm ? 'cursor-none' : ''}"
+			: 'bg-background'} {cinema ? CINEMA_INK : ''} {calm ? 'cursor-none [&_*]:cursor-none' : ''}"
 >
 	{#if showVideo()}
 		<!-- The video lights the room itself (Settings > Video > ambient light), and nothing else
