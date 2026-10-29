@@ -2281,6 +2281,11 @@ impl AppState {
             self.emit_error(&item.video_id, &e.to_string());
             return false;
         }
+        // Where mpv starts, from now on: its first tick comes after the unpause, and that pause
+        // flag's Play (`lt_on_play_state`) reads this. Left at the last track's position, a Continue
+        // here told the device link the music was back where this desktop last stopped, and the
+        // phone picked it up there later.
+        self.latest_position.store(seek.unwrap_or(0.0).to_bits(), Ordering::SeqCst);
         // Listen Together host: announce the track before `play`, whose pause-flag change is the
         // room's Play. Sent after, a skip while paused reaches guests as "play" on the old track
         // first. At the position mpv starts at, so a retry or a restored context isn't sent as 0.
@@ -2531,7 +2536,7 @@ impl AppState {
                 "now": Self::now_playing_json(&track_to_song(&v.track), "remote"),
                 "paused": !v.playing,
                 "position": v.position_ms as f64 / 1000.0,
-                "duration": v.track.duration_ms as f64 / 1000.0,
+                "duration": remote_duration_ms(&v) as f64 / 1000.0,
                 "volume": saved_volume(&self.db),
                 "speed": speed,
                 "semitones": semitones,
@@ -3784,7 +3789,12 @@ impl AppState {
         let q = self.queue.lock().await;
         let cur = q.items.get(q.current)?;
         let mut p = Playback::at(PlaybackKind::ChangeTrack, position_ms);
-        p.track = Some(song_to_track(cur));
+        let mut track = song_to_track(cur);
+        // A row from a card or autoplay can lack a length that mpv already knows.
+        if track.duration_ms == 0 && q.duration > 0.0 {
+            track.duration_ms = (q.duration * 1000.0) as i64;
+        }
+        p.track = Some(track);
         p.queue = Some(q.items.iter().skip(q.current + 1).take(50).map(song_to_track).collect());
         p.playing = playing;
         Some(p)
@@ -4569,13 +4579,19 @@ impl AppState {
     fn emit_remote(&self, v: &RemoteView, all: bool) {
         let queue = remote_queue_json(v);
         let sig = queue.to_string();
+        let duration_ms = remote_duration_ms(v);
+        let key = format!("{}:{duration_ms}", v.track.id);
         let mut sent = self.remote_sent.lock().unwrap();
-        if all || sent.0 != v.track.id {
-            let now = Self::now_playing_json(&track_to_song(&v.track), "remote");
+        if all || sent.0 != key {
+            let mut song = track_to_song(&v.track);
+            if duration_ms > 0 {
+                song.duration = Some(format_duration(duration_ms));
+            }
+            let now = Self::now_playing_json(&song, "remote");
             let _ = self.app.emit("now-playing", now);
-            let duration = v.track.duration_ms as f64 / 1000.0;
+            let duration = duration_ms as f64 / 1000.0;
             let _ = self.app.emit("duration", serde_json::json!({ "duration": duration }));
-            sent.0 = v.track.id.clone();
+            sent.0 = key;
         }
         if all || sent.1 != sig {
             let _ = self.app.emit("queue-changed", queue);
@@ -4765,6 +4781,19 @@ fn remote_queue_json(v: &RemoteView) -> serde_json::Value {
         "prevTrack": null,
         "autoplay": v.status.as_ref().and_then(|s| s.autoplay),
     })
+}
+
+/// The other device's track length: what it announced, or when it announced none (the track had
+/// only just started there), the playing row of the queue it sent since.
+fn remote_duration_ms(v: &RemoteView) -> i64 {
+    if v.track.duration_ms > 0 {
+        return v.track.duration_ms;
+    }
+    v.status
+        .as_ref()
+        .and_then(|s| s.items.get(s.current))
+        .filter(|i| i.track.id == v.track.id)
+        .map_or(0, |i| i.track.duration_ms)
 }
 
 /// Queue row `index` of what the windows show of another device: its place in that device's
