@@ -15,6 +15,11 @@ The short version:
 Steps 1–4 are what `.github/workflows/release.yml` (added for this fork) automates. Step 5 happens
 inside the three platform workflows.
 
+**Nothing is released by a merge.** Pushing or merging to `master` only runs `checks.yml` (and the
+website workflow); every release starts with a manual `Create release` dispatch. Do not add
+`push`/`release` triggers to `release.yml` or the three platform workflows — they are deliberately
+dispatch-only so a merge can never publish binaries or mark a release Latest.
+
 ---
 
 ## 1. How the pipeline is put together
