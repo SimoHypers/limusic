@@ -153,7 +153,13 @@
 		"song": "Música",
 		"video": "Vídeo",
 		"comments": "Comentários",
-		"up_next": "A seguir"
+		"up_next": "A seguir",
+		"fullscreen_video": "Vídeo em tela cheia",
+		"exit_fullscreen_video": "Sair do vídeo em tela cheia",
+		"skip_back": "Voltar {seconds} segundos",
+		"skip_forward": "Avançar {seconds} segundos",
+		"speed": "Velocidade de reprodução",
+		"scroll_to_end": "Rolar até o fim"
 	},
 	"home": {
 		"good_morning": "Bom dia",
@@ -277,7 +283,10 @@
 		"suggestions_failed": "Não foi possível carregar as sugestões.",
 		"suggestion_add": "Adicionar {title} a esta playlist",
 		"suggestion_added": "Adicionada",
-		"saved_in_count": "{count} playlists"
+		"saved_in_count": "{count} playlists",
+		"suggestions_hide": "Ocultar",
+		"suggestions_show": "Mostrar",
+		"suggestions_hidden": "Sugestões ocultadas. Mostre-as novamente no final de qualquer uma das suas playlists."
 	},
 	"local": {
 		"scanning": "Verificando pasta...",
@@ -364,7 +373,9 @@
 			"start_minimized": "Iniciar na bandeja ao ligar o sistema",
 			"start_minimized_hint": "Quando o Limusic inicia junto com o sistema, ele fica na bandeja até você abri-lo. Se você mesmo abrir o app, a janela sempre será exibida.",
 			"track_notifications_focused": "Também ao usar o Limusic",
-			"track_notifications_focused_hint": "Mostrar uma notificação também quando a próxima música começar sozinha enquanto o Limusic for a janela ativa. Músicas que você mesmo escolhe nunca exibem uma."
+			"track_notifications_focused_hint": "Mostrar uma notificação também quando a próxima música começar sozinha enquanto o Limusic for a janela ativa. Músicas que você mesmo escolhe nunca exibem uma.",
+			"play_on_start": "Retomar reprodução ao abrir",
+			"play_on_start_hint": "Começa a tocar sua última fila quando o Limusic abrir."
 		},
 		"themes": {
 			"interface_font": "Fonte da interface",
@@ -420,7 +431,11 @@
 			"matugen": "Matugen",
 			"matugen_hint": "Use todas as cores, incluindo a de destaque, da paleta que o Matugen cria a partir do seu papel de parede. Configure o modelo do Limusic no Matugen primeiro.",
 			"classic_player": "Layout clássico do player",
-			"classic_player_hint": "A tela original do player: apenas a capa sobre uma cópia desfocada da mesma, com os detalhes da música na barra do player. Desativado usa o novo layout, com o título, artista e álbum abaixo da capa e a tela iluminada pelas cores da capa."
+			"classic_player_hint": "A tela original do player: apenas a capa sobre uma cópia desfocada da mesma, com os detalhes da música na barra do player. Desativado usa o novo layout, com o título, artista e álbum abaixo da capa e a tela iluminada pelas cores da capa.",
+			"empty_click_player": "Clique no espaço vazio para abrir ou fechar o player",
+			"empty_click_player_hint": "Ativado: clicar em uma parte vazia da barra do player abre ou fecha a tela do player, e clicar ao redor da capa também a fecha. Desativado: apenas os botões de seta, Esc e o atalho de teclado fazem isso.",
+			"now_playing_pill": "Botão Tocando agora",
+			"now_playing_pill_hint": "Mostra um botão para voltar à música em reprodução quando ela sair da tela, em uma playlist ou na fila."
 		},
 		"playback": {
 			"audio_quality": "Qualidade de áudio",
@@ -734,10 +749,72 @@
 			"quit_app": "Sair do Limusic"
 		},
 		"tempo_pitch": {
-			"title": "Controles de tempo e tom",
+			"title": "Andamento, Tom e Reverb",
 			"desc": "Vale para tudo que tocar, até você mudar de novo ou reiniciar o app.",
-			"tempo": "Tempo (Velocidade)",
-			"pitch": "Tom (Afinação)"
+			"tempo": "Andamento",
+			"pitch": "Tom",
+			"presets": "Predefinições",
+			"builtin": {
+				"original": "Original",
+				"slowed": "Desacelerado + reverb",
+				"nightcore": "Nightcore",
+				"practice": "Prática",
+				"hall": "Sala de concertos"
+			},
+			"builtin_hints": {
+				"original": "A música como foi lançada",
+				"slowed": "Mais lenta e grave, em uma sala grande",
+				"nightcore": "Mais rápida e aguda, com um toque de reverb",
+				"practice": "Mais lenta, no mesmo tom",
+				"hall": "Como se estivesse tocando ao vivo"
+			},
+			"preset_save": "Salvar como predefinição",
+			"preset_save_hint": "Mantenha o que está ouvindo agora para mais tarde",
+			"preset_save_none": "Altere algo abaixo primeiro",
+			"preset_name": "Nome da predefinição",
+			"preset_replace": "Substituir",
+			"preset_delete": "Excluir {name}",
+			"preset_duplicate": "Você já tem uma predefinição com este nome. Salvar irá substituí-la.",
+			"preset_save_error": "Não foi possível salvar suas predefinições. Tente novamente; suas predefinições salvas não foram alteradas.",
+			"preset_load_error": "Não foi possível ler suas predefinições salvas. O salvamento foi desativado para protegê-las.",
+			"preset_room_hint": "Em uma sala de audição, as predefinições aplicam apenas tom e reverb. O andamento salvo é mantido para audição solo.",
+			"adjust": "Ajustar",
+			"normal": "Normal",
+			"pitch_short": "tom {n}",
+			"slower": "Mais lento",
+			"faster": "Mais rápido",
+			"lower": "Mais grave",
+			"higher": "Mais agudo",
+			"song_length": "Esta música dura {time}",
+			"tempo_room_locked": "O andamento permanece normal em uma sala de audição, para que todos ouçam o mesmo momento.",
+			"reverb": "Reverb",
+			"reverb_hint": "Faça soar como se estivesse tocando em uma sala.",
+			"reverb_room": "Sala",
+			"reverb_types": {
+				"small_room": "Sala pequena",
+				"medium_room": "Sala média",
+				"large_room": "Sala grande",
+				"medium_hall": "Auditório médio",
+				"large_hall": "Auditório grande",
+				"plate": "Placa"
+			},
+			"reverb_amount": "Intensidade",
+			"reverb_fine_tune": "Mais configurações de reverb",
+			"reverb_controls": {
+				"dry": "Nível da música",
+				"decay": "Duração",
+				"preDelay": "Pré-delay",
+				"damping": "Brilho",
+				"reflections": "Reflexões iniciais"
+			},
+			"reverb_control_hints": {
+				"dry": "Quão alta é a própria música, sob o reverb.",
+				"decay": "Quanto tempo o reverb permanece após cada som.",
+				"preDelay": "Uma pequena pausa antes do reverb começar. Mais soa como uma sala maior.",
+				"damping": "Mais baixo deixa o reverb mais escuro. A música em si não é afetada.",
+				"reflections": "Quanto você ouve dos primeiros ecos nas paredes."
+			},
+			"reset_all": "Redefinir tudo"
 		},
 		"link": {
 			"title": "Abrir link",
