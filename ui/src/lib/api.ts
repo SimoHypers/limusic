@@ -1354,6 +1354,8 @@ export interface LinkState {
 	error: string | null;
 	/** The server the link was made on; empty means the default. */
 	server: string;
+	/** This desktop's name as the other devices see it. */
+	selfName: string;
 	/** A live pairing code; `expiresAt` is unix ms on this machine's clock. */
 	pairing: { code: string; expiresAt: number } | null;
 	/** The other linked devices. */

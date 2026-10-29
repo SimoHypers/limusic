@@ -6,6 +6,7 @@ export const link = $state<LinkState>({
 	status: 'off',
 	error: null,
 	server: '',
+	selfName: '',
 	pairing: null,
 	devices: [],
 	player: null,

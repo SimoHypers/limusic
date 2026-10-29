@@ -405,6 +405,7 @@ impl LinkSession {
             "status": status,
             "error": inner.error,
             "server": inner.config.as_ref().map(|c| c.server.as_str()).unwrap_or(""),
+            "selfName": self.name,
             "pairing": inner.pair.as_ref().map(|(code, until)| serde_json::json!({
                 "code": code,
                 "expiresAt": until,
