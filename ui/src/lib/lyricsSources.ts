@@ -11,7 +11,6 @@ export const SOURCE_KIND: Record<string, LyricsKind> = {
 	lyricsplus: 'words',
 	lrclib: 'synced',
 	youtube: 'synced',
-	simpmusic: 'synced',
 	netease: 'synced',
 	qq: 'synced',
 	kugou: 'synced'

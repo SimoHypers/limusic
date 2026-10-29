@@ -10,8 +10,7 @@
 //! 3. **LRCLIB**: `/api/get` (exact), then `/api/search` (fuzzy, ±5s). Free, no key, best coverage.
 //! 4. **YouTube Music**: `next(videoId)` → lyrics browseId → mobile-client browse
 //!    (`timedLyricsData`), else the plain text with YouTube's attribution.
-//! 5. **SimpMusic**: community lyrics filed by videoId, so timed to the exact upload playing.
-//! 6. **Netease / QQ / Kugou**: synced LRC, plus translations from Netease. Search hits are matched
+//! 5. **Netease / QQ / Kugou**: synced LRC, plus translations from Netease. Search hits are matched
 //!    on length (`best_by_duration`); these catalogues rank remixes next to originals.
 //!
 //! Synced beats plain: the first synced answer down the list wins, and only when none is synced
@@ -37,7 +36,7 @@ const MISS_TTL_SECS: i64 = 24 * 3600;
 
 /// How far apart `fetch` starts the providers. A first answer takes ~0.4-0.7s (timed 2026-10-16),
 /// so a hit at the top of the list usually sends one or two requests below it, and a miss
-/// everywhere costs about the slowest provider plus 7 × this instead of all of them added up.
+/// everywhere costs about the slowest provider plus 6 × this instead of all of them added up.
 const STAGGER: Duration = Duration::from_millis(300);
 
 /// The most one provider may take in `fetch`, all of its requests together. Reading in order means
@@ -48,8 +47,8 @@ const LRCLIB_ROOT: &str = "https://lrclib.net/api";
 
 /// Every provider, in the order a fresh install asks them. The user's order lives in the
 /// `lyrics_providers` setting; this is the default and the list of what exists.
-pub const PROVIDERS: [&str; 8] =
-    ["boidu", "lyricsplus", "lrclib", "youtube", "simpmusic", "netease", "qq", "kugou"];
+pub const PROVIDERS: [&str; 7] =
+    ["boidu", "lyricsplus", "lrclib", "youtube", "netease", "qq", "kugou"];
 
 /// The attribution a provider's lyrics carry (`Lyrics::source`), also its name in Settings.
 pub fn provider_name(id: &str) -> &'static str {
@@ -58,7 +57,6 @@ pub fn provider_name(id: &str) -> &'static str {
         "lyricsplus" => "LyricsPlus",
         "lrclib" => "LRCLIB",
         "youtube" => "YouTube Music",
-        "simpmusic" => "SimpMusic",
         "netease" => "Netease Cloud Music",
         "qq" => "QQ Music",
         "kugou" => "Kugou",
@@ -296,7 +294,6 @@ async fn ask(
         "lyricsplus" => lyricsplus_get(req).await.map_err(e),
         "lrclib" => lrclib(req).await.map_err(e),
         "youtube" => youtube_get(state, next).await,
-        "simpmusic" => simpmusic_get(req).await.map_err(e),
         "netease" => netease_get(req).await.map_err(e),
         "qq" => qqmusic_get(req).await.map_err(e),
         "kugou" => kugou_get(req).await.map_err(e),
@@ -344,7 +341,7 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
         tracing::debug!(error = %e, "lyrics: next() failed");
     }
     let (req, next) = (&req, &next);
-    let cacheable = |id: &str| req.duration.is_some() || matches!(id, "youtube" | "simpmusic");
+    let cacheable = |id: &str| req.duration.is_some() || id == "youtube";
 
     // Provider i starts at i × STAGGER instead of after provider i-1 answers (#482): a song with no
     // synced lyrics anywhere used to wait on every provider in turn, ~10s. Answers are still read
@@ -900,54 +897,6 @@ fn kpoe_to_lyrics(k: Kpoe, ours: Option<f64>) -> Option<Lyrics> {
         })
         .collect();
     from_parsed("LyricsPlus", lines)
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SimpMusicTrack {
-    #[serde(default)]
-    plain_lyric: Option<String>,
-    #[serde(default)]
-    synced_lyrics: Option<String>,
-    /// Enhanced LRC, word-timed. Empty on most.
-    #[serde(default)]
-    rich_sync_lyrics: Option<String>,
-    #[serde(default)]
-    vote: i64,
-}
-
-/// SimpMusic's community library, filed by YouTube videoId (#46). The one provider matched on the
-/// upload itself rather than on title and length, so its timings are for the cut actually playing,
-/// a music video's intro included. Community-written, hence below the curated ones by default.
-async fn simpmusic_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Error> {
-    if crate::local::is_local_song(&req.video_id) {
-        return Ok(None);
-    }
-    #[derive(Deserialize)]
-    struct Resp {
-        data: Option<Vec<SimpMusicTrack>>,
-    }
-    let resp = crate::http::client()
-        .get(format!("https://api-lyrics.simpmusic.org/v1/{}", req.video_id))
-        .header("User-Agent", LRCLIB_UA)
-        .timeout(Duration::from_secs(8))
-        .send()
-        .await?;
-    if resp.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(None);
-    }
-    let mut tracks = resp.error_for_status()?.json::<Resp>().await?.data.unwrap_or_default();
-    // Several submissions can compete for one video: the best voted first.
-    tracks.sort_by_key(|t| std::cmp::Reverse(t.vote));
-    let synced = tracks.iter().find_map(|t| {
-        [&t.rich_sync_lyrics, &t.synced_lyrics].into_iter().flatten().find_map(|lrc| {
-            // A top-voted submission on one cue must not hide a timed one below it.
-            from_parsed("SimpMusic", parse_elrc(lrc)).map(unsync_flat).filter(|l| l.synced)
-        })
-    });
-    Ok(synced.or_else(|| {
-        tracks.iter().find_map(|t| plain_from_text(t.plain_lyric.as_deref(), "SimpMusic"))
-    }))
 }
 
 /// How far a search hit's length may sit from the track we're actually playing. Same tolerance the
@@ -1702,7 +1651,7 @@ mod tests {
         // Unknown and repeated ids are dropped; the ones it doesn't name follow, switched on.
         assert_eq!(
             ids(provider_order(Some("lrclib, -boidu,gone,lrclib"))),
-            "lrclib,-boidu,lyricsplus,youtube,simpmusic,netease,qq,kugou"
+            "lrclib,-boidu,lyricsplus,youtube,netease,qq,kugou"
         );
     }
 
@@ -1820,19 +1769,10 @@ mod tests {
             album: None,
             duration: Some(233.0),
         };
-        // The official music video, which SimpMusic files lyrics under.
-        let video = LyricsRequest {
-            video_id: "JGwWNGJdvx8".into(),
-            title: req.title.clone(),
-            artists: req.artists.clone(),
-            album: None,
-            duration: Some(264.0),
-        };
         let mut alive = 0;
         for (name, hit) in [
             ("Boidu", boidu_get(&req).await),
             ("LyricsPlus", lyricsplus_get(&req).await),
-            ("SimpMusic", simpmusic_get(&video).await),
             ("Netease Cloud Music", netease_get(&req).await),
             ("QQ Music", qqmusic_get(&req).await),
             ("Kugou", kugou_get(&req).await),
