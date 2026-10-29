@@ -194,6 +194,10 @@ pub enum RemoteAction {
     SetRepeat {
         mode: String,
     },
+    /// The player's own Autoplay setting.
+    SetAutoplay {
+        on: bool,
+    },
     /// To a device that isn't playing: play what the player plays, from where it is now, with its
     /// queue (Continue here, asked from another device).
     TakeOver,
@@ -219,6 +223,9 @@ pub struct LinkStatus {
     /// The playlist or album the queue plays from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// The player's Autoplay setting; absent from a player that predates it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autoplay: Option<bool>,
 }
 
 /// A queue row with the marks the queue panel draws.
@@ -614,6 +621,7 @@ mod tests {
             RemoteAction::ClearQueued,
             RemoteAction::SetShuffle { on: true },
             RemoteAction::SetRepeat { mode: "one".into() },
+            RemoteAction::SetAutoplay { on: false },
             RemoteAction::TakeOver,
         ] {
             // Through the wire message the way a client sends it and the server passes it on.
@@ -669,6 +677,7 @@ mod tests {
             shuffle: true,
             repeat: "all".into(),
             source: Some("Mix".into()),
+            autoplay: Some(true),
         };
         let json = serde_json::to_string(&s).unwrap();
         assert_eq!(serde_json::from_str::<LinkStatus>(&json).unwrap(), s);

@@ -105,6 +105,9 @@ export interface QueueState {
 	 *  Set only while `backToPrevious` would actually do something: at the head of the queue, with
 	 *  a kept one behind it. */
 	prevTrack?: string | null;
+	/** The playing device's Autoplay setting: this desktop's, or a linked phone's while the bar
+	 *  controls it. Absent from a phone that predates it. */
+	autoplay?: boolean | null;
 }
 
 export interface Account {
@@ -1074,6 +1077,7 @@ export interface QueueIndex {
 	sourceId?: string | null;
 	prevTrack?: string | null;
 	current: SongItem | null;
+	autoplay?: boolean | null;
 }
 
 export const onQueueIndex = (cb: (q: QueueIndex) => void): Promise<UnlistenFn> =>

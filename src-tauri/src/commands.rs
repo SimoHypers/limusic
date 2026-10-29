@@ -415,6 +415,13 @@ pub async fn set_setting(
     if !UI_SETTINGS.contains(&key.as_str()) {
         return Err(format!("unknown setting: {key}"));
     }
+    // The queue panel's switch is the playing device's: while the player bar controls a linked
+    // phone, it flips the phone's Autoplay and leaves this desktop's as it is.
+    if key == "autoplay" && state.showing_remote() {
+        let on = value != "false";
+        state.link.remote(listen_protocol::RemoteAction::SetAutoplay { on }, None);
+        return Ok(());
+    }
     // Registers/removes the login autostart entry on toggle; the OS persists it from there, and
     // startup repoints an existing entry at the running binary (lib.rs). Before the write, so a
     // failure leaves the setting as it was. A dev build would register itself, and at login its

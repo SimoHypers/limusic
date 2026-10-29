@@ -112,6 +112,8 @@ pub struct AppState {
     /// What the windows were last sent of the other device (track id, queue), so a position
     /// report doesn't resend the queue.
     remote_sent: std::sync::Mutex<(String, String)>,
+    /// A seek sent to the other device: its old position isn't ticked over the new one until then.
+    remote_hold: std::sync::Mutex<Option<std::time::Instant>>,
     /// Latest mpv position (f64 bits) + wall-clock secs of the last DB write, for throttled
     /// resume-position persistence.
     latest_position: AtomicU64,
@@ -514,6 +516,7 @@ impl AppState {
             remote_on: AtomicBool::new(false),
             remote_gen: AtomicU64::new(0),
             remote_sent: std::sync::Mutex::default(),
+            remote_hold: std::sync::Mutex::default(),
             generation: AtomicU64::new(0),
             rate_epoch: AtomicU64::new(0),
             comments: std::sync::Mutex::new(innertube::CommentsSession::default()),
@@ -1796,9 +1799,13 @@ impl AppState {
     /// loaded but the queue is non-empty, load the current track (applying any resume position);
     /// otherwise just toggle mpv. Keeps the UI's single play/pause button working after a restart.
     pub async fn resume_or_toggle(self: &std::sync::Arc<Self>) {
-        if self
-            .link_route(|v| Some(if v.playing { RemoteAction::Pause } else { RemoteAction::Play }))
-        {
+        let mut playing = false;
+        if self.link_route(|v| {
+            playing = !v.playing;
+            Some(if v.playing { RemoteAction::Pause } else { RemoteAction::Play })
+        }) {
+            // Shown at once; the other device's answer follows within a round trip.
+            let _ = self.app.emit("playback-state", if playing { "playing" } else { "paused" });
             return;
         }
         if self.lt.is_guest().await {
@@ -2890,6 +2897,7 @@ impl AppState {
                 // The playing row, so `start_current`'s duration/artists backfill still reaches
                 // the panel without shipping the other 4,999 rows to carry it.
                 "current": q.items.get(q.current),
+                "autoplay": self.autoplay_enabled(),
             })
         } else {
             serde_json::json!({
@@ -2900,11 +2908,12 @@ impl AppState {
                 "sourceName": &q.source_name,
                 "sourceId": &q.source_id,
                 "prevTrack": prev_track_title(&q),
+                "autoplay": self.autoplay_enabled(),
             })
         };
         self.emit_own(if unchanged { "queue-index" } else { "queue-changed" }, payload);
         if self.link.linked() {
-            self.link.publish_status(link_status(&q));
+            self.link.publish_status(link_status(&q, self.autoplay_enabled()));
         }
     }
 
@@ -2928,7 +2937,7 @@ impl AppState {
         self.last_queue_fingerprint.store(queue_fingerprint(&q.items), Ordering::Relaxed);
         self.emit_own("queue-appended", payload);
         if self.link.linked() {
-            self.link.publish_status(link_status(&q));
+            self.link.publish_status(link_status(&q, self.autoplay_enabled()));
         }
     }
 
@@ -2978,6 +2987,7 @@ impl AppState {
             "sourceName": &q.source_name,
             "sourceId": &q.source_id,
             "prevTrack": prev_track_title(&q),
+            "autoplay": self.autoplay_enabled(),
         })
     }
 
@@ -3796,7 +3806,8 @@ impl AppState {
     /// player, and only when it changed.
     async fn link_publish_status(&self) {
         if self.link.linked() {
-            self.link.publish_status(link_status(&*self.queue.lock().await));
+            self.link
+                .publish_status(link_status(&*self.queue.lock().await, self.autoplay_enabled()));
         }
     }
 
@@ -3871,6 +3882,9 @@ impl AppState {
     pub async fn user_seek(&self, position: f64) -> Result<(), String> {
         let position_ms = (position.max(0.0) * 1000.0) as i64;
         if self.link_route(|_| Some(RemoteAction::Seek { position_ms })) {
+            *self.remote_hold.lock().unwrap() =
+                Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+            let _ = self.app.emit("position", serde_json::json!({ "position": position.max(0.0) }));
             return Ok(());
         }
         if self.lt.is_guest().await {
@@ -4359,6 +4373,9 @@ impl AppState {
         } else {
             self.drop_upcoming(|item| item.autoplay).await;
         }
+        // The switch's own state, even when no row came or went: the queue panels and a linked
+        // phone show it.
+        self.emit_queue().await;
     }
 
     /// Remove every upcoming track `pick` matches. Guests: add-only, no clearing.
@@ -4465,6 +4482,10 @@ impl AppState {
                         self.set_repeat(mode).await;
                     }
                 }
+                RemoteAction::SetAutoplay { on } => {
+                    self.db.set_setting("autoplay", if on { "true" } else { "false" });
+                    self.autoplay_changed(on).await;
+                }
                 // The session only hands this over when we aren't the player.
                 RemoteAction::TakeOver => {}
             },
@@ -4532,7 +4553,9 @@ impl AppState {
         let me = self.clone();
         tauri::async_runtime::spawn(async move {
             while me.showing_remote() && me.remote_gen.load(Ordering::SeqCst) == gen {
-                if let Some(v) = me.link.remote_view().filter(|v| v.playing) {
+                let now = std::time::Instant::now();
+                let held = me.remote_hold.lock().unwrap().is_some_and(|t| t > now);
+                if let Some(v) = me.link.remote_view().filter(|v| v.playing && !held) {
                     let position = v.position_ms as f64 / 1000.0;
                     let _ = me.app.emit("position", serde_json::json!({ "position": position }));
                 }
@@ -4672,7 +4695,7 @@ const LINK_HISTORY: usize = 20;
 const LINK_UPCOMING: usize = 100;
 
 /// The queue around the playing track, for the linked devices (`devicelink::publish_status`).
-fn link_status(q: &QueueState) -> listen_protocol::LinkStatus {
+fn link_status(q: &QueueState, autoplay: bool) -> listen_protocol::LinkStatus {
     let start = q.current.saturating_sub(LINK_HISTORY).min(q.items.len());
     let end = (q.current + 1 + LINK_UPCOMING).min(q.items.len());
     listen_protocol::LinkStatus {
@@ -4694,6 +4717,7 @@ fn link_status(q: &QueueState) -> listen_protocol::LinkStatus {
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_default(),
         source: q.source_name.clone(),
+        autoplay: Some(autoplay),
     }
 }
 
@@ -4739,6 +4763,7 @@ fn remote_queue_json(v: &RemoteView) -> serde_json::Value {
         "sourceName": source,
         "sourceId": null,
         "prevTrack": null,
+        "autoplay": v.status.as_ref().and_then(|s| s.autoplay),
     })
 }
 

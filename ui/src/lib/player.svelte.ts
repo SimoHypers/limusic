@@ -13,7 +13,7 @@ import type {
 	SongItem
 } from './api';
 import { applyLtState, lt } from './lt.svelte';
-import { applyLinkState } from './link.svelte';
+import { applyLinkState, link } from './link.svelte';
 import { clearCached, invalidateCached, LIBRARY_SONGS_KEY } from './pagecache';
 import * as pl from './personal';
 import type { Personal } from './personal';
@@ -78,7 +78,9 @@ export const prefs = $state({
 /** Rust drops the upcoming autoplay tracks when this goes off, and tops a short queue up when it
  *  comes on, so the queue shows what will actually play. */
 export function setAutoplay(on: boolean): void {
-	prefs.autoplay = on;
+	// While the bar controls a linked phone, Rust sends this to the phone; ours stays as it is.
+	if (!link.remote) prefs.autoplay = on;
+	playback.queue.autoplay = on;
 	api.setSetting('autoplay', on ? 'true' : 'false').catch((e) => toast.error(String(e)));
 }
 
@@ -1556,7 +1558,8 @@ export function initApp(mini = false): () => void {
 				repeat: q.repeat,
 				sourceName: q.sourceName,
 				sourceId: q.sourceId,
-				prevTrack: q.prevTrack
+				prevTrack: q.prevTrack,
+				autoplay: q.autoplay
 			};
 		}),
 		api.onQueueAppended((q) => {
