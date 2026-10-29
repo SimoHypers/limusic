@@ -159,11 +159,6 @@
 		return () => clearTimeout(timer);
 	});
 
-	// A focused slider (the seek bar or volume, after a click) is not a text field: F must still
-	// work there.
-	const textTarget = (el: EventTarget | null) =>
-		typing(el) && !(el instanceof HTMLInputElement && el.type === 'range');
-
 	function onKey(e: KeyboardEvent) {
 		wake();
 		// A dialog or menu open over this one (the palette, the shortcut sheet, a track menu) already
@@ -183,7 +178,7 @@
 			!e.altKey &&
 			!e.repeat &&
 			showVideo() &&
-			!textTarget(e.target)
+			!typing(e.target)
 		) {
 			e.preventDefault();
 			toggleCinema();
