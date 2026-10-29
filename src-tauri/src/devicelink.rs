@@ -47,6 +47,9 @@ pub enum LinkCommand {
 /// Paused longer than this, the device that played last stops being the one this desktop shows
 /// and controls (the phone's rule too).
 const STALE_PAUSE_MS: i64 = 10 * 60 * 1000;
+/// A phone on mobile data drops for a moment now and then, and so can this socket: for this long
+/// the player bar keeps showing the device it controls instead of flipping to ours and back.
+const RECONNECT_GRACE: Duration = Duration::from_secs(10);
 
 /// What another linked device plays, for this desktop to show and control (Spotify Connect style).
 pub struct RemoteView {
@@ -121,6 +124,10 @@ struct Inner {
     sent_status: Option<String>,
     /// The player bar shows another device's playback right now (`AppState` decides).
     showing_remote: bool,
+    /// When this socket dropped from a joined room, and when the player went offline (unix ms):
+    /// within [`RECONNECT_GRACE`] of either, the room as last heard still counts.
+    lost_at: Option<i64>,
+    host_lost_at: Option<i64>,
     outbound: Option<mpsc::UnboundedSender<ClientMessage>>,
 }
 
@@ -231,15 +238,17 @@ impl LinkSession {
     /// [`STALE_PAUSE_MS`] ago.
     pub fn remote_view(&self) -> Option<RemoteView> {
         let inner = self.lock();
-        if !inner.joined || inner.is_player() {
+        let now = now_ms();
+        let recent =
+            |at: Option<i64>| at.is_some_and(|t| now - t < RECONNECT_GRACE.as_millis() as i64);
+        if (!inner.joined && !recent(inner.lost_at)) || inner.is_player() {
             return None;
         }
         let host = inner.room.users.iter().find(|u| u.user_id == inner.room.host_id)?;
-        if !host.is_connected {
+        if !host.is_connected && !recent(inner.host_lost_at) {
             return None;
         }
         let track = inner.room.current_track.clone()?;
-        let now = now_ms();
         if !inner.room.is_playing && now - inner.room.last_update_ms > STALE_PAUSE_MS {
             return None;
         }
@@ -423,6 +432,15 @@ impl LinkSession {
         })
     }
 
+    /// Look again once a grace period is over: nothing else changes when nothing comes back.
+    fn recheck_after_grace(&self) {
+        let tx = self.cmd_tx.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(RECONNECT_GRACE + Duration::from_millis(100)).await;
+            let _ = tx.send(LinkCommand::Changed);
+        });
+    }
+
     fn emit_state(&self) {
         let _ = self.app.emit("link-state", self.snapshot());
         let _ = self.cmd_tx.send(LinkCommand::Changed);
@@ -536,6 +554,10 @@ impl LinkSession {
                     ping.abort();
                     if live() {
                         let mut inner = self.lock();
+                        if inner.joined {
+                            inner.lost_at = Some(now_ms());
+                            self.recheck_after_grace();
+                        }
                         inner.outbound = None;
                         inner.joined = false;
                     }
@@ -576,6 +598,8 @@ impl LinkSession {
                 ServerMessage::LinkJoined { mut state, status } => {
                     state.queue.retain(shareable);
                     inner.room = state;
+                    inner.lost_at = None;
+                    inner.host_lost_at = None;
                     inner.status = status.and_then(|s| serde_json::from_value(s).ok());
                     // A restarted server has none of ours: the republish below sends it again.
                     inner.sent_status = None;
@@ -607,9 +631,16 @@ impl LinkSession {
                     alone = inner.others() == 0 && inner.pair.is_none() && !inner.want_pair;
                 }
                 ServerMessage::UserDisconnected { user_id } => {
+                    if user_id == inner.room.host_id {
+                        inner.host_lost_at = Some(now_ms());
+                        self.recheck_after_grace();
+                    }
                     set_online(&mut inner.room.users, &user_id, false)
                 }
                 ServerMessage::UserReconnected { user_id } => {
+                    if user_id == inner.room.host_id {
+                        inner.host_lost_at = None;
+                    }
                     set_online(&mut inner.room.users, &user_id, true)
                 }
                 ServerMessage::HostChanged { host_id } => {

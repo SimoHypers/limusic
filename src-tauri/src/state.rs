@@ -2645,19 +2645,10 @@ impl AppState {
     fn emit_now_playing(&self, item: &SongItem, stream_client: &str) {
         self.emit_own("now-playing", Self::now_playing_json(item, stream_client));
         self.emit_own("playback-state", "playing");
-        // Push the same metadata to the OS media widget (context/16) and Discord.
-        if let Some(m) = &self.media {
-            // MPRIS/SMTC want a URL; a local track's artwork is a path, so hand it a file:// one.
-            // Scheme, not leading slash: a Windows cover path is `C:\...`, and SMTC drops the whole
-            // metadata update (cover included) when the thumbnail URI won't parse.
-            let cover = item.thumbnail.as_ref().map(|t| {
-                if t.contains("://") {
-                    crate::media::cover_url(t)
-                } else {
-                    format!("file://{t}")
-                }
-            });
-            m.set_metadata(&item.title, &item.artists, item.album.as_deref(), cover.as_deref());
+        // Push the same metadata to the OS media widget (context/16) and Discord. The widget keeps
+        // showing a linked device's song while the windows do.
+        if !self.showing_remote() {
+            self.media_show(item);
         }
         if let Some(d) = &self.discord {
             d.set_track(item);
@@ -2678,6 +2669,23 @@ impl AppState {
         // New track ⇒ let the next position tick through immediately instead of waiting out the
         // ~1s throttle, so a restored seek position (and the play-state self-heal) lands at once.
         self.last_media_push.store(0, Ordering::Relaxed);
+    }
+
+    /// The OS media widget's track (context/16).
+    fn media_show(&self, item: &SongItem) {
+        if let Some(m) = &self.media {
+            // MPRIS/SMTC want a URL; a local track's artwork is a path, so hand it a file:// one.
+            // Scheme, not leading slash: a Windows cover path is `C:\...`, and SMTC drops the whole
+            // metadata update (cover included) when the thumbnail URI won't parse.
+            let cover = item.thumbnail.as_ref().map(|t| {
+                if t.contains("://") {
+                    crate::media::cover_url(t)
+                } else {
+                    format!("file://{t}")
+                }
+            });
+            m.set_metadata(&item.title, &item.artists, item.album.as_deref(), cover.as_deref());
+        }
     }
 
     /// Push the volume to MPRIS (#220). Called after every change, wherever it came from.
@@ -4591,6 +4599,11 @@ impl AppState {
             let _ = self.app.emit("now-playing", now);
             let duration = duration_ms as f64 / 1000.0;
             let _ = self.app.emit("duration", serde_json::json!({ "duration": duration }));
+            // The OS widget too: its keys already reach the other device (`link_route`).
+            self.media_show(&song);
+            if let Some(m) = &self.media {
+                m.set_duration(duration, 1.0);
+            }
             sent.0 = key;
         }
         if all || sent.1 != sig {
@@ -4600,6 +4613,9 @@ impl AppState {
         let _ = self.app.emit("playback-state", if v.playing { "playing" } else { "paused" });
         let position = v.position_ms as f64 / 1000.0;
         let _ = self.app.emit("position", serde_json::json!({ "position": position }));
+        if let Some(m) = &self.media {
+            m.set_playback(v.playing, position, 1.0);
+        }
     }
 
     /// Back from showing another device: the windows get this desktop's own playback again.
@@ -4614,6 +4630,15 @@ impl AppState {
         // The windows hold the other device's rows: send ours whole, not just the index.
         self.last_queue_fingerprint.store(0, Ordering::Relaxed);
         self.emit_queue().await;
+        // And the OS widget its own track back.
+        if let Some(item) = self.current_item().await {
+            self.media_show(&item);
+        }
+        if let Some(m) = &self.media {
+            let speed = self.player.speed();
+            m.set_duration(snap["duration"].as_f64().unwrap_or(0.0), speed);
+            m.set_playback(!paused, self.current_position(), speed);
+        }
     }
 
     /// While the windows show another device, playback goes there: `action` picks what to send
