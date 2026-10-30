@@ -72,12 +72,13 @@
 		videoSide
 	} from '$lib/video.svelte';
 	import { artRoom } from '$lib/artroom.svelte';
-	import { appearance, setAppearance } from '$lib/theme.svelte';
+	import { appearance, setAppearance, theme } from '$lib/theme.svelte';
 	import { isMissingThumb, thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
 	import { keyOf, typing } from '$lib/shortcuts';
 	import ArtistLine from './ArtistLine.svelte';
 	import LyricsView from './LyricsView.svelte';
+	import M3SeekWave from './M3SeekWave.svelte';
 	import QueueList from './QueueList.svelte';
 	import SpeedPicker from './SpeedPicker.svelte';
 	import TrackMenu from './TrackMenu.svelte';
@@ -761,22 +762,39 @@
 		     shift a few px per tick (#463). -->
 		<div class="flex items-center gap-4 text-xs font-medium tabular-nums text-muted-foreground">
 			<span class="min-w-[5ch] text-right">{fmt(shownPosition)}</span>
-			<input
-				type="range"
-				class="range theater-range min-w-0 flex-1 {cinema ? 'on-art' : ''}"
+			<div
+				class="m3-seek m3-seek-theater relative flex min-w-0 flex-1 items-center {cinema ? 'on-art' : ''}"
 				style="--pct:{pct}%"
-				min="0"
-				max={shownDuration || 0}
-				value={shownPosition}
-				oninput={(e) => (seekDrag = Number(e.currentTarget.value) * playback.speed)}
-				onchange={(e) => {
-					const v = Number(e.currentTarget.value) * playback.speed;
-					playback.position = v;
-					seekDrag = null;
-					api.seek(v);
-				}}
-				aria-label={t('player.seek')}
-			/>
+			>
+				<M3SeekWave
+					pct={pct / 100}
+					paused={playback.paused}
+					duration={shownDuration}
+					dragging={seekDrag !== null}
+					strokeWidth={4.5}
+					thumbWidth={5}
+					thumbHeight={22}
+					maxAmp={3.4}
+					wavelength={24}
+				/>
+				<input
+					type="range"
+					class="range theater-range min-w-0 flex-1 {cinema ? 'on-art' : ''}"
+					style="--pct:{pct}%"
+					min="0"
+					max={shownDuration || 0}
+					step={theme.id === 'material' ? 'any' : 1}
+					value={shownPosition}
+					oninput={(e) => (seekDrag = Number(e.currentTarget.value) * playback.speed)}
+					onchange={(e) => {
+						const v = Number(e.currentTarget.value) * playback.speed;
+						playback.position = v;
+						seekDrag = null;
+						api.seek(v);
+					}}
+					aria-label={t('player.seek')}
+				/>
+			</div>
 			<span class="min-w-[5ch]">{fmt(shownDuration)}</span>
 		</div>
 
@@ -866,6 +884,8 @@
 				{/if}
 				<button
 					type="button"
+					data-theater-play
+					data-playing={playback.paused ? 'false' : 'true'}
 					onclick={() => api.togglePause()}
 					class="mx-1 flex cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform duration-150 hover:scale-[1.06] active:scale-95 {short.current
 						? 'size-12'

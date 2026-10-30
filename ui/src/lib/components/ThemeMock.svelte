@@ -7,7 +7,7 @@
 	//
 	// Sized in em off the root's font-size. Radii are scaled by --k: a real corner on a card this
 	// small would read as a pill.
-	import { onAccent, type Custom, type ThemeId } from '$lib/theme.svelte';
+	import { m3Seed, onAccent, type Custom, type ThemeId } from '$lib/theme.svelte';
 
 	type Overrides = Pick<Custom, 'accent' | 'hue' | 'radius' | 'fontSans' | 'fontHeading'>;
 
@@ -23,7 +23,9 @@
 		detail: { heading: string; title: string; artist: string; play: string; cover?: string };
 	} = $props();
 
-	const fg = $derived(overrides.accent ? onAccent(overrides.accent) : null);
+	const isM3 = $derived(id === 'material');
+	const fg = $derived(!isM3 && overrides.accent ? onAccent(overrides.accent) : null);
+	const seed = $derived(isM3 ? m3Seed(overrides.accent) : null);
 	let coverFailed = $state(false);
 	$effect(() => {
 		void detail.cover;
@@ -33,11 +35,13 @@
 
 <div
 	class="mock theme-{id} {dark ? 'dark' : ''}"
-	style:--primary={overrides.accent}
+	style:--primary={isM3 ? null : overrides.accent}
 	style:--primary-foreground={fg}
-	style:--accent={overrides.accent}
+	style:--accent={isM3 ? null : overrides.accent}
 	style:--accent-foreground={fg}
-	style:--hue={overrides.hue === null ? null : String(overrides.hue)}
+	style:--m3-seed-h={seed ? seed.h : null}
+	style:--m3-c={seed ? seed.c : null}
+	style:--hue={overrides.hue !== null ? String(overrides.hue) : seed ? seed.h : null}
 	style:--radius={overrides.radius === null ? null : `${overrides.radius}rem`}
 	style:--font-sans={overrides.fontSans}
 	style:--font-heading={overrides.fontHeading}
@@ -248,5 +252,74 @@
 		flex-shrink: 0;
 		border-radius: 999px;
 		background: var(--primary);
+	}
+	.mock.theme-material .body {
+		background: var(--sidebar);
+	}
+	.mock.theme-material .side {
+		border-right-color: transparent;
+	}
+	.mock.theme-material .main {
+		background: var(--background);
+		border-top-left-radius: calc(var(--radius) * 1.25);
+	}
+	.mock.theme-material .nav {
+		border-radius: 999px;
+	}
+	.mock.theme-material .nav.on {
+		background: var(--secondary);
+	}
+	.mock.theme-material .card {
+		border-color: transparent;
+		background: var(--m3-surface-container, var(--card));
+	}
+	.mock.theme-material .bar {
+		border-top-color: transparent;
+		border-radius: calc(var(--radius) * 1.1) calc(var(--radius) * 1.1) 0 0;
+		background: var(--m3-surface-container, var(--card));
+	}
+	.mock.theme-material .track {
+		position: relative;
+		height: 0.7em;
+		overflow: visible;
+		background: transparent;
+	}
+	.mock.theme-material .track::after {
+		content: '';
+		position: absolute;
+		left: calc(38% + 0.35em);
+		right: 0;
+		top: 50%;
+		height: 0.32em;
+		transform: translateY(-50%);
+		border-radius: 999px;
+		background: var(--secondary);
+	}
+	.mock.theme-material .fill {
+		position: relative;
+		width: calc(38% - 0.25em);
+		height: 100%;
+		background: var(--primary);
+		-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 8' preserveAspectRatio='none'%3E%3Cpath d='M 2 4 C 4 4, 5 1.5, 7.5 1.5 S 11 6.5, 14 6.5 S 17.5 1.5, 20.5 1.5 S 24 6.5, 27 6.5 S 30.5 1.5, 33.5 1.5 C 36 1.5, 38 4, 42 4' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E");
+		-webkit-mask-size: 100% 100%;
+		-webkit-mask-repeat: no-repeat;
+		mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 8' preserveAspectRatio='none'%3E%3Cpath d='M 2 4 C 4 4, 5 1.5, 7.5 1.5 S 11 6.5, 14 6.5 S 17.5 1.5, 20.5 1.5 S 24 6.5, 27 6.5 S 30.5 1.5, 33.5 1.5 C 36 1.5, 38 4, 42 4' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E");
+		mask-size: 100% 100%;
+		mask-repeat: no-repeat;
+	}
+	.mock.theme-material .track::before {
+		content: '';
+		position: absolute;
+		left: 38%;
+		top: 50%;
+		width: 0.24em;
+		height: 1.15em;
+		transform: translate(-50%, -50%);
+		border-radius: 999px;
+		background: var(--primary);
+		z-index: 1;
+	}
+	.mock.theme-material .play {
+		border-radius: calc(var(--radius) * var(--k) * 1.1);
 	}
 </style>

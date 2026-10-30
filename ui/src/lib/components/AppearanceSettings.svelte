@@ -351,7 +351,7 @@
 					desc: t('settings.themes.accent_hint'),
 					below: accentSwatches
 				})}
-				{#if theme.id === 'default'}
+				{#if theme.id === 'default' || theme.id === 'material'}
 					{@render row({
 						title: t('settings.themes.background_color'),
 						desc: t('settings.themes.tint_hint'),
