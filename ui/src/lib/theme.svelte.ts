@@ -15,7 +15,7 @@
 
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { logUi } from './errlog';
-import { hexToHsv, isLight } from './color';
+import { hexToHsv, hexToOklch, isLight } from './color';
 import { artworkAccent, toAccent, warmAccent } from './artcolor';
 import {
 	allowFontFile,
@@ -32,7 +32,8 @@ export type ThemeId =
 	| 'caffeine'
 	| 'neon'
 	| 'breeze'
-	| 'amoled';
+	| 'amoled'
+	| 'material';
 
 // `color` is just the picker swatch.
 type Theme = { id: ThemeId; label: string; color: string };
@@ -44,7 +45,8 @@ export const THEMES: Theme[] = [
 	{ id: 'caffeine', label: 'Caffeine', color: 'oklch(0.4341 0.0392 41.9938)' },
 	{ id: 'neon', label: 'Neon', color: 'oklch(0.6726 0.2904 341.4084)' },
 	{ id: 'breeze', label: 'Breeze', color: 'oklch(0.7227 0.1920 149.5793)' },
-	{ id: 'amoled', label: 'AMOLED', color: 'oklch(0 0 0)' }
+	{ id: 'amoled', label: 'AMOLED', color: 'oklch(0 0 0)' },
+	{ id: 'material', label: 'Material You', color: 'oklch(0.4955 0.1305 293.7091)' }
 ];
 
 // A removed accent preset falls back to the default palette, carrying its colour over as a custom
@@ -65,6 +67,7 @@ export const FONTS: { label: string; value: string }[] = [
 	{ label: 'Montserrat', value: "'Montserrat Variable', sans-serif" },
 	{ label: 'Outfit', value: "'Outfit Variable', sans-serif" },
 	{ label: 'DM Sans', value: "'DM Sans Variable', sans-serif" },
+	{ label: 'Google Sans', value: "'Google Sans Variable', sans-serif" },
 	{ label: 'System', value: 'ui-sans-serif, system-ui, sans-serif' }
 ];
 
@@ -88,6 +91,7 @@ const PALETTE_CLASSES = THEMES.map((t) => `theme-${t.id}`);
 const TINT_CLASS = 'art-tint';
 const MATUGEN_STYLE_ID = 'limusic-matugen';
 const ACCENT_VARS = ['--primary', '--primary-foreground', '--accent', '--accent-foreground'];
+const M3_SEED_VARS = ['--m3-seed-h', '--m3-c'];
 const CUSTOM_VARS = ['--hue', '--radius', '--font-sans', '--font-heading'];
 // Same two neutrals the preset accent themes pick between.
 const ON_DARK = 'oklch(0.985 0 0)';
@@ -203,10 +207,28 @@ export function readBack(): void {
 /** Text colour for an accent fill. Also used by `ThemeMock`, which mirrors `apply` on a leaf. */
 export const onAccent = (color: string) => (isLight(color) ? ON_LIGHT : ON_DARK);
 
+export function m3Seed(color: string | null): { h: string; c: string } | null {
+	const ok = color ? hexToOklch(color) : null;
+	if (!ok) return null;
+	return {
+		h: ok.h.toFixed(1),
+		c: Math.min(1.35, Math.max(0.15, ok.c / 0.1305)).toFixed(3)
+	};
+}
+
 /** Write the accent quartet as inline vars on <html>, foreground picked for legibility on it. */
 function setAccentVars(color: string): void {
-	const fg = onAccent(color);
 	const root = document.documentElement;
+	if (theme.id === 'material') {
+		const seed = m3Seed(color);
+		if (seed) {
+			root.style.setProperty('--m3-seed-h', seed.h);
+			root.style.setProperty('--m3-c', seed.c);
+			if (custom.hue === null) root.style.setProperty('--hue', seed.h);
+		}
+		return;
+	}
+	const fg = onAccent(color);
 	root.style.setProperty('--primary', color);
 	root.style.setProperty('--primary-foreground', fg);
 	root.style.setProperty('--accent', color);
@@ -218,7 +240,9 @@ function apply(): void {
 	const root = document.documentElement;
 	// Reset first, so switching palettes (or clearing a custom override) never leaves the previous
 	// choice's inline vars or class behind.
-	[...ACCENT_VARS, ...CUSTOM_VARS, '--art-h'].forEach((v) => root.style.removeProperty(v));
+	[...ACCENT_VARS, ...M3_SEED_VARS, ...CUSTOM_VARS, '--art-h'].forEach((v) =>
+		root.style.removeProperty(v)
+	);
 	root.classList.remove(...PALETTE_CLASSES, TINT_CLASS);
 	root.classList.add(`theme-${t.id}`); // 'default' has no rule: :root/.dark are its tokens
 
@@ -226,7 +250,7 @@ function apply(): void {
 	if (custom.accent && !appearance.matugen) setAccentVars(custom.accent);
 	// Last, so the artwork wins while it's on and the user's own theme is back the moment it isn't.
 	if (art) setArtVars(art);
-	if (custom.hue !== null) root.style.setProperty('--hue', String(custom.hue));
+	if (custom.hue !== null && !art) root.style.setProperty('--hue', String(custom.hue));
 	if (custom.radius !== null) root.style.setProperty('--radius', `${custom.radius}rem`);
 	if (custom.fontSans) root.style.setProperty('--font-sans', custom.fontSans);
 	if (custom.fontHeading) root.style.setProperty('--font-heading', custom.fontHeading);
@@ -414,6 +438,15 @@ export function setUiVisible(visible: boolean): void {
  * frozen into the cache at decode time (#137).
  */
 function setArtVars(c: { h: number; hex: string }): void {
+	if (theme.id === 'material') {
+		const seed = m3Seed(c.hex);
+		if (seed) {
+			document.documentElement.style.setProperty('--m3-seed-h', seed.h);
+			document.documentElement.style.setProperty('--m3-c', seed.c);
+			document.documentElement.style.setProperty('--hue', seed.h);
+		}
+		return;
+	}
 	// AMOLED stays black in light mode (layout.css), so the tint and the accent band stay dark too.
 	setAccentVars(toAccent(c.hex, darkMode || theme.id === 'amoled'));
 	document.documentElement.style.setProperty('--art-h', c.h.toFixed(1));

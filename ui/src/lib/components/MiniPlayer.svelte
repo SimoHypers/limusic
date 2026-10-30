@@ -46,6 +46,7 @@
 	} from '$lib/player.svelte';
 	import { thumb } from '$lib/thumb';
 	import LyricsView from './LyricsView.svelte';
+	import M3SeekWave from './M3SeekWave.svelte';
 	import Marquee from './Marquee.svelte';
 	import { t } from '$lib/i18n.svelte';
 
@@ -362,17 +363,29 @@
 				<button class={artBtn} onclick={() => api.prevTrack()} aria-label={t('a11y.previous')}>
 					<HugeiconsIcon icon={PreviousIcon} class="h-4 w-4" />
 				</button>
-				<input
-					type="range"
-					class="range on-art min-w-0 flex-1"
+				<div
+					class="m3-seek on-art relative flex min-w-0 flex-1 items-center"
 					style="--pct:{shownDuration ? (shownPosition / shownDuration) * 100 : 0}%"
-					min="0"
-					max={shownDuration || 0}
-					value={shownPosition}
-					oninput={onSeekInput}
-					onchange={onSeekCommit}
-					aria-label={t('a11y.seek')}
-				/>
+				>
+					<M3SeekWave
+						pct={shownDuration > 0 ? Math.min(1, Math.max(0, shownPosition / shownDuration)) : 0}
+						paused={playback.paused}
+						duration={shownDuration}
+						dragging={seekDrag !== null}
+					/>
+					<input
+						type="range"
+						class="range on-art min-w-0 flex-1"
+						style="--pct:{shownDuration ? (shownPosition / shownDuration) * 100 : 0}%"
+						min="0"
+						max={shownDuration || 0}
+						step="any"
+						value={shownPosition}
+						oninput={onSeekInput}
+						onchange={onSeekCommit}
+						aria-label={t('a11y.seek')}
+					/>
+				</div>
 				<button class={artBtn} onclick={() => api.nextTrack()} aria-label={t('a11y.next')}>
 					<HugeiconsIcon icon={NextIcon} class="h-4 w-4" />
 				</button>
