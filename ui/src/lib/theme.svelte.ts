@@ -140,7 +140,12 @@ export const appearance = $state({
 	theaterLyrics: true,
 	theaterQueue: false,
 	/** Derive the whole palette from Matugen. Off by default. */
-	matugen: false
+	matugen: false,
+	/** The top-bar buttons turned off in Appearance ▸ Interface ▸ Top bar, by id (the ids are
+	 *  listed in `TOP_BAR_BUTTONS` in AppearanceSettings.svelte). A list of what is hidden, not a
+	 *  flag per button: the bar only asks "does this one render", and a saved blob from an older
+	 *  build stays valid when a button is added or dropped. */
+	titlebarHidden: [] as string[]
 });
 
 export function setAppearance(patch: Partial<typeof appearance>): void {
@@ -539,6 +544,12 @@ export function initTheme(): void {
 			'matugen'
 		] as const) {
 			if (typeof saved?.[k] === 'boolean') appearance[k] = saved[k];
+		}
+		// Not a boolean: a hand-edited or older blob may hold anything, so keep the strings only.
+		if (Array.isArray(saved?.titlebarHidden)) {
+			appearance.titlebarHidden = saved.titlebarHidden.filter(
+				(id: unknown): id is string => typeof id === 'string'
+			);
 		}
 	} catch {
 		// unparseable — keep the defaults
