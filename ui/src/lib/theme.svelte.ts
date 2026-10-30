@@ -250,7 +250,9 @@ function apply(): void {
 	if (custom.accent && !appearance.matugen) setAccentVars(custom.accent);
 	// Last, so the artwork wins while it's on and the user's own theme is back the moment it isn't.
 	if (art) setArtVars(art);
-	if (custom.hue !== null && !art) root.style.setProperty('--hue', String(custom.hue));
+	if (custom.hue !== null && !(art && theme.id === 'material')) {
+		root.style.setProperty('--hue', String(custom.hue));
+	}
 	if (custom.radius !== null) root.style.setProperty('--radius', `${custom.radius}rem`);
 	if (custom.fontSans) root.style.setProperty('--font-sans', custom.fontSans);
 	if (custom.fontHeading) root.style.setProperty('--font-heading', custom.fontHeading);

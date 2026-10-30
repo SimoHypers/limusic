@@ -772,6 +772,11 @@
 .theme-material .m3-seek:active .m3-seek-thumb {
 	transform: scaleX(1.35) scaleY(1.18);
 }
+.theme-material .m3-seek:has(input[type='range'].range:focus-visible) .m3-seek-thumb {
+	transform: scaleX(1.35) scaleY(1.18);
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
 .theme-material .m3-seek input[type='range'].range {
 	position: relative;
 	z-index: 1;
