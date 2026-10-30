@@ -450,9 +450,13 @@
 			     only place the state shows at all. Hidden rather than removed, so the duration and the ⋯
 			     don't shift sideways when the pointer arrives. `group-focus-within`, not the button's own
 			     `focus-within`: a hidden element can't take focus, so the row (which is focusable) is
-			     what has to reveal it before Tab can reach it. -->
+			     what has to reveal it before Tab can reach it.
+
+			     Below sm there is no pointer hovering to reveal them and the title needs the width
+			     more (the sidebar is off-canvas there, so the row is as narrow as the window gets);
+			     the ⋯ menu carries like and dislike either way. -->
 			<div
-				class="flex items-center gap-0.5 {rated === 'indifferent'
+				class="flex items-center gap-0.5 max-sm:hidden {rated === 'indifferent'
 					? 'invisible group-focus-within:visible group-hover:visible'
 					: ''}"
 			>

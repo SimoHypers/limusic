@@ -477,10 +477,13 @@
 	>
 		<Dialog.Description class="sr-only">{t('settings.title')}</Dialog.Description>
 
+		<!-- Below sm the rail becomes icons only: at 400px the labels took more than half the
+		     dialog and squeezed the pane until its controls were unreadable. -->
 		<div class="flex min-w-0 h-[min(38rem,80vh)]">
-			<!-- Tab rail -->
-			<nav class="flex w-52 shrink-0 flex-col border-r bg-muted/40 p-3">
-				<Dialog.Title class="px-3 pt-1 pb-4 font-heading text-base font-semibold">
+			<nav class="flex w-52 shrink-0 flex-col border-r bg-muted/40 p-3 max-sm:w-14 max-sm:px-1.5">
+				<Dialog.Title
+					class="px-3 pt-1 pb-4 font-heading text-base font-semibold max-sm:sr-only"
+				>
 					{t('settings.title')}
 				</Dialog.Title>
 				<div class="flex flex-col gap-0.5">
@@ -488,7 +491,8 @@
 						<button
 							onclick={() => (tab = tb.id)}
 							aria-current={tab === tb.id}
-							class="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors {tab ===
+							title={tb.label}
+							class="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors max-sm:justify-center max-sm:px-0 {tab ===
 							tb.id
 								? 'bg-background text-foreground shadow-sm ring-1 ring-border/70'
 								: 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}"
@@ -499,12 +503,15 @@
 								strokeWidth={2}
 								class={tab === tb.id ? 'text-primary' : ''}
 							/>
-							<span class="truncate">{tb.label}</span>
+							<!-- sr-only, not hidden: the label is the button's accessible name. -->
+							<span class="truncate max-sm:sr-only">{tb.label}</span>
 						</button>
 					{/each}
 				</div>
 				{#if version}
-					<span class="mt-auto px-3 pb-1 text-[11px] text-muted-foreground">v{version}</span>
+					<span class="mt-auto px-3 pb-1 text-[11px] text-muted-foreground max-sm:hidden"
+						>v{version}</span
+					>
 				{/if}
 			</nav>
 

@@ -32,7 +32,10 @@ export const DEFAULT_COLUMNS: TrackColumn[] = ['album', 'added', 'by', 'plays', 
  * as the window.
  */
 export const TITLE = 'flex-[4_1_0%]';
-export const END = 'w-44 justify-end';
+// 11rem holds the saved mark, the length and the ⋯ at their widths. Below sm the thumbs are gone
+// (TrackRow) and the window is as narrow as it gets, so the column keeps a fixed 6.75rem — what its
+// cells really need — and the title takes the rest.
+export const END = 'w-44 justify-end max-sm:w-[6.75rem]';
 export const CELL: Record<Exclude<TrackColumn, 'duration'>, string> = {
 	album: 'min-w-0 flex-[3_1_0%]',
 	added: 'w-28 shrink-0',

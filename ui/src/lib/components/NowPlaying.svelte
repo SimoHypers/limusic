@@ -59,7 +59,10 @@
 	// a scrimmed overlay and there's nothing to shrink into. In tabbed mode both are always closed.
 	// `lyricsOpen` is the lyrics/comments slot: the comments panel takes the lyrics' place, so either
 	// one open counts as that one panel.
-	let { queueOpen, lyricsOpen }: { queueOpen: boolean; lyricsOpen: boolean } = $props();
+	let {
+		queueOpen,
+		lyricsOpen
+	}: { queueOpen: boolean; lyricsOpen: boolean } = $props();
 	const tabbed = $derived(appearance.tabbedPlayer);
 	// The two layouts (Settings > Appearance > Classic player layout). One component, so both
 	// share every behaviour below: the video hole, the backdrop click, the wheel volume, Esc. Only
@@ -371,7 +374,7 @@
 	<div
 		class="flex min-h-0 flex-col {big
 			? 'flex-1'
-			: `w-full md:w-[22rem] xl:w-[26rem] ${stage ? 'border-l border-foreground/10 bg-background/55' : ''}`} {stage
+			: `w-full max-md:hidden md:w-[22rem] xl:w-[26rem] ${stage ? 'border-l border-foreground/10 bg-background/55' : ''}`} {stage
 			? 'relative z-0'
 			: ''}"
 		data-np-keep
@@ -464,11 +467,11 @@
 	onpointerup={(e) => (releasedKeep = keeps(e.target))}
 	onclick={onBackdropClick}
 	data-np-view
-	class="absolute inset-y-0 left-16 right-0 z-20 flex overflow-hidden inert:bg-background {video.hole
+	class="absolute inset-y-0 left-0 right-0 z-20 flex overflow-hidden inert:bg-background sm:left-16 {video.hole
 		? ''
 		: 'bg-background'} {stage ? '' : 'justify-center px-4 py-4 sm:px-6 sm:py-6 lg:px-10'} {ui.sidebarCollapsed
 		? ''
-		: 'lg:left-60'} {inset}"
+		: 'sm:left-60'} {inset}"
 >
 	<!-- The ambient light (Settings > Video): the video's colours spilling into the view around it. Not
 	     under theater mode, which covers this view. -->
@@ -511,12 +514,12 @@
 		<!-- The stage: the picture and what's playing. Untabbed there is no column beside it, so it
 		     is the whole view. `relative z-0` is a stacking context of its own, so the glow behind
 		     the picture (-z-10) stays above the room instead of sinking under it. -->
+		<!-- Below md the tabs step aside instead of the stage. At 400px there is no room for both,
+		     and the queue/lyrics/comments buttons in the player bar open those as full-width panels,
+		     so what the bar's chevron opens has to be the track itself. Enlarged lyrics still win:
+		     they are the tab column, and the stage is not rendered at all while they are open. -->
 		{#if !big}
-			<section
-				class="relative z-0 min-w-0 flex-1 flex-col px-6 pt-4 pb-6 lg:px-10 {tabbed
-					? 'hidden md:flex'
-					: 'flex'}"
-			>
+			<section class="relative z-0 flex min-w-0 flex-1 flex-col px-6 pt-4 pb-6 lg:px-10">
 				<!-- The way out on the left, the Song/Video switch in the middle. -->
 				<div class="grid h-10 shrink-0 grid-cols-[1fr_auto_1fr] items-center">
 					<button
@@ -697,12 +700,10 @@
 			style="--art:calc(min(100%,100vh - 11rem) * 0.75); --vid:calc((100vh - 11rem) * 0.85 * 16 / 9)"
 		>
 			{#if !big}
-				<!-- Centred against the full height of the column on the right. Below md there isn't
-				     room for both columns, and the queue wins. Untabbed there is no second column, so
-				     the artwork is the whole view at every width. -->
-				<div
-					class="min-w-0 flex-1 items-center justify-center {tabbed ? 'hidden md:flex' : 'flex'}"
-				>
+				<!-- Centred against the full height of the column on the right. Below md the tabs step
+				     aside (see the tab column's max-md:hidden), so the artwork is what the view shows at
+				     narrow widths. Untabbed there is no second column, so it is the whole view anyway. -->
+				<div class="flex min-w-0 flex-1 items-center justify-center">
 					<!-- A div, not a button: the video-mode toggle has to be a sibling of the play/pause
 					     button rather than nested inside it (nested buttons are invalid HTML and the
 					     inner one never reliably gets the click). -->

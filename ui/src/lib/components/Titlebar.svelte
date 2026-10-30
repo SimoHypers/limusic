@@ -25,7 +25,8 @@
 		HotspotOfflineIcon,
 		UserGroup02Icon,
 		Link04Icon,
-		Settings02Icon
+		Settings02Icon,
+		Menu01Icon
 	} from '@hugeicons/core-free-icons';
 	import LastFmIcon from './LastFmIcon.svelte';
 	import DiscordIcon from './DiscordIcon.svelte';
@@ -42,6 +43,7 @@
 
 	// `w` is this window; `win` (imported) is the shared frame state.
 	const w = getCurrentWindow();
+
 
 	// Back/forward. `depth` is how many history entries deep the session is, `deepest` how far it
 	// has ever been, so both buttons grey out instead of doing nothing. popstate carries a signed
@@ -136,7 +138,7 @@
 	class="pointer-events-auto relative {ui.theaterOpen ? 'z-0' : 'z-50'} flex h-9 shrink-0 select-none items-center justify-between border-b border-border/60 bg-background"
 >
 	<span
-		class="pointer-events-none absolute inset-x-0 text-center text-xs font-medium tracking-wide text-muted-foreground"
+		class="pointer-events-none absolute inset-x-0 text-center text-xs font-medium tracking-wide text-muted-foreground max-sm:hidden"
 	>
 		Limusic
 	</span>
@@ -148,6 +150,18 @@
 	     sizes the titlebar to the 16px button plus `y` and the buttons keep their offset from its
 	     bottom, so their centre lands at y + 2 (y: 10 moved them up 2px on a real Mac). -->
 	<div class="flex h-full items-center {win.chrome === 'overlay' ? 'pl-[70px]' : ''}">
+		<!-- Below sm the sidebar is off-canvas (see Sidebar.svelte), so this is the only way back to
+		     it. It shares the bar with the window controls and nothing else: at 400px the six
+		     integration buttons below and this row's refresh button cannot both stay. -->
+		<button
+			class="flex h-full w-9 items-center justify-center text-foreground/80 transition-colors hover:bg-accent/10 hover:text-foreground sm:hidden"
+			onclick={() => (ui.navOpen = !ui.navOpen)}
+			aria-expanded={ui.navOpen}
+			title={ui.navOpen ? t('a11y.collapse_sidebar') : t('a11y.expand_sidebar')}
+			aria-label={ui.navOpen ? t('a11y.collapse_sidebar') : t('a11y.expand_sidebar')}
+		>
+			<HugeiconsIcon icon={Menu01Icon} strokeWidth={2.5} class="h-5 w-5" />
+		</button>
 		<!-- pointer-events-none: the logo is decoration; clicks on it should drag the window. -->
 		<img src={appIcon.src} alt="" class="pointer-events-none ml-3 mr-1 h-4 w-4" />
 		<!-- Bigger and heavier than the icons on the right: these are navigation, and at their
@@ -173,9 +187,10 @@
 		<!-- Third in the browser's own control group, and read as such without a label. It drops the
 		     browse cache and remounts the page, which is the only way to ask YouTube for a different
 		     home feed: refetching rotates roughly a third of "Quick picks" (#177). Never disabled,
-		     since the page it reloads is always there; the route's own skeletons are the progress. -->
+		     since the page it reloads is always there; the route's own skeletons are the progress.
+		     Dropped below sm, where the menu button above needs its 36px and F5 does the same. -->
 		<button
-			class="flex h-full w-9 items-center justify-center text-foreground/80 transition-colors hover:bg-accent/10 hover:text-foreground"
+			class="flex h-full w-9 max-sm:hidden items-center justify-center text-foreground/80 transition-colors hover:bg-accent/10 hover:text-foreground"
 			onclick={refreshView}
 			title={t('common.refresh')}
 			aria-label={t('common.refresh')}
@@ -193,7 +208,7 @@
 		<!-- Paste a YouTube Music link and go to it: the only way into a playlist that is shared by
 		     link and never appears in search or the library (#63). -->
 		<button
-			class="flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
+			class="flex h-full w-8 max-sm:hidden items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
 			onclick={() => (ui.linkOpen = true)}
 			title={t('dialogs.link.title')}
 			aria-label={t('dialogs.link.title')}
@@ -203,7 +218,7 @@
 
 		<!-- Opens the same modal as the home hero's button (one dialog, mounted in +layout). -->
 		<button
-			class="flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground {lt.role !==
+			class="flex h-full w-8 max-sm:hidden items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground {lt.role !==
 			'none'
 				? 'text-primary'
 				: ''}"
@@ -227,7 +242,7 @@
 		</button>
 
 		<button
-			class="flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground {discordOn
+			class="flex h-full w-8 max-sm:hidden items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground {discordOn
 				? 'text-foreground'
 				: ''}"
 			onclick={toggleDiscord}
@@ -246,7 +261,7 @@
 		</button>
 
 		<button
-			class="flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground {connected
+			class="flex h-full w-8 max-sm:hidden items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground {connected
 				? 'text-foreground'
 				: ''}"
 			onclick={onScrobblerClick}
@@ -276,7 +291,7 @@
 		     the pair are the same idea in opposite directions (shrink the app / become the screen),
 		     and disabled with nothing playing, since there'd be nothing to show. -->
 		<button
-			class="flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-25"
+			class="flex h-full w-8 max-sm:hidden items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-25"
 			onclick={() => (ui.theaterOpen = true)}
 			disabled={!playback.now}
 			title={t('player.theater_mode')}
@@ -289,7 +304,7 @@
 		     It sits with the integrations rather than the window controls because it swaps what
 		     you're using, not the size of this window. -->
 		<button
-			class="flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
+			class="flex h-full w-8 max-sm:hidden items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
 			onclick={openMiniPlayer}
 			title={t('a11y.toggle_mini')}
 			aria-label={t('a11y.toggle_mini')}
