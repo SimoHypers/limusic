@@ -68,6 +68,7 @@
 	import * as api from '$lib/api';
 	import { playback } from '$lib/player.svelte';
 	import { currentLocale, t } from '$lib/i18n.svelte';
+	import { appearance } from '$lib/theme.svelte';
 	import * as Popover from '$lib/components/ui/popover';
 	import LyricsSourcePicker from './LyricsSourcePicker.svelte';
 
@@ -100,6 +101,7 @@
 	const showRomanized = $derived(canRomanize && prefs.romanized);
 	const canTranslate = $derived(!!lyrics?.lines.some((l) => l.translation));
 	const showTranslation = $derived(canTranslate && prefs.translated);
+	const enhanced = $derived(appearance.enhancedLyrics);
 	// Nothing to resize on an instrumental or a song with no lyrics at all.
 	const canResize = $derived(!!lyrics && !lyrics.instrumental);
 	/** "115%". Locale formatting, so no i18n key and no `%` to place. */
@@ -241,7 +243,7 @@
 	 *  mounted lyrics panel, on every track, for the whole session, which meant the app never
 	 *  reached an idle frame. */
 	const needsFrameClock = $derived(
-		!!lyrics?.synced && lyrics.lines.some((l) => (l.words?.length ?? 0) > 0)
+		!!lyrics?.synced && (enhanced || lyrics.lines.some((l) => (l.words?.length ?? 0) > 0))
 	);
 
 	$effect(() => {
@@ -271,6 +273,125 @@
 		const dur = word.end_ms - word.start_ms;
 		if (dur <= 0) return 1;
 		return (currentMs - word.start_ms) / dur;
+	}
+
+	function getWordTransform(word: api.LyricWord, currentMs: number): string {
+		const anim = appearance.lyricsAnim;
+		const strength = appearance.lyricsAnimStrength / 100;
+		if (anim === 'none' || strength <= 0) return 'translate3d(0,0,0)';
+		const elapsed = currentMs - word.start_ms;
+		if (anim === 'slide') {
+			if (elapsed <= 0) return `translate3d(${(4 * strength).toFixed(2)}px,0,0)`;
+			if (elapsed >= 280) return 'translate3d(0,0,0)';
+			const t = elapsed / 280;
+			const ease = 1 - (1 - t) * (1 - t);
+			const x = 4 * strength * (1 - ease);
+			const y = -3 * strength * Math.sin(t * Math.PI);
+			return `translate3d(${x.toFixed(2)}px,${y.toFixed(2)}px,0)`;
+		}
+		if (elapsed <= 0) return 'translate3d(0,0,0)';
+		let y = 0;
+		if (anim === 'bounce') {
+			if (elapsed < 140) {
+				const t = elapsed / 140;
+				y = -6 * Math.sin(t * (Math.PI / 2));
+			} else if (elapsed < 280) {
+				const t = (elapsed - 140) / 140;
+				y = -6 * (1 - t * t);
+			} else if (elapsed < 430) {
+				const t = (elapsed - 280) / 150;
+				y = -2.6 * Math.sin(t * Math.PI);
+			} else if (elapsed < 560) {
+				const t = (elapsed - 430) / 130;
+				y = -0.9 * Math.sin(t * Math.PI);
+			}
+		} else if (anim === 'float') {
+			const dur = Math.max(220, word.end_ms - word.start_ms);
+			if (elapsed < dur) {
+				const t = Math.min(1, elapsed / 180);
+				y = -4.5 * Math.sin(t * (Math.PI / 2));
+			} else if (elapsed < dur + 260) {
+				const t = (elapsed - dur) / 260;
+				y = -4.5 + 3.3 * Math.sin(t * (Math.PI / 2));
+			} else {
+				y = -1.2;
+			}
+		} else if (anim === 'wave') {
+			if (elapsed < 700) {
+				y = -5.5 * Math.sin(elapsed / 75) * Math.exp(-elapsed / 380);
+			}
+		} else if (anim === 'pop') {
+			if (elapsed < 320) {
+				const t = elapsed / 320;
+				y = -7 * Math.sin(t * Math.PI) * (1 - t * 0.35);
+			}
+		}
+		return `translate3d(0,${(y * strength).toFixed(2)}px,0)`;
+	}
+
+	function getEnhancedWordStyle(word: api.LyricWord, progress: number, currentMs: number): string {
+		const pct = Math.round(Math.min(1, Math.max(0, progress)) * 100);
+		const isCurrent = progress > 0 && progress < 1;
+		const isSung = progress >= 1;
+		const style = appearance.lyricsStyle;
+		const dim = 'color-mix(in oklab, var(--muted-foreground) 45%, transparent)';
+		const lit =
+			style === 'accent'
+				? 'color-mix(in oklab, var(--primary) 78%, var(--foreground))'
+				: 'var(--foreground)';
+		let bg: string;
+		if (isSung) {
+			bg = `linear-gradient(90deg, ${lit} 0%, ${lit} 100%)`;
+		} else if (progress <= 0) {
+			bg = `linear-gradient(90deg, ${dim} 0%, ${dim} 100%)`;
+		} else if (style === 'word') {
+			const mix = `color-mix(in oklab, ${lit} ${pct}%, ${dim})`;
+			bg = `linear-gradient(90deg, ${mix} 0%, ${mix} 100%)`;
+		} else if (style === 'crisp') {
+			bg = `linear-gradient(90deg, ${lit} ${pct}%, ${dim} ${pct}%)`;
+		} else if (style === 'accent') {
+			bg = `linear-gradient(90deg, ${lit} ${Math.max(0, pct - 12)}%, var(--primary) ${pct}%, ${dim} ${Math.min(100, pct + 12)}%)`;
+		} else {
+			bg = `linear-gradient(90deg, ${lit} ${Math.max(0, pct - 10)}%, ${dim} ${Math.min(100, pct + 10)}%)`;
+		}
+		const transform = getWordTransform(word, currentMs);
+		const glowPct = appearance.lyricsGlow;
+		let filter = 'none';
+		if (glowPct > 0 && progress > 0) {
+			const g = glowPct / 50;
+			const glowColor = style === 'accent' ? 'var(--primary)' : 'var(--foreground)';
+			const radius = Math.max(2, Math.round((isCurrent ? 8 : 6) * Math.max(0.5, g)));
+			const alpha = Math.min(85, Math.round((isCurrent ? 20 + progress * 25 : 34) * g));
+			filter = `drop-shadow(0 0 ${radius}px color-mix(in oklab, ${glowColor} ${alpha}%, transparent))`;
+		}
+		return `background-image:${bg};transform:${transform};filter:${filter}`;
+	}
+
+	function getLineWords(line: api.LyricLine, index: number, text?: string): api.LyricWord[] {
+		if (!text && line.words && line.words.length > 0) return line.words;
+		if (text && line.romanized_words && line.romanized_words.length > 0) return line.romanized_words;
+		if (!enhanced || !lyrics || line.time_ms === undefined) return [];
+		const raw = (text ?? line.text).trim();
+		if (!raw || raw === '♪') return [];
+		const tokens = raw.split(/\s+/).filter(Boolean);
+		if (!tokens.length) return [];
+		const startMs = line.time_ms;
+		const nextMs = lyrics.lines[index + 1]?.time_ms;
+		const rawSpan = Math.max(800, (nextMs ?? startMs + 3500) - startMs);
+		const vocalSpan = Math.min(rawSpan * 0.88, Math.max(1000, tokens.length * 400));
+		const weights = tokens.map((w) => Math.max(2, w.length));
+		const totalWeight = weights.reduce((a, b) => a + b, 0);
+		let cursor = startMs;
+		return tokens.map((token, idx) => {
+			const slice = (weights[idx] / totalWeight) * vocalSpan;
+			const wordStart = cursor;
+			cursor += slice;
+			return {
+				text: idx < tokens.length - 1 ? `${token} ` : token,
+				start_ms: wordStart,
+				end_ms: cursor
+			};
+		});
 	}
 </script>
 
@@ -305,6 +426,7 @@
 			{#each lyrics.lines as line, i (i)}
 				{@const isActive = i === activeIndex}
 				{@const isPast = i < activeIndex}
+				{@const words = getLineWords(line, i)}
 				<!-- Dimming is `opacity` on the line, never a translucent text colour. A colour with
 				     alpha is composited glyph by glyph, so wherever two glyphs overlap the coverage
 				     adds up and the overlap comes out brighter than the rest of the line: very
@@ -318,23 +440,26 @@
 					class="block w-full origin-left cursor-pointer text-left font-heading font-bold leading-snug transition-[color,opacity,transform] duration-300 ease-out hover:text-foreground hover:opacity-100 dark:hover:opacity-100
 						{expanded ? 'py-3 text-[1.875em]' : compact ? 'py-1 text-[0.875em]' : 'py-2 text-[1.25em]'}
 						{isActive
-						? 'scale-[1.04] text-foreground'
+						? enhanced
+							? 'text-foreground'
+							: 'scale-[1.04] text-foreground'
 						: isPast
 							? 'text-muted-foreground opacity-55 dark:opacity-40'
 							: 'text-muted-foreground opacity-90 dark:opacity-70'}"
 				>
-					{#if line.words && line.words.length > 0}
-						{@render sweep(line.words, isActive)}
+					{#if words.length > 0}
+						{@render sweep(words, isActive)}
 					{:else}
 						<span>{line.text || '♪'}</span>
 					{/if}
 
 					{#if showRomanized && line.romanized}
+						{@const romWords = getLineWords(line, i, line.romanized)}
 						<!-- Relative size, so it follows the line from the mini player to theater mode.
 						     Apple's reading is timed to the same syllables and sweeps with the line. -->
 						<span class="mt-0.5 block text-[length:max(0.62em,11px)] font-semibold">
-							{#if line.romanized_words && line.romanized_words.length > 0}
-								{@render sweep(line.romanized_words, isActive)}
+							{#if romWords.length > 0}
+								{@render sweep(romWords, isActive)}
 							{:else}
 								{line.romanized}
 							{/if}
@@ -509,10 +634,14 @@
 				     colours are theme tokens: the sung half was hardcoded white, which is
 				     invisible on every light theme. -->
 				<span
-					class="inline-block bg-clip-text text-transparent [-webkit-text-fill-color:transparent] transition-transform duration-100 ease-out {isWordEnd
+					class="inline-block bg-clip-text text-transparent [-webkit-text-fill-color:transparent] {isWordEnd
 						? 'mr-[0.26em]'
-						: ''} {isCurrentWord ? 'scale-[1.03]' : ''}"
-					style="background-image: linear-gradient(90deg, var(--foreground) {pct}%, var(--muted-foreground) {pct}%)"
+						: ''} {enhanced
+						? ''
+						: `transition-transform duration-100 ease-out ${isCurrentWord ? 'scale-[1.03]' : ''}`}"
+					style={enhanced
+						? getEnhancedWordStyle(word, progress, posMs)
+						: `background-image: linear-gradient(90deg, var(--foreground) ${pct}%, var(--muted-foreground) ${pct}%)`}
 				>
 					{cleanText}
 				</span>

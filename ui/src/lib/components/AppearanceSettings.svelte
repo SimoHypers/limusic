@@ -39,6 +39,8 @@
 	import {
 		THEMES,
 		FONTS,
+		LYRICS_ANIMS,
+		LYRICS_STYLES,
 		theme,
 		appearance,
 		setAppearance,
@@ -463,6 +465,36 @@
 					desc: t('settings.themes.artwork_background_hint'),
 					control: artworkBgSwitch
 				})}
+				{@render row({
+					title: t('settings.themes.enhanced_lyrics'),
+					badge: t('settings.themes.experimental'),
+					desc: t('settings.themes.enhanced_lyrics_hint'),
+					control: enhancedLyricsSwitch
+				})}
+				{#if appearance.enhancedLyrics}
+					{@render row({
+						title: t('settings.themes.lyrics_anim'),
+						desc: t('settings.themes.lyrics_anim_hint'),
+						below: lyricsAnimPresets
+					})}
+					{@render row({
+						title: t('settings.themes.lyrics_style'),
+						desc: t('settings.themes.lyrics_style_hint'),
+						below: lyricsStylePresets
+					})}
+					{@render row({
+						title: t('settings.themes.lyrics_anim_strength'),
+						desc: t('settings.themes.lyrics_anim_strength_hint'),
+						control: lyricsAnimStrengthValue,
+						below: lyricsAnimStrengthSlider
+					})}
+					{@render row({
+						title: t('settings.themes.lyrics_glow'),
+						desc: t('settings.themes.lyrics_glow_hint'),
+						control: lyricsGlowValue,
+						below: lyricsGlowSlider
+					})}
+				{/if}
 			</div>
 		</section>
 	</div>
@@ -705,6 +737,74 @@
 		checked={appearance.artworkBackground}
 		onCheckedChange={(on) => setAppearance({ artworkBackground: on })}
 	/>{/snippet}
+{#snippet enhancedLyricsSwitch()}<Switch
+		checked={appearance.enhancedLyrics}
+		onCheckedChange={(on) => setAppearance({ enhancedLyrics: on })}
+	/>{/snippet}
+{#snippet lyricsAnimPresets()}
+	<div class="flex flex-wrap gap-1.5">
+		{#each LYRICS_ANIMS as anim (anim)}
+			<button
+				type="button"
+				onclick={() => setAppearance({ lyricsAnim: anim })}
+				aria-pressed={appearance.lyricsAnim === anim}
+				class="cursor-pointer rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors {appearance.lyricsAnim ===
+				anim
+					? 'border-primary bg-primary/12 text-foreground'
+					: 'border-border/70 bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'}"
+			>
+				{t(`settings.themes.lyrics_anim_${anim}` as TranslationKey)}
+			</button>
+		{/each}
+	</div>
+{/snippet}
+{#snippet lyricsStylePresets()}
+	<div class="flex flex-wrap gap-1.5">
+		{#each LYRICS_STYLES as style (style)}
+			<button
+				type="button"
+				onclick={() => setAppearance({ lyricsStyle: style })}
+				aria-pressed={appearance.lyricsStyle === style}
+				class="cursor-pointer rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors {appearance.lyricsStyle ===
+				style
+					? 'border-primary bg-primary/12 text-foreground'
+					: 'border-border/70 bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'}"
+			>
+				{t(`settings.themes.lyrics_style_${style}` as TranslationKey)}
+			</button>
+		{/each}
+	</div>
+{/snippet}
+{#snippet lyricsAnimStrengthValue()}
+	<span class="font-mono text-xs text-muted-foreground tabular-nums">
+		{appearance.lyricsAnimStrength}%
+	</span>
+{/snippet}
+{#snippet lyricsAnimStrengthSlider()}
+	<Slider
+		type="single"
+		min={25}
+		max={200}
+		step={5}
+		value={appearance.lyricsAnimStrength}
+		onValueChange={(v: number) => setAppearance({ lyricsAnimStrength: v })}
+	/>
+{/snippet}
+{#snippet lyricsGlowValue()}
+	<span class="font-mono text-xs text-muted-foreground tabular-nums">
+		{appearance.lyricsGlow}%
+	</span>
+{/snippet}
+{#snippet lyricsGlowSlider()}
+	<Slider
+		type="single"
+		min={0}
+		max={100}
+		step={5}
+		value={appearance.lyricsGlow}
+		onValueChange={(v: number) => setAppearance({ lyricsGlow: v })}
+	/>
+{/snippet}
 
 {#snippet fontSelect(key: FontKey, label: string)}
 	<Select.Root

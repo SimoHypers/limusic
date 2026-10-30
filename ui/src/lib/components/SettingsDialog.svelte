@@ -45,10 +45,11 @@
 		recheckForUpdates
 	} from '$lib/updater.svelte';
 	import { getVersion } from '@tauri-apps/api/app';
-	import { t, setLocale, currentLocale, LOCALES } from '$lib/i18n.svelte';
+	import { t, setLocale, currentLocale, LOCALES, type TranslationKey } from '$lib/i18n.svelte';
 	import GlobalHotkeysSettings from '$lib/components/GlobalHotkeysSettings.svelte';
 	import LyricsSourcesSettings from '$lib/components/LyricsSourcesSettings.svelte';
 	import LanguagePicker from '$lib/components/LanguagePicker.svelte';
+	import { LYRICS_ANIMS, LYRICS_STYLES, appearance, setAppearance } from '$lib/theme.svelte';
 
 	type TabId =
 		| 'general'
@@ -717,6 +718,38 @@
 						</section>
 						<section class={GROUP} id="settings-lyrics">
 							<h3 class={LABEL}>{t('settings.sections.lyrics')}</h3>
+							<div class={CARD}>
+								{@render row({
+									title: t('settings.themes.enhanced_lyrics'),
+									badge: t('settings.themes.experimental'),
+									desc: t('settings.themes.enhanced_lyrics_hint'),
+									control: enhancedLyricsSwitch
+								})}
+								{#if appearance.enhancedLyrics}
+									{@render row({
+										title: t('settings.themes.lyrics_anim'),
+										desc: t('settings.themes.lyrics_anim_hint'),
+										below: lyricsAnimPresets
+									})}
+									{@render row({
+										title: t('settings.themes.lyrics_style'),
+										desc: t('settings.themes.lyrics_style_hint'),
+										below: lyricsStylePresets
+									})}
+									{@render row({
+										title: t('settings.themes.lyrics_anim_strength'),
+										desc: t('settings.themes.lyrics_anim_strength_hint'),
+										control: lyricsAnimStrengthValue,
+										below: lyricsAnimStrengthSlider
+									})}
+									{@render row({
+										title: t('settings.themes.lyrics_glow'),
+										desc: t('settings.themes.lyrics_glow_hint'),
+										control: lyricsGlowValue,
+										below: lyricsGlowSlider
+									})}
+								{/if}
+							</div>
 							<LyricsSourcesSettings {settings} />
 						</section>
 						<section class={GROUP}>
@@ -969,6 +1002,74 @@
 	</Popover.Root>
 {/snippet}
 {#snippet hideVideoSwitch()}<Switch checked={hideVideosOn} onCheckedChange={setHideVideos} />{/snippet}
+{#snippet enhancedLyricsSwitch()}<Switch
+		checked={appearance.enhancedLyrics}
+		onCheckedChange={(on) => setAppearance({ enhancedLyrics: on })}
+	/>{/snippet}
+{#snippet lyricsAnimPresets()}
+	<div class="flex flex-wrap gap-1.5">
+		{#each LYRICS_ANIMS as anim (anim)}
+			<button
+				type="button"
+				onclick={() => setAppearance({ lyricsAnim: anim })}
+				aria-pressed={appearance.lyricsAnim === anim}
+				class="cursor-pointer rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors {appearance.lyricsAnim ===
+				anim
+					? 'border-primary bg-primary/12 text-foreground'
+					: 'border-border/70 bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'}"
+			>
+				{t(`settings.themes.lyrics_anim_${anim}` as TranslationKey)}
+			</button>
+		{/each}
+	</div>
+{/snippet}
+{#snippet lyricsStylePresets()}
+	<div class="flex flex-wrap gap-1.5">
+		{#each LYRICS_STYLES as style (style)}
+			<button
+				type="button"
+				onclick={() => setAppearance({ lyricsStyle: style })}
+				aria-pressed={appearance.lyricsStyle === style}
+				class="cursor-pointer rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors {appearance.lyricsStyle ===
+				style
+					? 'border-primary bg-primary/12 text-foreground'
+					: 'border-border/70 bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'}"
+			>
+				{t(`settings.themes.lyrics_style_${style}` as TranslationKey)}
+			</button>
+		{/each}
+	</div>
+{/snippet}
+{#snippet lyricsAnimStrengthValue()}
+	<span class="font-mono text-xs text-muted-foreground tabular-nums">
+		{appearance.lyricsAnimStrength}%
+	</span>
+{/snippet}
+{#snippet lyricsAnimStrengthSlider()}
+	<Slider
+		type="single"
+		min={25}
+		max={200}
+		step={5}
+		value={appearance.lyricsAnimStrength}
+		onValueChange={(v: number) => setAppearance({ lyricsAnimStrength: v })}
+	/>
+{/snippet}
+{#snippet lyricsGlowValue()}
+	<span class="font-mono text-xs text-muted-foreground tabular-nums">
+		{appearance.lyricsGlow}%
+	</span>
+{/snippet}
+{#snippet lyricsGlowSlider()}
+	<Slider
+		type="single"
+		min={0}
+		max={100}
+		step={5}
+		value={appearance.lyricsGlow}
+		onValueChange={(v: number) => setAppearance({ lyricsGlow: v })}
+	/>
+{/snippet}
 {#snippet bannerSwitch()}<Switch checked={updateBannerOn} onCheckedChange={setUpdateBanner} />{/snippet}
 {#snippet betaSwitch()}<Switch checked={betaOn} onCheckedChange={setBeta} />{/snippet}
 
