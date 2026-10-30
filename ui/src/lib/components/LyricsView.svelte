@@ -379,7 +379,14 @@
 		const tokens = raw.split(/\s+/).filter(Boolean);
 		if (!tokens.length) return [];
 		const startMs = line.time_ms;
-		const nextMs = lyrics.lines[index + 1]?.time_ms;
+		let nextMs: number | undefined;
+		for (let j = index + 1; j < lyrics.lines.length; j++) {
+			const t = lyrics.lines[j].time_ms;
+			if (t !== undefined && t > startMs) {
+				nextMs = t;
+				break;
+			}
+		}
 		const endMs = line.end_time_ms;
 		const cueEndMs =
 			endMs !== undefined && endMs > startMs
