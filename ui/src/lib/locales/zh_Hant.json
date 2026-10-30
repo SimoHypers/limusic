@@ -129,7 +129,6 @@
 		"volume": "音量",
 		"queue": "待播清單",
 		"lyrics": "歌詞",
-		"mini_player": "迷你播放器",
 		"theater_mode": "劇院模式",
 		"playing_from": "播放來源",
 		"exit_theater": "結束劇院模式",
@@ -178,7 +177,13 @@
 		"comments": "留言",
 		"song": "歌曲",
 		"video": "影片",
-		"up_next": "接下來"
+		"up_next": "接下來",
+		"fullscreen_video": "全螢幕",
+		"exit_fullscreen_video": "離開全螢幕",
+		"scroll_to_end": "捲動到底部",
+		"skip_back": "倒退 {seconds} 秒",
+		"skip_forward": "快轉 {seconds} 秒",
+		"speed": "播放速度"
 	},
 	"home": {
 		"good_morning": "讓今天從旋律開始",
@@ -196,7 +201,7 @@
 		"show_section": "在首頁顯示「{title}」",
 		"feed_empty": "首頁目前沒有任何推薦內容。",
 		"signed_out_hint": "登入後，首頁將會根據您的聆聽喜好提供專屬合輯與推薦清單。",
-		"add_to_end": "新增至結尾",
+		"add_to_end": "移至最後",
 		"edit_home_desc": "您所做的變更會即時反映在首頁上。",
 		"look": "介面外觀",
 		"card_size": "卡片大小",
@@ -311,7 +316,10 @@
 		"suggestions_failed": "無法載入建議。",
 		"suggestion_add": "將 {title} 添加到此播放清單",
 		"suggestion_added": "已加入",
-		"saved_in_count": "{count} 個播放清單"
+		"saved_in_count": "{count} 個播放清單",
+		"suggestions_hide": "隱藏",
+		"suggestions_show": "顯示",
+		"suggestions_hidden": "隱藏建議。在播放清單的尾端，再重新顯示建議。"
 	},
 	"local": {
 		"scanning": "正在掃描資料夾…",
@@ -398,7 +406,9 @@
 			"start_minimized": "開機啟動時最小化至系統匣",
 			"start_minimized_hint": "隨系統開機啟動時自動保持在系統匣背景中；手動開啟應用程式時則正常顯示視窗。",
 			"track_notifications_focused": "使用 Limusic 時也顯示通知",
-			"track_notifications_focused_hint": "當 Limusic 是目前使用中的視窗時，如果下一首歌曲自動開始播放，也會顯示通知。手動選擇播放的歌曲則不會顯示通知。"
+			"track_notifications_focused_hint": "當 Limusic 是目前使用中的視窗時，如果下一首歌曲自動開始播放，也會顯示通知。手動選擇播放的歌曲則不會顯示通知。",
+			"play_on_start": "開啟時，恢復上一次的播放",
+			"play_on_start_hint": "當 Limusic 開啟時，從上次播放歌曲繼續。"
 		},
 		"themes": {
 			"interface_font": "介面字型",
@@ -454,7 +464,11 @@
 			"accent_theme": "主題的獨特性",
 			"accent_artwork_note": "在播放歌曲時，主要強調色來自歌曲的封面。關閉「Matugen 動態配色」功能，即可看到這一效果。",
 			"preview": "預覽",
-			"preview_hint": "當您拖動時，滑塊和顏色選擇器會顯示，應用程序會跟隨您的操作。"
+			"preview_hint": "當您拖動時，滑塊和顏色選擇器會顯示，應用程序會跟隨您的操作。",
+			"now_playing_pill": "現正播放",
+			"now_playing_pill_hint": "在播放清單或待播清單中，當歌曲被滾動到屏幕外時，顯示一個返回按鈕，以便輕鬆返回到之前的歌曲。",
+			"empty_click_player": "點擊空白區域以切換播放器展開",
+			"empty_click_player_hint": "啟用時：點擊播放器界面上的空白區域，可以展開或關閉播放器；停用時：只能使用方向鍵、Esc 鍵和鍵盤快捷鍵控制。"
 		},
 		"playback": {
 			"audio_quality": "音訊品質",
@@ -768,10 +782,72 @@
 			"quit_app": "關閉 Limusic"
 		},
 		"tempo_pitch": {
-			"title": "播放速度與音高調整",
+			"title": "播放速度、音高調整與混響",
 			"desc": "此設定將套用於播放的所有歌曲，直到您手動重設或重新啟動應用程式。",
 			"tempo": "播放速度 (Tempo)",
-			"pitch": "音高 (Pitch / Key)"
+			"pitch": "音高 (Pitch / Key)",
+			"presets": "風格設置",
+			"builtin": {
+				"original": "預設",
+				"slowed": "降速混響",
+				"nightcore": "Nightcore",
+				"practice": "練習模式",
+				"hall": "音樂廳效果"
+			},
+			"builtin_hints": {
+				"original": "歌曲原版",
+				"slowed": "速度更慢、音高更低，並營造寬廣的空間感",
+				"nightcore": "速度更快、音高更高，並加入些許混響",
+				"practice": "放慢播放速度，但保持原本的音高",
+				"hall": "營造現場演奏般的聽覺體驗"
+			},
+			"preset_save": "儲存風格設置",
+			"preset_save_hint": "保存當前的設定",
+			"preset_save_none": "請先修改以下內容",
+			"preset_name": "風格名稱",
+			"preset_replace": "覆蓋",
+			"preset_delete": "刪除 {name}",
+			"preset_duplicate": "已經有同名的設置。儲存以覆蓋原先的設置。",
+			"preset_save_error": "無法儲存設置。請再試一次，您的設置沒有改變。",
+			"preset_load_error": "無法讀取您儲存的設置。為了保護您的設置，已禁用儲存功能。",
+			"preset_room_hint": "在收聽房間中，設置僅影響音高和混響。播放速度不受影響。",
+			"adjust": "調整",
+			"normal": "正常",
+			"pitch_short": "音高 {n}",
+			"slower": "較慢",
+			"faster": "較快",
+			"lower": "較低",
+			"higher": "較高",
+			"song_length": "現正播放的歌曲剩下：{time}",
+			"tempo_room_locked": "為了同步每個人的播放進度，播放速度設置已鎖定。",
+			"reverb": "混響",
+			"reverb_hint": "營造出聲音在室內播放的空間感。",
+			"reverb_room": "房間",
+			"reverb_types": {
+				"small_room": "小房間",
+				"medium_room": "中型房間",
+				"large_room": "大房間",
+				"medium_hall": "中型音樂廳",
+				"large_hall": "大型音樂廳",
+				"plate": "板式混響"
+			},
+			"reverb_amount": "混響量",
+			"reverb_fine_tune": "更多混響設定",
+			"reverb_controls": {
+				"dry": "原曲音量",
+				"decay": "混響衰減時間",
+				"preDelay": "預延遲",
+				"damping": "明亮度",
+				"reflections": "早期反射"
+			},
+			"reverb_control_hints": {
+				"dry": "調整混響效果下原曲本身的音量。",
+				"decay": "調整每個聲音的混響持續時間。",
+				"preDelay": "設定混響開始前的短暫延遲。延遲時間越長，越能營造出大空間的聽覺體驗。",
+				"damping": "降低明亮度，會讓混響聽起來更暗沉。",
+				"reflections": "調整最初由周圍牆面反射回來的聲音強度。"
+			},
+			"reset_all": "重設所有"
 		},
 		"link": {
 			"title": "開啟連結",

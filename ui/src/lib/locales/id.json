@@ -105,7 +105,6 @@
 		"volume": "Volume",
 		"queue": "Antrean",
 		"lyrics": "Lirik",
-		"mini_player": "Pemutar Mini",
 		"theater_mode": "Mode teater",
 		"playing_from": "Memutar dari",
 		"exit_theater": "Keluar dari mode teater",
@@ -154,7 +153,10 @@
 		"song": "Lagu",
 		"video": "Video",
 		"comments": "Komentar",
-		"up_next": "Selanjutnya"
+		"up_next": "Selanjutnya",
+		"fullscreen_video": "Video layar penuh",
+		"exit_fullscreen_video": "Keluar dari mode layar penuh",
+		"scroll_to_end": "Gulir ke bawah"
 	},
 	"home": {
 		"good_morning": "Selamat pagi",
@@ -278,7 +280,10 @@
 		"suggestions_failed": "Tidak dapat memuat rekomendasi.",
 		"suggestion_add": "Tambahkan {title} ke daftar putar ini",
 		"suggestion_added": "Ditambahkan",
-		"saved_in_count": "{count} daftar putar"
+		"saved_in_count": "{count} daftar putar",
+		"suggestions_hide": "Sembunyikan",
+		"suggestions_show": "Tampilkan",
+		"suggestions_hidden": "Sugesti tersembunyi. Tampilkan lagi dari akhir setap playlistmu."
 	},
 	"local": {
 		"scanning": "Memindai folder...",
@@ -365,7 +370,9 @@
 			"start_minimized": "Mulai di baki sistem saat komputer menyala",
 			"start_minimized_hint": "Saat Limusic dimulai bersama sistem, aplikasi tetap berada di baki sistem sampai Anda membukanya. Membuka aplikasi secara manual akan selalu menampilkan jendela.",
 			"track_notifications_focused": "Sambil menggunakan Limusic",
-			"track_notifications_focused_hint": "Tampilkan juga notifikasi ketika lagu berikutnya mulai sendiri saat Limusic adalah jendela aktif. Lagu yang Anda pilih sendiri tidak akan menampilkan notifikasi."
+			"track_notifications_focused_hint": "Tampilkan juga notifikasi ketika lagu berikutnya mulai sendiri saat Limusic adalah jendela aktif. Lagu yang Anda pilih sendiri tidak akan menampilkan notifikasi.",
+			"play_on_start": "Lanjutkan pemutaran saat dibuka",
+			"play_on_start_hint": "Putar antrian terakhirmu saat Limusic dibuka"
 		},
 		"themes": {
 			"interface_font": "Font antarmuka",
@@ -421,7 +428,9 @@
 			"matugen_hint": "Ambil setiap warna, aksen termasuk, dari palet Matugen yang dibuat dari wallpaper Anda. Siapkan template Limusic di Matugen terlebih dahulu.",
 			"classic_player": "Tata letak pemain klasik",
 			"classic_player_hint": "Tampilan pemain asli: artwork saja di atas salinan blur dari sampul, dengan detail lagu berada di sebelah bilah pemain. Off menggunakan tata letak baru, dengan judul, artis dan album di bawah artwork dan tampilan diterangi oleh warna sampul.",
-			"matugen": "Matugen"
+			"matugen": "Matugen",
+			"now_playing_pill": "Tombol putar sekarang",
+			"now_playing_pill_hint": "Tampilkan tombol untuk kembali ke lagu yang sedang diputar saat lagu tersebut tidak lagi terlihat karena digulir ke luar layar, baik di daftar putar maupun antrian."
 		},
 		"playback": {
 			"audio_quality": "Kualitas audio",
@@ -1288,6 +1297,8 @@
 		"album": "Album",
 		"added": "Tanggal ditambahkan",
 		"by": "Ditambahkan oleh",
-		"duration": "Durasi"
+		"duration": "Durasi",
+		"plays": "Putar",
+		"mine": "Riwayat Putar"
 	}
 }

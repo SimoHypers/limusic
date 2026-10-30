@@ -155,7 +155,6 @@
 		"volume": "Helitugevus",
 		"queue": "Järjekord",
 		"lyrics": "Laulusõnad",
-		"mini_player": "Minipleier",
 		"mini_shrink": "Vähenda minipleierit",
 		"mini_expand": "Laienda minipleierit",
 		"theater_mode": "Teatrirežiim",
@@ -204,7 +203,10 @@
 		"pin_to_top": "Kinnita üles",
 		"unpin": "Eemalda kinnitus",
 		"comments": "Kommentaarid",
-		"up_next": "Järgmisena esitamisel"
+		"up_next": "Järgmisena esitamisel",
+		"fullscreen_video": "Täisekraanivaates video",
+		"exit_fullscreen_video": "Välju täisekraanivaates videost",
+		"scroll_to_end": "Keri alumise ääreni"
 	},
 	"home": {
 		"good_morning": "Tere hommikust",
@@ -337,7 +339,10 @@
 		"suggestions_failed": "Soovituste laadimine ebaõnnestus.",
 		"suggestion_add": "Lisa {title} sellesse esitusloendisse",
 		"suggestion_added": "Lisatud",
-		"saved_in_count": "{count} esitusloendit"
+		"saved_in_count": "{count} esitusloendit",
+		"suggestions_hide": "Peida",
+		"suggestions_show": "Näita",
+		"suggestions_hidden": "Soovitused on peidetud. Saad neid uuesti kuvada iga oma esitusloendi lõppedes."
 	},
 	"local": {
 		"scanning": "Kausta skannimine...",
@@ -424,7 +429,9 @@
 			"stream_clients": "Voo kliendid",
 			"stream_clients_hint": "Lülita klient välja, et see voogude leidmisel vahele jätta. Keskkonnamuutuja {var} kirjutab selle üle.",
 			"track_notifications_focused": "Ka Limusicu kasutamisel",
-			"track_notifications_focused_hint": "Näita teavitust ka siis, kui järgmine lugu hakkab automaatselt mängima ja Limusic on aktiivne aken. Ise valitud lugude puhul teavitust ei näidata."
+			"track_notifications_focused_hint": "Näita teavitust ka siis, kui järgmine lugu hakkab automaatselt mängima ja Limusic on aktiivne aken. Ise valitud lugude puhul teavitust ei näidata.",
+			"play_on_start": "Jätka avamisel esitust",
+			"play_on_start_hint": "Limusicu avamisel jätkub esitus sellest esitusjärjekorrast, kus ta eelmine kord lõppes."
 		},
 		"themes": {
 			"interface_font": "Kasutajaliidese kirjatüüp",
@@ -478,7 +485,11 @@
 			"blur_playlist_header": "Hägusta esitusloendi päised",
 			"blur_playlist_header_hint": "Näita esitusloendi kaanepilti pealkirja taga hägustatuna. Sellega kuvad kaanepildid sujuvatena, mis täislaiusele venitatuna näevad välja pikseldatuna.",
 			"matugen": "Matugen",
-			"matugen_hint": "Võta kõik värvid, sealhulgas aktsentvärvid, paletist, mille Matugen sinu taustapildist koostab. Seadista esmalt Matugenis Limusicu mall."
+			"matugen_hint": "Võta kõik värvid, sealhulgas aktsentvärvid, paletist, mille Matugen sinu taustapildist koostab. Seadista esmalt Matugenis Limusicu mall.",
+			"classic_player": "Pleieri klassikaline paigutus",
+			"classic_player_hint": "Esialgne pleierivaade: ainult albumi kaanepilt hägustatud kaanepildi taustal, kusjuures loo andmed on paigutatud esitusvaate ribale. Väljalülitamisel on kasutusel uus paigutus, kus pealkiri, esitaja ja album on kujunduse all ning vaade on valgustatud kaanepildi värvidega.",
+			"now_playing_pill": "Nupp „Hetkel esitamisel“",
+			"now_playing_pill_hint": "Näita nuppu, mis võimaldab tagasi pöörduda hetkel esitamisel loo juurde. Näiteks siis, kui oled esitusloendis või -järjekorras kerinud mõnda muude kohta."
 		},
 		"playback": {
 			"audio_quality": "Helikvaliteet",
@@ -1224,7 +1235,8 @@
 		"ranges": {
 			"week": "7 päeva",
 			"month": "30 päeva",
-			"year": "12 kuud"
+			"year": "12 kuud",
+			"all": "Läbi aegade"
 		},
 		"listened": {
 			"week": "kuulatud viimase 7 päeva jooksul",
@@ -1271,7 +1283,12 @@
 		"busiest_hour": "Aktiivseim tund",
 		"share": "{percent} kuulamistest",
 		"persona_hint": "Sa kuulad kõige rohkem vahemikus {from} kuni {to}.",
-		"empty_title": "Sinu statistika algab siit"
+		"empty_title": "Sinu statistika algab siit",
+		"streak": "Päevi järjest",
+		"when": "Millal sa kuulad",
+		"empty": "Kuula mõnda lugu ja see lehekülg täitub andmetega selle kohta, mida sa kuulad, millal ja kui kaua.",
+		"on_device": "Loendades selles seadmes, arvestades seda, mida sa Limusicus kuulad. Mitte midagi kuhugi ei saadeta.",
+		"clear_desc": "See kustutab kõik selles seadmes kuulatud lood, mistõttu su statistika algab otsast peale ja „On Repeat” tühjeneb. Su YouTube Musicu ajalugu jääb puutumata."
 	},
 	"columns": {
 		"label": "Tulbad",
