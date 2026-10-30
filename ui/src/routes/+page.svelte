@@ -401,7 +401,9 @@
 		</button>
 		<div class="min-w-0 flex-1">
 			{#if showChips}
-				<div class="rail flex gap-2 overflow-x-auto">
+				<!-- Below sm the chips wrap instead of scrolling sideways: a rail you have to drag to
+				     see the rest of reads as cut off, and there is no room to hint at a scrollbar. -->
+				<div class="rail flex gap-2 overflow-x-auto max-sm:flex-wrap max-sm:overflow-x-visible">
 					<!-- An explicit "All" is the way out of a filter. Clicking the active chip again also
 					     clears it, but nobody discovers that, and nothing else on screen says you're filtered. -->
 					<button onclick={() => load(null)} class={chipClass(!selected)}>{t('common.all')}</button>

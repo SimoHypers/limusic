@@ -78,8 +78,10 @@
 		></div>
 	</div>
 
-	<div class="flex items-center justify-between gap-6 px-6 pb-4 pt-10">
-		<div class="flex min-w-0 items-center gap-4">
+	<div class="flex items-center justify-between gap-6 px-6 pb-4 pt-10 max-sm:pb-3 max-sm:pt-6">
+		<!-- Below sm the sidebar is a drawer, so the avatar and greeting have nothing to line up with
+		     and the search field needs the row: the greeting goes, the row keeps history and search. -->
+		<div class="flex min-w-0 items-center gap-4 max-sm:hidden">
 			{#if auth.account?.signedIn && auth.account.thumbnail}
 				<!-- max-width:none defeats Tailwind Preflight's `img{max-width:100%}`, which in a tight box
 				     clamps width to the content-box while height stays fixed → a vertical oval. Inline so

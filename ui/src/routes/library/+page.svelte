@@ -152,9 +152,10 @@
 {/snippet}
 
 <div class="p-6">
-	<div class="mb-6 flex items-center justify-between">
-		<h1 class="font-heading text-2xl font-bold">{t('library.title')}</h1>
-		<div class="flex items-center gap-2">
+	<div class="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+		<h1 class="min-w-0 font-heading text-2xl font-bold">{t('library.title')}</h1>
+		<!-- Wraps onto its own line below sm rather than pushing the buttons off the page. -->
+		<div class="flex items-center gap-2 max-sm:w-full max-sm:justify-end">
 			<!-- Only with something to push: saves made before signing in, which live on this
 			     machine until this button puts them on the account. -->
 			{#if auth.account?.signedIn && toSync.length}
@@ -218,7 +219,9 @@
 
 	<!-- The tabs always render: Local music needs neither an account nor a connection. -->
 	<Tabs.Root bind:value={tab}>
-		<Tabs.List class="mb-4">
+		<!-- `h-auto!`: the primitive pins the pill to h-9 through a data-attribute variant, and two
+		     rows of tabs would spill out of it. -->
+		<Tabs.List class="mb-4 h-auto! max-sm:w-full max-sm:flex-wrap max-sm:justify-start">
 			<Tabs.Trigger value="all">
 				<HugeiconsIcon icon={SquareStackIcon} class="h-4 w-4" /> {t('common.all')}
 			</Tabs.Trigger>

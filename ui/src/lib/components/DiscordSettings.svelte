@@ -172,10 +172,10 @@
 {/snippet}
 
 <!-- Options scroll, the preview does not. Side by side from `lg` up (where the modal is wide
-     enough for both), stacked below it — under `lg` the dialog is viewport-width and a column of
-     controls 200px wide is worse than scrolling past the card. -->
-<div class="flex min-h-0 flex-1 max-lg:flex-col">
-	<div class="min-w-0 flex-1 overflow-y-auto px-6 py-5">
+     enough for both). Below `lg` the card would keep its height and squeeze the controls to
+     nothing, so the wrapper becomes the scroller and the preview lands at the end of the list. -->
+<div class="flex min-h-0 flex-1 max-lg:flex-col max-lg:overflow-y-auto max-lg:overflow-x-hidden">
+	<div class="min-w-0 flex-1 overflow-y-auto px-6 py-5 max-lg:flex-none max-lg:overflow-visible">
 		<section class={GROUP}>
 			<div class={CARD}>
 				{@render row_({
