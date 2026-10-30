@@ -72,7 +72,7 @@
 		videoSide
 	} from '$lib/video.svelte';
 	import { artRoom } from '$lib/artroom.svelte';
-	import { appearance, setAppearance } from '$lib/theme.svelte';
+	import { appearance, setAppearance, theme } from '$lib/theme.svelte';
 	import { isMissingThumb, thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
 	import { keyOf, typing } from '$lib/shortcuts';
@@ -783,7 +783,7 @@
 					style="--pct:{pct}%"
 					min="0"
 					max={shownDuration || 0}
-					step="any"
+					step={theme.id === 'material' ? 'any' : 1}
 					value={shownPosition}
 					oninput={(e) => (seekDrag = Number(e.currentTarget.value) * playback.speed)}
 					onchange={(e) => {
