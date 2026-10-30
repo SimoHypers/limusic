@@ -56,6 +56,7 @@
 </script>
 
 <script lang="ts">
+	import { MediaQuery } from 'svelte/reactivity';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		CharacterPhoneticIcon,
@@ -102,6 +103,7 @@
 	const canTranslate = $derived(!!lyrics?.lines.some((l) => l.translation));
 	const showTranslation = $derived(canTranslate && prefs.translated);
 	const enhanced = $derived(appearance.enhancedLyrics);
+	const reducedMotion = new MediaQuery('prefers-reduced-motion: reduce');
 	// Nothing to resize on an instrumental or a song with no lyrics at all.
 	const canResize = $derived(!!lyrics && !lyrics.instrumental);
 	/** "115%". Locale formatting, so no i18n key and no `%` to place. */
@@ -276,6 +278,7 @@
 	}
 
 	function getWordTransform(word: api.LyricWord, currentMs: number): string {
+		if (reducedMotion.current) return 'translate3d(0,0,0)';
 		const anim = appearance.lyricsAnim;
 		const strength = appearance.lyricsAnimStrength / 100;
 		if (anim === 'none' || strength <= 0) return 'translate3d(0,0,0)';
@@ -377,8 +380,17 @@
 		if (!tokens.length) return [];
 		const startMs = line.time_ms;
 		const nextMs = lyrics.lines[index + 1]?.time_ms;
-		const rawSpan = Math.max(800, (nextMs ?? startMs + 3500) - startMs);
-		const vocalSpan = Math.min(rawSpan * 0.88, Math.max(1000, tokens.length * 400));
+		const endMs = line.end_time_ms;
+		const cueEndMs =
+			endMs !== undefined && endMs > startMs
+				? nextMs !== undefined && nextMs > startMs
+					? Math.min(endMs, nextMs)
+					: endMs
+				: nextMs !== undefined && nextMs > startMs
+					? nextMs
+					: startMs + 3500;
+		const rawSpan = Math.max(100, cueEndMs - startMs);
+		const vocalSpan = Math.min(rawSpan, Math.min(rawSpan * 0.88, Math.max(1000, tokens.length * 400)));
 		const weights = tokens.map((w) => Math.max(2, w.length));
 		const totalWeight = weights.reduce((a, b) => a + b, 0);
 		let cursor = startMs;

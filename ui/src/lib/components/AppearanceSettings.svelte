@@ -738,6 +738,7 @@
 		onCheckedChange={(on) => setAppearance({ artworkBackground: on })}
 	/>{/snippet}
 {#snippet enhancedLyricsSwitch()}<Switch
+		aria-label={t('settings.themes.enhanced_lyrics')}
 		checked={appearance.enhancedLyrics}
 		onCheckedChange={(on) => setAppearance({ enhancedLyrics: on })}
 	/>{/snippet}
@@ -783,6 +784,8 @@
 {#snippet lyricsAnimStrengthSlider()}
 	<Slider
 		type="single"
+		aria-label={t('settings.themes.lyrics_anim_strength')}
+		thumbLabel={t('settings.themes.lyrics_anim_strength')}
 		min={25}
 		max={200}
 		step={5}
@@ -798,6 +801,8 @@
 {#snippet lyricsGlowSlider()}
 	<Slider
 		type="single"
+		aria-label={t('settings.themes.lyrics_glow')}
+		thumbLabel={t('settings.themes.lyrics_glow')}
 		min={0}
 		max={100}
 		step={5}
