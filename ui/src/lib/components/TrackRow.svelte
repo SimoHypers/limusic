@@ -22,6 +22,7 @@
 	import SavedInPlaylists from './SavedInPlaylists.svelte';
 	import TrackMenu from './TrackMenu.svelte';
 	import ArtistLine from './ArtistLine.svelte';
+	import Marquee from './Marquee.svelte';
 	import ExplicitIcon from './ExplicitIcon.svelte';
 	import { currentLocale, t } from '$lib/i18n.svelte';
 	import { keyOf } from '$lib/shortcuts';
@@ -319,9 +320,13 @@
 		</div>
 		<div class="min-w-0 flex-1">
 			<div class="flex min-w-0 items-center gap-2">
-				<span class="min-w-0 truncate text-sm font-medium {active ? 'text-primary' : ''}">
-					{song.title}
-				</span>
+				<!-- The title scrolls under the pointer when it doesn't fit, like the player bar's: a
+				     truncated name tells you which song it is only if you already know the song. -->
+				<Marquee
+					hover
+					text={song.title}
+					class="min-w-0 flex-1 text-sm font-medium {active ? 'text-primary' : ''}"
+				/>
 				{#if song.queued_by}
 					<span
 						class="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"

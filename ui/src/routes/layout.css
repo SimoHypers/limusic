@@ -966,21 +966,27 @@ html.art-tint.theme-amoled {
 }
 
 /* A track title too wide for the player scrolls itself instead of stopping at an ellipsis.
-   --marquee-dx is one text width plus the gap, measured in Marquee.svelte, which also sets the
-   duration to keep the speed constant. One direction, looping: the second copy lands where the
-   first started, so translating back to 0 is not a visible jump. */
+   --marquee-dx is one text width plus the gap, measured in Marquee.svelte, which also sets --marquee-s
+   to keep the speed constant. One direction, looping: the second copy lands where the first started,
+   so translating back to 0 is not a visible jump. */
 @keyframes marquee {
 	to { transform: translateX(calc(var(--marquee-dx) * -1)); }
 }
-/* Three passes, not `infinite`: an overflowing title kept a transform animation running for the
+/* Three passes, not `infinite`: an overflowing line kept a transform animation running for the
    whole session, so the compositor never reached an idle frame and every other repaint in the app
-   was re-incurred at refresh rate. Three passes is enough to read a long title; hovering still
-   holds it still, and `{#key text}` in Marquee.svelte restarts it on every track change. */
-.marquee { animation: marquee linear 3; }
-/* Hovering holds it still: the artist line's names are links, and hitting a moving target is not.
-   Triggered from the clipping box, not the scrolling track: the trailing copy is inert, so it is
-   not hit-testable and hovering it would never reach the track itself. */
+   was re-incurred at refresh rate. Three passes is enough to read a long line; hovering still
+   holds it still (the artist line's names are links, and hitting a moving target is not), and
+   `{#key text}` in Marquee.svelte restarts it on every track change. Triggered from the clipping
+   box, not the scrolling track: the trailing copy is inert, so it is not hit-testable and hovering
+   it would never reach the track itself. */
+.marquee { animation: marquee linear var(--marquee-s, 10s) 3; }
 .marquee-box:hover .marquee { animation-play-state: paused; }
+/* A title the reader has to ask for: still until the pointer rests on it, then it loops while the
+   pointer stays, and leaving pauses it mid-line so the next hover resumes instead of snapping
+   back. The bar is where the eye goes on its own, so a title that scrolls unprompted there is
+   noise; this keeps the whole line readable without the motion. */
+.marquee-hover { animation-iteration-count: infinite; animation-play-state: paused; }
+.marquee-box:hover .marquee-hover { animation-play-state: running; }
 
 /* A small "pop" for the like button when a track is favourited. */
 @keyframes heart-pop {
@@ -1083,5 +1089,12 @@ input[type='range'].range:active::-webkit-slider-thumb {
 		animation-iteration-count: 1 !important;
 		transition-duration: 0.01ms !important;
 		scroll-behavior: auto !important;
+	}
+	/* The exception: a hover-only marquee moves because the pointer is resting on the line, which
+	   is the reader asking for it, so flattening it would leave the rest of a long title
+	   unreachable. It stays motionless otherwise. */
+	.marquee-box:hover .marquee-hover {
+		animation-duration: var(--marquee-s, 10s) !important;
+		animation-iteration-count: infinite !important;
 	}
 }
