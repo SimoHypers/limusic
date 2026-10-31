@@ -750,8 +750,47 @@
 		"tempo_pitch": {
 			"title": "Tempo ve Perde Kontrolleri",
 			"desc": "Değiştirilene veya uygulama yeniden başlatılana kadar tüm çalınan parçalara uygulanır.",
-			"tempo": "Tempo (Hız)",
-			"pitch": "Perde (Ton)"
+			"tempo": "Tempo",
+			"pitch": "Perde",
+			"builtin": {
+				"original": "Orijinal",
+				"nightcore": "Nightcore",
+				"hall": "Konser salonu"
+			},
+			"builtin_hints": {
+				"original": "Şarkının yayınlandığı hali",
+				"slowed": "Geniş bir odada, daha yavaş ve derin",
+				"nightcore": "Daha hızlı ve daha yüksek, hafif bir yankı dokunuşuyla",
+				"practice": "Aynı tonda, daha yavaş",
+				"hall": "Sanki canlı çalınıyormuş gibi"
+			},
+			"preset_save": "Ön ayar olarak kaydet",
+			"preset_save_hint": "Şu anda duyduklarınızı daha sonrası için saklayın",
+			"preset_save_none": "Önce aşağıdan birşeyleri değiştirin",
+			"preset_name": "Ön ayar adı",
+			"preset_replace": "Üzerine yaz",
+			"preset_delete": "Sil: {name}",
+			"preset_duplicate": "Bu isimde bir ön ayarınız zaten var. Kaydetme mevcut ön ayarı yenisiyle değiştirir.",
+			"reverb_controls": {
+				"decay": "Uzunluk"
+			},
+			"adjust": "Ayarla",
+			"normal": "Normal",
+			"pitch_short": "perde {n}",
+			"slower": "Daha yavaş",
+			"faster": "Daha hızlı",
+			"lower": "Daha düşük",
+			"higher": "Daha yüksek",
+			"reverb_room": "Oda",
+			"reverb_types": {
+				"small_room": "Küçük oda",
+				"large_room": "Geniş oda",
+				"medium_room": "Orta boy oda",
+				"medium_hall": "Orta boy salon"
+			},
+			"presets": "Ön ayarlar",
+			"preset_save_error": "Ön ayarlarınız kaydedilemedi. Lütfen tekrar deneyin; kayıtlı ön ayarlarınızda herhangi bir değişiklik yapılmadı.",
+			"preset_load_error": "Kayıtlı ön ayarlarınız okunamadı. Onları korumak için kaydetme devre dışı bırakıldı."
 		},
 		"link": {
 			"title": "Bağlantı Aç",
