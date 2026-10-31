@@ -227,7 +227,12 @@ async fn cached_or_fetched(state: &AppState, req: LyricsRequest) -> Option<Lyric
     let now = now_secs();
     let video_id = req.video_id.clone();
     if let Some(cached) = state.db.get_lyrics(&video_id, now, MISS_TTL_SECS) {
-        return cached.and_then(|json| serde_json::from_str(&json).ok());
+        let cached = cached.and_then(|json| serde_json::from_str::<Lyrics>(&json).ok());
+        // Cached before `ask` caught one-cue lyrics (#539): ask the chain again, unless the
+        // source was picked by hand, which stays and reads as plain.
+        if !cached.as_ref().is_some_and(|l| is_flat(l) && !l.pinned) {
+            return cached.map(unsync_flat);
+        }
     }
     let (lyrics, cacheable) = fetch(state, req).await;
     if cacheable {
@@ -297,7 +302,36 @@ async fn ask(
         "kugou" => kugou_get(req).await.map_err(e),
         _ => Ok(None),
     }?;
-    Ok(hit.map(|l| Lyrics { provider: id.to_owned(), ..l }))
+    Ok(hit.map(|l| Lyrics { provider: id.to_owned(), ..unsync_flat(l) }))
+}
+
+/// Synced lyrics whose lines all share one cue: plain text dressed as synced (#539). LyricsPlus
+/// sends some of Apple's untimed lyrics with every line at 0, and any LRC can stamp each line
+/// `[00:00.00]`. Shown as synced the panel never scrolls and the last line stays lit, and `fetch`
+/// stops at the first synced answer, so a provider with real timings below it is never asked.
+/// Word starts count as cues, so a single word-timed line keeps its sweep.
+fn is_flat(l: &Lyrics) -> bool {
+    let mut cues = l
+        .lines
+        .iter()
+        .flat_map(|l| l.time_ms.into_iter().chain(l.words.iter().flatten().map(|w| w.start_ms)));
+    let first = cues.next();
+    l.synced && cues.all(|c| Some(c) == first)
+}
+
+/// Flat lyrics as plain. Applied in `ask`, where every provider's answer passes: LRCLIB and
+/// YouTube declare `synced` themselves rather than going through `from_parsed`.
+fn unsync_flat(mut l: Lyrics) -> Lyrics {
+    if is_flat(&l) {
+        l.synced = false;
+        for line in &mut l.lines {
+            line.time_ms = None;
+            line.end_time_ms = None;
+            line.words = None;
+            line.romanized_words = None;
+        }
+    }
+    l
 }
 
 /// Down the user's list. Second value: cache the outcome. A hit only when the track's length was
@@ -560,12 +594,13 @@ fn lrclib_to_lyrics(t: &LrclibTrack) -> Option<Lyrics> {
     if let Some(lrc) = t.synced_lyrics.as_deref().filter(|s| !s.trim().is_empty()) {
         let lines = parse_lrc(lrc);
         if !lines.is_empty() {
-            return Some(Lyrics {
+            // One cue reads as plain here already, so `lrclib` goes on to the search.
+            return Some(unsync_flat(Lyrics {
                 source: "LRCLIB".into(),
                 synced: true,
                 lines,
                 ..Default::default()
-            });
+            }));
         }
     }
     plain_from_text(t.plain_lyrics.as_deref(), "LRCLIB")
@@ -905,10 +940,10 @@ async fn simpmusic_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::E
     // Several submissions can compete for one video: the best voted first.
     tracks.sort_by_key(|t| std::cmp::Reverse(t.vote));
     let synced = tracks.iter().find_map(|t| {
-        [&t.rich_sync_lyrics, &t.synced_lyrics]
-            .into_iter()
-            .flatten()
-            .find_map(|lrc| from_parsed("SimpMusic", parse_elrc(lrc)).filter(|l| l.synced))
+        [&t.rich_sync_lyrics, &t.synced_lyrics].into_iter().flatten().find_map(|lrc| {
+            // A top-voted submission on one cue must not hide a timed one below it.
+            from_parsed("SimpMusic", parse_elrc(lrc)).map(unsync_flat).filter(|l| l.synced)
+        })
     });
     Ok(synced.or_else(|| {
         tracks.iter().find_map(|t| plain_from_text(t.plain_lyric.as_deref(), "SimpMusic"))
@@ -1693,6 +1728,41 @@ mod tests {
         // Its search strays onto other songs off the same album: the length has to agree.
         assert!(kpoe_to_lyrics(k(), Some(188.0)).is_none());
         assert!(kpoe_to_lyrics(k(), None).is_some());
+    }
+
+    /// #539, trimmed from LyricsPlus' "Birds Eye View" (Alina Baraz): Apple's untimed lyrics with
+    /// every line at 0, labelled "Word" with no syllables.
+    #[test]
+    fn lyrics_on_one_cue_are_plain() {
+        let json = r#"{"type":"Word","metadata":{"source":"qApple","totalDuration":""},"lyrics":[
+            {"time":0,"duration":0,"text":"Show me how good it can get","syllabus":[]},
+            {"time":0,"duration":0,"text":"Life isn't over quite yet","syllabus":[]}]}"#;
+        let l = kpoe_to_lyrics(serde_json::from_str(json).unwrap(), Some(171.0)).unwrap();
+        assert!(l.synced, "what the providers hand over");
+        let l = unsync_flat(l);
+        assert!(!l.synced);
+        assert!(l.lines.iter().all(|l| l.time_ms.is_none() && l.end_time_ms.is_none()));
+        assert_eq!(l.lines[1].text, "Life isn't over quite yet");
+
+        // Same from an LRC, which LRCLIB declares synced without asking the lines.
+        let lrc = "[00:00.00]one\n[00:00.00]two";
+        let l = Lyrics { synced: true, lines: parse_lrc(lrc), ..Default::default() };
+        assert!(!unsync_flat(l).synced);
+
+        // One line on one cue, but its words are timed: the sweep stays.
+        let l = Lyrics {
+            synced: true,
+            lines: parse_elrc("[00:01.00]<00:01.00>a <00:02.00>b"),
+            ..Default::default()
+        };
+        assert!(unsync_flat(l).synced);
+
+        // Real cues, credit lines at 0 included, stay synced.
+        let lrc = "[00:00.00]credits\n[00:00.00]more credits\n[00:09.02]one";
+        let l = Lyrics { synced: true, lines: parse_lrc(lrc), ..Default::default() };
+        let l = unsync_flat(l);
+        assert!(l.synced);
+        assert_eq!(l.lines[2].time_ms, Some(9020));
     }
 
     #[test]

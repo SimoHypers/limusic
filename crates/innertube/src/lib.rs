@@ -7,6 +7,7 @@
 pub mod blocklist;
 pub mod clients;
 pub mod comments_session;
+pub mod ctoken;
 pub mod endpoints;
 pub mod models;
 pub mod rustypipe_fallback;
@@ -33,7 +34,7 @@ pub use models::comments::{
 pub use models::context::Locale;
 pub use models::lyrics::{PlainLyrics, TimedLyricLine};
 pub use models::metadata::{
-    AccountIdentity, AccountInfo, NextResult, Rating, SearchResult, SongItem,
+    AccountIdentity, AccountInfo, NextResult, Rating, SearchResult, Segment, SongItem,
 };
 pub use models::player::{
     find_format, find_video_format, AudioQuality, Format, PlaybackTracking, PlayerResponse,

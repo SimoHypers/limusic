@@ -58,7 +58,6 @@
 	import { lt } from '$lib/lt.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import { invalidateCachedPrefix } from '$lib/pagecache';
-	import TempoPitchDialog from './TempoPitchDialog.svelte';
 
 	let {
 		song,
@@ -105,8 +104,6 @@
 	const isPick = $derived(personal.picks.some((p) => p.id === song.video_id));
 
 	let menuOpen = $state(false);
-	// Player-bar only: tempo/pitch belong to playback, not to a row you happen to be pointing at.
-	let advancedOpen = $state(false);
 	let anchor = $state(NO_ANCHOR);
 
 	// Click on the ⋯ opens under the button; right-click on the host row opens at the pointer.
@@ -398,7 +395,7 @@
 		{#if linksOnly}
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
-				onclick={(e) => run(e, () => (advancedOpen = true))}
+				onclick={(e) => run(e, () => (ui.tempoPitchOpen = true))}
 			>
 				<HugeiconsIcon icon={PreferenceVerticalIcon} class="h-4 w-4" /> {t('dialogs.tempo_pitch.title')}
 			</button>
@@ -431,8 +428,4 @@
 			</button>
 		{/if}
 	</div>
-{/if}
-
-{#if linksOnly}
-	<TempoPitchDialog bind:open={advancedOpen} />
 {/if}

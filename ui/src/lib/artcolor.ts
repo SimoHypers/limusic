@@ -152,6 +152,6 @@ async function read(url: string): Promise<string | null> {
 		ctx.drawImage(img, 0, 0, SIZE, SIZE);
 		return pickAccent(ctx.getImageData(0, 0, SIZE, SIZE).data);
 	} catch {
-		return null; // offline, 404, throttled, tainted — the current accent just stays
+		return null; // offline, 404, throttled, tainted: the theme's own accent takes over
 	}
 }

@@ -915,7 +915,11 @@
 			"netease": "Katalog musik Tiongkok yang luas. Menyertakan terjemahan bahasa Mandarin pada banyak lagu.",
 			"qq": "Katalog musik Tiongkok, sangat lengkap untuk lagu Mandopop dan Cantopop.",
 			"kugou": "Katalog musik Tiongkok, cocok untuk trek yang lebih langka."
-		}
+		},
+		"text_size": "Ukuran teks",
+		"text_size_smaller": "Teks lebih kecil",
+		"text_size_larger": "Teks lebih besar",
+		"text_size_hint": "Buat lirik jadi lebih besar atau lebih kecil"
 	},
 	"queue": {
 		"title": "Antrean"
@@ -1276,5 +1280,14 @@
 		"clear_desc": "Hal ini menghapus setiap putaran yang dihitung pada perangkat ini, sehingga statistik Anda dimulai dari awal dan On Repeat dikosongkan. Riwayat YouTube Music Anda tidak disentuh.",
 		"clear_confirm": "Hapus riwayat",
 		"cleared": "Riwayat mendengar telah dihapus"
+	},
+	"columns": {
+		"label": "Kolom",
+		"choose": "Pilih kolom",
+		"title": "Judul",
+		"album": "Album",
+		"added": "Tanggal ditambahkan",
+		"by": "Ditambahkan oleh",
+		"duration": "Durasi"
 	}
 }

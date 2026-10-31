@@ -45,6 +45,8 @@ pub struct PlaybackData {
     /// music-video mode believes this over the queue row's flag, which several rows arrive without
     /// (a card played from a shelf, a Listen Together mirror, an album row swapped to its audio id).
     pub is_video: Option<bool>,
+    /// The same field read as "a podcast episode" (#500), `None` on the same terms.
+    pub is_episode: Option<bool>,
     /// Which client produced the stream (diagnostics). context/06.
     pub stream_client: String,
 }
@@ -546,6 +548,7 @@ impl Orchestrator {
                 thumbnail: None,
                 // rustypipe answers without a `musicVideoType`, so the queue row's flag stands.
                 is_video: None,
+                is_episode: None,
                 stream_client: "rustypipe".to_owned(),
             }),
             Err(e) => {
@@ -795,7 +798,8 @@ impl Orchestrator {
         headers: HashMap<String, String>,
     ) -> PlaybackData {
         let vd = main_resp.as_ref().and_then(|r| r.video_details.as_ref());
-        tracing::info!(video_id, client, itag = format.itag, "resolved stream");
+        let video_type = vd.and_then(|v| v.music_video_type.as_deref());
+        tracing::info!(video_id, client, itag = format.itag, video_type, "resolved stream");
         PlaybackData {
             video_id: video_id.to_owned(),
             stream_url: url,
@@ -809,6 +813,7 @@ impl Orchestrator {
             duration: vd.and_then(|v| v.length_seconds.clone()),
             thumbnail: main_resp.as_ref().and_then(best_thumbnail),
             is_video: vd.and_then(|v| v.is_music_video()),
+            is_episode: vd.and_then(|v| v.is_podcast_episode()),
             stream_client: client.to_owned(),
         }
     }

@@ -9,6 +9,7 @@
 		Comment01Icon,
 		Maximize01Icon,
 		Minimize01Icon,
+		FullScreenIcon,
 		Mic01Icon,
 		MusicNote01Icon,
 		PlayIcon,
@@ -84,7 +85,7 @@
 	let pressedKeep = false;
 	let releasedKeep = false;
 	function onBackdropClick(e: MouseEvent) {
-		if (pressedKeep || releasedKeep || keeps(e.target)) return;
+		if (!appearance.emptyClickTogglesPlayer || pressedKeep || releasedKeep || keeps(e.target)) return;
 		np.open = false;
 	}
 
@@ -618,6 +619,24 @@
 										</span>
 									</button>
 								{/if}
+								{#if showVideo()}
+									<!-- Opens theater straight into cinema. data-np-keep: without it the backdrop
+									     click handler treats this as a click outside and closes Now Playing, and its
+									     hole teardown blanks the picture under theater. -->
+									<button
+										type="button"
+										onclick={() => {
+											video.cinema = true;
+											ui.theaterOpen = true;
+										}}
+										class="flex size-10 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+										aria-label={t('player.fullscreen_video')}
+										title="{t('player.fullscreen_video')} (F)"
+										data-np-keep
+									>
+										<HugeiconsIcon icon={FullScreenIcon} class="h-5 w-5" />
+									</button>
+								{/if}
 								{#if currentSong}
 									<TrackMenu
 										song={currentSong}
@@ -695,24 +714,41 @@
 					>
 						{#if volFlash}{@render volPlate()}{/if}
 						{@render picture()}
-						{#if canSwitch()}
-							<!-- Both directions, or there is no way back to the video. On a plate, since
-							     it sits over whatever frame happens to be showing. -->
-							<button
-								type="button"
-								onclick={() => pickVersion(!videoSide())}
-								aria-label={showVideo() ? t('a11y.show_artwork') : t('a11y.show_video')}
-								class="absolute right-3 top-3 z-10 cursor-pointer rounded-md bg-black/40 p-1.5 text-white/70 transition-colors hover:text-white"
-							>
-								<!-- icon swap via altIcon/showAlt: `icon` is frozen at mount -->
-								<HugeiconsIcon
-									icon={Video01Icon}
-									altIcon={VideoOffIcon}
-									showAlt={showVideo()}
-									class="h-4 w-4"
-								/>
-							</button>
-						{/if}
+						<!-- On plates, since they sit over whatever frame happens to be showing. -->
+						<div class="absolute right-3 top-3 z-10 flex gap-1.5">
+							{#if canSwitch()}
+								<!-- Both directions, or there is no way back to the video. -->
+								<button
+									type="button"
+									onclick={() => pickVersion(!videoSide())}
+									aria-label={showVideo() ? t('a11y.show_artwork') : t('a11y.show_video')}
+									class="cursor-pointer rounded-md bg-black/40 p-1.5 text-white/70 transition-colors hover:text-white"
+								>
+									<!-- icon swap via altIcon/showAlt: `icon` is frozen at mount -->
+									<HugeiconsIcon
+										icon={Video01Icon}
+										altIcon={VideoOffIcon}
+										showAlt={showVideo()}
+										class="h-4 w-4"
+									/>
+								</button>
+							{/if}
+							{#if showVideo()}
+								<!-- Opens theater straight into cinema, like the new layout's button. -->
+								<button
+									type="button"
+									onclick={() => {
+										video.cinema = true;
+										ui.theaterOpen = true;
+									}}
+									aria-label={t('player.fullscreen_video')}
+									title="{t('player.fullscreen_video')} (F)"
+									class="cursor-pointer rounded-md bg-black/40 p-1.5 text-white/70 transition-colors hover:text-white"
+								>
+									<HugeiconsIcon icon={FullScreenIcon} class="h-4 w-4" />
+								</button>
+							{/if}
+						</div>
 					</div>
 				</div>
 			{/if}

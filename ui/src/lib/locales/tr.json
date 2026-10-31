@@ -88,7 +88,8 @@
 		"remove_account_title": "Limusic'ten sil?",
 		"remove_account_desc": "{name} yalnızca bu listeden kaldırıldı. Google hesabınız bu eylemden etkilenmedi ve istediğiniz zaman onunla giriş yapabilirsiniz.",
 		"saved_accounts_hint": "Geçmek için kaydedilmiş bir hesabı seçin.",
-		"no_channels": "YouTube seçilebilir bir kanal döndürmedi."
+		"no_channels": "YouTube seçilebilir bir kanal döndürmedi.",
+		"stats": "İstatistikler"
 	},
 	"player": {
 		"play": "Oynat",
@@ -152,7 +153,8 @@
 		"edit_scrobble": "Skropu düzenle",
 		"song": "Müzik",
 		"video": "Video",
-		"comments": "Yorumlar"
+		"comments": "Yorumlar",
+		"up_next": "Sıradaki"
 	},
 	"home": {
 		"good_morning": "Günaydın",
@@ -199,7 +201,8 @@
 			"albums_for_you": "Sana özel albümler",
 			"new_releases": "Yeni çıkanlar",
 			"mixed_for_you": "Senin için hazırlandı",
-			"music_videos": "Senin için müzik videoları"
+			"music_videos": "Senin için müzik videoları",
+			"daily_discover": "Günlük keşif"
 		}
 	},
 	"artist": {
@@ -413,7 +416,8 @@
 			"preview_hint": "Sürüklerken kaydırma çubukları ve renk seçici burada görünür; parmağınızı bıraktığınızda uygulama buna uyum sağlar.",
 			"matugen": "Matugen",
 			"matugen_hint": "Matugen'in duvar kağıdınızdan oluşturduğu paletten, vurgu renkleri de dahil olmak üzere tüm renkleri alın. Öncelikle Matugen'de Limusic şablonunu ayarlayın.",
-			"blur_playlist_header_hint": "Bir çalma listesinin kapak resmini, başlığının arkasında bulanık bir şekilde göster. Tam genişlikte pikselli görünen kapak resimlerini yumuşatır."
+			"blur_playlist_header_hint": "Bir çalma listesinin kapak resmini, başlığının arkasında bulanık bir şekilde göster. Tam genişlikte pikselli görünen kapak resimlerini yumuşatır.",
+			"classic_player": "Klasik oynatıcı düzeni"
 		},
 		"playback": {
 			"audio_quality": "Ses kalitesi",
@@ -907,7 +911,10 @@
 			"netease": "Geniş bir Çince katalog. Birçok şarkının altına Çince çeviri ekler.",
 			"qq": "Çince katalog, Mandopop ve Cantopop'ta güçlü.",
 			"kugou": "Daha nadir parçalar için Çince katalog."
-		}
+		},
+		"text_size_larger": "Daha büyük metin",
+		"text_size_smaller": "Daha küçük metin",
+		"text_size": "Metin boyutu"
 	},
 	"queue": {
 		"title": "Sıra"
@@ -1208,5 +1215,68 @@
 		"hearted": "Üretici tarafından beğenildi",
 		"creator": "Üretici",
 		"reload_needed": "Yorumlar güncel değil. Devam etmek için sayfayı yeniden yükleyin."
+	},
+	"stats": {
+		"title": "Dinleme istatistikleri",
+		"ranges": {
+			"week": "7 gün",
+			"month": "30 gün",
+			"year": "12 ay",
+			"all": "Tüm zamanlar"
+		},
+		"listened": {
+			"week": "son 7 gün içinde dinlendi",
+			"month": "son 30 gün içinde dinlendi",
+			"year": "son 12 ay içinde dinlendi",
+			"all": "{date} tarihinden beri dinlendi"
+		},
+		"compared": {
+			"week": "önceki 7 güne kıyasla",
+			"month": "önceki 30 güne kıyasla",
+			"year": "önceki 12 aya kıyasla"
+		},
+		"plays": "Oynatmalar",
+		"new_songs": "{count} yeni",
+		"streak": "Günlük seri",
+		"best_streak": "En iyi: {count}",
+		"activity": "Dinleme aktivitesi",
+		"daily_average": "Günlük ortalama",
+		"monthly_average": "Aylık ortalama",
+		"dayparts": {
+			"morning": "Sabah",
+			"afternoon": "Öğleden sonra",
+			"evening": "Akşam",
+			"night": "Gece"
+		},
+		"persona": {
+			"afternoon": "Öğle dinleyicisi",
+			"evening": "Akşam dinleyicisi",
+			"night": "Gece kuşu",
+			"morning": "Erkenci kuş"
+		},
+		"persona_hint": "En çok {from} ile {to} arasında müzik dinliyorsun.",
+		"less": "Daha az",
+		"more": "Daha fazla",
+		"nothing_in_range": "Bu süre içerisinde hiçbir şey çalınmadı.",
+		"empty_title": "İstatistikleriniz burada başlıyor",
+		"empty": "Birkaç şarkı dinleyin. Bu sayfa; neyi, ne zaman ve ne kadar süreyle dinlediğinizi gösterir.",
+		"clear": "Dinleme geçmişini temizle",
+		"clear_title": "Dinleme geçmişi temizlensin mi?",
+		"clear_desc": "Bu işlem, bu cihazda kaydedilen tüm dinleme kayıtlarını siler; dolayısıyla istatistikleriniz sıfırlanır ve “Sürekli Çalınanlar” listesi boşalır. YouTube Music geçmişiniz bundan etkilenmez.",
+		"clear_confirm": "Geçmişi temizle",
+		"cleared": "Dinleme geçmişi silindi",
+		"top_songs": "En çok dinlenen şarkılar",
+		"top_artists": "En çok dinlenen sanatçılar",
+		"top_albums": "En çok dinlenen albümler"
+	},
+	"columns": {
+		"title": "Başlık",
+		"album": "Albüm",
+		"added": "Tarih eklendi",
+		"by": "Ekleyen:",
+		"plays": "Oynatmalar",
+		"mine": "Oynatmalarınız",
+		"duration": "Süre",
+		"choose": "Sütunları seç"
 	}
 }

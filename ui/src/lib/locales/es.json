@@ -915,7 +915,11 @@
 			"netease": "Gran catalogo chino. Agrega traducciones en chino bajo muchas canciones.",
 			"qq": "Catálogo chino, fuerte en Mandopop y Cantopop.",
 			"kugou": "Catálogo chino, para pistas poco comunes."
-		}
+		},
+		"text_size": "Tamaño del texto",
+		"text_size_hint": "Hace las letras musicales más grandes o más pequeñas",
+		"text_size_larger": "Texto más grande",
+		"text_size_smaller": "Texto más pequeño"
 	},
 	"queue": {
 		"title": "Cola"
@@ -1276,5 +1280,16 @@
 		"clear_desc": "Esto olvida cada reproducción contada en este dispositivo, tus estadísticas se reinician y \"En Repetición\" se vacía. Tu historial de YouTube Music no se toca.",
 		"clear_confirm": "Borrar historial",
 		"cleared": "Historial de reproducción borrado"
+	},
+	"columns": {
+		"label": "Columnas",
+		"choose": "Elegir columnas",
+		"title": "Título",
+		"album": "Álbum",
+		"added": "Fecha de adición",
+		"by": "Añadido por",
+		"plays": "Reproducciones",
+		"mine": "Tus reproducciones",
+		"duration": "Duración"
 	}
 }

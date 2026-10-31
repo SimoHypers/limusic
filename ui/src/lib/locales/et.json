@@ -138,7 +138,8 @@
 		"remove_account_desc": "{name} eemaldatakse ainult sellest loendist. Google'i kontot see ei mõjuta ja saad sellega igal ajal uuesti sisse logida.",
 		"saved_accounts_hint": "Vali salvestatud konto, et sellele lülituda.",
 		"history": "Ajalugu",
-		"no_channels": "YouTube ei tagastanud ühtegi valitavat kanalit."
+		"no_channels": "YouTube ei tagastanud ühtegi valitavat kanalit.",
+		"stats": "Statistika"
 	},
 	"player": {
 		"play": "Esita",
@@ -971,7 +972,11 @@
 			"netease": "Suur Hiina kataloog. Lisab paljudele lugudele hiinakeelse tõlke.",
 			"qq": "Hiina kataloog, tugev Mandopopi ja Cantopopi alal.",
 			"kugou": "Hiina kataloog haruldasemate lugude jaoks."
-		}
+		},
+		"text_size": "Teksti suurus",
+		"text_size_larger": "Suurem tekst",
+		"text_size_smaller": "Väiksem tekst",
+		"text_size_hint": "Tee laulusõnad suuremaks või väiksemaks"
 	},
 	"queue": {
 		"title": "Järjekord"
@@ -1213,5 +1218,70 @@
 		"delete_desc": "Seda ei saa tagasi võtta. Kustutatakse ka kõik selle vastused.",
 		"held": "Loo „{title}“ kommentaarid",
 		"follow_current": "Näita praegust lugu"
+	},
+	"stats": {
+		"title": "Kuulamise statistika",
+		"ranges": {
+			"week": "7 päeva",
+			"month": "30 päeva",
+			"year": "12 kuud"
+		},
+		"listened": {
+			"week": "kuulatud viimase 7 päeva jooksul",
+			"month": "kuulatud viimase 30 päeva jooksul",
+			"year": "kuulatud viimase 12 kuu jooksul",
+			"all": "kuulatud kuupäevast {date}"
+		},
+		"compared": {
+			"year": "vs. 12 kuud tagasi",
+			"week": "vs. 7 päeva ennem",
+			"month": "vs. 30 päeva ennem"
+		},
+		"plays": "Mängib",
+		"new_songs": "{count} uut",
+		"best_streak": "Parimad: {count}",
+		"activity": "Kuulmise aktiivsus",
+		"daily_average": "Päeva keskmine",
+		"monthly_average": "Kuu keskmine",
+		"top_songs": "Top lood",
+		"top_artists": "Top artistid",
+		"top_albums": "Top albumid",
+		"dayparts": {
+			"morning": "Hommik",
+			"afternoon": "Lõuna",
+			"evening": "Õhtu",
+			"night": "Öö"
+		},
+		"persona": {
+			"evening": "Õhtune kuulaja",
+			"night": "Öökull",
+			"morning": "Varajane lind",
+			"afternoon": "Pärastlõunane kuulaja"
+		},
+		"less": "Vähem",
+		"more": "Rohkem",
+		"nothing_in_range": "Midagi pole mängitud sellel perioodil.",
+		"clear": "Puhasta kuulamise ajalugu",
+		"clear_title": "Puhasta kuulamise ajalugu?",
+		"clear_confirm": "Puhasta ajalugu",
+		"cleared": "Kuulamise ajalugu puhastatud",
+		"busiest_day": "Aktiivseim päev",
+		"busiest_month": "Aktiivseim kuu",
+		"busiest_weekday": "Aktiivseim nädalapäev",
+		"busiest_hour": "Aktiivseim tund",
+		"share": "{percent} kuulamistest",
+		"persona_hint": "Sa kuulad kõige rohkem vahemikus {from} kuni {to}.",
+		"empty_title": "Sinu statistika algab siit"
+	},
+	"columns": {
+		"label": "Tulbad",
+		"choose": "Vali tulbad",
+		"title": "Pealkiri",
+		"album": "Album",
+		"added": "Lisamise kuupäev",
+		"by": "Lisanud",
+		"plays": "Mängimist",
+		"mine": "Sinu mängimised",
+		"duration": "Kestus"
 	}
 }

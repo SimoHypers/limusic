@@ -11,6 +11,7 @@
 	} from '@hugeicons/core-free-icons';
 	import { browser } from '$app/environment';
 	import { afterNavigate } from '$app/navigation';
+	import { cancelRestore, restoreTo } from '$lib/scrollrestore';
 	import { onMount } from 'svelte';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { fly } from 'svelte/transition';
@@ -37,6 +38,7 @@
 	import AddToPlaylist from '$lib/components/AddToPlaylist.svelte';
 	import NewPlaylistDialog from '$lib/components/NewPlaylistDialog.svelte';
 	import SettingsDialog from '$lib/components/SettingsDialog.svelte';
+	import TempoPitchDialog from '$lib/components/TempoPitchDialog.svelte';
 	import ShareDialog from '$lib/components/ShareDialog.svelte';
 	import ChannelPicker from '$lib/components/ChannelPicker.svelte';
 	import ListenTogether from '$lib/components/ListenTogether.svelte';
@@ -71,57 +73,9 @@
 	// each restore the position they left at, where a URL→scroll Map would collapse both onto the
 	// last save. Kit 2.69 reads `.snapshot` off the bound component *instance* (the generated
 	// root.svelte does `bind:this`), so it must be exported from this script, not the module. This
-	// covers every route that scrolls `<main>`; /playlist/[id] and /search scroll their own
-	// container and restore themselves.
-	// `restore` re-applies the saved offset each frame while the destination is filling in. A
-	// single reach isn't enough: a shelf or an image filling in late shifts the layout under a
-	// pixel-perfect position. So it releases once the height stays quiet for ~300ms, after ~2.5s
-	// of re-applying, or when the user steers — wheel, touch, pointer, keys, or a drag.
+	// covers every route that scrolls `<main>` (`$lib/scrollrestore`); /playlist/[id] scrolls its
+	// own container and exports a snapshot of its own.
 	let scroller = $state<HTMLElement | null>(null);
-	let restoreRaf = 0;
-	const cancelRestore = () => {
-		cancelAnimationFrame(restoreRaf);
-		removeEventListener('wheel', cancelRestore, { capture: true });
-		removeEventListener('touchstart', cancelRestore, { capture: true });
-		removeEventListener('pointerdown', cancelRestore, { capture: true });
-		removeEventListener('keydown', cancelRestore, { capture: true });
-		removeEventListener('dragstart', cancelRestore, { capture: true });
-	};
-	const restoreTo = (el: HTMLElement, y: number) => {
-		cancelRestore();
-		// The settle loop writes `y` every frame, so any input that changes the scroll while it
-		// runs has to abort it. wheel/touchstart cover a wheel and a touchscreen; a scrollbar
-		// drag and the keyboard fire pointerdown/keydown instead; dragScroll on `<main>` runs off
-		// dragover while a card is in flight, so dragstart catches it.
-		addEventListener('wheel', cancelRestore, { passive: true, capture: true });
-		addEventListener('touchstart', cancelRestore, { passive: true, capture: true });
-		addEventListener('pointerdown', cancelRestore, { passive: true, capture: true });
-		addEventListener('keydown', cancelRestore, { passive: true, capture: true });
-		addEventListener('dragstart', cancelRestore, { passive: true, capture: true });
-		let lastHeight = el.scrollHeight;
-		let quiet = 0;
-		let budget = 0;
-		const settle = () => {
-			el.scrollTop = y;
-			const grown = el.scrollHeight > lastHeight;
-			lastHeight = el.scrollHeight;
-			// Release when the scroller can hold y *and* the content has stopped changing for
-			// ~300ms — a late shelf or an image filling in shifts the layout under a pixel
-			// position, so a single reach isn't stable. A list that got genuinely shorter sits at
-			// the clamped bottom and releases the same way once its height is quiet. Give up after
-			// ~2.5s overall (budget counts every frame and never resets, so a destination that keeps
-			// growing occupies the position for at most that long), or the user steers — wheel,
-			// touch, pointer, keys, or a drag all cancel.
-			if (++budget > 150) return cancelRestore();
-			if (!grown) {
-				if (++quiet > 18) return cancelRestore();
-			} else {
-				quiet = 0;
-			}
-			restoreRaf = requestAnimationFrame(settle);
-		};
-		settle();
-	};
 	export const snapshot = {
 		capture: () => (scroller ? scroller.scrollTop : null),
 		restore: (y: unknown) => {
@@ -358,6 +312,7 @@
 	<NewPlaylistDialog />
 	<ShareDialog />
 	<SettingsDialog />
+	<TempoPitchDialog bind:open={ui.tempoPitchOpen} />
 	<ChannelPicker />
 	<ListenTogether />
 	<LinkDialog />

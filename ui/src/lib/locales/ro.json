@@ -64,7 +64,8 @@
 		"refresh": "Reîmprospătează",
 		"videos": "Videoclipuri",
 		"top_result": "Rezultat de top",
-		"all_results_for": "Toate rezultatele pentru „{query}”"
+		"all_results_for": "Toate rezultatele pentru „{query}”",
+		"restore": "Restaurează"
 	},
 	"nav": {
 		"home": "Acasă",
@@ -87,7 +88,8 @@
 		"remove_account_title": "Elimini din Limusic?",
 		"remove_account_desc": "{name} este eliminat doar din această listă. Contul Google nu este afectat și te poți reconecta oricând.",
 		"saved_accounts_hint": "Alege un cont salvat pentru a comuta la el.",
-		"no_channels": "YouTube nu a returnat niciun canal selectabil."
+		"no_channels": "YouTube nu a returnat niciun canal selectabil.",
+		"stats": "Statistici"
 	},
 	"player": {
 		"play": "Redă",
@@ -151,7 +153,8 @@
 		"comments": "Comentarii",
 		"song": "Melodie",
 		"video": "Videoclip",
-		"edit_scrobble": "Editează scrobble-ul"
+		"edit_scrobble": "Editează scrobble-ul",
+		"up_next": "Urmează"
 	},
 	"home": {
 		"good_morning": "Bună dimineața",
@@ -188,7 +191,21 @@
 		"sections_hint": "Trage o secțiune pentru a o muta sau selectează mânerul și folosește tastele săgeți. Secțiunile ascunse își păstrează poziția.",
 		"move_section": "Mută secțiunea {title}",
 		"moved_section": "Secțiunea {title} a fost mutată pe poziția {position} din {total}",
-		"all_hidden": "Toate secțiunile de pe Acasă sunt dezactivate."
+		"all_hidden": "Toate secțiunile de pe Acasă sunt dezactivate.",
+		"kinds": {
+			"listen_again": "Ascultă din nou",
+			"quick_picks": "Recomandări rapide",
+			"from_library": "Din biblioteca ta",
+			"community": "Din comunitate",
+			"fresh_finds": "Descoperiri noi și piese îndrăgite vechi",
+			"albums_for_you": "Albume pentru tine",
+			"trending": "Piese în tendințe pentru tine",
+			"featured_playlists": "Playlisturi recomandate pentru tine",
+			"new_releases": "Lansări noi",
+			"mixed_for_you": "Mixuri pentru tine",
+			"daily_discover": "Descoperirile tale zilnice",
+			"music_videos": "Videoclipuri muzicale pentru tine"
+		}
 	},
 	"history": {
 		"title": "Istoric",
@@ -204,7 +221,8 @@
 		"subscribed": "Abonat",
 		"subscribe_to": "Abonează-te la {name}",
 		"unsubscribe_from": "Dezabonează-te de la {name}",
-		"top_songs": "Piese de top"
+		"top_songs": "Piese de top",
+		"appears_on": "Apare pe"
 	},
 	"library": {
 		"title": "Bibliotecă",
@@ -268,7 +286,8 @@
 		"suggestions_hint": "Pe baza conținutului din acest playlist",
 		"suggestions_failed": "Nu s-au putut încărca sugestiile.",
 		"suggestion_add": "Adaugă {title} în acest playlist",
-		"suggestion_added": "Adăugat"
+		"suggestion_added": "Adăugat",
+		"saved_in_count": "{count} playlisturi"
 	},
 	"local": {
 		"scanning": "Se scanează folderul...",
@@ -405,7 +424,13 @@
 			"accent_theme": "Culoarea de accent a temei",
 			"accent_artwork_note": "În timpul redării unei melodii, culoarea de accent este preluată din copertă. Dezactivează „Adaptează culorile la copertă” pentru a o vedea pe aceasta.",
 			"preview": "Previzualizare",
-			"preview_hint": "Glisoarele și selectorul de culoare se afișează aici în timp ce glisezi, iar aplicația le aplică la eliberare."
+			"preview_hint": "Glisoarele și selectorul de culoare se afișează aici în timp ce glisezi, iar aplicația le aplică la eliberare.",
+			"classic_player": "Aspect clasic al ecranului de redare",
+			"classic_player_hint": "Aspectul original al playerului: coperta este afișată peste o versiune estompată a acesteia, iar detaliile piesei rămân în bara de redare. Dacă dezactivezi opțiunea, se folosește noul aspect, cu titlul, artistul și albumul sub copertă, iar ecranul preia culorile acesteia.",
+			"blur_playlist_header": "Estompează antetele playlisturilor",
+			"blur_playlist_header_hint": "Afișează o versiune estompată a copertei playlistului în spatele antetului. Astfel, coperțile pixelate arată mai bine atunci când sunt extinse pe toată lățimea ecranului.",
+			"matugen": "Matugen",
+			"matugen_hint": "Preia toate culorile, inclusiv culoarea de accent, din paleta generată de Matugen pe baza imaginii tale de fundal. Configurează mai întâi șablonul Limusic în Matugen."
 		},
 		"playback": {
 			"audio_quality": "Calitate audio",
@@ -456,7 +481,9 @@
 			"lyrics_move_source": "Mută {name}",
 			"lyrics_moved_source": "{name} a fost mutat pe poziția {position} din {total}",
 			"lyrics_use_source": "Folosește {name}",
-			"lyrics_sources_none": "Toate sursele sunt dezactivate, așa că nu vor fi găsite versuri."
+			"lyrics_sources_none": "Toate sursele sunt dezactivate, așa că nu vor fi găsite versuri.",
+			"videos_first": "Redă mai întâi videoclipul",
+			"videos_first_hint": "Piesele de pe albume care au videoclipuri muzicale vor porni în versiunea video. Dezactivează această opțiune pentru a porni versiunea audio. Comutatorul Piesă/Videoclip din ecranul de redare îți permite să treci oricând de la o versiune la alta."
 		},
 		"data": {
 			"clear_cache": "Golește memoria cache pentru imagini și fluxuri",
@@ -897,7 +924,11 @@
 			"netease": "Catalog chinezesc extins. Oferă traduceri în chineză sub numeroase piese.",
 			"qq": "Catalog chinezesc, axat în principal pe Mandopop și Cantopop.",
 			"kugou": "Catalog chinezesc util pentru piese mai rare."
-		}
+		},
+		"text_size": "Dimensiunea textului",
+		"text_size_hint": "Mărește sau micșorează textul versurilor",
+		"text_size_larger": "Text mai mare",
+		"text_size_smaller": "Text mai mic"
 	},
 	"queue": {
 		"title": "Listă de redare"
@@ -1189,5 +1220,76 @@
 			"not_found": "Nu s-a putut găsi pe YouTube Music.",
 			"cooldown": "YouTube Music a solicitat o încetinire a cererilor, astfel că importurile sunt suspendate până la {time}. Tot ce s-a găsit până acum a fost salvat."
 		}
+	},
+	"stats": {
+		"title": "Statistici de ascultare",
+		"ranges": {
+			"week": "7 zile",
+			"month": "30 de zile",
+			"year": "12 luni",
+			"all": "De la început"
+		},
+		"listened": {
+			"week": "ascultată în ultimele 7 zile",
+			"month": "ascultată în ultimele 30 de zile",
+			"year": "ascultată în ultimele 12 luni",
+			"all": "ascultată începând cu {date}"
+		},
+		"compared": {
+			"week": "față de cele 7 zile anterioare",
+			"month": "față de cele 30 de zile anterioare",
+			"year": "față de cele 12 luni anterioare"
+		},
+		"plays": "Redări",
+		"new_songs": "{count} noi",
+		"streak": "Zile consecutive",
+		"best_streak": "Record: {count}",
+		"activity": "Activitatea de ascultare",
+		"daily_average": "Medie zilnică",
+		"monthly_average": "Medie lunară",
+		"busiest_day": "Cea mai activă zi",
+		"busiest_month": "Cea mai activă lună",
+		"busiest_weekday": "Cea mai activă zi a săptămânii",
+		"busiest_hour": "Cea mai activă oră",
+		"top_songs": "Cele mai ascultate piese",
+		"top_artists": "Cei mai ascultați artiști",
+		"top_albums": "Cele mai ascultate albume",
+		"share": "{percent} din ascultările tale",
+		"when": "Când asculți",
+		"dayparts": {
+			"morning": "Dimineața",
+			"afternoon": "După-amiaza",
+			"evening": "Seara",
+			"night": "Noaptea"
+		},
+		"persona": {
+			"morning": "Matinal",
+			"afternoon": "Ascultător de după-amiază",
+			"evening": "Ascultător de seară",
+			"night": "Pasăre de noapte"
+		},
+		"persona_hint": "Asculți cel mai mult între {from} și {to}.",
+		"less": "Mai puțin",
+		"more": "Mai mult",
+		"nothing_in_range": "Nu ai ascultat nimic în această perioadă.",
+		"empty_title": "Statisticile tale încep aici",
+		"empty": "Ascultă câteva piese, iar aici vei putea vedea ce muzică asculți, când și pentru cât timp.",
+		"on_device": "Statisticile sunt calculate pe acest dispozitiv, pe baza muzicii ascultate în Limusic. Nu se trimit date în afara dispozitivului.",
+		"clear": "Șterge istoricul de ascultare",
+		"clear_title": "Ștergi istoricul de ascultare?",
+		"clear_desc": "Această acțiune va șterge toate redările înregistrate pe acest dispozitiv. Statisticile vor fi resetate, iar secțiunea „Pe repeat” va fi golită. Istoricul tău din YouTube Music nu va fi afectat.",
+		"clear_confirm": "Șterge istoricul",
+		"cleared": "Istoricul de ascultare a fost șters"
+	},
+	"columns": {
+		"label": "Coloane",
+		"choose": "Alege coloanele",
+		"title": "Titlu",
+		"album": "Album",
+		"added": "Data adăugării",
+		"by": "Adăugată de",
+		"plays": "Redări",
+		"mine": "Redările tale",
+		"duration": "Durată"
 	}
 }

@@ -915,7 +915,11 @@
 			"netease": "Grande catálogo chinês. Adiciona traduções em chinês abaixo de muitas músicas.",
 			"qq": "Catálogo chinês, forte em Mandopop e Cantopop.",
 			"kugou": "Catálogo chinês, para faixas mais raras."
-		}
+		},
+		"text_size": "Tamanho do texto",
+		"text_size_hint": "Aumente ou diminua o tamanho do texto",
+		"text_size_larger": "Texto maior",
+		"text_size_smaller": "Texto menor"
 	},
 	"queue": {
 		"title": "Fila"

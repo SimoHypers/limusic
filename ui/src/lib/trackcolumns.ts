@@ -28,19 +28,35 @@ export const DEFAULT_COLUMNS: TrackColumn[] = ['album', 'added', 'by', 'plays', 
  * local file having neither) lives in END, which is one fixed width with its contents pushed right,
  * so it can never shift a column. Duration and the ⋯ end every row there, as before.
  *
- * The `@` variants read the list's own width (`@container` on its wrapper), so they follow the
- * sidebar as well as the window. They keep the title readable with every column on, and give way in
- * the order the columns matter: Date added first, then Your plays, then Album.
+ * Which columns fit goes by the list's own width (`fitColumns`), so it follows the sidebar as well
+ * as the window.
  */
 export const TITLE = 'flex-[4_1_0%]';
 export const END = 'w-44 justify-end';
 export const CELL: Record<Exclude<TrackColumn, 'duration'>, string> = {
-	album: 'hidden min-w-0 flex-[3_1_0%] @min-[40rem]:block',
-	added: 'hidden w-28 shrink-0 @min-[52rem]:block',
+	album: 'min-w-0 flex-[3_1_0%]',
+	added: 'w-28 shrink-0',
 	by: 'w-16 shrink-0',
 	plays: 'w-14 shrink-0 text-right',
-	mine: 'hidden w-16 shrink-0 text-right @min-[44rem]:block'
+	mine: 'w-16 shrink-0 text-right'
 };
+
+/** The narrowest list, in px, each column still shows in (40, 44 and 52rem). They keep the title
+ *  readable with every column on, and give way in the order the columns matter: Date added first,
+ *  then Your plays, then Album. */
+const MIN_PX: Partial<Record<TrackColumn, number>> = { album: 640, mine: 704, added: 832 };
+
+/**
+ * The columns that fit a list `px` wide.
+ *
+ * Measured, not a `@container` query: a size container around the playlist's windowed rows made
+ * WebKitGTK lose the scroll position near the bottom. Each window shift got a first layout pass with
+ * the rows' old padding and the new rows not counted, so the list came up short for that pass and
+ * the scroller clamped to it: the bottom bounced under the wheel and a jump to the end landed rows
+ * short. `ui/perf/endprobe.py` measures it.
+ */
+export const fitColumns = (cols: TrackColumn[], px: number): TrackColumn[] =>
+	cols.filter((c) => px >= (MIN_PX[c] ?? 0));
 
 /**
  * The columns this list can fill. An album page leaves Album out: every row would repeat the title

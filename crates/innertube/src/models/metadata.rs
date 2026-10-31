@@ -85,11 +85,26 @@ pub struct SongItem {
     /// "hide music videos" setting; computed once here, never re-derived downstream.
     #[serde(default)]
     pub is_video: bool,
+    /// A podcast episode, not a song: the player swaps shuffle for a speed control and adds the
+    /// 15-second skips (#500). Set by the episode rows and by `/player`'s `musicVideoType`.
+    #[serde(default)]
+    pub is_episode: bool,
     /// The same song's other version: the music video for an audio track, or the audio track for
     /// a video. What the player's Song/Video switch swaps to (#442). Known only where YouTube
-    /// pairs them: an album row we swapped to its audio id, and a signed-in radio's wrapper rows.
+    /// pairs them: an album row we swapped to its audio id, and the wrapper rows of a signed-in
+    /// `/next`, which YouTube sends to some accounts and not others (#520).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub counterpart: Option<String>,
+    /// The `counterpart`'s own art, traded with `thumbnail` on a switch so the player shows the
+    /// cover of the version playing, not the video frame it started on (#520).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub counterpart_thumbnail: Option<String>,
+    /// The stretches this version shares with the `counterpart`, off the wrapper's `segmentMap`,
+    /// in order. A video's intro, outro and any break in the middle fall between them, so the
+    /// switch lands on the same moment of the other version (#520, #535). Empty when YouTube sent
+    /// none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub counterpart_segments: Vec<Segment>,
     /// One of the signed-in user's own uploads ([`is_upload_row`]). Only an authenticated client
     /// can stream these, so the orchestrator swaps in a login-only fallback chain. Issue #71.
     #[serde(default)]
@@ -104,6 +119,15 @@ pub struct SongItem {
     /// files, On Repeat), where there is nothing to send.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub library: Option<LibraryToggle>,
+}
+
+/// One stretch of a song that plays in both versions: `start_ms` into this one, `twin_start_ms`
+/// into its counterpart, running `duration_ms` in both. A `segmentMap` entry (#535).
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Segment {
+    pub start_ms: i64,
+    pub twin_start_ms: i64,
+    pub duration_ms: i64,
 }
 
 /// A track's library membership as its menu states it, with the tokens for both directions.
@@ -146,6 +170,9 @@ pub(crate) const AUDIO_TRACK_TYPE: &str = "MUSIC_VIDEO_TYPE_ATV";
 /// video mode on a track that has no video at all. Issue #71.
 pub(crate) const UPLOADED_TRACK_TYPE: &str = "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK";
 
+/// A podcast episode. Still a "video" to [`is_video_type`]: a video podcast has a picture.
+pub(crate) const PODCAST_EPISODE_TYPE: &str = "MUSIC_VIDEO_TYPE_PODCAST_EPISODE";
+
 /// True for a `musicVideoType` that means "a music video", i.e. neither of the two audio kinds.
 pub(crate) fn is_video_type(t: &str) -> bool {
     t != AUDIO_TRACK_TYPE && t != UPLOADED_TRACK_TYPE
@@ -185,6 +212,11 @@ pub(crate) fn is_video_row(node: &Value) -> bool {
 /// True when a renderer row links one of the user's own uploads. Same lookup as [`is_video_row`].
 pub(crate) fn is_upload_row(node: &Value) -> bool {
     row_video_type(node) == Some(UPLOADED_TRACK_TYPE)
+}
+
+/// True when a renderer row links a podcast episode (#500), as a search result does. Same lookup.
+pub(crate) fn is_episode_row(node: &Value) -> bool {
+    row_video_type(node) == Some(PODCAST_EPISODE_TYPE)
 }
 
 /// The `musicVideoType` a row claims, from the overlay play button when it carries one.
@@ -299,7 +331,9 @@ pub fn parse_next(root: &Value) -> NextResult {
     panel_rows(root, &mut rows);
     for (node, counterpart) in rows {
         if let Some(mut item) = parse_panel_video(node) {
-            item.counterpart = counterpart;
+            if let Some(c) = counterpart {
+                set_twin(&mut item, c);
+            }
             items.push(item);
         }
     }
@@ -325,8 +359,9 @@ pub fn parse_next(root: &Value) -> NextResult {
 /// with its music-video twin (what YouTube's own Song/Video toggle switches between), so a plain
 /// [`find_all`] takes both and the queue gets every song twice. Issue #170.
 ///
-/// The twin's id rides along with its primary row instead, for our own Song/Video switch (#442).
-fn panel_rows<'a>(node: &'a Value, out: &mut Vec<(&'a Value, Option<String>)>) {
+/// The twin's `counterpart` arm rides along with its primary row instead, for our own Song/Video
+/// switch (#442).
+fn panel_rows<'a>(node: &'a Value, out: &mut Vec<(&'a Value, Option<&'a Value>)>) {
     match node {
         Value::Object(map) => {
             let start = out.len();
@@ -339,7 +374,7 @@ fn panel_rows<'a>(node: &'a Value, out: &mut Vec<(&'a Value, Option<String>)>) {
                 }
                 panel_rows(v, out);
             }
-            if let Some(twin) = map.get("counterpart").and_then(|c| find_first_str(c, "videoId")) {
+            if let Some(twin) = map.get("counterpart") {
                 // A wrapper holds exactly one primary row; anything else is a shape we don't know.
                 if let [(_, slot)] = &mut out[start..] {
                     *slot = Some(twin);
@@ -349,6 +384,35 @@ fn panel_rows<'a>(node: &'a Value, out: &mut Vec<(&'a Value, Option<String>)>) {
         Value::Array(arr) => arr.iter().for_each(|e| panel_rows(e, out)),
         _ => {}
     }
+}
+
+/// Copy a wrapper's `counterpart` arm onto its primary row: the other version's id and art, and
+/// from `segmentMap` the stretches the two share (#520, #535).
+fn set_twin(item: &mut SongItem, counterpart: &Value) {
+    let Some(row) = find_all(counterpart, "playlistPanelVideoRenderer").into_iter().next() else {
+        return;
+    };
+    let Some(id) = row.get("videoId").and_then(Value::as_str) else { return };
+    item.counterpart = Some(id.to_owned());
+    item.counterpart_thumbnail = last_thumbnail(row);
+    let segments = find_all(counterpart, "segmentMap").into_iter().filter_map(|m| m.get("segment"));
+    item.counterpart_segments = segments
+        .filter_map(Value::as_array)
+        .flatten()
+        .filter_map(|seg| {
+            // YouTube sends these as strings; a number is taken too, should that ever change.
+            let ms = |key| {
+                let v = seg.get(key)?;
+                v.as_str().and_then(|s| s.parse().ok()).or_else(|| v.as_i64())
+            };
+            Some(Segment {
+                start_ms: ms("primaryVideoStartTimeMilliseconds")?,
+                twin_start_ms: ms("counterpartVideoStartTimeMilliseconds")?,
+                duration_ms: ms("durationMilliseconds")?,
+            })
+        })
+        .collect();
+    item.counterpart_segments.sort_by_key(|s| s.start_ms);
 }
 
 /// The lyrics tab's browseId from a `next` response: the browseEndpoint whose pageType is
@@ -589,7 +653,10 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
         autoplay: false,
         is_video,
         counterpart: None,
+        counterpart_thumbnail: None,
+        counterpart_segments: Vec::new(),
         is_upload: is_upload_row(node),
+        is_episode: is_episode_row(node),
         explicit: is_explicit(node),
         library: library_toggle(node),
     })
@@ -625,6 +692,7 @@ pub(crate) fn parse_episode_item(node: &Value) -> Option<SongItem> {
         // An episode's type is MUSIC_VIDEO_TYPE_PODCAST_EPISODE, which "hide music videos" would
         // otherwise drop. Video mode still reads the player response, so video podcasts keep it.
         is_video: false,
+        is_episode: true,
         library: library_toggle(node),
         ..Default::default()
     })
@@ -897,7 +965,10 @@ fn parse_panel_video(node: &Value) -> Option<SongItem> {
         autoplay: false,
         is_video: is_video_row(node),
         counterpart: None,
+        counterpart_thumbnail: None,
+        counterpart_segments: Vec::new(),
         is_upload: is_upload_row(node),
+        is_episode: is_episode_row(node),
         // Queue-panel rows carry no badges today; asking anyway costs a map lookup and picks the
         // flag up for free if YouTube ever adds one.
         explicit: is_explicit(node),
@@ -1219,6 +1290,11 @@ mod tests {
         let up = "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK";
         assert!(!is_video_row(&json!({ "navigationEndpoint": cfg(up) })));
         assert!(!is_video_row(&json!({ "overlay": overlay(up) })));
+
+        // A podcast episode in a search result (#500), read off the same tag.
+        let ep = "MUSIC_VIDEO_TYPE_PODCAST_EPISODE";
+        assert!(is_episode_row(&json!({ "overlay": overlay(ep) })));
+        assert!(!is_episode_row(&json!({ "overlay": overlay("MUSIC_VIDEO_TYPE_OMV") })));
     }
 
     // The upload flag picks the orchestrator's login-only client chain (issue #71), so it has to
@@ -1374,6 +1450,46 @@ mod tests {
         // The twin is kept on its primary for the Song/Video switch (#442), and only there.
         assert_eq!(out.items[0].counterpart.as_deref(), Some("video1"));
         assert_eq!(out.items[1].counterpart, None);
+    }
+
+    // The reporter's capture of the web client's first `/next` for a music video played on its
+    // own, on an account YouTube pairs versions for (#520): the seed is wrapped, and the song
+    // starts 5477 ms into the video.
+    #[test]
+    fn a_wrapped_seed_carries_its_twin_art_and_offset() {
+        let root: Value =
+            serde_json::from_str(include_str!("../../tests/fixtures/next_wrapped_video_seed.json"))
+                .unwrap();
+        let out = parse_next(&root);
+        let [seed] = &out.items[..] else { panic!("one row, got {}", out.items.len()) };
+        assert_eq!(seed.video_id, "uuZE_IRwLNI");
+        assert!(seed.is_video);
+        assert_eq!(seed.counterpart.as_deref(), Some("59nAgJZ5IoE"));
+        let art = seed.counterpart_thumbnail.as_deref().unwrap_or_default();
+        assert!(art.starts_with("https://yt3.googleusercontent.com/"), "{art}");
+        let one = Segment { start_ms: 5477, twin_start_ms: 0, duration_ms: 484451 };
+        assert_eq!(seed.counterpart_segments, [one]);
+    }
+
+    // The reporter's "Locked Away" pair (#535): the song is the primary, and the video breaks
+    // for 14.5 s in the middle, so the two share two stretches with a gap between.
+    #[test]
+    fn every_segment_of_a_twin_is_kept() {
+        let root: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/next_wrapper_two_segments.json"
+        ))
+        .unwrap();
+        let out = parse_next(&root);
+        let [song] = &out.items[..] else { panic!("one row, got {}", out.items.len()) };
+        assert_eq!((song.video_id.as_str(), song.is_video), ("wTR_tymnbac", false));
+        assert_eq!(song.counterpart.as_deref(), Some("6GUm5g8SG4o"));
+        assert_eq!(
+            song.counterpart_segments,
+            [
+                Segment { start_ms: 0, twin_start_ms: 22698, duration_ms: 86438 },
+                Segment { start_ms: 86439, twin_start_ms: 123644, duration_ms: 141061 },
+            ]
+        );
     }
 
     // A real radio page has no automix marker — nothing to escalate to, and nothing to mistake a

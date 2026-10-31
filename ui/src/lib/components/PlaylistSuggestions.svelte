@@ -9,7 +9,9 @@
 		LayerAddIcon,
 		PlusSignIcon,
 		Refresh01Icon,
-		Tick02Icon
+		Tick02Icon,
+		ViewIcon,
+		ViewOffSlashIcon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import TrackRow from './TrackRow.svelte';
@@ -79,10 +81,38 @@
 	// short playlist it is, and the pill would flash up for a frame and fade out over it.
 	let shelfInView = $state(untrack(() => inline));
 
+	// Hidden (#508) folds the shelf to its header at the foot of the list and takes the dock away.
+	// One switch for every playlist, kept until shown again, and nothing is fetched while it is on.
+	const HIDDEN_KEY = 'playlist_suggestions_hidden';
+	let hidden = $state(storedHidden());
+	function storedHidden() {
+		try {
+			return localStorage.getItem(HIDDEN_KEY) === '1';
+		} catch {
+			return false;
+		}
+	}
+	function setHidden(v: boolean, docked = false) {
+		hidden = v;
+		open = false;
+		// Shown again from the foot of the list, so the shelf opens on screen: without this the pill
+		// flashes up for the frame before the observer answers.
+		shelfInView = inline;
+		try {
+			localStorage.setItem(HIDDEN_KEY, v ? '1' : '0');
+		} catch {
+			// Not stored: it still holds for this visit.
+		}
+		// From the dock the whole thing vanishes, so say where it went.
+		if (v && docked) toast.info(t('library.suggestions_hidden'));
+		if (!v && !fetched) load();
+	}
+	const dockable = $derived(live && !hidden && !shelfInView);
+
 	async function refill() {
 		// A window can be all rows already seen or already in the playlist. A couple more tries
 		// reach fresh ones; the cap keeps a radio that has run dry from asking forever.
-		for (let tries = 0; tries < 3 && !pool.length; tries++) {
+		for (let tries = 0; tries < 3 && !pool.length && !hidden; tries++) {
 			const got = await api.getPlaylistSuggestions(playlistId, cursor ?? token);
 			const have = new Set(current().map((s) => s.video_id));
 			pool = got.items.filter((s) => !seen.has(s.video_id) && !have.has(s.video_id));
@@ -94,7 +124,8 @@
 	}
 
 	async function load() {
-		if (loading) return;
+		// Hidden: the reload a last pick schedules stops here, refill's retries at its loop.
+		if (loading || hidden) return;
 		loading = true;
 		failed = false;
 		try {
@@ -116,7 +147,7 @@
 	// One request per visit, at open: the dock shows the batch's covers, so it needs the batch
 	// before anyone scrolls or clicks. The shelf at the foot of the list then keeps that batch.
 	onMount(() => {
-		load();
+		if (!hidden) load();
 	});
 
 	// Where the shelf is on screen the dock has nothing to add, and an open tray would be a second
@@ -156,7 +187,7 @@
 </script>
 
 {#snippet header(docked: boolean)}
-	<div class="mb-2 flex items-center justify-between gap-4 px-2">
+	<div class="{hidden ? '' : 'mb-2'} flex items-center justify-between gap-4 px-2">
 		<div class="flex min-w-0 items-center gap-3">
 			<span
 				class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"
@@ -171,17 +202,38 @@
 			</div>
 		</div>
 		<div class="flex shrink-0 items-center gap-1">
-			<Button
-				variant="ghost"
-				size="sm"
-				class="gap-2 text-muted-foreground"
-				onclick={load}
-				disabled={loading}
-			>
-				<!-- Spins only while a batch is in the air: nothing loops at rest. -->
-				<HugeiconsIcon icon={Refresh01Icon} class="h-4 w-4 {loading ? 'animate-spin' : ''}" />
-				{t('common.refresh')}
-			</Button>
+			{#if hidden}
+				<Button
+					variant="ghost"
+					size="sm"
+					class="gap-2 text-muted-foreground"
+					onclick={() => setHidden(false)}
+				>
+					<HugeiconsIcon icon={ViewIcon} class="h-4 w-4" />
+					{t('library.suggestions_show')}
+				</Button>
+			{:else}
+				<Button
+					variant="ghost"
+					size="sm"
+					class="gap-2 text-muted-foreground"
+					onclick={load}
+					disabled={loading}
+				>
+					<!-- Spins only while a batch is in the air: nothing loops at rest. -->
+					<HugeiconsIcon icon={Refresh01Icon} class="h-4 w-4 {loading ? 'animate-spin' : ''}" />
+					{t('common.refresh')}
+				</Button>
+				<Button
+					variant="ghost"
+					size="sm"
+					class="gap-2 text-muted-foreground"
+					onclick={() => setHidden(true, docked)}
+				>
+					<HugeiconsIcon icon={ViewOffSlashIcon} class="h-4 w-4" />
+					{t('library.suggestions_hide')}
+				</Button>
+			{/if}
 			{#if docked}
 				<Button
 					variant="ghost"
@@ -265,7 +317,11 @@
 
 {#if inline}
 	<div class="px-4 pb-6">
-		{#if live}
+		{#if hidden}
+			<section class="mt-8 rounded-2xl bg-muted/40 p-2 py-3">
+				{@render header(false)}
+			</section>
+		{:else if live}
 			<section class="mt-8 rounded-2xl bg-muted/40 p-2 pt-4" aria-busy={loading} {@attach watchShelf}>
 				{@render header(false)}
 				{@render body(false)}
@@ -278,7 +334,7 @@
      and z-10 keeps it under the queue and lyrics overlays. Not absolute against the page: rendered
      inside the scroller, WebKitGTK drew an absolute one off the corner (half under the player bar)
      until the window was resized. Plain fade and one scale on a single element: nothing repeats. -->
-{#if live && !shelfInView && open}
+{#if dockable && open}
 	<div
 		class="fixed right-6 z-10 flex max-h-[min(36rem,calc(100vh-12rem))] w-[min(30rem,calc(100vw-3rem))] origin-bottom-right {playback.now ? 'bottom-24' : 'bottom-6'} flex-col rounded-2xl border bg-card p-2 pt-3 shadow-xl outline-none"
 		role="dialog"
@@ -296,7 +352,7 @@
 			{@render body(true)}
 		</div>
 	</div>
-{:else if live && !shelfInView}
+{:else if dockable}
 	<!-- The shelf's own badge until the batch is in, then the next picks' covers: it reads as the
 	     same shelf, pocketed. -->
 	<button

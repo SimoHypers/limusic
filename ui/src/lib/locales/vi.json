@@ -107,7 +107,7 @@
 	},
 	"search": {
 		"recent": "Tìm kiếm gần đây",
-		"clear_recent": "Xoá nhật ký tìm kiếm",
+		"clear_recent": "Xoá",
 		"forget": "Xoá “{query}” khỏi các tìm kiếm gần đây",
 		"filters": "Loại kết quả"
 	},
@@ -137,7 +137,7 @@
 		"remove_account_title": "Xoá khỏi Limusic?",
 		"remove_account_desc": "{name} chỉ bị xoá khỏi danh sách này. Tài khoản Google thực tế không bị ảnh hưởng và bạn có thể đăng nhập lại bất cứ lúc nào.",
 		"saved_accounts_hint": "Chọn một tài khoản đã lưu để chuyển đổi.",
-		"history": "Nhật ký",
+		"history": "Lịch sử",
 		"no_channels": "YouTube không trả về kênh nào có thể chọn.",
 		"stats": "Thống kê"
 	},
@@ -182,7 +182,7 @@
 		"share": "Chia sẻ",
 		"edit_scrobble": "Chỉnh sửa scrobble",
 		"not_playing": "Chưa phát bài nào",
-		"history": "Nhật ký",
+		"history": "Lịch sử",
 		"back_to": "Quay lại {title}",
 		"repeat_state": "Lặp lại: {state}",
 		"seek": "Tua",
@@ -258,13 +258,13 @@
 		}
 	},
 	"history": {
-		"title": "Nhật ký",
+		"title": "Lịch sử",
 		"subtitle": "Tất cả nội dung bạn đã nghe trên YouTube Music, mới nhất xếp trước.",
-		"search": "Tìm trong nhật ký",
+		"search": "Tìm trong lịch sử",
 		"matching": "{count} kết quả phù hợp",
 		"songs_count": "{count} bài hát",
 		"empty": "Chưa có gì ở đây. Mọi bài hát bạn phát khi đã đăng nhập sẽ hiển thị trên trang này.",
-		"signed_out": "Đăng nhập để xem nhật ký nghe nhạc YouTube Music của bạn."
+		"signed_out": "Đăng nhập để xem lịch sử nghe nhạc YouTube Music của bạn."
 	},
 	"artist": {
 		"subscribe": "Đăng ký",
@@ -319,7 +319,7 @@
 		"no_saved_artists": "Chưa có nghệ sĩ nào. Lưu từ trang của nghệ sĩ đó để hiển thị tại đây.",
 		"no_artists": "Chưa có nghệ sĩ nào. Nghệ sĩ sẽ xuất hiện sau khi bạn lưu bài hát hoặc album của họ.",
 		"no_subscriptions": "Chưa có kênh đăng ký nào. Đăng ký một nghệ sĩ từ trang của họ để theo dõi tại đây.",
-		"on_repeat": "Nghe lặp đi lặp lại",
+		"on_repeat": "Phát lại",
 		"on_repeat_subtitle": "{count} bài hát bạn đã nghe nhiều nhất trong tháng này",
 		"songs_count": "{count} bài hát",
 		"songs_count_one": "1 bài hát",
@@ -357,7 +357,7 @@
 		"title": "Cài đặt",
 		"tabs": {
 			"general": "Chung",
-			"general_hint": "Nhật ký, tích hợp và cách khởi động ứng dụng.",
+			"general_hint": "Lịch sử, tích hợp và cách khởi động ứng dụng.",
 			"discord": "Discord",
 			"discord_hint": "Tuỳ chỉnh hiển thị thẻ Rich Presence.",
 			"scrobbling": "Scrobble",
@@ -476,7 +476,7 @@
 			"preview": "Xem trước",
 			"preview_hint": "Thanh trượt và bộ chọn màu sẽ hiển thị tại đây khi bạn kéo, và ứng dụng sẽ áp dụng thay đổi khi bạn thả tay.",
 			"classic_player": "Bố cục trình phát cổ điển",
-			"classic_player_hint": "Giao diện gốc: Chỉ hiển thị ảnh bìa trên nền mờ, các thông tin bài hát nằm ở thanh điều khiển bên dưới. Khi tắt, ứng dụng sử dụng bố cục mới với tên bài hát, nghệ sĩ và đập album nằm bên dưới ảnh bìa, được bao phủ bởi màu sắc rực rỡ từ ảnh bìa.",
+			"classic_player_hint": "Giao diện gốc: Chỉ hiển thị ảnh bìa trên nền mờ, các thông tin bài hát nằm ở thanh điều khiển bên dưới. Khi tắt, ứng dụng sử dụng bố cục mới với tên bài hát, nghệ sĩ và đặt album nằm bên dưới ảnh bìa, được bao phủ bởi màu sắc rực rỡ từ ảnh bìa.",
 			"blur_playlist_header": "Làm mờ tiêu đề danh sách phát",
 			"blur_playlist_header_hint": "Hiển thị ảnh bìa danh sách phát làm nền mờ phía sau phần tiêu đề. Giúp làm mượt các ảnh bìa bị vỡ khi bị kéo giãn hết cỡ chiều rộng.",
 			"matugen": "Matugen",
@@ -736,7 +736,7 @@
 			"stat_listens": "Lượt nghe",
 			"lb_open_profile": "Mở hồ sơ ListenBrainz của bạn",
 			"lb_disconnected": "Kết nối với tài khoản ListenBrainz của bạn để gửi những gì bạn phát.",
-			"lb_validating": "Đang kiểm tra token với ListenBrainz",
+			"lb_validating": "Đang kiểm tra token với ListenBrainz.",
 			"lb_token_hint": "Dán token người dùng của bạn ở đây. Bạn có thể sao chép nó ở trang cài đặt của ListenBrainz.",
 			"lb_open_settings": "Mở cài đặt ListenBrainz",
 			"lb_token_placeholder": "Token người dùng ListenBrainz",
@@ -1218,8 +1218,8 @@
 			"evening": "Thính giả buổi tối",
 			"night": "Cú đêm"
 		},
-		"persona_hint": "Bạn chủ yếu nghe giữa {from} và {to}.",
-		"less": "Ít hơn",
+		"persona_hint": "Bạn chủ yếu nghe giữa khoảng {from} và {to}.",
+		"less": "Ẩn bớt",
 		"more": "Xem thêm",
 		"nothing_in_range": "Không bài nào được phát trong giai đoạn này.",
 		"empty_title": "Thống kê của bạn bắt đầu ở đây",
@@ -1228,7 +1228,8 @@
 		"clear_title": "Xoá lịch sử nghe?",
 		"clear_desc": "Điều này sẽ xoá toàn bộ lượt nghe trên thiết bị này. Mọi thứ sẽ bắt đầu lại từ đầu và danh sách Phát lại sẽ trống không. Lịch sử nghe trên YouTube Music của bạn sẽ không bị ảnh hưởng.",
 		"clear_confirm": "Xoá lịch sử",
-		"cleared": "Lịch sử nghe đã bị xoá"
+		"cleared": "Lịch sử nghe đã bị xoá",
+		"on_device": "Được đếm trên thiết bị này từ những gì bạn phát trong Limusic. Không có dữ liệu nào được gửi đi."
 	},
 	"comments": {
 		"title": "Bình luận",
@@ -1258,7 +1259,7 @@
 		"remove_like": "Gỡ thích",
 		"dislike": "Không thích",
 		"remove_dislike": "Gỡ không thích",
-		"reload_needed": "Những bình luận đã",
+		"reload_needed": "Các bình luận này đã cũ. Tải lại để tiếp tục.",
 		"reload": "Tải lại",
 		"composer_label": "Viết bình luận",
 		"add_placeholder": "Thêm bình luận...",
@@ -1275,5 +1276,16 @@
 		"delete_desc": "Điều này không thể hoàn tác. Các dòng phản hồi cũng bị xoá theo.",
 		"held": "Bình luận {title}",
 		"follow_current": "Hiện bài hát hiện tại"
+	},
+	"columns": {
+		"label": "Cột",
+		"choose": "Chọn cột",
+		"title": "Tiêu đề",
+		"album": "Đĩa nhạc",
+		"added": "Ngày thêm",
+		"by": "Thêm bởi",
+		"plays": "Lượt phát",
+		"mine": "Lượt phát của tôi",
+		"duration": "Thời lượng"
 	}
 }

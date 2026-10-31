@@ -33,12 +33,12 @@ export const playback = $state({
 	positionAt: 0,
 	duration: 0,
 	volume: 100,
-	// Tempo + pitch ("Advanced"). Frontend-owned because nothing persists them: mpv starts at
-	// 1.0 / 0 every launch and so does this, so the two can't drift apart.
+	// Session effects, seeded from the backend and mirrored between windows. Never persisted.
 	speed: 1,
 	semitones: 0,
 	// Session-only: mpv starts without it every launch.
 	karaoke: false,
+	reverb: { ...api.DEFAULT_REVERB },
 	// Rating of the current track — seeded from its real `likeStatus` on each change, then
 	// optimistic on toggle. Owned here rather than in `ratings` below because the mini player is a
 	// separate webview with its own module instance: the backend reseed is what keeps them agreeing.
@@ -1088,18 +1088,25 @@ export function wheelVolume(e: WheelEvent) {
 }
 
 /**
- * Tempo + pitch (the "Advanced" dialog). Applied live, reverted if mpv rejects it: the pitch
- * filter needs a libmpv built with librubberband, and Rust applies pitch first so a rejection
- * leaves neither of them set.
+ * Session effects (the "Advanced" dialog). Show confirmed values while Rust applies an atomic
+ * update; a missing pitch/reverb filter leaves the previous settings intact.
  */
-export function setTempoPitch(speed: number, semitones: number) {
-	const previous = { speed: playback.speed, semitones: playback.semitones };
-	playback.speed = speed;
-	playback.semitones = semitones;
-	api.setPlaybackParams(speed, semitones).catch((e) => {
-		Object.assign(playback, previous);
+export function setTempoPitch(speed: number, semitones: number, reverb = playback.reverb) {
+	return api.setPlaybackParams(speed, semitones, reverb).catch((e) => {
 		toast.error(String(e));
+		playback.reverb = { ...playback.reverb }; // Discard a slider draft if Rust refused it.
 	});
+}
+// playback-effects-check:end
+
+/** The podcast skip (#500), in the episode's own seconds whatever the tempo. Past the end is the
+ *  end, which advances the queue the way finishing the episode would. */
+export const SKIP_SECS = 15;
+export function skipBy(secs: number) {
+	const to = Math.max(0, Math.min(playback.position + secs, playback.duration || Infinity));
+	playback.position = to;
+	playback.positionAt = performance.now();
+	api.seek(to);
 }
 
 function isUnavailableReason(k: string): k is api.KaraokeUnavailableReason {
@@ -1389,6 +1396,7 @@ export const ui = $state({
 	share: null as BrowseItem | null, // the share modal's target
 	toast: null as Toast | null,
 	settingsOpen: false, // the settings modal
+	tempoPitchOpen: false, // playback effects stay open when the current track menu is replaced
 	settingsFocus: null as 'lyrics' | 'scrobbling' | null, // a section to open settings on, once
 	scrobbleTrack: null as SongItem | null, // "Edit scrobble" from a track menu: the track to edit
 	ltOpen: false, // the Listen Together modal
@@ -1713,7 +1721,12 @@ if (typeof window !== 'undefined' && !onlineListenerRegistered) {
 export function initApp(mini = false): () => void {
 	if (started) return () => {};
 	started = true;
+	let receivedEffects = false;
 	const subs = [
+		api.onPlaybackParams((p) => {
+			receivedEffects = true;
+			Object.assign(playback, p);
+		}),
 		api.onNowPlaying((n) => {
 			playback.now = n;
 			playback.rating = n.rating ?? 'indifferent'; // the track's real rating when known
@@ -1912,13 +1925,8 @@ export function initApp(mini = false): () => void {
 		api.onLoginError((msg) => toast.error(msg)),
 		api.onLoginDone(() => toast.success(t('toasts.signed_in'))),
 		// Listen Together (context/19): mirror the Rust session state; surface notices as toasts.
-		api.onLtState((s) => {
-			// A room is a shared clock, so tempo is off while one is on (the stepper hides itself).
-			// Dropping back to 1x here too, or a speed set before joining strands you off the beat
-			// with no visible control to undo it.
-			if (s.role !== 'none' && playback.speed !== 1) setTempoPitch(1, playback.semitones);
-			applyLtState(s);
-		}),
+		// Rust restores the shared clock before applying room playback, even with no UI open.
+		api.onLtState(applyLtState),
 		api.onLtNotice((msg) => toast(msg))
 	];
 	const teardown = () => subs.forEach((u) => u.then((f) => f()));
@@ -1971,6 +1979,9 @@ export function initApp(mini = false): () => void {
 	// is created mid-song. Ask for the current state once rather than guessing at it.
 	api.getPlayback()
 		.then((s) => {
+			if (!receivedEffects) {
+				Object.assign(playback, { speed: s.speed, semitones: s.semitones, reverb: s.reverb });
+			}
 			playback.volume = s.volume; // before the guard below: the slider is stale either way
 			if (playback.now) return; // a real now-playing event beat us to it
 			playback.now = s.now;

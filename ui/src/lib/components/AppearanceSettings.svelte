@@ -404,6 +404,11 @@
 					desc: t('settings.themes.blur_playlist_header_hint'),
 					control: blurHeaderSwitch
 				})}
+				{@render row({
+					title: t('settings.themes.now_playing_pill'),
+					desc: t('settings.themes.now_playing_pill_hint'),
+					control: nowPlayingPillSwitch
+				})}
 			</div>
 		</section>
 
@@ -442,6 +447,11 @@
 					title: t('settings.themes.open_player'),
 					desc: t('settings.themes.open_player_hint'),
 					control: openPlayerSwitch
+				})}
+				{@render row({
+					title: t('settings.themes.empty_click_player'),
+					desc: t('settings.themes.empty_click_player_hint'),
+					control: emptyClickSwitch
 				})}
 				{@render row({
 					title: t('settings.themes.tabbed_player'),
@@ -671,6 +681,10 @@
 		checked={appearance.blurPlaylistHeader}
 		onCheckedChange={(on) => setAppearance({ blurPlaylistHeader: on })}
 	/>{/snippet}
+{#snippet nowPlayingPillSwitch()}<Switch
+		checked={appearance.nowPlayingPill}
+		onCheckedChange={(on) => setAppearance({ nowPlayingPill: on })}
+	/>{/snippet}
 {#snippet classicPlayerSwitch()}<Switch
 		checked={appearance.classicPlayer}
 		onCheckedChange={(on) => setAppearance({ classicPlayer: on })}
@@ -678,6 +692,10 @@
 {#snippet openPlayerSwitch()}<Switch
 		checked={appearance.openPlayerOnPlay}
 		onCheckedChange={(on) => setAppearance({ openPlayerOnPlay: on })}
+	/>{/snippet}
+{#snippet emptyClickSwitch()}<Switch
+		checked={appearance.emptyClickTogglesPlayer}
+		onCheckedChange={(on) => setAppearance({ emptyClickTogglesPlayer: on })}
 	/>{/snippet}
 {#snippet tabbedSwitch()}<Switch
 		checked={appearance.tabbedPlayer}

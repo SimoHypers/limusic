@@ -312,6 +312,11 @@ impl VideoDetails {
     pub fn is_music_video(&self) -> Option<bool> {
         Some(super::metadata::is_video_type(self.music_video_type.as_deref()?))
     }
+
+    /// Whether this videoId is a podcast episode. `None` when the response didn't say, as above.
+    pub fn is_podcast_episode(&self) -> Option<bool> {
+        Some(self.music_video_type.as_deref()? == super::metadata::PODCAST_EPISODE_TYPE)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -478,6 +483,10 @@ mod tests {
         // A personal upload is audio, not a music video (issue #71).
         let upload = details("MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK");
         assert_eq!(upload.is_music_video(), Some(false));
+        // A podcast episode (#500): its own kind, and unknown when the client didn't say.
+        assert_eq!(details("MUSIC_VIDEO_TYPE_PODCAST_EPISODE").is_podcast_episode(), Some(true));
+        assert_eq!(omv.is_podcast_episode(), Some(false));
+        assert_eq!(bare.is_podcast_episode(), None);
     }
 }
 

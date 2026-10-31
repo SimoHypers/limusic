@@ -6,6 +6,8 @@ import type { BrowseItem } from './api';
 export const ITEM_MIME = 'application/x-limusic-item';
 /** A queue row being dragged to a new position (`QueueList`), carrying its queue index. */
 export const QUEUE_ROW_MIME = 'application/x-limusic-queue-row';
+/** A playlist row being dragged to a new position (playlist page). */
+export const PLAYLIST_ROW_MIME = 'application/x-limusic-playlist-row';
 /** A home section being reordered in the Edit home panel (`HomeLayoutDialog`). */
 export const SECTION_ROW_MIME = 'application/x-limusic-section-row';
 /** A lyrics provider being reordered in Settings (`LyricsSourcesSettings`). */

@@ -3,7 +3,7 @@
 //     node --experimental-strip-types ui/src/lib/trackcolumns.check.ts
 //
 // Prints "ok" and exits 0, or throws on the first broken invariant.
-import { addedLabel, availableColumns, DEFAULT_COLUMNS, parseColumns } from './trackcolumns.ts';
+import { addedLabel, availableColumns, DEFAULT_COLUMNS, fitColumns, parseColumns } from './trackcolumns.ts';
 import type { SongItem } from './api.ts';
 
 function eq<T>(got: T, want: T, what: string): void {
@@ -28,6 +28,13 @@ eq(
 eq(availableColumns([song({ album: 'X', play_count: '5M' })], true), ['plays', 'mine', 'duration'], 'album page drops Album');
 eq(availableColumns([]), ['mine', 'duration'], 'empty list');
 eq(availableColumns([song({ added_by_avatars: [] })]), ['mine', 'duration'], 'no avatars is no Added by');
+
+// Narrow lists drop Date added first, then Your plays, then Album; the rest always fit.
+const all = ['album', 'added', 'by', 'plays', 'mine', 'duration'] as const;
+eq(fitColumns([...all], 1000), [...all], 'wide list keeps everything');
+eq(fitColumns([...all], 800), ['album', 'by', 'plays', 'mine', 'duration'], 'Date added goes first');
+eq(fitColumns([...all], 700), ['album', 'by', 'plays', 'duration'], 'then Your plays');
+eq(fitColumns([...all], 0), ['by', 'plays', 'duration'], 'then Album, unmeasured included');
 
 // Stored choice: unknown ids dropped, our order, broken values fall back.
 eq(parseColumns('["duration","album","bogus"]'), ['album', 'duration'], 'reordered + unknown');

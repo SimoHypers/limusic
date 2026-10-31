@@ -27,7 +27,9 @@
 		VolumeHighIcon,
 		VolumeMute02Icon,
 		MinimizeIcon,
-		ArrowExpand01Icon
+		ArrowExpand01Icon,
+		GoBackward15SecIcon,
+		GoForward15SecIcon
 	} from '@hugeicons/core-free-icons';
 	import { fade } from 'svelte/transition';
 	import * as api from '$lib/api';
@@ -36,6 +38,8 @@
 		commitVolume,
 		cycleRepeat,
 		dragVolume,
+		SKIP_SECS,
+		skipBy,
 		toggleMute,
 		toggleNowPlayingRating,
 		wheelVolume
@@ -53,6 +57,9 @@
 	const now = $derived(playback.now);
 	const shuffleOn = $derived(playback.queue.shuffle ?? false);
 	const repeat = $derived(playback.queue.repeat ?? 'off');
+	// A podcast episode (#500): the full layout's shuffle and repeat become the 15-second skips.
+	// No speed here, there is no room for its menu; the main window has it.
+	const episode = $derived(!!playback.now?.isEpisode);
 	// A local file has no YouTube identity, so there is nothing to like (see api.isLocalId).
 	const likeable = $derived(!!now && !api.isLocalId(now.videoId));
 
@@ -100,13 +107,15 @@
 	// Seek: hold the dragged value locally so incoming position ticks can't yank the thumb out
 	// from under the pointer; only invoke the seek on release.
 	let seekDrag = $state<number | null>(null);
-	const shownPosition = $derived(seekDrag ?? playback.position);
+	// Match the main player's tempo-adjusted timeline; retain track seconds for mpv seeks.
+	const shownPosition = $derived((seekDrag ?? playback.position) / playback.speed);
+	const shownDuration = $derived(playback.duration / playback.speed);
 
 	function onSeekInput(e: Event) {
-		seekDrag = Number((e.target as HTMLInputElement).value);
+		seekDrag = Number((e.target as HTMLInputElement).value) * playback.speed;
 	}
 	function onSeekCommit(e: Event) {
-		const v = Number((e.target as HTMLInputElement).value);
+		const v = Number((e.target as HTMLInputElement).value) * playback.speed;
 		playback.position = v;
 		seekDrag = null;
 		api.seek(v);
@@ -356,9 +365,9 @@
 				<input
 					type="range"
 					class="range on-art min-w-0 flex-1"
-					style="--pct:{playback.duration ? (shownPosition / playback.duration) * 100 : 0}%"
+					style="--pct:{shownDuration ? (shownPosition / shownDuration) * 100 : 0}%"
 					min="0"
-					max={playback.duration || 0}
+					max={shownDuration || 0}
 					value={shownPosition}
 					oninput={onSeekInput}
 					onchange={onSeekCommit}
@@ -420,14 +429,25 @@
 			<!-- The lyrics toggle rides the transport row absolutely rather than in a header of its
 			     own: at 180px tall, a row for it would cost the queue a track and a half. -->
 			<div class="relative flex shrink-0 items-center justify-center gap-2.5">
-				<button
-					class="{panelBtn} {shuffleOn ? 'text-primary' : 'text-muted-foreground'}"
-					onclick={() => api.toggleShuffle()}
-					aria-label={t('player.shuffle')}
-					aria-pressed={shuffleOn}
-				>
-					<HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" />
-				</button>
+				{#if episode}
+					<button
+						class={panelBtn}
+						onclick={() => skipBy(-SKIP_SECS)}
+						aria-label={t('player.skip_back', { seconds: SKIP_SECS })}
+						title={t('player.skip_back', { seconds: SKIP_SECS })}
+					>
+						<HugeiconsIcon icon={GoBackward15SecIcon} class="h-4 w-4" />
+					</button>
+				{:else}
+					<button
+						class="{panelBtn} {shuffleOn ? 'text-primary' : 'text-muted-foreground'}"
+						onclick={() => api.toggleShuffle()}
+						aria-label={t('player.shuffle')}
+						aria-pressed={shuffleOn}
+					>
+						<HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" />
+					</button>
+				{/if}
 				<button
 					class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/80"
 					onclick={() => api.togglePause()}
@@ -437,21 +457,32 @@
 					     altIcon/showAlt — a ternary on `icon` would never repaint. -->
 					<HugeiconsIcon icon={PauseIcon} altIcon={PlayIcon} showAlt={playback.paused} class="h-4 w-4" />
 				</button>
-				<button
-					class="{panelBtn} {repeat !== 'off' ? 'text-primary' : 'text-muted-foreground'}"
-					onclick={cycleRepeat}
-					aria-label={t('player.repeat_state', {
-						state: repeat === 'off' ? t('player.repeat_off') : repeat === 'one' ? t('player.repeat_one') : t('player.repeat_all')
-					})}
-					aria-pressed={repeat !== 'off'}
-				>
-					<HugeiconsIcon
-						icon={RepeatIcon}
-						altIcon={RepeatOne01Icon}
-						showAlt={repeat === 'one'}
-						class="h-4 w-4"
-					/>
-				</button>
+				{#if episode}
+					<button
+						class={panelBtn}
+						onclick={() => skipBy(SKIP_SECS)}
+						aria-label={t('player.skip_forward', { seconds: SKIP_SECS })}
+						title={t('player.skip_forward', { seconds: SKIP_SECS })}
+					>
+						<HugeiconsIcon icon={GoForward15SecIcon} class="h-4 w-4" />
+					</button>
+				{:else}
+					<button
+						class="{panelBtn} {repeat !== 'off' ? 'text-primary' : 'text-muted-foreground'}"
+						onclick={cycleRepeat}
+						aria-label={t('player.repeat_state', {
+							state: repeat === 'off' ? t('player.repeat_off') : repeat === 'one' ? t('player.repeat_one') : t('player.repeat_all')
+						})}
+						aria-pressed={repeat !== 'off'}
+					>
+						<HugeiconsIcon
+							icon={RepeatIcon}
+							altIcon={RepeatOne01Icon}
+							showAlt={repeat === 'one'}
+							class="h-4 w-4"
+						/>
+					</button>
+				{/if}
 				<button
 					class="{panelBtn} absolute right-0 {tab === 'lyrics'
 						? 'text-primary'
