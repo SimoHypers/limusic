@@ -206,7 +206,8 @@
 		"up_next": "Tiếp theo",
 		"fullscreen_video": "Video toàn màn hình",
 		"exit_fullscreen_video": "Thoát video toàn màn hình",
-		"scroll_to_end": "Cuộn xuống cuối"
+		"scroll_to_end": "Cuộn xuống cuối",
+		"speed": "Tốc độ phát"
 	},
 	"home": {
 		"good_morning": "Chào buổi sáng",
