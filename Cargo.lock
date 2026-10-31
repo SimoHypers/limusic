@@ -3359,7 +3359,7 @@ dependencies = [
 
 [[package]]
 name = "karaoke"
-version = "1.3.0"
+version = "1.4.0-rc.3"
 dependencies = [
  "anyhow",
  "flacenc",
