@@ -316,6 +316,7 @@ mod tests {
     #[test]
     /// An interrupted download's `.part` is what the next download resumes from.
     fn test_model_manager_keeps_part_for_resume() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = temp_dir();
         let models_dir = tmp.join("models");
         std::fs::create_dir_all(&models_dir).unwrap();
@@ -378,6 +379,7 @@ mod tests {
 
     #[test]
     fn test_model_delete_files() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = temp_dir();
         let manager = ModelManager::new(&tmp);
         let id = ModelId::DEFAULT;
