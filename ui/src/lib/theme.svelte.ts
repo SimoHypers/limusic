@@ -140,7 +140,13 @@ export const appearance = $state({
 	theaterLyrics: true,
 	theaterQueue: false,
 	/** Derive the whole palette from Matugen. Off by default. */
-	matugen: false
+	matugen: false,
+	/** Theater mode: a small clock in a top corner, for a screen that hides the system clock. */
+	theaterClock: false,
+	theaterClockSide: 'right' as 'left' | 'right',
+	/** A CSS font-family value; '' follows the app's own font. */
+	theaterClockFont: '',
+	theaterClockFormat: 'auto' as 'auto' | '12' | '24',
 });
 
 export function setAppearance(patch: Partial<typeof appearance>): void {
@@ -536,10 +542,18 @@ export function initTheme(): void {
 			'artworkAccent',
 			'theaterLyrics',
 			'theaterQueue',
-			'matugen'
+			'matugen',
+			'theaterClock'
 		] as const) {
 			if (typeof saved?.[k] === 'boolean') appearance[k] = saved[k];
 		}
+		// Not booleans, so they are not in the list above: one value each, checked on its own.
+		if (saved?.theaterClockSide === 'left' || saved?.theaterClockSide === 'right')
+			appearance.theaterClockSide = saved.theaterClockSide;
+		if (typeof saved?.theaterClockFont === 'string')
+			appearance.theaterClockFont = saved.theaterClockFont;
+		if (['auto', '12', '24'].includes(saved?.theaterClockFormat))
+			appearance.theaterClockFormat = saved.theaterClockFormat;
 	} catch {
 		// unparseable — keep the defaults
 	}

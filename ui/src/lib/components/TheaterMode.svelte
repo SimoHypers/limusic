@@ -82,6 +82,7 @@
 	import SpeedPicker from './SpeedPicker.svelte';
 	import TrackMenu from './TrackMenu.svelte';
 	import Ambient from './Ambient.svelte';
+	import TheaterClock from './TheaterClock.svelte';
 
 	const close = () => (ui.theaterOpen = false);
 
@@ -277,6 +278,24 @@
 		setAppearance({ theaterQueue: on, ...(on && !roomy.current && { theaterLyrics: false }) });
 	}
 
+	// Header left textwidth on theater mode
+	let headerTextEl = $state<HTMLElement | null>(null);
+	let headerTextWidth = $state(0);
+
+	$effect(() => {
+		if (!headerTextEl) {
+			headerTextWidth = 0;
+			return;
+		}
+		const ro = new ResizeObserver((entries) => {
+			for (const entry of entries) {
+				headerTextWidth = entry.borderBoxSize[0]?.inlineSize ?? entry.contentRect.width;
+			}
+		});
+		ro.observe(headerTextEl);
+		return () => ro.disconnect();
+	});
+
 	// The picture's side. A square spends whichever is smaller of its column's width and the height
 	// the title block leaves; a video spends that height at 16:9 instead. The spotlight is bigger
 	// and its title is set larger, so it budgets more for it.
@@ -470,7 +489,7 @@
 			: ''}"
 		style="height:{headerH}"
 	>
-		<div class="min-w-0">
+		<div bind:this={headerTextEl} class="w-fit max-w-[30vw] min-w-0">
 			<!-- The queue column says this itself. -->
 			{#if !queueShown}
 				<p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
@@ -491,6 +510,15 @@
 			<HugeiconsIcon icon={Cancel01Icon} class="h-5 w-5" />
 		</button>
 	</header>
+
+	{#if appearance.theaterClock}
+		<TheaterClock
+			height={headerH}
+			{calm}
+			hasHeaderText={!queueShown}
+			textWidth={headerTextWidth}
+		/>
+	{/if}
 
 	<!-- === The stage. The picture and what's playing, and beside it at most one column. ===
 	     A stacking context of its own (z-10), so the light behind the picture (-z-10) stays above the
