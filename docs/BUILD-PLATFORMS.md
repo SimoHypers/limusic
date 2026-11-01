@@ -101,26 +101,22 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
    cd ui; pnpm build; cd ..
    cargo tauri build          # → target/release/bundle/{msi,nsis}/limusic_*.{msi,exe}
    ```
-7. **Check the import table:** `powershell -ExecutionPolicy Bypass -File scripts\check-windows-imports.ps1 -Exe target\release\limusic-app.exe`.
-   Every load-time import is a DLL each user needs just to *start* the app (and auto-update ships
-   the exe to everyone), so it must match `.github/windows-exe-imports.txt` exactly. CI checks the
-   same thing in `checks.yml` and `windows-release.yml`. Compare a build linked the way releases
-   are: `cargo tauri build` sets `STATIC_VCRUNTIME=true` (static VC runtime). A plain `cargo build`
-   does not, and adds `vcruntime140*.dll`, so export `STATIC_VCRUNTIME=true` for a debug build you
-   want to check. tauri-build does not re-run when that variable changes, so touch
-   `src-tauri/build.rs` after changing it.
 - **Karaoke on Windows:** the runtime (onnxruntime.dll from the official DirectML
   NuGet package, DirectML.dll from the Microsoft.AI.DirectML package, both with
   pinned SHA-256) is downloaded on first use together with the model, into
   `<app data dir>\runtime\onnxruntime-1.24.4\`; DirectML.dll is taken from the
   202 MB package with HTTP Range requests, so only about 9 MB are downloaded;
-  nothing is bundled in the installer and builds need no extra step or network access;
-  the loader (`crates/karaoke/src/runtime.rs`) re-checks the pinned SHA-256s, refuses
-  a VC++ runtime older than 14.44 (the system one in System32, or one already loaded
-  in the process) and loads DirectML.dll and onnxruntime.dll by full path with the
-  search limited to their folder and System32; the user needs the Microsoft Visual
-  C++ Redistributable 14.44 or newer (the app shows a message with the download
-  link when it is missing); to run the karaoke examples set `ORT_DYLIB_PATH` to the
+  the four VC++ runtime DLLs (vcruntime140, vcruntime140_1, msvcp140, msvcp140_1,
+  under 1 MB) are bundled in the installer in the `vcruntime` resource folder and
+  are loaded only when karaoke is turned on; the loader checks that they are at
+  least 14.44 and falls back to the system ones if the folder is absent; the
+  release workflow copies them from the Visual Studio redistributable folder in
+  the step "VC++ runtime (bundled)"; the folder `src-tauri/vcruntime` is in the
+  repository with a placeholder, so local builds work as they are and, with the
+  folder empty, karaoke uses the system VC++ runtime; to bundle the DLLs in a
+  local build, copy the four DLLs from
+  `<Visual Studio>\VC\Redist\MSVC\<version>\x64\Microsoft.VC*.CRT` into it
+  (they are gitignored); to run the karaoke examples set `ORT_DYLIB_PATH` to the
   `onnxruntime.dll` inside that downloaded folder.
 - Media keys use **SMTC** (the volume-flyout media card). souvlaki binds it to the main window
   handle — see the validation checklist below.

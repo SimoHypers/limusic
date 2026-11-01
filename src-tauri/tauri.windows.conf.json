@@ -3,7 +3,8 @@
   "bundle": {
     "targets": ["nsis", "msi"],
     "resources": {
-      "libmpv-2.dll": "libmpv-2.dll"
+      "libmpv-2.dll": "libmpv-2.dll",
+      "vcruntime": "vcruntime"
     }
   }
 }

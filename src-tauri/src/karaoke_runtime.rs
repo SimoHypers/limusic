@@ -36,8 +36,11 @@ fn load_unix_runtime(
 }
 
 #[cfg(windows)]
-fn load_windows_runtime(dir: &std::path::Path) -> Result<RuntimeReady, Unavailable> {
-    match karaoke::runtime::load(dir) {
+fn load_windows_runtime(
+    dir: &std::path::Path,
+    vc_dir: Option<&std::path::Path>,
+) -> Result<RuntimeReady, Unavailable> {
+    match karaoke::runtime::load(dir, vc_dir) {
         Ok(rt) => Ok(rt),
         Err(err @ Unavailable::Corrupt(_)) => {
             let _ = std::fs::remove_dir_all(dir);
@@ -48,7 +51,10 @@ fn load_windows_runtime(dir: &std::path::Path) -> Result<RuntimeReady, Unavailab
 }
 
 #[cfg(not(windows))]
-fn load_windows_runtime(_dir: &std::path::Path) -> Result<RuntimeReady, Unavailable> {
+fn load_windows_runtime(
+    _dir: &std::path::Path,
+    _vc_dir: Option<&std::path::Path>,
+) -> Result<RuntimeReady, Unavailable> {
     Err(Unavailable::LoadFailed("windows runtime on a non-windows target".into()))
 }
 
@@ -67,8 +73,15 @@ pub fn ensure(app: &AppHandle) -> Result<RuntimeReady, Unavailable> {
     let dir = app.state::<Arc<crate::karaoke_model::ModelManager>>().runtime_dir().to_path_buf();
 
     let started = std::time::Instant::now();
-    let rt =
-        if cfg!(windows) { load_windows_runtime(&dir)? } else { load_unix_runtime(pkg, &dir)? };
+    let vc_dir = {
+        use tauri::Manager;
+        app.path().resource_dir().ok().map(|d| d.join("vcruntime"))
+    };
+    let rt = if cfg!(windows) {
+        load_windows_runtime(&dir, vc_dir.as_deref())?
+    } else {
+        load_unix_runtime(pkg, &dir)?
+    };
 
     tracing::info!(
         target: "app_lib::karaoke",
@@ -158,7 +171,7 @@ mod tests {
         std::fs::write(tmp.join("onnxruntime.dll"), b"garbage bytes").unwrap();
         assert!(tmp.exists());
 
-        let res = load_windows_runtime(&tmp);
+        let res = load_windows_runtime(&tmp, None);
         assert!(matches!(res, Err(Unavailable::Corrupt(_))));
         assert!(!tmp.exists());
     }

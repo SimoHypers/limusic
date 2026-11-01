@@ -85,8 +85,9 @@
 		</ul>
 
 		{#if currentModelState.error}
+			{@const errCode = currentModelState.error}
 			<div class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-xs text-destructive">
-				{t(`karaoke.download_error.${currentModelState.error}`)}
+				{t(`karaoke.download_error.${errCode}`)}
 			</div>
 		{/if}
 

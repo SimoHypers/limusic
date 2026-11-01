@@ -1,7 +1,7 @@
 //! The ONNX Runtime that `ort` talks to, and the proof that it is ready.
 //!
 //! No platform links ONNX Runtime anymore; built with `load-dynamic`.
-//! - Windows: loads the downloaded runtime folder via `load`.
+//! - Windows: loads the downloaded runtime folder via `load` (bundled VC++ runtime or system fallback).
 //! - Linux/macOS: will download the runtime on first use (see `karaoke_runtime.rs`).
 //!
 //! [`RuntimeReady`] can only be obtained from those functions, and every entry point that creates
@@ -26,7 +26,7 @@ impl RuntimeReady {
 }
 
 /// The VC++ runtime `onnxruntime.dll` imports. Not hash-pinned (they change with each
-/// Visual Studio update); taken from the system folder, each must be at least [`VC_RUNTIME_MIN`].
+/// Visual Studio update); taken from the bundled app folder first, system folder as fallback, each must be at least [`VC_RUNTIME_MIN`].
 pub const VC_RUNTIME_DLLS: [&str; 4] =
     ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "msvcp140_1.dll"];
 /// `onnxruntime.dll` 1.24.4 was linked with MSVC 14.44, and the VC++ runtime it runs against must
@@ -155,15 +155,14 @@ mod win {
     /// a panic, and leaves the app as it was (at worst with an unused DLL mapped).
     ///
     /// 1. `onnxruntime.dll` present and matches its pinned SHA-256; `DirectML.dll` optional, and if present matches its pinned SHA-256.
-    /// 2. The system VC++ DLLs, and any VC++ module already in the process (Windows reuses a
-    ///    loaded module by name, wherever it came from), are at least [`VC_RUNTIME_MIN`].
+    /// 2. The VC++ DLLs come from `vc_dir` when present there, otherwise from System32; each must be at least [`VC_RUNTIME_MIN`].
     /// 3. `DirectML.dll`, then `onnxruntime.dll`, loaded by full path with the search limited to
     ///    the DLL's own folder and System32: dependencies never come from the current directory or
     ///    `PATH`. DirectML first, because `onnxruntime.dll` delay-loads it *by name* and must find
     ///    ours already loaded. Handles are never freed.
     /// 4. The VC++ modules now actually in use are checked again (path and version).
     /// 5. [`init_from`].
-    pub fn load(dir: &Path) -> Result<RuntimeReady, Unavailable> {
+    pub fn load(dir: &Path, vc_dir: Option<&Path>) -> Result<RuntimeReady, Unavailable> {
         let dir = plain(dir);
         let ort = dir.join("onnxruntime.dll");
         let dml = dir.join("DirectML.dll");
@@ -185,16 +184,33 @@ mod win {
             .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
         let system32 = system_root.join("System32");
 
+        let flags = LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32;
+
         for name in VC_RUNTIME_DLLS {
-            let path = system32.join(name);
-            if !path.is_file() {
-                return Err(Unavailable::VcRuntime(format!("{name} is not installed")));
+            let bundled = vc_dir.map(|d| plain(d).join(name)).filter(|p| p.is_file());
+            if let Some(path) = bundled {
+                check_vc(name, &path)?; // bundled copy must also be >= VC_RUNTIME_MIN
+                                        // pre-load by full path, same flags as the other DLLs (DLL_LOAD_DIR | SYSTEM32), so a later
+                                        // import by name from onnxruntime.dll reuses OUR copy; handle is never freed
+                if let Err(e) =
+                    unsafe { LoadLibraryExW(&HSTRING::from(path.as_path()), None, flags) }
+                {
+                    return Err(Unavailable::VcRuntime(format!(
+                        "{name} from the app folder did not load (Windows error {})",
+                        (e.code().0 as u32) & 0xFFFF
+                    )));
+                }
+                tracing::debug!(target: "karaoke::runtime", module = name, "using the bundled VC++ module");
+            } else {
+                let path = system32.join(name);
+                if !path.is_file() {
+                    return Err(Unavailable::VcRuntime(format!("{name} is not installed")));
+                }
+                check_vc(name, &path)?;
             }
-            check_vc(name, &path)?;
         }
         check_loaded_vc()?;
 
-        let flags = LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32;
         let directml = dml_present
             && unsafe { LoadLibraryExW(&HSTRING::from(dml.as_path()), None, flags) }.is_ok();
         if directml {
@@ -373,7 +389,10 @@ mod tests {
     #[test]
     fn a_missing_runtime_is_not_installed() {
         let dir = scratch_dir("missing");
-        assert_eq!(load(&dir).unwrap_err(), Unavailable::NotInstalled("onnxruntime.dll".into()));
+        assert_eq!(
+            load(&dir, None).unwrap_err(),
+            Unavailable::NotInstalled("onnxruntime.dll".into())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -382,7 +401,7 @@ mod tests {
     fn a_tampered_runtime_is_refused_before_anything_loads() {
         let dir = scratch_dir("tampered");
         std::fs::write(dir.join("onnxruntime.dll"), b"not the pinned file").unwrap();
-        assert_eq!(load(&dir).unwrap_err(), Unavailable::Corrupt("onnxruntime.dll".into()));
+        assert_eq!(load(&dir, None).unwrap_err(), Unavailable::Corrupt("onnxruntime.dll".into()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -410,7 +429,7 @@ mod tests {
             return;
         }
         let dir = std::fs::canonicalize(dir).unwrap();
-        match load(&dir) {
+        match load(&dir, None) {
             Ok(rt) => assert!(rt.directml(), "the downloaded DirectML.dll should pre-load"),
             Err(e @ Unavailable::VcRuntime(_)) => eprintln!("refused as expected here: {e}"),
             Err(e) => panic!("{e}"),

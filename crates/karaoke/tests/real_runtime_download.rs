@@ -160,7 +160,7 @@ async fn the_real_runtime_downloads_verifies_and_loads() {
 
     #[cfg(windows)]
     {
-        match karaoke::runtime::load(&dest) {
+        match karaoke::runtime::load(&dest, None) {
             Ok(rt) => println!("runtime loaded successfully, directml: {}", rt.directml()),
             Err(karaoke::runtime::Unavailable::VcRuntime(detail)) => {
                 println!("refused as expected on this machine: vc runtime error: {detail}");

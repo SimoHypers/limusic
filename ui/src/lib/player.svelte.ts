@@ -94,7 +94,7 @@ export type KaraokeModelState = {
 	downloading: boolean;
 	downloaded: number;
 	total: number;
-	error: string | undefined;
+	error: api.KaraokeModelErrorCode | undefined;
 };
 
 export const karaokeModels = $state<Record<api.KaraokeModelId, KaraokeModelState>>({
@@ -149,8 +149,9 @@ export function confirmKaraokeModelDownload(model?: api.KaraokeModelId) {
 	api.karaokeModelDownload(target).catch((e) => {
 		const s = String(e);
 		if (s !== 'cancelled') {
-			karaokeModels[target].error = karaokeDownloadErrorCode(e);
-			toast.error(t(`karaoke.download_error.${karaokeModels[target].error}`));
+			const code = karaokeDownloadErrorCode(e);
+			karaokeModels[target].error = code;
+			toast.error(t(`karaoke.download_error.${code}`));
 		}
 		karaokeModels[target].downloading = false;
 	});
