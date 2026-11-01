@@ -256,10 +256,8 @@ impl InnerTube {
         };
         let value = self.post("next", metadata_client, &body, true).await?;
         let mut next = metadata::parse_next(&value);
-        // The seed itself survives: "start radio from this video" must still open on that video,
-        // and the track already playing is never yanked out from under the user.
         if self.hide_videos() {
-            next.items.retain(|i| !i.is_video || Some(i.video_id.as_str()) == video_id);
+            drop_video_rows(&mut next.items, video_id);
         }
         self.drop_blocked_songs(&mut next.items, video_id);
         Ok(next)
@@ -1455,6 +1453,22 @@ const PAGE_ROWS: u64 = 100;
 /// ponytail: process-wide, so one odd playlist turns it off for all of them until a restart.
 static AHEAD_OFF: AtomicBool = AtomicBool::new(false);
 
+/// "Hide music videos" on a `/next` page. The seed always stays: "start radio from this video"
+/// opens on that video, and the track already playing is never yanked out from under the user.
+///
+/// A page seeded on a video that the filter would leave with nothing but the seed is kept whole.
+/// YouTube builds a music video's radio entirely out of videos, so filtering it reads as "no
+/// radio" for something the user chose to play (#586). Unseeded pages and audio seeds filter as
+/// usual.
+fn drop_video_rows(items: &mut Vec<SongItem>, seed: Option<&str>) {
+    let is_seed = |i: &SongItem| Some(i.video_id.as_str()) == seed;
+    let from_video = items.iter().any(|i| is_seed(i) && i.is_video);
+    if from_video && items.iter().all(|i| i.is_video) {
+        return;
+    }
+    items.retain(|i| !i.is_video || is_seed(i));
+}
+
 /// Appends `page`, built for position `at`, to `out` if it carries on from it. `Ok(false)`: `out`
 /// already reached the end, so there is nothing to join. `Err`: it does not line up, and `out` is
 /// left as it was.
@@ -1624,6 +1638,32 @@ fn edit_rejection(v: &serde_json::Value) -> Option<Error> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn hiding_videos_never_empties_a_radio() {
+        let row =
+            |id: &str, is_video| SongItem { video_id: id.into(), is_video, ..SongItem::default() };
+        let ids = |items: &[SongItem]| items.iter().map(|i| i.video_id.clone()).collect::<Vec<_>>();
+
+        // A mixed page loses its videos, but not the seed.
+        let mut mixed = vec![row("seed", true), row("a", false), row("v", true), row("b", false)];
+        drop_video_rows(&mut mixed, Some("seed"));
+        assert_eq!(ids(&mixed), ["seed", "a", "b"]);
+
+        // A music video's radio is all videos (#586): kept whole.
+        let all = vec![row("seed", true), row("v1", true), row("v2", true)];
+        let mut page = all.clone();
+        drop_video_rows(&mut page, Some("seed"));
+        assert_eq!(page, all);
+
+        // Only when the seed is that video: unseeded, or seeded on a song, the videos go.
+        let mut page = all.clone();
+        drop_video_rows(&mut page, None);
+        assert!(page.is_empty());
+        let mut page = vec![row("song", false), row("v1", true), row("v2", true)];
+        drop_video_rows(&mut page, Some("song"));
+        assert_eq!(ids(&page), ["song"]);
+    }
 
     #[test]
     fn built_pages_join_only_where_they_carry_on() {
