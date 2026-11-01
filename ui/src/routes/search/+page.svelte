@@ -154,7 +154,9 @@
 	// Only from a click: arriving by URL must leave the layout's scroll restore alone.
 	let root = $state<HTMLElement | null>(null);
 	function pickCat(c: Cat) {
-		const params = new URLSearchParams({ q: searched });
+		// `latest`, not `searched`: the chips show while a search is in flight, and `searched` is
+		// still the previous query (or empty) until its results land.
+		const params = new URLSearchParams({ q: latest });
 		if (c !== 'all') params.set('cat', c);
 		goto(`/search?${params}`, { keepFocus: true });
 		root?.closest('main')?.scrollTo({ top: 0 });
