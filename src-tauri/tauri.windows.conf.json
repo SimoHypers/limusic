@@ -3,8 +3,7 @@
   "bundle": {
     "targets": ["nsis", "msi"],
     "resources": {
-      "libmpv-2.dll": "libmpv-2.dll",
-      "karaoke-runtime": "karaoke-runtime"
+      "libmpv-2.dll": "libmpv-2.dll"
     }
   }
 }

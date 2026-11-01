@@ -63,6 +63,11 @@
 
 		<ul class="grid list-disc gap-1 pl-4 text-xs text-muted-foreground">
 			<li>{t('karaoke.consent.source')}</li>
+			{#if IS_WINDOWS}
+				<li>{t('karaoke.consent.runtime_windows')}</li>
+			{:else}
+				<li>{t('karaoke.consent.runtime')}</li>
+			{/if}
 			<li>
 				{t('karaoke.consent.credit')}
 				<button

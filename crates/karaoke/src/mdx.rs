@@ -113,7 +113,7 @@ impl MdxModel {
         let session =
             builder.commit_from_file(model_path).map_err(|e| anyhow::anyhow!(e.to_string()))?;
         // `onnxruntime.dll` resolves DirectML.dll by name when the session starts using it. If
-        // that is not the bundled copy the runtime pre-loaded, drop the session: the caller falls
+        // that is not the downloaded copy the runtime pre-loaded, drop the session: the caller falls
         // back to the CPU rather than run on an unknown DirectML build.
         #[cfg(windows)]
         if matches!(opts.device, Device::DirectMl { .. }) {

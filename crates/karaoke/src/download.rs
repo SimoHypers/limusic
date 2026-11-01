@@ -260,6 +260,164 @@ pub async fn fetch(
     Ok(())
 }
 
+fn parse_content_range(s: &str) -> Result<(u64, u64, u64), ()> {
+    let s = s.trim();
+    let rest = s.strip_prefix("bytes ").ok_or(())?;
+    let (range, total) = rest.split_once('/').ok_or(())?;
+    let total: u64 = if total == "*" {
+        return Err(());
+    } else {
+        total.parse().map_err(|_| ())?
+    };
+    let (start, end) = range.split_once('-').ok_or(())?;
+    let start: u64 = start.parse().map_err(|_| ())?;
+    let end: u64 = end.parse().map_err(|_| ())?;
+    Ok((start, end, total))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn fetch_slice(
+    client: &reqwest::Client,
+    url_str: &str,
+    hosts: &[&str],
+    https_only: bool,
+    range: &str,
+    expected_len: Option<u64>,
+    parse_total: bool,
+    timeouts: Timeouts,
+    cancel: &Cancel,
+    mut progress: impl FnMut(u64),
+) -> Result<(u64, Vec<u8>), Error> {
+    let url = reqwest::Url::parse(url_str).map_err(|e| Error::Network(e.to_string()))?;
+    let src_dummy = Source { url: url_str, size: 0, sha256: "", hosts, https_only };
+    check_url(&url, &src_dummy)?;
+
+    let request = client
+        .get(url)
+        .header(reqwest::header::USER_AGENT, "Limusic")
+        .header(reqwest::header::RANGE, range);
+    let response = tokio::select! {
+        _ = cancel.cancelled() => return Err(Error::Cancelled),
+        r = tokio::time::timeout(timeouts.connect, request.send()) => match r {
+            Err(_) => return Err(Error::Timeout),
+            Ok(Err(e)) => return Err(Error::Network(e.without_url().to_string())),
+            Ok(Ok(resp)) => resp,
+        },
+    };
+    check_url(response.url(), &src_dummy)?;
+
+    let status = response.status().as_u16();
+    if status != 206 {
+        return Err(Error::Status(status));
+    }
+
+    let mut total_file_len = 0u64;
+    let mut expected = expected_len;
+
+    if let Some(cr_val) =
+        response.headers().get(reqwest::header::CONTENT_RANGE).and_then(|v| v.to_str().ok())
+    {
+        if let Ok((start, end, total)) = parse_content_range(cr_val) {
+            total_file_len = total;
+            let len = end - start + 1;
+            if expected.is_none() {
+                expected = Some(len);
+            }
+        }
+    }
+
+    if parse_total && total_file_len == 0 {
+        return Err(Error::Network("missing Content-Range".into()));
+    }
+
+    let expected = expected.ok_or_else(|| Error::Network("missing Content-Range".into()))?;
+
+    let mut body = response.bytes_stream();
+    let mut buf = Vec::new();
+    let mut got = 0u64;
+
+    loop {
+        let next = tokio::select! {
+            _ = cancel.cancelled() => return Err(Error::Cancelled),
+            n = tokio::time::timeout(timeouts.idle, body.next()) => n,
+        };
+        match next {
+            Err(_) => return Err(Error::Timeout),
+            Ok(None) => break,
+            Ok(Some(Err(_))) => return Err(Error::Incomplete { got, expected }),
+            Ok(Some(Ok(chunk))) => {
+                got += chunk.len() as u64;
+                if got > expected {
+                    return Err(Error::TooLarge { expected });
+                }
+                buf.extend_from_slice(&chunk);
+                progress(got);
+            }
+        }
+    }
+
+    if got < expected {
+        return Err(Error::Incomplete { got, expected });
+    }
+
+    Ok((total_file_len, buf))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn fetch_tail(
+    client: &reqwest::Client,
+    url: &str,
+    hosts: &[&str],
+    https_only: bool,
+    n: u64,
+    timeouts: Timeouts,
+    cancel: &Cancel,
+    progress: &mut dyn FnMut(u64),
+) -> Result<(u64, Vec<u8>), Error> {
+    fetch_slice(
+        client,
+        url,
+        hosts,
+        https_only,
+        &format!("bytes=-{n}"),
+        None,
+        true,
+        timeouts,
+        cancel,
+        progress,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn fetch_range(
+    client: &reqwest::Client,
+    url: &str,
+    hosts: &[&str],
+    https_only: bool,
+    start: u64,
+    end_inclusive: u64,
+    timeouts: Timeouts,
+    cancel: &Cancel,
+    progress: &mut dyn FnMut(u64),
+) -> Result<Vec<u8>, Error> {
+    let expected = end_inclusive - start + 1;
+    let (_, buf) = fetch_slice(
+        client,
+        url,
+        hosts,
+        https_only,
+        &format!("bytes={start}-{end_inclusive}"),
+        Some(expected),
+        false,
+        timeouts,
+        cancel,
+        progress,
+    )
+    .await?;
+    Ok(buf)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -308,35 +466,93 @@ mod tests {
                         break;
                     }
                     if let Some(v) = line.to_ascii_lowercase().strip_prefix("range: bytes=") {
-                        range = Some(v.trim().trim_end_matches('-').to_string());
+                        range = Some(v.trim().to_string());
                     }
                 }
                 seen.lock().unwrap().push(range.clone());
-                let start: usize = match (mode, &range) {
-                    (Mode::Ranges, Some(r)) => r.parse().unwrap(),
-                    _ => 0,
+
+                let (start, end, content_range_str, status_str, send_body) = match (mode, &range) {
+                    (Mode::IgnoresRange, _) => {
+                        (0, body.len().saturating_sub(1), "".to_string(), "200 OK", true)
+                    }
+                    (_, None) => (0, body.len().saturating_sub(1), "".to_string(), "200 OK", true),
+                    (_, Some(r)) => {
+                        let r = r.trim();
+                        if let Some(n_str) = r.strip_prefix('-') {
+                            let n: usize = n_str.parse().unwrap_or(body.len());
+                            let start = body.len().saturating_sub(n);
+                            let end = if body.is_empty() { 0 } else { body.len() - 1 };
+                            (
+                                start,
+                                end,
+                                format!("bytes {start}-{end}/{}", body.len()),
+                                "206 Partial Content",
+                                true,
+                            )
+                        } else if let Some((s_str, e_str)) = r.split_once('-') {
+                            let start: usize = s_str.parse().unwrap_or(0);
+                            let end: usize = if e_str.is_empty() {
+                                if body.is_empty() {
+                                    0
+                                } else {
+                                    body.len() - 1
+                                }
+                            } else {
+                                e_str.parse().unwrap_or(body.len().saturating_sub(1))
+                            };
+                            let end = end.min(body.len().saturating_sub(1));
+                            (
+                                start,
+                                end,
+                                format!("bytes {start}-{end}/{}", body.len()),
+                                "206 Partial Content",
+                                true,
+                            )
+                        } else {
+                            (
+                                0,
+                                body.len().saturating_sub(1),
+                                format!("bytes 0-{}/{}", body.len().saturating_sub(1), body.len()),
+                                "206 Partial Content",
+                                true,
+                            )
+                        }
+                    }
                 };
-                let slice = &body[start..];
-                let status = if start > 0 { "206 Partial Content" } else { "200 OK" };
+
+                let slice = if start <= end && !body.is_empty() {
+                    &body[start..=end.min(body.len() - 1)]
+                } else {
+                    &[]
+                };
+
+                let content_range_header = if !content_range_str.is_empty() {
+                    format!("Content-Range: {content_range_str}\r\n")
+                } else {
+                    "".to_string()
+                };
+
                 let _ = write!(
                     stream,
-                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    "HTTP/1.1 {status_str}\r\nContent-Length: {}\r\n{content_range_header}Connection: close\r\n\r\n",
                     slice.len()
                 );
-                match mode {
-                    Mode::Ranges | Mode::IgnoresRange => {
-                        let _ = stream.write_all(slice);
-                    }
-                    Mode::CutAfter(k) => {
-                        let _ = stream.write_all(&slice[..k.min(slice.len())]);
-                        let _ = stream.flush();
-                        let _ = stream.shutdown(std::net::Shutdown::Both);
-                        continue;
-                    }
-                    Mode::StallAfter(k) => {
-                        let _ = stream.write_all(&slice[..k.min(slice.len())]);
-                        let _ = stream.flush();
-                        std::thread::sleep(Duration::from_secs(5));
+                if send_body {
+                    match mode {
+                        Mode::Ranges | Mode::IgnoresRange => {
+                            let _ = stream.write_all(slice);
+                        }
+                        Mode::CutAfter(k) => {
+                            let _ = stream.write_all(&slice[..k.min(slice.len())]);
+                            let _ = stream.flush();
+                            let _ = stream.shutdown(std::net::Shutdown::Both);
+                            continue;
+                        }
+                        Mode::StallAfter(k) => {
+                            let _ = stream.write_all(&slice[..k.min(slice.len())]);
+                            let _ = stream.flush();
+                            std::thread::sleep(Duration::from_secs(5));
+                        }
                     }
                 }
                 let _ = stream.flush();
@@ -411,7 +627,7 @@ mod tests {
 
         fetch(&client, &src, &part, &dest, quick(), &cancel, |_| {}).await.unwrap();
         assert_eq!(std::fs::read(&dest).unwrap(), data);
-        assert_eq!(server.ranges.lock().unwrap().as_slice(), &[None, Some("70000".into())]);
+        assert_eq!(server.ranges.lock().unwrap().as_slice(), &[None, Some("70000-".into())]);
     }
 
     #[tokio::test]
@@ -519,5 +735,106 @@ mod tests {
             fetch(&reqwest::Client::new(), &src, &part, &dest, quick(), &Cancel::new(), |_| {})
                 .await;
         assert!(matches!(got, Err(Error::HostNotAllowed(_))), "plain http refused: {got:?}");
+    }
+
+    #[tokio::test]
+    async fn test_fetch_tail_and_range() {
+        let data = body();
+        let server = serve(data.clone(), vec![Mode::Ranges]);
+        let client = reqwest::Client::new();
+        let cancel = Cancel::new();
+
+        let (total, tail_bytes) =
+            fetch_tail(&client, &server.url, LOCAL, false, 1000, quick(), &cancel, &mut |_| {})
+                .await
+                .unwrap();
+        assert_eq!(total, data.len() as u64);
+        assert_eq!(tail_bytes.len(), 1000);
+        assert_eq!(tail_bytes, &data[data.len() - 1000..]);
+
+        let range_bytes = fetch_range(
+            &client,
+            &server.url,
+            LOCAL,
+            false,
+            500,
+            599,
+            quick(),
+            &cancel,
+            &mut |_| {},
+        )
+        .await
+        .unwrap();
+        assert_eq!(range_bytes.len(), 100);
+        assert_eq!(range_bytes, &data[500..=599]);
+    }
+
+    #[tokio::test]
+    async fn test_range_status_200_error() {
+        let data = body();
+        let server = serve(data.clone(), vec![Mode::IgnoresRange]);
+        let client = reqwest::Client::new();
+        let cancel = Cancel::new();
+
+        let res =
+            fetch_range(&client, &server.url, LOCAL, false, 0, 99, quick(), &cancel, &mut |_| {})
+                .await;
+        assert_eq!(res, Err(Error::Status(200)));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_tail_and_range_host_not_allowed_is_never_contacted() {
+        let data = body();
+        let server = serve(data.clone(), vec![Mode::Ranges]);
+        let client = reqwest::Client::new();
+        let cancel = Cancel::new();
+
+        let got_tail = fetch_tail(
+            &client,
+            &server.url,
+            &["github.com"],
+            false,
+            100,
+            quick(),
+            &cancel,
+            &mut |_| {},
+        )
+        .await;
+        assert!(matches!(got_tail, Err(Error::HostNotAllowed(_))), "{got_tail:?}");
+
+        let got_range = fetch_range(
+            &client,
+            &server.url,
+            &["github.com"],
+            false,
+            0,
+            99,
+            quick(),
+            &cancel,
+            &mut |_| {},
+        )
+        .await;
+        assert!(matches!(got_range, Err(Error::HostNotAllowed(_))), "{got_range:?}");
+
+        assert_eq!(server.requests.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn pre_cancelled_fetch_tail_and_range_return_cancelled() {
+        let data = body();
+        let server = serve(data.clone(), vec![Mode::Ranges]);
+        let client = reqwest::Client::new();
+        let cancel = Cancel::new();
+        cancel.cancel();
+
+        let got_tail =
+            fetch_tail(&client, &server.url, LOCAL, false, 100, quick(), &cancel, &mut |_| {})
+                .await;
+        assert_eq!(got_tail, Err(Error::Cancelled));
+
+        let got_range =
+            fetch_range(&client, &server.url, LOCAL, false, 0, 99, quick(), &cancel, &mut |_| {})
+                .await;
+        assert_eq!(got_range, Err(Error::Cancelled));
     }
 }

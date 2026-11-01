@@ -10,6 +10,7 @@ pub mod mdx;
 pub mod models;
 pub mod pipeline;
 pub mod runtime;
+pub mod runtime_pkg;
 pub mod stft;
 
 /// Helper to sanitize error messages (removes URLs and absolute paths).

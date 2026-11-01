@@ -215,7 +215,7 @@ fn main() -> Result<()> {
 
     let audio_duration = resampled_l.len() as f64 / 44100.0;
 
-    // On Windows: ORT_DYLIB_PATH = absolute path of onnxruntime.dll. Must precede any ort call.
+    // ORT_DYLIB_PATH = absolute path of the ONNX Runtime shared library. Must precede any ort call.
     let rt = karaoke::runtime::from_env().context("ONNX Runtime not available")?;
     let mut model = if auto {
         eprintln!("Loading MDX model with auto device selection from: {}", model_path);

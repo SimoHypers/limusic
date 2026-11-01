@@ -4,6 +4,8 @@
 			"title": "Download AI Vocal Removal Model",
 			"desc": "Karaoke uses an AI model (UVR MDX-Net) that must be downloaded once (about {size}). It is stored locally and works offline afterwards. Preparing a song takes from about 15 seconds (discrete GPU) to a few minutes (CPU) and the result is cached on disk.",
 			"source": "Downloaded from GitHub (TRvlvr/model_repo), the model's official source.",
+			"runtime": "The ONNX Runtime (Microsoft, MIT License) is downloaded too, from its official GitHub release.",
+			"runtime_windows": "ONNX Runtime and DirectML (both from Microsoft) are downloaded too, from Microsoft's official NuGet packages.",
 			"credit": "UVR-MDX-NET-Inst_HQ_3 by Anjok07 and aufr33 (Ultimate Vocal Remover), MIT License.",
 			"credit_link": "Ultimate Vocal Remover",
 			"redownload": "To prepare a song, Limusic downloads its audio once more.",
@@ -11,7 +13,7 @@
 		},
 		"unavailable": {
 			"not_installed": "Karaoke isn't included in this build of Limusic.",
-			"corrupt": "Karaoke's files are damaged. Reinstalling Limusic fixes this.",
+			"corrupt": "Karaoke's files are damaged. Try turning karaoke on again; if that doesn't help, reinstall Limusic.",
 			"vc_runtime": "Karaoke needs a newer Microsoft Visual C++ Redistributable (14.44 or later).",
 			"load_failed": "Karaoke couldn't start on this computer.",
 			"proxy": "Karaoke isn't available while a proxy is set.",

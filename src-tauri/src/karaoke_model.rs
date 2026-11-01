@@ -31,8 +31,28 @@ pub struct ModelStatus {
 
 pub struct ModelManager {
     dir: PathBuf,
+    runtime_dir: PathBuf,
     busy: AtomicBool,
     cancel: karaoke::download::Cancel,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DownloadPlan {
+    pub runtime: bool,
+    pub model: bool,
+    pub total: u64,
+}
+
+pub fn plan_download(
+    model_present: bool,
+    runtime_needed: bool,
+    model_size: u64,
+    runtime_size: u64,
+) -> DownloadPlan {
+    let model = !model_present;
+    let runtime = runtime_needed;
+    let total = (if model { model_size } else { 0 }) + (if runtime { runtime_size } else { 0 });
+    DownloadPlan { runtime, model, total }
 }
 
 impl ModelManager {
@@ -40,7 +60,26 @@ impl ModelManager {
     /// launching the app never touches it.
     pub fn new(data_dir: &Path) -> Self {
         let dir = data_dir.join("models");
-        Self { dir, busy: AtomicBool::new(false), cancel: karaoke::download::Cancel::new() }
+        let runtime_dir = data_dir.join("runtime").join(karaoke::runtime_pkg::dir_name());
+        Self {
+            dir,
+            runtime_dir,
+            busy: AtomicBool::new(false),
+            cancel: karaoke::download::Cancel::new(),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn runtime_dir(&self) -> &Path {
+        &self.runtime_dir
+    }
+
+    fn runtime_present(&self) -> bool {
+        if let Some(pkg) = karaoke::runtime_pkg::current() {
+            karaoke::runtime_pkg::present_cheap(pkg, &self.runtime_dir)
+        } else {
+            true
+        }
     }
 
     /// Creates the models directory. A `.part` left by an interrupted download is kept: the next
@@ -69,7 +108,7 @@ impl ModelManager {
         self.dir.join(spec.file_name)
     }
 
-    pub fn is_installed(&self, id: ModelId) -> bool {
+    fn model_present(&self, id: ModelId) -> bool {
         let spec = id.spec();
         let path = if let Some(p) = Self::override_path(id) {
             p
@@ -87,13 +126,31 @@ impl ModelManager {
         path.exists()
     }
 
+    pub fn is_installed(&self, id: ModelId) -> bool {
+        self.model_present(id) && self.runtime_present()
+    }
+
     pub fn status(&self, id: ModelId) -> ModelStatus {
         let spec = id.spec();
         let installed = self.is_installed(id);
         let downloading = self.busy.load(Ordering::SeqCst);
         let path =
             if installed { Some(self.model_path(id).to_string_lossy().into_owned()) } else { None };
-        ModelStatus { model: spec.key, installed, downloading, size_bytes: spec.size, path }
+        let size_bytes = if installed {
+            spec.size
+        } else {
+            let model_needed = !self.model_present(id);
+            let runtime_needed =
+                karaoke::runtime_pkg::current().is_some_and(|_| !self.runtime_present());
+            (if model_needed { spec.size } else { 0 })
+                + (if runtime_needed {
+                    karaoke::runtime_pkg::current()
+                        .map_or(0, karaoke::runtime_pkg::total_archive_size)
+                } else {
+                    0
+                })
+        };
+        ModelStatus { model: spec.key, installed, downloading, size_bytes, path }
     }
 
     /// Stops a running download at once, even one stalled on the network. What arrived so far is
@@ -154,80 +211,329 @@ impl ModelManager {
         let _guard = BusyGuard(&self.busy);
 
         if let Err(e) = self.prepare_dir() {
-            let msg = karaoke::sanitize_error(&e.to_string());
-            let _ = app.emit(
-                "karaoke-model",
-                serde_json::json!({ "model": spec.key, "state": "error", "message": msg }),
-            );
-            return Err(msg);
+            return Err(emit_error(app, spec.key, karaoke::sanitize_error(&e.to_string())));
         }
 
-        let final_path = self.model_path(id);
-        let part_path = final_path.with_extension(
-            final_path
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| format!("{e}.part"))
-                .unwrap_or_else(|| "part".to_string()),
-        );
+        if let Some(parent) = self.runtime_dir.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                return Err(emit_error(app, spec.key, karaoke::sanitize_error(&e.to_string())));
+            }
+        }
 
-        let source = karaoke::download::Source {
-            url: spec.url,
-            size: spec.size,
-            sha256: spec.sha256,
-            hosts: MODEL_HOSTS,
-            https_only: true,
-        };
+        let pkg = karaoke::runtime_pkg::current();
+        let runtime_needed = pkg.is_some() && !self.runtime_present();
+        let runtime_size = pkg.map_or(0, karaoke::runtime_pkg::total_archive_size);
+        let plan = plan_download(self.model_present(id), runtime_needed, spec.size, runtime_size);
+
         let mut throttle = ProgressThrottle::new(Duration::from_millis(250));
-        let emit_progress = |downloaded: u64| {
+
+        if plan.runtime {
+            let pkg = pkg.unwrap();
+            let mut finished_runtime_bytes = 0u64;
+
+            for part in pkg.parts {
+                let part_installed =
+                    part.files.iter().filter(|f| !f.sha256.is_empty() && !f.optional).all(|f| {
+                        let path = self.runtime_dir.join(f.dest);
+                        path.exists() && path.metadata().map(|m| m.len() == f.size).unwrap_or(false)
+                    });
+                if part_installed {
+                    finished_runtime_bytes += part.fetch_size;
+                    continue;
+                }
+
+                let current_finished = finished_runtime_bytes;
+                let emit_runtime_progress = |part_downloaded: u64| {
+                    let downloaded = (current_finished + part_downloaded).min(plan.total);
+                    let _ = app.emit(
+                "karaoke-model",
+                serde_json::json!({ "model": spec.key, "state": "downloading", "downloaded": downloaded, "total": plan.total }),
+            );
+                };
+
+                match part.kind {
+                    karaoke::runtime_pkg::ArchiveKind::Tgz
+                    | karaoke::runtime_pkg::ArchiveKind::Zip => {
+                        let ext = match part.kind {
+                            karaoke::runtime_pkg::ArchiveKind::Tgz => "tgz",
+                            karaoke::runtime_pkg::ArchiveKind::Zip => "zip",
+                            _ => unreachable!(),
+                        };
+                        let runtime_archive = self.runtime_dir.parent().unwrap().join(format!(
+                            "{}-{}.{}",
+                            karaoke::runtime_pkg::dir_name(),
+                            part.name,
+                            ext
+                        ));
+                        let runtime_part = runtime_archive.with_extension(format!("{}.part", ext));
+
+                        let source = karaoke::download::Source {
+                            url: part.url,
+                            size: part.archive_size,
+                            sha256: part.archive_sha256,
+                            hosts: part.hosts,
+                            https_only: true,
+                        };
+
+                        emit_runtime_progress(0);
+                        let result = karaoke::download::fetch(
+                            crate::http::client(),
+                            &source,
+                            &runtime_part,
+                            &runtime_archive,
+                            karaoke::download::Timeouts::default(),
+                            &self.cancel,
+                            |downloaded| {
+                                if throttle.should_emit() {
+                                    emit_runtime_progress(downloaded);
+                                }
+                            },
+                        )
+                        .await;
+
+                        match result {
+                            Ok(()) => {
+                                let part_clone = part;
+                                let archive_path = runtime_archive.clone();
+                                let dest_dir = self.runtime_dir.clone();
+                                let extract_result =
+                                    tauri::async_runtime::spawn_blocking(move || {
+                                        karaoke::runtime_pkg::extract_part(
+                                            part_clone,
+                                            &archive_path,
+                                            &dest_dir,
+                                        )
+                                    })
+                                    .await;
+
+                                let _ = std::fs::remove_file(&runtime_archive);
+
+                                match extract_result {
+                                    Ok(Ok(_)) => {
+                                        tracing::info!(target: "app_lib::karaoke", part = part.name, "onnx runtime part downloaded and extracted");
+                                    }
+                                    Ok(Err(e)) => {
+                                        let msg = karaoke::sanitize_error(&e.to_string());
+                                        tracing::warn!(target: "app_lib::karaoke", error = %msg, part = part.name, "onnx runtime part extraction failed");
+                                        return Err(emit_error(app, spec.key, msg));
+                                    }
+                                    Err(e) => {
+                                        let msg = karaoke::sanitize_error(&e.to_string());
+                                        tracing::warn!(target: "app_lib::karaoke", error = %msg, part = part.name, "onnx runtime part extraction task failed");
+                                        return Err(emit_error(app, spec.key, msg));
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                return Err(report_failure(app, spec.key, e));
+                            }
+                        }
+                    }
+                    karaoke::runtime_pkg::ArchiveKind::ZipRange => {
+                        emit_runtime_progress(0);
+                        let app_clone_tail = app.clone();
+                        let model_key_tail = spec.key;
+                        let finished_base_tail = finished_runtime_bytes;
+                        let total_bytes_tail = plan.total;
+                        let cancel_ref_tail = &self.cancel;
+                        let part_url = part.url;
+                        let part_hosts = part.hosts;
+
+                        let tail_result = std::thread::scope(|s| {
+                            s.spawn(move || {
+                                let mut progress_fn = |n: u64| {
+                                    let downloaded = (finished_base_tail + n).min(total_bytes_tail);
+                                    let _ = app_clone_tail.emit(
+                                "karaoke-model",
+                                        serde_json::json!({ "model": model_key_tail, "state": "downloading", "downloaded": downloaded, "total": total_bytes_tail }),       
+                                    );
+                                };
+                                tauri::async_runtime::block_on(karaoke::download::fetch_tail(
+                                    crate::http::client(),
+                                    part_url,
+                                    part_hosts,
+                                    true,
+                                    karaoke::runtime_pkg::REMOTE_ZIP_TAIL,
+                                    karaoke::download::Timeouts::default(),
+                                    cancel_ref_tail,
+                                    &mut progress_fn,
+                                ))
+                            })
+                            .join()
+                            .map_err(|e| karaoke::download::Error::Network(format!("thread panicked: {e:?}")))
+                        });
+
+                        let (total_len, tail) = match tail_result {
+                            Ok(Ok(res)) => res,
+                            Ok(Err(e)) => return Err(report_failure(app, spec.key, e)),
+                            Err(e) => return Err(report_failure(app, spec.key, e)),
+                        };
+
+                        if self.cancel.is_cancelled() {
+                            return Err(report_failure(
+                                app,
+                                spec.key,
+                                karaoke::download::Error::Cancelled,
+                            ));
+                        }
+
+                        let part_clone = part;
+                        let tail_clone = tail;
+                        let runtime_dir_clone = self.runtime_dir.clone();
+                        let cancel_ref = &self.cancel;
+                        let app_clone = app.clone();
+                        let model_key = spec.key;
+                        let finished_base = finished_runtime_bytes;
+                        let total_bytes = plan.total;
+
+                        let extract_result = std::thread::scope(|s| {
+                            s.spawn(move || {
+                                let mut downloaded_bytes = tail_clone.len() as u64;
+                                let mut throttle = ProgressThrottle::new(Duration::from_millis(250));
+                                let mut fetch_closure = |start: u64, end_inclusive: u64| -> Result<Vec<u8>, karaoke::runtime::Unavailable> {
+                                    let res = tauri::async_runtime::block_on(karaoke::download::fetch_range(
+                                        crate::http::client(),
+                                        part_clone.url,
+                                        part_clone.hosts,
+                                        true,
+                                        start,
+                                        end_inclusive,
+                                        karaoke::download::Timeouts::default(),
+                                        cancel_ref,
+                                        &mut |_| {},
+                                    ));
+                                    match res {
+                                        Ok(bytes) => {
+                                            downloaded_bytes += bytes.len() as u64;
+                                            if throttle.should_emit() {
+                                                let downloaded = (finished_base + downloaded_bytes).min(total_bytes);
+                                                let _ = app_clone.emit(
+                                                    "karaoke-model",
+                                                    serde_json::json!({ "model": model_key, "state": "downloading", "downloaded": downloaded, "total": total_bytes }),     
+                            );
+                        }
+                                            Ok(bytes)
+                    }
+                                        Err(e) => Err(karaoke::runtime::Unavailable::LoadFailed(karaoke::sanitize_error(&e.to_string()))),
+                                    }
+                                };
+                                karaoke::runtime_pkg::extract_remote_zip(part_clone, total_len, &tail_clone, &runtime_dir_clone, &mut fetch_closure)
+                            })
+                            .join()
+                            .map_err(|e| karaoke::runtime::Unavailable::LoadFailed(format!("thread panicked: {e:?}")))
+                        });
+
+                        if self.cancel.is_cancelled() {
+                            return Err(report_failure(
+                                app,
+                                spec.key,
+                                karaoke::download::Error::Cancelled,
+                            ));
+                        }
+
+                        match extract_result {
+                            Ok(Ok(_)) => {
+                                tracing::info!(target: "app_lib::karaoke", part = part.name, "onnx runtime part downloaded and extracted");
+                            }
+                            Ok(Err(e)) => {
+                                let msg = karaoke::sanitize_error(&e.to_string());
+                                tracing::warn!(target: "app_lib::karaoke", error = %msg, part = part.name, "onnx runtime part extraction failed");
+                                return Err(emit_error(app, spec.key, msg));
+                            }
+                            Err(e) => {
+                                let msg = karaoke::sanitize_error(&e.to_string());
+                                tracing::warn!(target: "app_lib::karaoke", error = %msg, part = part.name, "onnx runtime part extraction task failed");
+                                return Err(emit_error(app, spec.key, msg));
+                            }
+                        }
+                    }
+                }
+
+                finished_runtime_bytes += part.fetch_size;
+            }
+        }
+
+        if plan.model {
+            let final_path = self.model_path(id);
+            let part_path = final_path.with_extension(
+                final_path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| format!("{e}.part"))
+                    .unwrap_or_else(|| "part".to_string()),
+            );
+
+            let source = karaoke::download::Source {
+                url: spec.url,
+                size: spec.size,
+                sha256: spec.sha256,
+                hosts: MODEL_HOSTS,
+                https_only: true,
+            };
+
+            let emit_model_progress = |model_downloaded: u64| {
+                let downloaded = runtime_size + model_downloaded;
+                let _ = app.emit(
+                    "karaoke-model",
+                    serde_json::json!({ "model": spec.key, "state": "downloading", "downloaded": downloaded, "total": plan.total }),
+                );
+            };
+            emit_model_progress(0);
+            let result = karaoke::download::fetch(
+                crate::http::client(),
+                &source,
+                &part_path,
+                &final_path,
+                karaoke::download::Timeouts::default(),
+                &self.cancel,
+                |downloaded| {
+                    if throttle.should_emit() {
+                        emit_model_progress(downloaded);
+                    }
+                },
+            )
+            .await;
+
+            match result {
+                Ok(()) => {
+                    emit_model_progress(spec.size);
+                    tracing::info!(target: "app_lib::karaoke", model = spec.key, "karaoke model downloaded");
+                }
+                Err(e) => {
+                    return Err(report_failure(app, spec.key, e));
+                }
+            }
+        }
+
+        let _ =
+            app.emit("karaoke-model", serde_json::json!({ "model": spec.key, "state": "ready" }));
+        Ok(())
+    }
+}
+
+fn emit_error(app: &AppHandle, key: &str, msg: String) -> String {
+    let _ = app.emit(
+        "karaoke-model",
+        serde_json::json!({ "model": key, "state": "error", "message": msg }),
+    );
+    msg
+}
+
+fn report_failure(app: &AppHandle, key: &str, e: karaoke::download::Error) -> String {
+    match e {
+        karaoke::download::Error::Cancelled => {
+            let _ = app
+                .emit("karaoke-model", serde_json::json!({ "model": key, "state": "cancelled" }));
+            "cancelled".to_string()
+        }
+        _ => {
+            let msg = karaoke::sanitize_error(&e.to_string());
+            tracing::warn!(target: "app_lib::karaoke", model = key, error = %msg, "karaoke download failed");
             let _ = app.emit(
                 "karaoke-model",
-                serde_json::json!({ "model": spec.key, "state": "downloading", "downloaded": downloaded, "total": spec.size }),
+                serde_json::json!({ "model": key, "state": "error", "message": msg }),
             );
-        };
-        emit_progress(0);
-        let result = karaoke::download::fetch(
-            crate::http::client(),
-            &source,
-            &part_path,
-            &final_path,
-            karaoke::download::Timeouts::default(),
-            &self.cancel,
-            |downloaded| {
-                if throttle.should_emit() {
-                    emit_progress(downloaded);
-                }
-            },
-        )
-        .await;
-
-        match result {
-            Ok(()) => {
-                emit_progress(spec.size);
-                tracing::info!(target: "app_lib::karaoke", model = spec.key, "karaoke model downloaded");
-                let _ = app.emit(
-                    "karaoke-model",
-                    serde_json::json!({ "model": spec.key, "state": "ready" }),
-                );
-                Ok(())
-            }
-            // The `.part` stays, so the next attempt resumes instead of starting over.
-            Err(karaoke::download::Error::Cancelled) => {
-                let _ = app.emit(
-                    "karaoke-model",
-                    serde_json::json!({ "model": spec.key, "state": "cancelled" }),
-                );
-                Err("cancelled".to_string())
-            }
-            Err(e) => {
-                let msg = karaoke::sanitize_error(&e.to_string());
-                tracing::warn!(target: "app_lib::karaoke", model = spec.key, error = %msg, "karaoke model download failed");
-                let _ = app.emit(
-                    "karaoke-model",
-                    serde_json::json!({ "model": spec.key, "state": "error", "message": msg }),
-                );
-                Err(msg)
-            }
+            msg
         }
     }
 }
@@ -267,6 +573,20 @@ mod tests {
 
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    fn fake_runtime(mgr: &ModelManager) {
+        if let Some(pkg) = karaoke::runtime_pkg::current() {
+            std::fs::create_dir_all(mgr.runtime_dir()).unwrap();
+            for f in karaoke::runtime_pkg::pinned_files(pkg) {
+                let path = mgr.runtime_dir().join(f.dest);
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent).unwrap();
+                }
+                let file = std::fs::File::create(&path).unwrap();
+                file.set_len(f.size).unwrap();
+            }
+        }
+    }
+
     struct EnvGuard;
     impl Drop for EnvGuard {
         fn drop(&mut self) {
@@ -298,6 +618,7 @@ mod tests {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = temp_dir();
         let manager = ModelManager::new(&tmp);
+        fake_runtime(&manager);
         let id = ModelId::DEFAULT;
         assert!(!manager.is_installed(id));
         manager.prepare_dir().unwrap();
@@ -310,6 +631,31 @@ mod tests {
         f.set_len(id.spec().size).unwrap();
         drop(f);
         assert!(manager.is_installed(id));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_is_installed_runtime_dependency() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir();
+        let manager = ModelManager::new(&tmp);
+        let id = ModelId::DEFAULT;
+        manager.prepare_dir().unwrap();
+
+        let path = manager.model_path(id);
+        let f = std::fs::File::create(&path).unwrap();
+        f.set_len(id.spec().size).unwrap();
+        drop(f);
+
+        if karaoke::runtime_pkg::current().is_some() {
+            assert!(!manager.is_installed(id));
+        } else {
+            assert!(manager.is_installed(id));
+        }
+
+        fake_runtime(&manager);
+        assert!(manager.is_installed(id));
+
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -361,6 +707,7 @@ mod tests {
         let _env_guard = EnvGuard;
 
         let manager = ModelManager::new(&tmp);
+        fake_runtime(&manager);
         let id = ModelId::DEFAULT;
         assert_eq!(manager.model_path(id), manager.dir.join(id.spec().file_name));
         manager.prepare_dir().unwrap();
@@ -424,6 +771,41 @@ mod tests {
         assert_eq!(res, Err("override".to_string()));
         assert!(override_file.exists(), "override file must not be deleted");
 
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_plan_download() {
+        let p1 = plan_download(false, true, 100, 50);
+        assert_eq!(p1, DownloadPlan { runtime: true, model: true, total: 150 });
+
+        let p2 = plan_download(true, true, 100, 50);
+        assert_eq!(p2, DownloadPlan { runtime: true, model: false, total: 50 });
+
+        let p3 = plan_download(false, false, 100, 50);
+        assert_eq!(p3, DownloadPlan { runtime: false, model: true, total: 100 });
+
+        let p4 = plan_download(true, false, 100, 50);
+        assert_eq!(p4, DownloadPlan { runtime: false, model: false, total: 0 });
+    }
+
+    #[test]
+    fn test_runtime_dir_and_present() {
+        let tmp = temp_dir();
+        let manager = ModelManager::new(&tmp);
+        let rdir = manager.runtime_dir();
+        assert!(
+            rdir.ends_with(karaoke::runtime_pkg::dir_name()),
+            "runtime_dir must end with dir_name()"
+        );
+        assert!(rdir.starts_with(tmp.join("runtime")), "runtime_dir must lie under tmp/runtime");
+
+        if karaoke::runtime_pkg::current().is_none() {
+            assert!(
+                manager.runtime_present(),
+                "when current() is None, runtime_present must be true"
+            );
+        }
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }

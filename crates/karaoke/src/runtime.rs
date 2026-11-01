@@ -1,11 +1,8 @@
 //! The ONNX Runtime that `ort` talks to, and the proof that it is ready.
 //!
-//! - Linux/macOS: linked in statically, so it is always ready ([`linked`]).
-//! - Windows: built with ort's `load-dynamic`, so nothing from ONNX Runtime is in the exe. The
-//!   bundled DLLs are loaded by full path through [`load`] (the app) or [`init_from`] (tools), and
-//!   only that: if any other `ort` call came first, ort would load `onnxruntime.dll` *by name*,
-//!   which can pick up the old copy Windows ships in System32 (and ort panics when that one is too
-//!   old).
+//! No platform links ONNX Runtime anymore; built with `load-dynamic`.
+//! - Windows: loads the downloaded runtime folder via `load`.
+//! - Linux/macOS: will download the runtime on first use (see `karaoke_runtime.rs`).
 //!
 //! [`RuntimeReady`] can only be obtained from those functions, and every entry point that creates
 //! a session ([`crate::mdx::MdxModel::load`] and friends) takes one, so the compiler enforces the
@@ -28,20 +25,8 @@ impl RuntimeReady {
     }
 }
 
-/// The Windows runtime bundled next to the exe, in this subfolder of the install (resource) dir.
-/// `scripts/fetch-karaoke-runtime.ps1` puts it there; the pinned values below must match that
-/// script (checked by a test).
-pub const RUNTIME_DIR: &str = "karaoke-runtime";
-
-/// `onnxruntime.dll` from NuGet Microsoft.ML.OnnxRuntime.DirectML 1.24.4 (SHA-256, upper hex).
-pub const ONNXRUNTIME_DLL_SHA256: &str =
-    "E7EEDEC6A6F26DC39DC948276A75EF6D2BEE3FFF944D874CEED0BBD3B97BFF40";
-/// `DirectML.dll` from NuGet Microsoft.AI.DirectML 1.15.4 (SHA-256, upper hex).
-pub const DIRECTML_DLL_SHA256: &str =
-    "9C9E6D822561C6C41B90E6994B3E8857CF1D66DBFB1E0C4C799C7C89B4E92DA1";
-
-/// The app-local VC++ runtime `onnxruntime.dll` imports. Not hash-pinned (they change with each
-/// Visual Studio update); each must be at least [`VC_RUNTIME_MIN`].
+/// The VC++ runtime `onnxruntime.dll` imports. Not hash-pinned (they change with each
+/// Visual Studio update); taken from the system folder, each must be at least [`VC_RUNTIME_MIN`].
 pub const VC_RUNTIME_DLLS: [&str; 4] =
     ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "msvcp140_1.dll"];
 /// `onnxruntime.dll` 1.24.4 was linked with MSVC 14.44, and the VC++ runtime it runs against must
@@ -53,13 +38,11 @@ pub const VC_REDIST_URL: &str = "https://aka.ms/vc14/vc_redist.x64.exe";
 /// Why karaoke cannot run on this machine. [`Unavailable::key`] names the reason for the UI.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Unavailable {
-    /// A runtime file is missing (a build made without `scripts/fetch-karaoke-runtime.ps1`, or a
-    /// damaged install). Carries the file name.
+    /// The runtime has not been downloaded yet, or its folder was damaged. Carries the file name.
     NotInstalled(String),
     /// A runtime file does not match its pinned hash or is not a loadable DLL. Carries the name.
     Corrupt(String),
-    /// The VC++ runtime in use (bundled, or one already loaded in the process, which Windows
-    /// reuses by name) is missing or older than [`VC_RUNTIME_MIN`]. Carries the detail.
+    /// The system VC++ runtime, or one already loaded in the process, is missing or too old. Carries the detail.
     VcRuntime(String),
     /// Anything else that stopped ONNX Runtime from loading.
     LoadFailed(String),
@@ -81,7 +64,7 @@ impl fmt::Display for Unavailable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotInstalled(file) => write!(f, "the karaoke runtime is not installed ({file} is missing)"),
-            Self::Corrupt(file) => write!(f, "{file} is damaged; reinstalling Limusic fixes it"),
+            Self::Corrupt(file) => write!(f, "{file} is damaged and will be downloaded again"),
             Self::VcRuntime(detail) => write!(
                 f,
                 "needs the Microsoft Visual C++ Redistributable {}.{} or newer ({VC_REDIST_URL}): {detail}",
@@ -113,17 +96,10 @@ pub fn load_error(code: u32) -> Unavailable {
     }
 }
 
-/// Linux/macOS: ONNX Runtime is linked into the binary.
-#[cfg(not(windows))]
-pub fn linked() -> RuntimeReady {
-    RuntimeReady { directml: false }
-}
-
-/// Windows: hands ONNX Runtime at `path` (absolute) to `ort`. Must be the first `ort` call in the
+/// Hands ONNX Runtime at `path` (absolute) to `ort`. Must be the first `ort` call in the
 /// process; calling it again later is harmless (the first library stays loaded). `directml` says
 /// whether the DirectML provider may be used (see [`RuntimeReady::directml`]). The app goes
-/// through [`load`], which does the checks and pre-loads first.
-#[cfg(windows)]
+/// through [`load`] on Windows, which does the checks and pre-loads first.
 pub fn init_from(path: &std::path::Path, directml: bool) -> anyhow::Result<RuntimeReady> {
     if !path.is_absolute() {
         anyhow::bail!("ONNX Runtime path must be absolute");
@@ -134,33 +110,25 @@ pub fn init_from(path: &std::path::Path, directml: bool) -> anyhow::Result<Runti
     Ok(RuntimeReady { directml })
 }
 
-/// For the examples and other tools: on Windows, loads the DLL named by `ORT_DYLIB_PATH` (an
-/// absolute path; DirectML is then found by name, fine for a developer machine); elsewhere, the
-/// linked runtime.
+/// For the examples and other tools: loads the shared library named by `ORT_DYLIB_PATH` (an
+/// absolute path to onnxruntime.dll / libonnxruntime.so / libonnxruntime.dylib).
 pub fn from_env() -> anyhow::Result<RuntimeReady> {
-    #[cfg(windows)]
-    {
-        let path = std::env::var_os("ORT_DYLIB_PATH").ok_or_else(|| {
-            anyhow::anyhow!(
-                "set ORT_DYLIB_PATH to the absolute path of onnxruntime.dll (DirectML build 1.24.x)"
-            )
-        })?;
-        init_from(std::path::Path::new(&path), true)
-    }
-    #[cfg(not(windows))]
-    {
-        Ok(linked())
-    }
+    let path = std::env::var_os("ORT_DYLIB_PATH").ok_or_else(|| {
+        anyhow::anyhow!(
+            "set ORT_DYLIB_PATH to the absolute path of the ONNX Runtime shared library"
+        )
+    })?;
+    init_from(std::path::Path::new(&path), cfg!(windows))
 }
 
 #[cfg(windows)]
-pub use win::{check_directml_module, file_version, load};
+pub use win::{check_directml_module, file_version, load, pinned_sha};
 
 #[cfg(windows)]
 mod win {
     use super::{
-        init_from, load_error, version_at_least, RuntimeReady, Unavailable, DIRECTML_DLL_SHA256,
-        ONNXRUNTIME_DLL_SHA256, VC_RUNTIME_DLLS, VC_RUNTIME_MIN,
+        init_from, load_error, version_at_least, RuntimeReady, Unavailable, VC_RUNTIME_DLLS,
+        VC_RUNTIME_MIN,
     };
     use core::ffi::c_void;
     use std::path::{Path, PathBuf};
@@ -176,11 +144,18 @@ mod win {
     /// one in use is ours.
     static OUR_DIRECTML: OnceLock<PathBuf> = OnceLock::new();
 
-    /// Loads the bundled runtime from `dir` and makes it `ort`'s. Every failure is a reason, never
+    pub fn pinned_sha(dest: &str) -> &'static str {
+        crate::runtime_pkg::pinned_files(&crate::runtime_pkg::WINDOWS_X86_64)
+            .find(|f| f.dest == dest)
+            .map(|f| f.sha256)
+            .unwrap_or_else(|| panic!("pinned sha for {dest} not found"))
+    }
+
+    /// Loads the downloaded runtime from `dir` and makes it `ort`'s. Every failure is a reason, never
     /// a panic, and leaves the app as it was (at worst with an unused DLL mapped).
     ///
-    /// 1. All files present; `onnxruntime.dll` and `DirectML.dll` match their pinned SHA-256.
-    /// 2. The bundled VC++ DLLs, and any VC++ module already in the process (Windows reuses a
+    /// 1. `onnxruntime.dll` present and matches its pinned SHA-256; `DirectML.dll` optional, and if present matches its pinned SHA-256.
+    /// 2. The system VC++ DLLs, and any VC++ module already in the process (Windows reuses a
     ///    loaded module by name, wherever it came from), are at least [`VC_RUNTIME_MIN`].
     /// 3. `DirectML.dll`, then `onnxruntime.dll`, loaded by full path with the search limited to
     ///    the DLL's own folder and System32: dependencies never come from the current directory or
@@ -193,22 +168,29 @@ mod win {
         let ort = dir.join("onnxruntime.dll");
         let dml = dir.join("DirectML.dll");
 
-        for name in std::iter::once("onnxruntime.dll").chain(VC_RUNTIME_DLLS) {
-            if !dir.join(name).is_file() {
-                return Err(Unavailable::NotInstalled(name.into()));
-            }
+        if !ort.is_file() {
+            return Err(Unavailable::NotInstalled("onnxruntime.dll".into()));
         }
-        if sha256(&ort).as_deref() != Some(ONNXRUNTIME_DLL_SHA256) {
+        if sha256(&ort).as_deref() != Some(pinned_sha("onnxruntime.dll")) {
             return Err(Unavailable::Corrupt("onnxruntime.dll".into()));
         }
         // DirectML is optional: without it karaoke runs on the CPU.
         let dml_present = dml.is_file();
-        if dml_present && sha256(&dml).as_deref() != Some(DIRECTML_DLL_SHA256) {
+        if dml_present && sha256(&dml).as_deref() != Some(pinned_sha("DirectML.dll")) {
             return Err(Unavailable::Corrupt("DirectML.dll".into()));
         }
 
+        let system_root = std::env::var_os("SystemRoot")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+        let system32 = system_root.join("System32");
+
         for name in VC_RUNTIME_DLLS {
-            check_vc(name, &dir.join(name))?;
+            let path = system32.join(name);
+            if !path.is_file() {
+                return Err(Unavailable::VcRuntime(format!("{name} is not installed")));
+            }
+            check_vc(name, &path)?;
         }
         check_loaded_vc()?;
 
@@ -234,7 +216,9 @@ mod win {
         let Some(ours) = OUR_DIRECTML.get() else { return Ok(()) };
         match loaded_module("DirectML.dll") {
             Some(p) if same_path(&p, ours) => Ok(()),
-            Some(p) => Err(format!("DirectML.dll in use is {}, not the bundled one", p.display())),
+            Some(p) => {
+                Err(format!("DirectML.dll in use is {}, not the downloaded one", p.display()))
+            }
             None => Err("DirectML.dll is not loaded".into()),
         }
     }
@@ -345,31 +329,13 @@ mod win {
         let mut file = std::fs::File::open(path).ok()?;
         let mut hasher = Sha256::new();
         std::io::copy(&mut file, &mut hasher).ok()?;
-        Some(format!("{:X}", hasher.finalize()))
+        Some(format!("{:x}", hasher.finalize()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The loader trusts these constants; the script that fetches the files pins its own copy.
-    /// They must agree, or a correct bundle would be refused (or a wrong one accepted).
-    #[test]
-    fn pinned_values_match_the_fetch_script() {
-        let script = include_str!("../../../scripts/fetch-karaoke-runtime.ps1");
-        for hash in [ONNXRUNTIME_DLL_SHA256, DIRECTML_DLL_SHA256] {
-            assert!(
-                script.contains(&format!("Sha256 = '{hash}'")),
-                "{hash} not pinned in the script"
-            );
-        }
-        for dll in VC_RUNTIME_DLLS {
-            assert!(script.contains(&format!("'{dll}'")), "{dll} not fetched by the script");
-        }
-        let (major, minor) = VC_RUNTIME_MIN;
-        assert!(script.contains(&format!("$VcMinVersion = [version]'{major}.{minor}'")));
-    }
 
     #[test]
     fn version_floor_compares_major_then_minor() {
@@ -389,7 +355,6 @@ mod tests {
         assert!(load_error(126).to_string().contains(VC_REDIST_URL));
     }
 
-    #[cfg(windows)]
     #[test]
     fn a_relative_path_is_refused_before_ort_is_touched() {
         let err = init_from(std::path::Path::new("onnxruntime.dll"), false).unwrap_err();
@@ -416,40 +381,39 @@ mod tests {
     #[test]
     fn a_tampered_runtime_is_refused_before_anything_loads() {
         let dir = scratch_dir("tampered");
-        for name in std::iter::once("onnxruntime.dll").chain(VC_RUNTIME_DLLS) {
-            std::fs::write(dir.join(name), b"not the pinned file").unwrap();
-        }
+        std::fs::write(dir.join("onnxruntime.dll"), b"not the pinned file").unwrap();
         assert_eq!(load(&dir).unwrap_err(), Unavailable::Corrupt("onnxruntime.dll".into()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The real thing, when `scripts/fetch-karaoke-runtime.ps1` has run (it does in the Windows CI
-    /// job): the bundled runtime loads, and the VC++ modules in use pass the version floor.
+    #[cfg(windows)]
+    #[test]
+    fn pinned_hashes_are_found() {
+        let s1 = pinned_sha("onnxruntime.dll");
+        let s2 = pinned_sha("DirectML.dll");
+        assert_eq!(s1.len(), 64);
+        assert_eq!(s2.len(), 64);
+        assert_eq!(s1, s1.to_ascii_lowercase());
+        assert_eq!(s2, s2.to_ascii_lowercase());
+    }
+
     #[cfg(windows)]
     #[test]
     fn the_fetched_runtime_loads() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../src-tauri")
-            .join(RUNTIME_DIR);
+        let Some(dir_str) = std::env::var_os("LIMUSIC_TEST_RUNTIME_DIR") else {
+            eprintln!("skipped: set LIMUSIC_TEST_RUNTIME_DIR");
+            return;
+        };
+        let dir = std::path::Path::new(&dir_str);
         if !dir.join("onnxruntime.dll").is_file() {
-            eprintln!("skipped: run scripts/fetch-karaoke-runtime.ps1 first");
+            eprintln!("skipped: set LIMUSIC_TEST_RUNTIME_DIR");
             return;
         }
-        let dir = std::fs::canonicalize(&dir).unwrap();
+        let dir = std::fs::canonicalize(dir).unwrap();
         match load(&dir) {
-            Ok(rt) => assert!(rt.directml(), "the bundled DirectML.dll should pre-load"),
-            // A machine whose already-loaded VC++ runtime is too old is a legitimate refusal.
+            Ok(rt) => assert!(rt.directml(), "the downloaded DirectML.dll should pre-load"),
             Err(e @ Unavailable::VcRuntime(_)) => eprintln!("refused as expected here: {e}"),
             Err(e) => panic!("{e}"),
         }
-        let v = file_version(&dir.join("msvcp140.dll")).expect("version resource");
-        assert!(version_at_least(v, VC_RUNTIME_MIN), "{v:?}");
-    }
-
-    #[cfg(not(windows))]
-    #[test]
-    fn the_linked_runtime_is_always_ready() {
-        assert!(!linked().directml());
-        assert!(from_env().is_ok());
     }
 }

@@ -265,15 +265,6 @@ jobs:
           # places it next to the exe. Without this the app builds but won't start.
           Copy-Item "$env:MPV_DIR\libmpv-2.dll" "$env:GITHUB_WORKSPACE\src-tauri\libmpv-2.dll" -Force
 
-      # Karaoke runtime: onnxruntime.dll (DirectML build) + DirectML.dll from the official NuGet
-      # packages (pinned SHA-256), and the app-local VC++ DLLs from this runner's Visual Studio
-      # (Microsoft-signed, >= 14.44). tauri.windows.conf.json bundles src-tauri/karaoke-runtime/
-      # next to the exe; nothing from it is linked, it is loaded only when karaoke is turned on.
-      # The VC++ versions and hashes it prints are this release's record of what shipped.
-      - name: Karaoke runtime
-        shell: pwsh
-        run: ./scripts/fetch-karaoke-runtime.ps1
-
       # The gitignored src-tauri/lastfm.keys (read by build.rs) obviously isn't in the checkout —
       # recreate it from repo secrets so Windows builds scrobble too. Missing secrets are a warning,
       # not a failure: the app is fully functional without Last.fm.
