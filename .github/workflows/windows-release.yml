@@ -352,6 +352,13 @@ jobs:
           BUNDLES=(); [ "$PRERELEASE" = false ] || BUNDLES=(--bundles nsis)
           tauri build "${BUNDLES[@]}" --config '{"build":{"beforeBuildCommand":""}}'   # → target/release/bundle/{nsis,msi}/
 
+      # Every load-time import is a DLL each user needs just to start the app, karaoke or not, and
+      # auto-update delivers this exe to everyone. It must import exactly the allow-list (the
+      # 1.3.0-rc.4 set): the karaoke runtime is loaded by full path only when karaoke is turned on.
+      - name: Import table check
+        shell: pwsh
+        run: ./scripts/check-windows-imports.ps1 -Exe target/release/limusic-app.exe
+
       - name: Dry run — built and signed, attaching nothing
         if: ${{ inputs.dry_run }}
         shell: bash
