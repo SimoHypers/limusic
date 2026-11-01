@@ -1173,12 +1173,13 @@ export async function enqueue(
 export async function startRadio(
 	kind: 'song' | 'artist' | 'album' | 'playlist',
 	id: string,
-	name?: string
+	name?: string,
+	start?: number
 ) {
 	toast(t('toasts.starting_radio'));
 	openPlayer();
 	try {
-		await api.startRadio(kind, id, name);
+		await api.startRadio(kind, id, name, start);
 	} catch (e) {
 		toast.error(String(e));
 	}

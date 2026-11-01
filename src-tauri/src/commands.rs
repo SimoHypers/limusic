@@ -1504,9 +1504,10 @@ pub async fn start_radio(
     kind: String,
     id: String,
     name: Option<String>,
+    start: Option<f64>,
 ) -> Result<(), String> {
     let state = state.inner().clone();
-    state.start_radio(&kind, &id, name).await
+    state.start_radio(&kind, &id, name, start).await
 }
 
 // --- write actions (context/01 ✎, context/15) ----------------------------------------------

@@ -843,7 +843,11 @@
 			"copy_link": "Copy Link",
 			"public_link_on": "Anyone with the link can open it.",
 			"public_link_off": "Turn on to make the link work for everyone.",
-			"private_note": "This playlist is private. Anyone you send the link to will get an error."
+			"private_note": "This playlist is private. Anyone you send the link to will get an error.",
+			"start_at": "Start at",
+			"start_at_hint": "The link opens the song at this time.",
+			"start_invalid": "Enter a time like 1:23.",
+			"start_too_long": "That's past the end of the song ({length}). The link won't include a start time."
 		},
 		"shortcuts": {
 			"title": "Keyboard shortcuts",
@@ -1042,6 +1046,8 @@
 		"shrink_lyrics": "Shrink lyrics",
 		"expand_lyrics": "Expand lyrics",
 		"public_playlist": "Public playlist",
+		"share_start_time": "Start time",
+		"share_start_at": "Start the shared song at a set time",
 		"remove_folder": "Remove folder",
 		"remove_font": "Remove {name}",
 		"sync_to_ytm": "Sync {count} saved items to YouTube Music",

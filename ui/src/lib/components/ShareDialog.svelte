@@ -2,6 +2,7 @@
 	// "Share": the YTM link for a song/album/playlist/artist, with the artwork and title so you can
 	// see what you're about to send. Opened from any ⋯ menu via `openShare`, mounted once in the
 	// layout like AddToPlaylist.
+	import { untrack } from 'svelte';
 	import { fade, scale } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
@@ -11,15 +12,20 @@
 	import { copyText } from '$lib/clipboard';
 	import { getCached, invalidateCached, putCached } from '$lib/pagecache';
 	import { Switch } from '$lib/components/ui/switch';
+	import { Input } from '$lib/components/ui/input';
 	import { thumb } from '$lib/thumb';
-	import { ui, toast } from '$lib/player.svelte';
+	import { formatClock, parseClock } from '$lib/timecode';
+	import { playback, ui, toast } from '$lib/player.svelte';
 	import { windowCorners } from '$lib/win.svelte';
 	import { t } from '$lib/i18n.svelte';
 
 	// Playlist browseIds carry a `VL` prefix that the watch/playlist URLs don't take.
-	function shareUrl(item: BrowseItem): string {
+	function shareUrl(item: BrowseItem, start?: number | null): string {
 		const id = item.id.replace(/^VL/, '');
-		if (item.kind === 'song') return `https://music.youtube.com/watch?v=${id}`;
+		if (item.kind === 'song') {
+			const t = start && start > 0 ? `&t=${Math.floor(start)}` : '';
+			return `https://music.youtube.com/watch?v=${id}${t}`;
+		}
 		if (item.kind === 'artist') return `https://music.youtube.com/channel/${id}`;
 		// Albums only ever reach us as an `MPRE…` browseId, so link the browse page rather than the
 		// `OLAK5uy_…` playlist URL YouTube's own share sheet hands out. Both resolve to the album.
@@ -27,7 +33,26 @@
 		return `https://music.youtube.com/playlist?list=${id}`;
 	}
 
-	const url = $derived(ui.share ? shareUrl(ui.share) : '');
+	// "Start at": a link to the song that is playing right now can open it partway in. Only offered
+	// for that song, because it is the only one whose position we know. The box is filled with the
+	// position at the moment the dialog opens (not live: a moving field is hard to edit).
+	let canStartAt = $state(false);
+	let atTime = $state(false);
+	let startText = $state('');
+	const parsedStart = $derived(canStartAt && atTime ? parseClock(startText) : null);
+	// A switched-on box that doesn't parse, or points past the end of the track, is flagged with a
+	// message; the link just has no `t` until it is fixed. An unknown duration (0) can't be checked.
+	const startError = $derived.by(() => {
+		if (!canStartAt || !atTime) return '';
+		if (parsedStart === null) return t('dialogs.share.start_invalid');
+		if (playback.duration > 0 && parsedStart > playback.duration) {
+			return t('dialogs.share.start_too_long', { length: formatClock(playback.duration) });
+		}
+		return '';
+	});
+	const startSecs = $derived(startError ? null : parsedStart);
+
+	const url = $derived(ui.share ? shareUrl(ui.share, startSecs) : '');
 	let copied = $state(false);
 
 	// A private playlist's link 404s for everyone else, so the modal has to say so before the link
@@ -45,6 +70,10 @@
 		privacy = undefined;
 		owned = false;
 		wasPrivate = false;
+		atTime = false;
+		canStartAt = !!item && item.kind === 'song' && item.id === playback.now?.videoId;
+		// Not tracked: the box must not re-fill every time the position ticks.
+		startText = canStartAt ? formatClock(untrack(() => playback.position)) : '';
 		if (!item || item.kind !== 'playlist') return;
 		const key = `playlist:${item.id}`;
 		const apply = (p: PlaylistPage) => {
@@ -169,6 +198,33 @@
 					{copied ? t('common.done') : t('dialogs.share.copy_link')}
 				</button>
 			</div>
+
+			{#if canStartAt}
+				<div class="mt-3 flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5">
+					<div class="min-w-0">
+						<div class="text-sm font-medium">{t('dialogs.share.start_at')}</div>
+						<p class="text-xs text-muted-foreground">{t('dialogs.share.start_at_hint')}</p>
+					</div>
+					<div class="flex shrink-0 items-center gap-3">
+						<Input
+							class="h-8 w-20 text-center tabular-nums"
+							inputmode="numeric"
+							placeholder="0:00"
+							bind:value={startText}
+							oninput={() => (atTime = true)}
+							aria-label={t('a11y.share_start_time')}
+							aria-invalid={!!startError}
+						/>
+						<Switch bind:checked={atTime} aria-label={t('a11y.share_start_at')} />
+					</div>
+				</div>
+				{#if startError}
+					<div class="mt-2 flex items-start gap-2 text-xs text-destructive" role="alert">
+						<HugeiconsIcon icon={Alert02Icon} class="mt-px h-4 w-4 shrink-0" />
+						<p>{startError}</p>
+					</div>
+				{/if}
+			{/if}
 
 			{#if privacy === 'PRIVATE'}
 				<div class="mt-3 flex items-start gap-2 text-xs text-amber-600 dark:text-amber-500">

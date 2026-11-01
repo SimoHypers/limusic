@@ -859,8 +859,13 @@ export const playPlaylist = (
  * A song radio on the track that's already playing splices in behind it (no re-buffer); every
  * other case replaces the queue. Rejects when YouTube has no radio for the item.
  */
-export const startRadio = (kind: 'song' | 'artist' | 'album' | 'playlist', id: string, name?: string) =>
-	invoke<void>('start_radio', { kind, id, name });
+/** `start` (seconds) only applies to a song radio: the seed song opens at that offset. */
+export const startRadio = (
+	kind: 'song' | 'artist' | 'album' | 'playlist',
+	id: string,
+	name?: string,
+	start?: number
+) => invoke<void>('start_radio', { kind, id, name, start });
 export const getAlbum = (id: string) => invoke<AlbumPage>('get_album', { id });
 export const getArtist = (id: string) => invoke<ArtistPage>('get_artist', { id });
 /** Other artists' releases this one is featured on (#456). `songsId` is the page's `topSongsId`. */

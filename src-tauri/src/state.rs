@@ -1537,6 +1537,7 @@ impl AppState {
         kind: &str,
         id: &str,
         name: Option<String>,
+        start: Option<f64>,
     ) -> Result<(), String> {
         if self.lt.is_guest().await {
             self.emit_guest_hint();
@@ -1594,9 +1595,20 @@ impl AppState {
             let q = self.queue.lock().await;
             video_id.is_some() && q.items.get(q.current).map(|i| &i.video_id) == video_id.as_ref()
         };
+        // A shared link's `t=`: only a song radio has a seed track to start partway into.
+        let start = start.filter(|s| kind == "song" && s.is_finite() && *s > 0.0);
         if playing_seed && !self.player.is_idle() {
             self.splice_radio(items, seed, title).await;
+            if let Some(pos) = start {
+                self.user_seek(pos).await?;
+            }
             return Ok(());
+        }
+        // Handed to `loadfile` as `start=` (see `start_current`); mpv drops a seek sent before the
+        // file is loaded. Keyed on the seed's id, so it can't land on a different track.
+        if let (Some(pos), Some(vid), Some(_)) = (start, video_id.as_ref(), seed_at) {
+            *self.pending_seek.lock().unwrap() = Some((vid.clone(), pos));
+            self.latest_position.store(pos.to_bits(), Ordering::SeqCst);
         }
         self.play_tracks(items, Some(seed_at.unwrap_or(0)), Some(seed), title, false, None).await;
         self.queue.lock().await.radio = true;
