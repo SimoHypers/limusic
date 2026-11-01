@@ -1130,6 +1130,7 @@
 		"sort_newest": "Newest",
 		"count": "{count} comments",
 		"count_one": "1 comment",
+		"jump_to": "Jump to {time}",
 		"replies": "{count} replies",
 		"replies_one": "1 reply",
 		"show_replies": "View replies",

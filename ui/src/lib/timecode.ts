@@ -23,6 +23,44 @@ export function parseClock(input: string): number | null {
 	return parts.reduce((acc, p) => acc * 60 + p, 0);
 }
 
+/** A piece of a comment: plain `text`, or a timecode (`secs` set) that can be jumped to. */
+export type TimeSpan = { text: string; secs?: number };
+
+// `m:ss` or `h:mm:ss`, standing alone: not glued to a word, a digit, a colon or a decimal point,
+// so "12:30pm", "v1:23abc", "1.5:30" and "10:20:30:40" are not timecodes. The leading group stands
+// in for a lookbehind (older WebKit has none) and is skipped over when slicing.
+const CLOCK = /(^|[^\w:.])((?:(\d{1,2}):)?(\d{1,3}):(\d{2}))(?![\w:])/g;
+
+/**
+ * Cut `text` into plain text and timecodes. A match that can't be a time (`1:75`, `1:2:03`) stays
+ * text, and so does one past `maxSecs` when the length is known (> 0), which keeps a "12:30"
+ * that means lunch from becoming a button on a three-minute song. Spans join back to `text`.
+ */
+export function splitTimecodes(text: string, maxSecs = 0): TimeSpan[] {
+	if (!text.includes(':')) return [{ text }];
+	const out: TimeSpan[] = [];
+	const push = (s: string, secs?: number) => {
+		if (!s) return;
+		const last = out[out.length - 1];
+		if (secs === undefined && last && last.secs === undefined) last.text += s;
+		else out.push(secs === undefined ? { text: s } : { text: s, secs });
+	};
+	let at = 0;
+	for (const m of text.matchAll(CLOCK)) {
+		const [, lead, clock, h, mm, ss] = m;
+		if (Number(ss) >= 60) continue;
+		if (h !== undefined && (mm.length !== 2 || Number(mm) >= 60)) continue;
+		const secs = Number(h ?? 0) * 3600 + Number(mm) * 60 + Number(ss);
+		if (maxSecs > 0 && secs > maxSecs) continue;
+		const start = m.index + lead.length;
+		push(text.slice(at, start));
+		push(clock, secs);
+		at = start + clock.length;
+	}
+	push(text.slice(at));
+	return out;
+}
+
 /** YouTube's `t=` / `start=` value: `83`, `83s`, `1m23s`, `1h2m3s`. `null` for anything else. */
 export function parseYtStart(input: string | null | undefined): number | null {
 	const text = (input ?? '').trim().toLowerCase();

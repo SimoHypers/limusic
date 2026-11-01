@@ -1807,6 +1807,13 @@ impl AppState {
 
     /// Jump to a specific queue index.
     pub async fn play_index(self: &std::sync::Arc<Self>, index: usize) {
+        self.play_index_at(index, None).await;
+    }
+
+    /// [`Self::play_index`], opening the track `start` seconds in (a comment's timecode). Goes
+    /// through `pending_seek` like every other start offset: mpv drops a seek sent before the file
+    /// is loaded, so it can't be issued after this returns.
+    pub async fn play_index_at(self: &std::sync::Arc<Self>, index: usize, start: Option<f64>) {
         if self.lt.is_guest().await {
             self.emit_guest_hint(); // guest playback is host-driven
             return;
@@ -1821,6 +1828,9 @@ impl AppState {
             q.lookahead_loaded = None;
             q.items[index].video_id.clone()
         };
+        if let Some(pos) = start.filter(|s| s.is_finite() && *s > 0.0) {
+            *self.pending_seek.lock().unwrap() = Some((video_id.clone(), pos));
+        }
         // The next mpv tick is seconds away because the track must be resolved first. Until then
         // `latest_position` is still the value that pause/exit persistence will write, so seed it
         // from `pending_seek` when that saved position belongs to this exact video. A different

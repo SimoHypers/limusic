@@ -378,7 +378,9 @@ export const searchSuggestions = (query: string) =>
 export const searchCards = (query: string, category: 'albums' | 'artists' | 'playlists') =>
 	invoke<BrowseItem[]>('search_cards', { query, category });
 export const play = (item: SongItem) => invoke<void>('play', { item });
-export const playIndex = (index: number) => invoke<void>('play_index', { index });
+/** `start` (seconds) opens the track that far in, for a timecode link. */
+export const playIndex = (index: number, start?: number) =>
+	invoke<void>('play_index', { index, start });
 /** Play the current track's `counterpart` from the same position. Resolves once it plays. */
 export const switchVersion = () => invoke<void>('switch_version');
 /** Remove an upcoming track from the queue (host/local only — guests are add-only). */
