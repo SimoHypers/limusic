@@ -67,7 +67,7 @@
 <div class="pb-2">
 	<!-- Description & master toggle -->
 	<section class={GROUP}>
-		<div class={CARD}>
+		<div data-settings-card class={CARD}>
 			<div class="flex items-center justify-between gap-4 p-4">
 				<div class="min-w-0 flex-1 space-y-0.5">
 					<div class="text-sm font-medium">{t('settings.hotkeys.enable')}</div>
@@ -99,7 +99,7 @@
 		<!-- Playback Section -->
 		<section class={GROUP}>
 			<h3 class={LABEL}>{t('settings.hotkeys.section_playback')}</h3>
-			<div class={CARD}>
+			<div data-settings-card class={CARD}>
 				{#each playbackActions as action (action.id)}
 					{@render hotkeyRow(action)}
 				{/each}
@@ -109,7 +109,7 @@
 		<!-- Audio Section -->
 		<section class={GROUP}>
 			<h3 class={LABEL}>{t('settings.hotkeys.section_audio')}</h3>
-			<div class={CARD}>
+			<div data-settings-card class={CARD}>
 				{#each audioActions as action (action.id)}
 					{@render hotkeyRow(action)}
 				{/each}
@@ -119,7 +119,7 @@
 		<!-- Window Section -->
 		<section class={GROUP}>
 			<h3 class={LABEL}>{t('settings.hotkeys.section_window')}</h3>
-			<div class={CARD}>
+			<div data-settings-card class={CARD}>
 				{#each windowActions as action (action.id)}
 					{@render hotkeyRow(action)}
 				{/each}

@@ -74,7 +74,3 @@ export function hexToOklch(hex: string): { c: number; h: number } | null {
 	return { c, h };
 }
 
-export function hexToOklchHue(hex: string): number | null {
-	const ok = hexToOklch(hex);
-	return ok && ok.c >= 0.004 ? ok.h : null;
-}

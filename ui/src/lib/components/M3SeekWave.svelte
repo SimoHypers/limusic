@@ -104,10 +104,16 @@
 		kickWave();
 	});
 
+	// Steady waving draws on a budget, not every display frame: each draw rebuilds the path and
+	// repaints the bar, and at 60 Hz the wave travels 0.3 px a frame, so the extra draws bought
+	// nothing visible. Growing, flattening and dragging still draw every frame.
+	const GAP = 1000 / 24;
+
 	$effect(() => {
 		if (theme.id !== 'material' || !svgEl || !pathEl) return;
 		const svg = svgEl;
 		let raf = 0;
+		let timer: ReturnType<typeof setTimeout> | undefined;
 		let lastT = 0;
 
 		const render = () => {
@@ -137,15 +143,26 @@
 			}
 			render();
 			if (curPlaying || waveAmp > 0) {
-				raf = requestAnimationFrame(tick);
+				// Half a display frame early: the animation frame it waits for lands up to one later.
+				const wait = waveAmp === target && !curDragging ? now + GAP - 8 - performance.now() : 0;
+				if (wait > 0) {
+					timer = setTimeout(() => {
+						timer = undefined;
+						raf = requestAnimationFrame(tick);
+					}, wait);
+				} else {
+					raf = requestAnimationFrame(tick);
+				}
 			} else {
 				lastT = 0;
 			}
 		};
 
 		kickWave = () => {
+			// A running loop picks the change up on its next draw.
+			if (raf || timer) return;
 			render();
-			if ((curPlaying || waveAmp > 0) && !raf) {
+			if (curPlaying || waveAmp > 0) {
 				lastT = performance.now();
 				raf = requestAnimationFrame(tick);
 			}
@@ -167,6 +184,7 @@
 		return () => {
 			ro.disconnect();
 			if (raf) cancelAnimationFrame(raf);
+			clearTimeout(timer);
 			kickWave = () => {};
 		};
 	});

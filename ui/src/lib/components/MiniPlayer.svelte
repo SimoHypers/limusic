@@ -380,7 +380,7 @@
 						style="--pct:{shownDuration ? (shownPosition / shownDuration) * 100 : 0}%"
 						min="0"
 						max={shownDuration || 0}
-						step={theme.id === 'material' ? 'any' : 1}
+						step={1}
 						value={shownPosition}
 						oninput={onSeekInput}
 						onchange={onSeekCommit}

@@ -163,6 +163,7 @@
 						{/if}
 						<div
 							class="flex h-16 cursor-pointer items-center gap-3 overflow-hidden rounded-xl bg-foreground/5 text-left transition-colors hover:bg-foreground/10"
+							data-pick-tile
 							role="button"
 							tabindex="0"
 							draggable="true"

@@ -173,6 +173,7 @@
 		{#key playback.now?.videoId}
 			{#if playback.now?.thumbnail}
 				<img
+					data-player-art
 					src={thumb(playback.now.thumbnail, 120)}
 					alt=""
 					style="max-width:none"
@@ -181,6 +182,7 @@
 				/>
 			{:else}
 				<div
+					data-player-art
 					class="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground/50"
 				>
 					<HugeiconsIcon icon={MusicNote01Icon} class="h-5 w-5" />
@@ -395,7 +397,7 @@
 					style="--pct:{seekPct * 100}%"
 					min="0"
 					max={shownDuration || 0}
-					step={theme.id === 'material' ? 'any' : 1}
+					step={1}
 					value={shownPosition}
 					oninput={onSeekInput}
 					onchange={onSeekCommit}

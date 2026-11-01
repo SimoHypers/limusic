@@ -783,7 +783,7 @@
 					style="--pct:{pct}%"
 					min="0"
 					max={shownDuration || 0}
-					step={theme.id === 'material' ? 'any' : 1}
+					step={1}
 					value={shownPosition}
 					oninput={(e) => (seekDrag = Number(e.currentTarget.value) * playback.speed)}
 					onchange={(e) => {
