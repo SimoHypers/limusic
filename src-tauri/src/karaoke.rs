@@ -339,7 +339,7 @@ impl KaraokeEngine {
         }
         let (new_ids, deferred_cancel) = self.ctx.board.with(|s| {
             for r in &reqs {
-                s.retries.refresh(&r.video_id, &r.url);
+                s.retries.refresh(&r.video_id, &r.upstream_url);
             }
             s.last_reqs = reqs;
             s.retries.retain_wanted(&ids_of_last_reqs);
@@ -504,16 +504,10 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
         } else if !installed {
             "needs-model"
         } else {
-            let ready = ctx.announce_cached();
-            if ctx.board.with(|s| s.desired.next_pending(|id| ready.contains(id))).is_none() {
-                "idle"
-            } else if model.is_none() {
-                "load"
-            } else {
-                "job"
-            }
+            "active"
         };
-        tracing::trace!(target: "app_lib::karaoke", enabled, model_key = selected.key(), installed, desired_count, branch, "karaoke worker wakeup");
+        let model_loaded = model.is_some();
+        tracing::trace!(target: "app_lib::karaoke", enabled, model_key = selected.key(), installed, desired_count, branch, model_loaded, "karaoke worker wakeup");
     };
 
     loop {
@@ -716,7 +710,7 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
                     ctx.board.with(|s| {
                         s.desired.fail(&req.video_id);
                         s.desired.complete(&req.video_id);
-                        s.retries.on_failure(&req.video_id, &req.url, Instant::now());
+                        s.retries.on_failure(&req.video_id, &req.upstream_url, Instant::now());
                     });
                     ctx.emit_queue();
                 }

@@ -29,6 +29,8 @@ pub fn too_long(expected_secs: Option<f64>) -> bool {
 pub struct PrepareRequest {
     pub video_id: String,
     pub url: String,
+    /// The URL behind `url`, stable across rebuilds; used only for retry bookkeeping, `url` is still what gets decoded.
+    pub upstream_url: String,
     pub headers: HashMap<String, String>,
     pub expected_secs: Option<f64>,
 }
@@ -218,30 +220,35 @@ mod tests {
         let r1 = PrepareRequest {
             video_id: "v1".into(),
             url: "u1".into(),
+            upstream_url: "u1".into(),
             headers: HashMap::new(),
             expected_secs: None,
         };
         let r2 = PrepareRequest {
             video_id: "v2".into(),
             url: "u2".into(),
+            upstream_url: "u2".into(),
             headers: HashMap::new(),
             expected_secs: None,
         };
         let r3 = PrepareRequest {
             video_id: "v1".into(),
             url: "u1".into(),
+            upstream_url: "u1".into(),
             headers: HashMap::new(),
             expected_secs: None,
         };
         let r4 = PrepareRequest {
             video_id: "v3".into(),
             url: "u3".into(),
+            upstream_url: "u3".into(),
             headers: HashMap::new(),
             expected_secs: None,
         };
         let r6 = PrepareRequest {
             video_id: "v4".into(),
             url: "u4".into(),
+            upstream_url: "u4".into(),
             headers: HashMap::new(),
             expected_secs: None,
         };
@@ -254,6 +261,7 @@ mod tests {
         let r5 = PrepareRequest {
             video_id: "v5".into(),
             url: "u5".into(),
+            upstream_url: "u5".into(),
             headers: HashMap::new(),
             expected_secs: None,
         };
@@ -271,24 +279,28 @@ mod tests {
         let r1 = PrepareRequest {
             video_id: "v1".into(),
             url: "u1".into(),
+            upstream_url: "u1".into(),
             headers: HashMap::new(),
             expected_secs: None,
         };
         let r2 = PrepareRequest {
             video_id: "v2".into(),
             url: "u2".into(),
+            upstream_url: "u2".into(),
             headers: HashMap::new(),
             expected_secs: None,
         };
         let r3 = PrepareRequest {
             video_id: "v3".into(),
             url: "u3".into(),
+            upstream_url: "u3".into(),
             headers: HashMap::new(),
             expected_secs: None,
         };
         let r4 = PrepareRequest {
             video_id: "v4".into(),
             url: "u4".into(),
+            upstream_url: "u4".into(),
             headers: HashMap::new(),
             expected_secs: None,
         };
@@ -305,12 +317,14 @@ mod tests {
         let r1 = PrepareRequest {
             video_id: "v1".into(),
             url: "u1".into(),
+            upstream_url: "u1".into(),
             headers: HashMap::new(),
             expected_secs: None,
         };
         let r2 = PrepareRequest {
             video_id: "v2".into(),
             url: "u2".into(),
+            upstream_url: "u2".into(),
             headers: HashMap::new(),
             expected_secs: None,
         };
@@ -330,12 +344,14 @@ mod tests {
         let r1 = PrepareRequest {
             video_id: "v1".into(),
             url: "u1".into(),
+            upstream_url: "u1".into(),
             headers: HashMap::new(),
             expected_secs: None,
         };
         let r2 = PrepareRequest {
             video_id: "v2".into(),
             url: "u2".into(),
+            upstream_url: "u2".into(),
             headers: HashMap::new(),
             expected_secs: None,
         };
@@ -356,12 +372,14 @@ mod tests {
         let r1 = PrepareRequest {
             video_id: "v1".into(),
             url: "u1".into(),
+            upstream_url: "u1".into(),
             headers: HashMap::new(),
             expected_secs: None,
         };
         let r2 = PrepareRequest {
             video_id: "v2".into(),
             url: "u2".into(),
+            upstream_url: "u2".into(),
             headers: HashMap::new(),
             expected_secs: None,
         };
@@ -386,12 +404,14 @@ mod tests {
         let r1 = PrepareRequest {
             video_id: "v1".into(),
             url: "u1".into(),
+            upstream_url: "u1".into(),
             headers: HashMap::new(),
             expected_secs: None,
         };
         let r2 = PrepareRequest {
             video_id: "v2".into(),
             url: "u2".into(),
+            upstream_url: "u2".into(),
             headers: HashMap::new(),
             expected_secs: None,
         };

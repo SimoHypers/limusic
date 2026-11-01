@@ -2248,8 +2248,13 @@ impl AppState {
             .map(|(_, pos)| pos);
         let stream_url = mpv_stream_url(&data);
         let dur_secs = parse_duration_ms(item.duration.as_deref()) / 1000;
-        let req =
-            karaoke_prepare_request(&item.video_id, stream_url.clone(), &data.headers, dur_secs);
+        let req = karaoke_prepare_request(
+            &item.video_id,
+            stream_url.clone(),
+            &data.stream_url,
+            &data.headers,
+            dur_secs,
+        );
         let play_u = self.play_url(PinSlot::Current, &item.video_id, &stream_url);
         let is_karaoke = play_u != stream_url;
         // `load` replaces mpv's playlist: nothing is queued next any more.
@@ -2420,7 +2425,13 @@ impl AppState {
                 .map(|item| parse_duration_ms(item.duration.as_deref()) / 1000)
                 .unwrap_or(0)
         };
-        let req = karaoke_prepare_request(next_video, stream_url.clone(), &data.headers, dur_secs);
+        let req = karaoke_prepare_request(
+            next_video,
+            stream_url.clone(),
+            &data.stream_url,
+            &data.headers,
+            dur_secs,
+        );
 
         let mut req2 = None;
         if karaoke_on {
@@ -2454,6 +2465,7 @@ impl AppState {
                                 req2 = Some(karaoke_prepare_request(
                                     &next2_video,
                                     stream_url2,
+                                    &d2.stream_url,
                                     &d2.headers,
                                     next2_secs,
                                 ));
@@ -2630,8 +2642,13 @@ impl AppState {
         let pos = self.current_position();
         let stream_url = mpv_stream_url(&data);
         let dur_secs = parse_duration_ms(item.duration.as_deref()) / 1000;
-        let req =
-            karaoke_prepare_request(&item.video_id, stream_url.clone(), &data.headers, dur_secs);
+        let req = karaoke_prepare_request(
+            &item.video_id,
+            stream_url.clone(),
+            &data.stream_url,
+            &data.headers,
+            dur_secs,
+        );
         let engine_model = self.karaoke_engine().map(|e| e.model());
         let play_u = self.play_url(PinSlot::Current, &item.video_id, &stream_url);
         let is_karaoke = play_u != stream_url;
@@ -2845,7 +2862,13 @@ impl AppState {
         let (vid, upload, secs) = info;
         if let Ok(data) = self.resolve(&vid, upload, secs as i64).await {
             let stream_url = mpv_stream_url(&data);
-            Some(karaoke_prepare_request(&vid, stream_url, &data.headers, secs as i64))
+            Some(karaoke_prepare_request(
+                &vid,
+                stream_url,
+                &data.stream_url,
+                &data.headers,
+                secs as i64,
+            ))
         } else {
             None
         }
@@ -5423,30 +5446,6 @@ pub fn native_video() -> bool {
 /// ffmpeg opens a stream with an open-ended `Range: bytes=X-`, which googlevideo throttles to ~2×
 /// realtime; the proxy re-issues it as bounded ranges, which are served at full speed, so both the
 /// first play and every seek start sooner. audioproxy.rs has the numbers and the kill-switch.
-fn karaoke_slot_info(q: &QueueState, idx: usize) -> Option<(String, bool, u64)> {
-    q.items.get(idx).map(|item| {
-        (
-            item.video_id.clone(),
-            item.is_upload,
-            (parse_duration_ms(item.duration.as_deref()) / 1000) as u64,
-        )
-    })
-}
-
-fn karaoke_prepare_request(
-    video_id: &str,
-    stream_url: String,
-    headers: &std::collections::HashMap<String, String>,
-    dur_secs: i64,
-) -> crate::karaoke::PrepareRequest {
-    crate::karaoke::PrepareRequest {
-        video_id: video_id.to_string(),
-        url: stream_url,
-        headers: headers.clone(),
-        expected_secs: if dur_secs > 0 { Some(dur_secs as f64) } else { None },
-    }
-}
-
 fn mpv_stream_url(data: &PlaybackData) -> String {
     // A user proxy reaches mpv as `http-proxy` (#241), and ffmpeg would send the loopback request
     // through it, and it cannot reach our 127.0.0.1, so audio would go silent. Hand mpv the
@@ -5463,6 +5462,32 @@ fn mpv_stream_url(data: &PlaybackData) -> String {
         }
     }
     data.stream_url.clone()
+}
+
+fn karaoke_slot_info(q: &QueueState, idx: usize) -> Option<(String, bool, u64)> {
+    q.items.get(idx).map(|item| {
+        (
+            item.video_id.clone(),
+            item.is_upload,
+            (parse_duration_ms(item.duration.as_deref()) / 1000) as u64,
+        )
+    })
+}
+
+fn karaoke_prepare_request(
+    video_id: &str,
+    stream_url: String,
+    upstream_url: &str,
+    headers: &std::collections::HashMap<String, String>,
+    dur_secs: i64,
+) -> crate::karaoke::PrepareRequest {
+    crate::karaoke::PrepareRequest {
+        video_id: video_id.to_string(),
+        url: stream_url,
+        upstream_url: upstream_url.to_string(),
+        headers: headers.clone(),
+        expected_secs: if dur_secs > 0 { Some(dur_secs as f64) } else { None },
+    }
 }
 
 /// Loudness target, matching YouTube Music's own player rather than the video site's -14.

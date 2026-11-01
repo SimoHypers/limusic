@@ -211,12 +211,16 @@ impl ModelManager {
         let _guard = BusyGuard(&self.busy);
 
         if let Err(e) = self.prepare_dir() {
-            return Err(emit_error(app, spec.key, karaoke::sanitize_error(&e.to_string())));
+            let msg = karaoke::sanitize_error(&e.to_string());
+            tracing::warn!(target: "app_lib::karaoke", error = %msg, "karaoke prepare_dir failed");
+            return Err(emit_error(app, spec.key, "disk"));
         }
 
         if let Some(parent) = self.runtime_dir.parent() {
             if let Err(e) = std::fs::create_dir_all(parent) {
-                return Err(emit_error(app, spec.key, karaoke::sanitize_error(&e.to_string())));
+                let msg = karaoke::sanitize_error(&e.to_string());
+                tracing::warn!(target: "app_lib::karaoke", error = %msg, "karaoke create_dir_all failed");
+                return Err(emit_error(app, spec.key, "disk"));
             }
         }
 
@@ -315,12 +319,12 @@ impl ModelManager {
                                     Ok(Err(e)) => {
                                         let msg = karaoke::sanitize_error(&e.to_string());
                                         tracing::warn!(target: "app_lib::karaoke", error = %msg, part = part.name, "onnx runtime part extraction failed");
-                                        return Err(emit_error(app, spec.key, msg));
+                                        return Err(emit_error(app, spec.key, "failed"));
                                     }
                                     Err(e) => {
                                         let msg = karaoke::sanitize_error(&e.to_string());
                                         tracing::warn!(target: "app_lib::karaoke", error = %msg, part = part.name, "onnx runtime part extraction task failed");
-                                        return Err(emit_error(app, spec.key, msg));
+                                        return Err(emit_error(app, spec.key, "failed"));
                                     }
                                 }
                             }
@@ -438,12 +442,12 @@ impl ModelManager {
                             Ok(Err(e)) => {
                                 let msg = karaoke::sanitize_error(&e.to_string());
                                 tracing::warn!(target: "app_lib::karaoke", error = %msg, part = part.name, "onnx runtime part extraction failed");
-                                return Err(emit_error(app, spec.key, msg));
+                                return Err(emit_error(app, spec.key, "failed"));
                             }
                             Err(e) => {
                                 let msg = karaoke::sanitize_error(&e.to_string());
                                 tracing::warn!(target: "app_lib::karaoke", error = %msg, part = part.name, "onnx runtime part extraction task failed");
-                                return Err(emit_error(app, spec.key, msg));
+                                return Err(emit_error(app, spec.key, "failed"));
                             }
                         }
                     }
@@ -511,12 +515,25 @@ impl ModelManager {
     }
 }
 
-fn emit_error(app: &AppHandle, key: &str, msg: String) -> String {
-    let _ = app.emit(
-        "karaoke-model",
-        serde_json::json!({ "model": key, "state": "error", "message": msg }),
-    );
-    msg
+fn error_code(e: &karaoke::download::Error) -> &'static str {
+    match e {
+        karaoke::download::Error::Timeout
+        | karaoke::download::Error::Network(_)
+        | karaoke::download::Error::Status(_)
+        | karaoke::download::Error::Incomplete { .. } => "network",
+        karaoke::download::Error::HashMismatch | karaoke::download::Error::TooLarge { .. } => {
+            "verify"
+        }
+        karaoke::download::Error::Io(_) => "disk",
+        karaoke::download::Error::HostNotAllowed(_) => "failed",
+        karaoke::download::Error::Cancelled => "cancelled",
+    }
+}
+
+fn emit_error(app: &AppHandle, key: &str, code: &str) -> String {
+    let _ = app
+        .emit("karaoke-model", serde_json::json!({ "model": key, "state": "error", "code": code }));
+    code.to_string()
 }
 
 fn report_failure(app: &AppHandle, key: &str, e: karaoke::download::Error) -> String {
@@ -526,14 +543,15 @@ fn report_failure(app: &AppHandle, key: &str, e: karaoke::download::Error) -> St
                 .emit("karaoke-model", serde_json::json!({ "model": key, "state": "cancelled" }));
             "cancelled".to_string()
         }
-        _ => {
+        ref other => {
             let msg = karaoke::sanitize_error(&e.to_string());
             tracing::warn!(target: "app_lib::karaoke", model = key, error = %msg, "karaoke download failed");
+            let code = error_code(other);
             let _ = app.emit(
                 "karaoke-model",
-                serde_json::json!({ "model": key, "state": "error", "message": msg }),
+                serde_json::json!({ "model": key, "state": "error", "code": code }),
             );
-            msg
+            code.to_string()
         }
     }
 }

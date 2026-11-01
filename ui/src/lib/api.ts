@@ -457,11 +457,13 @@ export interface KaraokeQueueSlot {
 export interface KaraokeQueueEvent {
 	slots: KaraokeQueueSlot[];
 }
+export type KaraokeModelErrorCode = 'network' | 'verify' | 'disk' | 'failed';
+
 export type KaraokeModelEvent =
 	| { model: KaraokeModelId; state: 'downloading'; downloaded: number; total: number }
 	| { model: KaraokeModelId; state: 'ready' }
 	| { model: KaraokeModelId; state: 'cancelled' }
-	| { model: KaraokeModelId; state: 'error'; message: string }
+	| { model: KaraokeModelId; state: 'error'; code: KaraokeModelErrorCode }
 	| { model: KaraokeModelId; state: 'deleted' };
 
 export const karaokeModelStatus = (model?: KaraokeModelId) => invoke<ModelStatus>('karaoke_model_status', model ? { model } : {});

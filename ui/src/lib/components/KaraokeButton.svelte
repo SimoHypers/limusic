@@ -58,7 +58,7 @@
 				: karaokeStatus.state === 'too-long'
 					? t('karaoke.too_long')
 					: karaokeStatus.state === 'error'
-						? `${t(`karaoke.error.${karaokeStatus.code ?? 'failed'}`)} — ${t('karaoke.error_retry')}`
+						? `${t(`karaoke.error.${karaokeStatus.code ?? 'failed'}`)}\n${t('karaoke.error_retry')}`
 						: t('karaoke.active');
 
 		if (!playback.karaoke || karaokeQueue.slots.length === 0) return base;

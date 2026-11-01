@@ -27,15 +27,6 @@ impl Separator for MdxModel {
     }
 }
 
-pub fn subtract_vocals(mix: &[f32], vocals: &[f32]) -> Vec<f32> {
-    let len = mix.len().min(vocals.len());
-    let mut res = Vec::with_capacity(len);
-    for i in 0..len {
-        res.push(mix[i] - vocals[i]);
-    }
-    res
-}
-
 struct TmpWavGuard(PathBuf);
 impl Drop for TmpWavGuard {
     fn drop(&mut self) {
@@ -268,14 +259,6 @@ mod tests {
             progress(1, 1);
             Ok([mix[0].to_vec(), mix[1].to_vec()])
         }
-    }
-
-    #[test]
-    fn test_subtract_vocals() {
-        let mix = [1.0, 2.0, 3.0];
-        let vocals = [0.5, 0.5, 0.5];
-        let res = subtract_vocals(&mix, &vocals);
-        assert_eq!(res, vec![0.5, 1.5, 2.5]);
     }
 
     #[test]

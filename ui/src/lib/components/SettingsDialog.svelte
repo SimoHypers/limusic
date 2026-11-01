@@ -30,7 +30,7 @@
 	import { HELP_COMBO } from '$lib/shortcuts';
 	import { copyText } from '$lib/clipboard';
 	import * as api from '$lib/api';
-	import { blocked, karaokeAvailability, karaokeConsent, karaokeModel, karaokeModels, karaokeSelection, cancelKaraokeModelDownload, deleteKaraokeModel, playback, prefs, refreshLanguage, setAutoplay, ui, toast, unblockArtist } from '$lib/player.svelte';
+	import { blocked, karaokeAvailability, karaokeConsent, karaokeModels, karaokeSelection, cancelKaraokeModelDownload, deleteKaraokeModel, playback, prefs, refreshLanguage, setAutoplay, ui, toast, unblockArtist } from '$lib/player.svelte';
 	import { win } from '$lib/win.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import AppearanceSettings from '$lib/components/AppearanceSettings.svelte';
@@ -287,18 +287,18 @@
 	const karaokeModelOptions = $derived([
 		{
 			value: 'kara',
-			label: `${t('karaoke.settings.model_weak')} (${karaokeModels.kara.total > 0 ? (karaokeModels.kara.total / 1048576).toFixed(1) : '66.8'} MB)`,
-			desc: t('karaoke.settings.model_weak_desc')
+			label: `${t('karaoke.settings.model_light')} (${karaokeModels.kara.total > 0 ? (karaokeModels.kara.total / 1048576).toFixed(1) : '66.8'} MB)`,
+			desc: t('karaoke.settings.model_light_desc')
 		},
 		{
 			value: 'kara_2',
-			label: `${t('karaoke.settings.model_medium')} (${karaokeModels.kara_2.total > 0 ? (karaokeModels.kara_2.total / 1048576).toFixed(1) : '66.8'} MB)`,
-			desc: t('karaoke.settings.model_medium_desc')
+			label: `${t('karaoke.settings.model_balanced')} (${karaokeModels.kara_2.total > 0 ? (karaokeModels.kara_2.total / 1048576).toFixed(1) : '66.8'} MB)`,
+			desc: t('karaoke.settings.model_balanced_desc')
 		},
 		{
 			value: 'inst_hq_3',
-			label: `${t('karaoke.settings.model_strong')} (${karaokeModels.inst_hq_3.total > 0 ? (karaokeModels.inst_hq_3.total / 1048576).toFixed(1) : '66.8'} MB)`,
-			desc: t('karaoke.settings.model_strong_desc')
+			label: `${t('karaoke.settings.model_best')} (${karaokeModels.inst_hq_3.total > 0 ? (karaokeModels.inst_hq_3.total / 1048576).toFixed(1) : '66.8'} MB)`,
+			desc: t('karaoke.settings.model_best_desc')
 		}
 	]);
 

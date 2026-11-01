@@ -166,6 +166,7 @@ mod tests {
         PrepareRequest {
             video_id: id.into(),
             url: String::new(),
+            upstream_url: String::new(),
             headers: HashMap::new(),
             expected_secs: None,
         }

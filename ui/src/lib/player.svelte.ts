@@ -105,20 +105,6 @@ export const karaokeModels = $state<Record<api.KaraokeModelId, KaraokeModelState
 
 export const karaokeSelection = $state<{ model: api.KaraokeModelId }>({ model: 'kara' });
 
-export const karaokeModel = new Proxy({} as KaraokeModelState, {
-	get(_, prop) {
-		const active = karaokeSelection.model;
-		return karaokeModels[active]?.[prop as keyof KaraokeModelState] ?? karaokeModels.kara[prop as keyof KaraokeModelState];
-	},
-	set(_, prop, value) {
-		const active = karaokeSelection.model;
-		if (karaokeModels[active]) {
-			(karaokeModels[active] as any)[prop] = value;
-		}
-		return true;
-	}
-});
-
 export const karaokeConsent = $state({ open: false, model: 'kara' as api.KaraokeModelId, enableAfter: false });
 
 /**
@@ -141,6 +127,11 @@ export async function refreshKaraokeAvailability(): Promise<void> {
 	}
 }
 
+function karaokeDownloadErrorCode(e: unknown): api.KaraokeModelErrorCode {
+	const s = String(e);
+	return s === 'network' || s === 'verify' || s === 'disk' ? s : 'failed';
+}
+
 export function confirmKaraokeModelDownload(model?: api.KaraokeModelId) {
 	const target = model ?? karaokeConsent.model ?? karaokeSelection.model;
 	if (karaokeModels[target]?.installed) {
@@ -156,8 +147,12 @@ export function confirmKaraokeModelDownload(model?: api.KaraokeModelId) {
 	}
 	karaokeModels[target].error = undefined;
 	api.karaokeModelDownload(target).catch((e) => {
-		karaokeModels[target].error = String(e);
-		toast.error(String(e));
+		const s = String(e);
+		if (s !== 'cancelled') {
+			karaokeModels[target].error = karaokeDownloadErrorCode(e);
+			toast.error(t(`karaoke.download_error.${karaokeModels[target].error}`));
+		}
+		karaokeModels[target].downloading = false;
 	});
 }
 
@@ -1887,7 +1882,7 @@ export function initApp(mini = false): () => void {
 				})();
 			} else if (e.state === 'error') {
 				st.downloading = false;
-				st.error = e.message;
+				st.error = e.code;
 			} else if (e.state === 'cancelled') {
 				st.downloading = false;
 				st.error = undefined;

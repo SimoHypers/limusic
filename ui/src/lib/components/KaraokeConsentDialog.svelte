@@ -22,10 +22,10 @@
 	const currentModelState = $derived(karaokeModels[currentModelId] ?? karaokeModels.kara);
 	const modelLabel = $derived(
 		currentModelId === 'kara_2'
-			? t('karaoke.settings.model_medium')
+			? t('karaoke.settings.model_balanced')
 			: currentModelId === 'inst_hq_3'
-				? t('karaoke.settings.model_strong')
-				: t('karaoke.settings.model_weak')
+				? t('karaoke.settings.model_best')
+				: t('karaoke.settings.model_light')
 	);
 
 	const sizeMB = $derived(
@@ -86,7 +86,7 @@
 
 		{#if currentModelState.error}
 			<div class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-xs text-destructive">
-				{currentModelState.error}
+				{t(`karaoke.download_error.${currentModelState.error}`)}
 			</div>
 		{/if}
 
