@@ -547,7 +547,8 @@ export function initTheme(): void {
 			'theaterLyrics',
 			'theaterQueue',
 			'matugen',
-			'enhancedLyrics'
+			'enhancedLyrics',
+			'enhancedLyricsLineSync'
 		] as const) {
 			if (typeof saved?.[k] === 'boolean') appearance[k] = saved[k];
 		}

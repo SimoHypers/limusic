@@ -473,6 +473,11 @@
 				})}
 				{#if appearance.enhancedLyrics}
 					{@render row({
+						title: t('settings.themes.enhanced_lyrics_line_sync'),
+						desc: t('settings.themes.enhanced_lyrics_line_sync_hint'),
+						control: enhancedLyricsLineSyncSwitch
+					})}
+					{@render row({
 						title: t('settings.themes.lyrics_anim'),
 						desc: t('settings.themes.lyrics_anim_hint'),
 						below: lyricsAnimPresets
@@ -741,6 +746,11 @@
 		aria-label={t('settings.themes.enhanced_lyrics')}
 		checked={appearance.enhancedLyrics}
 		onCheckedChange={(on) => setAppearance({ enhancedLyrics: on })}
+	/>{/snippet}
+{#snippet enhancedLyricsLineSyncSwitch()}<Switch
+		aria-label={t('settings.themes.enhanced_lyrics_line_sync')}
+		checked={appearance.enhancedLyricsLineSync}
+		onCheckedChange={(on) => setAppearance({ enhancedLyricsLineSync: on })}
 	/>{/snippet}
 {#snippet lyricsAnimPresets()}
 	<div class="flex flex-wrap gap-1.5">

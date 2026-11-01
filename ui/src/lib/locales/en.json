@@ -526,6 +526,8 @@
 			"artwork_background_hint": "Tint the player view with the playing track's cover, blurred. Off leaves it plain.",
 			"enhanced_lyrics": "Enhanced Lyrics",
 			"enhanced_lyrics_hint": "Words animate and glow as they are sung.",
+			"enhanced_lyrics_line_sync": "Also animate synced lyrics",
+			"enhanced_lyrics_line_sync_hint": "Estimate word timing for lyrics that only have line timing. Off leaves them line-by-line synced.",
 			"lyrics_anim": "Word animation",
 			"lyrics_anim_hint": "How each word moves when sung.",
 			"lyrics_anim_bounce": "Bounce",

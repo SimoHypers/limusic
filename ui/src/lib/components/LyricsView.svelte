@@ -103,6 +103,7 @@
 	const canTranslate = $derived(!!lyrics?.lines.some((l) => l.translation));
 	const showTranslation = $derived(canTranslate && prefs.translated);
 	const enhanced = $derived(appearance.enhancedLyrics);
+	const animateSynced = $derived(enhanced && appearance.enhancedLyricsLineSync);
 	const reducedMotion = new MediaQuery('prefers-reduced-motion: reduce');
 	// Nothing to resize on an instrumental or a song with no lyrics at all.
 	const canResize = $derived(!!lyrics && !lyrics.instrumental);
@@ -241,11 +242,17 @@
 
 	/** The rAF clock exists for the word sweep and nothing else. Unsynced lyrics have no cues, and
 	 *  line-level-only lyrics move at most once a line, so both are served perfectly well by the
-	 *  position tick they already get. Without this gate the loop ran at refresh rate for any
-	 *  mounted lyrics panel, on every track, for the whole session, which meant the app never
-	 *  reached an idle frame. */
+	 *  position tick they already get unless "also animate synced lyrics" estimates word timing for
+	 *  them. Without this gate the loop ran at refresh rate for any mounted lyrics panel, on every
+	 *  track, for the whole session, which meant the app never reached an idle frame. */
 	const needsFrameClock = $derived(
-		!!lyrics?.synced && (enhanced || lyrics.lines.some((l) => (l.words?.length ?? 0) > 0))
+		!!lyrics?.synced &&
+			(lyrics.lines.some(
+				(l) =>
+					(l.words?.length ?? 0) > 0 ||
+					(showRomanized && (l.romanized_words?.length ?? 0) > 0)
+			) ||
+				animateSynced)
 	);
 
 	$effect(() => {
@@ -373,7 +380,7 @@
 	function getLineWords(line: api.LyricLine, index: number, text?: string): api.LyricWord[] {
 		if (!text && line.words && line.words.length > 0) return line.words;
 		if (text && line.romanized_words && line.romanized_words.length > 0) return line.romanized_words;
-		if (!enhanced || !lyrics || line.time_ms === undefined) return [];
+		if (!animateSynced || !lyrics || line.time_ms === undefined) return [];
 		const raw = (text ?? line.text).trim();
 		if (!raw || raw === '♪') return [];
 		const tokens = raw.split(/\s+/).filter(Boolean);
@@ -446,6 +453,8 @@
 				{@const isActive = i === activeIndex}
 				{@const isPast = i < activeIndex}
 				{@const words = getLineWords(line, i)}
+				{@const romWords =
+					showRomanized && line.romanized ? getLineWords(line, i, line.romanized) : []}
 				<!-- Dimming is `opacity` on the line, never a translucent text colour. A colour with
 				     alpha is composited glyph by glyph, so wherever two glyphs overlap the coverage
 				     adds up and the overlap comes out brighter than the rest of the line: very
@@ -459,7 +468,7 @@
 					class="block w-full origin-left cursor-pointer text-left font-heading font-bold leading-snug transition-[color,opacity,transform] duration-300 ease-out hover:text-foreground hover:opacity-100 dark:hover:opacity-100
 						{expanded ? 'py-3 text-[1.875em]' : compact ? 'py-1 text-[0.875em]' : 'py-2 text-[1.25em]'}
 						{isActive
-						? enhanced
+						? enhanced && (words.length > 0 || romWords.length > 0)
 							? 'text-foreground'
 							: 'scale-[1.04] text-foreground'
 						: isPast
@@ -473,7 +482,6 @@
 					{/if}
 
 					{#if showRomanized && line.romanized}
-						{@const romWords = getLineWords(line, i, line.romanized)}
 						<!-- Relative size, so it follows the line from the mini player to theater mode.
 						     Apple's reading is timed to the same syllables and sweeps with the line. -->
 						<span class="mt-0.5 block text-[length:max(0.62em,11px)] font-semibold">
