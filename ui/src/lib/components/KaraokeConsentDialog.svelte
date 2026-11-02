@@ -38,10 +38,24 @@
 					: '66.8 MB'
 	);
 
-	const downloadedMB = $derived((currentModelState.downloaded / (1024 * 1024)).toFixed(1));
+	const downloadedMB = $derived(
+		(
+			(currentModelState.total > 0
+				? Math.min(currentModelState.downloaded, currentModelState.total)
+				: currentModelState.downloaded) /
+			(1024 * 1024)
+		).toFixed(1)
+	);
 	const totalMB = $derived((currentModelState.total / (1024 * 1024)).toFixed(1));
 	const percent = $derived(
-		currentModelState.total > 0 ? Math.round((currentModelState.downloaded / currentModelState.total) * 100) : 0
+		currentModelState.total > 0
+			? Math.min(
+					100,
+					Math.round(
+						(currentModelState.downloaded / currentModelState.total) * 100
+					)
+			  )
+			: 0
 	);
 </script>
 

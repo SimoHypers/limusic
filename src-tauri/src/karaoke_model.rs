@@ -55,6 +55,14 @@ pub fn plan_download(
     DownloadPlan { runtime, model, total }
 }
 
+pub fn model_phase_downloaded(
+    plan: &DownloadPlan,
+    runtime_size: u64,
+    model_downloaded: u64,
+) -> u64 {
+    ((if plan.runtime { runtime_size } else { 0 }) + model_downloaded).min(plan.total)
+}
+
 impl ModelManager {
     /// No I/O: the directory is only created when a download starts ([`Self::prepare_dir`]), so
     /// launching the app never touches it.
@@ -476,7 +484,7 @@ impl ModelManager {
             };
 
             let emit_model_progress = |model_downloaded: u64| {
-                let downloaded = runtime_size + model_downloaded;
+                let downloaded = model_phase_downloaded(&plan, runtime_size, model_downloaded);
                 let _ = app.emit(
                     "karaoke-model",
                     serde_json::json!({ "model": spec.key, "state": "downloading", "downloaded": downloaded, "total": plan.total }),
@@ -805,6 +813,20 @@ mod tests {
 
         let p4 = plan_download(true, false, 100, 50);
         assert_eq!(p4, DownloadPlan { runtime: false, model: false, total: 0 });
+    }
+
+    #[test]
+    fn model_phase_progress_counts_the_runtime_only_when_it_is_downloaded() {
+        let p1 = DownloadPlan { runtime: true, model: true, total: 150 };
+        assert_eq!(model_phase_downloaded(&p1, 50, 0), 50);
+        assert_eq!(model_phase_downloaded(&p1, 50, 100), 150);
+        assert_eq!(model_phase_downloaded(&p1, 50, 999), 150);
+
+        let p2 = DownloadPlan { runtime: false, model: true, total: 100 };
+        assert_eq!(model_phase_downloaded(&p2, 50, 0), 0);
+        assert_eq!(model_phase_downloaded(&p2, 50, 40), 40);
+        assert_eq!(model_phase_downloaded(&p2, 50, 100), 100);
+        assert_eq!(model_phase_downloaded(&p2, 50, 999), 100);
     }
 
     #[test]
