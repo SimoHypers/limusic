@@ -114,16 +114,39 @@ export const karaokeConsent = $state({ open: false, model: 'kara' as api.Karaoke
  */
 export const karaokeAvailability = $state({
 	reason: undefined as api.KaraokeUnavailableReason | undefined,
-	processor: undefined as 'gpu' | 'cpu' | undefined
+	processor: undefined as 'gpu' | 'cpu' | undefined,
+	device: 'auto' as api.KaraokeDevice,
+	gpuSupported: false
 });
+
+export function applyKaraokeStatus(s: api.KaraokeEngineStatus) {
+	karaokeAvailability.reason = s.availability === 'unavailable' ? s.reason : undefined;
+	karaokeAvailability.processor = s.processor;
+	karaokeAvailability.device = s.device;
+	karaokeAvailability.gpuSupported = s.gpuSupported;
+}
 
 export async function refreshKaraokeAvailability(): Promise<void> {
 	try {
 		const s = await api.karaokeEngineStatus();
-		karaokeAvailability.reason = s.availability === 'unavailable' ? s.reason : undefined;
-		karaokeAvailability.processor = s.processor;
+		applyKaraokeStatus(s);
 	} catch {
 		// Status is advisory; the toggle itself still reports errors.
+	}
+}
+
+export async function setKaraokeDevice(device: api.KaraokeDevice): Promise<boolean> {
+	const prev = karaokeAvailability.device;
+	karaokeAvailability.device = device;
+	try {
+		await api.karaokeDeviceSet(device);
+		const s = await api.karaokeEngineStatus();
+		applyKaraokeStatus(s);
+		return true;
+	} catch {
+		karaokeAvailability.device = prev;
+		toast.error(t('karaoke.settings.device_failed'));
+		return false;
 	}
 }
 
@@ -1867,8 +1890,7 @@ export function initApp(mini = false): () => void {
 						await api.karaokeModelSet(m);
 						karaokeSelection.model = m;
 						const status = await api.karaokeEngineStatus();
-						karaokeAvailability.reason = status.availability === 'unavailable' ? status.reason : undefined;
-						karaokeAvailability.processor = status.processor;
+						applyKaraokeStatus(status);
 						if (enable) {
 							playback.karaoke = true;
 							await api.setKaraoke(true);

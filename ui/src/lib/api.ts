@@ -414,6 +414,7 @@ export const togglePause = () => invoke<void>('toggle_pause');
 export const seek = (position: number) => invoke<void>('seek', { position });
 export const setVolume = (volume: number) => invoke<void>('set_volume', { volume });
 export const setKaraoke = (enabled: boolean) => invoke<void>('set_karaoke', { enabled });
+export type KaraokeDevice = 'auto' | 'cpu' | 'gpu';
 export type KaraokeModelId = 'kara' | 'kara_2' | 'inst_hq_3';
 
 export interface ModelStatus {
@@ -439,6 +440,8 @@ export interface KaraokeEngineStatus {
 	availability: 'ready' | 'needs-model' | 'unavailable';
 	reason?: KaraokeUnavailableReason;
 	processor?: 'gpu' | 'cpu';
+	device: KaraokeDevice;
+	gpuSupported: boolean;
 	model?: KaraokeModelId;
 }
 export interface KaraokeStatusEvent {
@@ -472,6 +475,8 @@ export const karaokeModelCancel = () => invoke<void>('karaoke_model_cancel');
 export const karaokeModelDelete = (model: KaraokeModelId) => invoke<void>('karaoke_model_delete', { model });
 export const karaokeModelGet = () => invoke<KaraokeModelId>('karaoke_model_get');
 export const karaokeModelSet = (model: KaraokeModelId) => invoke<KaraokeModelId>('karaoke_model_set', { model });
+export const karaokeDeviceGet = () => invoke<KaraokeDevice>('karaoke_device_get');
+export const karaokeDeviceSet = (device: KaraokeDevice) => invoke<KaraokeDevice>('karaoke_device_set', { device });
 export const karaokeEngineStatus = () => invoke<KaraokeEngineStatus>('karaoke_engine_status');
 export const karaokeClearCache = () => invoke<void>('karaoke_clear_cache');
 export const karaokeCacheLimitMb = () => invoke<number>('karaoke_cache_limit_mb');
