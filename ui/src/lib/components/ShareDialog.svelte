@@ -23,8 +23,8 @@
 	function shareUrl(item: BrowseItem, start?: number | null): string {
 		const id = item.id.replace(/^VL/, '');
 		if (item.kind === 'song') {
-			const t = start && start > 0 ? `&t=${Math.floor(start)}` : '';
-			return `https://music.youtube.com/watch?v=${id}${t}`;
+			const at = start && start > 0 ? `&t=${Math.floor(start)}` : '';
+			return `https://music.youtube.com/watch?v=${id}${at}`;
 		}
 		if (item.kind === 'artist') return `https://music.youtube.com/channel/${id}`;
 		// Albums only ever reach us as an `MPRE…` browseId, so link the browse page rather than the
@@ -39,14 +39,20 @@
 	let canStartAt = $state(false);
 	let atTime = $state(false);
 	let startText = $state('');
+	// The shared song's length as of opening the dialog. The player's own `duration` is the shared
+	// song's only while it is still the one playing: the track can change under an open dialog.
+	let openLength = $state(0);
+	const trackLength = $derived(
+		ui.share?.id === playback.now?.videoId ? playback.duration || openLength : openLength
+	);
 	const parsedStart = $derived(canStartAt && atTime ? parseClock(startText) : null);
 	// A switched-on box that doesn't parse, or points past the end of the track, is flagged with a
 	// message; the link just has no `t` until it is fixed. An unknown duration (0) can't be checked.
 	const startError = $derived.by(() => {
 		if (!canStartAt || !atTime) return '';
 		if (parsedStart === null) return t('dialogs.share.start_invalid');
-		if (playback.duration > 0 && parsedStart > playback.duration) {
-			return t('dialogs.share.start_too_long', { length: formatClock(playback.duration) });
+		if (trackLength > 0 && parsedStart > trackLength) {
+			return t('dialogs.share.start_too_long', { length: formatClock(trackLength) });
 		}
 		return '';
 	});
@@ -71,9 +77,13 @@
 		owned = false;
 		wasPrivate = false;
 		atTime = false;
-		canStartAt = !!item && item.kind === 'song' && item.id === playback.now?.videoId;
-		// Not tracked: the box must not re-fill every time the position ticks.
+		// Player state is read untracked: this runs when the dialog opens (or retargets), not on
+		// every position tick, and not when the track changes under it, which would drop the row
+		// and whatever was typed into it.
+		const playing = untrack(() => playback.now?.videoId);
+		canStartAt = !!item && item.kind === 'song' && item.id === playing;
 		startText = canStartAt ? formatClock(untrack(() => playback.position)) : '';
+		openLength = canStartAt ? untrack(() => playback.duration) : 0;
 		if (!item || item.kind !== 'playlist') return;
 		const key = `playlist:${item.id}`;
 		const apply = (p: PlaylistPage) => {

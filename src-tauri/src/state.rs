@@ -1606,9 +1606,10 @@ impl AppState {
         }
         // Handed to `loadfile` as `start=` (see `start_current`); mpv drops a seek sent before the
         // file is loaded. Keyed on the seed's id, so it can't land on a different track.
+        // `latest_position` is left alone on purpose: `play_tracks` below reads it as the position
+        // the replaced queue is resumed at (`keep_context`), and that is not the link's offset.
         if let (Some(pos), Some(vid), Some(_)) = (start, video_id.as_ref(), seed_at) {
             *self.pending_seek.lock().unwrap() = Some((vid.clone(), pos));
-            self.latest_position.store(pos.to_bits(), Ordering::SeqCst);
         }
         self.play_tracks(items, Some(seed_at.unwrap_or(0)), Some(seed), title, false, None).await;
         self.queue.lock().await.radio = true;
