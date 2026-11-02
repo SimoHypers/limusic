@@ -271,12 +271,12 @@
 	}
 	.mock.theme-material .card {
 		border-color: transparent;
-		background: var(--m3-surface-container, var(--card));
+		background: var(--card);
 	}
 	.mock.theme-material .bar {
 		border-top-color: transparent;
 		border-radius: calc(var(--radius) * 1.1) calc(var(--radius) * 1.1) 0 0;
-		background: var(--m3-surface-container, var(--card));
+		background: var(--card);
 	}
 	.mock.theme-material .track {
 		position: relative;

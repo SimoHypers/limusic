@@ -727,7 +727,7 @@
 						<section class={GROUP} id="settings-lyrics">
 							<h3 class={LABEL}>{t('settings.sections.lyrics')}</h3>
 							<LyricsSourcesSettings {settings} />
-							<div class="mt-3 {CARD}">
+							<div data-settings-card class="mt-3 {CARD}">
 								{@render row({
 									title: t('settings.playback.lyrics_prefer_words'),
 									desc: t('settings.playback.lyrics_prefer_words_hint'),
