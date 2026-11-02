@@ -452,8 +452,8 @@
 			"play_history_hint": "Mémorise les titres récemment écoutés pour personnaliser vos recommandations.",
 			"music_videos": "Activer les clips musicaux",
 			"music_videos_hint": "Affiche le flux vidéo lorsqu'il est disponible à la place du flux audio seul.",
-			"hide_videos": "Masquer les vidéos dans les recherches",
-			"hide_videos_hint": "Affiche uniquement les pistes audio et les sorties officielles dans les résultats de recherche.",
+			"hide_videos": "Masquer les vidéos dans la recherche et la radio",
+			"hide_videos_hint": "La recherche, l'accueil, les pages d'artistes, la radio et la lecture automatique n'affichent que les titres audio. Les playlists et les albums que vous ouvrez affichent toujours tout, et une radio lancée à partir d'un clip vidéo lit ses vidéos.",
 			"blocked_artists": "Artistes bloqués",
 			"blocked_artists_hint": "Les artistes bloqués sont exclus des radios, de la lecture automatique et des recommandations. Les playlists et albums que vous ouvrez continuent de lire l'ensemble de leurs titres.",
 			"blocked_artists_empty": "Aucun artiste bloqué pour le moment. Utilisez l'option « Bloquer l'artiste » dans le menu ⋯ d'un morceau.",
@@ -488,7 +488,9 @@
 			"lyrics_use_source": "Utiliser {name}",
 			"lyrics_sources_none": "Toutes les sources sont désactivées : aucune parole ne sera trouvée.",
 			"videos_first": "Lire d'abord la vidéo",
-			"videos_first_hint": "Les titres d'album qui ont un clip vidéo démarrent en vidéo. Désactivez cette option pour commencer par le titre. Le sélecteur Titre/Vidéo dans la vue du lecteur permet de passer de l'un à l'autre dans les deux cas."
+			"videos_first_hint": "Les titres d'album qui ont un clip vidéo démarrent en vidéo. Désactivez cette option pour commencer par le titre. Le sélecteur Titre/Vidéo dans la vue du lecteur permet de passer de l'un à l'autre dans les deux cas.",
+			"lyrics_prefer_words": "Préférer les paroles mot à mot",
+			"lyrics_prefer_words_hint": "Les paroles mot à mot de n'importe quelle source l'emportent sur celles ligne par ligne d'une source située au-dessus. La première fois qu'un titre est lu, ses paroles peuvent mettre quelques secondes de plus à apparaître."
 		},
 		"data": {
 			"clear_cache": "Vider le cache des images et des flux",
@@ -989,12 +991,14 @@
 			"youtube": "Paroles officielles intégrées à YouTube Music sous licence.",
 			"netease": "Vaste catalogue chinois. Propose des traductions chinoises sous de nombreux morceaux.",
 			"qq": "Catalogue chinois de référence pour la Mandopop et la Cantopop.",
-			"kugou": "Catalogue chinois idéal pour les morceaux rares."
+			"kugou": "Catalogue chinois idéal pour les morceaux rares.",
+			"unison": "Paroles de la communauté Better Lyrics, en majorité mot à mot, synchronisées sur la vidéo exacte."
 		},
 		"text_size": "Taille de police",
 		"text_size_hint": "Agrandir ou réduire les paroles",
 		"text_size_larger": "Police plus grande",
-		"text_size_smaller": "Police plus petite"
+		"text_size_smaller": "Police plus petite",
+		"unison_rate": "Évaluez ces paroles sur Unison"
 	},
 	"queue": {
 		"title": "File d'attente"
