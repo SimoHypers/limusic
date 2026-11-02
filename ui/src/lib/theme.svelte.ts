@@ -292,6 +292,9 @@ function forget(path: string): void {
 	const gone = `'${fileFamily(path)}', sans-serif`;
 	if (custom.fontSans === gone) custom.fontSans = null;
 	if (custom.fontHeading === gone) custom.fontHeading = null;
+	// The clock has its own font row, so it has to be cleared here too (and saved: it lives
+	// in the appearance store, not in `custom`).
+	if (appearance.theaterClockFont === gone) setAppearance({ theaterClockFont: '' });
 }
 
 /**

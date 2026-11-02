@@ -283,7 +283,7 @@
 	let headerTextWidth = $state(0);
 
 	$effect(() => {
-		if (!headerTextEl) {
+		if (!headerTextEl || !appearance.theaterClock) {
 			headerTextWidth = 0;
 			return;
 		}
@@ -489,7 +489,10 @@
 			: ''}"
 		style="height:{headerH}"
 	>
-		<div bind:this={headerTextEl} class="w-fit max-w-[30vw] min-w-0">
+		<div
+			bind:this={headerTextEl}
+			class="min-w-0 {appearance.theaterClock ? 'w-fit max-w-[30vw]' : ''}"
+		>
 			<!-- The queue column says this itself. -->
 			{#if !queueShown}
 				<p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
