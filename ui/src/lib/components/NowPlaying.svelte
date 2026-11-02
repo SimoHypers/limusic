@@ -59,7 +59,10 @@
 	// a scrimmed overlay and there's nothing to shrink into. In tabbed mode both are always closed.
 	// `lyricsOpen` is the lyrics/comments slot: the comments panel takes the lyrics' place, so either
 	// one open counts as that one panel.
-	let { queueOpen, lyricsOpen }: { queueOpen: boolean; lyricsOpen: boolean } = $props();
+	let {
+		queueOpen,
+		lyricsOpen
+	}: { queueOpen: boolean; lyricsOpen: boolean } = $props();
 	const tabbed = $derived(appearance.tabbedPlayer);
 	// The two layouts (Settings > Appearance > Classic player layout). One component, so both
 	// share every behaviour below: the video hole, the backdrop click, the wheel volume, Esc. Only
@@ -151,15 +154,28 @@
 		api.togglePause();
 	}
 
-	// Scrolling the artwork is the volume, same step as the slider. The level only draws while the
-	// gesture is live (plus a second to read it) so the artwork is otherwise untouched.
+	// Scrolling the stage is the volume, same step as the slider. The level only draws while the
+	// gesture is live (plus a second to read it) so the view is otherwise untouched. The tab column
+	// beside the stage (queue, lyrics, comments) is deliberately outside it: those lists scroll.
 	let volFlash = $state(false);
 	let volTimer: ReturnType<typeof setTimeout>;
 	function onWheel(e: WheelEvent) {
+		// A list inside the stage still wins, in case one is ever nested here.
+		if (scrollsUnder(e.target)) return;
 		wheelVolume(e);
 		volFlash = true;
 		clearTimeout(volTimer);
 		volTimer = setTimeout(() => (volFlash = false), 1000);
+	}
+
+	// True while the wheel is over something that can scroll in this direction … any direction.
+	function scrollsUnder(node: EventTarget | null): boolean {
+		for (let el = node as HTMLElement | null; el && el !== view; el = el.parentElement) {
+			const overflow = getComputedStyle(el).overflowY;
+			if ((overflow === 'auto' || overflow === 'scroll') && el.scrollHeight > el.clientHeight + 1)
+				return true;
+		}
+		return false;
 	}
 
 	// The queue row for what's playing: it carries the album link and what the ⋮ menu needs, which
@@ -371,7 +387,7 @@
 	<div
 		class="flex min-h-0 flex-col {big
 			? 'flex-1'
-			: `w-full md:w-[22rem] xl:w-[26rem] ${stage ? 'border-l border-foreground/10 bg-background/55' : ''}`} {stage
+			: `w-full max-md:hidden md:w-[22rem] xl:w-[26rem] ${stage ? 'border-l border-foreground/10 bg-background/55' : ''}`} {stage
 			? 'relative z-0'
 			: ''}"
 		data-np-keep
@@ -464,11 +480,11 @@
 	onpointerup={(e) => (releasedKeep = keeps(e.target))}
 	onclick={onBackdropClick}
 	data-np-view
-	class="absolute inset-y-0 left-16 right-0 z-20 flex overflow-hidden inert:bg-background {video.hole
+	class="absolute inset-y-0 left-0 right-0 z-20 flex overflow-hidden inert:bg-background sm:left-16 {video.hole
 		? ''
 		: 'bg-background'} {stage ? '' : 'justify-center px-4 py-4 sm:px-6 sm:py-6 lg:px-10'} {ui.sidebarCollapsed
 		? ''
-		: 'lg:left-60'} {inset}"
+		: 'sm:left-60'} {inset}"
 >
 	<!-- The ambient light (Settings > Video): the video's colours spilling into the view around it. Not
 	     under theater mode, which covers this view. -->
@@ -511,11 +527,14 @@
 		<!-- The stage: the picture and what's playing. Untabbed there is no column beside it, so it
 		     is the whole view. `relative z-0` is a stacking context of its own, so the glow behind
 		     the picture (-z-10) stays above the room instead of sinking under it. -->
+		<!-- Below md the tabs step aside instead of the stage. At 400px there is no room for both,
+		     and the queue/lyrics/comments buttons in the player bar open those as full-width panels,
+		     so what the bar's chevron opens has to be the track itself. Enlarged lyrics still win:
+		     they are the tab column, and the stage is not rendered at all while they are open. -->
 		{#if !big}
 			<section
-				class="relative z-0 min-w-0 flex-1 flex-col px-6 pt-4 pb-6 lg:px-10 {tabbed
-					? 'hidden md:flex'
-					: 'flex'}"
+				onwheel={onWheel}
+				class="relative z-0 flex min-w-0 flex-1 flex-col px-6 pt-4 pb-6 lg:px-10"
 			>
 				<!-- The way out on the left, the Song/Video switch in the middle. -->
 				<div class="grid h-10 shrink-0 grid-cols-[1fr_auto_1fr] items-center">
@@ -546,8 +565,10 @@
 						data-np-keep
 						data-ctx
 					>
-						<!-- svelte-ignore a11y_no_static_element_interactions -- wheel is the volume gesture -->
-						<div bind:this={picBox} class="relative" onwheel={onWheel}>
+						<!-- The wheel is handled by the column this sits in, so the picture and the
+						     controls around it are the volume gesture — the tab column beside them
+						     keeps its own scrolling. -->
+						<div bind:this={picBox} class="relative">
 							{#if !showVideo()}
 								<!-- The light the cover sits in: bigger than it and behind it, so it reads
 								     as a spill, where a shadow this size would be re-blurred on every
@@ -697,19 +718,16 @@
 			style="--art:calc(min(100%,100vh - 11rem) * 0.75); --vid:calc((100vh - 11rem) * 0.85 * 16 / 9)"
 		>
 			{#if !big}
-				<!-- Centred against the full height of the column on the right. Below md there isn't
-				     room for both columns, and the queue wins. Untabbed there is no second column, so
-				     the artwork is the whole view at every width. -->
-				<div
-					class="min-w-0 flex-1 items-center justify-center {tabbed ? 'hidden md:flex' : 'flex'}"
-				>
+				<!-- Centred against the full height of the column on the right. Below md the tabs step
+				     aside (see the tab column's max-md:hidden), so the artwork is what the view shows at
+				     narrow widths. Untabbed there is no second column, so it is the whole view anyway. -->
+				<div onwheel={onWheel} class="flex min-w-0 flex-1 items-center justify-center">
 					<!-- A div, not a button: the video-mode toggle has to be a sibling of the play/pause
 					     button rather than nested inside it (nested buttons are invalid HTML and the
 					     inner one never reliably gets the click). -->
 					<div
 						bind:this={picBox}
 						class="relative w-full {showVideo() ? 'max-w-[var(--vid)]' : 'max-w-[var(--art)]'}"
-						onwheel={onWheel}
 						data-np-keep
 						data-ctx
 					>

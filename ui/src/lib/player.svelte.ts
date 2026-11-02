@@ -1209,7 +1209,11 @@ export const ui = $state({
 	// Manual sidebar collapse, lg and up (below that the rail is already collapsed by the
 	// breakpoint). Here rather than in Sidebar because the now-playing view and the fullscreen
 	// lyrics panel are overlays that offset themselves by the sidebar's width.
-	sidebarCollapsed: browser && localStorage.getItem('sidebar_collapsed') === '1'
+	sidebarCollapsed: browser && localStorage.getItem('sidebar_collapsed') === '1',
+	// The sidebar as a slide-over drawer, below `sm` only. There it is off-canvas — the titlebar's
+	// menu button opens it — because a 64px rail takes a sixth of a 400px window and the pages need
+	// every pixel of it.
+	navOpen: false
 });
 
 /**

@@ -18,7 +18,7 @@
 ></button>
 <aside
 	transition:fly={{ x: 32, duration: 220, easing: cubicOut }}
-	class="absolute inset-y-0 right-0 z-30 flex h-full w-80 max-w-[80vw] flex-col border-l bg-card/95 shadow-2xl {queueOpen
+	class="absolute inset-y-0 right-0 z-30 flex h-full w-80 max-w-[80vw] flex-col border-l bg-card/95 shadow-2xl max-sm:w-full max-sm:max-w-none {queueOpen
 		? 'lg:right-80'
 		: ''}"
 >

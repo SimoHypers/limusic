@@ -140,7 +140,13 @@ export const appearance = $state({
 	theaterLyrics: true,
 	theaterQueue: false,
 	/** Derive the whole palette from Matugen. Off by default. */
-	matugen: false
+	matugen: false,
+	/**
+	 * Top-bar buttons the reader has switched off, by id (`account`, `refresh`, `link`,
+	 * `listen_together`, `discord`, `lastfm`, `theater`, `mini`). A list rather than a flag per
+	 * button: the bar only asks "does this render", and a button added later starts visible.
+	 */
+	titlebarHidden: [] as string[]
 });
 
 export function setAppearance(patch: Partial<typeof appearance>): void {
@@ -539,6 +545,12 @@ export function initTheme(): void {
 			'matugen'
 		] as const) {
 			if (typeof saved?.[k] === 'boolean') appearance[k] = saved[k];
+		}
+		// A list of ids, so it takes its own shape check: a stale blob can hold anything.
+		if (Array.isArray(saved?.titlebarHidden)) {
+			appearance.titlebarHidden = saved.titlebarHidden.filter(
+				(id: unknown): id is string => typeof id === 'string'
+			);
 		}
 	} catch {
 		// unparseable — keep the defaults
