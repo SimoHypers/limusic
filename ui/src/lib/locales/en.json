@@ -607,7 +607,9 @@
 			"lyrics_move_source": "Move {name}",
 			"lyrics_moved_source": "{name} moved to position {position} of {total}",
 			"lyrics_use_source": "Use {name}",
-			"lyrics_sources_none": "Every source is off, so no lyrics will be found."
+			"lyrics_sources_none": "Every source is off, so no lyrics will be found.",
+			"lyrics_prefer_words": "Prefer word-by-word lyrics",
+			"lyrics_prefer_words_hint": "Word-by-word lyrics from any source beat line-by-line ones from a source above it. The first time a song plays, its lyrics can take a few seconds longer to appear."
 		},
 		"hotkeys": {
 			"title": "Global Hotkeys",

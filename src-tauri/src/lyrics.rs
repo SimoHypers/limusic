@@ -17,7 +17,8 @@
 //!
 //! Synced beats plain: the first synced answer down the list wins, and only when none is synced
 //! does the first plain one. Each provider returns its own best (synced if it has it), so the
-//! plain pass costs no second request.
+//! plain pass costs no second request. With `lyrics_prefer_words` on, word-timed beats line-synced
+//! the same way, at the cost of waiting on every provider for a song nobody has word-timed.
 //!
 //! Results are cached in SQLite (`lyrics_cache`): hits forever, "no lyrics" verdicts for 24h.
 //! A run where every provider merely *errored* (offline) caches nothing, so lyrics come back
@@ -348,6 +349,7 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
     }
     let (req, next) = (&req, &next);
     let cacheable = |id: &str| req.duration.is_some() || matches!(id, "youtube" | "unison");
+    let prefer_words = state.db.get_setting("lyrics_prefer_words").as_deref() == Some("true");
 
     // Provider i starts at i × STAGGER instead of after provider i-1 answers (#482): a song with no
     // synced lyrics anywhere used to wait on every provider in turn, ~10s. Answers are still read
@@ -368,6 +370,8 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
             .collect();
 
     let mut definitive = false;
+    // Line-synced, held while a source further down may have it word by word.
+    let mut lines: Option<Lyrics> = None;
     let mut plain: Option<Lyrics> = None;
     while let Some((id, answer)) = answers.next().await {
         tracing::debug!(
@@ -376,7 +380,11 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
             "lyrics: answered"
         );
         match answer {
-            Ok(Some(l)) if l.synced || l.instrumental => return (Some(l), cacheable(id)),
+            Ok(Some(l)) if settles(&l, prefer_words) => return (Some(l), cacheable(id)),
+            Ok(Some(l)) if l.synced => {
+                definitive = true;
+                lines = lines.or(Some(l));
+            }
             Ok(hit) => {
                 definitive = true;
                 plain = plain.or(hit);
@@ -384,13 +392,20 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
             Err(e) => tracing::debug!(provider = id, error = %e, "lyrics: provider failed"),
         }
     }
-    match plain {
+    match lines.or(plain) {
         Some(l) => {
             let cache = cacheable(&l.provider);
             (Some(l), cache)
         }
         None => (None, definitive),
     }
+}
+
+/// An answer `fetch` stops at: nothing a source further down could beat. Synced beats plain, and with
+/// `prefer_words` word-timed (the UI's `lyricsKind` "words") beats line-synced too.
+fn settles(l: &Lyrics, prefer_words: bool) -> bool {
+    let words = l.lines.iter().any(|l| l.words.as_ref().is_some_and(|w| !w.is_empty()));
+    l.instrumental || (l.synced && (words || !prefer_words))
 }
 
 /// YouTube Music's own lyrics: the timed ones its mobile app shows, else the plain text under
@@ -1713,6 +1728,23 @@ mod tests {
             ids(provider_order(Some("lrclib, -boidu,gone,lrclib"))),
             "lrclib,-boidu,unison,lyricsplus,youtube,netease,qq,kugou"
         );
+    }
+
+    #[test]
+    fn word_timed_lyrics_settle_the_walk_when_preferred() {
+        let line = |words: bool| LyricLine {
+            words: words.then(|| vec![LyricWord { text: "a".into(), start_ms: 0, end_ms: 9 }]),
+            ..LyricLine::simple(Some(0), "a".into())
+        };
+        let lyrics =
+            |synced, words| Lyrics { synced, lines: vec![line(words)], ..Default::default() };
+        let (plain, lines, words) = (lyrics(false, false), lyrics(true, false), lyrics(true, true));
+        assert!(!settles(&plain, false) && !settles(&plain, true));
+        assert!(settles(&lines, false), "line-synced still wins with the setting off");
+        assert!(!settles(&lines, true), "held while a source below may have words");
+        assert!(settles(&words, false) && settles(&words, true));
+        let instrumental = Lyrics { instrumental: true, ..Default::default() };
+        assert!(settles(&instrumental, true));
     }
 
     /// Unison's answer, trimmed from "Love Never Felt So Good" (FkxEE7wZ83c, 2026-11-02): the
