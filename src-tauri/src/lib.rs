@@ -1174,6 +1174,8 @@ pub fn run() {
             commands::karaoke_model_delete,
             commands::karaoke_model_get,
             commands::karaoke_model_set,
+            commands::karaoke_device_get,
+            commands::karaoke_device_set,
             commands::karaoke_engine_status,
             commands::karaoke_clear_cache,
             commands::karaoke_retry_failed,

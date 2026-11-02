@@ -5399,6 +5399,28 @@ pub fn set_saved_karaoke_model(db: &Db, id: karaoke::models::ModelId) -> karaoke
     id
 }
 
+/// Karaoke separation device preference (Auto, Cpu, Gpu).
+pub fn saved_karaoke_device(db: &Db) -> karaoke::device::DevicePref {
+    let pref = db
+        .get_setting("karaoke_device")
+        .as_deref()
+        .and_then(karaoke::device::DevicePref::from_key)
+        .unwrap_or_else(karaoke::device::DevicePref::platform_default);
+    if pref == karaoke::device::DevicePref::Gpu && !karaoke::device::DevicePref::gpu_supported() {
+        karaoke::device::DevicePref::platform_default()
+    } else {
+        pref
+    }
+}
+
+pub fn set_saved_karaoke_device(
+    db: &Db,
+    pref: karaoke::device::DevicePref,
+) -> karaoke::device::DevicePref {
+    db.set_setting("karaoke_device", pref.key());
+    pref
+}
+
 /// How far into a track a play counts (context/01 §registerPlayback): halfway, capped at 30s.
 /// `duration` is mpv's, which is 0.0 until it reports one, so an unknown length means the full 30s.
 fn history_threshold(duration: f64) -> f64 {

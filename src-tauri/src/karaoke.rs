@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use crate::karaoke_model::ModelManager;
 use karaoke::board::{isolate, JobBoard};
 use karaoke::cache::{InstrumentalCache, PinSlot};
+use karaoke::device::DevicePref;
 use karaoke::jobs::DesiredSet;
 pub use karaoke::jobs::PrepareRequest;
 use karaoke::mdx::MdxModel;
@@ -36,6 +37,7 @@ struct Ctx {
     processor: Arc<AtomicU8>,
     model: Arc<Mutex<ModelId>>,
     loaded_model: Arc<Mutex<Option<ModelId>>>,
+    device: Arc<Mutex<DevicePref>>,
 }
 
 impl Ctx {
@@ -154,6 +156,10 @@ impl KaraokeEngine {
             .try_state::<Arc<crate::state::AppState>>()
             .map(|st| crate::state::saved_karaoke_model(&st.db))
             .unwrap_or(ModelId::DEFAULT);
+        let device_pref = app
+            .try_state::<Arc<crate::state::AppState>>()
+            .map(|st| crate::state::saved_karaoke_device(&st.db))
+            .unwrap_or_else(DevicePref::platform_default);
         // No I/O here: the directory is created on first enable (`spawn_worker`).
         let cache = Arc::new(InstrumentalCache::new(cache_dir, max_bytes));
         cache.set_model(model_id.key());
@@ -167,6 +173,7 @@ impl KaraokeEngine {
             processor: Arc::new(AtomicU8::new(0)),
             model: Arc::new(Mutex::new(model_id)),
             loaded_model: Arc::new(Mutex::new(None)),
+            device: Arc::new(Mutex::new(device_pref)),
         };
         Arc::new(Self {
             ctx,
@@ -182,6 +189,21 @@ impl KaraokeEngine {
 
     pub fn model(&self) -> ModelId {
         *self.ctx.model.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub fn device(&self) -> DevicePref {
+        *self.ctx.device.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub fn set_device(&self, pref: DevicePref) {
+        let device_key = pref.key();
+        let enabled = self.is_enabled();
+        tracing::trace!(target: "app_lib::karaoke", device_key, enabled, "karaoke engine set device");
+        {
+            let mut d = self.ctx.device.lock().unwrap_or_else(PoisonError::into_inner);
+            *d = pref;
+        }
+        self.ctx.board.notify();
     }
 
     pub fn has_loaded(&self, id: ModelId) -> bool {
@@ -492,6 +514,7 @@ fn unload(model: &mut Option<MdxModel>, reason: &str, loaded_model: &Mutex<Optio
 fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
     let mut model: Option<MdxModel> = None;
     let mut loaded_model_id: Option<ModelId> = None;
+    let mut loaded_device: Option<DevicePref> = None;
     let mut notified_needs_model = false;
 
     let log_wake = |ctx: &Ctx, model: &Option<MdxModel>| {
@@ -511,29 +534,40 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
     };
 
     loop {
-        let selected = {
+        let (selected, pref) = {
             let m = ctx.model.lock().unwrap_or_else(PoisonError::into_inner);
-            *m
+            let d = ctx.device.lock().unwrap_or_else(PoisonError::into_inner);
+            (*m, *d)
         };
 
         if !ctx.board.is_enabled() {
             unload(&mut model, "disabled", &ctx.loaded_model);
             loaded_model_id = None;
+            loaded_device = None;
             notified_needs_model = false;
             ctx.board.wait(None);
             log_wake(ctx, &model);
             continue;
         }
 
+        if model.is_some() && loaded_device != Some(pref) {
+            unload(&mut model, "device-switch", &ctx.loaded_model);
+            loaded_model_id = None;
+            loaded_device = None;
+            ctx.processor.store(0, Ordering::SeqCst);
+        }
+
         if loaded_model_id != Some(selected) {
             unload(&mut model, "model-switch", &ctx.loaded_model);
             loaded_model_id = None;
+            loaded_device = None;
             ctx.cache.set_model(selected.key());
         }
 
         if !ctx.models.is_installed(selected) {
             unload(&mut model, "error", &ctx.loaded_model);
             loaded_model_id = None;
+            loaded_device = None;
             if !notified_needs_model {
                 let _ = ctx.app.emit(
                     "karaoke-status",
@@ -578,6 +612,7 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
             if ctx.board.wait(Some(wait)) && wait == IDLE_UNLOAD {
                 unload(&mut model, "idle", &ctx.loaded_model);
                 loaded_model_id = None;
+                loaded_device = None;
             }
             log_wake(ctx, &model);
             continue;
@@ -587,11 +622,20 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
             let start_load = std::time::Instant::now();
             let path = ctx.models.model_path(selected);
             ctx.cache.set_model(selected.key());
-            match isolate(|| MdxModel::load_auto(rt, &path, selected.spec().params)) {
+            match isolate(|| {
+                MdxModel::load_with_pref(
+                    rt,
+                    &path,
+                    selected.spec().params,
+                    pref,
+                    karaoke::device::DEFAULT_CPU_PERCENT,
+                )
+            }) {
                 Ok((m, dev)) => {
                     let load_ms = start_load.elapsed().as_millis();
                     let model_key = selected.key();
-                    tracing::info!(target: "app_lib::karaoke", model_key, load_ms, device = ?dev, "karaoke model loaded");
+                    let pref_key = pref.key();
+                    tracing::info!(target: "app_lib::karaoke", model_key, pref_key, load_ms, device = ?dev, "karaoke model loaded");
                     let processor = match dev {
                         karaoke::mdx::Device::Cpu => 1,
                         karaoke::mdx::Device::DirectMl { .. } => 2,
@@ -599,6 +643,7 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
                     ctx.processor.store(processor, Ordering::SeqCst);
                     model = Some(m);
                     loaded_model_id = Some(selected);
+                    loaded_device = Some(pref);
                     *ctx.loaded_model.lock().unwrap_or_else(PoisonError::into_inner) =
                         Some(selected);
                 }
@@ -676,6 +721,7 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
                     // The session may be in any state after a panic mid-inference.
                     unload(&mut model, "error", &ctx.loaded_model);
                     loaded_model_id = None;
+                    loaded_device = None;
                 }
                 if err_str.contains("cancelled") {
                     tracing::warn!(target: "app_lib::karaoke", video_id = %req.video_id, "karaoke prepare cancelled");

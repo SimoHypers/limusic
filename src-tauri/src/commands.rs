@@ -2955,6 +2955,8 @@ pub struct KaraokeEngineStatus {
     /// `"gpu"` or `"cpu"`, once the model has loaded this session.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub processor: Option<&'static str>,
+    pub device: &'static str,
+    pub gpu_supported: bool,
 }
 
 /// Get the status of the background karaoke engine. Availability reflects the last attempt to
@@ -2983,6 +2985,8 @@ pub async fn karaoke_engine_status(
             availability,
             reason,
             processor: engine.processor(),
+            device: engine.device().key(),
+            gpu_supported: karaoke::device::DevicePref::gpu_supported(),
         }
     })
     .await
@@ -3017,6 +3021,31 @@ pub async fn karaoke_model_set(
         state.inner().clone().karaoke_on_model_switch().await;
     }
     Ok(id.key().to_string())
+}
+
+/// Get the selected karaoke device preference key.
+#[tauri::command]
+pub async fn karaoke_device_get(
+    engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
+) -> Result<String, String> {
+    Ok(engine.device().key().to_string())
+}
+
+/// Set the selected karaoke device preference key.
+#[tauri::command]
+pub async fn karaoke_device_set(
+    state: State<'_, Arc<AppState>>,
+    engine: State<'_, Arc<crate::karaoke::KaraokeEngine>>,
+    device: String,
+) -> Result<String, String> {
+    let pref = karaoke::device::DevicePref::from_key(&device)
+        .ok_or_else(|| "unknown device".to_string())?;
+    if pref == karaoke::device::DevicePref::Gpu && !karaoke::device::DevicePref::gpu_supported() {
+        return Err("gpu not supported".to_string());
+    }
+    crate::state::set_saved_karaoke_device(&state.db, pref);
+    engine.inner().set_device(pref);
+    Ok(pref.key().to_string())
 }
 
 /// Clear the karaoke instrumental cache.
