@@ -173,6 +173,46 @@ pub fn list_adapters() -> Vec<GpuAdapter> {
 
 pub const MIN_DISCRETE_VRAM_MB: u64 = 3000;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DevicePref {
+    #[default]
+    Auto,
+    Cpu,
+    Gpu,
+}
+
+impl DevicePref {
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Cpu => "cpu",
+            Self::Gpu => "gpu",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<DevicePref> {
+        match key {
+            "auto" => Some(Self::Auto),
+            "cpu" => Some(Self::Cpu),
+            "gpu" => Some(Self::Gpu),
+            _ => None,
+        }
+    }
+
+    pub fn platform_default() -> DevicePref {
+        if cfg!(target_os = "macos") {
+            DevicePref::Cpu
+        } else {
+            DevicePref::Auto
+        }
+    }
+
+    /// Becomes true on macOS when a CoreML backend exists.
+    pub const fn gpu_supported() -> bool {
+        cfg!(windows)
+    }
+}
+
 pub fn pick_gpu(adapters: &[GpuAdapter], min_discrete_vram_mb: u64) -> Option<&GpuAdapter> {
     let mut best_discrete: Option<&GpuAdapter> = None;
     for a in adapters {
@@ -190,6 +230,36 @@ pub fn pick_gpu(adapters: &[GpuAdapter], min_discrete_vram_mb: u64) -> Option<&G
         }
     }
     best_discrete
+}
+
+/// Used when the user explicitly picks the graphics card.
+pub fn pick_gpu_any(adapters: &[GpuAdapter]) -> Option<&GpuAdapter> {
+    let mut best_discrete: Option<&GpuAdapter> = None;
+    let mut best_integrated: Option<&GpuAdapter> = None;
+    for a in adapters {
+        match a.kind {
+            GpuKind::Discrete => match best_discrete {
+                None => best_discrete = Some(a),
+                Some(curr) => {
+                    if a.dedicated_vram_mb > curr.dedicated_vram_mb
+                        || (a.dedicated_vram_mb == curr.dedicated_vram_mb && a.index < curr.index)
+                    {
+                        best_discrete = Some(a);
+                    }
+                }
+            },
+            GpuKind::Integrated => match best_integrated {
+                None => best_integrated = Some(a),
+                Some(curr) => {
+                    if a.index < curr.index {
+                        best_integrated = Some(a);
+                    }
+                }
+            },
+            GpuKind::Software | GpuKind::Unknown => {}
+        }
+    }
+    best_discrete.or(best_integrated)
 }
 
 pub fn describe(a: &GpuAdapter) -> String {
@@ -313,6 +383,78 @@ mod tests {
         let picked = pick_gpu(&adapters_exact, 3000);
         assert!(picked.is_some());
         assert_eq!(picked.unwrap().index, 0);
+    }
+
+    #[test]
+    fn test_device_pref_keys() {
+        assert_eq!(DevicePref::Auto.key(), "auto");
+        assert_eq!(DevicePref::Cpu.key(), "cpu");
+        assert_eq!(DevicePref::Gpu.key(), "gpu");
+
+        assert_eq!(DevicePref::from_key("auto"), Some(DevicePref::Auto));
+        assert_eq!(DevicePref::from_key("cpu"), Some(DevicePref::Cpu));
+        assert_eq!(DevicePref::from_key("gpu"), Some(DevicePref::Gpu));
+        assert_eq!(DevicePref::from_key("nope"), None);
+    }
+
+    #[test]
+    fn test_pick_gpu_any() {
+        let adapters = vec![
+            GpuAdapter {
+                index: 0,
+                name: "Integrated".into(),
+                kind: GpuKind::Integrated,
+                dedicated_vram_mb: 512,
+                shared_system_mb: 0,
+            },
+            GpuAdapter {
+                index: 1,
+                name: "Discrete 8GB".into(),
+                kind: GpuKind::Discrete,
+                dedicated_vram_mb: 8192,
+                shared_system_mb: 0,
+            },
+            GpuAdapter {
+                index: 2,
+                name: "Software".into(),
+                kind: GpuKind::Software,
+                dedicated_vram_mb: 16384,
+                shared_system_mb: 0,
+            },
+        ];
+        let picked = pick_gpu_any(&adapters);
+        assert!(picked.is_some());
+        assert_eq!(picked.unwrap().index, 1);
+
+        let adapters_only_integrated = vec![
+            GpuAdapter {
+                index: 0,
+                name: "Integrated 0".into(),
+                kind: GpuKind::Integrated,
+                dedicated_vram_mb: 512,
+                shared_system_mb: 0,
+            },
+            GpuAdapter {
+                index: 3,
+                name: "Integrated 3".into(),
+                kind: GpuKind::Integrated,
+                dedicated_vram_mb: 512,
+                shared_system_mb: 0,
+            },
+        ];
+        let picked = pick_gpu_any(&adapters_only_integrated);
+        assert!(picked.is_some());
+        assert_eq!(picked.unwrap().index, 0);
+
+        let adapters_software = vec![GpuAdapter {
+            index: 2,
+            name: "Software".into(),
+            kind: GpuKind::Software,
+            dedicated_vram_mb: 16384,
+            shared_system_mb: 0,
+        }];
+        assert!(pick_gpu_any(&adapters_software).is_none());
+        assert!(pick_gpu_any(&[]).is_none());
     }
 
     #[test]

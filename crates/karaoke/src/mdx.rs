@@ -1,3 +1,4 @@
+use crate::device::DevicePref;
 use crate::runtime::RuntimeReady;
 use crate::stft::Stft;
 use realfft::num_complex::Complex32;
@@ -45,23 +46,34 @@ impl LoadOptions {
     /// DirectML on a discrete GPU with enough VRAM when `directml` is allowed
     /// ([`RuntimeReady::directml`]), else the CPU with `percent` of the cores.
     pub fn auto_with_cpu_percent(percent: u32, directml: bool) -> LoadOptions {
-        #[cfg(windows)]
-        if directml {
-            let adapters = crate::device::list_adapters();
-            if let Some(a) = crate::device::pick_gpu(&adapters, crate::device::MIN_DISCRETE_VRAM_MB)
-            {
-                tracing::info!("{}", crate::device::describe(a));
-                return LoadOptions {
-                    device: Device::DirectMl { device_id: a.index },
-                    intra_threads: None,
-                };
-            }
-        }
-        #[cfg(not(windows))]
-        let _ = directml;
-        LoadOptions {
+        Self::choose(DevicePref::Auto, percent, directml, &crate::device::list_adapters())
+    }
+
+    pub fn choose(
+        pref: DevicePref,
+        percent: u32,
+        directml: bool,
+        adapters: &[crate::device::GpuAdapter],
+    ) -> LoadOptions {
+        let cpu = LoadOptions {
             device: Device::Cpu,
             intra_threads: Some(crate::device::cpu_threads_for_percent(percent)),
+        };
+        if !directml || pref == DevicePref::Cpu {
+            return cpu;
+        }
+        let candidate = match pref {
+            DevicePref::Auto => {
+                crate::device::pick_gpu(adapters, crate::device::MIN_DISCRETE_VRAM_MB)
+            }
+            DevicePref::Gpu => crate::device::pick_gpu_any(adapters),
+            DevicePref::Cpu => unreachable!(),
+        };
+        if let Some(a) = candidate {
+            tracing::info!("{}", crate::device::describe(a));
+            LoadOptions { device: Device::DirectMl { device_id: a.index }, intra_threads: None }
+        } else {
+            cpu
         }
     }
 }
@@ -125,21 +137,15 @@ impl MdxModel {
         Ok(Self { session, params, stft })
     }
 
-    pub fn load_auto(
+    pub fn load_with_pref(
         rt: RuntimeReady,
         model_path: &Path,
         params: MdxParams,
-    ) -> anyhow::Result<(Self, Device)> {
-        Self::load_auto_with_cpu_percent(rt, model_path, params, crate::device::DEFAULT_CPU_PERCENT)
-    }
-
-    pub fn load_auto_with_cpu_percent(
-        rt: RuntimeReady,
-        model_path: &Path,
-        params: MdxParams,
+        pref: DevicePref,
         percent: u32,
     ) -> anyhow::Result<(Self, Device)> {
-        let opts = LoadOptions::auto_with_cpu_percent(percent, rt.directml());
+        let opts =
+            LoadOptions::choose(pref, percent, rt.directml(), &crate::device::list_adapters());
         let device = opts.device;
         match Self::load(rt, model_path, params, opts) {
             Ok(model) => Ok((model, device)),
@@ -156,6 +162,23 @@ impl MdxModel {
                 Device::Cpu => Err(e),
             },
         }
+    }
+
+    pub fn load_auto(
+        rt: RuntimeReady,
+        model_path: &Path,
+        params: MdxParams,
+    ) -> anyhow::Result<(Self, Device)> {
+        Self::load_auto_with_cpu_percent(rt, model_path, params, crate::device::DEFAULT_CPU_PERCENT)
+    }
+
+    pub fn load_auto_with_cpu_percent(
+        rt: RuntimeReady,
+        model_path: &Path,
+        params: MdxParams,
+        percent: u32,
+    ) -> anyhow::Result<(Self, Device)> {
+        Self::load_with_pref(rt, model_path, params, DevicePref::Auto, percent)
     }
 
     /// mix: two channels (left, right), 44100 Hz. Returns the PRIMARY stem (for Inst_HQ_3 this is the instrumental), two channels, same length as the input.
@@ -408,6 +431,99 @@ mod tests {
         let all_covered = divider[trim..(trim + l)].iter().all(|&v| v >= 1e-6);
 
         (total_chunks, all_covered)
+    }
+
+    #[test]
+    fn test_load_options_choose() {
+        use crate::device::{DevicePref, GpuAdapter, GpuKind, MIN_DISCRETE_VRAM_MB};
+
+        let adapters_full = vec![
+            GpuAdapter {
+                index: 0,
+                name: "Integrated".into(),
+                kind: GpuKind::Integrated,
+                dedicated_vram_mb: 512,
+                shared_system_mb: 0,
+            },
+            GpuAdapter {
+                index: 1,
+                name: "Discrete 8GB".into(),
+                kind: GpuKind::Discrete,
+                dedicated_vram_mb: 8000,
+                shared_system_mb: 0,
+            },
+            GpuAdapter {
+                index: 2,
+                name: "Software".into(),
+                kind: GpuKind::Software,
+                dedicated_vram_mb: 16384,
+                shared_system_mb: 0,
+            },
+        ];
+
+        let adapters_only_integrated = vec![GpuAdapter {
+            index: 0,
+            name: "Integrated".into(),
+            kind: GpuKind::Integrated,
+            dedicated_vram_mb: 512,
+            shared_system_mb: 0,
+        }];
+
+        let adapters_low_discrete = vec![GpuAdapter {
+            index: 1,
+            name: "Discrete 2GB".into(),
+            kind: GpuKind::Discrete,
+            dedicated_vram_mb: MIN_DISCRETE_VRAM_MB - 1,
+            shared_system_mb: 0,
+        }];
+
+        let empty_adapters = vec![];
+
+        // 1. Cpu pref always gives Device::Cpu
+        for &dm in &[true, false] {
+            for adapters in &[&adapters_full, &adapters_only_integrated, &empty_adapters] {
+                let opts = LoadOptions::choose(DevicePref::Cpu, 35, dm, adapters);
+                assert!(matches!(opts.device, Device::Cpu));
+            }
+        }
+
+        // 2. directml=false always gives Device::Cpu
+        for &pref in &[DevicePref::Auto, DevicePref::Cpu, DevicePref::Gpu] {
+            for adapters in &[&adapters_full, &adapters_only_integrated, &empty_adapters] {
+                let opts = LoadOptions::choose(pref, 35, false, adapters);
+                assert!(matches!(opts.device, Device::Cpu));
+            }
+        }
+
+        // 3. Auto with directml=true:
+        // - full adapter list picks discrete (index 1) >= MIN_DISCRETE_VRAM_MB
+        let opts = LoadOptions::choose(DevicePref::Auto, 35, true, &adapters_full);
+        assert!(matches!(opts.device, Device::DirectMl { device_id: 1 }));
+
+        // - only integrated gives Cpu
+        let opts = LoadOptions::choose(DevicePref::Auto, 35, true, &adapters_only_integrated);
+        assert!(matches!(opts.device, Device::Cpu));
+
+        // - low discrete gives Cpu
+        let opts = LoadOptions::choose(DevicePref::Auto, 35, true, &adapters_low_discrete);
+        assert!(matches!(opts.device, Device::Cpu));
+
+        // - empty gives Cpu
+        let opts = LoadOptions::choose(DevicePref::Auto, 35, true, &empty_adapters);
+        assert!(matches!(opts.device, Device::Cpu));
+
+        // 4. Gpu with directml=true:
+        // - full adapter list picks discrete (index 1)
+        let opts = LoadOptions::choose(DevicePref::Gpu, 35, true, &adapters_full);
+        assert!(matches!(opts.device, Device::DirectMl { device_id: 1 }));
+
+        // - only integrated picks integrated (index 0)
+        let opts = LoadOptions::choose(DevicePref::Gpu, 35, true, &adapters_only_integrated);
+        assert!(matches!(opts.device, Device::DirectMl { device_id: 0 }));
+
+        // - empty falls back to Cpu
+        let opts = LoadOptions::choose(DevicePref::Gpu, 35, true, &empty_adapters);
+        assert!(matches!(opts.device, Device::Cpu));
     }
 
     #[test]
