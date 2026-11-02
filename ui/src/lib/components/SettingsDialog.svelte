@@ -30,7 +30,7 @@
 	import { HELP_COMBO } from '$lib/shortcuts';
 	import { copyText } from '$lib/clipboard';
 	import * as api from '$lib/api';
-	import { blocked, karaokeAvailability, karaokeConsent, karaokeModels, karaokeSelection, cancelKaraokeModelDownload, deleteKaraokeModel, playback, prefs, refreshLanguage, setAutoplay, ui, toast, unblockArtist } from '$lib/player.svelte';
+	import { blocked, karaokeAvailability, karaokeConsent, karaokeModels, karaokeSelection, cancelKaraokeModelDownload, deleteKaraokeModel, playback, prefs, refreshLanguage, setAutoplay, ui, toast, unblockArtist, setKaraokeDevice, applyKaraokeStatus } from '$lib/player.svelte';
 	import { win } from '$lib/win.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import AppearanceSettings from '$lib/components/AppearanceSettings.svelte';
@@ -302,6 +302,14 @@
 		}
 	]);
 
+	const karaokeDeviceOptions = $derived([
+		{ value: 'auto' as api.KaraokeDevice, label: t('karaoke.settings.device_auto') },
+		{ value: 'cpu' as api.KaraokeDevice, label: t('karaoke.settings.device_cpu') },
+		...(karaokeAvailability.gpuSupported
+			? [{ value: 'gpu' as api.KaraokeDevice, label: t('karaoke.settings.device_gpu') }]
+			: [])
+	]);
+
 	async function setKaraokeModel(val: string) {
 		const modelId = val as api.KaraokeModelId;
 		deleteConfirmModel = null;
@@ -315,8 +323,7 @@
 			await api.karaokeModelSet(modelId);
 			karaokeSelection.model = modelId;
 			const status = await api.karaokeEngineStatus();
-			karaokeAvailability.reason = status.availability === 'unavailable' ? status.reason : undefined;
-			karaokeAvailability.processor = status.processor;
+			applyKaraokeStatus(status);
 		} catch (e) {
 			toast.error(String(e));
 		}
@@ -354,8 +361,7 @@
 			if (statusRes.status === 'fulfilled') {
 				const s = statusRes.value;
 				karaokeCacheBytes = s.cacheBytes;
-				karaokeAvailability.reason = s.availability === 'unavailable' ? s.reason : undefined;
-				karaokeAvailability.processor = s.processor;
+				applyKaraokeStatus(s);
 				if (s.model) karaokeSelection.model = s.model;
 			}
 		} catch (e) {
@@ -915,6 +921,11 @@
 									control: karaokeCacheUsedControl
 								})}
 								{@render row({
+									title: t('karaoke.settings.device'),
+									desc: t('karaoke.settings.device_desc'),
+									control: karaokeDeviceControl
+								})}
+								{@render row({
 									title: t('karaoke.settings.status'),
 									desc: t('karaoke.settings.status_desc'),
 									control: karaokeStatusControl
@@ -1319,6 +1330,25 @@
 
 {#snippet changelog()}
 	<Changelog current={version} />
+{/snippet}
+
+{#snippet karaokeDeviceControl()}
+	<Select.Root
+		type="single"
+		value={karaokeAvailability.device}
+		onValueChange={(v) => void setKaraokeDevice(v as api.KaraokeDevice)}
+	>
+		<Select.Trigger class="w-48 shrink-0" aria-label={t('karaoke.settings.device')}>
+			<span class="flex-1 truncate text-left">
+				{karaokeDeviceOptions.find((o) => o.value === karaokeAvailability.device)?.label ?? karaokeDeviceOptions[0].label}
+			</span>
+		</Select.Trigger>
+		<Select.Content>
+			{#each karaokeDeviceOptions as opt (opt.value)}
+				<Select.Item value={opt.value} label={opt.label}>{opt.label}</Select.Item>
+			{/each}
+		</Select.Content>
+	</Select.Root>
 {/snippet}
 
 {#snippet karaokeModelControl()}
