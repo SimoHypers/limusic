@@ -155,7 +155,6 @@
 		"volume": "Âm lượng",
 		"queue": "Hàng đợi",
 		"lyrics": "Lời bài hát",
-		"mini_player": "Trình phát thu nhỏ",
 		"mini_shrink": "Thu nhỏ trình phát nhỏ",
 		"mini_expand": "Mở rộng trình phát nhỏ",
 		"theater_mode": "Chế độ rạp chiếu phim",
@@ -970,7 +969,6 @@
 			"lyricsplus": "Lời bài hát Apple Music, đồng bộ từng từ, kèm phiên âm La-tinh chính thức của Apple.",
 			"lrclib": "Thư viện lời bài hát đồng bộ mở, độ bao phủ phong phú nhất.",
 			"youtube": "Lời bài hát chính thức từ YouTube Music (nếu có bản quyền).",
-			"simpmusic": "Lời bài hát từ cộng đồng khớp chính xác với bản tải lên YouTube, bao gồm cả đoạn mở đầu.",
 			"netease": "Kho nhạc Trung Quốc lớn. Cung cấp bản dịch tiếng Trung dưới nhiều bài hát.",
 			"qq": "Kho nhạc Trung Quốc, rất mạnh về Mandopop và Cantopop.",
 			"kugou": "Kho nhạc Trung Quốc dành cho các bài hát hiếm hơn."

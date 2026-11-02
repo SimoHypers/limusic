@@ -129,7 +129,6 @@
 		"volume": "音量",
 		"queue": "待播清單",
 		"lyrics": "歌詞",
-		"mini_player": "迷你播放器",
 		"theater_mode": "劇院模式",
 		"playing_from": "播放來源",
 		"exit_theater": "結束劇院模式",
@@ -944,7 +943,6 @@
 			"lyricsplus": "Apple Music 歌詞，支援高精準度逐字滾動與 Apple 官方羅馬拼音。",
 			"lrclib": "開放原始碼同步歌詞庫，覆蓋全球音樂範圍最廣。",
 			"youtube": "YouTube Music 官方授權的歌詞來源。",
-			"simpmusic": "由社群貢獻的精準歌詞，精確匹配 YouTube 影片版本（包含開頭片頭）。",
 			"netease": "網易雲音樂曲庫，擁有極為豐富的華語音樂目錄與優質中文翻譯。",
 			"qq": "QQ 音樂曲庫，在華語流行樂 (Mandopop) 與粵語流行樂 (Cantopop) 上極為強大。",
 			"kugou": "酷狗音樂曲庫，適合尋找各類小眾與稀有冷門歌曲。"

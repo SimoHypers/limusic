@@ -105,7 +105,6 @@
 		"volume": "Ses Seviyesi",
 		"queue": "Sıra",
 		"lyrics": "Şarkı Sözleri",
-		"mini_player": "Mini Oynatıcı",
 		"theater_mode": "Tiyatro modu",
 		"playing_from": "Şuradan çalıyor",
 		"exit_theater": "Tiyatro modundan çık",
@@ -907,7 +906,6 @@
 			"lyricsplus": "Apple Music sözleri, sözcük sözcük, Apple'ın kendi romanizasyonuyla.",
 			"lrclib": "Eşzamanlı sözler kütüphanesi. En geniş kapsama alanı.",
 			"youtube": "YouTube Music'in kendi sözleri, lisanslı olduğu yerlerde.",
-			"simpmusic": "Tam olarak o YouTube yüklemesine eşleştirilmiş topluluk sözleri, girişler dahil.",
 			"netease": "Geniş bir Çince katalog. Birçok şarkının altına Çince çeviri ekler.",
 			"qq": "Çince katalog, Mandopop ve Cantopop'ta güçlü.",
 			"kugou": "Daha nadir parçalar için Çince katalog."

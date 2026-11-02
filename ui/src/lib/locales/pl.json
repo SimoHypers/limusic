@@ -127,7 +127,6 @@
 		"volume": "Głośność",
 		"queue": "Kolejka",
 		"lyrics": "Tekst",
-		"mini_player": "Mini odtwarzacz",
 		"theater_mode": "Tryb kinowy",
 		"playing_from": "Odtwarzanie z",
 		"exit_theater": "Wyjdź z trybu kinowego",
@@ -916,7 +915,6 @@
 			"lyricsplus": "Teksty z Apple Music, słowo po słowie, z własną latynizacją Apple.",
 			"lrclib": "Otwarta biblioteka tekstów zsynchronizowanych. Najszersze pokrycie.",
 			"youtube": "Własne teksty YouTube Music, tam gdzie są licencjonowane.",
-			"simpmusic": "Teksty od społeczności dopasowane do dokładnie tego przesłanego filmu na YouTube, razem z wstępami.",
 			"netease": "Duży chiński katalog. Dodaje chińskie tłumaczenia pod wieloma utworami.",
 			"qq": "Chiński katalog, mocny w Mandopopie i Cantopopie.",
 			"kugou": "Chiński katalog, dla rzadszych utworów."

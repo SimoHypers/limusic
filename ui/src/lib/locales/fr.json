@@ -103,7 +103,6 @@
 		"volume": "Volume",
 		"queue": "File d'attente",
 		"lyrics": "Paroles",
-		"mini_player": "Mini-lecteur",
 		"theater_mode": "Mode cinéma",
 		"playing_from": "Lecture depuis",
 		"exit_theater": "Quitter le mode cinéma",
@@ -800,7 +799,6 @@
 			"lyricsplus": "Paroles Apple Music, mot à mot, avec la romanisation officielle Apple.",
 			"lrclib": "Bibliothèque libre et ouverte de paroles synchronisées. Offre la plus large couverture.",
 			"youtube": "Paroles officielles intégrées à YouTube Music sous licence.",
-			"simpmusic": "Paroles communautaires calées sur l'import vidéo YouTube exact, introductions comprises.",
 			"netease": "Vaste catalogue chinois. Propose des traductions chinoises sous de nombreux morceaux.",
 			"qq": "Catalogue chinois de référence pour la Mandopop et la Cantopop.",
 			"kugou": "Catalogue chinois idéal pour les morceaux rares."

@@ -105,7 +105,6 @@
 		"volume": "Volumen",
 		"queue": "Cola",
 		"lyrics": "Letra",
-		"mini_player": "Reproductor mini",
 		"theater_mode": "Modo teatro",
 		"playing_from": "Reproduciendo desde",
 		"exit_theater": "Salir del modo teatro",
@@ -911,7 +910,6 @@
 			"lyricsplus": "Letras de Apple Music. Palabra por palabra, con la romanización oficial de Apple.",
 			"lrclib": "Biblioteca abierta de letras sincronizadas. La cobertura mas amplia.",
 			"youtube": "Letras oficiales de YouTube Music, cuando estén licenciadas.",
-			"simpmusic": "Letras de la comunidad adaptadas al audio exacto de YouTube, incluyendo intros.",
 			"netease": "Gran catalogo chino. Agrega traducciones en chino bajo muchas canciones.",
 			"qq": "Catálogo chino, fuerte en Mandopop y Cantopop.",
 			"kugou": "Catálogo chino, para pistas poco comunes."

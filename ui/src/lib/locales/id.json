@@ -105,7 +105,6 @@
 		"volume": "Volume",
 		"queue": "Antrean",
 		"lyrics": "Lirik",
-		"mini_player": "Pemutar Mini",
 		"theater_mode": "Mode teater",
 		"playing_from": "Memutar dari",
 		"exit_theater": "Keluar dari mode teater",
@@ -911,7 +910,6 @@
 			"lyricsplus": "Lirik Apple Music, kata demi kata, dengan romanisasi resmi Apple.",
 			"lrclib": "Pustaka terbuka untuk lirik tersinkronisasi. Cakupan lagu terluas.",
 			"youtube": "Lirik resmi YouTube Music jika memiliki lisensi.",
-			"simpmusic": "Lirik komunitas yang dicocokkan langsung dengan video YouTube terkait, termasuk bagian intro.",
 			"netease": "Katalog musik Tiongkok yang luas. Menyertakan terjemahan bahasa Mandarin pada banyak lagu.",
 			"qq": "Katalog musik Tiongkok, sangat lengkap untuk lagu Mandopop dan Cantopop.",
 			"kugou": "Katalog musik Tiongkok, cocok untuk trek yang lebih langka."

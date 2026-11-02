@@ -126,7 +126,6 @@
 		"volume": "Lautstärke",
 		"queue": "Warteschlange",
 		"lyrics": "Songtext",
-		"mini_player": "Miniplayer",
 		"theater_mode": "Kinomodus",
 		"playing_from": "Wiedergabe aus",
 		"exit_theater": "Kinomodus beenden",
@@ -880,7 +879,6 @@
 			"lyricsplus": "Apple Music-Songtexte: Wort für Wort synchronisiert mit offizieller Romanisierung.",
 			"lrclib": "Offene Datenbank für synchronisierte Songtexte mit der größten Gesamtabdeckung.",
 			"youtube": "Offizielle Songtexte von YouTube Music, sofern lizenziert.",
-			"simpmusic": "Community-Songtexte, präzise auf den konkreten YouTube-Upload inklusive Intro abgestimmt.",
 			"netease": "Großer chinesischer Musikkatalog. Bietet für viele Songs chinesische Übersetzungen an.",
 			"qq": "Chinesischer Katalog mit großem Fokus auf Mandopop und Cantopop.",
 			"kugou": "Chinesischer Musikkatalog, besonders stark bei selteneren Titeln."

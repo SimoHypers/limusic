@@ -155,7 +155,6 @@
 		"volume": "Helitugevus",
 		"queue": "Järjekord",
 		"lyrics": "Laulusõnad",
-		"mini_player": "Minipleier",
 		"mini_shrink": "Vähenda minipleierit",
 		"mini_expand": "Laienda minipleierit",
 		"theater_mode": "Teatrirežiim",
@@ -968,7 +967,6 @@
 			"lyricsplus": "Apple Musicu laulusõnad, sõnahaaval, Apple'i enda latiniseeringuga.",
 			"lrclib": "Avatud sünkroonitud laulusõnade kogu. Kõige laiem katvus.",
 			"youtube": "YouTube Musicu enda laulusõnad, kus need on litsentsitud.",
-			"simpmusic": "Kogukonna laulusõnad, sobitatud täpselt YouTube'i üleslaadimisega, sissejuhatused kaasa arvatud.",
 			"netease": "Suur Hiina kataloog. Lisab paljudele lugudele hiinakeelse tõlke.",
 			"qq": "Hiina kataloog, tugev Mandopopi ja Cantopopi alal.",
 			"kugou": "Hiina kataloog haruldasemate lugude jaoks."
