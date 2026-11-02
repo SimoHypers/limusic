@@ -230,10 +230,13 @@
 	     hidden at this width, and at 400px there is exactly room for a title beside them.
 	     `basis-full` is what pushes the row onto its own line. -->
 	<div class="hidden min-w-0 items-center gap-1 max-sm:flex max-sm:basis-full">
+		<!-- Toggles, like the empty space beside the transport: pressing the name again puts the view
+		     away instead of leaving the only way out to the chevron. -->
 		<button
 			class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
-			onclick={() => (np.open = true)}
-			aria-label={t('player.open_player')}
+			onclick={() => (np.open = !np.open)}
+			aria-expanded={np.open}
+			aria-label={np.open ? t('player.minimize_player') : t('player.open_player')}
 		>
 			{#if playback.now?.thumbnail}
 				<img
