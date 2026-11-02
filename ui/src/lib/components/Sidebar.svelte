@@ -25,6 +25,9 @@
 	import { ON_REPEAT_ID, isLocalPlaylist, type BrowseItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import PlaylistMenu from './PlaylistMenu.svelte';
+	import IntegrationButtons from './IntegrationButtons.svelte';
+	import AccountMenu from './AccountMenu.svelte';
+	import { appearance } from '$lib/theme.svelte';
 	import { library, personal, ui, openNewPlaylist, toggleSidebar } from '$lib/player.svelte';
 	import { mergeSaved, orderLibrary } from '$lib/personal';
 	import { t } from '$lib/i18n.svelte';
@@ -105,7 +108,13 @@
 	// wide there, a 64px rail plus a page does not fit, so the menu moves behind a button.
 	const drawer = (cls: string) => (ui.navOpen ? cls : '');
 	const closeDrawer = () => (ui.navOpen = false);
+	// The drawer renders the titlebar's account and integration buttons, and their visibility comes
+	// from Appearance ▸ Top bar. Rendered by width rather than merely hidden: IntegrationButtons
+	// watches the Last.fm and ListenBrainz sessions, and a second mounted copy would subscribe twice.
+	let vw = $state(typeof window === 'undefined' ? 1200 : window.innerWidth);
 </script>
+
+<svelte:window bind:innerWidth={vw} />
 
 <aside
 	class="flex h-full w-16 shrink-0 flex-col border-r bg-sidebar p-3 text-sidebar-foreground {wide(
@@ -126,6 +135,11 @@
 		>
 		<!-- Column when collapsed: the two buttons don't fit side by side in the 64px rail. -->
 		<div class="flex items-center gap-1 {collapsed ? 'flex-col' : ''}">
+			<!-- Below sm the titlebar drops the account button, so the drawer keeps it here, left of
+			     the theme toggle. -->
+			{#if vw < 640 && !appearance.titlebarHidden.includes('account')}
+				<AccountMenu />
+			{/if}
 			<Button
 				variant="ghost"
 				size="icon-sm"
@@ -154,6 +168,16 @@
 			</Button>
 		</div>
 	</div>
+
+	<!-- Below sm the titlebar hides the integration buttons (its window controls need the room), so
+	     the drawer carries them here, under the wordmark, from the same component. -->
+	{#if vw < 640}
+		<div class="flex flex-wrap items-center gap-1 px-1 pb-2">
+			<IntegrationButtons
+				itemClass="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
+			/>
+		</div>
+	{/if}
 
 	<nav class="mt-2 flex flex-col gap-1">
 		{#each nav as n (n.href)}
