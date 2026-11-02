@@ -42,7 +42,7 @@
 		wheelVolume
 	} from '$lib/player.svelte';
 	import { thumb } from '$lib/thumb';
-	import { appearance, theme } from '$lib/theme.svelte';
+	import { appearance } from '$lib/theme.svelte';
 	import ArtistLine from './ArtistLine.svelte';
 	import M3SeekWave from './M3SeekWave.svelte';
 	import Marquee from './Marquee.svelte';
@@ -397,7 +397,6 @@
 					style="--pct:{seekPct * 100}%"
 					min="0"
 					max={shownDuration || 0}
-					step={1}
 					value={shownPosition}
 					oninput={onSeekInput}
 					onchange={onSeekCommit}
