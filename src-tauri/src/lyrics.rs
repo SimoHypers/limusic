@@ -164,6 +164,8 @@ pub struct LyricsRequest {
     pub album: Option<String>,
     /// Track length in seconds (mpv's), tightens LRCLIB matching. `None`/0 when unknown yet.
     pub duration: Option<f64>,
+    /// Title and artist typed in the source picker: the video id no longer says what to look up.
+    pub searched: bool,
 }
 
 /// Entry point for the `get_lyrics` command, romanized. `source: None` is the song's lyrics (cached,
@@ -800,16 +802,24 @@ struct UnisonLyrics {
     format: String,
 }
 
-// ponytail: by video id only, like the extension. Unison answers a `v` miss with 404 without trying
-// song + artist (`routes/lyrics.ts`, despite its README), so a typed search in the source picker
-// still gets this video's lyrics; ask by song + artist when that matters.
+/// By video id, like the extension, and by title only for a search typed in the source picker. A `v`
+/// miss is a 404 without trying song + artist (`routes/lyrics.ts`, despite its README), so asking
+/// both ways would cost a second request on every miss.
 async fn unison_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Error> {
-    if crate::local::is_local_song(&req.video_id) {
+    let q: Vec<(&str, String)> = if req.searched {
+        let mut q = vec![("song", req.title.clone()), ("artist", req.artists.clone())];
+        if let Some(d) = req.duration.filter(|d| *d > 0.0) {
+            q.push(("duration", format!("{}", d.round() as i64)));
+        }
+        q
+    } else if crate::local::is_local_song(&req.video_id) {
         return Ok(None);
-    }
+    } else {
+        vec![("v", req.video_id.clone())]
+    };
     let resp = crate::http::client()
         .get(UNISON_URL)
-        .query(&[("v", &req.video_id)])
+        .query(&q)
         .header("User-Agent", LRCLIB_UA)
         .timeout(Duration::from_secs(8))
         .send()
@@ -1847,6 +1857,7 @@ mod tests {
             artists: "Ed Sheeran".into(),
             album: None,
             duration: Some(233.0),
+            searched: false,
         };
         let mut alive = 0;
         for (name, hit) in [
@@ -1892,6 +1903,7 @@ mod tests {
                 artists: artists.into(),
                 album: None,
                 duration: Some(283.0),
+                searched: false,
             };
             let hit = lrclib_search(&cover).await.unwrap().expect("LRCLIB free-text hit");
             assert!(hit.has_synced(), "{title}");

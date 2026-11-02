@@ -2443,9 +2443,11 @@ pub async fn get_lyrics(
     artists: String,
     album: Option<String>,
     duration: Option<f64>,
+    searched: Option<bool>,
     source: Option<String>,
 ) -> Result<Option<crate::lyrics::Lyrics>, String> {
-    let req = crate::lyrics::LyricsRequest { video_id, title, artists, album, duration };
+    let searched = searched.unwrap_or(false);
+    let req = crate::lyrics::LyricsRequest { video_id, title, artists, album, duration, searched };
     crate::lyrics::get_lyrics(state.inner(), req, source).await
 }
 
@@ -2459,9 +2461,11 @@ pub async fn choose_lyrics_source(
     artists: String,
     album: Option<String>,
     duration: Option<f64>,
+    searched: Option<bool>,
     source: Option<String>,
 ) -> Result<Option<crate::lyrics::Lyrics>, String> {
-    let req = crate::lyrics::LyricsRequest { video_id, title, artists, album, duration };
+    let searched = searched.unwrap_or(false);
+    let req = crate::lyrics::LyricsRequest { video_id, title, artists, album, duration, searched };
     Ok(crate::lyrics::choose_source(state.inner(), req, source).await)
 }
 

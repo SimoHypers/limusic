@@ -66,7 +66,7 @@
 	const offset = $derived(lyrics?.offset_ms ?? 0);
 	// A typed title is a different song as far as the providers know, so the album goes; the length
 	// stays, it's still the recording that's playing.
-	const request = $derived(query ? { ...track, ...query, album: undefined } : track);
+	const request = $derived(query ? { ...track, ...query, album: undefined, searched: true } : track);
 	const attribution = $derived(
 		lyrics
 			? lyrics.source.startsWith('Source:')
