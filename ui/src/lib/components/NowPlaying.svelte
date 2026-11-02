@@ -154,12 +154,13 @@
 		api.togglePause();
 	}
 
-	// Scrolling the view is the volume, same step as the slider. The level only draws while the
-	// gesture is live (plus a second to read it) so the view is otherwise untouched.
+	// Scrolling the stage is the volume, same step as the slider. The level only draws while the
+	// gesture is live (plus a second to read it) so the view is otherwise untouched. The tab column
+	// beside the stage (queue, lyrics, comments) is deliberately outside it: those lists scroll.
 	let volFlash = $state(false);
 	let volTimer: ReturnType<typeof setTimeout>;
 	function onWheel(e: WheelEvent) {
-		// The queue, lyrics and comments lists scroll under the same pointer; their own scroll wins.
+		// A list inside the stage still wins, in case one is ever nested here.
 		if (scrollsUnder(e.target)) return;
 		wheelVolume(e);
 		volFlash = true;
@@ -475,7 +476,6 @@
 	onoutrostart={() => ((settled = false), setHole(null))}
 	onintroend={() => (settled = true)}
 	bind:this={view}
-	onwheel={onWheel}
 	onpointerdown={(e) => ((pressedKeep = keeps(e.target)), (releasedKeep = false))}
 	onpointerup={(e) => (releasedKeep = keeps(e.target))}
 	onclick={onBackdropClick}
@@ -532,7 +532,10 @@
 		     so what the bar's chevron opens has to be the track itself. Enlarged lyrics still win:
 		     they are the tab column, and the stage is not rendered at all while they are open. -->
 		{#if !big}
-			<section class="relative z-0 flex min-w-0 flex-1 flex-col px-6 pt-4 pb-6 lg:px-10">
+			<section
+				onwheel={onWheel}
+				class="relative z-0 flex min-w-0 flex-1 flex-col px-6 pt-4 pb-6 lg:px-10"
+			>
 				<!-- The way out on the left, the Song/Video switch in the middle. -->
 				<div class="grid h-10 shrink-0 grid-cols-[1fr_auto_1fr] items-center">
 					<button
@@ -562,8 +565,9 @@
 						data-np-keep
 						data-ctx
 					>
-						<!-- The wheel is handled by the view root, so the whole view is the
-						     volume gesture, not just the cover. -->
+						<!-- The wheel is handled by the column this sits in, so the picture and the
+						     controls around it are the volume gesture — the tab column beside them
+						     keeps its own scrolling. -->
 						<div bind:this={picBox} class="relative">
 							{#if !showVideo()}
 								<!-- The light the cover sits in: bigger than it and behind it, so it reads
@@ -717,7 +721,7 @@
 				<!-- Centred against the full height of the column on the right. Below md the tabs step
 				     aside (see the tab column's max-md:hidden), so the artwork is what the view shows at
 				     narrow widths. Untabbed there is no second column, so it is the whole view anyway. -->
-				<div class="flex min-w-0 flex-1 items-center justify-center">
+				<div onwheel={onWheel} class="flex min-w-0 flex-1 items-center justify-center">
 					<!-- A div, not a button: the video-mode toggle has to be a sibling of the play/pause
 					     button rather than nested inside it (nested buttons are invalid HTML and the
 					     inner one never reliably gets the click). -->
