@@ -79,6 +79,7 @@
 	import { keyOf, typing } from '$lib/shortcuts';
 	import ArtistLine from './ArtistLine.svelte';
 	import LyricsView from './LyricsView.svelte';
+	import M3SeekWave from './M3SeekWave.svelte';
 	import QueueList from './QueueList.svelte';
 	import SpeedPicker from './SpeedPicker.svelte';
 	import TrackMenu from './TrackMenu.svelte';
@@ -115,6 +116,16 @@
 		clearTimeout(idleTimer);
 		idleTimer = setTimeout(() => (idle = true), 3500);
 	}
+	// Only a pointer that went somewhere wakes it. WebKit sends a pointermove of its own when content
+	// scrolls under a still pointer, so every lyrics line brought the dock and the pointer back (#573).
+	let lastX = NaN;
+	let lastY = NaN;
+	function onPointerMove(e: PointerEvent) {
+		if (e.screenX === lastX && e.screenY === lastY) return;
+		lastX = e.screenX;
+		lastY = e.screenY;
+		wake();
+	}
 	onMount(() => {
 		wake();
 		return () => clearTimeout(idleTimer);
@@ -150,11 +161,6 @@
 		return () => clearTimeout(timer);
 	});
 
-	// A focused slider (the seek bar or volume, after a click) is not a text field: F must still
-	// work there.
-	const textTarget = (el: EventTarget | null) =>
-		typing(el) && !(el instanceof HTMLInputElement && el.type === 'range');
-
 	function onKey(e: KeyboardEvent) {
 		wake();
 		// A dialog or menu open over this one (the palette, the shortcut sheet, a track menu) already
@@ -174,7 +180,7 @@
 			!e.altKey &&
 			!e.repeat &&
 			showVideo() &&
-			!textTarget(e.target)
+			!typing(e.target)
 		) {
 			e.preventDefault();
 			toggleCinema();
@@ -399,13 +405,15 @@
 	}
 </script>
 
-<svelte:window onkeydown={onKey} onpointermove={wake} />
+<svelte:window onkeydown={onKey} onpointermove={onPointerMove} />
 
 <!-- Above the whole app including the titlebar (the chrome tops out at z-20): fullscreen means
      fullscreen. Below the dialogs and menus (z-50 and up) and the toast/update banners (z-100),
      which have to stay reachable from in here: Ctrl+K opened the palette behind this view.
      Transparent while mpv's picture shows through it; `inert:` is the fade out, when Svelte stops
-     updating classes here and the background has to come back on its own. -->
+     updating classes here and the background has to come back on its own.
+     Calm hides the pointer on everything inside, not just here: a `cursor-pointer` child (a lyrics
+     line, the cover, cinema's play/pause) overrides an inherited `cursor-none` (#573). -->
 <section
 	bind:this={view}
 	transition:fade={{ duration: 220 }}
@@ -415,7 +423,7 @@
 		? ''
 		: cinema
 			? 'bg-black'
-			: 'bg-background'} {cinema ? CINEMA_INK : ''} {calm ? 'cursor-none' : ''}"
+			: 'bg-background'} {cinema ? CINEMA_INK : ''} {calm ? 'cursor-none [&_*]:cursor-none' : ''}"
 >
 	{#if showVideo()}
 		<!-- The video lights the room itself (Settings > Video > ambient light), and nothing else
@@ -762,22 +770,38 @@
 		     shift a few px per tick (#463). -->
 		<div class="flex items-center gap-4 text-xs font-medium tabular-nums text-muted-foreground">
 			<span class="min-w-[5ch] text-right">{fmt(shownPosition)}</span>
-			<input
-				type="range"
-				class="range theater-range min-w-0 flex-1 {cinema ? 'on-art' : ''}"
+			<div
+				class="m3-seek m3-seek-theater relative flex min-w-0 flex-1 items-center {cinema ? 'on-art' : ''}"
 				style="--pct:{pct}%"
-				min="0"
-				max={shownDuration || 0}
-				value={shownPosition}
-				oninput={(e) => (seekDrag = Number(e.currentTarget.value) * playback.speed)}
-				onchange={(e) => {
-					const v = Number(e.currentTarget.value) * playback.speed;
-					playback.position = v;
-					seekDrag = null;
-					api.seek(v);
-				}}
-				aria-label={t('player.seek')}
-			/>
+			>
+				<M3SeekWave
+					pct={pct / 100}
+					paused={playback.paused}
+					duration={shownDuration}
+					dragging={seekDrag !== null}
+					strokeWidth={4.5}
+					thumbWidth={5}
+					thumbHeight={22}
+					maxAmp={3.4}
+					wavelength={24}
+				/>
+				<input
+					type="range"
+					class="range theater-range min-w-0 flex-1 {cinema ? 'on-art' : ''}"
+					style="--pct:{pct}%"
+					min="0"
+					max={shownDuration || 0}
+					value={shownPosition}
+					oninput={(e) => (seekDrag = Number(e.currentTarget.value) * playback.speed)}
+					onchange={(e) => {
+						const v = Number(e.currentTarget.value) * playback.speed;
+						playback.position = v;
+						seekDrag = null;
+						api.seek(v);
+					}}
+					aria-label={t('player.seek')}
+				/>
+			</div>
 			<span class="min-w-[5ch]">{fmt(shownDuration)}</span>
 		</div>
 
@@ -867,6 +891,8 @@
 				{/if}
 				<button
 					type="button"
+					data-theater-play
+					data-playing={playback.paused ? 'false' : 'true'}
 					onclick={() => api.togglePause()}
 					class="mx-1 flex cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform duration-150 hover:scale-[1.06] active:scale-95 {short.current
 						? 'size-12'

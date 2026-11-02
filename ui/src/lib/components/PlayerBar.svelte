@@ -45,6 +45,7 @@
 	import { appearance } from '$lib/theme.svelte';
 	import ArtistLine from './ArtistLine.svelte';
 	import KaraokeButton from './KaraokeButton.svelte';
+	import M3SeekWave from './M3SeekWave.svelte';
 	import Marquee from './Marquee.svelte';
 	import SpeedPicker from './SpeedPicker.svelte';
 	import TrackMenu from './TrackMenu.svelte';
@@ -122,6 +123,9 @@
 	// Display playback seconds at the selected tempo; mpv seeks still take track seconds.
 	const shownPosition = $derived((seekDrag ?? playback.position) / playback.speed);
 	const shownDuration = $derived(playback.duration / playback.speed);
+	const seekPct = $derived(
+		shownDuration > 0 ? Math.min(1, Math.max(0, shownPosition / shownDuration)) : 0
+	);
 
 	function onSeekInput(e: Event) {
 		seekDrag = Number((e.target as HTMLInputElement).value) * playback.speed;
@@ -159,6 +163,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions, a11y_no_noninteractive_element_interactions -->
 <footer
 	data-player-bar
+	data-playing={playback.paused ? 'false' : 'true'}
 	onpointerdown={(e) => (pressedControl = isControl(e.target))}
 	onclick={onBarClick}
 	class="flex items-center gap-2 border-t bg-card px-2 py-2.5 sm:gap-4 sm:px-4 sm:py-3"
@@ -169,6 +174,7 @@
 		{#key playback.now?.videoId}
 			{#if playback.now?.thumbnail}
 				<img
+					data-player-art
 					src={thumb(playback.now.thumbnail, 120)}
 					alt=""
 					style="max-width:none"
@@ -177,6 +183,7 @@
 				/>
 			{:else}
 				<div
+					data-player-art
 					class="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground/50"
 				>
 					<HugeiconsIcon icon={MusicNote01Icon} class="h-5 w-5" />
@@ -325,6 +332,7 @@
 			<Button
 				variant="default"
 				size="icon"
+				data-play-button
 				class="rounded-full"
 				onclick={() => api.togglePause()}
 				aria-label={playback.paused ? t('player.play') : t('player.pause')}
@@ -374,17 +382,28 @@
 			<!-- Fixed slots, or the seek bar twitches as the position ticks: DM Sans has no tabular
 			     figures, so `tabular-nums` does nothing there (#463). -->
 			<span class="min-w-[5ch] text-right tabular-nums">{fmt(shownPosition)}</span>
-			<input
-				type="range"
-				class="range flex-1"
-				style="--pct:{shownDuration ? (shownPosition / shownDuration) * 100 : 0}%"
-				min="0"
-				max={shownDuration || 0}
-				value={shownPosition}
-				oninput={onSeekInput}
-				onchange={onSeekCommit}
-				aria-label={t('player.seek')}
-			/>
+			<div
+				class="m3-seek relative flex flex-1 items-center"
+				style="--pct:{seekPct * 100}%"
+			>
+				<M3SeekWave
+					pct={seekPct}
+					paused={playback.paused}
+					duration={shownDuration}
+					dragging={seekDrag !== null}
+				/>
+				<input
+					type="range"
+					class="range w-full flex-1"
+					style="--pct:{seekPct * 100}%"
+					min="0"
+					max={shownDuration || 0}
+					value={shownPosition}
+					oninput={onSeekInput}
+					onchange={onSeekCommit}
+					aria-label={t('player.seek')}
+				/>
+			</div>
 			<span class="min-w-[5ch] tabular-nums">{fmt(shownDuration)}</span>
 		</div>
 	</div>

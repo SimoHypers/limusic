@@ -105,7 +105,6 @@
 		"volume": "Volum",
 		"queue": "Listă de redare",
 		"lyrics": "Versuri",
-		"mini_player": "Mini player",
 		"theater_mode": "Mod cinema",
 		"playing_from": "Se redă din",
 		"exit_theater": "Ieși din modul cinema",
@@ -920,7 +919,6 @@
 			"lyricsplus": "Versuri din Apple Music, cuvânt cu cuvânt, cu transliterarea oficială Apple.",
 			"lrclib": "Bibliotecă deschisă de versuri sincronizate. Cea mai vastă acoperire.",
 			"youtube": "Versurile oficiale oferite de YouTube Music, acolo unde sunt licențiate.",
-			"simpmusic": "Versuri de la comunitate sincronizate exact cu videoclipurile YouTube, incluzând introducerile.",
 			"netease": "Catalog chinezesc extins. Oferă traduceri în chineză sub numeroase piese.",
 			"qq": "Catalog chinezesc, axat în principal pe Mandopop și Cantopop.",
 			"kugou": "Catalog chinezesc util pentru piese mai rare."

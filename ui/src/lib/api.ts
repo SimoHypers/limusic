@@ -1248,6 +1248,8 @@ export type LyricsTrack = {
 	artists: string;
 	album?: string;
 	duration?: number;
+	/** Title and artist typed in the source picker, not the song's own. */
+	searched?: boolean;
 };
 /** Cached on the Rust side, down the user's provider order. `null` = none found. `source` asks that
  *  one provider alone and caches nothing (the source picker's preview); it rejects when the

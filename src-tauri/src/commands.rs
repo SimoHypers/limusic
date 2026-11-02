@@ -272,7 +272,7 @@ pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
 /// `visitor_data`) and internal blobs (`queue_json`, `queue_index`, `queue_position`) never cross
 /// into the webview: they'd otherwise ship the login credential to the renderer on every open, and
 /// the webview can't overwrite them either.
-const UI_SETTINGS: [&str; 32] = [
+const UI_SETTINGS: [&str; 33] = [
     "volume",
     "proxy",
     "quality",
@@ -293,6 +293,7 @@ const UI_SETTINGS: [&str; 32] = [
     "update_banner",
     "update_channel",
     "lyrics_providers",
+    "lyrics_prefer_words",
     "music_videos",
     "videos_first",
     "ambient_light",
@@ -522,7 +523,7 @@ pub async fn set_setting(
     }
     // Cached lyrics outlive the order that produced them, so a reorder would otherwise reach only
     // songs never played. Songs whose source was picked by hand keep it.
-    if key == "lyrics_providers" {
+    if key == "lyrics_providers" || key == "lyrics_prefer_words" {
         state.db.clear_lyrics_cache();
     }
     // Hand the frame back to the compositor (or take it again). macOS is not on this path: its
@@ -2466,6 +2467,7 @@ pub async fn lt_request_sync(state: St<'_>) -> Result<(), String> {
 /// `duration` is mpv's length in seconds. `None` = no lyrics found anywhere. `source` asks one
 /// provider alone, uncached: the source picker's preview.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // the UI's call, flat: `LyricsTrack` + source
 pub async fn get_lyrics(
     state: St<'_>,
     video_id: String,
@@ -2473,15 +2475,18 @@ pub async fn get_lyrics(
     artists: String,
     album: Option<String>,
     duration: Option<f64>,
+    searched: Option<bool>,
     source: Option<String>,
 ) -> Result<Option<crate::lyrics::Lyrics>, String> {
-    let req = crate::lyrics::LyricsRequest { video_id, title, artists, album, duration };
+    let searched = searched.unwrap_or(false);
+    let req = crate::lyrics::LyricsRequest { video_id, title, artists, album, duration, searched };
     crate::lyrics::get_lyrics(state.inner(), req, source).await
 }
 
 /// Keep one provider's lyrics for this song (`source`), or hand it back to the provider order
 /// (`None`). Returns what the song shows now.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // the UI's call, flat: `LyricsTrack` + source
 pub async fn choose_lyrics_source(
     state: St<'_>,
     video_id: String,
@@ -2489,9 +2494,11 @@ pub async fn choose_lyrics_source(
     artists: String,
     album: Option<String>,
     duration: Option<f64>,
+    searched: Option<bool>,
     source: Option<String>,
 ) -> Result<Option<crate::lyrics::Lyrics>, String> {
-    let req = crate::lyrics::LyricsRequest { video_id, title, artists, album, duration };
+    let searched = searched.unwrap_or(false);
+    let req = crate::lyrics::LyricsRequest { video_id, title, artists, album, duration, searched };
     Ok(crate::lyrics::choose_source(state.inner(), req, source).await)
 }
 

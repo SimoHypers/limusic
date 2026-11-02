@@ -338,6 +338,50 @@ pub(crate) fn tune_webview_labelled(app: &tauri::AppHandle, label: &str, media: 
     }
 }
 
+/// Let a destroyed webview's web process exit (#572). Runs for every webview, from the plugin hook
+/// in [`run`].
+///
+/// wry 0.55 connects its IPC handler on the view's own `UserContentManager` with a closure that
+/// holds the view (tauri-apps/wry#1871), so the view is never freed. WebKitGTK 2.52 closes the
+/// web process when the widget is destroyed anyway; 2.54 keeps it until the view is freed, so every
+/// webview torn down at runtime (cipher idle teardown, mini player, sign-in, session refresh) left
+/// a whole `WebKitWebProcess` behind, ~90 MiB PSS each. Dropping the manager's handlers when GTK
+/// destroys the view breaks the cycle.
+///
+/// ponytail: delete once wry captures the view weakly.
+#[cfg(target_os = "linux")]
+fn release_on_destroy(webview: &tauri::Webview) {
+    use gtk::glib::{gobject_ffi, prelude::*, translate::IntoGlib};
+    use gtk::prelude::WidgetExt;
+    use webkit2gtk::{UserContentManager, WebViewExt};
+
+    let _ = webview.with_webview(|wv| {
+        let view = wv.inner();
+        let Some(manager) = view.user_content_manager() else { return };
+        view.connect_destroy(move |_| {
+            let signal = gtk::glib::subclass::signal::SignalId::lookup(
+                "script-message-received",
+                UserContentManager::static_type(),
+            );
+            if let Some(signal) = signal {
+                // Safe: `manager` is a live GObject we hold a reference to, and matching on the
+                // signal id alone needs none of the closure/func/data pointers.
+                unsafe {
+                    gobject_ffi::g_signal_handlers_disconnect_matched(
+                        manager.as_ptr().cast(),
+                        gobject_ffi::G_SIGNAL_MATCH_ID,
+                        signal.into_glib(),
+                        0,
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                    );
+                }
+            }
+        });
+    });
+}
+
 /// Pull the main window back onto a display if the window-state plugin restored it somewhere that
 /// no longer exists (#459). The plugin keeps a saved position when any one corner lands on a
 /// monitor, so after a layout change the window could come back with only its invisible resize
@@ -627,6 +671,16 @@ pub fn run() {
                 let _ = app.emit_to("main", "open-link", &args[1..]);
             }
         }));
+    }
+
+    // Every webview, so a destroyed one gives its web process back on WebKitGTK 2.54 (#572).
+    #[cfg(target_os = "linux")]
+    {
+        builder = builder.plugin(
+            tauri::plugin::Builder::<_, ()>::new("webview-release")
+                .on_webview_ready(|webview| release_on_destroy(&webview))
+                .build(),
+        );
     }
 
     builder

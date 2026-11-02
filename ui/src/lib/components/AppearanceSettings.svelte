@@ -311,7 +311,7 @@
 	<div class="relative min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-6 py-5">
 		<section class={GROUP}>
 			<h3 class={LABEL}>{t('settings.sections.theme')}</h3>
-			<div class={CARD}>
+			<div data-settings-card class={CARD}>
 				<!-- Chips, not miniatures: the preview beside this column already shows the chosen
 				     palette in full. Each swatch carries the palette's own classes, so it is the
 				     preset's background and accent whatever is applied on top. -->
@@ -345,13 +345,13 @@
 
 		<section class={GROUP}>
 			<h3 class={LABEL}>{t('settings.sections.colors')}</h3>
-			<div class={CARD}>
+			<div data-settings-card class={CARD}>
 				{@render row({
 					title: t('settings.themes.primary_color'),
 					desc: t('settings.themes.accent_hint'),
 					below: accentSwatches
 				})}
-				{#if theme.id === 'default'}
+				{#if theme.id === 'default' || theme.id === 'material'}
 					{@render row({
 						title: t('settings.themes.background_color'),
 						desc: t('settings.themes.tint_hint'),
@@ -382,7 +382,7 @@
 
 		<section class={GROUP}>
 			<h3 class={LABEL}>{t('settings.sections.interface')}</h3>
-			<div class={CARD}>
+			<div data-settings-card class={CARD}>
 				{@render row({
 					title: t('settings.themes.roundness'),
 					desc: t('settings.themes.roundness_hint'),
@@ -414,7 +414,7 @@
 
 		<section class={GROUP}>
 			<h3 class={LABEL}>{t('settings.sections.typography')}</h3>
-			<div class={CARD}>
+			<div data-settings-card class={CARD}>
 				{#each FONT_ROWS as fr (fr.key)}
 					<!-- Zero-arg wrappers: a snippet passed as a value can't carry arguments. -->
 					{#snippet pick()}{@render fontSelect(fr.key, fr.label)}{/snippet}
@@ -437,7 +437,7 @@
 
 		<section class={GROUP}>
 			<h3 class={LABEL}>{t('settings.sections.player_view')}</h3>
-			<div class={CARD}>
+			<div data-settings-card class={CARD}>
 				{@render row({
 					title: t('settings.themes.classic_player'),
 					desc: t('settings.themes.classic_player_hint'),
@@ -468,6 +468,7 @@
 	</div>
 
 	<aside
+		data-settings-aside
 		class="flex shrink-0 gap-3 bg-muted/30 px-5 py-5 lg:w-[22rem] lg:flex-col lg:border-l max-lg:items-center max-lg:border-b max-lg:py-3"
 	>
 		<h3 class="{LABEL} max-lg:hidden">{t('settings.themes.preview')}</h3>

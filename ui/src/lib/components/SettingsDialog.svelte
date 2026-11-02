@@ -402,6 +402,7 @@
 		return Number.isFinite(secs) ? Math.min(10, Math.max(1, secs)) : 5;
 	});
 	const hideVideosOn = $derived(settings.hide_videos === 'true');
+	const preferWordsOn = $derived(settings.lyrics_prefer_words === 'true');
 	// Off until the setting is turned on: still experimental, so nobody gets video they didn't ask
 	// for. Same test in `player.svelte.ts`, which hydrates `prefs` at launch.
 	const musicVideosOn = $derived(settings.music_videos === 'true');
@@ -489,6 +490,11 @@
 		settings.ambient_light = on ? 'true' : 'false';
 		await api.setSetting('ambient_light', settings.ambient_light);
 		prefs.ambient = on;
+	}
+
+	async function setPreferWords(on: boolean) {
+		settings.lyrics_prefer_words = on ? 'true' : 'false';
+		await api.setSetting('lyrics_prefer_words', settings.lyrics_prefer_words);
 	}
 
 	async function setHideVideos(on: boolean) {
@@ -654,7 +660,7 @@
 
 		<div class="flex min-w-0 h-[min(38rem,80vh)]">
 			<!-- Tab rail -->
-			<nav class="flex w-52 shrink-0 flex-col border-r bg-muted/40 p-3">
+			<nav data-settings-nav class="flex w-52 shrink-0 flex-col border-r bg-muted/40 p-3">
 				<Dialog.Title class="px-3 pt-1 pb-4 font-heading text-base font-semibold">
 					{t('settings.title')}
 				</Dialog.Title>
@@ -687,7 +693,10 @@
 			     (a long font name, a long path) widens the pane and pushes every tab off the modal. -->
 			<div class="flex min-w-0 flex-1 flex-col">
 				<!-- h-14 also keeps the dialog's close button clear of the first row. -->
-				<header class="flex h-14 shrink-0 flex-col justify-center border-b px-6 pr-14">
+				<header
+					data-settings-header
+					class="flex h-14 shrink-0 flex-col justify-center border-b px-6 pr-14"
+				>
 					<h2 class="text-sm font-semibold">{currentTab.label}</h2>
 					<p class="truncate text-xs text-muted-foreground">{currentTab.hint}</p>
 				</header>
@@ -724,7 +733,7 @@
 						</button>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.language')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.general.language'),
 									desc: t('settings.general.language_hint'),
@@ -735,7 +744,7 @@
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.activity')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('player.history'),
 									desc: t('settings.playback.play_history_hint'),
@@ -745,7 +754,7 @@
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.system')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.general.close_to_tray'),
 									desc: t('settings.general.close_to_tray_hint'),
@@ -792,7 +801,7 @@
 					{:else if tab === 'playback'}
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.audio')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.playback.audio_quality'),
 									desc: t('settings.playback.audio_quality_hint'),
@@ -848,7 +857,7 @@
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.video')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.playback.music_videos'),
 									badge: t('settings.themes.experimental'),
@@ -882,7 +891,7 @@
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.blocked')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.playback.blocked_artists'),
 									desc: t('settings.playback.blocked_artists_hint'),
@@ -893,10 +902,18 @@
 						<section class={GROUP} id="settings-lyrics">
 							<h3 class={LABEL}>{t('settings.sections.lyrics')}</h3>
 							<LyricsSourcesSettings {settings} />
+							<div data-settings-card class="mt-3 {CARD}">
+								{@render row({
+									title: t('settings.playback.lyrics_prefer_words'),
+									desc: t('settings.playback.lyrics_prefer_words_hint'),
+									control: preferWordsSwitch,
+									tall: true
+								})}
+							</div>
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.advanced')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({ title: t('settings.general.stream_clients'), below: clientList })}
 							</div>
 						</section>
@@ -942,7 +959,7 @@
 					{:else if tab === 'data'}
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.network')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.general.proxy'),
 									desc: t('settings.general.proxy_hint'),
@@ -952,7 +969,7 @@
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.storage')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.data.clear_cache'),
 									desc: t('settings.data.clear_cache_hint'),
@@ -981,7 +998,7 @@
 
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.support')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.about.kofi'),
 									desc: t('settings.about.kofi_hint'),
@@ -993,7 +1010,7 @@
 
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.updates')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.about.check_updates'),
 									desc: updateState.available && !updateState.canInstall
@@ -1023,7 +1040,7 @@
 
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.report')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.about.diagnostics'),
 									desc: t('settings.about.diagnostics_hint'),
@@ -1046,7 +1063,7 @@
 
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.whats_new')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.about.changelog'),
 									desc: t('settings.about.version').replace('{version}', version),
@@ -1180,6 +1197,7 @@
 		</Popover.Content>
 	</Popover.Root>
 {/snippet}
+{#snippet preferWordsSwitch()}<Switch checked={preferWordsOn} onCheckedChange={setPreferWords} />{/snippet}
 {#snippet hideVideoSwitch()}<Switch checked={hideVideosOn} onCheckedChange={setHideVideos} />{/snippet}
 {#snippet bannerSwitch()}<Switch checked={updateBannerOn} onCheckedChange={setUpdateBanner} />{/snippet}
 {#snippet betaSwitch()}<Switch checked={betaOn} onCheckedChange={setBeta} />{/snippet}

@@ -679,8 +679,8 @@
 			"ambient_light_gpu_title": "Needs a capable graphics card",
 			"ambient_light_gpu": "Below about 1000 points in the PassMark video card benchmark, the player view may stutter while a music video plays.",
 			"ambient_light_gpu_check": "Look up your card",
-			"hide_videos": "Hide videos in search",
-			"hide_videos_hint": "Only show audio tracks and official releases in search results.",
+			"hide_videos": "Hide videos in search and radio",
+			"hide_videos_hint": "Search, Home, artist pages, radio and autoplay show audio tracks only. Playlists and albums you open still show everything, and a radio started from a music video plays its videos.",
 			"blocked_artists": "Blocked artists",
 			"blocked_artists_hint": "Blocked artists are left out of radio, autoplay and recommendations. Playlists and albums you open still play everything in them.",
 			"blocked_artists_empty": "Nobody blocked yet. Use \"Block artist\" from a track's ⋯ menu.",
@@ -698,7 +698,9 @@
 			"lyrics_move_source": "Move {name}",
 			"lyrics_moved_source": "{name} moved to position {position} of {total}",
 			"lyrics_use_source": "Use {name}",
-			"lyrics_sources_none": "Every source is off, so no lyrics will be found."
+			"lyrics_sources_none": "Every source is off, so no lyrics will be found.",
+			"lyrics_prefer_words": "Prefer word-by-word lyrics",
+			"lyrics_prefer_words_hint": "Word-by-word lyrics from any source beat line-by-line ones from a source above it. The first time a song plays, its lyrics can take a few seconds longer to appear."
 		},
 		"hotkeys": {
 			"title": "Global Hotkeys",
@@ -1185,6 +1187,7 @@
 		"timing_later": "Show lyrics later",
 		"timing_reset": "Reset timing",
 		"search_open": "Wrong song? Search by title",
+		"unison_rate": "Rate these lyrics on Unison",
 		"search_title": "Title",
 		"search_artist": "Artist",
 		"search_go": "Search",
@@ -1198,10 +1201,10 @@
 		"translation_hint": "Show the translation some sources add under each line",
 		"about": {
 			"boidu": "The Better Lyrics database. Word by word, for songs someone has looked up before.",
+			"unison": "Better Lyrics' community lyrics, mostly word by word, timed to the exact video.",
 			"lyricsplus": "Apple Music lyrics, word by word, with Apple's own romanization.",
 			"lrclib": "Open library of synced lyrics. The widest coverage.",
 			"youtube": "YouTube Music's own lyrics, where they're licensed.",
-			"simpmusic": "Community lyrics matched to the exact YouTube upload, intros included.",
 			"netease": "Large Chinese catalogue. Adds Chinese translations under many songs.",
 			"qq": "Chinese catalogue, strong on Mandopop and Cantopop.",
 			"kugou": "Chinese catalogue, for the rarer tracks."
