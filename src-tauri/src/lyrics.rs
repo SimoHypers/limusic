@@ -70,7 +70,8 @@ pub fn provider_name(id: &str) -> &'static str {
 
 /// The `lyrics_providers` setting as `(id, on)` in the user's order: ids top to bottom, `-id` for
 /// one switched off. Whatever it doesn't name (all of them on a fresh install, or a provider a
-/// later release adds) follows in the default order, switched on.
+/// later release adds) follows in the default order, switched on, unless every source it names is
+/// off: someone who wanted no lyrics doesn't get a new provider asked behind their back.
 pub fn provider_order(setting: Option<&str>) -> Vec<(&'static str, bool)> {
     let mut out: Vec<(&'static str, bool)> = Vec::new();
     for tok in setting.unwrap_or_default().split(',').map(str::trim) {
@@ -81,9 +82,10 @@ pub fn provider_order(setting: Option<&str>) -> Vec<(&'static str, bool)> {
             }
         }
     }
+    let all_off = !out.is_empty() && out.iter().all(|(_, on)| !on);
     for p in PROVIDERS {
         if !out.iter().any(|(q, _)| *q == p) {
-            out.push((p, true));
+            out.push((p, !all_off));
         }
     }
     out
@@ -817,18 +819,16 @@ struct UnisonLyrics {
     format: String,
 }
 
-/// By video id, like the extension, and by title only for a search typed in the source picker. A `v`
-/// miss is a 404 without trying song + artist (`routes/lyrics.ts`, despite its README), so asking
-/// both ways would cost a second request on every miss.
+/// By video id, like the extension, and by title for a search typed in the source picker or a local
+/// file (no video id). A `v` miss is a 404 without trying song + artist (`routes/lyrics.ts`, despite
+/// its README), so asking both ways would cost a second request on every miss.
 async fn unison_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Error> {
-    let q: Vec<(&str, String)> = if req.searched {
+    let q: Vec<(&str, String)> = if req.searched || crate::local::is_local_song(&req.video_id) {
         let mut q = vec![("song", req.title.clone()), ("artist", req.artists.clone())];
         if let Some(d) = req.duration.filter(|d| *d > 0.0) {
             q.push(("duration", format!("{}", d.round() as i64)));
         }
         q
-    } else if crate::local::is_local_song(&req.video_id) {
-        return Ok(None);
     } else {
         vec![("v", req.video_id.clone())]
     };
@@ -1727,6 +1727,11 @@ mod tests {
         assert_eq!(
             ids(provider_order(Some("lrclib, -boidu,gone,lrclib"))),
             "lrclib,-boidu,unison,lyricsplus,youtube,netease,qq,kugou"
+        );
+        // Every source off stays every source off when a release adds one.
+        assert_eq!(
+            ids(provider_order(Some("-boidu,-lyricsplus,-lrclib,-youtube,-netease,-qq,-kugou"))),
+            "-boidu,-lyricsplus,-lrclib,-youtube,-netease,-qq,-kugou,-unison"
         );
     }
 
