@@ -227,6 +227,7 @@
 		return Number.isFinite(secs) ? Math.min(10, Math.max(1, secs)) : 5;
 	});
 	const hideVideosOn = $derived(settings.hide_videos === 'true');
+	const preferWordsOn = $derived(settings.lyrics_prefer_words === 'true');
 	// Off until the setting is turned on: still experimental, so nobody gets video they didn't ask
 	// for. Same test in `player.svelte.ts`, which hydrates `prefs` at launch.
 	const musicVideosOn = $derived(settings.music_videos === 'true');
@@ -314,6 +315,11 @@
 		settings.ambient_light = on ? 'true' : 'false';
 		await api.setSetting('ambient_light', settings.ambient_light);
 		prefs.ambient = on;
+	}
+
+	async function setPreferWords(on: boolean) {
+		settings.lyrics_prefer_words = on ? 'true' : 'false';
+		await api.setSetting('lyrics_prefer_words', settings.lyrics_prefer_words);
 	}
 
 	async function setHideVideos(on: boolean) {
@@ -718,6 +724,14 @@
 						<section class={GROUP} id="settings-lyrics">
 							<h3 class={LABEL}>{t('settings.sections.lyrics')}</h3>
 							<LyricsSourcesSettings {settings} />
+							<div class="mt-3 {CARD}">
+								{@render row({
+									title: t('settings.playback.lyrics_prefer_words'),
+									desc: t('settings.playback.lyrics_prefer_words_hint'),
+									control: preferWordsSwitch,
+									tall: true
+								})}
+							</div>
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.advanced')}</h3>
@@ -968,6 +982,7 @@
 		</Popover.Content>
 	</Popover.Root>
 {/snippet}
+{#snippet preferWordsSwitch()}<Switch checked={preferWordsOn} onCheckedChange={setPreferWords} />{/snippet}
 {#snippet hideVideoSwitch()}<Switch checked={hideVideosOn} onCheckedChange={setHideVideos} />{/snippet}
 {#snippet bannerSwitch()}<Switch checked={updateBannerOn} onCheckedChange={setUpdateBanner} />{/snippet}
 {#snippet betaSwitch()}<Switch checked={betaOn} onCheckedChange={setBeta} />{/snippet}
