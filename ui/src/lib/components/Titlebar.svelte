@@ -109,9 +109,9 @@
 		     browse cache and remounts the page, which is the only way to ask YouTube for a different
 		     home feed: refetching rotates roughly a third of "Quick picks" (#177). Never disabled,
 		     since the page it reloads is always there; the route's own skeletons are the progress.
-		     Dropped below sm, where the menu button above needs its 36px and F5 does the same. -->
+		     One of the four this bar keeps at every width, next to the menu, back and forward. -->
 		<button
-			class="flex h-full w-9 max-sm:hidden items-center justify-center text-foreground/80 transition-colors hover:bg-accent/10 hover:text-foreground"
+			class="flex h-full w-9 items-center justify-center text-foreground/80 transition-colors hover:bg-accent/10 hover:text-foreground"
 			onclick={refreshView}
 			title={t('common.refresh')}
 			aria-label={t('common.refresh')}
