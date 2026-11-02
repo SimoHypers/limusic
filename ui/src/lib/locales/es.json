@@ -452,8 +452,8 @@
 			"play_history_hint": "Recordar pistas reproducidas recientemente para recomendaciones personalizadas.",
 			"music_videos": "Activar videoclips",
 			"music_videos_hint": "Mostrar stream de video cuando esté disponible en lugar de solo audio.",
-			"hide_videos": "Ocultar videos en la búsqueda",
-			"hide_videos_hint": "Mostrar solo pistas de audio y lanzamientos oficiales en los resultados de búsqueda.",
+			"hide_videos": "Ocultar vídeos en la búsqueda y la radio",
+			"hide_videos_hint": "La búsqueda, el inicio, las páginas de artistas, la radio y la reproducción automática muestran solo pistas de audio. Las listas de reproducción y los álbumes que abres siguen mostrando todo, y una radio iniciada desde un vídeo musical reproduce sus vídeos.",
 			"blocked_artists_empty": "Nadie bloqueado aún. Usa \"Bloquear artista\" desde el menú ⋯ de la pista.",
 			"blocked_artists_remove": "Desbloquear {name}",
 			"blocked_artists_show_all": "Mostrar los {count}",
@@ -488,7 +488,9 @@
 			"shuffle_whole_queue": "Mezclar toda la cola",
 			"shuffle_whole_queue_hint": "\"Aleatorio\" mezcla las canciones agregadas con \"Agregar a la cola\" junto con la lista actual. Si la desactivas, se reproducirán al final en el orden en que las añadiste. \"Agregar a continuación\" siempre se reproduce justo después.",
 			"videos_first": "Reproducir el video primero",
-			"videos_first_hint": "Canciones de álbumes que tengan un video musical inician con el video. Desactiva esto si quieres iniciar con la canción. El interruptor de Canción/Video en el reproductor los cambia de todas formas."
+			"videos_first_hint": "Canciones de álbumes que tengan un video musical inician con el video. Desactiva esto si quieres iniciar con la canción. El interruptor de Canción/Video en el reproductor los cambia de todas formas.",
+			"lyrics_prefer_words": "Preferir letras palabra por palabra",
+			"lyrics_prefer_words_hint": "Las letras palabra por palabra de cualquier fuente tienen prioridad sobre las sincronizadas línea por línea de una fuente situada por encima. La primera vez que suena una canción, sus letras pueden tardar unos segundos más en aparecer."
 		},
 		"data": {
 			"clear_cache": "Limpiar caché de imágenes y streams",
@@ -989,12 +991,14 @@
 			"youtube": "Letras oficiales de YouTube Music, cuando estén licenciadas.",
 			"netease": "Gran catalogo chino. Agrega traducciones en chino bajo muchas canciones.",
 			"qq": "Catálogo chino, fuerte en Mandopop y Cantopop.",
-			"kugou": "Catálogo chino, para pistas poco comunes."
+			"kugou": "Catálogo chino, para pistas poco comunes.",
+			"unison": "Letras de la comunidad de Better Lyrics, en su mayoría palabra por palabra y sincronizadas con el vídeo exacto."
 		},
 		"text_size": "Tamaño del texto",
 		"text_size_hint": "Hace las letras musicales más grandes o más pequeñas",
 		"text_size_larger": "Texto más grande",
-		"text_size_smaller": "Texto más pequeño"
+		"text_size_smaller": "Texto más pequeño",
+		"unison_rate": "Valora estas letras en Unison"
 	},
 	"queue": {
 		"title": "Cola"
