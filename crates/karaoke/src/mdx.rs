@@ -24,6 +24,7 @@ impl Default for MdxParams {
 pub enum Device {
     Cpu,
     DirectMl { device_id: i32 },
+    CoreMl,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -47,35 +48,41 @@ impl LoadOptions {
     /// ([`RuntimeReady::directml`]), else the CPU with `percent` of the cores.
     pub fn auto_with_cpu_percent(percent: u32, directml: bool) -> LoadOptions {
         let adapters = if directml { crate::device::list_adapters() } else { Vec::new() };
-        Self::choose(DevicePref::Auto, percent, directml, &adapters)
+        Self::choose(DevicePref::Auto, percent, directml, false, &adapters)
     }
 
     pub fn choose(
         pref: DevicePref,
         percent: u32,
         directml: bool,
+        coreml: bool,
         adapters: &[crate::device::GpuAdapter],
     ) -> LoadOptions {
         let cpu = LoadOptions {
             device: Device::Cpu,
             intra_threads: Some(crate::device::cpu_threads_for_percent(percent)),
         };
-        if !directml {
-            return cpu;
-        }
-        let candidate = match pref {
-            DevicePref::Cpu => None,
-            DevicePref::Auto => {
-                crate::device::pick_gpu(adapters, crate::device::MIN_DISCRETE_VRAM_MB)
+        if directml {
+            let candidate = match pref {
+                DevicePref::Cpu => None,
+                DevicePref::Auto => {
+                    crate::device::pick_gpu(adapters, crate::device::MIN_DISCRETE_VRAM_MB)
+                }
+                DevicePref::Gpu => crate::device::pick_gpu_any(adapters),
+            };
+            if let Some(a) = candidate {
+                tracing::info!("{}", crate::device::describe(a));
+                return LoadOptions {
+                    device: Device::DirectMl { device_id: a.index },
+                    intra_threads: None,
+                };
             }
-            DevicePref::Gpu => crate::device::pick_gpu_any(adapters),
-        };
-        if let Some(a) = candidate {
-            tracing::info!("{}", crate::device::describe(a));
-            LoadOptions { device: Device::DirectMl { device_id: a.index }, intra_threads: None }
-        } else {
-            cpu
         }
+        if coreml && matches!(pref, DevicePref::Gpu) {
+            tracing::info!("CoreML (CPU and GPU)");
+            return LoadOptions { device: Device::CoreMl, intra_threads: None };
+        }
+        cpu
     }
 }
 
@@ -122,6 +129,30 @@ impl MdxModel {
                         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 }
             }
+            Device::CoreMl => {
+                #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+                {
+                    anyhow::bail!("CoreML is only available on Apple Silicon");
+                }
+                #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+                {
+                    if !rt.coreml() {
+                        anyhow::bail!("CoreML is not available in this runtime");
+                    }
+                    builder = builder
+                        .with_memory_pattern(false)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?
+                        .with_parallel_execution(false)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?
+                        .with_execution_providers([ort::ep::CoreML::default()
+                            .with_compute_units(ort::ep::coreml::ComputeUnits::CPUAndGPU)
+                            .with_model_format(ort::ep::coreml::ModelFormat::MLProgram)
+                            .with_static_input_shapes(true)
+                            .build()
+                            .error_on_failure()])
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                }
+            }
         }
         let session =
             builder.commit_from_file(model_path).map_err(|e| anyhow::anyhow!(e.to_string()))?;
@@ -146,18 +177,28 @@ impl MdxModel {
         percent: u32,
     ) -> anyhow::Result<(Self, Device)> {
         let directml = rt.directml();
+        let coreml = rt.coreml();
         let adapters = if pref != DevicePref::Cpu && directml {
             crate::device::list_adapters()
         } else {
             Vec::new()
         };
-        let opts = LoadOptions::choose(pref, percent, directml, &adapters);
+        let opts = LoadOptions::choose(pref, percent, directml, coreml, &adapters);
         let device = opts.device;
         match Self::load(rt, model_path, params, opts) {
             Ok(model) => Ok((model, device)),
             Err(e) => match device {
                 Device::DirectMl { .. } => {
                     tracing::warn!(error = %crate::sanitize_error(&e.to_string()), "DirectML model load failed, falling back to CPU");
+                    let cpu_opts = LoadOptions {
+                        device: Device::Cpu,
+                        intra_threads: Some(crate::device::cpu_threads_for_percent(percent)),
+                    };
+                    let model = Self::load(rt, model_path, params, cpu_opts)?;
+                    Ok((model, Device::Cpu))
+                }
+                Device::CoreMl => {
+                    tracing::warn!(error = %crate::sanitize_error(&e.to_string()), "CoreML model load failed, falling back to CPU");
                     let cpu_opts = LoadOptions {
                         device: Device::Cpu,
                         intra_threads: Some(crate::device::cpu_threads_for_percent(percent)),
@@ -487,48 +528,72 @@ mod tests {
 
         // 1. Cpu pref always gives Device::Cpu
         for &dm in &[true, false] {
-            for adapters in &[&adapters_full, &adapters_only_integrated, &empty_adapters] {
-                let opts = LoadOptions::choose(DevicePref::Cpu, 35, dm, adapters);
-                assert!(matches!(opts.device, Device::Cpu));
+            for &cm in &[true, false] {
+                for adapters in &[&adapters_full, &adapters_only_integrated, &empty_adapters] {
+                    let opts = LoadOptions::choose(DevicePref::Cpu, 35, dm, cm, adapters);
+                    assert!(matches!(opts.device, Device::Cpu));
+                }
             }
         }
 
-        // 2. directml=false always gives Device::Cpu
+        // 2. directml=false and coreml=false always gives Device::Cpu
         for &pref in &[DevicePref::Auto, DevicePref::Cpu, DevicePref::Gpu] {
             for adapters in &[&adapters_full, &adapters_only_integrated, &empty_adapters] {
-                let opts = LoadOptions::choose(pref, 35, false, adapters);
+                let opts = LoadOptions::choose(pref, 35, false, false, adapters);
                 assert!(matches!(opts.device, Device::Cpu));
             }
         }
 
         // 3. Auto with directml=true:
         // - full adapter list picks discrete (index 1) >= MIN_DISCRETE_VRAM_MB
-        let opts = LoadOptions::choose(DevicePref::Auto, 35, true, &adapters_full);
+        let opts = LoadOptions::choose(DevicePref::Auto, 35, true, false, &adapters_full);
         assert!(matches!(opts.device, Device::DirectMl { device_id: 1 }));
 
         // - only integrated gives Cpu
-        let opts = LoadOptions::choose(DevicePref::Auto, 35, true, &adapters_only_integrated);
+        let opts =
+            LoadOptions::choose(DevicePref::Auto, 35, true, false, &adapters_only_integrated);
         assert!(matches!(opts.device, Device::Cpu));
 
         // - low discrete gives Cpu
-        let opts = LoadOptions::choose(DevicePref::Auto, 35, true, &adapters_low_discrete);
+        let opts = LoadOptions::choose(DevicePref::Auto, 35, true, false, &adapters_low_discrete);
         assert!(matches!(opts.device, Device::Cpu));
 
         // - empty gives Cpu
-        let opts = LoadOptions::choose(DevicePref::Auto, 35, true, &empty_adapters);
+        let opts = LoadOptions::choose(DevicePref::Auto, 35, true, false, &empty_adapters);
         assert!(matches!(opts.device, Device::Cpu));
 
         // 4. Gpu with directml=true:
         // - full adapter list picks discrete (index 1)
-        let opts = LoadOptions::choose(DevicePref::Gpu, 35, true, &adapters_full);
+        let opts = LoadOptions::choose(DevicePref::Gpu, 35, true, false, &adapters_full);
         assert!(matches!(opts.device, Device::DirectMl { device_id: 1 }));
 
         // - only integrated picks integrated (index 0)
-        let opts = LoadOptions::choose(DevicePref::Gpu, 35, true, &adapters_only_integrated);
+        let opts = LoadOptions::choose(DevicePref::Gpu, 35, true, false, &adapters_only_integrated);
         assert!(matches!(opts.device, Device::DirectMl { device_id: 0 }));
 
         // - empty falls back to Cpu
-        let opts = LoadOptions::choose(DevicePref::Gpu, 35, true, &empty_adapters);
+        let opts = LoadOptions::choose(DevicePref::Gpu, 35, true, false, &empty_adapters);
+        assert!(matches!(opts.device, Device::Cpu));
+
+        // 5. CoreML tests:
+        // - coreml=true with Gpu gives CoreMl
+        let opts = LoadOptions::choose(DevicePref::Gpu, 35, false, true, &empty_adapters);
+        assert!(matches!(opts.device, Device::CoreMl));
+
+        // - coreml=true with Auto gives Cpu
+        let opts = LoadOptions::choose(DevicePref::Auto, 35, false, true, &empty_adapters);
+        assert!(matches!(opts.device, Device::Cpu));
+
+        // - coreml=true with Cpu gives Cpu
+        let opts = LoadOptions::choose(DevicePref::Cpu, 35, false, true, &empty_adapters);
+        assert!(matches!(opts.device, Device::Cpu));
+
+        // - directml=true and coreml=true prefers DirectML
+        let opts = LoadOptions::choose(DevicePref::Gpu, 35, true, true, &adapters_full);
+        assert!(matches!(opts.device, Device::DirectMl { device_id: 1 }));
+
+        // - both false gives Cpu
+        let opts = LoadOptions::choose(DevicePref::Gpu, 35, false, false, &empty_adapters);
         assert!(matches!(opts.device, Device::Cpu));
     }
 

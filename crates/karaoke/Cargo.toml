@@ -36,6 +36,10 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 ort = { version = "=2.0.0-rc.13", default-features = false, features = ["directml"] }
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dxgi", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D12", "Win32_System_LibraryLoader"] }
 
+# macOS aarch64: CoreML feature adds CoreML provider support.
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["coreml"] }
+
 [[example]]
 name = "inspect"
 

@@ -207,9 +207,9 @@ impl DevicePref {
         }
     }
 
-    /// Becomes true on macOS when a CoreML backend exists.
+    /// True on Windows and Apple Silicon (macOS aarch64).
     pub const fn gpu_supported() -> bool {
-        cfg!(windows)
+        cfg!(windows) || cfg!(all(target_os = "macos", target_arch = "aarch64"))
     }
 }
 

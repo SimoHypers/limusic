@@ -23,6 +23,10 @@ impl RuntimeReady {
     pub fn directml(&self) -> bool {
         self.directml
     }
+
+    pub fn coreml(&self) -> bool {
+        cfg!(all(target_os = "macos", target_arch = "aarch64"))
+    }
 }
 
 /// The VC++ runtime `onnxruntime.dll` imports. Not hash-pinned (they change with each

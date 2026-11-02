@@ -639,6 +639,7 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
                     let processor = match dev {
                         karaoke::mdx::Device::Cpu => 1,
                         karaoke::mdx::Device::DirectMl { .. } => 2,
+                        karaoke::mdx::Device::CoreMl => 2,
                     };
                     ctx.processor.store(processor, Ordering::SeqCst);
                     model = Some(m);
