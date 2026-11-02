@@ -35,6 +35,7 @@ html.matugen-theme {
 
 	--border: {{colors.outline_variant.light.hex}};
 	--input: {{colors.outline_variant.light.hex}};
+	--outline: {{colors.outline.light.hex}};
 	--ring: {{colors.primary.light.hex}};
 
 	--chart-1: {{colors.primary.light.hex}};
@@ -79,6 +80,7 @@ html.matugen-theme.dark {
 
 	--border: {{colors.outline_variant.dark.hex}};
 	--input: {{colors.outline_variant.dark.hex}};
+	--outline: {{colors.outline.dark.hex}};
 	--ring: {{colors.primary.dark.hex}};
 
 	--chart-1: {{colors.primary.dark.hex}};

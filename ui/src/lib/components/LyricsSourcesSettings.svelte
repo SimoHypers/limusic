@@ -77,7 +77,7 @@
 	}
 </script>
 
-<div class="overflow-hidden rounded-xl border bg-card">
+<div data-settings-card class="overflow-hidden rounded-xl border bg-card">
 	<div class="flex items-start justify-between gap-6 px-4 py-3.5">
 		<div class="min-w-0">
 			<span class="text-sm font-medium">{t('settings.playback.lyrics_sources')}</span>
