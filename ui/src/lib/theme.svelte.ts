@@ -142,6 +142,7 @@ export const appearance = $state({
 	/** Derive the whole palette from Matugen. Off by default. */
 	matugen: false,
 	enhancedLyrics: false,
+	enhancedLyricsLineSync: false,
 	lyricsAnim: 'bounce' as LyricsAnim,
 	lyricsStyle: 'feather' as LyricsStyle,
 	lyricsAnimStrength: 100,
