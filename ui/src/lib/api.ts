@@ -1355,3 +1355,50 @@ export const onMatugenThemeChanged = (cb: (css: string | null) => void): Promise
 	listen<string | null>('matugen-theme-changed', (event) => cb(event.payload));
 export const startMatugenWatcher = () => invoke<void>('start_matugen_watcher');
 export const stopMatugenWatcher = () => invoke<void>('stop_matugen_watcher');
+
+// --- downloads ---------------------------------------------------------------------------------
+
+export type DownloadStatus =
+	| 'queued'
+	| 'downloading'
+	| 'tagging'
+	| 'completed'
+	| 'failed'
+	| 'cancelled';
+
+export interface DownloadTask {
+	id: string;
+	video_id: string;
+	title: string;
+	artist: string;
+	album?: string;
+	thumbnail?: string;
+	progress: number;
+	bytes_downloaded: number;
+	total_bytes: number;
+	status: DownloadStatus;
+	error?: string;
+	file_path?: string;
+}
+
+export const downloadTrack = (song: SongItem, subfolder?: string) =>
+	invoke<string>('download_track', { song, subfolder });
+export const downloadPlaylist = (playlistId: string, title?: string) =>
+	invoke<number>('download_playlist', { playlistId, title });
+export const downloadAlbum = (albumId: string, title?: string) =>
+	invoke<number>('download_album', { albumId, title });
+export const getDownloads = () => invoke<DownloadTask[]>('get_downloads');
+export const cancelDownload = (id: string) => invoke<void>('cancel_download', { id });
+export const cancelAllDownloads = () => invoke<void>('cancel_all_downloads');
+export const clearCompletedDownloads = () => invoke<void>('clear_completed_downloads');
+export const getDownloadDir = () => invoke<string>('get_download_dir');
+export const setDownloadDir = (dir: string) => invoke<void>('set_download_dir', { dir });
+export const openDownloadDir = () => invoke<void>('open_download_dir');
+export const getDownloadConcurrency = () => invoke<number>('get_download_concurrency');
+export const setDownloadConcurrency = (concurrency: number) =>
+	invoke<void>('set_download_concurrency', { concurrency });
+export const deleteAllDownloads = () => invoke<number>('delete_all_downloads');
+
+export const onDownloadProgress = (cb: (task: DownloadTask) => void): Promise<UnlistenFn> =>
+	listen<DownloadTask>('download-progress', (e) => cb(e.payload));
+

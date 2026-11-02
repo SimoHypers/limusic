@@ -215,6 +215,25 @@ impl Orchestrator {
         quality: AudioQuality,
         disabled: &HashSet<String>,
     ) -> Result<PlaybackData, ResolveError> {
+        self.resolve_internal(video_id, is_upload, quality, disabled, false).await
+    }
+
+    /// Resolve a videoId preferring an M4A/AAC format (ideal for downloads with full metadata/cover support).
+    pub async fn resolve_download(
+        &self,
+        video_id: &str,
+    ) -> Result<PlaybackData, ResolveError> {
+        self.resolve_internal(video_id, false, AudioQuality::High, &HashSet::new(), true).await
+    }
+
+    async fn resolve_internal(
+        &self,
+        video_id: &str,
+        is_upload: bool,
+        quality: AudioQuality,
+        disabled: &HashSet<String>,
+        prefer_m4a: bool,
+    ) -> Result<PlaybackData, ResolveError> {
         let prefer_high = matches!(quality, AudioQuality::High | AudioQuality::Auto);
         let logged_in = self.it.is_logged_in();
         let visitor = self.it.visitor_data();
@@ -382,7 +401,12 @@ impl Orchestrator {
 
             let Some(streaming) = resp.streaming_data.as_ref() else { continue };
             let Some(expires) = streaming.expires_in_seconds else { continue };
-            let Some(format) = find_format(streaming, quality) else { continue };
+            let format_opt = if prefer_m4a {
+                find_m4a_format(streaming).or_else(|| find_format(streaming, quality))
+            } else {
+                find_format(streaming, quality)
+            };
+            let Some(format) = format_opt else { continue };
             if audio_config_loudness.is_none() {
                 audio_config_loudness = main_loudness(&resp);
             }
@@ -408,7 +432,7 @@ impl Orchestrator {
             }
 
             // HIGH two-pass: remember the best non-HIGH and keep looking if a HIGH exists elsewhere.
-            if prefer_high && !is_high(format) && has_high {
+            if !prefer_m4a && prefer_high && !is_high(format) && has_high {
                 if better(format, best.as_ref().map(|c| &c.format)) {
                     let ping = main_ping.clone().or_else(|| playback_ping(&resp, &key));
                     best =
@@ -925,6 +949,20 @@ fn playback_ping(resp: &PlayerResponse, client: &str) -> Option<PlaybackPing> {
         .and_then(|t| t.videostats_playback_url.as_ref())
         .and_then(|b| b.base_url.clone())?;
     Some(PlaybackPing { url, client: client.to_owned() })
+}
+
+pub fn find_m4a_format(data: &StreamingData) -> Option<&Format> {
+    let audio: Vec<&Format> = data
+        .adaptive_formats
+        .iter()
+        .filter(|f| f.is_audio() && (f.mime_type.contains("mp4a") || matches!(f.itag, 140 | 141 | 139 | 256 | 258)))
+        .collect();
+    if audio.is_empty() {
+        return None;
+    }
+    let original: Vec<&Format> = audio.iter().copied().filter(|f| f.is_original()).collect();
+    let audio = if original.is_empty() { audio } else { original };
+    audio.into_iter().max_by_key(|f| f.bitrate)
 }
 
 fn best_thumbnail(resp: &PlayerResponse) -> Option<String> {

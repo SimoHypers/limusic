@@ -8,10 +8,14 @@
 		PlayListAddIcon,
 		ThumbsDownIcon,
 		ThumbsUpIcon,
-		VolumeHighIcon
+		VolumeHighIcon,
+		Download04Icon,
+		Loading03Icon,
+		CheckmarkCircle02Icon
 	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import type { SongItem } from '$lib/api';
+	import { downloadSong, getSongDownloadState } from '$lib/download.svelte';
 	import { thumb } from '$lib/thumb';
 	import { lt } from '$lib/lt.svelte';
 	import { goto } from '$app/navigation';
@@ -156,6 +160,7 @@
 	// A local file has no YouTube identity, so there is nothing to rate (the same guard the ⋯ menu
 	// applies to its like item). The compact variant has no room: it keeps its single heart.
 	const showRating = $derived(!compact && !hideRating && !api.isLocalId(song.video_id));
+	const downloadState = $derived(getSongDownloadState(song.video_id));
 
 	// Your own playlists holding this song, for the "saved" mark. Gated on `showRating` because it
 	// answers the same three questions: a local file is in no YTM playlist, and the compact and
@@ -446,18 +451,47 @@
 			</span>
 		{/if}
 		{#if showRating}
-			<!-- Hover-revealed, except on a row that carries a rating: at rest that filled thumb is the
-			     only place the state shows at all. Hidden rather than removed, so the duration and the ⋯
-			     don't shift sideways when the pointer arrives. `group-focus-within`, not the button's own
-			     `focus-within`: a hidden element can't take focus, so the row (which is focusable) is
-			     what has to reveal it before Tab can reach it. -->
-			<div
-				class="flex items-center gap-0.5 {rated === 'indifferent'
-					? 'invisible group-focus-within:visible group-hover:visible'
-					: ''}"
-			>
-				{@render rateButton(ThumbsUpIcon, 'like', t('common.like'))}
-				{@render rateButton(ThumbsDownIcon, 'dislike', t('common.dislike'))}
+			<!-- Hover-revealed, except on a row that carries a rating or download state: at rest that
+			     filled thumb or checkmark/spinner is visible. Hidden rather than removed, so the
+			     duration and the ⋯ don't shift sideways when the pointer arrives. -->
+			<div class="flex items-center gap-0.5">
+				<div
+					class="flex items-center gap-0.5 {rated === 'indifferent'
+						? 'invisible group-focus-within:visible group-hover:visible'
+						: ''}"
+				>
+					{@render rateButton(ThumbsUpIcon, 'like', t('common.like'))}
+					{@render rateButton(ThumbsDownIcon, 'dislike', t('common.dislike'))}
+				</div>
+				{#if !api.isLocalId(song.video_id)}
+					{#if downloadState === 'downloading'}
+						<span
+							class="flex h-7 w-7 items-center justify-center text-primary"
+							title={t('download.downloading')}
+						>
+							<HugeiconsIcon icon={Loading03Icon} class="h-4 w-4 animate-spin" />
+						</span>
+					{:else if downloadState === 'downloaded'}
+						<span
+							class="flex h-7 w-7 items-center justify-center text-emerald-500"
+							title={t('download.downloaded')}
+						>
+							<HugeiconsIcon icon={CheckmarkCircle02Icon} class="h-4 w-4" />
+						</span>
+					{:else}
+						<button
+							class="invisible flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent/20 hover:text-foreground group-focus-within:visible group-hover:visible"
+							title={t('download.download_track')}
+							aria-label={t('download.download_track')}
+							onclick={(e) => {
+								e.stopPropagation();
+								downloadSong(song);
+							}}
+						>
+							<HugeiconsIcon icon={Download04Icon} class="h-4 w-4" />
+						</button>
+					{/if}
+				{/if}
 			</div>
 		{/if}
 		<!-- Under a column header the checkmark sits by the duration, the thumbs that only show on

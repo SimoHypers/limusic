@@ -59,6 +59,7 @@ pub struct AppState {
     pub db: Arc<Db>,
     pub app: AppHandle,
     pub orchestrator: Arc<Orchestrator>,
+    pub downloads: Arc<crate::download::DownloadManager>,
     /// Listen Together session (context/19). Drives host broadcasts + guest gating.
     pub lt: Arc<LtSession>,
     // Serialize effect commands with the room's tempo reset, including requests already pending.
@@ -495,6 +496,11 @@ impl AppState {
         discord: Option<DiscordHandle>,
         lastfm: crate::lastfm::LastfmHandle,
     ) -> Self {
+        let downloads = Arc::new(crate::download::DownloadManager::new(
+            app.clone(),
+            db.clone(),
+            orchestrator.clone(),
+        ));
         AppState {
             it,
             clients,
@@ -502,6 +508,7 @@ impl AppState {
             db,
             app,
             orchestrator,
+            downloads,
             lt,
             cache_dir,
             media,
@@ -1221,6 +1228,13 @@ impl AppState {
                 let _ = self.app.emit("local-changed", serde_json::json!({ "removed": removed }));
                 ResolveError::LocalMissing(path.to_owned())
             });
+        }
+        // If downloaded locally via DownloadManager, play the offline file directly.
+        if let Some(downloaded_path) = self.downloads.get_downloaded_path(video_id) {
+            tracing::info!(video_id, path = %downloaded_path, "Playing downloaded offline track directly");
+            if let Ok(data) = crate::local::playback_data(video_id, &downloaded_path) {
+                return Ok(data);
+            }
         }
         // Latency cache first (context/11) — honor expiry, never a source of truth.
         //

@@ -44,7 +44,9 @@
 	import ListenTogether from '$lib/components/ListenTogether.svelte';
 	import LinkDialog from '$lib/components/LinkDialog.svelte';
 	import ImportDialog from '$lib/components/ImportDialog.svelte';
+	import DownloadsPanel from '$lib/components/DownloadsPanel.svelte';
 	import { handleImportDrop, initImport } from '$lib/import.svelte';
+	import { initDownloads } from '$lib/download.svelte';
 	import MiniPlayer from '$lib/components/MiniPlayer.svelte';
 	import NowPlaying from '$lib/components/NowPlaying.svelte';
 	import TheaterMode from '$lib/components/TheaterMode.svelte';
@@ -182,6 +184,7 @@
 		const teardownZoom = initZoom();
 		const teardownShortcuts = initShortcuts();
 		initImport();
+		initDownloads();
 		return () => {
 			clearInterval(updateTimer);
 			teardownApp();
@@ -319,6 +322,7 @@
 	<ListenTogether />
 	<LinkDialog />
 	<ImportDialog />
+	<DownloadsPanel />
 
 	<!-- The two notification banners below run at z-[100]. Dialogs and menus sit at z-50 and portal to
 	     <body>, so a z-50 banner loses the tie on DOM order and hides behind an open modal. The update

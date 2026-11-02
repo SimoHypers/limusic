@@ -25,12 +25,14 @@
 		HotspotOfflineIcon,
 		UserGroup02Icon,
 		Link04Icon,
+		Download04Icon,
 		Settings02Icon
 	} from '@hugeicons/core-free-icons';
 	import LastFmIcon from './LastFmIcon.svelte';
 	import DiscordIcon from './DiscordIcon.svelte';
 	import AccountMenu from './AccountMenu.svelte';
 	import { appIcon } from '$lib/appicon.svelte';
+	import { downloadQueue } from '$lib/download.svelte';
 	import * as api from '$lib/api';
 	import { openMiniPlayer, playback, prefs, refreshView, toast, ui } from '$lib/player.svelte';
 	import { win } from '$lib/win.svelte';
@@ -199,6 +201,26 @@
 			aria-label={t('dialogs.link.title')}
 		>
 			<HugeiconsIcon icon={Link04Icon} class="h-4 w-4" />
+		</button>
+
+		<button
+			class="flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground {downloadQueue.isOpen || downloadQueue.activeCount > 0
+				? 'text-primary'
+				: ''}"
+			onclick={() => (downloadQueue.isOpen = !downloadQueue.isOpen)}
+			title={t('download.title')}
+			aria-label={t('download.title')}
+		>
+			<span class="relative">
+				<HugeiconsIcon icon={Download04Icon} class="h-4 w-4" />
+				{#if downloadQueue.activeCount > 0}
+					<span
+						class="absolute -right-1.5 -top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground shadow-sm"
+					>
+						{downloadQueue.activeCount}
+					</span>
+				{/if}
+			</span>
 		</button>
 
 		<!-- Opens the same modal as the home hero's button (one dialog, mounted in +layout). -->

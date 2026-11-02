@@ -25,7 +25,10 @@
 		ArrowUpDownIcon,
 		ComputerIcon,
 		SpotifyIcon,
-		Search01Icon
+		Search01Icon,
+		Download04Icon,
+		Loading03Icon,
+		CheckmarkCircle02Icon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import * as RadioGroup from '$lib/components/ui/radio-group';
@@ -58,6 +61,7 @@
 	import { restoreTo } from '$lib/scrollrestore';
 	import { t } from '$lib/i18n.svelte';
 	import { imp, updateFromSpotify } from '$lib/import.svelte';
+	import { downloadPlaylistById, getCollectionDownloadState } from '$lib/download.svelte';
 
 	import {
 		SORTS,
@@ -248,6 +252,7 @@
 	// Kept on this machine (#251): no YouTube item behind it, so no radio and nothing to share, and
 	// every row is already here (no pages to walk).
 	const isLocalList = $derived(api.isLocalPlaylist(id));
+	const plDownloadState = $derived(getCollectionDownloadState(pl?.items?.map((t) => t.video_id) ?? []));
 	// Imported from a Spotify link (#375): the header offers to bring it up to date with Spotify.
 	let spotifyUrl = $state<string | null>(null);
 	$effect(() => {
@@ -1280,6 +1285,27 @@
 							>
 								<HugeiconsIcon icon={MoreVerticalIcon} class="h-5 w-5 text-muted-foreground" />
 							</Button>
+							{#if !isLocalList && pl?.items?.length}
+								{#if plDownloadState === 'downloading'}
+									<Button variant="ghost" size="icon" disabled title={t('download.downloading')} aria-label={t('download.downloading')}>
+										<HugeiconsIcon icon={Loading03Icon} class="h-5 w-5 animate-spin text-primary" />
+									</Button>
+								{:else if plDownloadState === 'downloaded'}
+									<Button variant="ghost" size="icon" disabled title={t('download.downloaded')} aria-label={t('download.downloaded')}>
+										<HugeiconsIcon icon={CheckmarkCircle02Icon} class="h-5 w-5 text-emerald-500" />
+									</Button>
+								{:else}
+									<Button
+										variant="ghost"
+										size="icon"
+										onclick={() => run(() => downloadPlaylistById(id, pl?.title))}
+										title={t('download.download_playlist')}
+										aria-label={t('download.download_playlist')}
+									>
+										<HugeiconsIcon icon={Download04Icon} class="h-5 w-5 text-muted-foreground" />
+									</Button>
+								{/if}
+							{/if}
 							<TrackSelectButton
 								{selection}
 								class="-ml-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition hover:bg-muted hover:text-foreground"
@@ -1551,6 +1577,7 @@
 				<HugeiconsIcon icon={Share08Icon} class="h-4 w-4" /> {t('player.share')}
 			</button>
 		{/if}
+
 		{#if savable}
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"

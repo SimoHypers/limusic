@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { tick, untrack, type Snippet } from 'svelte';
-	import { save } from '@tauri-apps/plugin-dialog';
+	import { open, save } from '@tauri-apps/plugin-dialog';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		Settings02Icon,
@@ -17,7 +17,8 @@
 		Globe02Icon,
 		ArrowDown01Icon,
 		Alert02Icon,
-		LinkSquare02Icon
+		LinkSquare02Icon,
+		Download04Icon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -25,11 +26,13 @@
 	import { Slider } from '$lib/components/ui/slider';
 	import { Alert, AlertDescription } from '$lib/components/ui/alert';
 	import * as Dialog from '$lib/components/ui/dialog';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Popover from '$lib/components/ui/popover';
 	import { HELP_COMBO } from '$lib/shortcuts';
 	import { copyText } from '$lib/clipboard';
 	import * as api from '$lib/api';
 	import { blocked, prefs, refreshLanguage, setAutoplay, ui, toast, unblockArtist } from '$lib/player.svelte';
+	import { deleteAllDownloads } from '$lib/download.svelte';
 	import { win } from '$lib/win.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import AppearanceSettings from '$lib/components/AppearanceSettings.svelte';
@@ -58,6 +61,7 @@
 		| 'discord'
 		| 'scrobbling'
 		| 'data'
+		| 'downloads'
 		| 'about';
 	const TABS = $derived<{ id: TabId; label: string; hint: string; icon: typeof Settings02Icon }[]>([
 		{ id: 'general', label: t('settings.tabs.general'), hint: t('settings.tabs.general_hint'), icon: Settings02Icon },
@@ -67,6 +71,7 @@
 		{ id: 'discord', label: t('settings.tabs.discord'), hint: t('settings.tabs.discord_hint'), icon: DiscordIcon },
 		{ id: 'scrobbling', label: t('settings.tabs.scrobbling'), hint: t('settings.tabs.scrobbling_hint'), icon: LastFmIcon },
 		{ id: 'data', label: t('settings.tabs.data'), hint: t('settings.tabs.data_hint'), icon: Database02Icon },
+		{ id: 'downloads', label: t('settings.tabs.downloads'), hint: t('settings.tabs.downloads_hint'), icon: Download04Icon },
 		{ id: 'about', label: t('settings.tabs.about'), hint: t('settings.tabs.about_hint'), icon: InformationCircleIcon }
 	]);
 
@@ -103,6 +108,25 @@
 	}
 	let loaded = $state(false);
 	let clearing = $state(false);
+	let downloadDir = $state('');
+	let downloadConcurrency = $state(5);
+	let confirmDeleteAllDownloads = $state(false);
+
+	async function changeDownloadDir() {
+		try {
+			const picked = await open({
+				directory: true,
+				multiple: false,
+				title: t('download.pick_folder')
+			});
+			if (typeof picked === 'string' && picked.trim()) {
+				await api.setDownloadDir(picked);
+				downloadDir = picked;
+			}
+		} catch (e) {
+			console.error(e);
+		}
+	}
 	let version = $state('');
 	getVersion().then((v) => (version = v));
 	// Release candidates ship only what the updater installs, so an .rpm, .deb or AUR install has
@@ -199,14 +223,26 @@
 
 	async function load() {
 		try {
-			const [s, c] = await Promise.all([api.getSettings(), api.getStreamClients()]);
+			const [s, c, d, concurrency] = await Promise.all([
+				api.getSettings(),
+				api.getStreamClients(),
+				api.getDownloadDir(),
+				api.getDownloadConcurrency()
+			]);
 			settings = s;
 			clients = c;
+			downloadDir = d;
+			downloadConcurrency = concurrency;
 			proxyInput = s.proxy ?? '';
 		} catch (e) {
 			toast.error(String(e));
 		}
 		loaded = true;
+	}
+
+	async function setDownloadConcurrency(n: number) {
+		downloadConcurrency = n;
+		await api.setDownloadConcurrency(n);
 	}
 
 	const quality = $derived(settings.quality ?? 'HIGH');
@@ -765,6 +801,57 @@
 								})}
 							</div>
 						</section>
+					{:else if tab === 'downloads'}
+						<section class={GROUP}>
+							<h3 class={LABEL}>{t('download.folder')}</h3>
+							<div class={CARD}>
+								{@render row({
+									title: t('download.folder'),
+									desc: downloadDir,
+									control: downloadFolderControl
+								})}
+							</div>
+						</section>
+						<section class={GROUP}>
+							<h3 class={LABEL}>{t('download.max_concurrent')}</h3>
+							<div class={CARD}>
+								{@render row({
+									title: t('download.max_concurrent'),
+									desc: t('download.max_concurrent_hint'),
+									control: concurrencySlider
+								})}
+							</div>
+						</section>
+						<section class={GROUP}>
+							<h3 class={LABEL}>{t('settings.sections.storage')}</h3>
+							<div class={CARD}>
+								{@render row({
+									title: t('download.delete_all'),
+									desc: t('download.delete_all_hint'),
+									control: deleteAllDownloadsButton
+								})}
+							</div>
+						</section>
+						<AlertDialog.Root bind:open={confirmDeleteAllDownloads}>
+							<AlertDialog.Content>
+								<AlertDialog.Header>
+									<AlertDialog.Title>{t('download.delete_all_confirm')}</AlertDialog.Title>
+									<AlertDialog.Description>{t('download.delete_all_confirm_desc')}</AlertDialog.Description>
+								</AlertDialog.Header>
+								<AlertDialog.Footer>
+									<AlertDialog.Cancel>{t('common.cancel')}</AlertDialog.Cancel>
+									<AlertDialog.Action
+										class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+										onclick={async () => {
+											confirmDeleteAllDownloads = false;
+											await deleteAllDownloads();
+										}}
+									>
+										{t('download.delete_all')}
+									</AlertDialog.Action>
+								</AlertDialog.Footer>
+							</AlertDialog.Content>
+						</AlertDialog.Root>
 					{:else if tab === 'about'}
 						<div
 							class="mb-7 rounded-xl border bg-gradient-to-br from-primary/8 to-transparent px-4 py-4"
@@ -1077,6 +1164,37 @@
 		<Input bind:value={proxyInput} placeholder={t('settings.general.proxy_placeholder')} />
 		<Button type="submit" variant="outline">{t('common.save')}</Button>
 	</form>
+{/snippet}
+
+{#snippet concurrencySlider()}
+	<div class="flex w-44 shrink-0 items-center gap-3">
+		<Slider
+			type="single"
+			min={1}
+			max={10}
+			step={1}
+			value={downloadConcurrency}
+			onValueChange={setDownloadConcurrency}
+		/>
+		<span class="w-6 shrink-0 text-right font-mono text-xs text-muted-foreground">{downloadConcurrency}</span>
+	</div>
+{/snippet}
+
+{#snippet deleteAllDownloadsButton()}
+	<Button size="sm" variant="destructive" onclick={() => (confirmDeleteAllDownloads = true)}>
+		{t('download.delete_all')}
+	</Button>
+{/snippet}
+
+{#snippet downloadFolderControl()}
+	<div class="flex items-center gap-2">
+		<Button size="sm" variant="outline" onclick={changeDownloadDir}>
+			{t('download.change_folder')}
+		</Button>
+		<Button size="sm" variant="outline" onclick={() => api.openDownloadDir()}>
+			{t('download.open_folder')}
+		</Button>
+	</div>
 {/snippet}
 
 {#snippet clearButton()}

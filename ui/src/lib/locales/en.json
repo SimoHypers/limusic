@@ -124,6 +124,7 @@
 		"settings": "Settings",
 		"listen_together": "Listen Together",
 		"new_playlist": "New Playlist",
+		"downloads": "Downloads",
 		"account": "Account",
 		"sign_in": "Sign in",
 		"sign_out": "Sign out",
@@ -439,7 +440,9 @@
 			"data": "Data & storage",
 			"data_hint": "Network and cached files.",
 			"about": "About",
-			"about_hint": "Version, updates and what changed."
+			"about_hint": "Version, updates and what changed.",
+			"downloads": "Downloads",
+			"downloads_hint": "Download location, concurrency and storage."
 		},
 		"sections": {
 			"language": "Language",
@@ -1375,5 +1378,39 @@
 			"not_found": "Couldn’t find that on YouTube Music.",
 			"cooldown": "YouTube Music asked Limusic to slow down, so imports are paused until {time}. Everything found so far is saved."
 		}
+	},
+	"download": {
+		"title": "Downloads",
+		"download": "Download",
+		"download_track": "Download track",
+		"download_playlist": "Download playlist",
+		"download_album": "Download album",
+		"downloading": "Downloading…",
+		"downloaded": "Downloaded",
+		"download_success": "Downloaded successfully",
+		"queued": "added to download queue",
+		"folder": "Download folder",
+		"change_folder": "Change",
+		"open_folder": "Open folder",
+		"pick_folder": "Choose a download folder",
+		"clear_completed": "Clear finished",
+		"cancel_all": "Cancel all downloads",
+		"empty": "No active downloads",
+		"initializing": "Connecting…",
+		"status_queued": "Queued",
+		"status_downloading": "Downloading",
+		"status_tagging": "Writing tags…",
+		"status_completed": "Completed",
+		"status_failed": "Failed",
+		"status_cancelled": "Cancelled",
+		"settings_tab": "Downloads",
+		"settings_tab_hint": "Download location, concurrency and storage.",
+		"max_concurrent": "Simultaneous downloads",
+		"max_concurrent_hint": "Number of tracks that can download at the same time.",
+		"delete_all": "Delete all downloads",
+		"delete_all_hint": "Permanently remove all downloaded audio files from disk.",
+		"delete_all_confirm": "Delete all downloaded files?",
+		"delete_all_confirm_desc": "This will permanently delete all downloaded audio files from your device. This action cannot be undone.",
+		"delete_all_success": "All downloads deleted"
 	}
 }

@@ -2849,6 +2849,170 @@ pub fn stop_matugen_watcher() {
     crate::matugen::stop();
 }
 
+// --- downloads (download.rs) -----------------------------------------------------------------
+
+#[tauri::command]
+pub async fn download_track(
+    state: St<'_>,
+    song: SongItem,
+    subfolder: Option<String>,
+) -> Result<String, String> {
+    if crate::local::is_local_song(&song.video_id) {
+        return Err("Cannot download a local file".to_string());
+    }
+    let id = state.downloads.queue_song(
+        song.video_id,
+        song.title,
+        song.artists,
+        song.album,
+        song.thumbnail,
+        subfolder,
+    );
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn download_playlist(
+    state: St<'_>,
+    playlist_id: String,
+    title: Option<String>,
+) -> Result<usize, String> {
+    if is_local_playlist(&playlist_id) {
+        let page = local_playlist_page(&state, &playlist_id)?;
+        let subfolder = title.or(page.title);
+        let count = page.items.len();
+        for t in page.items {
+            if !crate::local::is_local_song(&t.video_id) && !state.downloads.is_queued_or_downloaded(&t.video_id) {
+                state.downloads.queue_song(
+                    t.video_id,
+                    t.title,
+                    t.artists,
+                    t.album,
+                    t.thumbnail,
+                    subfolder.clone(),
+                );
+            }
+        }
+        return Ok(count);
+    }
+
+    let client = metadata_client(&state)?;
+    let mut page =
+        state.it.playlist(client, &playlist_id, None).await.map_err(|e| e.to_string())?;
+    let subfolder = title.or(page.title);
+    let mut items = page.items;
+
+    while let Some(continuation) = page.continuation {
+        if items.len() >= 500 {
+            break;
+        }
+        if let Ok(next_page) = state.it.playlist_continuation(client, &continuation).await {
+            page.continuation = next_page.continuation;
+            items.extend(next_page.items);
+        } else {
+            break;
+        }
+    }
+
+    let count = items.len();
+    for t in items {
+        if !state.downloads.is_queued_or_downloaded(&t.video_id) {
+            state.downloads.queue_song(
+                t.video_id,
+                t.title,
+                t.artists,
+                t.album,
+                t.thumbnail,
+                subfolder.clone(),
+            );
+        }
+    }
+    Ok(count)
+}
+
+#[tauri::command]
+pub async fn download_album(
+    state: St<'_>,
+    album_id: String,
+    title: Option<String>,
+) -> Result<usize, String> {
+    let client = metadata_client(&state)?;
+    let album = state.it.album(client, &album_id).await.map_err(|e| e.to_string())?;
+    let subfolder = title.or(album.title);
+    let count = album.items.len();
+    for t in album.items {
+        if !state.downloads.is_queued_or_downloaded(&t.video_id) {
+            state.downloads.queue_song(
+                t.video_id,
+                t.title,
+                t.artists,
+                t.album,
+                t.thumbnail,
+                subfolder.clone(),
+            );
+        }
+    }
+    Ok(count)
+}
+
+#[tauri::command]
+pub async fn get_downloads(state: St<'_>) -> Result<Vec<crate::download::DownloadTask>, String> {
+    Ok(state.downloads.get_tasks())
+}
+
+#[tauri::command]
+pub async fn cancel_download(state: St<'_>, id: String) -> Result<(), String> {
+    state.downloads.cancel(&id);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cancel_all_downloads(state: St<'_>,) -> Result<(), String> {
+    state.downloads.cancel_all();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn clear_completed_downloads(state: St<'_>) -> Result<(), String> {
+    state.downloads.clear_completed();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_download_dir(state: St<'_>) -> Result<String, String> {
+    Ok(state.downloads.download_dir().to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn set_download_dir(state: St<'_>, dir: String) -> Result<(), String> {
+    state.downloads.set_download_dir(&dir);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_download_dir(state: St<'_>) -> Result<(), String> {
+    let dir = state.downloads.download_dir();
+    let _ = tokio::fs::create_dir_all(&dir).await;
+    crate::download::open_folder(&dir);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_download_concurrency(state: St<'_>) -> Result<usize, String> {
+    Ok(state.downloads.get_concurrency())
+}
+
+#[tauri::command]
+pub async fn set_download_concurrency(state: St<'_>, concurrency: usize) -> Result<(), String> {
+    state.downloads.set_concurrency(concurrency);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_all_downloads(state: St<'_>) -> Result<usize, String> {
+    Ok(state.downloads.delete_all_downloads().await)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -8,6 +8,7 @@ mod commands;
 mod db;
 mod diagnostics;
 mod discord;
+mod download;
 mod hotkeys;
 mod http;
 mod import;
@@ -1312,6 +1313,19 @@ pub fn run() {
             commands::diagnostics,
             commands::diagnostics_summary,
             commands::save_diagnostics,
+            commands::download_track,
+            commands::download_playlist,
+            commands::download_album,
+            commands::get_downloads,
+            commands::cancel_download,
+            commands::cancel_all_downloads,
+            commands::clear_completed_downloads,
+            commands::get_download_dir,
+            commands::set_download_dir,
+            commands::open_download_dir,
+            commands::get_download_concurrency,
+            commands::set_download_concurrency,
+            commands::delete_all_downloads,
             commands::log_ui,
         ]))
         .on_window_event(|window, event| {

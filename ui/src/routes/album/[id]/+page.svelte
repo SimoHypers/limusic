@@ -14,6 +14,9 @@
         Share08Icon,
         BookmarkAdd02Icon,
         BookmarkCheck02Icon,
+        Download04Icon,
+        Loading03Icon,
+        CheckmarkCircle02Icon,
     } from "@hugeicons/core-free-icons";
     import TrackRow from "$lib/components/TrackRow.svelte";
     import TrackColumns, { chosen } from "$lib/components/TrackColumns.svelte";
@@ -50,11 +53,13 @@
     import { thumb } from "$lib/thumb";
     import { anchorMenu, fitMenu, NO_ANCHOR, toBody } from "$lib/menu";
     import { t } from "$lib/i18n.svelte";
+    import { downloadAlbumById, getCollectionDownloadState } from "$lib/download.svelte";
 
     let album = $state<AlbumPage | null>(null);
     let loading = $state(true);
     let error = $state<string | null>(null);
     let expanded = $state(false);
+    const albumDownloadState = $derived(getCollectionDownloadState(album?.items?.map((t) => t.video_id) ?? []));
     // ⋯ options menu, `fixed` and anchored under the button so the header can't clip it.
     let menuOpen = $state(false);
     let anchor = $state(NO_ANCHOR);
@@ -382,6 +387,34 @@
                     {selection}
                     class="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border transition hover:bg-accent/10 hover:text-foreground"
                 />
+                {#if album?.items?.length}
+                    {#if albumDownloadState === 'downloading'}
+                        <button
+                            class="flex h-10 w-10 cursor-not-allowed items-center justify-center rounded-full border text-primary"
+                            disabled
+                            title={t("download.downloading")}
+                        >
+                            <HugeiconsIcon icon={Loading03Icon} class="h-5 w-5 animate-spin" />
+                        </button>
+                    {:else if albumDownloadState === 'downloaded'}
+                        <button
+                            class="flex h-10 w-10 cursor-default items-center justify-center rounded-full border text-emerald-500"
+                            disabled
+                            title={t("download.downloaded")}
+                        >
+                            <HugeiconsIcon icon={CheckmarkCircle02Icon} class="h-5 w-5" />
+                        </button>
+                    {:else}
+                        <button
+                            class="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border text-muted-foreground transition hover:bg-accent/10 hover:text-foreground"
+                            onclick={() => downloadAlbumById(id, album?.title)}
+                            title={t("download.download_album")}
+                            aria-label={t("download.download_album")}
+                        >
+                            <HugeiconsIcon icon={Download04Icon} class="h-5 w-5" />
+                        </button>
+                    {/if}
+                {/if}
                 <button
                     class="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border text-muted-foreground transition hover:bg-accent/10 hover:text-foreground"
                     onclick={openMenu}
