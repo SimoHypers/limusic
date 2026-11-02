@@ -46,7 +46,8 @@ impl LoadOptions {
     /// DirectML on a discrete GPU with enough VRAM when `directml` is allowed
     /// ([`RuntimeReady::directml`]), else the CPU with `percent` of the cores.
     pub fn auto_with_cpu_percent(percent: u32, directml: bool) -> LoadOptions {
-        Self::choose(DevicePref::Auto, percent, directml, &crate::device::list_adapters())
+        let adapters = if directml { crate::device::list_adapters() } else { Vec::new() };
+        Self::choose(DevicePref::Auto, percent, directml, &adapters)
     }
 
     pub fn choose(
@@ -59,15 +60,15 @@ impl LoadOptions {
             device: Device::Cpu,
             intra_threads: Some(crate::device::cpu_threads_for_percent(percent)),
         };
-        if !directml || pref == DevicePref::Cpu {
+        if !directml {
             return cpu;
         }
         let candidate = match pref {
+            DevicePref::Cpu => None,
             DevicePref::Auto => {
                 crate::device::pick_gpu(adapters, crate::device::MIN_DISCRETE_VRAM_MB)
             }
             DevicePref::Gpu => crate::device::pick_gpu_any(adapters),
-            DevicePref::Cpu => unreachable!(),
         };
         if let Some(a) = candidate {
             tracing::info!("{}", crate::device::describe(a));
@@ -144,8 +145,13 @@ impl MdxModel {
         pref: DevicePref,
         percent: u32,
     ) -> anyhow::Result<(Self, Device)> {
-        let opts =
-            LoadOptions::choose(pref, percent, rt.directml(), &crate::device::list_adapters());
+        let directml = rt.directml();
+        let adapters = if pref != DevicePref::Cpu && directml {
+            crate::device::list_adapters()
+        } else {
+            Vec::new()
+        };
+        let opts = LoadOptions::choose(pref, percent, directml, &adapters);
         let device = opts.device;
         match Self::load(rt, model_path, params, opts) {
             Ok(model) => Ok((model, device)),
