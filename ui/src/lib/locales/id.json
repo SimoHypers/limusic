@@ -156,7 +156,10 @@
 		"up_next": "Selanjutnya",
 		"fullscreen_video": "Video layar penuh",
 		"exit_fullscreen_video": "Keluar dari mode layar penuh",
-		"scroll_to_end": "Gulir ke bawah"
+		"scroll_to_end": "Gulir ke bawah",
+		"skip_back": "Mundur {seconds} detik",
+		"skip_forward": "Maju {seconds} detik",
+		"speed": "Kecepatan pemutaran"
 	},
 	"home": {
 		"good_morning": "Selamat pagi",
@@ -372,7 +375,7 @@
 			"track_notifications_focused": "Sambil menggunakan Limusic",
 			"track_notifications_focused_hint": "Tampilkan juga notifikasi ketika lagu berikutnya mulai sendiri saat Limusic adalah jendela aktif. Lagu yang Anda pilih sendiri tidak akan menampilkan notifikasi.",
 			"play_on_start": "Lanjutkan pemutaran saat dibuka",
-			"play_on_start_hint": "Putar antrian terakhirmu saat Limusic dibuka"
+			"play_on_start_hint": "Putar antrian musik Anda yang terakhir saat Limusic terbuka."
 		},
 		"themes": {
 			"interface_font": "Font antarmuka",
@@ -430,7 +433,9 @@
 			"classic_player_hint": "Tampilan pemain asli: artwork saja di atas salinan blur dari sampul, dengan detail lagu berada di sebelah bilah pemain. Off menggunakan tata letak baru, dengan judul, artis dan album di bawah artwork dan tampilan diterangi oleh warna sampul.",
 			"matugen": "Matugen",
 			"now_playing_pill": "Tombol putar sekarang",
-			"now_playing_pill_hint": "Tampilkan tombol untuk kembali ke lagu yang sedang diputar saat lagu tersebut tidak lagi terlihat karena digulir ke luar layar, baik di daftar putar maupun antrian."
+			"now_playing_pill_hint": "Tampilkan tombol untuk kembali ke lagu yang sedang diputar saat lagu tersebut tidak lagi terlihat karena digulir ke luar layar, baik di daftar putar maupun antrian.",
+			"empty_click_player": "Klik ruang kosong untuk membuka atau menutup pemutar",
+			"empty_click_player_hint": "Jika diaktifkan, mengklik bagian kosong pada bilah pemutar akan membuka atau menutup tampilan pemutar, dan mengklik di sekitar gambar sampul akan menutupnya. Jika dinonaktifkan, hanya tombol panah, tombol Esc, dan pintasan keyboard yang berfungsi untuk itu."
 		},
 		"playback": {
 			"audio_quality": "Kualitas audio",
@@ -744,10 +749,72 @@
 			"quit_app": "Keluar dari Limusic"
 		},
 		"tempo_pitch": {
-			"title": "Kontrol Tempo & Nada",
+			"title": "Tempo, nada & gema",
 			"desc": "Berlaku untuk semua yang Anda putar, hingga Anda mengembalikannya atau membuka ulang aplikasi.",
-			"tempo": "Tempo (Kecepatan)",
-			"pitch": "Nada (Kunci)"
+			"tempo": "Tempo",
+			"pitch": "Nada",
+			"presets": "Preset",
+			"builtin": {
+				"original": "Asli",
+				"slowed": "Diperlambat + reverb",
+				"nightcore": "Nightcore",
+				"practice": "Latihan",
+				"hall": "Aula konser"
+			},
+			"builtin_hints": {
+				"original": "Lagu tersebut sebagaimana dirilis",
+				"slowed": "Lebih lambat dan lebih rendah, di ruangan besar",
+				"nightcore": "Lebih cepat dan lebih tinggi, dengan sentuhan reverb",
+				"practice": "Lebih lambat, kunci yang sama",
+				"hall": "Seperti dimainkan secara live"
+			},
+			"preset_save": "Simpan sebagai preset",
+			"preset_save_hint": "Simpan yang kamu dengar untuk nanti",
+			"preset_save_none": "Ganti sesuatu dibawah ini terlebih dahulu",
+			"preset_name": "Nama preset",
+			"preset_replace": "Gantikan",
+			"preset_delete": "Hapus {name}",
+			"preset_duplicate": "Kamu sudah punya preset dengan nama ini. Menyimpannya berarti menggantikannya.",
+			"preset_save_error": "Tidak bisa menyimpan preset Anda. Coba lagi; preset Anda yang sudah disimpan tidak berubah.",
+			"preset_load_error": "Tidak bisa membaca preset tersimpan Anda. Opsi menyimpan dimatikan untuk melindungi mereka.",
+			"preset_room_hint": "Di ruang mendengarkan, preset hanya menerapkan penyesuaian nada dan gema. Tempo yang telah disimpan tetap dipertahankan saat mendengarkan secara solo.",
+			"adjust": "Sesuaikan",
+			"normal": "Normal",
+			"pitch_short": "nada {n}",
+			"slower": "Lebih lambat",
+			"faster": "Lebih cepat",
+			"lower": "Lebih rendah",
+			"higher": "Lebih tinggi",
+			"song_length": "Lagu ini berdurasi {time}",
+			"tempo_room_locked": "Tempo tetap normal di ruang mendengarkan, supaya semua orang mendengar momen yang sama.",
+			"reverb": "Reverb",
+			"reverb_hint": "Buat seolah-olah diputar di dalam sebuah ruangan.",
+			"reverb_room": "Ruangan",
+			"reverb_types": {
+				"small_room": "Ruangan kecil",
+				"medium_room": "Ruangan sedang",
+				"large_room": "Ruangan besar",
+				"medium_hall": "Aula sedang",
+				"large_hall": "Aula besar",
+				"plate": "Plate reverb"
+			},
+			"reverb_amount": "Jumlah",
+			"reverb_fine_tune": "Lebih banyak pengaturan reverb",
+			"reverb_controls": {
+				"dry": "Tingkatan lagu",
+				"decay": "Panjang",
+				"preDelay": "Sebelum delay",
+				"damping": "Kecerahan",
+				"reflections": "Refleksi awal"
+			},
+			"reverb_control_hints": {
+				"dry": "Seberapa kencang lagu itu sendiri, dibawah reverb.",
+				"decay": "Seberapa lama gema bertahan setelah setiap bunyi.",
+				"preDelay": "Jeda kecil sebelum reverb dimulai. Lebih banyak suara seperti ruangan besar.",
+				"damping": "Nilai yang lebih rendah membuat efek reverb terdengar lebih gelap. Lagu itu sendiri tidak terpengaruh.",
+				"reflections": "Seberapa nyaring gema pertama yang memantul dari dinding itu yang Anda dengar."
+			},
+			"reset_all": "Reset semuanya"
 		},
 		"link": {
 			"title": "Buka tautan",
