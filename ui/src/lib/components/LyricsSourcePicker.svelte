@@ -8,6 +8,7 @@
 		ArrowRight01Icon,
 		ArrowTurnBackwardIcon,
 		ArrowUp01Icon,
+		LinkSquare02Icon,
 		Loading03Icon,
 		MagicWand01Icon,
 		MinusSignIcon,
@@ -412,6 +413,18 @@
 					<HugeiconsIcon icon={ArrowTurnBackwardIcon} class="h-3.5 w-3.5" />
 				</button>
 			</div>
+		{/if}
+
+		{#if lyrics?.provider === 'unison'}
+			<!-- Unison votes are signed with a Better Lyrics key, so they happen on its site (#342). -->
+			<button
+				class="flex w-full cursor-pointer items-center gap-2 border-t px-4 py-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+				onclick={() =>
+					api.openExternal(`https://unison.betterlyrics.org/song/${encodeURIComponent(track.videoId)}`)}
+			>
+				<HugeiconsIcon icon={LinkSquare02Icon} class="h-3.5 w-3.5" />
+				{t('lyrics.unison_rate')}
+			</button>
 		{/if}
 
 		{#if searchOpen}

@@ -1094,6 +1094,7 @@
 		"timing_later": "Show lyrics later",
 		"timing_reset": "Reset timing",
 		"search_open": "Wrong song? Search by title",
+		"unison_rate": "Rate these lyrics on Unison",
 		"search_title": "Title",
 		"search_artist": "Artist",
 		"search_go": "Search",
@@ -1107,6 +1108,7 @@
 		"translation_hint": "Show the translation some sources add under each line",
 		"about": {
 			"boidu": "The Better Lyrics database. Word by word, for songs someone has looked up before.",
+			"unison": "Better Lyrics' community lyrics, mostly word by word, timed to the exact video.",
 			"lyricsplus": "Apple Music lyrics, word by word, with Apple's own romanization.",
 			"lrclib": "Open library of synced lyrics. The widest coverage.",
 			"youtube": "YouTube Music's own lyrics, where they're licensed.",

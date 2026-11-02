@@ -5,12 +5,14 @@
 //!
 //! 1. **Boidu** (`lyrics-api.boidu.dev`, the Better Lyrics API): Apple's TTML with word timings,
 //!    only for songs its cache already holds.
-//! 2. **LyricsPlus** (YouLyPlus' backend): Apple Music lyrics as KPOE JSON, word-timed, with
+//! 2. **Unison** (Better Lyrics' crowdsourced database, #342): community syncs, mostly word-timed
+//!    TTML, filed by video id, so timed to the exact upload playing.
+//! 3. **LyricsPlus** (YouLyPlus' backend): Apple Music lyrics as KPOE JSON, word-timed, with
 //!    Apple's own romanization. Checked against our length, since its search strays.
-//! 3. **LRCLIB**: `/api/get` (exact), then `/api/search` (fuzzy, ±5s). Free, no key, best coverage.
-//! 4. **YouTube Music**: `next(videoId)` → lyrics browseId → mobile-client browse
+//! 4. **LRCLIB**: `/api/get` (exact), then `/api/search` (fuzzy, ±5s). Free, no key, best coverage.
+//! 5. **YouTube Music**: `next(videoId)` → lyrics browseId → mobile-client browse
 //!    (`timedLyricsData`), else the plain text with YouTube's attribution.
-//! 5. **Netease / QQ / Kugou**: synced LRC, plus translations from Netease. Search hits are matched
+//! 6. **Netease / QQ / Kugou**: synced LRC, plus translations from Netease. Search hits are matched
 //!    on length (`best_by_duration`); these catalogues rank remixes next to originals.
 //!
 //! Synced beats plain: the first synced answer down the list wins, and only when none is synced
@@ -36,7 +38,7 @@ const MISS_TTL_SECS: i64 = 24 * 3600;
 
 /// How far apart `fetch` starts the providers. A first answer takes ~0.4-0.7s (timed 2026-10-16),
 /// so a hit at the top of the list usually sends one or two requests below it, and a miss
-/// everywhere costs about the slowest provider plus 6 × this instead of all of them added up.
+/// everywhere costs about the slowest provider plus 7 × this instead of all of them added up.
 const STAGGER: Duration = Duration::from_millis(300);
 
 /// The most one provider may take in `fetch`, all of its requests together. Reading in order means
@@ -47,13 +49,14 @@ const LRCLIB_ROOT: &str = "https://lrclib.net/api";
 
 /// Every provider, in the order a fresh install asks them. The user's order lives in the
 /// `lyrics_providers` setting; this is the default and the list of what exists.
-pub const PROVIDERS: [&str; 7] =
-    ["boidu", "lyricsplus", "lrclib", "youtube", "netease", "qq", "kugou"];
+pub const PROVIDERS: [&str; 8] =
+    ["boidu", "unison", "lyricsplus", "lrclib", "youtube", "netease", "qq", "kugou"];
 
 /// The attribution a provider's lyrics carry (`Lyrics::source`), also its name in Settings.
 pub fn provider_name(id: &str) -> &'static str {
     match id {
         "boidu" => "Boidu",
+        "unison" => "Unison",
         "lyricsplus" => "LyricsPlus",
         "lrclib" => "LRCLIB",
         "youtube" => "YouTube Music",
@@ -291,6 +294,7 @@ async fn ask(
     let e = |e: reqwest::Error| e.to_string();
     let hit = match id {
         "boidu" => boidu_get(req).await.map_err(e),
+        "unison" => unison_get(req).await.map_err(e),
         "lyricsplus" => lyricsplus_get(req).await.map_err(e),
         "lrclib" => lrclib(req).await.map_err(e),
         "youtube" => youtube_get(state, next).await,
@@ -341,7 +345,7 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
         tracing::debug!(error = %e, "lyrics: next() failed");
     }
     let (req, next) = (&req, &next);
-    let cacheable = |id: &str| req.duration.is_some() || id == "youtube";
+    let cacheable = |id: &str| req.duration.is_some() || matches!(id, "youtube" | "unison");
 
     // Provider i starts at i × STAGGER instead of after provider i-1 answers (#482): a song with no
     // synced lyrics anywhere used to wait on every provider in turn, ~10s. Answers are still read
@@ -776,6 +780,52 @@ async fn boidu_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Error
         None => tracing::debug!("lyrics: Boidu returned no lines"),
     }
     Ok(hit)
+}
+
+/// Unison, Better Lyrics' crowdsourced lyrics (#342). Read-only: a vote is a request signed with a
+/// per-user key, so the source picker links the song's page on their site instead.
+const UNISON_URL: &str = "https://unison.betterlyrics.org/lyrics";
+
+#[derive(Debug, Deserialize)]
+struct UnisonAnswer {
+    data: UnisonLyrics,
+}
+
+#[derive(Debug, Deserialize)]
+struct UnisonLyrics {
+    #[serde(default)]
+    lyrics: String,
+    /// "ttml" (Better Lyrics' composer, Apple's dialect), "lrc" or "plain".
+    #[serde(default)]
+    format: String,
+}
+
+// ponytail: by video id only, like the extension. Unison answers a `v` miss with 404 without trying
+// song + artist (`routes/lyrics.ts`, despite its README), so a typed search in the source picker
+// still gets this video's lyrics; ask by song + artist when that matters.
+async fn unison_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Error> {
+    if crate::local::is_local_song(&req.video_id) {
+        return Ok(None);
+    }
+    let resp = crate::http::client()
+        .get(UNISON_URL)
+        .query(&[("v", &req.video_id)])
+        .header("User-Agent", LRCLIB_UA)
+        .timeout(Duration::from_secs(8))
+        .send()
+        .await?;
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    let answer: UnisonAnswer = resp.error_for_status()?.json().await?;
+    Ok(unison_to_lyrics(answer.data))
+}
+
+fn unison_to_lyrics(u: UnisonLyrics) -> Option<Lyrics> {
+    match u.format.as_str() {
+        "plain" => plain_from_text(Some(&u.lyrics), "Unison"),
+        _ => from_parsed("Unison", parse_lrc_or_ttml(&u.lyrics)),
+    }
 }
 
 /// LyricsPlus, the backend of YouLyPlus (#46): Apple Music's word-timed lyrics as KPOE JSON, for
@@ -1651,8 +1701,37 @@ mod tests {
         // Unknown and repeated ids are dropped; the ones it doesn't name follow, switched on.
         assert_eq!(
             ids(provider_order(Some("lrclib, -boidu,gone,lrclib"))),
-            "lrclib,-boidu,lyricsplus,youtube,netease,qq,kugou"
+            "lrclib,-boidu,unison,lyricsplus,youtube,netease,qq,kugou"
         );
+    }
+
+    /// Unison's answer, trimmed from "Love Never Felt So Good" (FkxEE7wZ83c, 2026-11-02): the
+    /// composer's TTML, word-timed. LRC and plain arrive in the same envelope.
+    #[test]
+    fn unison_reads_each_format() {
+        let json = r#"{"success":true,"data":{"id":1494,"videoId":"FkxEE7wZ83c","format":"ttml","syncType":"richsync","lyrics":"<tt xmlns=\"http://www.w3.org/ns/ttml\" xmlns:ttm=\"http://www.w3.org/ns/ttml#metadata\" xml:lang=\"en\"><body dur=\"4:06.040\"><div><p begin=\"0:16.929\" end=\"0:21.439\" ttm:agent=\"v1\"><span begin=\"0:16.929\" end=\"0:17.855\">Baby,</span> <span begin=\"0:18.944\" end=\"0:19.448\">love</span></p><p begin=\"0:22.502\" end=\"0:25.291\" ttm:agent=\"v1\"><span begin=\"0:22.502\" end=\"0:22.773\">And</span></p></div></body></tt>"}}"#;
+        let u = serde_json::from_str::<UnisonAnswer>(json).unwrap().data;
+        let l = unison_to_lyrics(u).unwrap();
+        assert!(l.synced);
+        assert_eq!(l.source, "Unison");
+        assert_eq!(l.lines.len(), 2);
+        assert_eq!(l.lines[0].time_ms, Some(16929));
+        let w = &l.lines[0].words.as_ref().unwrap()[1];
+        assert_eq!((w.start_ms, w.end_ms), (18944, 19448));
+
+        let lrc =
+            UnisonLyrics { format: "lrc".into(), lyrics: "[00:01.00]One\n[00:02.50]Two".into() };
+        let l = unison_to_lyrics(lrc).unwrap();
+        assert!(l.synced);
+        assert_eq!(l.lines[1].time_ms, Some(2500));
+
+        let plain = UnisonLyrics { format: "plain".into(), lyrics: "One\n\nTwo\n".into() };
+        let l = unison_to_lyrics(plain).unwrap();
+        assert!(!l.synced);
+        assert_eq!(l.lines.len(), 3);
+
+        assert!(unison_to_lyrics(UnisonLyrics { format: "ttml".into(), lyrics: String::new() })
+            .is_none());
     }
 
     /// LyricsPlus' shape, trimmed from "Spring Day": word-timed, with Apple's reading.
