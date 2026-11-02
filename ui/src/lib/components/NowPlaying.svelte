@@ -154,15 +154,27 @@
 		api.togglePause();
 	}
 
-	// Scrolling the artwork is the volume, same step as the slider. The level only draws while the
-	// gesture is live (plus a second to read it) so the artwork is otherwise untouched.
+	// Scrolling the view is the volume, same step as the slider. The level only draws while the
+	// gesture is live (plus a second to read it) so the view is otherwise untouched.
 	let volFlash = $state(false);
 	let volTimer: ReturnType<typeof setTimeout>;
 	function onWheel(e: WheelEvent) {
+		// The queue, lyrics and comments lists scroll under the same pointer; their own scroll wins.
+		if (scrollsUnder(e.target)) return;
 		wheelVolume(e);
 		volFlash = true;
 		clearTimeout(volTimer);
 		volTimer = setTimeout(() => (volFlash = false), 1000);
+	}
+
+	// True while the wheel is over something that can scroll in this direction … any direction.
+	function scrollsUnder(node: EventTarget | null): boolean {
+		for (let el = node as HTMLElement | null; el && el !== view; el = el.parentElement) {
+			const overflow = getComputedStyle(el).overflowY;
+			if ((overflow === 'auto' || overflow === 'scroll') && el.scrollHeight > el.clientHeight + 1)
+				return true;
+		}
+		return false;
 	}
 
 	// The queue row for what's playing: it carries the album link and what the ⋮ menu needs, which
@@ -463,6 +475,7 @@
 	onoutrostart={() => ((settled = false), setHole(null))}
 	onintroend={() => (settled = true)}
 	bind:this={view}
+	onwheel={onWheel}
 	onpointerdown={(e) => ((pressedKeep = keeps(e.target)), (releasedKeep = false))}
 	onpointerup={(e) => (releasedKeep = keeps(e.target))}
 	onclick={onBackdropClick}
@@ -549,8 +562,9 @@
 						data-np-keep
 						data-ctx
 					>
-						<!-- svelte-ignore a11y_no_static_element_interactions -- wheel is the volume gesture -->
-						<div bind:this={picBox} class="relative" onwheel={onWheel}>
+						<!-- The wheel is handled by the view root, so the whole view is the
+						     volume gesture, not just the cover. -->
+						<div bind:this={picBox} class="relative">
 							{#if !showVideo()}
 								<!-- The light the cover sits in: bigger than it and behind it, so it reads
 								     as a spill, where a shadow this size would be re-blurred on every
@@ -710,7 +724,6 @@
 					<div
 						bind:this={picBox}
 						class="relative w-full {showVideo() ? 'max-w-[var(--vid)]' : 'max-w-[var(--art)]'}"
-						onwheel={onWheel}
 						data-np-keep
 					>
 						{#if volFlash}{@render volPlate()}{/if}
