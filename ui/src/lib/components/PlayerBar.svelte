@@ -186,7 +186,7 @@
 			<div class="flex items-center gap-1.5">
 				{#snippet title()}
 					<Marquee
-						hover
+						hover="self"
 						text={playback.now?.title ?? t('player.not_playing')}
 						class="text-sm font-medium"
 					/>

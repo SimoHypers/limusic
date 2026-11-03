@@ -321,9 +321,10 @@
 		<div class="min-w-0 flex-1">
 			<div class="flex min-w-0 items-center gap-2">
 				<!-- The title scrolls under the pointer when it doesn't fit, like the player bar's: a
-				     truncated name tells you which song it is only if you already know the song. -->
+				     truncated name tells you which song it is only if you already know the song.
+				     The row carries the gesture, so the pointer only has to be somewhere on it. -->
 				<Marquee
-					hover
+					hover="group"
 					text={song.title}
 					class="min-w-0 flex-1 text-sm font-medium {active ? 'text-primary' : ''}"
 				/>

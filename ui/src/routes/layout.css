@@ -986,7 +986,10 @@ html.art-tint.theme-amoled {
    back. The bar is where the eye goes on its own, so a title that scrolls unprompted there is
    noise; this keeps the whole line readable without the motion. */
 .marquee-hover { animation-iteration-count: infinite; animation-play-state: paused; }
-.marquee-box:hover .marquee-hover { animation-play-state: running; }
+/* A track row marked `group` carries the same gesture from anywhere inside it, so the reader
+   does not have to find the title cell itself. */
+.marquee-box:hover .marquee-hover,
+.group:hover .marquee-hover-group { animation-play-state: running; }
 
 /* A small "pop" for the like button when a track is favourited. */
 @keyframes heart-pop {
@@ -1093,7 +1096,8 @@ input[type='range'].range:active::-webkit-slider-thumb {
 	/* The exception: a hover-only marquee moves because the pointer is resting on the line, which
 	   is the reader asking for it, so flattening it would leave the rest of a long title
 	   unreachable. It stays motionless otherwise. */
-	.marquee-box:hover .marquee-hover {
+	.marquee-box:hover .marquee-hover,
+	.group:hover .marquee-hover-group {
 		animation-duration: var(--marquee-s, 10s) !important;
 		animation-iteration-count: infinite !important;
 	}
