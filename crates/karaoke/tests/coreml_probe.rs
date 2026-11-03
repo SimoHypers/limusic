@@ -90,7 +90,7 @@ async fn where_do_the_nodes_run() {
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?
                 .with_profiling(&profile_prefix)
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?
-                .with_execution_providers([coreml_provider(units, format, static_shapes)]);
+                .with_execution_providers([coreml_provider(units, format, static_shapes)])?;
 
             let mut session = builder
                 .commit_from_file(&model_path)
