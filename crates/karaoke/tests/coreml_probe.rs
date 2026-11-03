@@ -51,6 +51,12 @@ async fn where_do_the_nodes_run() {
 
     let variants = vec![
         (
+            "production",
+            karaoke::mdx::COREML_STATIC_SHAPES,
+            ort::ep::coreml::ModelFormat::MLProgram,
+            ort::ep::coreml::ComputeUnits::CPUAndGPU,
+        ),
+        (
             "mlprog_gpu_static",
             true,
             ort::ep::coreml::ModelFormat::MLProgram,
@@ -81,6 +87,8 @@ async fn where_do_the_nodes_run() {
             ort::ep::coreml::ComputeUnits::All,
         ),
     ];
+
+    let mut successful_variants = Vec::new();
 
     for (name, static_shapes, format, units) in variants {
         let profile_prefix = scratch_dir.join(format!("profile_{}", name));
@@ -152,6 +160,7 @@ async fn where_do_the_nodes_run() {
                     "COREML_PROBE variant={} load_ms={} run_ms_avg={} coreml_events={} cpu_events={} cpu_ops={}",
                     name, load_ms, run_ms_avg, coreml_events, cpu_events, cpu_ops_str
                 );
+                successful_variants.push((name.to_string(), coreml_events, cpu_events));
             }
             Err(e) => {
                 let err_msg = karaoke::sanitize_error(&e.to_string());
@@ -159,4 +168,12 @@ async fn where_do_the_nodes_run() {
             }
         }
     }
+
+    let prod = successful_variants.iter().find(|(name, _, _)| name == "production");
+    assert!(prod.is_some(), "production variant did not run without error");
+    let (_, coreml_events, cpu_events) = prod.unwrap();
+    assert!(
+        *coreml_events > 0 && *cpu_events == 0,
+        "CoreML took no node of the model and everything would run on the CPU"
+    );
 }

@@ -23,7 +23,10 @@ impl Default for MdxParams {
 #[derive(Clone, Copy, Debug)]
 pub enum Device {
     Cpu,
-    DirectMl { device_id: i32 },
+    DirectMl {
+        device_id: i32,
+    },
+    /// CoreML (ML Program, CPU+GPU, non-static shapes)
     CoreMl,
 }
 
@@ -85,6 +88,10 @@ impl LoadOptions {
         cpu
     }
 }
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+/// The real model has a dynamic batch_size axis, so CoreML must not be told to require static input shapes: with that option it takes none of the nodes and everything silently runs on the CPU.
+pub const COREML_STATIC_SHAPES: bool = false;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub fn coreml_provider(
@@ -161,7 +168,7 @@ impl MdxModel {
                         .with_execution_providers([coreml_provider(
                             ort::ep::coreml::ComputeUnits::CPUAndGPU,
                             ort::ep::coreml::ModelFormat::MLProgram,
-                            true,
+                            COREML_STATIC_SHAPES,
                         )])
                         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 }

@@ -172,8 +172,9 @@ async fn coreml_matches_the_cpu() {
     assert!(err_l.is_finite(), "err_l is not finite");
     assert!(err_r.is_finite(), "err_r is not finite");
 
+    let speedup = cpu_separate_ms as f64 / coreml_separate_ms as f64;
     println!(
-        "COREML_SUMMARY cpu_load_ms={} coreml_load_ms={} cpu_rtf={:.4} coreml_rtf={:.4} corr_l={:.4} corr_r={:.4}",
-        cpu_load_ms, coreml_load_ms, cpu_rtf, coreml_rtf, corr_l, corr_r
+        "COREML_SUMMARY cpu_load_ms={} coreml_load_ms={} cpu_rtf={:.4} coreml_rtf={:.4} speedup={:.2} corr_l={:.4} corr_r={:.4}",
+        cpu_load_ms, coreml_load_ms, cpu_rtf, coreml_rtf, speedup, corr_l, corr_r
     );
 }
