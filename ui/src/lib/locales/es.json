@@ -435,7 +435,29 @@
 			"now_playing_pill": "Botón de reproduciendo ahora",
 			"now_playing_pill_hint": "Muestra un botón para volver a la canción en reproducción cuando queda fuera de la vista al desplazarte, en una playlist o en la cola.",
 			"empty_click_player": "Haz clic en un espacio vacío para abrir o cerrar el reproductor",
-			"empty_click_player_hint": "Activado, al hacer clic en una zona vacía de la barra del reproductor se abre o se cierra la vista del reproductor, y al hacer clic alrededor de la carátula se cierra. Desactivado, solo lo hacen los botones de flecha, Esc y el atajo de teclado."
+			"empty_click_player_hint": "Activado, al hacer clic en una zona vacía de la barra del reproductor se abre o se cierra la vista del reproductor, y al hacer clic alrededor de la carátula se cierra. Desactivado, solo lo hacen los botones de flecha, Esc y el atajo de teclado.",
+			"enhanced_lyrics": "Letras mejoradas",
+			"enhanced_lyrics_hint": "Las palabras se animan y brillan al ser cantadas.",
+			"enhanced_lyrics_line_sync": "También animar letras sincronizadas",
+			"enhanced_lyrics_line_sync_hint": "Estima la sincronización de palabras para letras que solo tienen sincronización por línea. Desactivado las deja sincronizadas línea por línea.",
+			"lyrics_anim": "Animación de palabra",
+			"lyrics_anim_hint": "Como cada palabra se mueve cuando se canta.",
+			"lyrics_anim_bounce": "Rebote",
+			"lyrics_anim_float": "Flotar",
+			"lyrics_anim_wave": "Onda",
+			"lyrics_anim_pop": "Pop",
+			"lyrics_anim_slide": "Deslice",
+			"lyrics_anim_none": "Ninguno",
+			"lyrics_style": "Estilo de resaltado",
+			"lyrics_style_hint": "Como se rellenan y resaltan las palabras cantadas en la linea.",
+			"lyrics_style_feather": "Barrido suave",
+			"lyrics_style_accent": "Tinte de acento",
+			"lyrics_style_crisp": "Karaoke nítido",
+			"lyrics_style_word": "Palabra entera",
+			"lyrics_anim_strength": "Intensidad de la animación",
+			"lyrics_anim_strength_hint": "Cuánto se mueven las palabras durante su animación al cantarse.",
+			"lyrics_glow": "Intensidad de brillo",
+			"lyrics_glow_hint": "Intensidad del brillo suave en palabras cantadas."
 		},
 		"playback": {
 			"audio_quality": "Calidad de audio",
@@ -453,7 +475,7 @@
 			"music_videos": "Activar videoclips",
 			"music_videos_hint": "Mostrar stream de video cuando esté disponible en lugar de solo audio.",
 			"hide_videos": "Ocultar vídeos en la búsqueda y la radio",
-			"hide_videos_hint": "La búsqueda, el inicio, las páginas de artistas, la radio y la reproducción automática muestran solo pistas de audio. Las listas de reproducción y los álbumes que abres siguen mostrando todo, y una radio iniciada desde un vídeo musical reproduce sus vídeos.",
+			"hide_videos_hint": "La búsqueda, el inicio, las páginas de artistas, la radio y la reproducción automática muestran solo pistas de audio. Las playlists y los álbumes que abres siguen mostrando todo, y una radio iniciada desde un vídeo musical reproduce sus vídeos.",
 			"blocked_artists_empty": "Nadie bloqueado aún. Usa \"Bloquear artista\" desde el menú ⋯ de la pista.",
 			"blocked_artists_remove": "Desbloquear {name}",
 			"blocked_artists_show_all": "Mostrar los {count}",
@@ -726,7 +748,10 @@
 			"copy_link": "Copiar enlace",
 			"public_link_on": "Cualquiera con el enlace puede abrirlo.",
 			"public_link_off": "Actívalo para que el enlace funcione para todos.",
-			"private_note": "Esta playlist es privada. Cualquiera a quien le envíes el enlace recibirá un error."
+			"private_note": "Esta playlist es privada. Cualquiera a quien le envíes el enlace recibirá un error.",
+			"start_at": "Empezar al",
+			"start_invalid": "Introduce un tiempo como 1:23.",
+			"start_too_long": "Eso esta después del fin de la canción ({length}). El enlace no incluirá un tiempo de inicio."
 		},
 		"shortcuts": {
 			"title": "Atajos de teclado",
@@ -942,7 +967,8 @@
 		"show_artwork": "Mostrar portada",
 		"show_video": "Mostrar video",
 		"zoom": "Escala de la interfaz",
-		"close_comments": "Cerrar comentarios"
+		"close_comments": "Cerrar comentarios",
+		"share_start_time": "Tiempo de inicio"
 	},
 	"lyrics": {
 		"title": "Letra",
@@ -1298,7 +1324,8 @@
 		"delete_title": "¿Borrar este comentario?",
 		"delete_desc": "Esto no se puede deshacer. Se eliminarán también todas sus respuestas.",
 		"held": "Comentarios en {title}",
-		"follow_current": "Mostrar pista actual"
+		"follow_current": "Mostrar pista actual",
+		"jump_to": "Saltar al {time}"
 	},
 	"stats": {
 		"title": "Estadísticas de reproducción",
