@@ -25,7 +25,10 @@
 		DashboardSquare02Icon,
 		Share08Icon,
 		PreferenceVerticalIcon,
-		PencilEdit02Icon
+		PencilEdit02Icon,
+		Download04Icon,
+		Loading03Icon,
+		CheckmarkCircle02Icon
 	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import type { SongItem } from '$lib/api';
@@ -58,6 +61,7 @@
 	import { lt } from '$lib/lt.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import { invalidateCachedPrefix } from '$lib/pagecache';
+	import { getSongDownloadState, downloadSong } from '$lib/download.svelte';
 
 	let {
 		song,
@@ -139,6 +143,7 @@
 	// A local file has no YouTube identity: liking it or sharing it is not a thing, so those items
 	// don't show. Queue, shortcuts, go-to-album and saving it to a playlist on this machine work.
 	const isLocal = $derived(api.isLocalId(song.video_id));
+	const dlState = $derived(getSongDownloadState(song?.video_id));
 	// "Remove from this playlist", for a row playing out of a playlist (issue #270). What the three
 	// conditions are and why is in `removableFromPlaylist` (queue.ts), where they are checkable.
 	const removable = $derived(removableFromPlaylist(song, playlistId, savedIn.map));
@@ -375,6 +380,25 @@
 			>
 				<HugeiconsIcon icon={Share08Icon} class="h-4 w-4" /> {t('player.share')}
 			</button>
+			{#if dlState === 'downloading'}
+				<div class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-primary">
+					<HugeiconsIcon icon={Loading03Icon} class="h-4 w-4 animate-spin" />
+					<span>{t('download.downloading')}</span>
+				</div>
+			{:else if dlState === 'downloaded'}
+				<div class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-emerald-500">
+					<HugeiconsIcon icon={CheckmarkCircle02Icon} class="h-4 w-4" />
+					<span>{t('download.downloaded')}</span>
+				</div>
+			{:else}
+				<button
+					class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+					onclick={(e) => run(e, () => downloadSong(song))}
+				>
+					<HugeiconsIcon icon={Download04Icon} class="h-4 w-4" />
+					{t('download.download_track')}
+				</button>
+			{/if}
 		{/if}
 		<!-- #404: fix how this track scrobbles, for good. Opens the Scrobbling tab on it, where the
 		     preview shows what both services get before and after. Only for someone actually
