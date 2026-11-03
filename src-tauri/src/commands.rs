@@ -90,9 +90,9 @@ pub async fn play(state: St<'_>, item: SongItem) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn play_index(state: St<'_>, index: usize) -> Result<(), String> {
+pub async fn play_index(state: St<'_>, index: usize, start: Option<f64>) -> Result<(), String> {
     let state = state.inner().clone();
-    state.play_index(index).await;
+    state.play_index_at(index, start).await;
     Ok(())
 }
 
@@ -1505,9 +1505,10 @@ pub async fn start_radio(
     kind: String,
     id: String,
     name: Option<String>,
+    start: Option<f64>,
 ) -> Result<(), String> {
     let state = state.inner().clone();
-    state.start_radio(&kind, &id, name).await
+    state.start_radio(&kind, &id, name, start).await
 }
 
 // --- write actions (context/01 ✎, context/15) ----------------------------------------------

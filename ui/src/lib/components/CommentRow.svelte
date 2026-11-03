@@ -27,11 +27,15 @@
 	} from '$lib/comments.svelte';
 	import CommentComposer from './CommentComposer.svelte';
 	import { t } from '$lib/i18n.svelte';
+	import { playAt, playback } from '$lib/player.svelte';
+	import { clockSecs } from '$lib/queue';
+	import { splitTimecodes } from '$lib/timecode';
 	import { thumb } from '$lib/thumb';
 
 	// A comment is another person's text: everything below renders as text (never markup), and a
-	// link in it is just characters. No transitions: rows stream under a stationary pointer while
-	// the list scrolls (docs/UI-PERFORMANCE.md).
+	// link in it is just characters. The one exception is a timecode ("1:23"), which becomes a
+	// button that jumps the track there; it is still only a slice of the text. No transitions: rows
+	// stream under a stationary pointer while the list scrolls (docs/UI-PERFORMANCE.md).
 	let {
 		comment,
 		reply = false,
@@ -45,6 +49,20 @@
 	let expanded = $state(false);
 
 	const author = $derived(comment.author);
+
+	// A timecode only counts if it fits in the track the comments belong to, so a "12:30" that
+	// means lunch stays plain text. That track is the playing one unless a draft holds the panel on
+	// an older one; its length is then the queue's, and 0 (unknown: nothing is filtered) once it has
+	// left the queue.
+	const maxSecs = $derived.by(() => {
+		const id = comments.videoId;
+		if (!id) return 0;
+		if (playback.now?.videoId === id) return playback.duration;
+		return clockSecs(playback.queue.items.find((s) => s.video_id === id)?.duration);
+	});
+	// Rendered in the paragraph below with no whitespace between the tags: it is `pre-wrap`, so any
+	// would show up in the comment.
+	const spans = $derived(splitTimecodes(comment.text, maxSecs));
 
 	// Like and dislike buttons, only for a comment the response offered an action on (never signed
 	// out). A lit button's action undoes its vote, an unlit one's casts it; one not on offer is
@@ -129,7 +147,13 @@
 			<p
 				class="mt-1 text-sm break-words whitespace-pre-wrap {long && !expanded ? 'line-clamp-5' : ''}"
 			>
-				{comment.text}
+				{#each spans as span}{#if span.secs !== undefined}<button
+							type="button"
+							class="cursor-pointer text-primary tabular-nums hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+							title={t('comments.jump_to', { time: span.text })}
+							onclick={() => comments.videoId && playAt(comments.videoId, span.secs!, comments.title)}
+							>{span.text}</button
+						>{:else}{span.text}{/if}{/each}
 			</p>
 			{#if long}
 				<button

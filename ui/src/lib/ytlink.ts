@@ -4,8 +4,16 @@
 //
 // Pure and route-free on purpose — the dialog decides what "open" means (see LinkDialog).
 import type { BrowseItem } from './api';
+import { parseYtStart } from './timecode.ts';
 
-export type LinkTarget = { kind: BrowseItem['kind']; id: string };
+/** `start` is the `t=` / `start=` offset in seconds, and only ever set on a song. */
+export type LinkTarget = { kind: BrowseItem['kind']; id: string; start?: number };
+
+/** A song target, carrying the link's start time when it has a usable one. */
+function song(id: string, u: URL): LinkTarget {
+	const start = parseYtStart(u.searchParams.get('t') ?? u.searchParams.get('start'));
+	return start ? { kind: 'song', id, start } : { kind: 'song', id };
+}
 
 /**
  * `null` for anything that isn't a YouTube link we know how to open. Accepts a bare host too
@@ -26,12 +34,12 @@ export function parseYtLink(input: string): LinkTarget | null {
 
 	const [seg, rest] = u.pathname.replace(/^\/+/, '').split('/');
 	// youtu.be/<videoId>
-	if (u.hostname.endsWith('youtu.be')) return seg ? { kind: 'song', id: seg } : null;
+	if (u.hostname.endsWith('youtu.be')) return seg ? song(seg, u) : null;
 
 	// A watch link with both a video and a list is a track being played out of a playlist; the
 	// track is what was shared.
 	const v = u.searchParams.get('v');
-	if (v) return { kind: 'song', id: v };
+	if (v) return song(v, u);
 	const list = u.searchParams.get('list');
 	// Playlist browse ids carry a `VL` prefix that the URL doesn't (the mirror of ShareDialog).
 	// An album shared as its `OLAK5uy_…` audio playlist opens as a playlist of the same tracks;
