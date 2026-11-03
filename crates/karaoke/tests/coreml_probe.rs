@@ -10,6 +10,12 @@ use karaoke::models::ModelId;
 use std::path::PathBuf;
 use std::time::Instant;
 
+/// `ort::Error<SessionBuilder>` holds the builder, which is not `Send`, so `?` cannot turn it into
+/// an `anyhow::Error` directly. The crate does the same conversion in `MdxModel::load`.
+fn ort_err(e: impl std::fmt::Display) -> anyhow::Error {
+    anyhow::anyhow!(e.to_string())
+}
+
 struct ScratchGuard(PathBuf);
 impl Drop for ScratchGuard {
     fn drop(&mut self) {
@@ -23,17 +29,17 @@ async fn where_do_the_nodes_run() {
     let (dest, rt) = common::install_runtime().await;
     let scratch_dir = dest.parent().unwrap().to_path_buf();
     let _guard = ScratchGuard(scratch_dir.clone());
-    let rt = rt.expect("runtime must be available on Apple Silicon");
+    let _rt = rt.expect("runtime must be available on Apple Silicon");
 
     let model_path = common::download_model(ModelId::Kara, &scratch_dir.join("models")).await;
     let spec = ModelId::Kara.spec();
 
-    // Load a temporary session just to print inputs
+    // Load a plain session just to print the inputs.
     let temp_session = ort::session::Session::builder()
-        .map_err(|e| anyhow::anyhow!(e.to_string()))
+        .map_err(ort_err)
         .expect("failed to create session builder")
         .commit_from_file(&model_path)
-        .map_err(|e| anyhow::anyhow!(e.to_string()))
+        .map_err(ort_err)
         .expect("failed to commit model for input inspection");
 
     for input in temp_session.inputs() {
@@ -81,20 +87,18 @@ async fn where_do_the_nodes_run() {
 
         let run_test = || -> Result<(u128, u128, usize, usize, Vec<String>), anyhow::Error> {
             let load_start = Instant::now();
-            let mut builder =
-                ort::session::Session::builder().map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            let mut builder = ort::session::Session::builder().map_err(ort_err)?;
             builder = builder
                 .with_memory_pattern(false)
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?
+                .map_err(ort_err)?
                 .with_parallel_execution(false)
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?
+                .map_err(ort_err)?
                 .with_profiling(&profile_prefix)
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?
-                .with_execution_providers([coreml_provider(units, format, static_shapes)])?;
+                .map_err(ort_err)?
+                .with_execution_providers([coreml_provider(units, format, static_shapes)])
+                .map_err(ort_err)?;
 
-            let mut session = builder
-                .commit_from_file(&model_path)
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            let mut session = builder.commit_from_file(&model_path).map_err(ort_err)?;
             let load_ms = load_start.elapsed().as_millis();
 
             let tensor = ort::value::Tensor::from_array((
@@ -102,7 +106,7 @@ async fn where_do_the_nodes_run() {
                 vec![0.0f32; 4 * spec.params.dim_f * spec.params.dim_t],
             ))?;
 
-            // Warmup / run 3 times
+            // Run three times; the first run includes any lazy compilation.
             let mut run_durations = Vec::new();
             for _ in 0..3 {
                 let run_start = Instant::now();
