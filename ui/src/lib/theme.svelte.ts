@@ -108,6 +108,15 @@ export const custom = $state<Custom>({
 	fontFiles: []
 });
 
+/** Enhanced lyrics' tuning (#591), what each reset icon in its settings card puts back. */
+export const LYRICS_DEFAULTS = {
+	enhancedLyricsLineSync: false,
+	lyricsAnim: 'bounce' as LyricsAnim,
+	lyricsStyle: 'feather' as LyricsStyle,
+	lyricsAnimStrength: 100,
+	lyricsGlow: 50
+};
+
 /**
  * Looks the UI reads directly rather than through a CSS token. Same store and same reasoning as
  * the theme above (a pure UI preference, no backend round-trip), which also means a component can
@@ -146,11 +155,7 @@ export const appearance = $state({
 	/** Derive the whole palette from Matugen. Off by default. */
 	matugen: false,
 	enhancedLyrics: false,
-	enhancedLyricsLineSync: false,
-	lyricsAnim: 'bounce' as LyricsAnim,
-	lyricsStyle: 'feather' as LyricsStyle,
-	lyricsAnimStrength: 100,
-	lyricsGlow: 50
+	...LYRICS_DEFAULTS
 });
 
 export type LyricsAnim = 'bounce' | 'float' | 'wave' | 'pop' | 'slide' | 'none';

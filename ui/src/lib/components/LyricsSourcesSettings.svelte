@@ -5,7 +5,7 @@
 	// by hand.
 	import { tick } from 'svelte';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { DragDropVerticalIcon, RefreshIcon } from '@hugeicons/core-free-icons';
+	import { ArrowTurnBackwardIcon, DragDropVerticalIcon } from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import { Switch } from '$lib/components/ui/switch';
 	import { LYRICS_SOURCE_MIME } from '$lib/dnd';
@@ -92,7 +92,7 @@
 			disabled={!customized}
 			onclick={reset}
 		>
-			<HugeiconsIcon icon={RefreshIcon} class="h-4 w-4" />
+			<HugeiconsIcon icon={ArrowTurnBackwardIcon} size={15} strokeWidth={2} />
 			{t('settings.playback.lyrics_sources_reset')}
 		</Button>
 	</div>
