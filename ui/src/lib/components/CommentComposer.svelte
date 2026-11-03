@@ -7,6 +7,7 @@
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
 	import { auth } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
+	import { lite } from '$lib/theme.svelte';
 	import { thumb } from '$lib/thumb';
 
 	// One text box with a send button, for the comment box, a reply and an edit. It owns no state
@@ -103,7 +104,7 @@
 		{#if open}
 			<div
 				class="flex items-center justify-end gap-2 pt-2"
-				transition:slide={{ duration: reducedMotion.current ? 0 : 200, easing: cubicOut }}
+				transition:slide={{ duration: reducedMotion.current || lite() ? 0 : 200, easing: cubicOut }}
 			>
 				{#if oncancel}
 					<Button variant="ghost" size="sm" disabled={pending} onclick={oncancel}>

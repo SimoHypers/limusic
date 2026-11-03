@@ -51,7 +51,7 @@
 	import { canDropAt, reorder, successorId } from '$lib/reorder';
 	import { getCached, putCached, invalidateCachedPrefix } from '$lib/pagecache';
 	import { thumb } from '$lib/thumb';
-	import { appearance } from '$lib/theme.svelte';
+	import { appearance, lite } from '$lib/theme.svelte';
 	import { anchorMenu, fitMenu, NO_ANCHOR } from '$lib/menu';
 	import { rowWindow } from '$lib/rows';
 	import { rowScroller } from '$lib/rows.svelte';
@@ -265,6 +265,10 @@
 	// suffix; every cover somebody actually chose (uploaded here, in YTM, or in Studio) arrives as
 	// `=w<n>-h<n>-...` or straight off i.ytimg. Checked against live browse responses, 2026-09-02.
 	const COLLAGE = /yt3\.(ggpht|googleusercontent)\.com\/.*=s\d+/;
+	// "Blur the header" is what the user saved; lite mode renders without it — a live blur over the
+	// header is a filter repaint that follows the page. Everything below reads this effective value
+	// (source size, scale, filter) so the override never rewrites the stored switch.
+	const headerBlur = $derived(appearance.blurPlaylistHeader && !lite());
 	// The backdrop: a cover the playlist really has, else a random song's art. The collage isn't a
 	// cover anyone picked, and blown up behind the header it just repeats the rows below it.
 	// A playlist on this machine has the same problem: its thumbnail is only its first track's art.
@@ -274,7 +278,7 @@
 		const own =
 			pl?.cover ??
 			(pl?.thumbnail && !COLLAGE.test(pl.thumbnail) && !isLocalList ? pl.thumbnail : null);
-		if (appearance.blurPlaylistHeader) return thumb(own ?? bgImage, 96);
+		if (headerBlur) return thumb(own ?? bgImage, 96);
 		return thumb(own, 1200) ?? bgImage;
 	});
 	// Only offer rename/delete on playlists the signed-in user actually owns (backend `owned` flag).
@@ -826,7 +830,7 @@
 		const el = scrollerEl;
 		if (!el || playingRow < 0) return;
 		const top = playingY - (el.clientHeight - sc.rowPx) / 2;
-		if (reducedMotion.current) {
+		if (reducedMotion.current || lite()) {
 			el.scrollTop = top;
 			return;
 		}
@@ -1189,8 +1193,8 @@
 							src={backdrop}
 							alt=""
 							class="absolute inset-0 h-full w-full object-cover object-center"
-							class:scale-110={appearance.blurPlaylistHeader}
-							style:filter={appearance.blurPlaylistHeader ? 'blur(24px)' : undefined}
+							class:scale-110={headerBlur}
+							style:filter={headerBlur ? 'blur(24px)' : undefined}
 						/>
 					{/if}
 					<!-- Fade the cover into the page so the text stays readable: solid at the bottom and on the

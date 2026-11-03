@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { lite } from '$lib/theme.svelte';
 
 	let {
 		text,
@@ -22,12 +23,15 @@
 
 	$effect(() => {
 		text; // remeasure whenever the line changes
+		lite(); // …and when lite mode flips, so a scroll starts or stops with it
 		const el = box;
 		if (!el) return;
 		const measure = () => {
 			const span = el.querySelector('[data-mq]');
-			// A user who asked the OS to minimise motion gets the plain truncated line.
-			const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+			// A user who asked the OS to minimise motion gets the plain truncated line — and so
+			// does lite mode: the marquee is a transform loop that runs the whole time a long
+			// title plays, and a transform loop is what a starved GPU pays for first.
+			const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches || lite();
 			const w = span ? span.scrollWidth : 0;
 			width = !still && w > el.clientWidth + 1 ? w : 0;
 		};

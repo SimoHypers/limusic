@@ -43,7 +43,7 @@
 	} from '$lib/video.svelte';
 	import { artRoom } from '$lib/artroom.svelte';
 	import { typing } from '$lib/shortcuts';
-	import { appearance } from '$lib/theme.svelte';
+	import { appearance, lite } from '$lib/theme.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import { isMissingThumb, thumb } from '$lib/thumb';
 	import ArtistLine from './ArtistLine.svelte';
@@ -123,6 +123,10 @@
 	const srcs = $derived([720, 400, 120].map((px) => thumb(playback.now?.thumbnail, px)));
 	const src = $derived(srcs[attempt]);
 	const imgFailed = () => attempt++;
+	// "Artwork background" is what the user saved; lite mode renders without the wash — both its
+	// forms are full-view layers that repaint with the room, and neither is what the view is for.
+	// The stored switch survives the mode untouched; this is only the effective value below reads.
+	const artWash = $derived(appearance.artworkBackground && !lite());
 
 	// New layout: the cover lights the room, a wash baked from it, a mesh off its colour, and a
 	// glow behind the picture. Shared with theater mode (`artroom.svelte.ts`). Idle in the original
@@ -486,7 +490,7 @@
 		     without, 1/0/1% for the original layout's live blur.
 		     Not while a video plays. The video fills the view on its own, and on Linux everything
 		     around mpv's picture is painted by +layout, so a layer here would cover the picture. -->
-		{#if appearance.artworkBackground && !showVideo()}
+		{#if artWash && !showVideo()}
 			{#if room.wash}
 				{#key room.wash}
 					<!-- Stretched to the view rather than cropped to it: at this blur nobody can see
@@ -671,7 +675,7 @@
 		     translateZ(0) and contain:paint all measured as noise), and the cost tracks the blur
 		     radius rather than the image. A video fills the view on its own, so there is nothing to
 		     replace it with. -->
-		{#if appearance.artworkBackground && !showVideo() && srcs[2] && !bgFailed}
+		{#if artWash && !showVideo() && srcs[2] && !bgFailed}
 			<img
 				src={srcs[2]}
 				alt=""

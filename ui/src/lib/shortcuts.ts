@@ -8,6 +8,10 @@ import { cycleRepeat, np, nudgeVolume, playback, refreshView, toggleMute, ui } f
 
 export const IS_MAC = browser && navigator.platform.startsWith('Mac');
 
+/** The same user-agent probe for Linux, where the DRM gpu-busy counters (and with them lite
+ *  mode's auto-arm) exist and nowhere else. */
+export const IS_LINUX = browser && navigator.platform.startsWith('Linux');
+
 /** How this machine writes the modifier these shortcuts hang off, for anything that shows a key
  *  hint. Mac takes the bare glyph; everywhere else the `+` is part of the spelling. */
 export const MOD = IS_MAC ? '⌘' : 'Ctrl+';
