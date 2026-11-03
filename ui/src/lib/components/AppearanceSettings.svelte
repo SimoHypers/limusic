@@ -68,6 +68,26 @@
 
 	const isDark = $derived(mode.current === 'dark');
 
+	/** The top-bar buttons a reader may turn off. The ids are what `appearance.titlebarHidden`
+	 *  stores, so they must match the `shown('<id>')` calls in Titlebar.svelte. Navigation (back,
+	 *  forward) and the window controls are not listed: one is how you move around, the other is
+	 *  how you close the window. */
+	const TOP_BAR_BUTTONS: readonly { id: string; title: TranslationKey; desc?: TranslationKey }[] = [
+		{ id: 'account', title: 'nav.account', desc: 'settings.themes.top_bar_account_hint' },
+		{ id: 'refresh', title: 'common.refresh' },
+		{ id: 'link', title: 'dialogs.link.title' },
+		{ id: 'listen_together', title: 'nav.listen_together' },
+		{ id: 'discord', title: 'settings.general.discord_rpc' },
+		{ id: 'lastfm', title: 'settings.themes.top_bar_lastfm' },
+		{ id: 'theater', title: 'player.theater_mode' },
+		{ id: 'mini', title: 'a11y.toggle_mini' }
+	];
+
+	function setTopBarButton(id: string, on: boolean): void {
+		const hidden = appearance.titlebarHidden.filter((k) => k !== id);
+		setAppearance({ titlebarHidden: on ? hidden : [...hidden, id] });
+	}
+
 	// --- Live preview -----------------------------------------------------------------------------
 	// What a drag in progress would set. Empty between drags; the miniatures read it over `custom`.
 	let draft = $state<{ accent?: string; hue?: number; radius?: number }>({});
@@ -409,6 +429,29 @@
 					desc: t('settings.themes.now_playing_pill_hint'),
 					control: nowPlayingPillSwitch
 				})}
+			</div>
+		</section>
+
+		<section class={GROUP}>
+			<h3 class={LABEL}>{t('settings.sections.top_bar')}</h3>
+			<p class="mb-2 px-1 text-xs leading-relaxed text-muted-foreground">
+				{t('settings.themes.top_bar_hint')}
+			</p>
+			<div class={CARD}>
+				{#each TOP_BAR_BUTTONS as button (button.id)}
+					<!-- Zero-arg wrapper: a snippet passed as a value can't carry arguments. -->
+					{#snippet topBarSwitch()}
+						<Switch
+							checked={!appearance.titlebarHidden.includes(button.id)}
+							onCheckedChange={(on) => setTopBarButton(button.id, on)}
+						/>
+					{/snippet}
+					{@render row({
+						title: t(button.title),
+						desc: button.desc ? t(button.desc) : undefined,
+						control: topBarSwitch
+					})}
+				{/each}
 			</div>
 		</section>
 
