@@ -163,6 +163,12 @@ jobs:
           set -o pipefail
           cargo test -p karaoke --test coreml_parity -- --ignored --nocapture 2>&1 | tee coreml.log
 
+      - name: CoreML node placement
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          cargo test -p karaoke --test coreml_probe -- --ignored --nocapture 2>&1 | tee coreml_probe.log
+
       - name: CoreML summary
         if: always()
         run: |
@@ -172,3 +178,12 @@ jobs:
           else
             echo "no summary, see the step log"
           fi >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### CoreML node placement" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ -f coreml_probe.log ]; then
+            grep '^COREML_PROBE' coreml_probe.log || echo "no probe output"
+          else
+            echo "no probe output"
+          fi >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

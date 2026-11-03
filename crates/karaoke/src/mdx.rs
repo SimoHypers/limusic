@@ -86,6 +86,20 @@ impl LoadOptions {
     }
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub fn coreml_provider(
+    units: ort::ep::coreml::ComputeUnits,
+    format: ort::ep::coreml::ModelFormat,
+    static_shapes: bool,
+) -> ort::ep::ExecutionProviderDispatch {
+    ort::ep::CoreML::default()
+        .with_compute_units(units)
+        .with_model_format(format)
+        .with_static_input_shapes(static_shapes)
+        .build()
+        .error_on_failure()
+}
+
 pub struct MdxModel {
     session: ort::session::Session,
     params: MdxParams,
@@ -144,12 +158,11 @@ impl MdxModel {
                         .map_err(|e| anyhow::anyhow!(e.to_string()))?
                         .with_parallel_execution(false)
                         .map_err(|e| anyhow::anyhow!(e.to_string()))?
-                        .with_execution_providers([ort::ep::CoreML::default()
-                            .with_compute_units(ort::ep::coreml::ComputeUnits::CPUAndGPU)
-                            .with_model_format(ort::ep::coreml::ModelFormat::MLProgram)
-                            .with_static_input_shapes(true)
-                            .build()
-                            .error_on_failure()])
+                        .with_execution_providers([coreml_provider(
+                            ort::ep::coreml::ComputeUnits::CPUAndGPU,
+                            ort::ep::coreml::ModelFormat::MLProgram,
+                            true,
+                        )])
                         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 }
             }
