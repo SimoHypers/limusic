@@ -108,6 +108,15 @@ export const custom = $state<Custom>({
 	fontFiles: []
 });
 
+/** Enhanced lyrics' tuning (#591), what each reset icon in its settings card puts back. */
+export const LYRICS_DEFAULTS = {
+	enhancedLyricsLineSync: false,
+	lyricsAnim: 'bounce' as LyricsAnim,
+	lyricsStyle: 'feather' as LyricsStyle,
+	lyricsAnimStrength: 100,
+	lyricsGlow: 50
+};
+
 /**
  * Looks the UI reads directly rather than through a CSS token. Same store and same reasoning as
  * the theme above (a pure UI preference, no backend round-trip), which also means a component can
@@ -144,8 +153,15 @@ export const appearance = $state({
 	theaterLyrics: true,
 	theaterQueue: false,
 	/** Derive the whole palette from Matugen. Off by default. */
-	matugen: false
+	matugen: false,
+	enhancedLyrics: false,
+	...LYRICS_DEFAULTS
 });
+
+export type LyricsAnim = 'bounce' | 'float' | 'wave' | 'pop' | 'slide' | 'none';
+export type LyricsStyle = 'feather' | 'accent' | 'crisp' | 'word';
+export const LYRICS_ANIMS: LyricsAnim[] = ['bounce', 'float', 'wave', 'pop', 'slide', 'none'];
+export const LYRICS_STYLES: LyricsStyle[] = ['feather', 'accent', 'crisp', 'word'];
 
 export function setAppearance(patch: Partial<typeof appearance>): void {
 	Object.assign(appearance, patch);
@@ -571,9 +587,19 @@ export function initTheme(): void {
 			'artworkAccent',
 			'theaterLyrics',
 			'theaterQueue',
-			'matugen'
+			'matugen',
+			'enhancedLyrics',
+			'enhancedLyricsLineSync'
 		] as const) {
 			if (typeof saved?.[k] === 'boolean') appearance[k] = saved[k];
+		}
+		if (LYRICS_ANIMS.includes(saved?.lyricsAnim)) appearance.lyricsAnim = saved.lyricsAnim;
+		if (LYRICS_STYLES.includes(saved?.lyricsStyle)) appearance.lyricsStyle = saved.lyricsStyle;
+		if (typeof saved?.lyricsAnimStrength === 'number') {
+			appearance.lyricsAnimStrength = Math.min(200, Math.max(25, saved.lyricsAnimStrength));
+		}
+		if (typeof saved?.lyricsGlow === 'number') {
+			appearance.lyricsGlow = Math.min(100, Math.max(0, saved.lyricsGlow));
 		}
 	} catch {
 		// unparseable — keep the defaults

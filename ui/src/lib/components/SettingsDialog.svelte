@@ -49,6 +49,7 @@
 	import { t, setLocale, currentLocale, LOCALES } from '$lib/i18n.svelte';
 	import GlobalHotkeysSettings from '$lib/components/GlobalHotkeysSettings.svelte';
 	import LyricsSourcesSettings from '$lib/components/LyricsSourcesSettings.svelte';
+	import EnhancedLyricsSettings from '$lib/components/EnhancedLyricsSettings.svelte';
 	import LanguagePicker from '$lib/components/LanguagePicker.svelte';
 
 	type TabId =
@@ -901,7 +902,10 @@
 						</section>
 						<section class={GROUP} id="settings-lyrics">
 							<h3 class={LABEL}>{t('settings.sections.lyrics')}</h3>
-							<LyricsSourcesSettings {settings} />
+							<div class="space-y-3">
+								<EnhancedLyricsSettings />
+								<LyricsSourcesSettings {settings} />
+							</div>
 							<div data-settings-card class="mt-3 {CARD}">
 								{@render row({
 									title: t('settings.playback.lyrics_prefer_words'),

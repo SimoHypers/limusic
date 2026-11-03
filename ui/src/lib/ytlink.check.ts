@@ -47,6 +47,20 @@ ok(target('https://www.youtube.com/watch?v=dQw4') === 'song:dQw4', 'the video si
 ok(target('music.youtube.com/playlist?list=PLabc') === 'playlist:VLPLabc', 'a pasted bare host');
 ok(target('  https://youtu.be/dQw4  ') === 'song:dQw4', 'surrounding whitespace is trimmed');
 
+// --- start time (`t=`) ---------------------------------------------------------------------------
+const start = (url: string) => parseYtLink(url)?.start;
+ok(start('https://music.youtube.com/watch?v=dQw4&t=83') === 83, 't=83');
+ok(start('https://music.youtube.com/watch?v=dQw4&t=1m23s') === 83, 't=1m23s');
+ok(start('https://www.youtube.com/watch?v=dQw4&start=90') === 90, 'start= is the embed spelling');
+ok(start('https://youtu.be/dQw4?t=90') === 90, 'youtu.be short link');
+ok(start('https://youtu.be/dQw4?si=xyz&t=90') === 90, 't= after tracking params');
+ok(start('https://music.youtube.com/watch?v=dQw4&list=PLabc&t=12') === 12, 'inside a playlist');
+ok(start('https://music.youtube.com/watch?v=dQw4') === undefined, 'no t, no start');
+ok(start('https://music.youtube.com/watch?v=dQw4&t=abc') === undefined, 'a bad t is ignored');
+ok(start('https://music.youtube.com/watch?v=dQw4&t=0') === undefined, 't=0 is just the start');
+ok(target('https://music.youtube.com/watch?v=dQw4&t=83') === 'song:dQw4', 't= does not change the id');
+ok(start('https://music.youtube.com/playlist?list=PLabc&t=83') === undefined, 'playlists have no start');
+
 // --- and what must not open anything ------------------------------------------------------------
 ok(parseYtLink('') === null, 'an empty box is not an error to report');
 ok(parseYtLink('not a url at all') === null, 'plain text');

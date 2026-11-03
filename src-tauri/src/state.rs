@@ -1548,6 +1548,7 @@ impl AppState {
         kind: &str,
         id: &str,
         name: Option<String>,
+        start: Option<f64>,
     ) -> Result<(), String> {
         if self.lt.is_guest().await {
             self.emit_guest_hint();
@@ -1605,9 +1606,21 @@ impl AppState {
             let q = self.queue.lock().await;
             video_id.is_some() && q.items.get(q.current).map(|i| &i.video_id) == video_id.as_ref()
         };
+        // A shared link's `t=`: only a song radio has a seed track to start partway into.
+        let start = start.filter(|s| kind == "song" && s.is_finite() && *s > 0.0);
         if playing_seed && !self.player.is_idle() {
             self.splice_radio(items, seed, title).await;
+            if let Some(pos) = start {
+                self.user_seek(pos).await?;
+            }
             return Ok(());
+        }
+        // Handed to `loadfile` as `start=` (see `start_current`); mpv drops a seek sent before the
+        // file is loaded. Keyed on the seed's id, so it can't land on a different track.
+        // `latest_position` is left alone on purpose: `play_tracks` below reads it as the position
+        // the replaced queue is resumed at (`keep_context`), and that is not the link's offset.
+        if let (Some(pos), Some(vid), Some(_)) = (start, video_id.as_ref(), seed_at) {
+            *self.pending_seek.lock().unwrap() = Some((vid.clone(), pos));
         }
         self.play_tracks(items, Some(seed_at.unwrap_or(0)), Some(seed), title, false, None).await;
         self.queue.lock().await.radio = true;
@@ -1806,6 +1819,13 @@ impl AppState {
 
     /// Jump to a specific queue index.
     pub async fn play_index(self: &std::sync::Arc<Self>, index: usize) {
+        self.play_index_at(index, None).await;
+    }
+
+    /// [`Self::play_index`], opening the track `start` seconds in (a comment's timecode). Goes
+    /// through `pending_seek` like every other start offset: mpv drops a seek sent before the file
+    /// is loaded, so it can't be issued after this returns.
+    pub async fn play_index_at(self: &std::sync::Arc<Self>, index: usize, start: Option<f64>) {
         if self.lt.is_guest().await {
             self.emit_guest_hint(); // guest playback is host-driven
             return;
@@ -1820,6 +1840,9 @@ impl AppState {
             q.lookahead_loaded = None;
             q.items[index].video_id.clone()
         };
+        if let Some(pos) = start.filter(|s| s.is_finite() && *s > 0.0) {
+            *self.pending_seek.lock().unwrap() = Some((video_id.clone(), pos));
+        }
         // The next mpv tick is seconds away because the track must be resolved first. Until then
         // `latest_position` is still the value that pause/exit persistence will write, so seed it
         // from `pending_seek` when that saved position belongs to this exact video. A different
