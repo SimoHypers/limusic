@@ -12,7 +12,7 @@
 	import { copyText } from '$lib/clipboard';
 	import { getCached, invalidateCached, putCached } from '$lib/pagecache';
 	import { Switch } from '$lib/components/ui/switch';
-	import { Input } from '$lib/components/ui/input';
+	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { thumb } from '$lib/thumb';
 	import { formatClock, parseClock } from '$lib/timecode';
 	import { playback, ui, toast } from '$lib/player.svelte';
@@ -210,26 +210,27 @@
 			</div>
 
 			{#if canStartAt}
-				<div class="mt-3 flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5">
-					<div class="min-w-0">
-						<div class="text-sm font-medium">{t('dialogs.share.start_at')}</div>
-						<p class="text-xs text-muted-foreground">{t('dialogs.share.start_at_hint')}</p>
-					</div>
-					<div class="flex shrink-0 items-center gap-3">
-						<Input
-							class="h-8 w-20 text-center tabular-nums"
-							inputmode="numeric"
-							placeholder="0:00"
-							bind:value={startText}
-							oninput={() => (atTime = true)}
-							aria-label={t('a11y.share_start_time')}
-							aria-invalid={!!startError}
-						/>
-						<Switch bind:checked={atTime} aria-label={t('a11y.share_start_at')} />
-					</div>
+				<!-- YouTube's own share sheet: a checkbox, then the time as part of the sentence, an
+				     underlined field rather than a boxed one. Typing a time ticks it. -->
+				<div class="mt-3 flex items-center gap-2.5 px-1 text-sm">
+					<label class="flex cursor-pointer items-center gap-2.5 select-none">
+						<Checkbox bind:checked={atTime} />
+						{t('dialogs.share.start_at')}
+					</label>
+					<input
+						class="w-16 border-b border-border bg-transparent px-0.5 py-0.5 tabular-nums outline-none focus:border-primary aria-invalid:border-destructive {atTime
+							? ''
+							: 'text-muted-foreground'}"
+						inputmode="numeric"
+						placeholder="0:00"
+						bind:value={startText}
+						oninput={() => (atTime = true)}
+						aria-label={t('a11y.share_start_time')}
+						aria-invalid={!!startError}
+					/>
 				</div>
 				{#if startError}
-					<div class="mt-2 flex items-start gap-2 text-xs text-destructive" role="alert">
+					<div class="mt-2 flex items-start gap-2 px-1 text-xs text-destructive" role="alert">
 						<HugeiconsIcon icon={Alert02Icon} class="mt-px h-4 w-4 shrink-0" />
 						<p>{startError}</p>
 					</div>
