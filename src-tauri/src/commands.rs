@@ -2860,6 +2860,9 @@ pub async fn download_track(
     if crate::local::is_local_song(&song.video_id) {
         return Err("Cannot download a local file".to_string());
     }
+    if state.downloads.is_queued_or_downloaded(&song.video_id) {
+        return Ok(song.video_id);
+    }
     let id = state.downloads.queue_song(
         song.video_id,
         song.title,
@@ -3011,6 +3014,11 @@ pub async fn set_download_concurrency(state: St<'_>, concurrency: usize) -> Resu
 #[tauri::command]
 pub async fn delete_all_downloads(state: St<'_>) -> Result<usize, String> {
     Ok(state.downloads.delete_all_downloads().await)
+}
+
+#[tauri::command]
+pub async fn get_downloaded_ids(state: St<'_>) -> Result<Vec<String>, String> {
+    Ok(state.downloads.get_downloaded_ids())
 }
 
 #[cfg(test)]

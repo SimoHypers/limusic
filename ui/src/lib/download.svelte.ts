@@ -56,9 +56,12 @@ export async function initDownloads() {
 	initialized = true;
 
 	try {
-		const list = await api.getDownloads();
+		const [list, ids] = await Promise.all([
+			api.getDownloads(),
+			api.getDownloadedIds()
+		]);
 		downloadQueue.tasks = list.filter((t) => t.status !== 'cancelled');
-		const nextSet = new Set<string>();
+		const nextSet = new Set<string>(ids);
 		for (const t of list) {
 			if (t.status === 'completed') {
 				nextSet.add(t.video_id);

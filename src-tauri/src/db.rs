@@ -267,6 +267,16 @@ impl Db {
                 manual          INTEGER NOT NULL DEFAULT 0,
                 updated_at      INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS downloaded_tracks (
+                video_id      TEXT PRIMARY KEY,
+                title         TEXT NOT NULL,
+                artist        TEXT NOT NULL,
+                album         TEXT,
+                thumbnail     TEXT,
+                file_path     TEXT NOT NULL,
+                downloaded_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS downloaded_tracks_path ON downloaded_tracks(file_path);
             "#,
         )?;
         // Migrate pre-Phase-4 DBs that predate the loudness_db column. Errors ("duplicate column")
@@ -1392,6 +1402,101 @@ impl Db {
         out.sort_by(|a, b| order(a).cmp(&order(b)));
         out
     }
+
+    pub fn record_download(&self, track: &DownloadedTrack) -> rusqlite::Result<()> {
+        let conn = self.0.lock().unwrap();
+        conn.execute(
+            "INSERT INTO downloaded_tracks(video_id, title, artist, album, thumbnail, file_path, downloaded_at)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(video_id) DO UPDATE SET
+                title = excluded.title,
+                artist = excluded.artist,
+                album = excluded.album,
+                thumbnail = excluded.thumbnail,
+                file_path = excluded.file_path,
+                downloaded_at = excluded.downloaded_at",
+            rusqlite::params![
+                track.video_id,
+                track.title,
+                track.artist,
+                track.album,
+                track.thumbnail,
+                track.file_path,
+                track.downloaded_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_downloaded_track(&self, video_id: &str) -> rusqlite::Result<Option<DownloadedTrack>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT video_id, title, artist, album, thumbnail, file_path, downloaded_at
+             FROM downloaded_tracks WHERE video_id = ?1",
+        )?;
+        let mut rows = stmt.query([video_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(DownloadedTrack {
+                video_id: row.get(0)?,
+                title: row.get(1)?,
+                artist: row.get(2)?,
+                album: row.get(3)?,
+                thumbnail: row.get(4)?,
+                file_path: row.get(5)?,
+                downloaded_at: row.get(6)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn get_all_downloaded_tracks(&self) -> rusqlite::Result<Vec<DownloadedTrack>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT video_id, title, artist, album, thumbnail, file_path, downloaded_at
+             FROM downloaded_tracks ORDER BY downloaded_at DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(DownloadedTrack {
+                video_id: row.get(0)?,
+                title: row.get(1)?,
+                artist: row.get(2)?,
+                album: row.get(3)?,
+                thumbnail: row.get(4)?,
+                file_path: row.get(5)?,
+                downloaded_at: row.get(6)?,
+            })
+        })?;
+        let mut list = Vec::new();
+        for r in rows {
+            list.push(r?);
+        }
+        Ok(list)
+    }
+
+    #[allow(dead_code)]
+    pub fn get_downloaded_video_ids(&self) -> rusqlite::Result<Vec<String>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare_cached("SELECT video_id FROM downloaded_tracks")?;
+        let rows = stmt.query_map([], |row| row.get(0))?;
+        let mut list = Vec::new();
+        for r in rows {
+            list.push(r?);
+        }
+        Ok(list)
+    }
+
+    pub fn delete_download(&self, video_id: &str) -> rusqlite::Result<()> {
+        let conn = self.0.lock().unwrap();
+        conn.execute("DELETE FROM downloaded_tracks WHERE video_id = ?1", [video_id])?;
+        Ok(())
+    }
+
+    pub fn clear_all_downloads(&self) -> rusqlite::Result<()> {
+        let conn = self.0.lock().unwrap();
+        conn.execute("DELETE FROM downloaded_tracks", [])?;
+        Ok(())
+    }
 }
 
 /// See [`Listening::songs`].
@@ -1519,6 +1624,18 @@ pub struct LocalPlaylist {
     pub count: i64,
     /// The first track's stored `SongItem`, whose artwork stands in for a cover nobody picked.
     pub first_song: Option<String>,
+}
+
+/// A track downloaded and saved on disk.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DownloadedTrack {
+    pub video_id: String,
+    pub title: String,
+    pub artist: String,
+    pub album: Option<String>,
+    pub thumbnail: Option<String>,
+    pub file_path: String,
+    pub downloaded_at: i64,
 }
 
 #[cfg(test)]

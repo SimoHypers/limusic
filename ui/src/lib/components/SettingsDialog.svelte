@@ -109,7 +109,7 @@
 	let loaded = $state(false);
 	let clearing = $state(false);
 	let downloadDir = $state('');
-	let downloadConcurrency = $state(5);
+	let downloadConcurrency = $state(3);
 	let confirmDeleteAllDownloads = $state(false);
 
 	async function changeDownloadDir() {
@@ -1171,7 +1171,7 @@
 		<Slider
 			type="single"
 			min={1}
-			max={10}
+			max={5}
 			step={1}
 			value={downloadConcurrency}
 			onValueChange={setDownloadConcurrency}

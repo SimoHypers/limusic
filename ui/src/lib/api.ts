@@ -1398,6 +1398,7 @@ export const getDownloadConcurrency = () => invoke<number>('get_download_concurr
 export const setDownloadConcurrency = (concurrency: number) =>
 	invoke<void>('set_download_concurrency', { concurrency });
 export const deleteAllDownloads = () => invoke<number>('delete_all_downloads');
+export const getDownloadedIds = () => invoke<string[]>('get_downloaded_ids');
 
 export const onDownloadProgress = (cb: (task: DownloadTask) => void): Promise<UnlistenFn> =>
 	listen<DownloadTask>('download-progress', (e) => cb(e.payload));

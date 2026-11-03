@@ -1326,6 +1326,7 @@ pub fn run() {
             commands::get_download_concurrency,
             commands::set_download_concurrency,
             commands::delete_all_downloads,
+            commands::get_downloaded_ids,
             commands::log_ui,
         ]))
         .on_window_event(|window, event| {

@@ -13,7 +13,7 @@ use futures_util::StreamExt;
 use tauri::{AppHandle, Emitter, Manager};
 
 const CHUNK_SIZE: u64 = 2 * 1024 * 1024; // 2 MiB chunks
-const DEFAULT_MAX_CONCURRENT_DOWNLOADS: usize = 5;
+const DEFAULT_MAX_CONCURRENT_DOWNLOADS: usize = 3;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -61,7 +61,7 @@ impl DownloadManager {
             .get_setting("download_concurrency")
             .and_then(|v| v.parse::<usize>().ok())
             .unwrap_or(DEFAULT_MAX_CONCURRENT_DOWNLOADS)
-            .clamp(1, 10);
+            .clamp(1, 5);
         let mgr = Self {
             tasks: Arc::new(Mutex::new(Vec::new())),
             cancelled: Arc::new(Mutex::new(HashSet::new())),
@@ -77,41 +77,34 @@ impl DownloadManager {
         mgr
     }
 
-    fn history_path(&self) -> PathBuf {
-        self.app.path().app_data_dir().unwrap_or_else(|_| PathBuf::from(".")).join("downloads.json")
-    }
-
     fn load_history(&self) -> Vec<DownloadTask> {
-        let path = self.history_path();
-        if !path.exists() {
-            return Vec::new();
-        }
-        let Ok(file) = std::fs::File::open(&path) else { return Vec::new() };
-        let mut list: Vec<DownloadTask> = serde_json::from_reader(file).unwrap_or_default();
-        list.retain(|t| {
-            if t.status == DownloadStatus::Completed {
-                if let Some(fp) = &t.file_path {
-                    return Path::new(fp).exists();
-                }
+        let Ok(tracks) = self.db.get_all_downloaded_tracks() else { return Vec::new() };
+        let mut list = Vec::new();
+        for t in tracks {
+            if Path::new(&t.file_path).exists() {
+                list.push(DownloadTask {
+                    id: format!("{}_db", t.video_id),
+                    video_id: t.video_id,
+                    title: t.title,
+                    artist: t.artist,
+                    album: t.album,
+                    thumbnail: t.thumbnail,
+                    progress: 100.0,
+                    bytes_downloaded: 0,
+                    total_bytes: 0,
+                    status: DownloadStatus::Completed,
+                    error: None,
+                    file_path: Some(t.file_path),
+                });
+            } else {
+                let _ = self.db.delete_download(&t.video_id);
             }
-            false
-        });
+        }
         list
     }
 
     fn save_history(&self) {
-        let path = self.history_path();
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let tasks = self.get_tasks();
-        let completed: Vec<_> = tasks
-            .into_iter()
-            .filter(|t| t.status == DownloadStatus::Completed)
-            .collect();
-        if let Ok(file) = std::fs::File::create(&path) {
-            let _ = serde_json::to_writer_pretty(file, &completed);
-        }
+        // SQLite is the single source of truth for completed downloads.
     }
 
     /// Default or configured download directory.
@@ -170,40 +163,86 @@ impl DownloadManager {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn is_downloaded(&self, video_id: &str) -> bool {
-        let Ok(tasks) = self.tasks.lock() else { return false };
-        tasks.iter().any(|t| {
-            t.video_id == video_id
-                && t.status == DownloadStatus::Completed
-                && t.file_path.as_ref().map_or(false, |p| Path::new(p).exists())
-        })
-    }
+    pub fn find_existing_file(&self, title: &str, subfolder: Option<&str>) -> Option<PathBuf> {
+        let base_name = sanitize_filename(title);
+        let exts = ["m4a", "opus"];
+        let mut dirs_to_check = Vec::new();
 
-    pub fn is_queued_or_downloaded(&self, video_id: &str) -> bool {
-        let Ok(tasks) = self.tasks.lock() else { return false };
-        tasks.iter().any(|t| {
-            t.video_id == video_id && (
-                t.status == DownloadStatus::Queued
-                || t.status == DownloadStatus::Downloading
-                || t.status == DownloadStatus::Tagging
-                || (t.status == DownloadStatus::Completed && t.file_path.as_ref().map_or(false, |p| Path::new(p).exists()))
-            )
-        })
-    }
+        if let Some(sub) = subfolder {
+            if !sub.trim().is_empty() {
+                dirs_to_check.push(self.download_dir().join(sanitize_filename(sub)));
+            }
+        }
+        dirs_to_check.push(self.download_dir());
 
-    pub fn get_downloaded_path(&self, video_id: &str) -> Option<String> {
-        let Ok(tasks) = self.tasks.lock() else { return None };
-        tasks.iter().find_map(|t| {
-            if t.video_id == video_id && t.status == DownloadStatus::Completed {
-                if let Some(fp) = &t.file_path {
-                    if Path::new(fp).exists() {
-                        return Some(fp.clone());
+        // Also check any direct subdirectories of download_dir (e.g. playlist folders)
+        if let Ok(entries) = std::fs::read_dir(self.download_dir()) {
+            for entry in entries.flatten() {
+                if let Ok(ft) = entry.file_type() {
+                    if ft.is_dir() {
+                        dirs_to_check.push(entry.path());
                     }
                 }
             }
-            None
-        })
+        }
+
+        for dir in dirs_to_check {
+            for ext in &exts {
+                let candidate = dir.join(format!("{base_name}.{ext}"));
+                if candidate.exists() {
+                    if let Ok(meta) = std::fs::metadata(&candidate) {
+                        if meta.len() > 100_000 {
+                            return Some(candidate);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    pub fn is_downloaded(&self, video_id: &str) -> bool {
+        if let Ok(Some(track)) = self.db.get_downloaded_track(video_id) {
+            if Path::new(&track.file_path).exists() {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn is_queued_or_downloaded(&self, video_id: &str) -> bool {
+        if let Ok(tasks) = self.tasks.lock() {
+            if tasks.iter().any(|t| {
+                t.video_id == video_id
+                    && (t.status == DownloadStatus::Queued
+                        || t.status == DownloadStatus::Downloading
+                        || t.status == DownloadStatus::Tagging)
+            }) {
+                return true;
+            }
+        }
+        self.is_downloaded(video_id)
+    }
+
+    pub fn get_downloaded_path(&self, video_id: &str) -> Option<String> {
+        if let Ok(Some(track)) = self.db.get_downloaded_track(video_id) {
+            if Path::new(&track.file_path).exists() {
+                return Some(track.file_path);
+            }
+        }
+        None
+    }
+
+    pub fn get_downloaded_ids(&self) -> Vec<String> {
+        if let Ok(tracks) = self.db.get_all_downloaded_tracks() {
+            tracks
+                .into_iter()
+                .filter(|t| Path::new(&t.file_path).exists())
+                .map(|t| t.video_id)
+                .collect()
+        } else {
+            Vec::new()
+        }
     }
 
     pub fn clear_completed(&self) {
@@ -214,21 +253,20 @@ impl DownloadManager {
                     && t.status != DownloadStatus::Cancelled
             });
         }
-        self.save_history();
     }
 
-    /// Return the current concurrency limit (read from DB, default 5).
+    /// Return the current concurrency limit (read from DB, default 3, max 5).
     pub fn get_concurrency(&self) -> usize {
         self.db
             .get_setting("download_concurrency")
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_MAX_CONCURRENT_DOWNLOADS)
-            .clamp(1, 10)
+            .clamp(1, 5)
     }
 
     /// Persist a new concurrency limit to the DB (applied on next app launch).
     pub fn set_concurrency(&self, n: usize) {
-        let n = n.clamp(1, 10);
+        let n = n.clamp(1, 5);
         self.db.set_setting("download_concurrency", &n.to_string());
     }
 
@@ -238,14 +276,20 @@ impl DownloadManager {
         // 1. Cancel in-flight tasks
         self.cancel_all();
 
-        // 2. Collect file paths of completed tasks
-        let file_paths: Vec<String> = {
-            let Ok(tasks) = self.tasks.lock() else { return 0 };
-            tasks
-                .iter()
-                .filter_map(|t| t.file_path.clone())
-                .collect()
-        };
+        // 2. Collect file paths from SQLite and completed tasks
+        let mut file_paths: HashSet<String> = HashSet::new();
+        if let Ok(tracks) = self.db.get_all_downloaded_tracks() {
+            for t in tracks {
+                file_paths.insert(t.file_path);
+            }
+        }
+        if let Ok(tasks) = self.tasks.lock() {
+            for t in tasks.iter() {
+                if let Some(fp) = &t.file_path {
+                    file_paths.insert(fp.clone());
+                }
+            }
+        }
 
         // 3. Delete each file
         let mut deleted = 0usize;
@@ -255,22 +299,34 @@ impl DownloadManager {
             }
         }
 
-        // 4. Also clean up any stray .part files in the download directory
+        // 4. Also clean up any stray .part files in the download directory and subfolders
         let dl_dir = self.download_dir();
-        if let Ok(mut entries) = tokio::fs::read_dir(&dl_dir).await {
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                let p = entry.path();
-                if p.extension().and_then(|e| e.to_str()) == Some("part") {
-                    let _ = tokio::fs::remove_file(&p).await;
+        let mut dirs = vec![dl_dir.clone()];
+        if let Ok(entries) = std::fs::read_dir(&dl_dir) {
+            for entry in entries.flatten() {
+                if let Ok(ft) = entry.file_type() {
+                    if ft.is_dir() {
+                        dirs.push(entry.path());
+                    }
+                }
+            }
+        }
+        for dir in dirs {
+            if let Ok(mut entries) = tokio::fs::read_dir(&dir).await {
+                while let Ok(Some(entry)) = entries.next_entry().await {
+                    let p = entry.path();
+                    if p.extension().and_then(|e| e.to_str()) == Some("part") {
+                        let _ = tokio::fs::remove_file(&p).await;
+                    }
                 }
             }
         }
 
-        // 5. Clear all tasks and history
+        // 5. Clear all tasks and SQLite records
+        let _ = self.db.clear_all_downloads();
         if let Ok(mut tasks) = self.tasks.lock() {
             tasks.clear();
         }
-        self.save_history();
 
         deleted
     }
@@ -285,15 +341,73 @@ impl DownloadManager {
         thumbnail: Option<String>,
         subfolder: Option<String>,
     ) -> String {
-        if let Some(existing) = {
-            let Ok(tasks) = self.tasks.lock() else { return String::new() };
-            tasks.iter().find(|t| t.video_id == video_id && t.status == DownloadStatus::Completed).cloned()
-        } {
-            if let Some(fp) = &existing.file_path {
-                if Path::new(fp).exists() {
-                    let _ = self.app.emit("download-progress", existing.clone());
-                    return existing.id;
-                }
+        // 1. Check if already recorded in SQLite
+        if let Ok(Some(existing)) = self.db.get_downloaded_track(&video_id) {
+            if Path::new(&existing.file_path).exists() {
+                let task = DownloadTask {
+                    id: format!("{}_db", video_id),
+                    video_id: video_id.clone(),
+                    title: existing.title,
+                    artist: existing.artist,
+                    album: existing.album,
+                    thumbnail: existing.thumbnail,
+                    progress: 100.0,
+                    bytes_downloaded: 0,
+                    total_bytes: 0,
+                    status: DownloadStatus::Completed,
+                    error: None,
+                    file_path: Some(existing.file_path),
+                };
+                let _ = self.app.emit("download-progress", task.clone());
+                return task.id;
+            }
+        }
+
+        // 2. Check if file already exists on disk (e.g. from existing library or prior session)
+        if let Some(existing_file) = self.find_existing_file(&title, subfolder.as_deref()) {
+            let file_str = existing_file.to_string_lossy().to_string();
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            let record = crate::db::DownloadedTrack {
+                video_id: video_id.clone(),
+                title: title.clone(),
+                artist: artist.clone(),
+                album: album.clone(),
+                thumbnail: thumbnail.clone(),
+                file_path: file_str.clone(),
+                downloaded_at: now,
+            };
+            let _ = self.db.record_download(&record);
+
+            let task = DownloadTask {
+                id: format!("{}_found", video_id),
+                video_id: video_id.clone(),
+                title,
+                artist,
+                album,
+                thumbnail,
+                progress: 100.0,
+                bytes_downloaded: 0,
+                total_bytes: 0,
+                status: DownloadStatus::Completed,
+                error: None,
+                file_path: Some(file_str),
+            };
+            let _ = self.app.emit("download-progress", task.clone());
+            return task.id;
+        }
+
+        // 3. Check if already queued or downloading in memory
+        if let Ok(tasks) = self.tasks.lock() {
+            if let Some(existing) = tasks.iter().find(|t| {
+                t.video_id == video_id
+                    && (t.status == DownloadStatus::Queued
+                        || t.status == DownloadStatus::Downloading
+                        || t.status == DownloadStatus::Tagging)
+            }) {
+                return existing.id.clone();
             }
         }
 
@@ -343,6 +457,32 @@ impl DownloadManager {
         };
 
         if self.is_cancelled(&task_id) {
+            return;
+        }
+
+        // Before starting any network download, check if file already exists on disk
+        if let Some(existing_file) = self.find_existing_file(&title, subfolder.as_deref()) {
+            let file_str = existing_file.to_string_lossy().to_string();
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            let record = crate::db::DownloadedTrack {
+                video_id: video_id.clone(),
+                title: title.clone(),
+                artist: artist.clone(),
+                album: album.clone(),
+                thumbnail: thumbnail.clone(),
+                file_path: file_str.clone(),
+                downloaded_at: now,
+            };
+            let _ = self.db.record_download(&record);
+
+            self.update_task(&task_id, |t| {
+                t.status = DownloadStatus::Completed;
+                t.progress = 100.0;
+                t.file_path = Some(file_str);
+            });
             return;
         }
 
@@ -520,7 +660,7 @@ impl DownloadManager {
         });
 
         // Download thumbnail bytes if present (request high-res 1200x1200 master, falling back if needed)
-        let raw_thumb = thumbnail.or_else(|| playback_data.thumbnail.clone()).unwrap_or_default();
+        let raw_thumb = thumbnail.clone().or_else(|| playback_data.thumbnail.clone()).unwrap_or_default();
         let high_res = high_res_cover_url(&raw_thumb);
         let cover_bytes = if !high_res.is_empty() {
             match client.get(&high_res).send().await {
@@ -543,8 +683,11 @@ impl DownloadManager {
 
         let final_path_clone = final_path.clone();
         let title_clone = title.clone();
+        let video_id_clone = video_id.clone();
+        let artist_clone = artist.clone();
+        let album_clone = album.clone();
         let tag_res = tauri::async_runtime::spawn_blocking(move || {
-            apply_tags(&final_path_clone, &title_clone, &artist, album.as_deref(), cover_bytes.as_deref())
+            apply_tags(&final_path_clone, &video_id_clone, &title_clone, &artist_clone, album_clone.as_deref(), cover_bytes.as_deref())
         })
         .await;
 
@@ -555,12 +698,26 @@ impl DownloadManager {
         }
 
         let final_path_str = final_path.to_string_lossy().to_string();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let record = crate::db::DownloadedTrack {
+            video_id: video_id.clone(),
+            title: title.clone(),
+            artist: artist.clone(),
+            album: album.clone(),
+            thumbnail: thumbnail.clone(),
+            file_path: final_path_str.clone(),
+            downloaded_at: now,
+        };
+        let _ = self.db.record_download(&record);
+
         self.update_task(&task_id, |t| {
             t.status = DownloadStatus::Completed;
             t.progress = 100.0;
             t.file_path = Some(final_path_str);
         });
-        self.save_history();
     }
 
     fn is_cancelled(&self, task_id: &str) -> bool {
@@ -651,6 +808,7 @@ pub fn force_jpeg_url(url: &str) -> String {
 
 fn apply_tags(
     path: &Path,
+    video_id: &str,
     title: &str,
     artist: &str,
     album: Option<&str>,
@@ -676,6 +834,7 @@ fn apply_tags(
 
     tag.set_title(title.to_string());
     tag.set_artist(artist.to_string());
+    tag.set_comment(video_id.to_string());
     if let Some(alb) = album {
         tag.set_album(alb.to_string());
     }
