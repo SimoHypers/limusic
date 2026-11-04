@@ -312,14 +312,14 @@
 				<HugeiconsIcon icon={Share08Icon} class="h-4 w-4" /> {t("player.share")}
 			</button>
 		{/if}
-		{#if item.kind === 'playlist'}
+		{#if item.kind === 'playlist' && item.id !== api.ON_REPEAT_ID}
 			<button
 				class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={(e) => run(e, () => downloadPlaylistById(item.id, item.title))}
 			>
 				<HugeiconsIcon icon={Download04Icon} class="h-4 w-4" /> {t("download.download_playlist")}
 			</button>
-		{:else if item.kind === 'album'}
+		{:else if item.kind === 'album' && !api.isLocalId(item.id)}
 			<button
 				class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={(e) => run(e, () => downloadAlbumById(item.id, item.title))}

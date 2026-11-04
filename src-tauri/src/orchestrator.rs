@@ -222,8 +222,9 @@ impl Orchestrator {
     pub async fn resolve_download(
         &self,
         video_id: &str,
+        disabled: &HashSet<String>,
     ) -> Result<PlaybackData, ResolveError> {
-        self.resolve_internal(video_id, false, AudioQuality::High, &HashSet::new(), true).await
+        self.resolve_internal(video_id, false, AudioQuality::High, disabled, true).await
     }
 
     async fn resolve_internal(

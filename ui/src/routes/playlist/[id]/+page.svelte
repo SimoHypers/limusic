@@ -1285,7 +1285,7 @@
 							>
 								<HugeiconsIcon icon={MoreVerticalIcon} class="h-5 w-5 text-muted-foreground" />
 							</Button>
-							{#if !isLocalList && pl?.items?.length}
+							{#if !isOnRepeat && !isLocalList && pl?.items?.length}
 								{#if plDownloadState === 'downloading'}
 									<Button variant="ghost" size="icon" disabled title={t('download.downloading')} aria-label={t('download.downloading')}>
 										<HugeiconsIcon icon={Loading03Icon} class="h-5 w-5 animate-spin text-primary" />

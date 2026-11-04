@@ -46,6 +46,7 @@ pub struct DownloadManager {
     tasks: Arc<Mutex<Vec<DownloadTask>>>,
     cancelled: Arc<Mutex<HashSet<String>>>,
     semaphore: Arc<tokio::sync::Semaphore>,
+    current_concurrency: std::sync::atomic::AtomicUsize,
     app: AppHandle,
     db: Arc<crate::db::Db>,
     orchestrator: Arc<crate::orchestrator::Orchestrator>,
@@ -66,6 +67,7 @@ impl DownloadManager {
             tasks: Arc::new(Mutex::new(Vec::new())),
             cancelled: Arc::new(Mutex::new(HashSet::new())),
             semaphore: Arc::new(tokio::sync::Semaphore::new(concurrency)),
+            current_concurrency: std::sync::atomic::AtomicUsize::new(concurrency),
             app,
             db,
             orchestrator,
@@ -163,7 +165,7 @@ impl DownloadManager {
         }
     }
 
-    pub fn find_existing_file(&self, title: &str, subfolder: Option<&str>) -> Option<PathBuf> {
+    pub fn find_existing_file(&self, title: &str, video_id: &str, subfolder: Option<&str>) -> Option<PathBuf> {
         let base_name = sanitize_filename(title);
         let exts = ["m4a", "opus"];
         let mut dirs_to_check = Vec::new();
@@ -188,11 +190,30 @@ impl DownloadManager {
 
         for dir in dirs_to_check {
             for ext in &exts {
-                let candidate = dir.join(format!("{base_name}.{ext}"));
-                if candidate.exists() {
-                    if let Ok(meta) = std::fs::metadata(&candidate) {
+                // 1. Direct match with unique video_id suffix: "Title [video_id].ext"
+                let unique_candidate = dir.join(format!("{base_name} [{video_id}].{ext}"));
+                if unique_candidate.exists() {
+                    if let Ok(meta) = std::fs::metadata(&unique_candidate) {
                         if meta.len() > 100_000 {
-                            return Some(candidate);
+                            return Some(unique_candidate);
+                        }
+                    }
+                }
+
+                // 2. Legacy or clean match: "Title.ext" - verify that comment tag matches video_id
+                let legacy_candidate = dir.join(format!("{base_name}.{ext}"));
+                if legacy_candidate.exists() {
+                    if let Ok(meta) = std::fs::metadata(&legacy_candidate) {
+                        if meta.len() > 100_000 {
+                            use lofty::file::TaggedFileExt;
+                            use lofty::tag::Accessor;
+                            if let Ok(tagged) = lofty::probe::Probe::open(&legacy_candidate).and_then(|p| p.read()) {
+                                if let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) {
+                                    if tag.comment().as_deref() == Some(video_id) {
+                                        return Some(legacy_candidate);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -305,10 +326,16 @@ impl DownloadManager {
             .clamp(1, 5)
     }
 
-    /// Persist a new concurrency limit to the DB (applied on next app launch).
+    /// Persist a new concurrency limit to the DB and update the active semaphore.
     pub fn set_concurrency(&self, n: usize) {
         let n = n.clamp(1, 5);
+        let old = self.current_concurrency.swap(n, std::sync::atomic::Ordering::SeqCst);
         self.db.set_setting("download_concurrency", &n.to_string());
+        if n > old {
+            self.semaphore.add_permits(n - old);
+        } else if old > n {
+            self.semaphore.forget_permits(old - n);
+        }
     }
 
     /// Cancel all active downloads, remove every downloaded file from disk, and clear history.
@@ -416,7 +443,7 @@ impl DownloadManager {
         }
 
         // 2. Check if file already exists on disk (e.g. from existing library or prior session)
-        if let Some(existing_file) = self.find_existing_file(&title, subfolder.as_deref()) {
+        if let Some(existing_file) = self.find_existing_file(&title, &video_id, subfolder.as_deref()) {
             let file_str = existing_file.to_string_lossy().to_string();
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -513,7 +540,7 @@ impl DownloadManager {
         }
 
         // Before starting any network download, check if file already exists on disk
-        if let Some(existing_file) = self.find_existing_file(&title, subfolder.as_deref()) {
+        if let Some(existing_file) = self.find_existing_file(&title, &video_id, subfolder.as_deref()) {
             let file_str = existing_file.to_string_lossy().to_string();
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -554,10 +581,12 @@ impl DownloadManager {
             return;
         }
 
-        // 1. Resolve stream via orchestrator
+        // 1. Resolve stream via orchestrator with respect to disabled stream clients
+        let app_state = self.app.state::<crate::state::AppState>();
+        let disabled_clients = app_state.disabled_clients();
         let playback_data = match self
             .orchestrator
-            .resolve_download(&video_id)
+            .resolve_download(&video_id, &disabled_clients)
             .await
         {
             Ok(data) => data,
@@ -567,15 +596,14 @@ impl DownloadManager {
             }
         };
 
-        // 2. Determine file extension: Opus vs M4A
+        // 2. Determine file extension: Opus vs M4A with video_id suffix to prevent collisions
         let ext = if is_m4a_itag(playback_data.itag) { "m4a" } else { "opus" };
         let base_name = sanitize_filename(&title);
-        let final_path = target_dir.join(format!("{base_name}.{ext}"));
-        let part_path = target_dir.join(format!("{base_name}.{ext}.part"));
+        let final_path = target_dir.join(format!("{base_name} [{video_id}].{ext}"));
+        let part_path = target_dir.join(format!("{base_name} [{video_id}].{ext}.part"));
 
-        // 3. Download stream chunks
-        let client =
-            reqwest::Client::builder().timeout(Duration::from_secs(30)).build().unwrap_or_default();
+        // 3. Download stream chunks using shared HTTP client (respects user proxy)
+        let client = crate::http::client();
 
         let mut pos: u64 = 0;
         let mut total_bytes: u64 = 0;
@@ -591,6 +619,9 @@ impl DownloadManager {
 
         use tokio::io::AsyncWriteExt;
 
+        let mut last_emitted_pct = 0u32;
+        let mut last_emitted_time = std::time::Instant::now();
+
         loop {
             if self.is_cancelled(&task_id) {
                 let _ = tokio::fs::remove_file(&part_path).await;
@@ -605,7 +636,8 @@ impl DownloadManager {
 
             let mut req = client
                 .get(&playback_data.stream_url)
-                .header(reqwest::header::RANGE, format!("bytes={pos}-{last}"));
+                .header(reqwest::header::RANGE, format!("bytes={pos}-{last}"))
+                .timeout(Duration::from_secs(30));
 
             for (k, v) in &playback_data.headers {
                 if let (Ok(hk), Ok(hv)) = (
@@ -671,13 +703,23 @@ impl DownloadManager {
                         chunk_bytes += len;
                         pos += len;
 
-                        self.update_task(&task_id, |t| {
-                            t.bytes_downloaded = pos;
-                            t.total_bytes = total_bytes;
-                            if total_bytes > 0 {
-                                t.progress = ((pos as f64 / total_bytes as f64) * 100.0) as f32;
-                            }
-                        });
+                        let new_pct = if total_bytes > 0 {
+                            ((pos as f64 / total_bytes as f64) * 100.0) as u32
+                        } else {
+                            0
+                        };
+                        let now_inst = std::time::Instant::now();
+                        if new_pct != last_emitted_pct || now_inst.duration_since(last_emitted_time) >= Duration::from_millis(250) {
+                            last_emitted_pct = new_pct;
+                            last_emitted_time = now_inst;
+                            self.update_task(&task_id, |t| {
+                                t.bytes_downloaded = pos;
+                                t.total_bytes = total_bytes;
+                                if total_bytes > 0 {
+                                    t.progress = ((pos as f64 / total_bytes as f64) * 100.0) as f32;
+                                }
+                            });
+                        }
                     }
                     Err(e) => {
                         let _ = tokio::fs::remove_file(&part_path).await;
@@ -699,9 +741,19 @@ impl DownloadManager {
         }
         drop(file);
 
+        if self.is_cancelled(&task_id) {
+            let _ = tokio::fs::remove_file(&part_path).await;
+            return;
+        }
+
         // Rename part to final path
         if let Err(e) = tokio::fs::rename(&part_path, &final_path).await {
             self.fail_task(&task_id, format!("File rename error: {e}"));
+            return;
+        }
+
+        if self.is_cancelled(&task_id) {
+            let _ = tokio::fs::remove_file(&final_path).await;
             return;
         }
 
@@ -715,12 +767,12 @@ impl DownloadManager {
         let raw_thumb = thumbnail.clone().or_else(|| playback_data.thumbnail.clone()).unwrap_or_default();
         let high_res = high_res_cover_url(&raw_thumb);
         let cover_bytes = if !high_res.is_empty() {
-            match client.get(&high_res).send().await {
+            match client.get(&high_res).timeout(Duration::from_secs(15)).send().await {
                 Ok(r) if r.status().is_success() => r.bytes().await.ok().map(|b| b.to_vec()),
                 _ => {
                     let fallback_url = force_jpeg_url(&raw_thumb);
                     if !fallback_url.is_empty() && fallback_url != high_res {
-                        match client.get(&fallback_url).send().await {
+                        match client.get(&fallback_url).timeout(Duration::from_secs(15)).send().await {
                             Ok(r) if r.status().is_success() => r.bytes().await.ok().map(|b| b.to_vec()),
                             _ => None,
                         }
@@ -748,7 +800,6 @@ impl DownloadManager {
         };
 
         // Fetch lyrics for offline playback and embed in tags
-        let app_state = self.app.state::<crate::state::AppState>();
         let lreq = crate::lyrics::LyricsRequest {
             video_id: video_id.clone(),
             title: title.clone(),
@@ -771,6 +822,11 @@ impl DownloadManager {
                 None
             }
         };
+
+        if self.is_cancelled(&task_id) {
+            let _ = tokio::fs::remove_file(&final_path).await;
+            return;
+        }
 
         let final_path_clone = final_path.clone();
         let title_clone = title.clone();
@@ -795,6 +851,11 @@ impl DownloadManager {
             Ok(Ok(())) => tracing::info!(title = %title, "Tagged audio file successfully"),
             Ok(Err(e)) => tracing::warn!(title = %title, error = %e, "Tagging audio file failed"),
             Err(e) => tracing::warn!(title = %title, error = ?e, "Failed to join tagging task"),
+        }
+
+        if self.is_cancelled(&task_id) {
+            let _ = tokio::fs::remove_file(&final_path).await;
+            return;
         }
 
         let final_path_str = final_path.to_string_lossy().to_string();

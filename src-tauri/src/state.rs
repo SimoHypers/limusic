@@ -2300,7 +2300,8 @@ impl AppState {
             data.is_video,
             data.is_episode,
         );
-        if let Some(thumb) = data.thumbnail.as_ref() {
+        let offline_thumb = (data.stream_client == "local").then(|| data.thumbnail.clone()).flatten();
+        if let Some(thumb) = offline_thumb.as_ref() {
             item.thumbnail = Some(thumb.clone());
         }
         self.attach_video(&item.video_id, item.is_video, &stream_url);
@@ -2326,7 +2327,7 @@ impl AppState {
                         data.is_video,
                         data.is_episode,
                     );
-                    if let Some(thumb) = data.thumbnail.as_ref() {
+                    if let Some(thumb) = offline_thumb.as_ref() {
                         qi.thumbnail = Some(thumb.clone());
                     }
                 }

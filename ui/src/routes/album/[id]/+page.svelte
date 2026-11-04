@@ -387,7 +387,7 @@
                     {selection}
                     class="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border transition hover:bg-accent/10 hover:text-foreground"
                 />
-                {#if album?.items?.length}
+                {#if !isLocal && album?.items?.length}
                     {#if albumDownloadState === 'downloading'}
                         <button
                             class="flex h-10 w-10 cursor-not-allowed items-center justify-center rounded-full border text-primary"

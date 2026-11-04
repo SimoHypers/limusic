@@ -192,6 +192,7 @@ export async function deleteAllDownloads() {
 		await api.deleteAllDownloads();
 		downloadQueue.tasks = [];
 		downloadedSet = new Set();
+		downloadedCovers = new Map();
 	} catch (e) {
 		console.error(e);
 	}

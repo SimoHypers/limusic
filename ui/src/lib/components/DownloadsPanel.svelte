@@ -14,6 +14,7 @@
 	import { downloadQueue, cancelTask, cancelAll, clearCompleted } from '$lib/download.svelte';
 	import * as api from '$lib/api';
 	import { t } from '$lib/i18n.svelte';
+	import { thumb } from '$lib/thumb';
 
 	function formatBytes(bytes: number) {
 		if (bytes === 0) return '0 B';
@@ -95,7 +96,7 @@
 						<div class="flex items-center gap-2.5">
 							{#if task.thumbnail}
 								<img
-									src={task.thumbnail}
+									src={thumb(task.thumbnail, 96, task.video_id)}
 									alt=""
 									class="h-10 w-10 shrink-0 rounded-md object-cover shadow-sm"
 								/>
