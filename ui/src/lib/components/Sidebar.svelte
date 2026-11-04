@@ -104,6 +104,7 @@
 </script>
 
 <aside
+	data-nav-rail
 	class="flex h-full w-16 shrink-0 flex-col border-r bg-sidebar p-3 text-sidebar-foreground {wide(
 		'lg:w-60'
 	)}"
@@ -155,6 +156,8 @@
 					input?.select();
 				} : undefined}
 				title={n.label}
+				data-nav-item
+				data-nav-active={isActive(n.href) ? '' : undefined}
 				class="group relative flex items-center justify-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors {wide(
 					'lg:justify-start'
 				)} {isActive(n.href)
@@ -163,6 +166,7 @@
 			>
 				{#if isActive(n.href)}
 					<span
+						data-nav-indicator
 						transition:scale={{ duration: 200, start: 0.4 }}
 						class="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-primary"
 					></span>
@@ -213,7 +217,7 @@
 	<!-- Playlists. Hidden on the icon rail (needs labels; matches YTM's collapsed rail). flex-1 lets
 	     the list fill the space and scroll. Always there, signed out included: a playlist can be
 	     made on this machine without an account (#251). -->
-	<div class="mt-3 hidden min-h-0 flex-1 flex-col border-t pt-3 {wide('lg:flex')}">
+	<div data-nav-playlists class="mt-3 hidden min-h-0 flex-1 flex-col border-t pt-3 {wide('lg:flex')}">
 		<Button variant="outline" size="sm" class="mb-2 w-full gap-2" onclick={() => openNewPlaylist()}>
 			<HugeiconsIcon icon={Add01Icon} class="h-4 w-4" /> {t('nav.new_playlist')}
 		</Button>
@@ -228,6 +232,7 @@
 					<a
 						href={playlistHref(pl)}
 						title={pl.title}
+						data-nav-item
 						class="flex items-center gap-2.5 rounded-lg py-1.5 pl-2 pr-9 transition-colors hover:bg-sidebar-accent/50"
 					>
 						<div

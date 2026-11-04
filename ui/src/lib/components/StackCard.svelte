@@ -98,6 +98,7 @@
 					</div>
 				{/if}
 				<button
+					data-card-play
 					class="absolute bottom-2 right-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-lg transition-opacity duration-200 ease-out focus-visible:opacity-100 group-hover:opacity-100"
 					class:animate-pulse={busy}
 					disabled={busy}

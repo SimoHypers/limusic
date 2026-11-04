@@ -103,7 +103,6 @@
 		"volume": "Volume",
 		"queue": "Coda",
 		"lyrics": "Testo",
-		"mini_player": "Mini player",
 		"theater_mode": "Modalità cinema",
 		"playing_from": "In riproduzione da",
 		"exit_theater": "Esci dalla modalità cinema",
@@ -884,7 +883,6 @@
 			"lyricsplus": "Testi di Apple Music, parola per parola, con la traslitterazione ufficiale di Apple.",
 			"lrclib": "Libreria aperta di testi sincronizzati con la copertura più ampia.",
 			"youtube": "I testi ufficiali forniti da YouTube Music, laddove siano regolarmente concessi in licenza.",
-			"simpmusic": "Testi della community sincronizzati esattamente con il caricamento di YouTube, introduzioni incluse.",
 			"netease": "Ampio catalogo cinese. Fornisce traduzioni in cinese per moltissimi brani.",
 			"qq": "Catalogo cinese, particolarmente ricco per Mandopop e Cantopop.",
 			"kugou": "Catalogo cinese, ideale per i brani più rari e di nicchia."

@@ -138,7 +138,6 @@
 		"volume": "音量",
 		"queue": "播放队列",
 		"lyrics": "歌词",
-		"mini_player": "迷你播放器",
 		"theater_mode": "影院模式",
 		"playing_from": "播放来源",
 		"exit_theater": "退出影院模式",
@@ -892,7 +891,6 @@
 			"lyricsplus": "Apple Music 歌词，逐词显示，并带有 Apple 自己的罗马化。",
 			"lrclib": "开放同步歌词库。覆盖范围最广。",
 			"youtube": "YouTube Music 自己的歌词，在其获得授权时可用。",
-			"simpmusic": "与确切 YouTube 上传内容匹配的社区歌词，包含前奏。",
 			"netease": "大型中文曲库。为许多歌曲添加中文翻译。",
 			"qq": "中文曲库，擅长华语流行和粤语流行。",
 			"kugou": "中文曲库，适合较冷门曲目。"
