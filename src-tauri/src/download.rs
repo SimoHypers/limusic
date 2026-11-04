@@ -408,7 +408,8 @@ impl DownloadManager {
             if let Ok(mut entries) = tokio::fs::read_dir(&dir).await {
                 while let Ok(Some(entry)) = entries.next_entry().await {
                     let p = entry.path();
-                    if p.extension().and_then(|e| e.to_str()) == Some("part") {
+                    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if name.ends_with("].m4a.part") || name.ends_with("].opus.part") {
                         let _ = tokio::fs::remove_file(&p).await;
                     }
                 }
@@ -504,18 +505,6 @@ impl DownloadManager {
             return task.id;
         }
 
-        // 3. Check if already queued or downloading in memory
-        if let Ok(tasks) = self.tasks.lock() {
-            if let Some(existing) = tasks.iter().find(|t| {
-                t.video_id == video_id
-                    && (t.status == DownloadStatus::Queued
-                        || t.status == DownloadStatus::Downloading
-                        || t.status == DownloadStatus::Tagging)
-            }) {
-                return existing.id.clone();
-            }
-        }
-
         let id = format!("{}_{}", video_id, rand::random::<u32>());
         let task = DownloadTask {
             id: id.clone(),
@@ -533,6 +522,15 @@ impl DownloadManager {
         };
 
         if let Ok(mut tasks) = self.tasks.lock() {
+            // 3. Check and insert under one lock so concurrent callers cannot both queue
+            if let Some(existing) = tasks.iter().find(|t| {
+                t.video_id == video_id
+                    && (t.status == DownloadStatus::Queued
+                        || t.status == DownloadStatus::Downloading
+                        || t.status == DownloadStatus::Tagging)
+            }) {
+                return existing.id.clone();
+            }
             tasks.push(task.clone());
         }
         let _ = self.app.emit("download-progress", task);
@@ -777,7 +775,18 @@ impl DownloadManager {
                 }
             }
 
-            if chunk_bytes == 0 || (total_bytes > 0 && pos >= total_bytes) {
+            if total_bytes > 0 && pos >= total_bytes {
+                break;
+            }
+            if chunk_bytes == 0 {
+                if total_bytes > 0 {
+                    let _ = tokio::fs::remove_file(&part_path).await;
+                    self.fail_task(
+                        &task_id,
+                        format!("Download ended early at {pos} of {total_bytes} bytes"),
+                    );
+                    return;
+                }
                 break;
             }
         }
