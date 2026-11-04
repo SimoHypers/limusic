@@ -3383,10 +3383,12 @@ impl AppState {
         }
         let Some(item) = self.current_item().await else { return };
         crate::UI_MOUNTED.notified().await;
-        // Login launches can run before Wi-Fi or DNS is ready (#483); a local file needs no
-        // network. The other checks come after the wait: in that minute the user can start
-        // something, join a room as a guest or turn this off.
-        if !crate::local::is_local_song(&item.video_id) && !crate::http::wait_for_network().await {
+        // Login launches can run before Wi-Fi or DNS is ready (#483); a local file or downloaded
+        // track needs no network. The other checks come after the wait: in that minute the user
+        // can start something, join a room as a guest or turn this off.
+        let is_offline_ready = crate::local::is_local_song(&item.video_id)
+            || self.downloads.get_downloaded_path(&item.video_id).is_some();
+        if !is_offline_ready && !crate::http::wait_for_network().await {
             return;
         }
         if !enabled() || !self.player.is_idle() || self.lt.is_guest().await {

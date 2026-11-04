@@ -252,7 +252,11 @@
 	// Kept on this machine (#251): no YouTube item behind it, so no radio and nothing to share, and
 	// every row is already here (no pages to walk).
 	const isLocalList = $derived(api.isLocalPlaylist(id));
-	const plDownloadState = $derived(getCollectionDownloadState(pl?.items?.map((t) => t.video_id) ?? []));
+	const plDownloadState = $derived(
+		pl?.continuation
+			? (getCollectionDownloadState(pl?.items?.map((t) => t.video_id) ?? []) === 'downloading' ? 'downloading' : 'idle')
+			: getCollectionDownloadState(pl?.items?.map((t) => t.video_id) ?? [])
+	);
 	// Imported from a Spotify link (#375): the header offers to bring it up to date with Spotify.
 	let spotifyUrl = $state<string | null>(null);
 	$effect(() => {

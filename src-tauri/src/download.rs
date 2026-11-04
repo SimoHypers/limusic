@@ -713,6 +713,36 @@ impl DownloadManager {
                 }
             };
 
+            // For offset > 0, the server MUST return 206 Partial Content matching the requested offset.
+            // A 200 OK would mean the server ignored Range and resent the whole file from byte 0.
+            let status = resp.status();
+            if pos > 0 {
+                if status != reqwest::StatusCode::PARTIAL_CONTENT {
+                    let _ = tokio::fs::remove_file(&part_path).await;
+                    self.fail_task(
+                        &task_id,
+                        format!("Server ignored Range request for byte {pos} (status {status})"),
+                    );
+                    return;
+                }
+                if let Some(cr) = resp.headers().get(reqwest::header::CONTENT_RANGE).and_then(|v| v.to_str().ok()) {
+                    if let Some(range_part) = cr.strip_prefix("bytes ") {
+                        if let Some(dash) = range_part.find('-') {
+                            if let Ok(start) = range_part[..dash].trim().parse::<u64>() {
+                                if start != pos {
+                                    let _ = tokio::fs::remove_file(&part_path).await;
+                                    self.fail_task(
+                                        &task_id,
+                                        format!("Content-Range start mismatch: expected {pos}, got {start}"),
+                                    );
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Extract total bytes from Content-Range
             if total_bytes == 0 {
                 if let Some(cr) = resp.headers().get(reqwest::header::CONTENT_RANGE) {
