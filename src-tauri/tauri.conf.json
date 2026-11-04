@@ -49,9 +49,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "android": {
-      "debugApplicationIdSuffix": ".debug"
-    },
     "linux": {
       "deb": {
         "depends": ["libwebkit2gtk-4.1-0", "libmpv2", "libc6 (>= 2.39)"]
