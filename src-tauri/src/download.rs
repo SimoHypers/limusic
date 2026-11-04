@@ -47,6 +47,7 @@ pub struct DownloadManager {
     cancelled: Arc<Mutex<HashSet<String>>>,
     semaphore: Arc<tokio::sync::Semaphore>,
     current_concurrency: std::sync::atomic::AtomicUsize,
+    pending_reductions: Arc<std::sync::atomic::AtomicUsize>,
     app: AppHandle,
     db: Arc<crate::db::Db>,
     orchestrator: Arc<crate::orchestrator::Orchestrator>,
@@ -68,6 +69,7 @@ impl DownloadManager {
             cancelled: Arc::new(Mutex::new(HashSet::new())),
             semaphore: Arc::new(tokio::sync::Semaphore::new(concurrency)),
             current_concurrency: std::sync::atomic::AtomicUsize::new(concurrency),
+            pending_reductions: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             app,
             db,
             orchestrator,
@@ -328,13 +330,36 @@ impl DownloadManager {
 
     /// Persist a new concurrency limit to the DB and update the active semaphore.
     pub fn set_concurrency(&self, n: usize) {
+        use std::sync::atomic::Ordering;
         let n = n.clamp(1, 5);
-        let old = self.current_concurrency.swap(n, std::sync::atomic::Ordering::SeqCst);
+        let old = self.current_concurrency.swap(n, Ordering::SeqCst);
         self.db.set_setting("download_concurrency", &n.to_string());
         if n > old {
-            self.semaphore.add_permits(n - old);
+            let diff = n - old;
+            // Offset against any pending reductions before adding fresh permits
+            let to_add = self
+                .pending_reductions
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |cur| {
+                    if cur >= diff {
+                        Some(cur - diff)
+                    } else {
+                        Some(0)
+                    }
+                })
+                .map(|old_p| if diff > old_p { diff - old_p } else { 0 })
+                .unwrap_or(diff);
+            if to_add > 0 {
+                self.semaphore.add_permits(to_add);
+            }
         } else if old > n {
-            self.semaphore.forget_permits(old - n);
+            let to_reduce = old - n;
+            // Try to immediately reclaim available permits; track what we couldn't get as
+            // pending reductions that will be consumed the next time a task acquires the semaphore.
+            let actually_removed = self.semaphore.forget_permits(to_reduce);
+            let still_needed = to_reduce.saturating_sub(actually_removed);
+            if still_needed > 0 {
+                self.pending_reductions.fetch_add(still_needed, Ordering::SeqCst);
+            }
         }
     }
 
@@ -418,6 +443,7 @@ impl DownloadManager {
         artist: String,
         album: Option<String>,
         thumbnail: Option<String>,
+        is_upload: bool,
         subfolder: Option<String>,
     ) -> String {
         // 1. Check if already recorded in SQLite
@@ -514,7 +540,7 @@ impl DownloadManager {
         let mgr = Arc::clone(self);
         let task_id = id.clone();
         tauri::async_runtime::spawn(async move {
-            mgr.run_download(task_id, video_id, title, artist, album, thumbnail, subfolder).await;
+            mgr.run_download(task_id, video_id, title, artist, album, thumbnail, is_upload, subfolder).await;
         });
 
         id
@@ -528,11 +554,33 @@ impl DownloadManager {
         artist: String,
         album: Option<String>,
         thumbnail: Option<String>,
+        is_upload: bool,
         subfolder: Option<String>,
     ) {
-        let _permit = match self.semaphore.acquire().await {
-            Ok(p) => p,
-            Err(_) => return,
+        use std::sync::atomic::Ordering;
+        let _permit = loop {
+            if self.is_cancelled(&task_id) {
+                return;
+            }
+            let p = match self.semaphore.acquire().await {
+                Ok(p) => p,
+                Err(_) => return,
+            };
+            // Honor pending concurrency reductions: if the limit was lowered while permits were
+            // in-flight, consume this slot to reduce semaphore capacity, then re-wait for a valid slot.
+            if self.pending_reductions.load(Ordering::SeqCst) > 0 {
+                if self
+                    .pending_reductions
+                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                        if v > 0 { Some(v - 1) } else { None }
+                    })
+                    .is_ok()
+                {
+                    p.forget();
+                    continue;
+                }
+            }
+            break p;
         };
 
         if self.is_cancelled(&task_id) {
@@ -586,7 +634,7 @@ impl DownloadManager {
         let disabled_clients = app_state.disabled_clients();
         let playback_data = match self
             .orchestrator
-            .resolve_download(&video_id, &disabled_clients)
+            .resolve_download(&video_id, is_upload, &disabled_clients)
             .await
         {
             Ok(data) => data,

@@ -2869,6 +2869,7 @@ pub async fn download_track(
         song.artists,
         song.album,
         song.thumbnail,
+        song.is_upload,
         subfolder,
     );
     Ok(id)
@@ -2892,6 +2893,7 @@ pub async fn download_playlist(
                     t.artists,
                     t.album,
                     t.thumbnail,
+                    t.is_upload,
                     subfolder.clone(),
                 );
             }
@@ -2926,6 +2928,7 @@ pub async fn download_playlist(
                 t.artists,
                 t.album,
                 t.thumbnail,
+                t.is_upload,
                 subfolder.clone(),
             );
         }
@@ -2951,6 +2954,7 @@ pub async fn download_album(
                 t.artists,
                 t.album,
                 t.thumbnail,
+                t.is_upload,
                 subfolder.clone(),
             );
         }
