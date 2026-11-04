@@ -240,6 +240,15 @@ async fn cached_or_fetched(state: &AppState, req: LyricsRequest) -> Option<Lyric
             return cached.map(unsync_flat);
         }
     }
+    // For downloaded tracks: read embedded tag before hitting the network
+    if let Some(file_path) = state.downloads.get_downloaded_path(&video_id) {
+        if let Some(embedded) = get_embedded_lyrics(&file_path) {
+            if let Ok(json) = serde_json::to_string(&embedded) {
+                state.db.put_lyrics(&video_id, Some(&json), now);
+            }
+            return Some(embedded);
+        }
+    }
     let (lyrics, cacheable) = fetch(state, req).await;
     if cacheable {
         let json = lyrics.as_ref().and_then(|l| serde_json::to_string(l).ok());
@@ -713,8 +722,28 @@ fn parse_lrc_time(tag: &str) -> Option<u64> {
     Some((m * 60 + s) * 1000 + ms)
 }
 
+/// Read lyrics embedded in an audio file's tags (e.g. downloaded M4A/Opus or local file).
+pub fn get_embedded_lyrics(file_path: &str) -> Option<Lyrics> {
+    use lofty::file::TaggedFileExt;
+    use lofty::tag::ItemKey;
+    let tagged = lofty::probe::Probe::open(file_path).ok()?.read().ok()?;
+    let tag = tagged.primary_tag().or_else(|| tagged.first_tag())?;
+    let lyrics_text = tag.get_string(&ItemKey::Lyrics)?.trim();
+    if lyrics_text.is_empty() {
+        return None;
+    }
+    let lines = parse_lrc(lyrics_text);
+    let mut lyrics = if !lines.is_empty() && lines.iter().any(|l| l.time_ms.is_some()) {
+        from_parsed("Downloaded", lines)?
+    } else {
+        plain_from_text(Some(lyrics_text), "Downloaded")?
+    };
+    lyrics.provider = "downloaded".to_string();
+    Some(lyrics)
+}
+
 /// `"3:21"` / `"1:02:03"` → seconds.
-fn duration_str_secs(s: &str) -> Option<f64> {
+pub fn duration_str_secs(s: &str) -> Option<f64> {
     let mut total: u64 = 0;
     for part in s.split(':') {
         total = total * 60 + part.trim().parse::<u64>().ok()?;

@@ -747,13 +747,47 @@ impl DownloadManager {
             None
         };
 
+        // Fetch lyrics for offline playback and embed in tags
+        let app_state = self.app.state::<crate::state::AppState>();
+        let lreq = crate::lyrics::LyricsRequest {
+            video_id: video_id.clone(),
+            title: title.clone(),
+            artists: artist.clone(),
+            album: album.clone(),
+            duration: playback_data.duration.as_deref().and_then(crate::lyrics::duration_str_secs),
+            searched: false,
+        };
+        let lrc_text = match crate::lyrics::get_lyrics(app_state.inner(), lreq, None).await {
+            Ok(Some(l)) => {
+                tracing::info!(title = %title, source = %l.source, synced = l.synced, "Fetched lyrics for download");
+                lyrics_to_lrc(&l)
+            }
+            Ok(None) => {
+                tracing::debug!(title = %title, "No lyrics found for download");
+                None
+            }
+            Err(e) => {
+                tracing::warn!(title = %title, error = %e, "Failed to fetch lyrics for download");
+                None
+            }
+        };
+
         let final_path_clone = final_path.clone();
         let title_clone = title.clone();
         let video_id_clone = video_id.clone();
         let artist_clone = artist.clone();
         let album_clone = album.clone();
+        let lrc_text_clone = lrc_text.clone();
         let tag_res = tauri::async_runtime::spawn_blocking(move || {
-            apply_tags(&final_path_clone, &video_id_clone, &title_clone, &artist_clone, album_clone.as_deref(), cover_bytes.as_deref())
+            apply_tags(
+                &final_path_clone,
+                &video_id_clone,
+                &title_clone,
+                &artist_clone,
+                album_clone.as_deref(),
+                cover_bytes.as_deref(),
+                lrc_text_clone.as_deref(),
+            )
         })
         .await;
 
@@ -872,6 +906,38 @@ pub fn force_jpeg_url(url: &str) -> String {
     }
 }
 
+fn lyrics_to_lrc(l: &crate::lyrics::Lyrics) -> Option<String> {
+    if l.instrumental || l.lines.is_empty() {
+        return None;
+    }
+    if l.synced {
+        let lrc = l
+            .lines
+            .iter()
+            .filter_map(|line| {
+                let ms = line.time_ms?;
+                let min = ms / 60_000;
+                let sec = (ms % 60_000) / 1_000;
+                let centis = (ms % 1_000) / 10;
+                Some(format!("[{:02}:{:02}.{:02}] {}", min, sec, centis, line.text))
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        if lrc.trim().is_empty() {
+            None
+        } else {
+            Some(lrc)
+        }
+    } else {
+        let text = l.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>().join("\n");
+        if text.trim().is_empty() {
+            None
+        } else {
+            Some(text)
+        }
+    }
+}
+
 fn apply_tags(
     path: &Path,
     video_id: &str,
@@ -879,10 +945,11 @@ fn apply_tags(
     artist: &str,
     album: Option<&str>,
     cover_bytes: Option<&[u8]>,
+    lrc_text: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     use lofty::file::TaggedFileExt;
     use lofty::probe::Probe;
-    use lofty::tag::{Accessor, TagExt};
+    use lofty::tag::{Accessor, ItemKey, TagExt};
 
     let mut tagged_file = Probe::open(path)?.read()?;
     let tag = match tagged_file.primary_tag_mut() {
@@ -903,6 +970,10 @@ fn apply_tags(
     tag.set_comment(video_id.to_string());
     if let Some(alb) = album {
         tag.set_album(alb.to_string());
+    }
+
+    if let Some(lrc) = lrc_text {
+        tag.insert_text(ItemKey::Lyrics, lrc.to_string());
     }
 
     if let Some(bytes) = cover_bytes {
