@@ -1,6 +1,6 @@
 // Download manager reactive state and actions
 import * as api from './api';
-import type { DownloadTask, SongItem } from './api';
+import type { DownloadTask, DownloadedTrack, SongItem } from './api';
 import { toast } from './player.svelte';
 import { t } from './i18n.svelte';
 
@@ -18,6 +18,7 @@ export const downloadQueue = $state({
 });
 
 let downloadedSet = $state(new Set<string>());
+let downloadedCovers = $state(new Map<string, string>());
 
 export function isDownloaded(videoId: string | undefined | null): boolean {
 	if (!videoId) return false;
@@ -40,6 +41,15 @@ export function getSongDownloadState(videoId: string | undefined | null): Downlo
 	return 'idle';
 }
 
+/** Returns the local cover path for a downloaded track, if available. */
+export function getDownloadedCover(videoId: string | undefined | null): string | undefined {
+	if (!videoId) return undefined;
+	const path = downloadedCovers.get(videoId);
+	// Only return local paths (absolute paths starting with /)
+	if (path && (path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path))) return path;
+	return undefined;
+}
+
 export function getCollectionDownloadState(videoIds: (string | undefined | null)[]): DownloadState {
 	if (!videoIds || videoIds.length === 0) return 'idle';
 	const validIds = videoIds.filter(Boolean) as string[];
@@ -56,18 +66,26 @@ export async function initDownloads() {
 	initialized = true;
 
 	try {
-		const [list, ids] = await Promise.all([
+		const [list, ids, tracks] = await Promise.all([
 			api.getDownloads(),
-			api.getDownloadedIds()
+			api.getDownloadedIds(),
+			api.getDownloadedTracks()
 		]);
 		downloadQueue.tasks = list.filter((t) => t.status !== 'cancelled');
 		const nextSet = new Set<string>(ids);
+		const nextCovers = new Map<string, string>();
 		for (const t of list) {
 			if (t.status === 'completed') {
 				nextSet.add(t.video_id);
+				if (t.thumbnail) nextCovers.set(t.video_id, t.thumbnail);
 			}
 		}
+		for (const track of tracks) {
+			nextSet.add(track.video_id);
+			if (track.thumbnail) nextCovers.set(track.video_id, track.thumbnail);
+		}
 		downloadedSet = nextSet;
+		downloadedCovers = nextCovers;
 	} catch (e) {
 		console.error('Failed to get initial downloads', e);
 	}
@@ -85,6 +103,10 @@ export async function initDownloads() {
 			if (prev.status !== 'completed' && task.status === 'completed') {
 				downloadedSet.add(task.video_id);
 				downloadedSet = new Set(downloadedSet);
+				if (task.thumbnail) {
+					downloadedCovers.set(task.video_id, task.thumbnail);
+					downloadedCovers = new Map(downloadedCovers);
+				}
 				toast(`${t('download.downloaded')}: ${task.title}`);
 			} else if (prev.status !== 'failed' && task.status === 'failed') {
 				toast(`${t('download.status_failed')}: ${task.title}`);
@@ -94,6 +116,10 @@ export async function initDownloads() {
 			if (task.status === 'completed') {
 				downloadedSet.add(task.video_id);
 				downloadedSet = new Set(downloadedSet);
+				if (task.thumbnail) {
+					downloadedCovers.set(task.video_id, task.thumbnail);
+					downloadedCovers = new Map(downloadedCovers);
+				}
 			}
 		}
 	});

@@ -3021,6 +3021,11 @@ pub async fn get_downloaded_ids(state: St<'_>) -> Result<Vec<String>, String> {
     Ok(state.downloads.get_downloaded_ids())
 }
 
+#[tauri::command]
+pub async fn get_downloaded_tracks(state: St<'_>) -> Result<Vec<crate::db::DownloadedTrack>, String> {
+    state.db.get_all_downloaded_tracks().map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

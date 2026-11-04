@@ -1,11 +1,18 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { getDownloadedCover } from './download.svelte';
 
 // Rewrite a Google image URL to (about) the pixel size a slot actually renders, so WebKitGTK
 // doesn't decode a 544px (or 1080p) image for a 40px row. Only lh3/yt3 googleusercontent-style
 // URLs carry the size in the URL (`=w544-h544` / `=s576` suffixes). A video's i.ytimg thumb has its
 // sizes as separate files that can 404, so only the big player swaps one (see below); anything else
 // is returned unchanged.
-export function thumb(url: string | undefined | null, px: number): string | undefined {
+export function thumb(url: string | undefined | null, px: number, videoId?: string | null): string | undefined {
+	if (!url && !videoId) return undefined;
+	// For downloaded tracks, prefer the local offline cover (high-res, works offline)
+	if (videoId) {
+		const offlineCover = getDownloadedCover(videoId);
+		if (offlineCover) return convertFileSrc(offlineCover);
+	}
 	if (!url) return undefined;
 	// Local library artwork is a path on this machine, not a URL. The webview can't open a bare
 	// path, so hand it through Tauri's asset protocol. Kept here rather than at the command

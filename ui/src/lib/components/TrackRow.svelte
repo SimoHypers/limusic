@@ -310,7 +310,7 @@
 			{/if}
 			{#if !hideThumb}
 				{#if song.thumbnail}
-					<img src={thumb(song.thumbnail, 96)} alt="" class="h-10 w-10 shrink-0 rounded-md object-cover" loading="lazy" />
+					<img src={thumb(song.thumbnail, 96, song.video_id)} alt="" class="h-10 w-10 shrink-0 rounded-md object-cover" loading="lazy" />
 				{:else}
 					<!-- An untagged file has no artwork of its own. A music note keeps the row aligned
 					     with its neighbours and says so plainly. -->

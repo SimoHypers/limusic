@@ -245,6 +245,47 @@ impl DownloadManager {
         }
     }
 
+    /// Retrieve the local cover image path for a downloaded track.
+    /// If not already cached in `covers_dir`, attempts to extract the embedded cover
+    /// artwork from the downloaded audio file using `lofty`, caches it, and returns the path.
+    pub fn get_offline_cover(&self, video_id: &str) -> Option<String> {
+        let covers_dir = crate::local::covers_dir(&self.app);
+        for ext in ["jpg", "jpeg", "png"] {
+            let cached = covers_dir.join(format!("dl-{video_id}.{ext}"));
+            if cached.is_file() {
+                return Some(cached.to_string_lossy().to_string());
+            }
+        }
+
+        // If not found in cache, check if we have the downloaded file on disk
+        let file_path = self.get_downloaded_path(video_id)?;
+        let path = Path::new(&file_path);
+        if !path.is_file() {
+            return None;
+        }
+
+        use lofty::file::TaggedFileExt;
+        let tagged = lofty::probe::Probe::open(path).ok()?.read().ok()?;
+        let tag = tagged.primary_tag().or_else(|| tagged.first_tag())?;
+        let pic = tag.pictures().first()?;
+        let ext = match pic.mime_type() {
+            Some(lofty::picture::MimeType::Png) => "png",
+            _ => "jpg",
+        };
+        let out = covers_dir.join(format!("dl-{video_id}.{ext}"));
+        let _ = std::fs::create_dir_all(&covers_dir);
+        std::fs::write(&out, pic.data()).ok()?;
+        let out_str = out.to_string_lossy().to_string();
+
+        // Update database record if present
+        if let Ok(Some(mut track)) = self.db.get_downloaded_track(video_id) {
+            track.thumbnail = Some(out_str.clone());
+            let _ = self.db.record_download(&track);
+        }
+
+        Some(out_str)
+    }
+
     pub fn clear_completed(&self) {
         if let Ok(mut tasks) = self.tasks.lock() {
             tasks.retain(|t| {
@@ -326,6 +367,17 @@ impl DownloadManager {
         let _ = self.db.clear_all_downloads();
         if let Ok(mut tasks) = self.tasks.lock() {
             tasks.clear();
+        }
+
+        // 6. Clean up dl-* cached covers from covers_dir
+        let covers_dir = crate::local::covers_dir(&self.app);
+        if let Ok(entries) = std::fs::read_dir(&covers_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with("dl-") {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
         }
 
         deleted
@@ -681,6 +733,20 @@ impl DownloadManager {
             None
         };
 
+        // Cache the high-res cover image to covers_dir for offline UI and MPRIS playback
+        let local_cover_path = if let Some(bytes) = &cover_bytes {
+            let covers_dir = crate::local::covers_dir(&self.app);
+            let _ = std::fs::create_dir_all(&covers_dir);
+            let cover_file = covers_dir.join(format!("dl-{video_id}.jpg"));
+            if std::fs::write(&cover_file, bytes).is_ok() {
+                Some(cover_file.to_string_lossy().to_string())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let final_path_clone = final_path.clone();
         let title_clone = title.clone();
         let video_id_clone = video_id.clone();
@@ -707,7 +773,7 @@ impl DownloadManager {
             title: title.clone(),
             artist: artist.clone(),
             album: album.clone(),
-            thumbnail: thumbnail.clone(),
+            thumbnail: local_cover_path.or_else(|| thumbnail.clone()),
             file_path: final_path_str.clone(),
             downloaded_at: now,
         };

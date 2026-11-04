@@ -1232,7 +1232,10 @@ impl AppState {
         // If downloaded locally via DownloadManager, play the offline file directly.
         if let Some(downloaded_path) = self.downloads.get_downloaded_path(video_id) {
             tracing::info!(video_id, path = %downloaded_path, "Playing downloaded offline track directly");
-            if let Ok(data) = crate::local::playback_data(video_id, &downloaded_path) {
+            if let Ok(mut data) = crate::local::playback_data(video_id, &downloaded_path) {
+                if let Some(cover_path) = self.downloads.get_offline_cover(video_id) {
+                    data.thumbnail = Some(cover_path);
+                }
                 return Ok(data);
             }
         }
@@ -2297,6 +2300,9 @@ impl AppState {
             data.is_video,
             data.is_episode,
         );
+        if let Some(thumb) = data.thumbnail.as_ref() {
+            item.thumbnail = Some(thumb.clone());
+        }
         self.attach_video(&item.video_id, item.is_video, &stream_url);
         {
             let mut q = self.queue.lock().await;
@@ -2320,6 +2326,9 @@ impl AppState {
                         data.is_video,
                         data.is_episode,
                     );
+                    if let Some(thumb) = data.thumbnail.as_ref() {
+                        qi.thumbnail = Some(thumb.clone());
+                    }
                 }
             }
         }
@@ -2527,10 +2536,15 @@ impl AppState {
     /// cold start both have to ask once instead of guessing.
     pub async fn playback_snapshot(&self) -> serde_json::Value {
         let (speed, semitones, reverb) = self.player.playback_params();
-        let (duration, item) = {
+        let (duration, mut item) = {
             let q = self.queue.lock().await;
             (q.duration, q.items.get(q.current).cloned())
         };
+        if let Some(ref mut it) = item {
+            if let Some(offline_cover) = self.downloads.get_offline_cover(&it.video_id) {
+                it.thumbnail = Some(offline_cover);
+            }
+        }
         serde_json::json!({
             "now": item.as_ref().map(|i| Self::now_playing_json(i, "current")),
             "paused": !self.is_playing.load(Ordering::Relaxed),
@@ -2627,7 +2641,11 @@ impl AppState {
     }
 
     fn emit_now_playing(&self, item: &SongItem, stream_client: &str) {
-        let _ = self.app.emit("now-playing", Self::now_playing_json(item, stream_client));
+        let mut item = item.clone();
+        if let Some(offline_cover) = self.downloads.get_offline_cover(&item.video_id) {
+            item.thumbnail = Some(offline_cover);
+        }
+        let _ = self.app.emit("now-playing", Self::now_playing_json(&item, stream_client));
         let _ = self.app.emit("playback-state", "playing");
         // Push the same metadata to the OS media widget (context/16) and Discord.
         if let Some(m) = &self.media {
@@ -2644,7 +2662,7 @@ impl AppState {
             m.set_metadata(&item.title, &item.artists, item.album.as_deref(), cover.as_deref());
         }
         if let Some(d) = &self.discord {
-            d.set_track(item);
+            d.set_track(&item);
         }
         // A restored queue is paused at launch: nothing started, so nothing to announce.
         if stream_client != "restored"
@@ -2658,7 +2676,7 @@ impl AppState {
                 && self.db.get_setting("track_notifications_focused").as_deref() == Some("true");
             crate::notify::track_changed(&self.app, &item.title, &item.artists, even_focused);
         }
-        self.lastfm.set_track(item);
+        self.lastfm.set_track(&item);
         // New track ⇒ let the next position tick through immediately instead of waiting out the
         // ~1s throttle, so a restored seek position (and the play-state self-heal) lands at once.
         self.last_media_push.store(0, Ordering::Relaxed);

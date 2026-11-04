@@ -1400,6 +1400,17 @@ export const setDownloadConcurrency = (concurrency: number) =>
 export const deleteAllDownloads = () => invoke<number>('delete_all_downloads');
 export const getDownloadedIds = () => invoke<string[]>('get_downloaded_ids');
 
+export interface DownloadedTrack {
+	video_id: string;
+	title: string;
+	artist: string;
+	album?: string;
+	thumbnail?: string;
+	file_path: string;
+	downloaded_at: number;
+}
+export const getDownloadedTracks = () => invoke<DownloadedTrack[]>('get_downloaded_tracks');
+
 export const onDownloadProgress = (cb: (task: DownloadTask) => void): Promise<UnlistenFn> =>
 	listen<DownloadTask>('download-progress', (e) => cb(e.payload));
 
