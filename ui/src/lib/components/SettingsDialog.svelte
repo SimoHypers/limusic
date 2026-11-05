@@ -227,6 +227,9 @@
 		const secs = Number(settings.crossfade_secs ?? '5');
 		return Number.isFinite(secs) ? Math.min(10, Math.max(1, secs)) : 5;
 	});
+	// On unless turned off, and only offered with crossfade on. Rust reads it in
+	// `saved_manual_crossfade`.
+	const crossfadeManualOn = $derived(settings.crossfade_manual !== 'false');
 	const hideVideosOn = $derived(settings.hide_videos === 'true');
 	const preferWordsOn = $derived(settings.lyrics_prefer_words === 'true');
 	// Off until the setting is turned on: still experimental, so nobody gets video they didn't ask
@@ -296,6 +299,11 @@
 	async function setCrossfadeSecs(secs: number) {
 		settings.crossfade_secs = String(secs);
 		await api.setSetting('crossfade_secs', settings.crossfade_secs);
+	}
+
+	async function setCrossfadeManual(on: boolean) {
+		settings.crossfade_manual = on ? 'true' : 'false';
+		await api.setSetting('crossfade_manual', settings.crossfade_manual);
 	}
 
 	// Also lands in `prefs`, which is where the player view reads it: the switch has to take effect
@@ -660,6 +668,12 @@
 										control: crossfadeSlider,
 										tall: true
 									})}
+									{@render row({
+										title: t('settings.playback.crossfade_manual'),
+										desc: t('settings.playback.crossfade_manual_hint'),
+										control: crossfadeManualSwitch,
+										tall: true
+									})}
 								{/if}
 								{@render row({
 									title: t('settings.playback.prevent_duplicates'),
@@ -922,6 +936,11 @@
 {#snippet autoplaySwitch()}<Switch checked={prefs.autoplay} onCheckedChange={setAutoplay} />{/snippet}
 
 {#snippet crossfadeSwitch()}<Switch checked={crossfadeOn} onCheckedChange={setCrossfade} />{/snippet}
+
+{#snippet crossfadeManualSwitch()}<Switch
+		checked={crossfadeManualOn}
+		onCheckedChange={setCrossfadeManual}
+	/>{/snippet}
 
 {#snippet crossfadeSlider()}
 	<div class="flex w-44 shrink-0 items-center gap-3">

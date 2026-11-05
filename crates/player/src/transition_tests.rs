@@ -360,3 +360,310 @@ fn automatic_crossfade_runs_both_effected_decks_in_real_time() {
         p.stop().unwrap();
     }
 }
+
+/// A skip with the setting on plays both tracks at once for the fade length, and the app's queue
+/// is left alone: a manual change has already moved it.
+#[test]
+fn manual_crossfade_overlaps_the_track_the_user_skipped_to() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = dir.path().join("outgoing.wav");
+    let second = dir.path().join("incoming.wav");
+    wav(&first, 30.0, |t| tone(440.0, t));
+    wav(&second, 30.0, |t| tone(880.0, t));
+    let mut p = Player::new(dir.path().to_str().unwrap()).unwrap();
+    let mut events = p.take_events().unwrap();
+    let incoming = p.idle_mpv().unwrap();
+    for m in [p.mpv(), incoming.as_ref()] {
+        m.set_property("ao", "null").unwrap();
+        m.set_property("ao-null-untimed", false).unwrap();
+        m.set_property("pause", true).unwrap();
+    }
+    p.set_volume(100).unwrap();
+    p.set_crossfade(Some(1.5));
+    p.set_manual_crossfade(true);
+    p.load(first.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    p.play().unwrap();
+    wait_for("first track playing", 5.0, || {
+        p.mpv().get_property::<f64>("time-pos").unwrap_or(0.0) > 0.2
+    });
+
+    // The skip itself. Nothing changes hands until mpv has the new file open, so the outgoing
+    // track keeps playing through the resolve.
+    p.load(second.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    wait_for("manual crossfade start", 5.0, || p.decks.fading.load(Ordering::Acquire));
+    assert_eq!(p.decks.active.load(Ordering::Acquire), 1, "the new deck takes over");
+    let (out, in_use) = (p.decks.mpv(0).unwrap(), p.decks.mpv(1).unwrap());
+    let started = Instant::now();
+    let mut overlap = 0;
+    while p.decks.fading.load(Ordering::Acquire) {
+        assert!(started.elapsed().as_secs_f64() < 2.0, "fade did not finish");
+        let a = out.get_property::<f64>("volume").unwrap();
+        let b = in_use.get_property::<f64>("volume").unwrap();
+        if a > 10.0 && b > 10.0 {
+            assert!(!out.get_property::<bool>("pause").unwrap(), "outgoing track stopped");
+            assert!(!in_use.get_property::<bool>("pause").unwrap(), "incoming track paused");
+            overlap += 1;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(overlap >= 5, "the two tracks never actually overlapped");
+    assert!(started.elapsed().as_secs_f64() > 1.0, "fade ended too early");
+    wait_for("outgoing deck unloaded", 2.0, || out.get_property::<String>("path").is_err());
+    assert!((in_use.get_property::<f64>("volume").unwrap() - 100.0).abs() < 0.01);
+    assert!(
+        in_use.get_property::<f64>("time-pos").unwrap() > 0.5,
+        "the track the user picked never played"
+    );
+    let mut advances = 0;
+    while let Ok(event) = events.try_recv() {
+        if matches!(event, PlayerEvent::TrackEnded) {
+            advances += 1;
+        }
+    }
+    assert_eq!(advances, 0, "a manual change must not advance the app's queue");
+    p.stop().unwrap();
+}
+
+/// Setting off: the old track is gone the moment the new one starts, with nothing to overlap.
+#[test]
+fn manual_crossfade_off_still_cuts_straight_over() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = dir.path().join("outgoing.wav");
+    let second = dir.path().join("incoming.wav");
+    wav(&first, 30.0, |t| tone(440.0, t));
+    wav(&second, 30.0, |t| tone(880.0, t));
+    let p = Player::new(dir.path().to_str().unwrap()).unwrap();
+    let other = p.idle_mpv().unwrap();
+    for m in [p.mpv(), other.as_ref()] {
+        m.set_property("ao", "null").unwrap();
+        m.set_property("pause", true).unwrap();
+    }
+    p.set_crossfade(Some(1.5));
+    p.set_manual_crossfade(false);
+    p.load(first.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    p.play().unwrap();
+    wait_for("first track playing", 5.0, || {
+        p.mpv().get_property::<f64>("time-pos").unwrap_or(0.0) > 0.2
+    });
+    p.load(second.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    // The new track is on the deck that is playing, and no second deck joined in.
+    wait_for("second track loaded", 5.0, || {
+        p.mpv().get_property::<String>("path").unwrap_or_default().ends_with("incoming.wav")
+    });
+    assert_eq!(p.decks.active.load(Ordering::Acquire), 0);
+    assert!(!p.decks.fading.load(Ordering::Acquire), "no overlap without the setting");
+    assert!(!p.decks.preloaded.load(Ordering::Acquire), "nothing was primed either");
+    p.stop().unwrap();
+}
+
+/// A second skip landing mid-fade ends that fade and starts another from the track being heard,
+/// instead of cutting.
+#[test]
+fn manual_crossfade_survives_a_second_skip() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.wav");
+    let b = dir.path().join("b.wav");
+    let c = dir.path().join("c.wav");
+    for (path, hz) in [(&a, 220.0), (&b, 440.0), (&c, 880.0)] {
+        wav(path, 30.0, |t| tone(hz, t));
+    }
+    let mut p = Player::new(dir.path().to_str().unwrap()).unwrap();
+    let mut events = p.take_events().unwrap();
+    let other = p.idle_mpv().unwrap();
+    for m in [p.mpv(), other.as_ref()] {
+        m.set_property("ao", "null").unwrap();
+        m.set_property("ao-null-untimed", false).unwrap();
+        m.set_property("pause", true).unwrap();
+    }
+    p.set_volume(100).unwrap();
+    p.set_crossfade(Some(3.0));
+    p.set_manual_crossfade(true);
+    p.load(a.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    p.play().unwrap();
+    wait_for("a playing", 5.0, || p.mpv().get_property::<f64>("time-pos").unwrap_or(0.0) > 0.2);
+
+    p.load(b.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    wait_for("first fade", 5.0, || p.is_crossfading());
+    // Skip again while the first fade is still running. That fade must end, and a *new* one must
+    // start from whatever is being heard by then.
+    p.load(c.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    wait_for("first fade settled", 3.0, || !p.is_crossfading());
+    wait_for("second fade", 6.0, || p.is_crossfading());
+    let mut samples = 0;
+    while p.is_crossfading() {
+        let out = p.decks.mpv(0).unwrap();
+        let inc = p.decks.mpv(1).unwrap();
+        let (a, b) = (
+            out.get_property::<f64>("volume").unwrap_or(0.0),
+            inc.get_property::<f64>("volume").unwrap_or(0.0),
+        );
+        if a > 10.0 && b > 10.0 {
+            assert!(!out.get_property::<bool>("pause").unwrap(), "outgoing deck paused");
+            assert!(!inc.get_property::<bool>("pause").unwrap(), "incoming deck paused");
+            samples += 1;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(samples >= 5, "the second skip cut instead of fading: {samples} overlap samples");
+    let playing = p.mpv().get_property::<String>("path").unwrap_or_default();
+    assert!(playing.ends_with("c.wav"), "expected the third track, got {playing}");
+    while let Ok(event) = events.try_recv() {
+        assert!(!matches!(event, PlayerEvent::TrackEnded), "a manual skip advanced the queue");
+    }
+    p.stop().unwrap();
+}
+
+/// Two skips before the first one's file is open fade in the *last* track picked: the abandoned
+/// load's `FileLoaded` must not start the overlap.
+#[test]
+fn manual_crossfade_survives_a_double_skip_before_the_fade_starts() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.wav");
+    let b = dir.path().join("b.wav");
+    let c = dir.path().join("c.wav");
+    for (path, hz) in [(&a, 220.0), (&b, 440.0), (&c, 880.0)] {
+        wav(path, 30.0, |t| tone(hz, t));
+    }
+    let p = Player::new(dir.path().to_str().unwrap()).unwrap();
+    let other = p.idle_mpv().unwrap();
+    for m in [p.mpv(), other.as_ref()] {
+        m.set_property("ao", "null").unwrap();
+        m.set_property("pause", true).unwrap();
+    }
+    p.set_volume(100).unwrap();
+    p.set_crossfade(Some(3.0));
+    p.set_manual_crossfade(true);
+    p.load(a.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    p.play().unwrap();
+    wait_for("a playing", 5.0, || p.mpv().get_property::<f64>("time-pos").unwrap_or(0.0) > 0.2);
+
+    // Two skips back to back, before the first one's file is open. The overlap that follows has
+    // to be the one for the *last* skip: a `FileLoaded` from the abandoned load must not start it.
+    p.load(b.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    p.load(c.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    wait_for("fade starts", 6.0, || p.is_crossfading());
+    let incoming = p.decks.mpv(1).unwrap().get_property::<String>("path").unwrap_or_default();
+    assert!(incoming.ends_with("c.wav"), "faded in the wrong track: {incoming}");
+    wait_for("fade done", 8.0, || !p.is_crossfading());
+    let playing = p.mpv().get_property::<String>("path").unwrap_or_default();
+    assert!(playing.ends_with("c.wav"), "expected the last track, got {playing}");
+    p.stop().unwrap();
+}
+
+/// `loop-file` is per mpv instance, so repeat-one has to reach the deck the fade moves to, in both
+/// directions.
+#[test]
+fn manual_crossfade_carries_repeat_one_over_to_the_new_deck() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.wav");
+    let b = dir.path().join("b.wav");
+    let c = dir.path().join("c.wav");
+    for (path, hz) in [(&a, 220.0), (&b, 440.0), (&c, 880.0)] {
+        wav(path, 30.0, |t| tone(hz, t));
+    }
+    let p = Player::new(dir.path().to_str().unwrap()).unwrap();
+    let other = p.idle_mpv().unwrap();
+    for m in [p.mpv(), other.as_ref()] {
+        m.set_property("ao", "null").unwrap();
+        m.set_property("ao-null-untimed", false).unwrap();
+        m.set_property("pause", true).unwrap();
+    }
+    p.set_volume(100).unwrap();
+    p.set_crossfade(Some(1.0));
+    p.set_manual_crossfade(true);
+    p.set_loop_file(true).unwrap();
+    p.load(a.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    p.play().unwrap();
+    wait_for("a playing", 5.0, || p.mpv().get_property::<f64>("time-pos").unwrap_or(0.0) > 0.2);
+
+    // `loop-file` lives on the deck, so the track the user skipped to has to be told about
+    // repeat-one as well: otherwise it plays straight through a mode the app still reports as on.
+    p.load(b.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    wait_for("first fade", 5.0, || p.is_crossfading());
+    wait_for("first fade done", 6.0, || !p.is_crossfading());
+    let second = p.mpv().get_property::<String>("loop-file").unwrap_or_default();
+    assert_eq!(second, "inf", "repeat-one was lost on the deck that took over");
+
+    // And off again: the deck holding an old `inf` from the track it faded out must not keep it.
+    p.set_loop_file(false).unwrap();
+    p.load(c.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    wait_for("second fade", 5.0, || p.is_crossfading());
+    wait_for("second fade done", 6.0, || !p.is_crossfading());
+    let third = p.mpv().get_property::<String>("loop-file").unwrap_or_default();
+    assert_eq!(third, "no", "the new deck kept looping with repeat-one off");
+    p.stop().unwrap();
+}
+
+/// A repeat change made while the picked track is still opening is honoured by the swap, not lost
+/// on the deck that fades out.
+#[test]
+fn manual_crossfade_honours_a_repeat_change_made_while_the_track_opens() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.wav");
+    let b = dir.path().join("b.wav");
+    for (path, hz) in [(&a, 220.0), (&b, 880.0)] {
+        wav(path, 30.0, |t| tone(hz, t));
+    }
+    let p = Player::new(dir.path().to_str().unwrap()).unwrap();
+    let other = p.idle_mpv().unwrap();
+    for m in [p.mpv(), other.as_ref()] {
+        m.set_property("ao", "null").unwrap();
+        m.set_property("ao-null-untimed", false).unwrap();
+        m.set_property("pause", true).unwrap();
+    }
+    p.set_volume(100).unwrap();
+    p.set_crossfade(Some(1.0));
+    p.set_manual_crossfade(true);
+    p.set_loop_file(true).unwrap();
+    p.load(a.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    p.play().unwrap();
+    wait_for("a playing", 5.0, || p.mpv().get_property::<f64>("time-pos").unwrap_or(0.0) > 0.2);
+
+    // Repeat-one goes off while the picked track is still opening: the deck it lands on was set up
+    // under the old value, so the swap has to write it again before that deck is heard.
+    p.load(b.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    p.set_loop_file(false).unwrap();
+    wait_for("fade starts", 6.0, || p.is_crossfading());
+    wait_for("fade done", 6.0, || !p.is_crossfading());
+    let playing = p.mpv().get_property::<String>("path").unwrap_or_default();
+    assert!(playing.ends_with("b.wav"), "expected the picked track, got {playing}");
+    let looped = p.mpv().get_property::<String>("loop-file").unwrap_or_default();
+    assert_eq!(looped, "no", "the deck kept the repeat-one it was loaded with");
+    p.stop().unwrap();
+}
+
+/// A queue edit drops the primed lookahead; it must not drop a change the user already made while
+/// that change is still opening.
+#[test]
+fn manual_crossfade_survives_a_queue_edit_while_the_track_is_opening() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.wav");
+    let b = dir.path().join("b.wav");
+    for (path, hz) in [(&a, 220.0), (&b, 880.0)] {
+        wav(path, 30.0, |t| tone(hz, t));
+    }
+    let p = Player::new(dir.path().to_str().unwrap()).unwrap();
+    let other = p.idle_mpv().unwrap();
+    for m in [p.mpv(), other.as_ref()] {
+        m.set_property("ao", "null").unwrap();
+        m.set_property("ao-null-untimed", false).unwrap();
+        m.set_property("pause", true).unwrap();
+    }
+    p.set_volume(100).unwrap();
+    p.set_crossfade(Some(1.0));
+    p.set_manual_crossfade(true);
+    p.load(a.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    p.play().unwrap();
+    wait_for("a playing", 5.0, || p.mpv().get_property::<f64>("time-pos").unwrap_or(0.0) > 0.2);
+
+    // A queue edit drops the primed lookahead while the change the user already made is still
+    // opening. That one is not a lookahead: dropping it would leave the app playing a track the
+    // user never picked.
+    p.load(b.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    p.clear_playlist().unwrap();
+    wait_for("fade starts", 6.0, || p.is_crossfading());
+    wait_for("fade done", 6.0, || !p.is_crossfading());
+    let playing = p.mpv().get_property::<String>("path").unwrap_or_default();
+    assert!(playing.ends_with("b.wav"), "the queue edit dropped the picked track: {playing}");
+    p.stop().unwrap();
+}

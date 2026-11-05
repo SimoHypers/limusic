@@ -3746,9 +3746,14 @@ impl AppState {
     /// Every writer of the player's crossfade routes through here (startup is the exception: no
     /// room can exist yet), or turning the setting on from Settings mid-room would put the fade
     /// straight back. Per `Player::set_crossfade`, this takes effect from the next transition.
+    ///
+    /// The manual half — a skip overlapping instead of cutting — goes with it: an overlap the
+    /// *user* asked for is just as unsyncable as one at the end of a song.
     pub async fn apply_crossfade(&self) {
-        let secs = if self.lt.in_room().await { None } else { saved_crossfade(&self.db) };
+        let in_room = self.lt.in_room().await;
+        let secs = if in_room { None } else { saved_crossfade(&self.db) };
         self.player.set_crossfade(secs);
+        self.player.set_manual_crossfade(!in_room && saved_manual_crossfade(&self.db));
     }
 
     /// Host: seed a freshly-created room with whatever we're currently playing.
@@ -4868,6 +4873,13 @@ pub fn saved_crossfade(db: &Db) -> Option<f64> {
     }
     let secs = db.get_setting("crossfade_secs").and_then(|s| s.parse::<f64>().ok());
     Some(secs.filter(|s| s.is_finite()).unwrap_or(5.0).clamp(1.0, 10.0))
+}
+
+/// Whether a track the user *chose* fades in over the one it replaces, rather than only a track
+/// that runs out. On unless turned off. Meaningless with crossfading off, which
+/// `Player::manual_fade_len` checks on its own.
+pub fn saved_manual_crossfade(db: &Db) -> bool {
+    db.get_setting("crossfade_manual").as_deref() != Some("false")
 }
 
 /// How far into a track a play counts (context/01 §registerPlayback): halfway, capped at 30s.

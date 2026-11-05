@@ -593,6 +593,8 @@
 			"crossfade_lt_paused": "Paused while you are in a Listen Together room: an overlap of two tracks cannot be kept in sync with everyone else.",
 			"crossfade_duration": "Crossfade duration",
 			"crossfade_duration_hint": "How long the overlap lasts. Short tracks fade for less, so a fade never starts before the one before it has finished.",
+			"crossfade_manual": "Crossfade when changing track",
+			"crossfade_manual_hint": "Fade across track changes you make yourself: skip, previous, or choosing another song. When off, only tracks that play to their end fade.",
 			"crossfade_seconds": "{secs}s",
 			"prevent_duplicates": "Prevent duplicate songs in queue",
 			"prevent_duplicates_hint": "Avoid adding songs that are already in the current queue.",

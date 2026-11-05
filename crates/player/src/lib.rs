@@ -183,6 +183,19 @@ struct Decks {
     active: AtomicUsize,
     /// Crossfade length in milliseconds; 0 is off.
     crossfade_ms: AtomicU64,
+    /// The user's `manual crossfade` choice: a skip or a picked song overlaps too, not only a
+    /// track that plays to its end.
+    manual_crossfade: AtomicBool,
+    /// A manual change's fade length in ms while its track opens on the idle deck, 0 when nothing
+    /// is armed. Written before the `loadfile`, whose `FileLoaded` can beat the call back.
+    manual_fade_ms: AtomicU64,
+    /// Where a manual change's track starts, for the Linux output switch in [`start_crossfade`].
+    manual_fade_rewind: AtomicU64,
+    /// A pause landed while that track was still opening: switch decks, don't fade into silence.
+    manual_fade_paused: AtomicBool,
+    /// The URL that arm is for. A `loadfile` replaced by a newer skip still reports
+    /// `FileLoaded`, and its file is not the one to fade in.
+    manual_fade_url: Mutex<Option<String>>,
     /// The volume slider's percent, so a fade can scale the user's own level instead of
     /// overwriting it.
     volume: AtomicI64,
@@ -403,6 +416,11 @@ impl Player {
             b: OnceLock::new(),
             active: AtomicUsize::new(0),
             crossfade_ms: AtomicU64::new(0),
+            manual_crossfade: AtomicBool::new(false),
+            manual_fade_ms: AtomicU64::new(0),
+            manual_fade_rewind: AtomicU64::new(0f64.to_bits()),
+            manual_fade_paused: AtomicBool::new(false),
+            manual_fade_url: Mutex::new(None),
             volume: AtomicI64::new(100),
             preloaded: AtomicBool::new(false),
             preload_gen: AtomicU64::new(0),
@@ -465,6 +483,11 @@ impl Player {
     /// ignores the error (as `state::start_current` did) silently plays from 0 instead of the
     /// requested position, so every resume and every failed-track retry restarted at the top
     /// (issue #188). `start=` is applied as part of the load, so there is no window to lose it.
+    ///
+    /// A change the *user* asked for can overlap instead of cutting, when the manual-crossfade
+    /// setting is on: [`Self::manual_fade_len`] decides, since every such change comes through
+    /// here. A skip that lands mid-fade ends that fade first, so it still restarts one from
+    /// whatever is playing.
     pub fn load(
         &self,
         url: &str,
@@ -472,6 +495,17 @@ impl Player {
         gain_db: Option<f64>,
         start: Option<f64>,
     ) -> Result<(), Error> {
+        if self.wants_manual_fade() {
+            self.settle_fade();
+        }
+        if let Some(fade) = self.manual_fade_len() {
+            match self.load_overlapping(url, headers, gain_db, start, fade) {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    tracing::warn!(error = %e, "manual crossfade failed, switching tracks directly")
+                }
+            }
+        }
         // Whatever was queued up on the other deck is not what the user asked for. Cut a fade
         // in progress too: a skip during the last seconds of a track should not leave the old one
         // still fading under the new one.
@@ -502,6 +536,107 @@ impl Player {
         Ok(())
     }
 
+    /// Whether this change should overlap at all: the settings allow it, and there is a track
+    /// playing to fade out of.
+    fn wants_manual_fade(&self) -> bool {
+        self.decks.manual_crossfade.load(Ordering::Relaxed)
+            && self.decks.crossfade_ms.load(Ordering::Relaxed) > 0
+            && !self.is_idle()
+            && !self.mpv().get_property::<bool>("pause").unwrap_or(true)
+    }
+
+    /// Finish an overlap that is still running, so the deck fading out is free to load the track
+    /// the user just picked. The ramp thread owns that teardown, hence the wait: `fading` only
+    /// clears after it has stopped the deck.
+    fn settle_fade(&self) {
+        if !self.decks.fading.load(Ordering::Acquire) {
+            return;
+        }
+        self.cancel_fade();
+        for _ in 0..40 {
+            if !self.decks.fading.load(Ordering::Acquire) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        tracing::warn!("a fade did not settle in time, switching tracks directly");
+    }
+
+    /// How long a manual change should overlap, or `None` for the hard cut.
+    ///
+    /// The length is clamped to what is left of the outgoing track, as [`fade_due`] does for an
+    /// automatic fade, and under [`MIN_MANUAL_FADE`] there is nothing to hear.
+    fn manual_fade_len(&self) -> Option<f64> {
+        if !self.decks.manual_crossfade.load(Ordering::Relaxed)
+            || self.decks.crossfade_ms.load(Ordering::Relaxed) == 0
+            || self.decks.fading.load(Ordering::Acquire)
+            || self.is_idle()
+            || self.mpv().get_property::<bool>("pause").unwrap_or(true)
+        {
+            return None;
+        }
+        let speed = self.decks.speed();
+        let left = match (
+            self.mpv().get_property::<f64>("duration"),
+            self.mpv().get_property::<f64>("time-pos"),
+        ) {
+            (Ok(duration), Ok(pos)) if duration.is_finite() && pos.is_finite() => {
+                (duration - pos) / speed
+            }
+            _ => f64::INFINITY,
+        };
+        let fade = self.decks.crossfade_secs().min(left);
+        (fade >= MIN_MANUAL_FADE).then_some(fade)
+    }
+
+    /// Start the new track on the idle deck, silent and paused, and arm the overlap for when that
+    /// deck reports the file, so the outgoing track plays on through the resolve.
+    ///
+    /// [`preload`] plus what a track the app is moving to needs and a lookahead doesn't: its own
+    /// headers and loudness gain, and its `start=` position.
+    fn load_overlapping(
+        &self,
+        url: &str,
+        headers: &HashMap<String, String>,
+        gain_db: Option<f64>,
+        start: Option<f64>,
+        fade: f64,
+    ) -> Result<(), Error> {
+        self.drop_preload(true);
+        let deck = self.decks.idle_deck();
+        let mpv = self.idle_mpv()?;
+        let src = self.decks.active_mpv();
+        for key in INHERITED {
+            if let Ok(v) = src.get_property::<String>(key) {
+                let _ = mpv.set_property(key, v.as_str());
+            }
+        }
+        set_headers(&mpv, headers)?;
+        set_deck_gain(&self.decks, deck, gain_db)?;
+        // Repeat-one is a deck property, and the deck taking over has to carry it too.
+        set_deck_loop_file(&mpv, self.decks.loop_file.load(Ordering::Relaxed))?;
+        mpv.set_property("pause", true)?;
+        mpv.set_property("volume", 0.0)?;
+        // Off the audio device until the fade starts it, as for a lookahead.
+        #[cfg(target_os = "linux")]
+        mpv.set_property("ao", "null")?;
+        // `deck_swapped` looks the picture up by what the deck has loaded, and the swap follows
+        // this file's `FileLoaded` too closely for that read to land first.
+        self.decks.videos.lock().unwrap().set_loaded(deck, url);
+        let args = loadfile_args(url, start, loadfile_has_index(&mpv));
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        // Armed before the command: the fade starts from the event it can raise inside it.
+        *self.decks.manual_fade_url.lock().unwrap() = Some(url.to_owned());
+        self.decks.manual_fade_rewind.store(start.unwrap_or(0.0).to_bits(), Ordering::Relaxed);
+        self.decks.manual_fade_paused.store(false, Ordering::Release);
+        self.decks
+            .preload_armed
+            .store(self.decks.preload_gen.load(Ordering::SeqCst), Ordering::SeqCst);
+        self.decks.manual_fade_ms.store((fade * 1000.0) as u64, Ordering::Release);
+        mpv.command("loadfile", &refs)?;
+        Ok(())
+    }
+
     /// Append the next track for a gapless transition (the 1-track lookahead). context/14.
     ///
     /// Note: mpv's `http-header-fields`/`user-agent` are global properties, so appended tracks
@@ -517,13 +652,19 @@ impl Player {
         //
         // Under the lock, because the end of a fade clears `fading` and takes `pending` under the
         // same one. Either this hands the URL over and the ramp thread picks it up, or the fade
-        // has already finished and it is preloaded here; never neither.
-        {
-            let mut pending = self.decks.pending.lock().unwrap();
-            if self.decks.fading.load(Ordering::Acquire) {
-                *pending = Some(url.to_owned());
-                return Ok(());
-            }
+        // has already finished and it is preloaded here; never neither. `start_crossfade` raises
+        // `fading` and drops the arm under it too, so the handoff from an armed change to a running
+        // fade has no moment where neither flag holds a lookahead back.
+        let mut pending = self.decks.pending.lock().unwrap();
+        if self.decks.fading.load(Ordering::Acquire) {
+            *pending = Some(url.to_owned());
+            return Ok(());
+        }
+        // A manual change's own track is opening on the idle deck. Loading over it would play
+        // the song after the one the user asked for; the ramp thread takes this instead.
+        if self.decks.manual_fade_ms.load(Ordering::Acquire) > 0 {
+            *pending = Some(url.to_owned());
+            return Ok(());
         }
         let idle = self.idle_mpv()?;
         preload(&self.decks, &idle, url)
@@ -545,19 +686,36 @@ impl Player {
         }
     }
 
+    /// Whether a manual track change overlaps. Suspended with crossfade in a Listen Together room.
+    pub fn set_manual_crossfade(&self, on: bool) {
+        self.decks.manual_crossfade.store(on, Ordering::Relaxed);
+    }
+
     /// Forget the track waiting on the idle deck. A no-op without crossfading, where the lookahead
     /// lives in mpv's own playlist and `playlist-clear` is what drops it.
     ///
     /// `cut_fade` also stops a fade-out in progress. Off for a queue edit (the transition the user
-    /// is hearing is not what changed), on for an explicit load.
+    /// is hearing is not what changed), on for an explicit load. Off leaves a manual change that is
+    /// still opening alone too: the app has already moved its queue to that track.
     fn drop_preload(&self, cut_fade: bool) {
         *self.decks.pending.lock().unwrap() = None;
+        // Dropping the arm here would leave the track the user picked silent on the idle deck while
+        // the app plays something else, and the generation has to survive as well or the
+        // `FileLoaded` the arm waits on is no longer recognised as an armed load.
+        if !cut_fade && self.decks.manual_fade_ms.load(Ordering::Acquire) > 0 {
+            return;
+        }
         // Before anything else: a `loadfile` still in flight must not publish itself after this.
         self.decks.preload_gen.fetch_add(1, Ordering::SeqCst);
+        // A manual change's track waiting here goes with it: whoever dropped this is moving on.
+        let armed = self.decks.manual_fade_ms.swap(0, Ordering::AcqRel) > 0;
+        *self.decks.manual_fade_url.lock().unwrap() = None;
+        self.decks.manual_fade_paused.store(false, Ordering::Release);
         if cut_fade {
             self.cancel_fade();
         }
-        if self.decks.preloaded.swap(false, Ordering::AcqRel) {
+        // `armed` covers the window before `preloaded` is set, when a file is already on its way.
+        if self.decks.preloaded.swap(false, Ordering::AcqRel) || armed {
             if let Some(m) = self.decks.mpv(self.decks.idle_deck()) {
                 let _ = m.command("stop", &[]);
             }
@@ -608,8 +766,14 @@ impl Player {
         self.mpv().get_property::<bool>("idle-active").unwrap_or(true)
     }
 
+    /// Whether two decks are overlapping right now, automatic or manual.
+    pub fn is_crossfading(&self) -> bool {
+        self.decks.fading.load(Ordering::Acquire)
+    }
+
     pub fn play(&self) -> Result<(), Error> {
         self.mpv().set_property("pause", false)?;
+        self.note_manual_fade_pause();
         Ok(())
     }
 
@@ -620,6 +784,7 @@ impl Player {
     pub fn pause(&self) -> Result<(), Error> {
         self.cancel_fade();
         self.mpv().set_property("pause", true)?;
+        self.note_manual_fade_pause();
         Ok(())
     }
 
@@ -628,15 +793,28 @@ impl Player {
     pub fn toggle(&self) -> Result<(), Error> {
         self.cancel_fade();
         self.mpv().command("cycle", &["pause"])?;
+        self.note_manual_fade_pause();
         Ok(())
+    }
+
+    /// A pause landed while a manual change's track was still opening: switch decks hard and leave
+    /// the new track paused, rather than fading two tracks into silence.
+    fn note_manual_fade_pause(&self) {
+        if self.decks.manual_fade_ms.load(Ordering::Acquire) > 0 {
+            let paused = self.mpv().get_property::<bool>("pause").unwrap_or(false);
+            self.decks.manual_fade_paused.store(paused, Ordering::Release);
+        }
     }
 
     /// Loop the current file seamlessly (repeat-one). mpv restarts the file at EOF *without*
     /// emitting end-file, so the queue logic upstream never advances while this is on — by design.
     pub fn set_loop_file(&self, on: bool) -> Result<(), Error> {
+        // Under the swap lock, which `start_crossfade` flips the active deck and writes this same
+        // property under: without it a toggle landing mid-swap was applied to the deck being faded
+        // out and lost.
+        let _swap = self.decks.pending.lock().unwrap();
         self.decks.loop_file.store(on, Ordering::Relaxed);
-        self.mpv().set_property("loop-file", if on { "inf" } else { "no" })?;
-        Ok(())
+        set_deck_loop_file(self.mpv(), on)
     }
 
     /// Absolute seek in seconds.
@@ -705,18 +883,7 @@ impl Player {
     }
 
     fn apply_headers(&self, headers: &HashMap<String, String>) -> Result<(), Error> {
-        // User-Agent has its own mpv property; everything else joins http-header-fields.
-        if let Some(ua) = headers.get("User-Agent").or_else(|| headers.get("user-agent")) {
-            self.mpv().set_property("user-agent", ua.as_str())?;
-        }
-        let fields: String = headers
-            .iter()
-            .filter(|(k, _)| !k.eq_ignore_ascii_case("user-agent"))
-            .map(|(k, v)| format!("{k}: {v}"))
-            .collect::<Vec<_>>()
-            .join(",");
-        self.mpv().set_property("http-header-fields", fields.as_str())?;
-        Ok(())
+        set_headers(self.mpv(), headers)
     }
 
     /// Apply a per-track loudness gain (dB) as an mpv `volume` audio filter. context/14. Kept
@@ -730,15 +897,7 @@ impl Player {
     // round-trip (a few ms) and the filter chain reinits mid-stream. If that ever clicks audibly,
     // keep one labelled filter (`af=@gain:lavfi=[volume=0dB]`) and retune it with `af-command`.
     pub fn set_gain(&self, gain_db: Option<f64>) -> Result<(), Error> {
-        let mut af = self.decks.af.lock().unwrap();
-        let deck = self.decks.active.load(Ordering::SeqCst);
-        let previous = af.gain[deck];
-        af.gain[deck] = gain_db;
-        if let Err(e) = apply_filters(&self.decks, deck, &af) {
-            af.gain[deck] = previous;
-            return Err(e);
-        }
-        Ok(())
+        set_deck_gain(&self.decks, self.decks.active.load(Ordering::SeqCst), gain_db)
     }
 
     /// Tempo, 0.5–2.0. Rubber Band time-stretches without shifting pitch whenever speed != 1.
@@ -1118,19 +1277,24 @@ fn event_loop(mut ev: EventContext, deck: usize, decks: Arc<Decks>) {
                         change: PropertyData::Double(p),
                         ..
                     } => {
+                        // The outgoing deck while a manual change's track opens. Its position
+                        // belongs to a track the app has already left, and would land in the new
+                        // one's progress, resume position and play-count threshold.
+                        let leaving = live() && decks.manual_fade_ms.load(Ordering::Acquire) > 0;
                         // Not while paused: mpv reports `time-pos` on a seek too, and a seek
                         // into the last seconds of a paused track must not start the next one.
-                        if live() && !paused && !idle {
+                        if live() && !paused && !idle && !leaving {
                             maybe_crossfade(&decks, deck, p, duration);
                         }
                         if live()
+                            && !leaving
                             && decks.loop_file.load(Ordering::Relaxed)
                             && loop_wrapped(last_pos, p, duration)
                         {
                             let _ = tx.send(PlayerEvent::Looped);
                         }
                         last_pos = p;
-                        Some(PlayerEvent::Position(p))
+                        (!leaving).then_some(PlayerEvent::Position(p))
                     }
                     Event::PropertyChange {
                         name: "duration",
@@ -1181,16 +1345,33 @@ fn event_loop(mut ev: EventContext, deck: usize, decks: Arc<Decks>) {
                         // track's last seconds under repeat-one is not a wrap. Looping is a seek
                         // inside mpv and never loads the file again.
                         last_pos = f64::NAN;
-                        video::file_loaded(&decks, deck);
-                        if !live()
+                        let preload_due = !live()
                             && decks.preload_armed.load(Ordering::SeqCst)
-                                == decks.preload_gen.load(Ordering::SeqCst)
-                        {
-                            decks.preloaded.store(true, Ordering::Release);
+                                == decks.preload_gen.load(Ordering::SeqCst);
+                        // A manual change is armed: the file the user asked for is open, so the
+                        // overlap starts now. `preloaded` stays unset so `maybe_crossfade`, on
+                        // another thread, cannot start a second fade of the same pair, and
+                        // `video::file_loaded` is skipped because `load_overlapping` already
+                        // recorded this deck's file and the swap adds its picture.
+                        let armed = if preload_due {
+                            decks.manual_fade_ms.load(Ordering::Acquire)
+                        } else {
+                            0
+                        };
+                        if armed > 0 {
+                            start_manual_fade(&decks, deck, armed);
+                        } else {
+                            video::file_loaded(&decks, deck);
+                            if preload_due {
+                                decks.preloaded.store(true, Ordering::Release);
+                            }
                         }
                         None
                     }
                     Event::EndFile(reason) => match reason as i32 {
+                        // A manual change is under way and the app already moved on: advancing
+                        // here would skip the track the user picked.
+                        EOF if live() && decks.manual_fade_ms.load(Ordering::Acquire) > 0 => None,
                         EOF => Some(PlayerEvent::TrackEnded),
                         // STOP/QUIT/REDIRECT are deliberate (loadfile replace, shutdown) — ignore.
                         // ERROR never reaches this arm: libmpv2 surfaces end-file-with-error as
@@ -1233,6 +1414,14 @@ fn event_loop(mut ev: EventContext, deck: usize, decks: Arc<Decks>) {
                         tracing::warn!(deck, error = %friendly_error(&e), "outgoing track died mid-fade");
                         continue;
                     }
+                    // A manual change's track died before it was heard. Not a lookahead failure:
+                    // the app has already moved to it, so report it as the failed track it is.
+                    if decks.manual_fade_ms.swap(0, Ordering::AcqRel) > 0 {
+                        tracing::warn!(deck, error = %friendly_error(&e), "manual crossfade track failed");
+                        decks.preloaded.store(false, Ordering::Release);
+                        let _ = tx.send(PlayerEvent::TrackFailed(friendly_error(&e)));
+                        continue;
+                    }
                     // The preload died before anyone heard it. Reporting it would skip the track
                     // that is actually playing; dropping the preload instead means this track
                     // reaches its own end normally and the app loads the next one explicitly
@@ -1261,10 +1450,49 @@ fn event_loop(mut ev: EventContext, deck: usize, decks: Arc<Decks>) {
 /// How often a crossfade retouches both decks' volumes.
 const FADE_STEP: Duration = Duration::from_millis(50);
 
+/// Shorter than this and a manual change is a cut: there is nothing to ramp.
+const MIN_MANUAL_FADE: f64 = 0.2;
+
 /// Properties a fresh deck has to inherit from the one playing. mpv keeps these per instance, so
 /// a preload that skipped them would stream past the user's proxy, without their headers, at 1x,
 /// with no loudness gain and no pitch shift.
 const INHERITED: [&str; 5] = ["user-agent", "http-header-fields", "http-proxy", "speed", "af"];
+
+/// The per-track headers, on `mpv`. A manual change sets them on the deck it is fading into.
+fn set_headers(mpv: &Mpv, headers: &HashMap<String, String>) -> Result<(), Error> {
+    // User-Agent has its own mpv property; everything else joins http-header-fields.
+    if let Some(ua) = headers.get("User-Agent").or_else(|| headers.get("user-agent")) {
+        mpv.set_property("user-agent", ua.as_str())?;
+    }
+    let fields: String = headers
+        .iter()
+        .filter(|(k, _)| !k.eq_ignore_ascii_case("user-agent"))
+        .map(|(k, v)| format!("{k}: {v}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    mpv.set_property("http-header-fields", fields.as_str())?;
+    Ok(())
+}
+
+/// [`Player::set_gain`] for a named deck, so a fade can set the incoming track's gain while the
+/// outgoing one keeps its own.
+fn set_deck_gain(decks: &Decks, deck: usize, gain_db: Option<f64>) -> Result<(), Error> {
+    let mut af = decks.af.lock().unwrap();
+    let previous = af.gain[deck];
+    af.gain[deck] = gain_db;
+    if let Err(e) = apply_filters(decks, deck, &af) {
+        af.gain[deck] = previous;
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// Repeat-one on a deck. mpv keeps `loop-file` per instance, so a deck that takes over after a
+/// fade has to be told; the one fading out keeps what it had.
+fn set_deck_loop_file(mpv: &Mpv, on: bool) -> Result<(), Error> {
+    mpv.set_property("loop-file", if on { "inf" } else { "no" })?;
+    Ok(())
+}
 
 /// Load `url` on the idle deck, paused and silent, ready for [`start_crossfade`] to bring it up.
 fn preload(decks: &Decks, mpv: &Arc<Mpv>, url: &str) -> Result<(), Error> {
@@ -1278,6 +1506,8 @@ fn preload(decks: &Decks, mpv: &Arc<Mpv>, url: &str) -> Result<(), Error> {
     }
     mpv.set_property("pause", true)?;
     mpv.set_property("volume", 0.0)?;
+    // A deck keeps `loop-file` from whatever it last carried, so repeat-one is set either way.
+    set_deck_loop_file(mpv, decks.loop_file.load(Ordering::Relaxed))?;
     // Off the audio device until its fade starts (`start_crossfade` puts it back). A paused deck
     // with a file loaded still holds an output stream, so Linux mixers listed this one for the
     // whole track as a second app next to the one playing, with a volume slider of its own that
@@ -1317,6 +1547,20 @@ fn loop_wrapped(last: f64, pos: f64, duration: f64) -> bool {
     duration > 2.0 * EDGE && last >= duration - EDGE && pos < EDGE
 }
 
+/// How one overlap came about, beyond the decks themselves.
+#[derive(Clone, Copy)]
+struct Transition {
+    /// Length of the overlap, in listening seconds.
+    fade: f64,
+    /// Send `TrackEnded` when it starts. Only a track that ran out wants that: a manual change has
+    /// already moved the app's queue, so a second one would skip the picked track.
+    advance: bool,
+    /// Linux only: where the incoming track starts, for the switch back from the null output.
+    rewind: f64,
+    /// Whether the incoming deck starts playing. False when the user paused while it was opening.
+    play: bool,
+}
+
 /// Called on every position tick of the active deck. Everything has to line up: crossfading is on,
 /// the next track is already loaded and paused on the other deck, no fade is running, and this
 /// track is not looping (repeat-one never ends, so it must never fade into anything).
@@ -1332,7 +1576,38 @@ fn maybe_crossfade(decks: &Arc<Decks>, deck: usize, pos: f64, duration: f64) {
     let Some(fade) = fade_due(decks.crossfade_secs(), pos / speed, duration / speed) else {
         return;
     };
-    start_crossfade(decks, deck, fade);
+    start_crossfade(decks, deck, Transition { fade, advance: true, rewind: 0.0, play: true });
+}
+
+/// Start the armed overlap, once the deck really holds the file it was armed for. The `path` read
+/// runs off the event thread, as in `video::file_loaded`: a synchronous property read there can
+/// stall the pump mid-transition.
+fn start_manual_fade(decks: &Arc<Decks>, deck: usize, armed: u64) {
+    let Some(mpv) = decks.mpv(deck).cloned() else { return };
+    let wanted = decks.manual_fade_url.lock().unwrap().clone();
+    let decks = decks.clone();
+    let _ = std::thread::Builder::new().name("mpv-manual-fade".into()).spawn(move || {
+        // A `loadfile` the user has since replaced still reports `FileLoaded`. Fading that one in
+        // would play the track they skipped past.
+        if mpv.get_property::<String>("path").ok() != wanted {
+            return;
+        }
+        // Still armed: a newer skip would have re-armed it or dropped it. `start_crossfade` is
+        // what clears it, once `fading` says the swap owns the decks.
+        if decks.manual_fade_ms.load(Ordering::Acquire) != armed {
+            return;
+        }
+        start_crossfade(
+            &decks,
+            decks.active.load(Ordering::SeqCst),
+            Transition {
+                fade: armed as f64 / 1000.0,
+                advance: false,
+                rewind: f64::from_bits(decks.manual_fade_rewind.load(Ordering::Relaxed)),
+                play: !decks.manual_fade_paused.swap(false, Ordering::AcqRel),
+            },
+        );
+    });
 }
 
 /// Begin the overlap: swap which deck the app hears, unpause the preloaded one, and ramp both
@@ -1342,7 +1617,7 @@ fn maybe_crossfade(decks: &Arc<Decks>, deck: usize, pos: f64, duration: f64) {
 /// one being heard: the app advances its queue there, so the UI, the media keys and the scrobbler
 /// change over with the audio rather than seconds late. The outgoing deck's real end-of-file is
 /// dropped by [`event_loop`], which by then is no longer the live deck.
-fn start_crossfade(decks: &Arc<Decks>, from: usize, fade: f64) {
+fn start_crossfade(decks: &Arc<Decks>, from: usize, t: Transition) {
     let (Some(out), Some(incoming)) = (decks.mpv(from), decks.mpv(1 - from)) else { return };
     let (out, incoming) = (out.clone(), incoming.clone());
     let speed = decks.speed();
@@ -1350,24 +1625,43 @@ fn start_crossfade(decks: &Arc<Decks>, from: usize, fade: f64) {
     // Read before `fading` goes up, which is what lets a cancel bump it: taken afterwards, a
     // cancel landing in between would be captured as the current value and never noticed.
     let gen = decks.fade_gen.load(Ordering::SeqCst);
-    decks.fading.store(true, Ordering::Release);
-    decks.active.store(1 - from, Ordering::SeqCst);
+    {
+        // Under the lock `enqueue` reads `fading` and the arm under: the arm has to stay up until
+        // `fading` is, or a lookahead can preload over the track this swap is about to play.
+        // `set_loop_file` writes the same property to the same deck under it, so a toggle landing
+        // here is either seen by the read below or lands on the deck that is left playing.
+        let _swap = decks.pending.lock().unwrap();
+        decks.fading.store(true, Ordering::Release);
+        decks.manual_fade_ms.store(0, Ordering::Release);
+        // Repeat-one can be switched while the track is still opening, so the deck taking over is
+        // told here, just before it is heard, rather than only when it was loaded.
+        if let Err(e) = set_deck_loop_file(&incoming, decks.loop_file.load(Ordering::Relaxed)) {
+            tracing::warn!(error = %e, "incoming deck refused its loop setting");
+        }
+        decks.active.store(1 - from, Ordering::SeqCst);
+    }
     video::deck_swapped(decks);
     // Back on the real device (see `preload`). mpv reopens the output from where the null one had
-    // prefilled to, 0.2 s into the track, so seek back to the start: a preload never has a
-    // `start=`. Measured on mpv 0.41: without the seek the incoming track lost its first 0.2 s.
-    #[cfg(target_os = "linux")]
-    {
+    // prefilled to, 0.2 s into the track, so seek back to where it starts: a preload never has a
+    // `start=`, and a manual change may have one. Measured on mpv 0.41: without the seek the
+    // incoming track lost its first 0.2 s.
+    //
+    // `cfg!`, not `#[cfg]`: the rewind target has no other reader on Windows or macOS.
+    if cfg!(target_os = "linux") {
         // Normally empty (device autodetection). Preserve an explicitly selected output too,
         // including the timed null output used by headless transition tests.
         let ao = out.get_property::<String>("ao").unwrap_or_default();
         if let Err(e) = incoming.set_property("ao", ao.as_str()) {
             tracing::warn!(error = %e, "crossfade deck refused its audio device, it will be silent");
         }
-        let _ = incoming.command("seek", &["0", "absolute"]);
+        let _ = incoming.command("seek", &[&t.rewind.to_string(), "absolute"]);
     }
-    let _ = incoming.set_property("pause", false);
-    let _ = decks.tx.send(PlayerEvent::TrackEnded);
+    if t.play {
+        let _ = incoming.set_property("pause", false);
+    }
+    if t.advance {
+        let _ = decks.tx.send(PlayerEvent::TrackEnded);
+    }
     // mpv reported the incoming track's duration when it was *preloaded*, while this deck was
     // still the inactive one, so that event was dropped and nothing repeats it: a property change
     // is only sent when the property changes. Without this the player bar keeps the outgoing
@@ -1376,12 +1670,21 @@ fn start_crossfade(decks: &Arc<Decks>, from: usize, fade: f64) {
     //
     // It also bounds the fade: an overlap longer than half the *incoming* track would still be
     // climbing past that track's own end.
-    let mut fade = fade;
+    let mut fade = t.fade;
     if let Ok(secs) = incoming.get_property::<f64>("duration") {
         if secs.is_finite() && secs > 0.0 {
             let _ = decks.tx.send(PlayerEvent::Duration(secs));
             fade = fade.min(secs / speed / 2.0);
         }
+    }
+    if !t.play {
+        // Nothing is being heard, so there is nothing to ramp: get the old track off the output
+        // and leave the new one paused at full level, where it was loaded.
+        tracing::info!(from, "switching decks to a paused track");
+        if let Some(url) = finish_fade(decks, &out, &incoming, true) {
+            preload_pending(decks, url);
+        }
+        return;
     }
     tracing::info!(from, fade, "crossfading");
     let (ramp, fade_out, fade_in) = (decks.clone(), out.clone(), incoming.clone());
@@ -1405,15 +1708,7 @@ fn start_crossfade(decks: &Arc<Decks>, from: usize, fade: f64) {
         // A lookahead that arrived mid-fade was held back rather than loaded over the track that
         // was still fading out. Now there is a free deck for it.
         if let Some(url) = finish_fade(&decks, &out, &incoming, cancelled) {
-            // Unless crossfading was switched off while this ran, in which case the next
-            // transition is mpv's own gapless one and a loaded deck would just sit there.
-            if decks.crossfade_ms.load(Ordering::Relaxed) > 0 {
-                if let Some(m) = decks.mpv(decks.idle_deck()).cloned() {
-                    if let Err(e) = preload(&decks, &m, &url) {
-                        tracing::warn!(error = %e, "deferred crossfade preload failed");
-                    }
-                }
-            }
+            preload_pending(&decks, url);
         }
     });
     if let Err(e) = spawned {
@@ -1422,7 +1717,22 @@ fn start_crossfade(decks: &Arc<Decks>, from: usize, fade: f64) {
         // over instead of fading, rather than playing the rest of the song at the silence it was
         // preloaded with.
         tracing::warn!(error = %e, "couldn't spawn the crossfade thread");
-        finish_fade(decks, &out, &incoming, true);
+        if let Some(url) = finish_fade(decks, &out, &incoming, true) {
+            preload_pending(decks, url);
+        }
+    }
+}
+
+/// Load a lookahead held in `pending` onto the deck a finished fade just freed. Skipped when
+/// crossfading was switched off while it ran: the next transition is mpv's own gapless one then.
+fn preload_pending(decks: &Arc<Decks>, url: String) {
+    if decks.crossfade_ms.load(Ordering::Relaxed) == 0 {
+        return;
+    }
+    if let Some(m) = decks.mpv(decks.idle_deck()).cloned() {
+        if let Err(e) = preload(decks, &m, &url) {
+            tracing::warn!(error = %e, "deferred crossfade preload failed");
+        }
     }
 }
 
