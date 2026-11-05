@@ -848,6 +848,7 @@ pub fn run() {
                 hotkeys::LAST_NONZERO_VOLUME.store(volume, std::sync::atomic::Ordering::Relaxed);
             }
             player.set_crossfade(state::saved_crossfade(&db));
+            player.set_manual_crossfade(state::saved_manual_crossfade(&db));
             let events = match player.take_events() {
                 Some(ev) => ev,
                 None => fatal(
