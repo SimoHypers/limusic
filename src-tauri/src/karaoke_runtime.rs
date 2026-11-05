@@ -31,7 +31,11 @@ fn load_unix_runtime(
     dir: &std::path::Path,
 ) -> Result<RuntimeReady, Unavailable> {
     let lib_path = verify_or_discard(pkg, dir)?;
-    karaoke::runtime::init_from(&lib_path, false)
+    // The plugin is a pinned file, so `verify_or_discard` has already checked its hash.
+    let plugin = dir.join(karaoke::runtime_pkg::WEBGPU_PLUGIN);
+    let plugin = (cfg!(all(target_os = "linux", target_arch = "x86_64")) && plugin.is_file())
+        .then_some(plugin);
+    karaoke::runtime::init_from_with_plugin(&lib_path, false, plugin)
         .map_err(|e| Unavailable::LoadFailed(e.to_string()))
 }
 
@@ -86,6 +90,7 @@ pub fn ensure(app: &AppHandle) -> Result<RuntimeReady, Unavailable> {
     tracing::info!(
         target: "app_lib::karaoke",
         directml = rt.directml(),
+        webgpu = rt.webgpu(),
         load_ms = started.elapsed().as_millis() as u64,
         "karaoke runtime loaded"
     );

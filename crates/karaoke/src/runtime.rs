@@ -14,6 +14,7 @@ use std::fmt;
 #[derive(Clone, Copy, Debug)]
 pub struct RuntimeReady {
     directml: bool,
+    webgpu: bool,
 }
 
 impl RuntimeReady {
@@ -22,6 +23,11 @@ impl RuntimeReady {
     /// pre-load Windows would hand it whatever copy the search order finds first (System32's).
     pub fn directml(&self) -> bool {
         self.directml
+    }
+
+    /// Whether the WebGPU plugin execution provider may be used: true only when the plugin library pinned in runtime_pkg was found next to ONNX Runtime (Linux x86_64).
+    pub fn webgpu(&self) -> bool {
+        self.webgpu
     }
 }
 
@@ -96,18 +102,46 @@ pub fn load_error(code: u32) -> Unavailable {
     }
 }
 
+/// Once lock holding the WebGPU plugin path.
+static WEBGPU_PLUGIN_PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+/// Returns the WebGPU plugin path if set.
+pub fn webgpu_plugin_path() -> Option<&'static std::path::Path> {
+    WEBGPU_PLUGIN_PATH.get().map(|p| p.as_path())
+}
+
+/// Checks if the plugin path is absolute and a file.
+fn plugin_usable(path: &std::path::Path) -> bool {
+    path.is_absolute() && path.is_file()
+}
+
 /// Hands ONNX Runtime at `path` (absolute) to `ort`. Must be the first `ort` call in the
 /// process; calling it again later is harmless (the first library stays loaded). `directml` says
 /// whether the DirectML provider may be used (see [`RuntimeReady::directml`]). The app goes
 /// through [`load`] on Windows, which does the checks and pre-loads first.
-pub fn init_from(path: &std::path::Path, directml: bool) -> anyhow::Result<RuntimeReady> {
+pub fn init_from_with_plugin(
+    path: &std::path::Path,
+    directml: bool,
+    webgpu_plugin: Option<std::path::PathBuf>,
+) -> anyhow::Result<RuntimeReady> {
     if !path.is_absolute() {
         anyhow::bail!("ONNX Runtime path must be absolute");
     }
     let builder = ort::init_from(path).map_err(|e| anyhow::anyhow!("{e}"))?;
     // `false` only means an environment was committed before; the library is the same one.
     let _ = builder.with_name("limusic-karaoke").commit();
-    Ok(RuntimeReady { directml })
+    if let Some(plugin) = webgpu_plugin.filter(|p| plugin_usable(p)) {
+        let _ = WEBGPU_PLUGIN_PATH.set(plugin);
+    }
+    Ok(RuntimeReady { directml, webgpu: webgpu_plugin_path().is_some() })
+}
+
+/// Hands ONNX Runtime at `path` (absolute) to `ort`. Must be the first `ort` call in the
+/// process; calling it again later is harmless (the first library stays loaded). `directml` says
+/// whether the DirectML provider may be used (see [`RuntimeReady::directml`]). The app goes
+/// through [`load`] on Windows, which does the checks and pre-loads first.
+pub fn init_from(path: &std::path::Path, directml: bool) -> anyhow::Result<RuntimeReady> {
+    init_from_with_plugin(path, directml, None)
 }
 
 /// For the examples and other tools: loads the shared library named by `ORT_DYLIB_PATH` (an
@@ -434,5 +468,18 @@ mod tests {
             Err(e @ Unavailable::VcRuntime(_)) => eprintln!("refused as expected here: {e}"),
             Err(e) => panic!("{e}"),
         }
+    }
+
+    #[test]
+    fn relative_or_missing_plugin_path_is_not_usable() {
+        assert!(!plugin_usable(std::path::Path::new("libonnxruntime_providers_webgpu.so")));
+        let missing = std::env::temp_dir().join("limusic-no-such-plugin.so");
+        assert!(!plugin_usable(&missing));
+    }
+
+    #[test]
+    fn init_from_refuses_a_relative_runtime_path() {
+        assert!(init_from(std::path::Path::new("libonnxruntime.so"), false).is_err());
+        assert!(init_from_with_plugin(std::path::Path::new("x.so"), false, None).is_err());
     }
 }
