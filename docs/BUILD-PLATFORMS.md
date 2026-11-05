@@ -181,6 +181,30 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
    ```
 - `bundle.macOS.minimumSystemVersion` is **14.0** because Homebrew bottles are built per macOS
   version, so whatever the CI runner ships is the floor. It tracks `runs-on` in the workflow.
+- **Intel, macOS 12 (Monterey).** The code itself runs on 12.0; the 14.0 floor is the Homebrew
+  dylibs. Homebrew no longer ships Monterey bottles, so build libmpv with MacPorts on a Monterey Mac
+  instead (its ports target the macOS they are built on), and override the floor for that build
+  only rather than lowering it in `tauri.macos.conf.json`, which would let the arm64 release
+  install on Macs its dylibs can't load on:
+  ```bash
+  sudo port install mpv dylibbundler
+  export MACOSX_DEPLOYMENT_TARGET=12.0 LIBRARY_PATH=/opt/local/lib
+  cd ui && pnpm build && cd ..
+  cargo tauri build --bundles app \
+    --config '{"bundle":{"macOS":{"minimumSystemVersion":"12.0"}}}'
+  ```
+  Then follow steps 5–8 with `-s /opt/local/lib` for dylibbundler, and guard with
+  `grep /opt/local` instead of `/opt/homebrew`. Check every bundled dylib really targets 12:
+  `vtool -show-build "$APP"/Contents/Frameworks/*.dylib | grep minos` should print nothing above
+  `12.0`.
+- **Monterey's WebKit, and why `build.rs` sets `LC_DYLD_ENVIRONMENT`.** Installing a newer Safari
+  on Monterey doesn't replace `/System/Library/Frameworks/WebKit.framework`; it stages the new
+  frameworks under `/Library/Apple/System/Library/StagedFrameworks/Safari`, and Safari's own
+  executable opts into them with `DYLD_VERSIONED_FRAMEWORK_PATH`. The system copy left for every
+  other app rejects decimal-lightness `oklch()` and `color-mix()`, so every theme background
+  computes to transparent and the `/10`-style opacity utilities go solid. `build.rs` links the
+  same two directives into the macOS binary. dyld only takes a staged framework when it is newer
+  than the system one, so on 14+ (nothing staged) it is a no-op.
 - Media keys use **MPNowPlayingInfoCenter / MPRemoteCommandCenter** (Control Center + the Now
   Playing widget). Works from the `.app` bundle; a bare binary run won't register.
 - **`src-tauri/tauri.macos.conf.json` is a full copy of the window config, not a patch.** Tauri
