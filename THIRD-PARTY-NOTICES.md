@@ -42,6 +42,11 @@ on Linux/macOS next to the library in `<app data dir>/runtime/onnxruntime-1.24.4
   and send that to Microsoft." DirectML is only loaded when karaoke runs on a graphics card; the
   download dialog says so.
 
+## ONNX Runtime WebGPU execution provider (Linux)
+
+- The package `onnxruntime-ep-webgpu` 0.5.0 (the same binary as NuGet `Microsoft.ML.OnnxRuntime.EP.WebGpu` 0.5.0), MIT license, downloaded on the user's computer from files.pythonhosted.org with a pinned size and SHA-256, unmodified.
+- Loaded only when karaoke runs on the graphics card.
+
 ## Microsoft Visual C++ Redistributable (Windows)
 
 - Limusic ships four Microsoft Visual C++ runtime DLLs in the Windows installer, in the `vcruntime` folder next to the app: vcruntime140.dll, vcruntime140_1.dll, msvcp140.dll and msvcp140_1.dll (under 1 MB in total, version 14.44 or newer), unmodified, copied from the Visual Studio redistributable folder that Microsoft's licence terms allow applications to redistribute. `onnxruntime.dll` needs them. They are only loaded when karaoke is turned on; the loader refuses a copy older than 14.44, and if the folder is missing it uses the system's copy instead (the Microsoft Visual C++ Redistributable 14.44 or newer), showing a message with Microsoft's download link when that is missing or older.
