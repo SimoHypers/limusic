@@ -652,19 +652,19 @@ impl Player {
         //
         // Under the lock, because the end of a fade clears `fading` and takes `pending` under the
         // same one. Either this hands the URL over and the ramp thread picks it up, or the fade
-        // has already finished and it is preloaded here; never neither.
-        {
-            let mut pending = self.decks.pending.lock().unwrap();
-            if self.decks.fading.load(Ordering::Acquire) {
-                *pending = Some(url.to_owned());
-                return Ok(());
-            }
-            // A manual change's own track is opening on the idle deck. Loading over it would play
-            // the song after the one the user asked for; the ramp thread takes this instead.
-            if self.decks.manual_fade_ms.load(Ordering::Acquire) > 0 {
-                *pending = Some(url.to_owned());
-                return Ok(());
-            }
+        // has already finished and it is preloaded here; never neither. `start_crossfade` raises
+        // `fading` and drops the arm under it too, so the handoff from an armed change to a running
+        // fade has no moment where neither flag holds a lookahead back.
+        let mut pending = self.decks.pending.lock().unwrap();
+        if self.decks.fading.load(Ordering::Acquire) {
+            *pending = Some(url.to_owned());
+            return Ok(());
+        }
+        // A manual change's own track is opening on the idle deck. Loading over it would play
+        // the song after the one the user asked for; the ramp thread takes this instead.
+        if self.decks.manual_fade_ms.load(Ordering::Acquire) > 0 {
+            *pending = Some(url.to_owned());
+            return Ok(());
         }
         let idle = self.idle_mpv()?;
         preload(&self.decks, &idle, url)
@@ -1588,8 +1588,9 @@ fn start_manual_fade(decks: &Arc<Decks>, deck: usize, armed: u64) {
         if mpv.get_property::<String>("path").ok() != wanted {
             return;
         }
-        // Still armed: a newer skip would have re-armed it or dropped it.
-        if decks.manual_fade_ms.swap(0, Ordering::AcqRel) == 0 {
+        // Still armed: a newer skip would have re-armed it or dropped it. `start_crossfade` is
+        // what clears it, once `fading` says the swap owns the decks.
+        if decks.manual_fade_ms.load(Ordering::Acquire) != armed {
             return;
         }
         start_crossfade(
@@ -1616,11 +1617,22 @@ fn start_crossfade(decks: &Arc<Decks>, from: usize, t: Transition) {
     let (Some(out), Some(incoming)) = (decks.mpv(from), decks.mpv(1 - from)) else { return };
     let (out, incoming) = (out.clone(), incoming.clone());
     let speed = decks.speed();
+    // Repeat-one can be switched while the track is still opening, so the deck taking over is told
+    // here, just before it is heard, rather than only when it was loaded.
+    if let Err(e) = set_deck_loop_file(&incoming, decks.loop_file.load(Ordering::Relaxed)) {
+        tracing::warn!(error = %e, "incoming deck refused its loop setting");
+    }
     decks.preloaded.store(false, Ordering::Release);
     // Read before `fading` goes up, which is what lets a cancel bump it: taken afterwards, a
     // cancel landing in between would be captured as the current value and never noticed.
     let gen = decks.fade_gen.load(Ordering::SeqCst);
-    decks.fading.store(true, Ordering::Release);
+    {
+        // Under the lock `enqueue` reads both of these under: the arm has to stay up until `fading`
+        // is, or a lookahead can preload over the track this swap is about to play.
+        let _pending = decks.pending.lock().unwrap();
+        decks.fading.store(true, Ordering::Release);
+        decks.manual_fade_ms.store(0, Ordering::Release);
+    }
     decks.active.store(1 - from, Ordering::SeqCst);
     video::deck_swapped(decks);
     // Back on the real device (see `preload`). mpv reopens the output from where the null one had

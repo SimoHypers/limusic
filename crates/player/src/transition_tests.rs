@@ -586,6 +586,42 @@ fn manual_crossfade_carries_repeat_one_over_to_the_new_deck() {
 }
 
 #[test]
+fn manual_crossfade_honours_a_repeat_change_made_while_the_track_opens() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.wav");
+    let b = dir.path().join("b.wav");
+    for (path, hz) in [(&a, 220.0), (&b, 880.0)] {
+        wav(path, 30.0, |t| tone(hz, t));
+    }
+    let p = Player::new(dir.path().to_str().unwrap()).unwrap();
+    let other = p.idle_mpv().unwrap();
+    for m in [p.mpv(), other.as_ref()] {
+        m.set_property("ao", "null").unwrap();
+        m.set_property("ao-null-untimed", false).unwrap();
+        m.set_property("pause", true).unwrap();
+    }
+    p.set_volume(100).unwrap();
+    p.set_crossfade(Some(1.0));
+    p.set_manual_crossfade(true);
+    p.set_loop_file(true).unwrap();
+    p.load(a.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    p.play().unwrap();
+    wait_for("a playing", 5.0, || p.mpv().get_property::<f64>("time-pos").unwrap_or(0.0) > 0.2);
+
+    // Repeat-one goes off while the picked track is still opening: the deck it lands on was set up
+    // under the old value, so the swap has to write it again before that deck is heard.
+    p.load(b.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    p.set_loop_file(false).unwrap();
+    wait_for("fade starts", 6.0, || p.is_crossfading());
+    wait_for("fade done", 6.0, || !p.is_crossfading());
+    let playing = p.mpv().get_property::<String>("path").unwrap_or_default();
+    assert!(playing.ends_with("b.wav"), "expected the picked track, got {playing}");
+    let looped = p.mpv().get_property::<String>("loop-file").unwrap_or_default();
+    assert_eq!(looped, "no", "the deck kept the repeat-one it was loaded with");
+    p.stop().unwrap();
+}
+
+#[test]
 fn manual_crossfade_survives_a_queue_edit_while_the_track_is_opening() {
     let dir = tempfile::tempdir().unwrap();
     let a = dir.path().join("a.wav");
