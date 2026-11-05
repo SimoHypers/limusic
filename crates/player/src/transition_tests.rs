@@ -361,6 +361,8 @@ fn automatic_crossfade_runs_both_effected_decks_in_real_time() {
     }
 }
 
+/// A skip with the setting on plays both tracks at once for the fade length, and the app's queue
+/// is left alone: a manual change has already moved it.
 #[test]
 fn manual_crossfade_overlaps_the_track_the_user_skipped_to() {
     let dir = tempfile::tempdir().unwrap();
@@ -422,6 +424,7 @@ fn manual_crossfade_overlaps_the_track_the_user_skipped_to() {
     p.stop().unwrap();
 }
 
+/// Setting off: the old track is gone the moment the new one starts, with nothing to overlap.
 #[test]
 fn manual_crossfade_off_still_cuts_straight_over() {
     let dir = tempfile::tempdir().unwrap();
@@ -453,6 +456,8 @@ fn manual_crossfade_off_still_cuts_straight_over() {
     p.stop().unwrap();
 }
 
+/// A second skip landing mid-fade ends that fade and starts another from the track being heard,
+/// instead of cutting.
 #[test]
 fn manual_crossfade_survives_a_second_skip() {
     let dir = tempfile::tempdir().unwrap();
@@ -508,6 +513,8 @@ fn manual_crossfade_survives_a_second_skip() {
     p.stop().unwrap();
 }
 
+/// Two skips before the first one's file is open fade in the *last* track picked: the abandoned
+/// load's `FileLoaded` must not start the overlap.
 #[test]
 fn manual_crossfade_survives_a_double_skip_before_the_fade_starts() {
     let dir = tempfile::tempdir().unwrap();
@@ -543,6 +550,8 @@ fn manual_crossfade_survives_a_double_skip_before_the_fade_starts() {
     p.stop().unwrap();
 }
 
+/// `loop-file` is per mpv instance, so repeat-one has to reach the deck the fade moves to, in both
+/// directions.
 #[test]
 fn manual_crossfade_carries_repeat_one_over_to_the_new_deck() {
     let dir = tempfile::tempdir().unwrap();
@@ -585,6 +594,8 @@ fn manual_crossfade_carries_repeat_one_over_to_the_new_deck() {
     p.stop().unwrap();
 }
 
+/// A repeat change made while the picked track is still opening is honoured by the swap, not lost
+/// on the deck that fades out.
 #[test]
 fn manual_crossfade_honours_a_repeat_change_made_while_the_track_opens() {
     let dir = tempfile::tempdir().unwrap();
@@ -621,6 +632,8 @@ fn manual_crossfade_honours_a_repeat_change_made_while_the_track_opens() {
     p.stop().unwrap();
 }
 
+/// A queue edit drops the primed lookahead; it must not drop a change the user already made while
+/// that change is still opening.
 #[test]
 fn manual_crossfade_survives_a_queue_edit_while_the_track_is_opening() {
     let dir = tempfile::tempdir().unwrap();
