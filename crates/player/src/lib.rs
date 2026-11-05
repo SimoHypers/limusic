@@ -809,6 +809,10 @@ impl Player {
     /// Loop the current file seamlessly (repeat-one). mpv restarts the file at EOF *without*
     /// emitting end-file, so the queue logic upstream never advances while this is on — by design.
     pub fn set_loop_file(&self, on: bool) -> Result<(), Error> {
+        // Under the swap lock, which `start_crossfade` flips the active deck and writes this same
+        // property under: without it a toggle landing mid-swap was applied to the deck being faded
+        // out and lost.
+        let _swap = self.decks.pending.lock().unwrap();
         self.decks.loop_file.store(on, Ordering::Relaxed);
         set_deck_loop_file(self.mpv(), on)
     }
@@ -1617,23 +1621,25 @@ fn start_crossfade(decks: &Arc<Decks>, from: usize, t: Transition) {
     let (Some(out), Some(incoming)) = (decks.mpv(from), decks.mpv(1 - from)) else { return };
     let (out, incoming) = (out.clone(), incoming.clone());
     let speed = decks.speed();
-    // Repeat-one can be switched while the track is still opening, so the deck taking over is told
-    // here, just before it is heard, rather than only when it was loaded.
-    if let Err(e) = set_deck_loop_file(&incoming, decks.loop_file.load(Ordering::Relaxed)) {
-        tracing::warn!(error = %e, "incoming deck refused its loop setting");
-    }
     decks.preloaded.store(false, Ordering::Release);
     // Read before `fading` goes up, which is what lets a cancel bump it: taken afterwards, a
     // cancel landing in between would be captured as the current value and never noticed.
     let gen = decks.fade_gen.load(Ordering::SeqCst);
     {
-        // Under the lock `enqueue` reads both of these under: the arm has to stay up until `fading`
-        // is, or a lookahead can preload over the track this swap is about to play.
-        let _pending = decks.pending.lock().unwrap();
+        // Under the lock `enqueue` reads `fading` and the arm under: the arm has to stay up until
+        // `fading` is, or a lookahead can preload over the track this swap is about to play.
+        // `set_loop_file` writes the same property to the same deck under it, so a toggle landing
+        // here is either seen by the read below or lands on the deck that is left playing.
+        let _swap = decks.pending.lock().unwrap();
         decks.fading.store(true, Ordering::Release);
         decks.manual_fade_ms.store(0, Ordering::Release);
+        // Repeat-one can be switched while the track is still opening, so the deck taking over is
+        // told here, just before it is heard, rather than only when it was loaded.
+        if let Err(e) = set_deck_loop_file(&incoming, decks.loop_file.load(Ordering::Relaxed)) {
+            tracing::warn!(error = %e, "incoming deck refused its loop setting");
+        }
+        decks.active.store(1 - from, Ordering::SeqCst);
     }
-    decks.active.store(1 - from, Ordering::SeqCst);
     video::deck_swapped(decks);
     // Back on the real device (see `preload`). mpv reopens the output from where the null one had
     // prefilled to, 0.2 s into the track, so seek back to where it starts: a preload never has a
