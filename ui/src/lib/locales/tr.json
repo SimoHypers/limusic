@@ -434,7 +434,8 @@
 			"classic_player_hint": "Orijinal oynatıcı görünümü: Kapak resminin bulanık bir kopyası üzerinde sadece albüm kapağı resminin yer aldığı, şarkı bilgilerinin ise oynatıcı çubuğunda gösterildiği görünüm. Kapalıyken yeni düzen kullanılır; bu düzende albüm kapağı resminin altında şarkı adı, sanatçı ve albüm adı yer alır ve görünüm, kapak resminin renkleriyle aydınlatılır.",
 			"now_playing_pill": "Şu an çalıyor düğmesi",
 			"now_playing_pill_hint": "Bir çalma listesinde veya kuyrukta, çalınan şarkı ekranın dışına kaydırıldığında, o şarkıya geri dönmek için bir düğme gösterilir.",
-			"empty_click_player": "Oynatıcıyı açmak ya da kapatmak için boş bir yere tıklayın"
+			"empty_click_player": "Oynatıcıyı açmak ya da kapatmak için boş bir yere tıklayın",
+			"enhanced_lyrics": "Gelişmiş Şarkı Sözleri"
 		},
 		"playback": {
 			"audio_quality": "Ses kalitesi",
