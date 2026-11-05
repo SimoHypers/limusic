@@ -613,6 +613,8 @@ impl Player {
         }
         set_headers(&mpv, headers)?;
         set_deck_gain(&self.decks, deck, gain_db)?;
+        // Repeat-one is a deck property, and the deck taking over has to carry it too.
+        set_deck_loop_file(&mpv, self.decks.loop_file.load(Ordering::Relaxed))?;
         mpv.set_property("pause", true)?;
         mpv.set_property("volume", 0.0)?;
         // Off the audio device until the fade starts it, as for a lookahead.
@@ -801,8 +803,7 @@ impl Player {
     /// emitting end-file, so the queue logic upstream never advances while this is on — by design.
     pub fn set_loop_file(&self, on: bool) -> Result<(), Error> {
         self.decks.loop_file.store(on, Ordering::Relaxed);
-        self.mpv().set_property("loop-file", if on { "inf" } else { "no" })?;
-        Ok(())
+        set_deck_loop_file(self.mpv(), on)
     }
 
     /// Absolute seek in seconds.
@@ -1475,6 +1476,13 @@ fn set_deck_gain(decks: &Decks, deck: usize, gain_db: Option<f64>) -> Result<(),
     Ok(())
 }
 
+/// Repeat-one on a deck. mpv keeps `loop-file` per instance, so a deck that takes over after a
+/// fade has to be told; the one fading out keeps what it had.
+fn set_deck_loop_file(mpv: &Mpv, on: bool) -> Result<(), Error> {
+    mpv.set_property("loop-file", if on { "inf" } else { "no" })?;
+    Ok(())
+}
+
 /// Load `url` on the idle deck, paused and silent, ready for [`start_crossfade`] to bring it up.
 fn preload(decks: &Decks, mpv: &Arc<Mpv>, url: &str) -> Result<(), Error> {
     let mut af = decks.af.lock().unwrap();
@@ -1487,6 +1495,8 @@ fn preload(decks: &Decks, mpv: &Arc<Mpv>, url: &str) -> Result<(), Error> {
     }
     mpv.set_property("pause", true)?;
     mpv.set_property("volume", 0.0)?;
+    // A deck keeps `loop-file` from whatever it last carried, so repeat-one is set either way.
+    set_deck_loop_file(mpv, decks.loop_file.load(Ordering::Relaxed))?;
     // Off the audio device until its fade starts (`start_crossfade` puts it back). A paused deck
     // with a file loaded still holds an output stream, so Linux mixers listed this one for the
     // whole track as a second app next to the one playing, with a volume slider of its own that

@@ -542,3 +542,45 @@ fn manual_crossfade_survives_a_double_skip_before_the_fade_starts() {
     assert!(playing.ends_with("c.wav"), "expected the last track, got {playing}");
     p.stop().unwrap();
 }
+
+#[test]
+fn manual_crossfade_carries_repeat_one_over_to_the_new_deck() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.wav");
+    let b = dir.path().join("b.wav");
+    let c = dir.path().join("c.wav");
+    for (path, hz) in [(&a, 220.0), (&b, 440.0), (&c, 880.0)] {
+        wav(path, 30.0, |t| tone(hz, t));
+    }
+    let p = Player::new(dir.path().to_str().unwrap()).unwrap();
+    let other = p.idle_mpv().unwrap();
+    for m in [p.mpv(), other.as_ref()] {
+        m.set_property("ao", "null").unwrap();
+        m.set_property("ao-null-untimed", false).unwrap();
+        m.set_property("pause", true).unwrap();
+    }
+    p.set_volume(100).unwrap();
+    p.set_crossfade(Some(1.0));
+    p.set_manual_crossfade(true);
+    p.set_loop_file(true).unwrap();
+    p.load(a.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    p.play().unwrap();
+    wait_for("a playing", 5.0, || p.mpv().get_property::<f64>("time-pos").unwrap_or(0.0) > 0.2);
+
+    // `loop-file` lives on the deck, so the track the user skipped to has to be told about
+    // repeat-one as well: otherwise it plays straight through a mode the app still reports as on.
+    p.load(b.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    wait_for("first fade", 5.0, || p.is_crossfading());
+    wait_for("first fade done", 6.0, || !p.is_crossfading());
+    let second = p.mpv().get_property::<String>("loop-file").unwrap_or_default();
+    assert_eq!(second, "inf", "repeat-one was lost on the deck that took over");
+
+    // And off again: the deck holding an old `inf` from the track it faded out must not keep it.
+    p.set_loop_file(false).unwrap();
+    p.load(c.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    wait_for("second fade", 5.0, || p.is_crossfading());
+    wait_for("second fade done", 6.0, || !p.is_crossfading());
+    let third = p.mpv().get_property::<String>("loop-file").unwrap_or_default();
+    assert_eq!(third, "no", "the new deck kept looping with repeat-one off");
+    p.stop().unwrap();
+}
