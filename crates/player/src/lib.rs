@@ -695,9 +695,16 @@ impl Player {
     /// lives in mpv's own playlist and `playlist-clear` is what drops it.
     ///
     /// `cut_fade` also stops a fade-out in progress. Off for a queue edit (the transition the user
-    /// is hearing is not what changed), on for an explicit load.
+    /// is hearing is not what changed), on for an explicit load. Off leaves a manual change that is
+    /// still opening alone too: the app has already moved its queue to that track.
     fn drop_preload(&self, cut_fade: bool) {
         *self.decks.pending.lock().unwrap() = None;
+        // Dropping the arm here would leave the track the user picked silent on the idle deck while
+        // the app plays something else, and the generation has to survive as well or the
+        // `FileLoaded` the arm waits on is no longer recognised as an armed load.
+        if !cut_fade && self.decks.manual_fade_ms.load(Ordering::Acquire) > 0 {
+            return;
+        }
         // Before anything else: a `loadfile` still in flight must not publish itself after this.
         self.decks.preload_gen.fetch_add(1, Ordering::SeqCst);
         // A manual change's track waiting here goes with it: whoever dropped this is moving on.
