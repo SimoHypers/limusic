@@ -4,13 +4,19 @@
 	let {
 		text,
 		children,
-		class: cls = ''
+		class: cls = '',
+		hover
 	}: {
 		/** The line to scroll, and the value that restarts the scroll when it changes. */
 		text: string;
 		/** Renders in place of plain `text` (artist links); `text` still drives the restart. */
 		children?: Snippet;
 		class?: string;
+		/**
+		 * Scroll only while the pointer rests on the line (`self`), or on any ancestor marked
+		 * `group`, so a whole track row carries the gesture (`group`), instead of on its own.
+		 */
+		hover?: 'self' | 'group';
 	} = $props();
 
 	/** Blank space between the text and the copy chasing it, in px. */
@@ -26,8 +32,9 @@
 		if (!el) return;
 		const measure = () => {
 			const span = el.querySelector('[data-mq]');
-			// A user who asked the OS to minimise motion gets the plain truncated line.
-			const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+			// A user who asked the OS to minimise motion gets the plain truncated line — unless the
+			// line scrolls on hover only, where the pointer resting on it is the request for motion.
+			const still = !hover && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 			const w = span ? span.scrollWidth : 0;
 			width = !still && w > el.clientWidth + 1 ? w : 0;
 		};
@@ -56,8 +63,10 @@
 			     lines then flip between scrolling and still, resizing each other as they go. Out of
 			     flow, scrolling and truncating measure exactly the same. -->
 			<div
-				class="marquee relative w-max"
-				style="--marquee-dx:{width + GAP}px;animation-duration:{((width + GAP) / 30).toFixed(1)}s"
+				class="marquee relative w-max {hover ? 'marquee-hover' : ''} {hover === 'group'
+					? 'marquee-hover-group'
+					: ''}"
+				style="--marquee-dx:{width + GAP}px;--marquee-s:{((width + GAP) / 30).toFixed(1)}s"
 			>
 				<span class="block whitespace-nowrap" data-mq>{@render body()}</span>
 				<span
