@@ -23,7 +23,11 @@ impl Default for MdxParams {
 #[derive(Clone, Copy, Debug)]
 pub enum Device {
     Cpu,
-    DirectMl { device_id: i32 },
+    DirectMl {
+        device_id: i32,
+    },
+    /// WebGPU plugin execution provider over Vulkan (Linux).
+    WebGpu,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -77,6 +81,16 @@ impl LoadOptions {
             cpu
         }
     }
+
+    /// With the graphics card chosen and the WebGPU plugin available, use it when no other GPU backend was picked (Linux). `Auto` and `Cpu` never select it.
+    pub fn with_webgpu(self, pref: DevicePref, webgpu: bool) -> LoadOptions {
+        if webgpu && matches!(pref, DevicePref::Gpu) && matches!(self.device, Device::Cpu) {
+            tracing::info!("WebGPU (Vulkan)");
+            LoadOptions { device: Device::WebGpu, intra_threads: None }
+        } else {
+            self
+        }
+    }
 }
 
 pub struct MdxModel {
@@ -122,6 +136,22 @@ impl MdxModel {
                         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 }
             }
+            Device::WebGpu => {
+                if !cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+                    anyhow::bail!("WebGPU is only available on Linux x86_64");
+                }
+                if !rt.webgpu() {
+                    anyhow::bail!("the WebGPU plugin is not available in this runtime");
+                }
+                let plugin = crate::runtime::webgpu_plugin_path()
+                    .ok_or_else(|| anyhow::anyhow!("the WebGPU plugin path is not set"))?;
+                builder = builder
+                    .with_memory_pattern(false)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?
+                    .with_parallel_execution(false)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                builder = crate::webgpu::attach(builder, plugin)?;
+            }
         }
         let session =
             builder.commit_from_file(model_path).map_err(|e| anyhow::anyhow!(e.to_string()))?;
@@ -151,13 +181,14 @@ impl MdxModel {
         } else {
             Vec::new()
         };
-        let opts = LoadOptions::choose(pref, percent, directml, &adapters);
+        let opts =
+            LoadOptions::choose(pref, percent, directml, &adapters).with_webgpu(pref, rt.webgpu());
         let device = opts.device;
         match Self::load(rt, model_path, params, opts) {
             Ok(model) => Ok((model, device)),
             Err(e) => match device {
-                Device::DirectMl { .. } => {
-                    tracing::warn!(error = %crate::sanitize_error(&e.to_string()), "DirectML model load failed, falling back to CPU");
+                Device::DirectMl { .. } | Device::WebGpu => {
+                    tracing::warn!(error = %crate::sanitize_error(&e.to_string()), device = ?device, "graphics card model load failed, falling back to CPU");
                     let cpu_opts = LoadOptions {
                         device: Device::Cpu,
                         intra_threads: Some(crate::device::cpu_threads_for_percent(percent)),
@@ -543,5 +574,19 @@ mod tests {
         let (total_chunks, all_covered) = test_chunk_bookkeeping(l, n_fft, hop, dim_t, overlap);
         assert!(total_chunks > 0);
         assert!(all_covered, "Not all samples in trim..trim+L are covered by divider > 0");
+    }
+
+    #[test]
+    fn webgpu_is_used_only_when_asked_for() {
+        let cpu = LoadOptions::default();
+        assert!(matches!(cpu.with_webgpu(DevicePref::Auto, true).device, Device::Cpu));
+        assert!(matches!(cpu.with_webgpu(DevicePref::Cpu, true).device, Device::Cpu));
+        assert!(matches!(cpu.with_webgpu(DevicePref::Gpu, false).device, Device::Cpu));
+        assert!(matches!(cpu.with_webgpu(DevicePref::Gpu, true).device, Device::WebGpu));
+        let dml = LoadOptions { device: Device::DirectMl { device_id: 1 }, intra_threads: None };
+        assert!(matches!(
+            dml.with_webgpu(DevicePref::Gpu, true).device,
+            Device::DirectMl { device_id: 1 }
+        ));
     }
 }

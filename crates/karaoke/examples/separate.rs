@@ -235,6 +235,9 @@ fn main() -> Result<()> {
                     .unwrap_or_else(|| format!("device id {}", device_id));
                 eprintln!("Used device: DirectMl ({})", desc);
             }
+            karaoke::mdx::Device::WebGpu => {
+                eprintln!("Used device: WebGpu (Vulkan)");
+            }
             karaoke::mdx::Device::Cpu => {
                 let p = cpu_percent.unwrap_or(karaoke::device::DEFAULT_CPU_PERCENT);
                 let n = threads.unwrap_or_else(|| karaoke::device::cpu_threads_for_percent(p));
@@ -260,6 +263,9 @@ fn main() -> Result<()> {
         match device {
             karaoke::mdx::Device::DirectMl { device_id } => {
                 eprintln!("Used device: DirectMl (device id {})", device_id);
+            }
+            karaoke::mdx::Device::WebGpu => {
+                eprintln!("Used device: WebGpu (Vulkan)");
             }
             karaoke::mdx::Device::Cpu => {
                 eprintln!("Used device: Cpu (threads: {})", n);
