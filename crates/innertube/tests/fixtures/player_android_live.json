@@ -13,7 +13,7 @@
     "adaptiveFormats": [
       {
         "itag": 139,
-        "url": "https://rr3---sn-hpjgvnj5o-cvhr.googlevideo.com/videoplayback?SCRUBBED",
+        "url": "https://rr1---sn-scrubbed.googlevideo.com/videoplayback?SCRUBBED",
         "mimeType": "audio/mp4; codecs=\"mp4a.40.5\"",
         "bitrate": 64000,
         "targetDurationSec": 5,
@@ -22,7 +22,7 @@
       },
       {
         "itag": 140,
-        "url": "https://rr3---sn-hpjgvnj5o-cvhr.googlevideo.com/videoplayback?SCRUBBED",
+        "url": "https://rr1---sn-scrubbed.googlevideo.com/videoplayback?SCRUBBED",
         "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
         "bitrate": 144000,
         "targetDurationSec": 5,

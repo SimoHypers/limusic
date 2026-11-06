@@ -301,9 +301,9 @@ fn new_mpv(cache_dir: &str) -> Result<Mpv, Error> {
     // unwanted sample at EOF and an audible pop between otherwise-continuous tracks. FFmpeg's
     // demuxer rounds the padding correctly without altering the stream bytes.
     mpv.set_property("demuxer", "lavf")?;
-    // A live broadcast (#424) comes as an HLS variant playlist of muxed video+audio renditions,
-    // all with the same AAC. The picture is never decoded (`vid=no`), so the smallest rendition
-    // is the whole stream at a fraction of the bytes; the default picks the largest.
+    // A live broadcast (#424) normally arrives as the one rendition the app picked from its HLS
+    // master playlist. When the app hands over the master instead, mpv's default takes the
+    // largest rendition, 1080p muxed picture at ~4.5 Mbit/s for a picture that is never decoded.
     mpv.set_property("hls-bitrate", "min")?;
     // Open the appended remote entry while the current track is still playing. `gapless-audio`
     // keeps the output device alive, but on its own does not guarantee that the next HTTP stream
@@ -373,6 +373,11 @@ const LAVF_FILE_OPTS: &str = "reconnect=1,reconnect_streamed=1,reconnect_on_netw
 /// plays the tail twice, which the position bar shows as a step back every segment. The hls
 /// demuxer retries a failed segment on its own.
 const LAVF_LIVE_OPTS: &str = "";
+
+/// The hls demuxer's own options for a live playlist (#424). googlevideo answers a segment
+/// request on a reused connection with 400, so with ffmpeg's default every segment cost a refused
+/// request and a warning in the log before the retry on a new connection got it.
+const LAVF_LIVE_DEMUX_OPTS: &str = "http_persistent=0";
 
 /// Observe the properties the event loop derives everything from, and run it on its own thread.
 fn spawn_deck_events(mpv: &Arc<Mpv>, deck: usize, decks: Arc<Decks>) -> Result<(), Error> {
@@ -519,6 +524,7 @@ impl Player {
         self.set_gain(gain_db)?;
         self.mpv()
             .set_property("stream-lavf-o", if live { LAVF_LIVE_OPTS } else { LAVF_FILE_OPTS })?;
+        self.mpv().set_property("demuxer-lavf-o", if live { LAVF_LIVE_DEMUX_OPTS } else { "" })?;
         *self.decks.live_url.lock().unwrap() = live.then(|| url.to_owned());
         let args = loadfile_args(url, start, loadfile_has_index(self.mpv()));
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -1214,9 +1220,6 @@ fn event_loop(mut ev: EventContext, deck: usize, decks: Arc<Decks>) {
                         // track's last seconds under repeat-one is not a wrap. Looping is a seek
                         // inside mpv and never loads the file again.
                         last_pos = f64::NAN;
-                        // Nor its length. mpv reports no `duration` for a live broadcast (#424),
-                        // so the previous track's would stand and fade this one out at its end.
-                        duration = 0.0;
                         video::file_loaded(&decks, deck);
                         if !live()
                             && decks.preload_armed.load(Ordering::SeqCst)

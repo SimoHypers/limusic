@@ -2324,6 +2324,11 @@ impl AppState {
                 }
             }
         }
+        if data.live {
+            if let Err(error) = self.reset_tempo(true).await {
+                tracing::warn!(%error, "live: tempo stays as it was");
+            }
+        }
         self.emit_now_playing(&item, &data.stream_client);
         // The rating just emitted is whatever the row was parsed with, which for a search result
         // or a radio track is nothing at all (issue #93). Ask.
@@ -2715,10 +2720,12 @@ impl AppState {
         Ok(())
     }
 
-    async fn reset_room_tempo(&self) -> Result<(), String> {
+    /// Back to 1x in a listening room, or for a broadcast (`live`, #424): played faster, a live
+    /// stream catches up with its own live edge within seconds and stalls on every segment.
+    async fn reset_tempo(&self, live: bool) -> Result<(), String> {
         let _effects = self.playback_effects.lock().await;
         let (speed, semitones, reverb) = self.player.playback_params();
-        if self.lt.in_room().await && speed != 1.0 {
+        if speed != 1.0 && (live || self.lt.in_room().await) {
             self.apply_playback_params(1.0, semitones, reverb).await?;
         }
         Ok(())
@@ -3514,7 +3521,7 @@ impl AppState {
     pub async fn apply_sync(self: &std::sync::Arc<Self>, cmd: SyncCommand) {
         // Membership has already changed. Finish any earlier effect request, restore the shared
         // clock, then seed/apply playback. Later non-1x commands recheck membership under the lock.
-        if let Err(error) = self.reset_room_tempo().await {
+        if let Err(error) = self.reset_tempo(false).await {
             let _ = self.player.pause();
             self.emit_error("", &format!("Could not restore shared playback tempo: {error}"));
             return;
@@ -3742,7 +3749,7 @@ impl AppState {
         let _ = self.player.pause();
     }
 
-    /// Past the 2s tolerance from the host's position — and not a broadcast, whose position is
+    /// Past the 2s tolerance from the host's position, and not a broadcast, whose position is
     /// the DVR window's and compares with nothing on the host (#424).
     async fn lt_drifted(&self, position_ms: i64) -> bool {
         if self.queue.lock().await.live {
