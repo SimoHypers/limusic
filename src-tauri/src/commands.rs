@@ -90,9 +90,9 @@ pub async fn play(state: St<'_>, item: SongItem) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn play_index(state: St<'_>, index: usize) -> Result<(), String> {
+pub async fn play_index(state: St<'_>, index: usize, start: Option<f64>) -> Result<(), String> {
     let state = state.inner().clone();
-    state.play_index(index).await;
+    state.play_index_at(index, start).await;
     Ok(())
 }
 
@@ -221,14 +221,15 @@ pub async fn set_volume(state: St<'_>, volume: i64) -> Result<(), String> {
     Ok(())
 }
 
-/// Tempo (0.25–2.0) and pitch (−12..=12 semitones), the "Advanced" dialog. Volatile by design:
-/// both reset to 1.0 / 0 on restart, so nobody wonders next week why everything sounds wrong.
+/// Session-only tempo (0.5–2.0), pitch (−12..=12 semitones), and reverb controls.
 #[tauri::command]
-pub async fn set_playback_params(state: St<'_>, speed: f64, semitones: i32) -> Result<(), String> {
-    // Pitch first: it's the one that can fail (no librubberband), and it rolls itself back, so a
-    // failure leaves nothing applied and the UI can revert both steppers together.
-    state.player.set_pitch(semitones).map_err(|e| e.to_string())?;
-    state.player.set_speed(speed).map_err(|e| e.to_string())
+pub async fn set_playback_params(
+    state: St<'_>,
+    speed: f64,
+    semitones: i32,
+    reverb: player::Reverb,
+) -> Result<(), String> {
+    state.set_playback_params(speed, semitones, reverb).await
 }
 
 #[tauri::command]
@@ -241,7 +242,7 @@ pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
 /// `visitor_data`) and internal blobs (`queue_json`, `queue_index`, `queue_position`) never cross
 /// into the webview: they'd otherwise ship the login credential to the renderer on every open, and
 /// the webview can't overwrite them either.
-const UI_SETTINGS: [&str; 31] = [
+const UI_SETTINGS: [&str; 33] = [
     "volume",
     "proxy",
     "quality",
@@ -253,6 +254,7 @@ const UI_SETTINGS: [&str; 31] = [
     "close_to_tray",
     "track_notifications",
     "track_notifications_focused",
+    "play_on_start",
     "autostart",
     "start_minimized",
     "autoplay",
@@ -261,6 +263,7 @@ const UI_SETTINGS: [&str; 31] = [
     "update_banner",
     "update_channel",
     "lyrics_providers",
+    "lyrics_prefer_words",
     "music_videos",
     "videos_first",
     "ambient_light",
@@ -490,7 +493,7 @@ pub async fn set_setting(
     }
     // Cached lyrics outlive the order that produced them, so a reorder would otherwise reach only
     // songs never played. Songs whose source was picked by hand keep it.
-    if key == "lyrics_providers" {
+    if key == "lyrics_providers" || key == "lyrics_prefer_words" {
         state.db.clear_lyrics_cache();
     }
     // Hand the frame back to the compositor (or take it again). macOS is not on this path: its
@@ -784,6 +787,7 @@ pub fn take_launch_args() -> Vec<String> {
 
 #[tauri::command]
 pub async fn show_main(state: St<'_>, window: tauri::WebviewWindow) -> Result<bool, String> {
+    crate::UI_MOUNTED.notify_one();
     if crate::should_start_minimized(&state.db) {
         return Ok(false);
     }
@@ -817,12 +821,7 @@ pub async fn get_home_more(state: St<'_>, token: String) -> Result<HomePage, Str
 /// on every try. Any status counts, only getting no reply means the network is still down.
 #[tauri::command]
 pub async fn network_reachable() -> bool {
-    crate::http::client()
-        .head("https://music.youtube.com/")
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await
-        .is_ok()
+    crate::http::network_reachable().await
 }
 
 /// Why a comments command failed, as a stable word the UI words itself. Details go to the debug log.
@@ -1350,13 +1349,20 @@ fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
+/// `total` is the playlist's track count, passed by a walk that wants the whole list: it fetches
+/// the pages after this one too, several at a time (`InnerTube::playlist_pages`, #536).
 #[tauri::command]
 pub async fn get_playlist_more(
     state: St<'_>,
     token: String,
+    total: Option<usize>,
 ) -> Result<PlaylistContinuation, String> {
     let client = metadata_client(&state)?;
-    state.it.playlist_continuation(client, &token).await.map_err(|e| e.to_string())
+    match total {
+        Some(total) => state.it.playlist_pages(client, &token, total).await,
+        None => state.it.playlist_continuation(client, &token).await,
+    }
+    .map_err(|e| e.to_string())
 }
 
 /// A batch of suggestions for a playlist you own (#395). `token` is the page's `suggestions`, the
@@ -1499,9 +1505,10 @@ pub async fn start_radio(
     kind: String,
     id: String,
     name: Option<String>,
+    start: Option<f64>,
 ) -> Result<(), String> {
     let state = state.inner().clone();
-    state.start_radio(&kind, &id, name).await
+    state.start_radio(&kind, &id, name, start).await
 }
 
 // --- write actions (context/01 ✎, context/15) ----------------------------------------------
@@ -1724,6 +1731,36 @@ pub async fn remove_many_from_playlist(
     for (video_id, _) in &tracks {
         state.db.remove_playlist_track(&playlist_id, video_id);
     }
+    Ok(())
+}
+
+/// Move a track within a playlist. `before_set_video_id` None = move to the end;
+/// local playlists use row ids, while YouTube ones use `setVideoId`.
+#[tauri::command]
+pub async fn move_in_playlist(
+    state: St<'_>,
+    playlist_id: String,
+    set_video_id: String,
+    before_set_video_id: Option<String>,
+) -> Result<(), String> {
+    if is_local_playlist(&playlist_id) {
+        let row = set_video_id.parse().map_err(|_| GONE.to_string())?;
+        let before = match before_set_video_id {
+            Some(b) => Some(b.parse().map_err(|_| GONE.to_string())?),
+            None => None,
+        };
+        let key = local_key(&playlist_id)?;
+        return state
+            .db
+            .move_local_playlist_track(key, row, before, crate::db::now_secs())
+            .map_err(db_err);
+    }
+    let client = editable_playlist(&state, &playlist_id)?;
+    state
+        .it
+        .playlist_move(client, &playlist_id, &set_video_id, before_set_video_id.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -2401,6 +2438,7 @@ pub async fn lt_request_sync(state: St<'_>) -> Result<(), String> {
 /// `duration` is mpv's length in seconds. `None` = no lyrics found anywhere. `source` asks one
 /// provider alone, uncached: the source picker's preview.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // the UI's call, flat: `LyricsTrack` + source
 pub async fn get_lyrics(
     state: St<'_>,
     video_id: String,
@@ -2408,15 +2446,18 @@ pub async fn get_lyrics(
     artists: String,
     album: Option<String>,
     duration: Option<f64>,
+    searched: Option<bool>,
     source: Option<String>,
 ) -> Result<Option<crate::lyrics::Lyrics>, String> {
-    let req = crate::lyrics::LyricsRequest { video_id, title, artists, album, duration };
+    let searched = searched.unwrap_or(false);
+    let req = crate::lyrics::LyricsRequest { video_id, title, artists, album, duration, searched };
     crate::lyrics::get_lyrics(state.inner(), req, source).await
 }
 
 /// Keep one provider's lyrics for this song (`source`), or hand it back to the provider order
 /// (`None`). Returns what the song shows now.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // the UI's call, flat: `LyricsTrack` + source
 pub async fn choose_lyrics_source(
     state: St<'_>,
     video_id: String,
@@ -2424,9 +2465,11 @@ pub async fn choose_lyrics_source(
     artists: String,
     album: Option<String>,
     duration: Option<f64>,
+    searched: Option<bool>,
     source: Option<String>,
 ) -> Result<Option<crate::lyrics::Lyrics>, String> {
-    let req = crate::lyrics::LyricsRequest { video_id, title, artists, album, duration };
+    let searched = searched.unwrap_or(false);
+    let req = crate::lyrics::LyricsRequest { video_id, title, artists, album, duration, searched };
     Ok(crate::lyrics::choose_source(state.inner(), req, source).await)
 }
 

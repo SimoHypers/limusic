@@ -825,3 +825,56 @@ async fn comments_load_for_an_audio_track_and_a_video() {
         assert!(sorted.header.as_ref().is_some_and(|h| h.sorts.iter().any(|s| s.selected)));
     }
 }
+
+/// #536: the pages `playlist_pages` fetches by position must be exactly the ones a walk reaches one
+/// token at a time. A public playlist anonymously (9 requests); with a session, Liked Music too.
+///   [LIMUSIC_COOKIE=… LIMUSIC_VISITOR=…] cargo test -p innertube --features integration-tests playlist_pages -- --ignored --nocapture
+#[tokio::test]
+#[ignore]
+async fn playlist_pages_match_the_walk() {
+    let cookie = std::env::var("LIMUSIC_COOKIE").ok().filter(|s| !s.is_empty());
+    let visitor = std::env::var("LIMUSIC_VISITOR").ok().filter(|s| !s.is_empty());
+    let mut lists = vec![("VLPL5dDx681T4bR7ZF1IuWzOv1omlRbE7PiJ", Session::default())];
+    if let Some(cookie) = cookie {
+        lists.push((
+            "VLLM",
+            Session { cookie: Some(cookie), visitor_data: visitor, ..Session::default() },
+        ));
+    }
+    let clients = Clients::bundled();
+    let client = clients.get("WEB_REMIX").expect("WEB_REMIX client");
+    for (id, session) in lists {
+        let it = InnerTube::new(session, None).unwrap();
+        let first = it.playlist(client, id, None).await.expect("page 1");
+        // "6.2M views • 492 tracks • 30+ hours": the part with the track count.
+        let total: usize = first
+            .subtitle
+            .as_deref()
+            .and_then(|s| s.split('•').find(|p| p.contains("track") || p.contains("song")))
+            .map(|p| p.chars().filter(char::is_ascii_digit).collect::<String>())
+            .and_then(|d| d.parse().ok())
+            .expect("a track count in the header");
+        let token = first.continuation.expect("more than one page");
+
+        let ahead = it.playlist_pages(client, &token, total).await.expect("pages ahead");
+        let mut walked = Vec::new();
+        let mut next = Some(token);
+        for _ in 0..4 {
+            let Some(t) = next.take() else { break };
+            let page = it.playlist_continuation(client, &t).await.expect("walk");
+            walked.extend(page.items);
+            next = page.continuation;
+        }
+        let rows = |v: &[innertube::SongItem]| -> Vec<Option<String>> {
+            v.iter().map(|s| s.set_video_id.clone()).collect()
+        };
+        eprintln!(
+            "{id}: {total} tracks, {} rows ahead, {} walked",
+            ahead.items.len(),
+            walked.len()
+        );
+        assert!(ahead.items.len() > 100, "{id}: nothing was fetched ahead");
+        assert_eq!(rows(&ahead.items), rows(&walked), "{id}: pages ahead differ from the walk");
+        assert_eq!(ahead.continuation.is_some(), next.is_some(), "{id}: ends differ");
+    }
+}

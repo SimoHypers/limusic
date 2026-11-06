@@ -136,7 +136,8 @@
 		"remove_account_desc": "{name} はこの一覧からのみ削除されます。Googleアカウント自体には影響せず、いつでも再度ログインできます。",
 		"saved_accounts_hint": "保存されたアカウントを選択して切り替えます。",
 		"history": "履歴",
-		"no_channels": "選択可能なYouTubeチャンネルが見つかりませんでした。"
+		"no_channels": "選択可能なYouTubeチャンネルが見つかりませんでした。",
+		"stats": "統計"
 	},
 	"player": {
 		"play": "再生",
@@ -152,7 +153,6 @@
 		"volume": "音量",
 		"queue": "キュー",
 		"lyrics": "歌詞",
-		"mini_player": "ミニプレーヤー",
 		"mini_shrink": "ミニプレーヤーを縮小",
 		"mini_expand": "ミニプレーヤーを展開",
 		"theater_mode": "シアターモード",
@@ -197,7 +197,8 @@
 		"add_to_playlist": "プレイリストに追加",
 		"pin_to_top": "先頭に固定",
 		"unpin": "固定を解除",
-		"edit_scrobble": "Scrobble情報を編集"
+		"edit_scrobble": "Scrobble情報を編集",
+		"comments": "コメント"
 	},
 	"home": {
 		"good_morning": "おはようございます",
@@ -906,7 +907,6 @@
 			"lyricsplus": "Apple Musicの歌詞。単語単位の同期とApple独自のローマ字表記に対応しています。",
 			"lrclib": "同期歌詞のオープンライブラリ。最も幅広い楽曲を網羅しています。",
 			"youtube": "ライセンス許諾されたYouTube Music公式の歌詞。",
-			"simpmusic": "イントロを含め、YouTube動画のタイムラインと完全に同期したコミュニティ作成の歌詞。",
 			"netease": "膨大な中国語楽曲カタログ。多くの楽曲に対訳が付いています。",
 			"qq": "マンドポップおよびカントポップに強い中国語楽曲カタログ。",
 			"kugou": "レアな楽曲にも対応している中国語楽曲カタログ。"
@@ -1096,5 +1096,28 @@
 			"not_found": "YouTube Musicで見つかりませんでした。",
 			"cooldown": "YouTube Musicのリクエスト制限がかかったため、インポートを{time}まで一時停止します。それまでに検出された項目は保存されています。"
 		}
+	},
+	"stats": {
+		"title": "視聴統計",
+		"listened": {
+			"week": "過去7日間の再生数",
+			"month": "過去30日間の再生数",
+			"year": "過去12ヶ月間の再生数",
+			"all": "{date} 以降の再生数"
+		},
+		"compared": {
+			"week": "その前の7日間と比較",
+			"month": "その前の30日間と比較",
+			"year": "その前の12ヶ月間と比較"
+		},
+		"new_songs": "新規 {count}",
+		"streak": "連続日数",
+		"activity": "視聴アクティビティ",
+		"daily_average": "1日平均",
+		"monthly_average": "月平均",
+		"busiest_day": "最もよく聴いた日",
+		"busiest_month": "最もよく聴いた月",
+		"busiest_weekday": "最もよく聴いた曜日",
+		"busiest_hour": "最もよく聴いた時間帯"
 	}
 }

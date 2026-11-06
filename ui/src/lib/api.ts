@@ -85,6 +85,8 @@ export interface NowPlaying {
 	/** YouTube's `musicVideoType` says this is a video upload, not the generated audio track.
 	 *  Gates the player view's music-video mode. */
 	isVideo?: boolean;
+	/** A podcast episode: the transport offers speed and 15-second skips (#500). */
+	isEpisode?: boolean;
 }
 
 export type RepeatMode = 'off' | 'all' | 'one';
@@ -376,7 +378,9 @@ export const searchSuggestions = (query: string) =>
 export const searchCards = (query: string, category: 'albums' | 'artists' | 'playlists') =>
 	invoke<BrowseItem[]>('search_cards', { query, category });
 export const play = (item: SongItem) => invoke<void>('play', { item });
-export const playIndex = (index: number) => invoke<void>('play_index', { index });
+/** `start` (seconds) opens the track that far in, for a timecode link. */
+export const playIndex = (index: number, start?: number) =>
+	invoke<void>('play_index', { index, start });
 /** Play the current track's `counterpart` from the same position. Resolves once it plays. */
 export const switchVersion = () => invoke<void>('switch_version');
 /** Remove an upcoming track from the queue (host/local only — guests are add-only). */
@@ -411,9 +415,23 @@ export const setRepeat = (mode: RepeatMode) => invoke<void>('set_repeat', { mode
 export const togglePause = () => invoke<void>('toggle_pause');
 export const seek = (position: number) => invoke<void>('seek', { position });
 export const setVolume = (volume: number) => invoke<void>('set_volume', { volume });
-/** Tempo (0.25–2.0) + pitch (−12..=12 semitones). Not persisted: resets on restart. */
-export const setPlaybackParams = (speed: number, semitones: number) =>
-	invoke<void>('set_playback_params', { speed, semitones });
+export interface Reverb {
+	enabled: boolean;
+	preset: number;
+	dry: number;
+	wet: number;
+	decay: number;
+	preDelay: number;
+	damping: number;
+	reflections: number;
+}
+// Lives with the presets, which a Node self-check imports without this module's Tauri imports.
+export { DEFAULT_REVERB } from './effect-presets';
+/** Session-only tempo, pitch, and independent reverb controls. */
+export const setPlaybackParams = (speed: number, semitones: number, reverb: Reverb) =>
+	invoke<void>('set_playback_params', { speed, semitones, reverb });
+export const onPlaybackParams = (cb: (p: { speed: number; semitones: number; reverb: Reverb }) => void) =>
+	listen<{ speed: number; semitones: number; reverb: Reverb }>('playback-params', (e) => cb(e.payload));
 export const getQueue = () => invoke<QueueState>('get_queue');
 /** A `limusicvideo://` URL for the track's music video, or null when there isn't one. `maxHeight`
  *  caps the picture at what the box on screen can actually show. The bytes are proxied through
@@ -444,6 +462,9 @@ export const ambientFrame = (after: number) =>
 
 /** What the event stream already reported, for a webview that started after it did. */
 export interface PlaybackSnapshot {
+	speed: number;
+	semitones: number;
+	reverb: Reverb;
 	now: NowPlaying | null;
 	paused: boolean;
 	position: number;
@@ -741,8 +762,10 @@ export const getPlaylist = (id: string, sort?: ServerSort, desc?: boolean) =>
  */
 export const setPlaylistSort = (playlistId: string, sort: ServerSort) =>
 	invoke<void>('set_playlist_sort', { playlistId, sort });
-export const getPlaylistMore = (token: string) =>
-	invoke<PlaylistContinuation>('get_playlist_more', { token });
+/** With `total` (the playlist's track count) it fetches several pages at once, for a walk that wants
+ *  the whole list. Without it, one page. */
+export const getPlaylistMore = (token: string, total?: number) =>
+	invoke<PlaylistContinuation>('get_playlist_more', { token, total });
 /** `token` is `PlaylistPage.suggestions`, the last batch's `refresh`, or nothing at all. */
 export const getPlaylistSuggestions = (playlistId: string, token?: string) =>
 	invoke<PlaylistSuggestions>('get_playlist_suggestions', { playlistId, token });
@@ -838,8 +861,13 @@ export const playPlaylist = (
  * A song radio on the track that's already playing splices in behind it (no re-buffer); every
  * other case replaces the queue. Rejects when YouTube has no radio for the item.
  */
-export const startRadio = (kind: 'song' | 'artist' | 'album' | 'playlist', id: string, name?: string) =>
-	invoke<void>('start_radio', { kind, id, name });
+/** `start` (seconds) only applies to a song radio: the seed song opens at that offset. */
+export const startRadio = (
+	kind: 'song' | 'artist' | 'album' | 'playlist',
+	id: string,
+	name?: string,
+	start?: number
+) => invoke<void>('start_radio', { kind, id, name, start });
 export const getAlbum = (id: string) => invoke<AlbumPage>('get_album', { id });
 export const getArtist = (id: string) => invoke<ArtistPage>('get_artist', { id });
 /** Other artists' releases this one is featured on (#456). `songsId` is the page's `topSongsId`. */
@@ -897,6 +925,9 @@ export const removeFromPlaylist = (playlistId: string, videoId: string, setVideo
 /** Bulk removal: one request, all or nothing. `tracks` is [videoId, setVideoId] per row. */
 export const removeManyFromPlaylist = (playlistId: string, tracks: [string, string][]) =>
 	invoke<void>('remove_many_from_playlist', { playlistId, tracks });
+/** Move a playlist row in front of another one (`beforeSetVideoId`), or to the end when null. */
+export const moveInPlaylist = (playlistId: string, setVideoId: string, beforeSetVideoId: string | null) =>
+	invoke<void>('move_in_playlist', { playlistId, setVideoId, beforeSetVideoId });
 /** `local` keeps it on this machine instead of the account, the only kind there is signed out.
  *  Answers the new id: a `LOCALPLAYLIST:` browseId for a local one, YouTube's playlist id else. */
 export const createPlaylist = (title: string, local = false) =>
@@ -1147,6 +1178,8 @@ export type LyricsTrack = {
 	artists: string;
 	album?: string;
 	duration?: number;
+	/** Title and artist typed in the source picker, not the song's own. */
+	searched?: boolean;
 };
 /** Cached on the Rust side, down the user's provider order. `null` = none found. `source` asks that
  *  one provider alone and caches nothing (the source picker's preview); it rejects when the

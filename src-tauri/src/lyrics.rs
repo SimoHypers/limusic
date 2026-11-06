@@ -5,18 +5,20 @@
 //!
 //! 1. **Boidu** (`lyrics-api.boidu.dev`, the Better Lyrics API): Apple's TTML with word timings,
 //!    only for songs its cache already holds.
-//! 2. **LyricsPlus** (YouLyPlus' backend): Apple Music lyrics as KPOE JSON, word-timed, with
+//! 2. **Unison** (Better Lyrics' crowdsourced database, #342): community syncs, mostly word-timed
+//!    TTML, filed by video id, so timed to the exact upload playing.
+//! 3. **LyricsPlus** (YouLyPlus' backend): Apple Music lyrics as KPOE JSON, word-timed, with
 //!    Apple's own romanization. Checked against our length, since its search strays.
-//! 3. **LRCLIB**: `/api/get` (exact), then `/api/search` (fuzzy, ±5s). Free, no key, best coverage.
-//! 4. **YouTube Music**: `next(videoId)` → lyrics browseId → mobile-client browse
+//! 4. **LRCLIB**: `/api/get` (exact), then `/api/search` (fuzzy, ±5s). Free, no key, best coverage.
+//! 5. **YouTube Music**: `next(videoId)` → lyrics browseId → mobile-client browse
 //!    (`timedLyricsData`), else the plain text with YouTube's attribution.
-//! 5. **SimpMusic**: community lyrics filed by videoId, so timed to the exact upload playing.
 //! 6. **Netease / QQ / Kugou**: synced LRC, plus translations from Netease. Search hits are matched
 //!    on length (`best_by_duration`); these catalogues rank remixes next to originals.
 //!
 //! Synced beats plain: the first synced answer down the list wins, and only when none is synced
 //! does the first plain one. Each provider returns its own best (synced if it has it), so the
-//! plain pass costs no second request.
+//! plain pass costs no second request. With `lyrics_prefer_words` on, word-timed beats line-synced
+//! the same way, at the cost of waiting on every provider for a song nobody has word-timed.
 //!
 //! Results are cached in SQLite (`lyrics_cache`): hits forever, "no lyrics" verdicts for 24h.
 //! A run where every provider merely *errored* (offline) caches nothing, so lyrics come back
@@ -49,16 +51,16 @@ const LRCLIB_ROOT: &str = "https://lrclib.net/api";
 /// Every provider, in the order a fresh install asks them. The user's order lives in the
 /// `lyrics_providers` setting; this is the default and the list of what exists.
 pub const PROVIDERS: [&str; 8] =
-    ["boidu", "lyricsplus", "lrclib", "youtube", "simpmusic", "netease", "qq", "kugou"];
+    ["boidu", "unison", "lyricsplus", "lrclib", "youtube", "netease", "qq", "kugou"];
 
 /// The attribution a provider's lyrics carry (`Lyrics::source`), also its name in Settings.
 pub fn provider_name(id: &str) -> &'static str {
     match id {
         "boidu" => "Boidu",
+        "unison" => "Unison",
         "lyricsplus" => "LyricsPlus",
         "lrclib" => "LRCLIB",
         "youtube" => "YouTube Music",
-        "simpmusic" => "SimpMusic",
         "netease" => "Netease Cloud Music",
         "qq" => "QQ Music",
         "kugou" => "Kugou",
@@ -68,7 +70,8 @@ pub fn provider_name(id: &str) -> &'static str {
 
 /// The `lyrics_providers` setting as `(id, on)` in the user's order: ids top to bottom, `-id` for
 /// one switched off. Whatever it doesn't name (all of them on a fresh install, or a provider a
-/// later release adds) follows in the default order, switched on.
+/// later release adds) follows in the default order, switched on, unless every source it names is
+/// off: someone who wanted no lyrics doesn't get a new provider asked behind their back.
 pub fn provider_order(setting: Option<&str>) -> Vec<(&'static str, bool)> {
     let mut out: Vec<(&'static str, bool)> = Vec::new();
     for tok in setting.unwrap_or_default().split(',').map(str::trim) {
@@ -79,9 +82,10 @@ pub fn provider_order(setting: Option<&str>) -> Vec<(&'static str, bool)> {
             }
         }
     }
+    let all_off = !out.is_empty() && out.iter().all(|(_, on)| !on);
     for p in PROVIDERS {
         if !out.iter().any(|(q, _)| *q == p) {
-            out.push((p, true));
+            out.push((p, !all_off));
         }
     }
     out
@@ -163,6 +167,8 @@ pub struct LyricsRequest {
     pub album: Option<String>,
     /// Track length in seconds (mpv's), tightens LRCLIB matching. `None`/0 when unknown yet.
     pub duration: Option<f64>,
+    /// Title and artist typed in the source picker: the video id no longer says what to look up.
+    pub searched: bool,
 }
 
 /// Entry point for the `get_lyrics` command, romanized. `source: None` is the song's lyrics (cached,
@@ -227,7 +233,12 @@ async fn cached_or_fetched(state: &AppState, req: LyricsRequest) -> Option<Lyric
     let now = now_secs();
     let video_id = req.video_id.clone();
     if let Some(cached) = state.db.get_lyrics(&video_id, now, MISS_TTL_SECS) {
-        return cached.and_then(|json| serde_json::from_str(&json).ok());
+        let cached = cached.and_then(|json| serde_json::from_str::<Lyrics>(&json).ok());
+        // Cached before `ask` caught one-cue lyrics (#539): ask the chain again, unless the
+        // source was picked by hand, which stays and reads as plain.
+        if !cached.as_ref().is_some_and(|l| is_flat(l) && !l.pinned) {
+            return cached.map(unsync_flat);
+        }
     }
     let (lyrics, cacheable) = fetch(state, req).await;
     if cacheable {
@@ -288,16 +299,45 @@ async fn ask(
     let e = |e: reqwest::Error| e.to_string();
     let hit = match id {
         "boidu" => boidu_get(req).await.map_err(e),
+        "unison" => unison_get(req).await.map_err(e),
         "lyricsplus" => lyricsplus_get(req).await.map_err(e),
         "lrclib" => lrclib(req).await.map_err(e),
         "youtube" => youtube_get(state, next).await,
-        "simpmusic" => simpmusic_get(req).await.map_err(e),
         "netease" => netease_get(req).await.map_err(e),
         "qq" => qqmusic_get(req).await.map_err(e),
         "kugou" => kugou_get(req).await.map_err(e),
         _ => Ok(None),
     }?;
-    Ok(hit.map(|l| Lyrics { provider: id.to_owned(), ..l }))
+    Ok(hit.map(|l| Lyrics { provider: id.to_owned(), ..unsync_flat(l) }))
+}
+
+/// Synced lyrics whose lines all share one cue: plain text dressed as synced (#539). LyricsPlus
+/// sends some of Apple's untimed lyrics with every line at 0, and any LRC can stamp each line
+/// `[00:00.00]`. Shown as synced the panel never scrolls and the last line stays lit, and `fetch`
+/// stops at the first synced answer, so a provider with real timings below it is never asked.
+/// Word starts count as cues, so a single word-timed line keeps its sweep.
+fn is_flat(l: &Lyrics) -> bool {
+    let mut cues = l
+        .lines
+        .iter()
+        .flat_map(|l| l.time_ms.into_iter().chain(l.words.iter().flatten().map(|w| w.start_ms)));
+    let first = cues.next();
+    l.synced && cues.all(|c| Some(c) == first)
+}
+
+/// Flat lyrics as plain. Applied in `ask`, where every provider's answer passes: LRCLIB and
+/// YouTube declare `synced` themselves rather than going through `from_parsed`.
+fn unsync_flat(mut l: Lyrics) -> Lyrics {
+    if is_flat(&l) {
+        l.synced = false;
+        for line in &mut l.lines {
+            line.time_ms = None;
+            line.end_time_ms = None;
+            line.words = None;
+            line.romanized_words = None;
+        }
+    }
+    l
 }
 
 /// Down the user's list. Second value: cache the outcome. A hit only when the track's length was
@@ -310,7 +350,8 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
         tracing::debug!(error = %e, "lyrics: next() failed");
     }
     let (req, next) = (&req, &next);
-    let cacheable = |id: &str| req.duration.is_some() || matches!(id, "youtube" | "simpmusic");
+    let cacheable = |id: &str| req.duration.is_some() || matches!(id, "youtube" | "unison");
+    let prefer_words = state.db.get_setting("lyrics_prefer_words").as_deref() == Some("true");
 
     // Provider i starts at i × STAGGER instead of after provider i-1 answers (#482): a song with no
     // synced lyrics anywhere used to wait on every provider in turn, ~10s. Answers are still read
@@ -331,6 +372,8 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
             .collect();
 
     let mut definitive = false;
+    // Line-synced, held while a source further down may have it word by word.
+    let mut lines: Option<Lyrics> = None;
     let mut plain: Option<Lyrics> = None;
     while let Some((id, answer)) = answers.next().await {
         tracing::debug!(
@@ -339,7 +382,11 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
             "lyrics: answered"
         );
         match answer {
-            Ok(Some(l)) if l.synced || l.instrumental => return (Some(l), cacheable(id)),
+            Ok(Some(l)) if settles(&l, prefer_words) => return (Some(l), cacheable(id)),
+            Ok(Some(l)) if l.synced => {
+                definitive = true;
+                lines = lines.or(Some(l));
+            }
             Ok(hit) => {
                 definitive = true;
                 plain = plain.or(hit);
@@ -347,13 +394,20 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
             Err(e) => tracing::debug!(provider = id, error = %e, "lyrics: provider failed"),
         }
     }
-    match plain {
+    match lines.or(plain) {
         Some(l) => {
             let cache = cacheable(&l.provider);
             (Some(l), cache)
         }
         None => (None, definitive),
     }
+}
+
+/// An answer `fetch` stops at: nothing a source further down could beat. Synced beats plain, and with
+/// `prefer_words` word-timed (the UI's `lyricsKind` "words") beats line-synced too.
+fn settles(l: &Lyrics, prefer_words: bool) -> bool {
+    let words = l.lines.iter().any(|l| l.words.as_ref().is_some_and(|w| !w.is_empty()));
+    l.instrumental || (l.synced && (words || !prefer_words))
 }
 
 /// YouTube Music's own lyrics: the timed ones its mobile app shows, else the plain text under
@@ -560,12 +614,13 @@ fn lrclib_to_lyrics(t: &LrclibTrack) -> Option<Lyrics> {
     if let Some(lrc) = t.synced_lyrics.as_deref().filter(|s| !s.trim().is_empty()) {
         let lines = parse_lrc(lrc);
         if !lines.is_empty() {
-            return Some(Lyrics {
+            // One cue reads as plain here already, so `lrclib` goes on to the search.
+            return Some(unsync_flat(Lyrics {
                 source: "LRCLIB".into(),
                 synced: true,
                 lines,
                 ..Default::default()
-            });
+            }));
         }
     }
     plain_from_text(t.plain_lyrics.as_deref(), "LRCLIB")
@@ -746,6 +801,58 @@ async fn boidu_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Error
     Ok(hit)
 }
 
+/// Unison, Better Lyrics' crowdsourced lyrics (#342). Read-only: a vote is a request signed with a
+/// per-user key, so the source picker links the song's page on their site instead.
+const UNISON_URL: &str = "https://unison.betterlyrics.org/lyrics";
+
+#[derive(Debug, Deserialize)]
+struct UnisonAnswer {
+    data: UnisonLyrics,
+}
+
+#[derive(Debug, Deserialize)]
+struct UnisonLyrics {
+    #[serde(default)]
+    lyrics: String,
+    /// "ttml" (Better Lyrics' composer, Apple's dialect), "lrc" or "plain".
+    #[serde(default)]
+    format: String,
+}
+
+/// By video id, like the extension, and by title for a search typed in the source picker or a local
+/// file (no video id). A `v` miss is a 404 without trying song + artist (`routes/lyrics.ts`, despite
+/// its README), so asking both ways would cost a second request on every miss.
+async fn unison_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Error> {
+    let q: Vec<(&str, String)> = if req.searched || crate::local::is_local_song(&req.video_id) {
+        let mut q = vec![("song", req.title.clone()), ("artist", req.artists.clone())];
+        if let Some(d) = req.duration.filter(|d| *d > 0.0) {
+            q.push(("duration", format!("{}", d.round() as i64)));
+        }
+        q
+    } else {
+        vec![("v", req.video_id.clone())]
+    };
+    let resp = crate::http::client()
+        .get(UNISON_URL)
+        .query(&q)
+        .header("User-Agent", LRCLIB_UA)
+        .timeout(Duration::from_secs(8))
+        .send()
+        .await?;
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    let answer: UnisonAnswer = resp.error_for_status()?.json().await?;
+    Ok(unison_to_lyrics(answer.data))
+}
+
+fn unison_to_lyrics(u: UnisonLyrics) -> Option<Lyrics> {
+    match u.format.as_str() {
+        "plain" => plain_from_text(Some(&u.lyrics), "Unison"),
+        _ => from_parsed("Unison", parse_lrc_or_ttml(&u.lyrics)),
+    }
+}
+
 /// LyricsPlus, the backend of YouLyPlus (#46): Apple Music's word-timed lyrics as KPOE JSON, for
 /// far more songs than Boidu's cache holds.
 // ponytail: one mirror. Of the six listed in #46 only this one answered on 2026-09-27 (the rest
@@ -865,54 +972,6 @@ fn kpoe_to_lyrics(k: Kpoe, ours: Option<f64>) -> Option<Lyrics> {
         })
         .collect();
     from_parsed("LyricsPlus", lines)
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SimpMusicTrack {
-    #[serde(default)]
-    plain_lyric: Option<String>,
-    #[serde(default)]
-    synced_lyrics: Option<String>,
-    /// Enhanced LRC, word-timed. Empty on most.
-    #[serde(default)]
-    rich_sync_lyrics: Option<String>,
-    #[serde(default)]
-    vote: i64,
-}
-
-/// SimpMusic's community library, filed by YouTube videoId (#46). The one provider matched on the
-/// upload itself rather than on title and length, so its timings are for the cut actually playing,
-/// a music video's intro included. Community-written, hence below the curated ones by default.
-async fn simpmusic_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Error> {
-    if crate::local::is_local_song(&req.video_id) {
-        return Ok(None);
-    }
-    #[derive(Deserialize)]
-    struct Resp {
-        data: Option<Vec<SimpMusicTrack>>,
-    }
-    let resp = crate::http::client()
-        .get(format!("https://api-lyrics.simpmusic.org/v1/{}", req.video_id))
-        .header("User-Agent", LRCLIB_UA)
-        .timeout(Duration::from_secs(8))
-        .send()
-        .await?;
-    if resp.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(None);
-    }
-    let mut tracks = resp.error_for_status()?.json::<Resp>().await?.data.unwrap_or_default();
-    // Several submissions can compete for one video: the best voted first.
-    tracks.sort_by_key(|t| std::cmp::Reverse(t.vote));
-    let synced = tracks.iter().find_map(|t| {
-        [&t.rich_sync_lyrics, &t.synced_lyrics]
-            .into_iter()
-            .flatten()
-            .find_map(|lrc| from_parsed("SimpMusic", parse_elrc(lrc)).filter(|l| l.synced))
-    });
-    Ok(synced.or_else(|| {
-        tracks.iter().find_map(|t| plain_from_text(t.plain_lyric.as_deref(), "SimpMusic"))
-    }))
 }
 
 /// How far a search hit's length may sit from the track we're actually playing. Same tolerance the
@@ -1667,8 +1726,59 @@ mod tests {
         // Unknown and repeated ids are dropped; the ones it doesn't name follow, switched on.
         assert_eq!(
             ids(provider_order(Some("lrclib, -boidu,gone,lrclib"))),
-            "lrclib,-boidu,lyricsplus,youtube,simpmusic,netease,qq,kugou"
+            "lrclib,-boidu,unison,lyricsplus,youtube,netease,qq,kugou"
         );
+        // Every source off stays every source off when a release adds one.
+        assert_eq!(
+            ids(provider_order(Some("-boidu,-lyricsplus,-lrclib,-youtube,-netease,-qq,-kugou"))),
+            "-boidu,-lyricsplus,-lrclib,-youtube,-netease,-qq,-kugou,-unison"
+        );
+    }
+
+    #[test]
+    fn word_timed_lyrics_settle_the_walk_when_preferred() {
+        let line = |words: bool| LyricLine {
+            words: words.then(|| vec![LyricWord { text: "a".into(), start_ms: 0, end_ms: 9 }]),
+            ..LyricLine::simple(Some(0), "a".into())
+        };
+        let lyrics =
+            |synced, words| Lyrics { synced, lines: vec![line(words)], ..Default::default() };
+        let (plain, lines, words) = (lyrics(false, false), lyrics(true, false), lyrics(true, true));
+        assert!(!settles(&plain, false) && !settles(&plain, true));
+        assert!(settles(&lines, false), "line-synced still wins with the setting off");
+        assert!(!settles(&lines, true), "held while a source below may have words");
+        assert!(settles(&words, false) && settles(&words, true));
+        let instrumental = Lyrics { instrumental: true, ..Default::default() };
+        assert!(settles(&instrumental, true));
+    }
+
+    /// Unison's answer, trimmed from "Love Never Felt So Good" (FkxEE7wZ83c, 2026-11-02): the
+    /// composer's TTML, word-timed. LRC and plain arrive in the same envelope.
+    #[test]
+    fn unison_reads_each_format() {
+        let json = r#"{"success":true,"data":{"id":1494,"videoId":"FkxEE7wZ83c","format":"ttml","syncType":"richsync","lyrics":"<tt xmlns=\"http://www.w3.org/ns/ttml\" xmlns:ttm=\"http://www.w3.org/ns/ttml#metadata\" xml:lang=\"en\"><body dur=\"4:06.040\"><div><p begin=\"0:16.929\" end=\"0:21.439\" ttm:agent=\"v1\"><span begin=\"0:16.929\" end=\"0:17.855\">Baby,</span> <span begin=\"0:18.944\" end=\"0:19.448\">love</span></p><p begin=\"0:22.502\" end=\"0:25.291\" ttm:agent=\"v1\"><span begin=\"0:22.502\" end=\"0:22.773\">And</span></p></div></body></tt>"}}"#;
+        let u = serde_json::from_str::<UnisonAnswer>(json).unwrap().data;
+        let l = unison_to_lyrics(u).unwrap();
+        assert!(l.synced);
+        assert_eq!(l.source, "Unison");
+        assert_eq!(l.lines.len(), 2);
+        assert_eq!(l.lines[0].time_ms, Some(16929));
+        let w = &l.lines[0].words.as_ref().unwrap()[1];
+        assert_eq!((w.start_ms, w.end_ms), (18944, 19448));
+
+        let lrc =
+            UnisonLyrics { format: "lrc".into(), lyrics: "[00:01.00]One\n[00:02.50]Two".into() };
+        let l = unison_to_lyrics(lrc).unwrap();
+        assert!(l.synced);
+        assert_eq!(l.lines[1].time_ms, Some(2500));
+
+        let plain = UnisonLyrics { format: "plain".into(), lyrics: "One\n\nTwo\n".into() };
+        let l = unison_to_lyrics(plain).unwrap();
+        assert!(!l.synced);
+        assert_eq!(l.lines.len(), 3);
+
+        assert!(unison_to_lyrics(UnisonLyrics { format: "ttml".into(), lyrics: String::new() })
+            .is_none());
     }
 
     /// LyricsPlus' shape, trimmed from "Spring Day": word-timed, with Apple's reading.
@@ -1693,6 +1803,41 @@ mod tests {
         // Its search strays onto other songs off the same album: the length has to agree.
         assert!(kpoe_to_lyrics(k(), Some(188.0)).is_none());
         assert!(kpoe_to_lyrics(k(), None).is_some());
+    }
+
+    /// #539, trimmed from LyricsPlus' "Birds Eye View" (Alina Baraz): Apple's untimed lyrics with
+    /// every line at 0, labelled "Word" with no syllables.
+    #[test]
+    fn lyrics_on_one_cue_are_plain() {
+        let json = r#"{"type":"Word","metadata":{"source":"qApple","totalDuration":""},"lyrics":[
+            {"time":0,"duration":0,"text":"Show me how good it can get","syllabus":[]},
+            {"time":0,"duration":0,"text":"Life isn't over quite yet","syllabus":[]}]}"#;
+        let l = kpoe_to_lyrics(serde_json::from_str(json).unwrap(), Some(171.0)).unwrap();
+        assert!(l.synced, "what the providers hand over");
+        let l = unsync_flat(l);
+        assert!(!l.synced);
+        assert!(l.lines.iter().all(|l| l.time_ms.is_none() && l.end_time_ms.is_none()));
+        assert_eq!(l.lines[1].text, "Life isn't over quite yet");
+
+        // Same from an LRC, which LRCLIB declares synced without asking the lines.
+        let lrc = "[00:00.00]one\n[00:00.00]two";
+        let l = Lyrics { synced: true, lines: parse_lrc(lrc), ..Default::default() };
+        assert!(!unsync_flat(l).synced);
+
+        // One line on one cue, but its words are timed: the sweep stays.
+        let l = Lyrics {
+            synced: true,
+            lines: parse_elrc("[00:01.00]<00:01.00>a <00:02.00>b"),
+            ..Default::default()
+        };
+        assert!(unsync_flat(l).synced);
+
+        // Real cues, credit lines at 0 included, stay synced.
+        let lrc = "[00:00.00]credits\n[00:00.00]more credits\n[00:09.02]one";
+        let l = Lyrics { synced: true, lines: parse_lrc(lrc), ..Default::default() };
+        let l = unsync_flat(l);
+        assert!(l.synced);
+        assert_eq!(l.lines[2].time_ms, Some(9020));
     }
 
     #[test]
@@ -1749,20 +1894,12 @@ mod tests {
             artists: "Ed Sheeran".into(),
             album: None,
             duration: Some(233.0),
-        };
-        // The official music video, which SimpMusic files lyrics under.
-        let video = LyricsRequest {
-            video_id: "JGwWNGJdvx8".into(),
-            title: req.title.clone(),
-            artists: req.artists.clone(),
-            album: None,
-            duration: Some(264.0),
+            searched: false,
         };
         let mut alive = 0;
         for (name, hit) in [
             ("Boidu", boidu_get(&req).await),
             ("LyricsPlus", lyricsplus_get(&req).await),
-            ("SimpMusic", simpmusic_get(&video).await),
             ("Netease Cloud Music", netease_get(&req).await),
             ("QQ Music", qqmusic_get(&req).await),
             ("Kugou", kugou_get(&req).await),
@@ -1803,6 +1940,7 @@ mod tests {
                 artists: artists.into(),
                 album: None,
                 duration: Some(283.0),
+                searched: false,
             };
             let hit = lrclib_search(&cover).await.unwrap().expect("LRCLIB free-text hit");
             assert!(hit.has_synced(), "{title}");

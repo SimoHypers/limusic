@@ -48,6 +48,7 @@
 	import { t, setLocale, currentLocale, LOCALES } from '$lib/i18n.svelte';
 	import GlobalHotkeysSettings from '$lib/components/GlobalHotkeysSettings.svelte';
 	import LyricsSourcesSettings from '$lib/components/LyricsSourcesSettings.svelte';
+	import EnhancedLyricsSettings from '$lib/components/EnhancedLyricsSettings.svelte';
 	import LanguagePicker from '$lib/components/LanguagePicker.svelte';
 
 	type TabId =
@@ -227,6 +228,7 @@
 		return Number.isFinite(secs) ? Math.min(10, Math.max(1, secs)) : 5;
 	});
 	const hideVideosOn = $derived(settings.hide_videos === 'true');
+	const preferWordsOn = $derived(settings.lyrics_prefer_words === 'true');
 	// Off until the setting is turned on: still experimental, so nobody gets video they didn't ask
 	// for. Same test in `player.svelte.ts`, which hydrates `prefs` at launch.
 	const musicVideosOn = $derived(settings.music_videos === 'true');
@@ -245,6 +247,7 @@
 	const trayOn = $derived(settings.close_to_tray !== 'false');
 	const trackNotificationsOn = $derived(settings.track_notifications === 'true');
 	const trackNotificationsFocusedOn = $derived(settings.track_notifications_focused === 'true');
+	const playOnStartOn = $derived(settings.play_on_start === 'true');
 	const autostartOn = $derived(settings.autostart === 'true');
 	const startMinimizedOn = $derived(settings.start_minimized === 'true');
 	// `native_chrome` is read-only and platform-derived (commands.rs). `overlay` is macOS, where the
@@ -315,6 +318,11 @@
 		prefs.ambient = on;
 	}
 
+	async function setPreferWords(on: boolean) {
+		settings.lyrics_prefer_words = on ? 'true' : 'false';
+		await api.setSetting('lyrics_prefer_words', settings.lyrics_prefer_words);
+	}
+
 	async function setHideVideos(on: boolean) {
 		settings.hide_videos = on ? 'true' : 'false';
 		await api.setSetting('hide_videos', settings.hide_videos);
@@ -374,6 +382,11 @@
 			win.chrome = prev;
 			toast.error(String(e));
 		}
+	}
+
+	async function setPlayOnStart(on: boolean) {
+		settings.play_on_start = on ? 'true' : 'false';
+		await api.setSetting('play_on_start', settings.play_on_start);
 	}
 
 	async function setAutostart(on: boolean) {
@@ -473,7 +486,7 @@
 
 		<div class="flex min-w-0 h-[min(38rem,80vh)]">
 			<!-- Tab rail -->
-			<nav class="flex w-52 shrink-0 flex-col border-r bg-muted/40 p-3">
+			<nav data-settings-nav class="flex w-52 shrink-0 flex-col border-r bg-muted/40 p-3">
 				<Dialog.Title class="px-3 pt-1 pb-4 font-heading text-base font-semibold">
 					{t('settings.title')}
 				</Dialog.Title>
@@ -506,7 +519,10 @@
 			     (a long font name, a long path) widens the pane and pushes every tab off the modal. -->
 			<div class="flex min-w-0 flex-1 flex-col">
 				<!-- h-14 also keeps the dialog's close button clear of the first row. -->
-				<header class="flex h-14 shrink-0 flex-col justify-center border-b px-6 pr-14">
+				<header
+					data-settings-header
+					class="flex h-14 shrink-0 flex-col justify-center border-b px-6 pr-14"
+				>
 					<h2 class="text-sm font-semibold">{currentTab.label}</h2>
 					<p class="truncate text-xs text-muted-foreground">{currentTab.hint}</p>
 				</header>
@@ -543,7 +559,7 @@
 						</button>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.language')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.general.language'),
 									desc: t('settings.general.language_hint'),
@@ -554,7 +570,7 @@
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.activity')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('player.history'),
 									desc: t('settings.playback.play_history_hint'),
@@ -564,7 +580,7 @@
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.system')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.general.close_to_tray'),
 									desc: t('settings.general.close_to_tray_hint'),
@@ -582,6 +598,11 @@
 										control: trackNotificationsFocusedSwitch
 									})}
 								{/if}
+								{@render row({
+									title: t('settings.general.play_on_start'),
+									desc: t('settings.general.play_on_start_hint'),
+									control: playOnStartSwitch
+								})}
 								{@render row({
 									title: t('settings.general.autostart'),
 									desc: t('settings.general.autostart_hint'),
@@ -606,7 +627,7 @@
 					{:else if tab === 'playback'}
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.audio')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.playback.audio_quality'),
 									desc: t('settings.playback.audio_quality_hint'),
@@ -662,7 +683,7 @@
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.video')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.playback.music_videos'),
 									badge: t('settings.themes.experimental'),
@@ -696,7 +717,7 @@
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.blocked')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.playback.blocked_artists'),
 									desc: t('settings.playback.blocked_artists_hint'),
@@ -706,11 +727,22 @@
 						</section>
 						<section class={GROUP} id="settings-lyrics">
 							<h3 class={LABEL}>{t('settings.sections.lyrics')}</h3>
-							<LyricsSourcesSettings {settings} />
+							<div class="space-y-3">
+								<EnhancedLyricsSettings />
+								<LyricsSourcesSettings {settings} />
+							</div>
+							<div data-settings-card class="mt-3 {CARD}">
+								{@render row({
+									title: t('settings.playback.lyrics_prefer_words'),
+									desc: t('settings.playback.lyrics_prefer_words_hint'),
+									control: preferWordsSwitch,
+									tall: true
+								})}
+							</div>
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.advanced')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({ title: t('settings.general.stream_clients'), below: clientList })}
 							</div>
 						</section>
@@ -719,7 +751,7 @@
 					{:else if tab === 'data'}
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.network')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.general.proxy'),
 									desc: t('settings.general.proxy_hint'),
@@ -729,7 +761,7 @@
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.storage')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.data.clear_cache'),
 									desc: t('settings.data.clear_cache_hint'),
@@ -758,7 +790,7 @@
 
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.support')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.about.kofi'),
 									desc: t('settings.about.kofi_hint'),
@@ -770,7 +802,7 @@
 
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.updates')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.about.check_updates'),
 									desc: updateState.available && !updateState.canInstall
@@ -800,7 +832,7 @@
 
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.report')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.about.diagnostics'),
 									desc: t('settings.about.diagnostics_hint'),
@@ -823,7 +855,7 @@
 
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.whats_new')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.about.changelog'),
 									desc: t('settings.about.version').replace('{version}', version),
@@ -880,6 +912,7 @@
 		checked={trackNotificationsFocusedOn}
 		onCheckedChange={setTrackNotificationsFocused}
 	/>{/snippet}
+{#snippet playOnStartSwitch()}<Switch checked={playOnStartOn} onCheckedChange={setPlayOnStart} />{/snippet}
 {#snippet autostartSwitch()}<Switch checked={autostartOn} onCheckedChange={setAutostart} />{/snippet}
 {#snippet startMinimizedSwitch()}<Switch checked={startMinimizedOn} onCheckedChange={setStartMinimized} />{/snippet}
 {#snippet systemTitlebarSwitch()}<Switch
@@ -956,6 +989,7 @@
 		</Popover.Content>
 	</Popover.Root>
 {/snippet}
+{#snippet preferWordsSwitch()}<Switch checked={preferWordsOn} onCheckedChange={setPreferWords} />{/snippet}
 {#snippet hideVideoSwitch()}<Switch checked={hideVideosOn} onCheckedChange={setHideVideos} />{/snippet}
 {#snippet bannerSwitch()}<Switch checked={updateBannerOn} onCheckedChange={setUpdateBanner} />{/snippet}
 {#snippet betaSwitch()}<Switch checked={betaOn} onCheckedChange={setBeta} />{/snippet}

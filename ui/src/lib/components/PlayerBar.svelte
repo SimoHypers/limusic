@@ -16,10 +16,12 @@
 		FavouriteIcon,
 		Add01Icon,
 		InfinityIcon,
-		MinimizeScreenIcon,
 		MusicNote01Icon,
 		ArrowUp01Icon,
-		ArrowDown01Icon
+		ArrowDown01Icon,
+		PreferenceVerticalIcon,
+		GoBackward15SecIcon,
+		GoForward15SecIcon
 	} from '@hugeicons/core-free-icons';
 	import { fade } from 'svelte/transition';
 	import { goto } from '$app/navigation';
@@ -32,14 +34,19 @@
 		cycleRepeat,
 		dragVolume,
 		openAddToPlaylist,
-		openMiniPlayer,
+		SKIP_SECS,
+		skipBy,
 		toggleMute,
 		toggleNowPlayingRating,
+		ui,
 		wheelVolume
 	} from '$lib/player.svelte';
 	import { thumb } from '$lib/thumb';
+	import { appearance } from '$lib/theme.svelte';
 	import ArtistLine from './ArtistLine.svelte';
+	import M3SeekWave from './M3SeekWave.svelte';
 	import Marquee from './Marquee.svelte';
+	import SpeedPicker from './SpeedPicker.svelte';
 	import TrackMenu from './TrackMenu.svelte';
 	import { t } from '$lib/i18n.svelte';
 
@@ -79,7 +86,14 @@
 	};
 
 	const shuffleOn = $derived(playback.queue.shuffle ?? false);
+	// Lit like shuffle while any effect is on: a speed set last week and forgotten is the case to
+	// catch, since the song then just sounds wrong.
+	const effectsOn = $derived(
+		playback.speed !== 1 || playback.semitones !== 0 || playback.reverb.enabled
+	);
 	const repeat = $derived(playback.queue.repeat ?? 'off');
+	// A podcast episode trades shuffle for speed and gets the 15-second skips either side of play.
+	const episode = $derived(!!playback.now?.isEpisode);
 
 	// The current track was appended by autoplay → show the subtle ∞ badge next to the title.
 	// Matched against the now-playing videoId so a transient queue/now-playing mismatch (mid
@@ -105,13 +119,18 @@
 	// Seek: while dragging, hold a local value so incoming mpv position ticks can't yank the thumb
 	// back under the pointer; only invoke the (expensive) seek on release.
 	let seekDrag = $state<number | null>(null);
-	const shownPosition = $derived(seekDrag ?? playback.position);
+	// Display playback seconds at the selected tempo; mpv seeks still take track seconds.
+	const shownPosition = $derived((seekDrag ?? playback.position) / playback.speed);
+	const shownDuration = $derived(playback.duration / playback.speed);
+	const seekPct = $derived(
+		shownDuration > 0 ? Math.min(1, Math.max(0, shownPosition / shownDuration)) : 0
+	);
 
 	function onSeekInput(e: Event) {
-		seekDrag = Number((e.target as HTMLInputElement).value);
+		seekDrag = Number((e.target as HTMLInputElement).value) * playback.speed;
 	}
 	function onSeekCommit(e: Event) {
-		const v = Number((e.target as HTMLInputElement).value);
+		const v = Number((e.target as HTMLInputElement).value) * playback.speed;
 		playback.position = v;
 		seekDrag = null;
 		api.seek(v);
@@ -131,8 +150,9 @@
 	// Anywhere on the bar that isn't a control opens (or closes) the now-playing view: the bar is
 	// what's left of it once it's minimised, so it's the way back in. Deliberately no pointer
 	// cursor, because this is the whole bar, not a button, and every real button keeps its own click.
+	// Settings can switch it off for whoever keeps tripping it on a missed control.
 	function onBarClick(e: MouseEvent) {
-		if (pressedControl || isControl(e.target)) return;
+		if (!appearance.emptyClickTogglesPlayer || pressedControl || isControl(e.target)) return;
 		np.open = !np.open;
 	}
 </script>
@@ -141,6 +161,8 @@
      stays a plain region rather than becoming a focusable control wrapping every other control. -->
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions, a11y_no_noninteractive_element_interactions -->
 <footer
+	data-player-bar
+	data-playing={playback.paused ? 'false' : 'true'}
 	onpointerdown={(e) => (pressedControl = isControl(e.target))}
 	onclick={onBarClick}
 	class="flex items-center gap-2 border-t bg-card px-2 py-2.5 sm:gap-4 sm:px-4 sm:py-3"
@@ -151,6 +173,7 @@
 		{#key playback.now?.videoId}
 			{#if playback.now?.thumbnail}
 				<img
+					data-player-art
 					src={thumb(playback.now.thumbnail, 120)}
 					alt=""
 					style="max-width:none"
@@ -159,6 +182,7 @@
 				/>
 			{:else}
 				<div
+					data-player-art
 					class="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground/50"
 				>
 					<HugeiconsIcon icon={MusicNote01Icon} class="h-5 w-5" />
@@ -272,24 +296,42 @@
 	<!-- Transport -->
 	<div class="flex flex-[1.5] flex-col items-center gap-1">
 		<div class="flex items-center gap-1">
-			<Button
-				variant="ghost"
-				size="icon-sm"
-				onclick={() => api.toggleShuffle()}
-				aria-label={t('player.shuffle')}
-				aria-pressed={shuffleOn}
-			>
-				<HugeiconsIcon
-					icon={ShuffleIcon}
-					class="h-4 w-4 {shuffleOn ? 'text-primary' : 'text-muted-foreground'}"
+			{#if episode}
+				<SpeedPicker
+					class="inline-flex h-8 min-w-8 items-center justify-center rounded-4xl px-0.5 text-xs hover:bg-muted dark:hover:bg-muted/50 aria-expanded:bg-muted"
 				/>
-			</Button>
+			{:else}
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					onclick={() => api.toggleShuffle()}
+					aria-label={t('player.shuffle')}
+					aria-pressed={shuffleOn}
+				>
+					<HugeiconsIcon
+						icon={ShuffleIcon}
+						class="h-4 w-4 {shuffleOn ? 'text-primary' : 'text-muted-foreground'}"
+					/>
+				</Button>
+			{/if}
 			<Button variant="ghost" size="icon-sm" onclick={() => api.prevTrack()} aria-label={t('player.previous')}>
 				<HugeiconsIcon icon={PreviousIcon} class="h-5 w-5" />
 			</Button>
+			{#if episode}
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					onclick={() => skipBy(-SKIP_SECS)}
+					aria-label={t('player.skip_back', { seconds: SKIP_SECS })}
+					title={t('player.skip_back', { seconds: SKIP_SECS })}
+				>
+					<HugeiconsIcon icon={GoBackward15SecIcon} class="h-5 w-5" />
+				</Button>
+			{/if}
 			<Button
 				variant="default"
 				size="icon"
+				data-play-button
 				class="rounded-full"
 				onclick={() => api.togglePause()}
 				aria-label={playback.paused ? t('player.play') : t('player.pause')}
@@ -303,6 +345,17 @@
 				class="h-5 w-5"
 			/>
 			</Button>
+			{#if episode}
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					onclick={() => skipBy(SKIP_SECS)}
+					aria-label={t('player.skip_forward', { seconds: SKIP_SECS })}
+					title={t('player.skip_forward', { seconds: SKIP_SECS })}
+				>
+					<HugeiconsIcon icon={GoForward15SecIcon} class="h-5 w-5" />
+				</Button>
+			{/if}
 			<Button variant="ghost" size="icon-sm" onclick={() => api.nextTrack()} aria-label={t('player.next')}>
 				<HugeiconsIcon icon={NextIcon} class="h-5 w-5" />
 			</Button>
@@ -328,18 +381,29 @@
 			<!-- Fixed slots, or the seek bar twitches as the position ticks: DM Sans has no tabular
 			     figures, so `tabular-nums` does nothing there (#463). -->
 			<span class="min-w-[5ch] text-right tabular-nums">{fmt(shownPosition)}</span>
-			<input
-				type="range"
-				class="range flex-1"
-				style="--pct:{playback.duration ? (shownPosition / playback.duration) * 100 : 0}%"
-				min="0"
-				max={playback.duration || 0}
-				value={shownPosition}
-				oninput={onSeekInput}
-				onchange={onSeekCommit}
-				aria-label={t('player.seek')}
-			/>
-			<span class="min-w-[5ch] tabular-nums">{fmt(playback.duration)}</span>
+			<div
+				class="m3-seek relative flex flex-1 items-center"
+				style="--pct:{seekPct * 100}%"
+			>
+				<M3SeekWave
+					pct={seekPct}
+					paused={playback.paused}
+					duration={shownDuration}
+					dragging={seekDrag !== null}
+				/>
+				<input
+					type="range"
+					class="range w-full flex-1"
+					style="--pct:{seekPct * 100}%"
+					min="0"
+					max={shownDuration || 0}
+					value={shownPosition}
+					oninput={onSeekInput}
+					onchange={onSeekCommit}
+					aria-label={t('player.seek')}
+				/>
+			</div>
+			<span class="min-w-[5ch] tabular-nums">{fmt(shownDuration)}</span>
 		</div>
 	</div>
 
@@ -377,8 +441,17 @@
 		</div>
 		<!-- One cluster, so they sit tighter to each other than to the volume slider. -->
 		<div class="flex items-center gap-0.5">
-			<Button variant="ghost" size="icon-sm" onclick={openMiniPlayer} aria-label={t('player.mini_player')}>
-				<HugeiconsIcon icon={MinimizeScreenIcon} class="h-5 w-5" />
+			<Button
+				variant={ui.tempoPitchOpen ? 'secondary' : 'ghost'}
+				size="icon-sm"
+				onclick={() => (ui.tempoPitchOpen = !ui.tempoPitchOpen)}
+				aria-label={t('dialogs.tempo_pitch.title')}
+				aria-expanded={ui.tempoPitchOpen}
+			>
+				<HugeiconsIcon
+					icon={PreferenceVerticalIcon}
+					class="h-5 w-5 {effectsOn ? 'text-primary' : ''}"
+				/>
 			</Button>
 			<Button
 				variant={lyricsOpen ? 'secondary' : 'ghost'}

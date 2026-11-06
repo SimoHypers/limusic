@@ -1,9 +1,14 @@
 //! High-level endpoint facade over the transport. context/03, 08.
 
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use futures_util::future::join_all;
 use serde::Serialize;
 
 use crate::blocklist;
 use crate::clients::YouTubeClient;
+use crate::ctoken;
 use crate::models::browse::{
     self, AlbumPage, ArtistPage, BrowseItem, HistoryGroup, HomePage, MoodSection,
     PlaylistContinuation, PlaylistPage, PlaylistSort, PlaylistSuggestions, SearchResults,
@@ -251,10 +256,8 @@ impl InnerTube {
         };
         let value = self.post("next", metadata_client, &body, true).await?;
         let mut next = metadata::parse_next(&value);
-        // The seed itself survives: "start radio from this video" must still open on that video,
-        // and the track already playing is never yanked out from under the user.
         if self.hide_videos() {
-            next.items.retain(|i| !i.is_video || Some(i.video_id.as_str()) == video_id);
+            drop_video_rows(&mut next.items, video_id);
         }
         self.drop_blocked_songs(&mut next.items, video_id);
         Ok(next)
@@ -871,6 +874,54 @@ impl InnerTube {
         Ok(browse::parse_playlist_continuation(&value))
     }
 
+    /// The next page of playlist tracks plus, while `total` says the list runs that far, the pages
+    /// after it, requested together (#536). Those are asked for by position (`ctoken::at`), so
+    /// walking a long list takes a quarter of the round trips: past page 1, a 2,000-track playlist
+    /// is 5 instead of 19.
+    ///
+    /// Answers what `playlist_continuation` would after walking the same pages: their rows in order
+    /// and the last one's token. A built page that does not carry on from the one before is
+    /// dropped along with everything after it, so the worst case is the old one page per call.
+    pub async fn playlist_pages(
+        &self,
+        client: &YouTubeClient,
+        token: &str,
+        total: usize,
+    ) -> Result<PlaylistContinuation, Error> {
+        let start = ctoken::position(token).filter(|_| !AHEAD_OFF.load(Ordering::Relaxed));
+        let built: Vec<(u64, String)> = start
+            .into_iter()
+            .flat_map(|s| (1..PAGES_AHEAD).map(move |k| s + k * PAGE_ROWS))
+            .take_while(|p| *p < total as u64)
+            .filter_map(|p| Some((p, ctoken::at(token, p)?)))
+            .collect();
+        let (first, rest) = tokio::join!(
+            self.playlist_continuation(client, token),
+            join_all(built.iter().map(|(_, t)| self.playlist_continuation(client, t)))
+        );
+        let mut out = first?;
+        for ((at, _), page) in built.iter().zip(rest) {
+            let joined = match page {
+                Ok(page) => join_page(&mut out, *at, page),
+                // ponytail: a timeout counts too, and only costs the speed-up for the session.
+                Err(e) => Err(e.to_string()),
+            };
+            match joined {
+                Ok(true) => {}
+                Ok(false) => break,
+                Err(why) => {
+                    tracing::warn!(
+                        "playlist page built for position {at} did not join up ({why}), \
+                         walking one page at a time from now on"
+                    );
+                    AHEAD_OFF.store(true, Ordering::Relaxed);
+                    break;
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// Suggestions for a playlist you own (#395). `token` is the page's `suggestions`, a previous
     /// batch's `refresh`, or `None` when the page offered no shelf.
     ///
@@ -1119,6 +1170,22 @@ impl InnerTube {
             })
             .collect();
         self.edit_playlist_actions(client, playlist_id, actions).await
+    }
+
+    /// Move a video in a playlist before another video (or to the end if successor is None).
+    pub async fn playlist_move(
+        &self,
+        client: &YouTubeClient,
+        playlist_id: &str,
+        set_video_id: &str,
+        before_set_video_id: Option<&str>,
+    ) -> Result<(), Error> {
+        self.edit_playlist_actions(
+            client,
+            playlist_id,
+            vec![move_video_action(set_video_id, before_set_video_id)],
+        )
+        .await
     }
 
     /// Store a sort order on a playlist you own, so every other client on the account shows the
@@ -1372,6 +1439,75 @@ impl InnerTube {
     }
 }
 
+/// Pages `playlist_pages` has in flight at once: the real one and the ones built from it.
+/// ponytail: small and fixed on purpose. These are the requests a walk makes anyway, only
+/// overlapping, and a bigger burst looks more like a bot.
+const PAGES_AHEAD: u64 = 4;
+
+/// Rows on one playlist page. A page spans at least this many positions (more where YouTube skips
+/// rows), so pages built this far apart overlap a little and never leave a gap.
+const PAGE_ROWS: u64 = 100;
+
+/// Set once a built page fails to join up, and never cleared: the rest of the session walks one
+/// page at a time, as before #536.
+/// ponytail: process-wide, so one odd playlist turns it off for all of them until a restart.
+static AHEAD_OFF: AtomicBool = AtomicBool::new(false);
+
+/// "Hide music videos" on a `/next` page. The seed always stays: "start radio from this video"
+/// opens on that video, and the track already playing is never yanked out from under the user.
+///
+/// A page seeded on a video that the filter would leave with nothing but the seed is kept whole.
+/// YouTube builds a music video's radio entirely out of videos, so filtering it reads as "no
+/// radio" for something the user chose to play (#586). Unseeded pages and audio seeds filter as
+/// usual.
+fn drop_video_rows(items: &mut Vec<SongItem>, seed: Option<&str>) {
+    let is_seed = |i: &SongItem| Some(i.video_id.as_str()) == seed;
+    let from_video = items.iter().any(|i| is_seed(i) && i.is_video);
+    if from_video && items.iter().all(|i| i.is_video) {
+        return;
+    }
+    items.retain(|i| !i.is_video || is_seed(i));
+}
+
+/// Appends `page`, built for position `at`, to `out` if it carries on from it. `Ok(false)`: `out`
+/// already reached the end, so there is nothing to join. `Err`: it does not line up, and `out` is
+/// left as it was.
+///
+/// The rows `out` holds past `at` come again at the top of `page`, and are dropped there. Anything
+/// else `page` repeats means YouTube answered some other position.
+fn join_page(
+    out: &mut PlaylistContinuation,
+    at: u64,
+    page: PlaylistContinuation,
+) -> Result<bool, String> {
+    let Some(next) = out.continuation.as_deref() else { return Ok(false) };
+    let end = ctoken::position(next).ok_or("the page before it has no position")?;
+    if end < at {
+        return Err(format!("the page before it ends at {end}"));
+    }
+    if page.items.is_empty() {
+        return Err("no rows".into());
+    }
+    // A page of n rows spans at least n positions, so its own token says where it really started.
+    if let Some(after) = page.continuation.as_deref() {
+        match ctoken::position(after) {
+            Some(after) if after >= at + page.items.len() as u64 => {}
+            other => return Err(format!("its own token says {other:?}")),
+        }
+    }
+    let key = |s: &SongItem| s.set_video_id.clone().unwrap_or_else(|| s.video_id.clone());
+    let overlap = out.items.len().min((end - at) as usize);
+    let tail: HashSet<String> = out.items[out.items.len() - overlap..].iter().map(key).collect();
+    let fresh = page.items.iter().position(|s| !tail.contains(&key(s))).unwrap_or(page.items.len());
+    let seen: HashSet<String> = out.items.iter().map(key).collect();
+    if page.items[fresh..].iter().any(|s| seen.contains(&key(s))) {
+        return Err("it repeats rows from earlier".into());
+    }
+    out.items.extend(page.items.into_iter().skip(fresh));
+    out.continuation = page.continuation;
+    Ok(true)
+}
+
 /// Starts a `PlaylistSuggestions::refresh` that continues the playlist's radio rather than YouTube's
 /// own shelf, followed by the track the next window starts from (nothing: from the top). A shelf
 /// token is base64, so it can never start with this.
@@ -1473,6 +1609,17 @@ fn add_video_action(video_id: &str, allow_duplicates: bool) -> serde_json::Value
     action
 }
 
+fn move_video_action(set_video_id: &str, before: Option<&str>) -> serde_json::Value {
+    let mut action = serde_json::json!({
+        "action": "ACTION_MOVE_VIDEO_BEFORE",
+        "setVideoId": set_video_id,
+    });
+    if let Some(before) = before {
+        action["movedSetVideoIdSuccessor"] = before.into();
+    }
+    action
+}
+
 /// `browse/edit_playlist` answers HTTP 200 even when it applies nothing: the refusal is
 /// `"status": "STATUS_FAILED"` in the body. Adding a track the playlist already holds is the
 /// common one, and YouTube marks it by offering an "Add anyway" button whose endpoint repeats the
@@ -1493,6 +1640,66 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn hiding_videos_never_empties_a_radio() {
+        let row =
+            |id: &str, is_video| SongItem { video_id: id.into(), is_video, ..SongItem::default() };
+        let ids = |items: &[SongItem]| items.iter().map(|i| i.video_id.clone()).collect::<Vec<_>>();
+
+        // A mixed page loses its videos, but not the seed.
+        let mut mixed = vec![row("seed", true), row("a", false), row("v", true), row("b", false)];
+        drop_video_rows(&mut mixed, Some("seed"));
+        assert_eq!(ids(&mixed), ["seed", "a", "b"]);
+
+        // A music video's radio is all videos (#586): kept whole.
+        let all = vec![row("seed", true), row("v1", true), row("v2", true)];
+        let mut page = all.clone();
+        drop_video_rows(&mut page, Some("seed"));
+        assert_eq!(page, all);
+
+        // Only when the seed is that video: unseeded, or seeded on a song, the videos go.
+        let mut page = all.clone();
+        drop_video_rows(&mut page, None);
+        assert!(page.is_empty());
+        let mut page = vec![row("song", false), row("v1", true), row("v2", true)];
+        drop_video_rows(&mut page, Some("song"));
+        assert_eq!(ids(&page), ["song"]);
+    }
+
+    #[test]
+    fn built_pages_join_only_where_they_carry_on() {
+        let rows = |r: std::ops::Range<u32>| -> Vec<SongItem> {
+            r.map(|i| SongItem { set_video_id: Some(format!("S{i}")), ..SongItem::default() })
+                .collect()
+        };
+        let page = |r, at: Option<u64>| PlaylistContinuation {
+            items: rows(r),
+            continuation: at.map(|p| ctoken::at(ctoken::SAMPLE, p).unwrap()),
+        };
+        // Rows 0..100 sat on positions 0..103, so the page built for 100 opens on rows 97..100.
+        let mut out = page(0..100, Some(103));
+        assert_eq!(join_page(&mut out, 100, page(97..197, Some(203))), Ok(true));
+        assert_eq!(out.items, rows(0..197));
+        assert_eq!(out.continuation.as_deref().and_then(ctoken::position), Some(203));
+
+        // The last page: no token after it, and nothing to join once the list has ended.
+        assert_eq!(join_page(&mut out, 200, page(197..240, None)), Ok(true));
+        assert_eq!(out.items.len(), 240);
+        assert_eq!(join_page(&mut out, 300, page(240..250, None)), Ok(false));
+
+        let fresh = || page(0..100, Some(103));
+        // A gap: the first page ends before the built one starts.
+        assert!(join_page(&mut fresh(), 200, page(150..250, Some(303))).is_err());
+        // The position ignored: page 1 again, which says so in its own token too.
+        assert!(join_page(&mut fresh(), 100, page(0..100, Some(103))).is_err());
+        // Rows from well before the overlap.
+        assert!(join_page(&mut fresh(), 100, page(50..150, Some(203))).is_err());
+        assert!(join_page(&mut fresh(), 100, page(0..0, Some(103))).is_err());
+        let mut failed = fresh();
+        let _ = join_page(&mut failed, 100, page(50..150, Some(203)));
+        assert_eq!(failed.items, rows(0..100), "a page that doesn't join leaves the rows alone");
+    }
+
+    #[test]
     fn add_video_action_json() {
         assert_eq!(
             add_video_action("dQw4w9WgXcQ", false),
@@ -1504,6 +1711,25 @@ mod tests {
                 "action": "ACTION_ADD_VIDEO",
                 "addedVideoId": "dQw4w9WgXcQ",
                 "dedupeOption": "DEDUPE_OPTION_SKIP"
+            })
+        );
+    }
+
+    #[test]
+    fn move_video_action_json() {
+        assert_eq!(
+            move_video_action("SET_123", Some("SET_456")),
+            json!({
+                "action": "ACTION_MOVE_VIDEO_BEFORE",
+                "setVideoId": "SET_123",
+                "movedSetVideoIdSuccessor": "SET_456"
+            })
+        );
+        assert_eq!(
+            move_video_action("SET_123", None),
+            json!({
+                "action": "ACTION_MOVE_VIDEO_BEFORE",
+                "setVideoId": "SET_123"
             })
         );
     }

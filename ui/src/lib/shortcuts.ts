@@ -45,10 +45,17 @@ const isMuteKey = (e: KeyboardEvent) => keyOf(e) === 'm' && (!IS_MAC || e.shiftK
 /** Percent per press, matching a step of the volume slider's arrow keys. */
 const VOLUME_STEP = 5;
 
-/** Somewhere a bare space or `;` is a character, not a command. */
+/** Somewhere a bare space or `;` is a character, not a command. A slider (seek bar, volume) is an
+ *  input but types nothing, so a click on it no longer leaves Space dead (#574). */
 export const typing = (t: EventTarget | null) =>
 	t instanceof HTMLElement &&
-	(t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
+	(t.isContentEditable ||
+		['TEXTAREA', 'SELECT'].includes(t.tagName) ||
+		(t instanceof HTMLInputElement && t.type !== 'range'));
+
+/** Where focus a click left behind stays put: see `onFocus` below. */
+const KEEPS_FOCUS =
+	'[role=dialog],[role=alertdialog],[role=menu],[role=listbox],[data-selected],[data-track-selection]';
 
 /** `mini` = the mini-player window: same transport keys, minus the ones that toggle a piece of
  *  chrome that window doesn't render (palette, shortcut list, now-playing view). */
@@ -134,6 +141,35 @@ export function initShortcuts(mini = false) {
 		}
 		e.preventDefault();
 	};
+	// A click leaves focus on what it hit (a track row, a tab, the artwork), and every key after it
+	// went there: Space replayed the clicked row instead of pausing (#551), Enter clicked the artwork
+	// again, and the keypress lit a focus ring. So focus that lands while the pointer is driving is
+	// dropped, including a menu handing it back to its trigger on close. Fields keep it, and so do open
+	// menus, lists and dialogs, and track select mode (its rows and bar take Space, Escape and Ctrl+A
+	// themselves). Tab hands focus back to the keyboard until the next click, so the app can still be
+	// walked with a ring.
+	let pointer = true;
+	const onPointer = () => (pointer = true);
+	const onTab = (e: KeyboardEvent) => {
+		if (e.key === 'Tab') pointer = false;
+	};
+	const onFocus = (e: FocusEvent) => {
+		const t = e.target;
+		if (!pointer || !(t instanceof HTMLElement) || typing(t)) return;
+		if (t.closest(KEEPS_FOCUS)) return;
+		// On the next tick, not here: WebKit and Chromium count focus moved inside a focus handler
+		// as a blocked focus change and swallow the mousedown that caused it, so no drag could start
+		// on a track row, a queue row or a card. Unless focus has already gone somewhere else.
+		setTimeout(() => document.activeElement === t && t.blur());
+	};
 	window.addEventListener('keydown', onKey);
-	return () => window.removeEventListener('keydown', onKey);
+	window.addEventListener('pointerdown', onPointer, true);
+	window.addEventListener('keydown', onTab, true);
+	window.addEventListener('focusin', onFocus);
+	return () => {
+		window.removeEventListener('keydown', onKey);
+		window.removeEventListener('pointerdown', onPointer, true);
+		window.removeEventListener('keydown', onTab, true);
+		window.removeEventListener('focusin', onFocus);
+	};
 }

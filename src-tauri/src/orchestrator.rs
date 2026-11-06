@@ -45,6 +45,8 @@ pub struct PlaybackData {
     /// music-video mode believes this over the queue row's flag, which several rows arrive without
     /// (a card played from a shelf, a Listen Together mirror, an album row swapped to its audio id).
     pub is_video: Option<bool>,
+    /// The same field read as "a podcast episode" (#500), `None` on the same terms.
+    pub is_episode: Option<bool>,
     /// A broadcast on air (#424): `stream_url` is its HLS variant playlist, not a file. mpv reads
     /// the playlist itself, so it bypasses the chunking proxy, is never cached (the playlist
     /// outlives nothing), and `duration` is `None` rather than YouTube's `"0"`.
@@ -595,6 +597,7 @@ impl Orchestrator {
                 thumbnail: None,
                 // rustypipe answers without a `musicVideoType`, so the queue row's flag stands.
                 is_video: None,
+                is_episode: None,
                 live: false,
                 stream_client: "rustypipe".to_owned(),
             }),
@@ -855,9 +858,10 @@ impl Orchestrator {
         headers: HashMap<String, String>,
     ) -> PlaybackData {
         let vd = main_resp.as_ref().and_then(|r| r.video_details.as_ref());
+        let video_type = vd.and_then(|v| v.music_video_type.as_deref());
         let live = format.is_none();
         let itag = format.map_or(0, |f| f.itag as i64);
-        tracing::info!(video_id, client, itag, live, "resolved stream");
+        tracing::info!(video_id, client, itag, live, video_type, "resolved stream");
         PlaybackData {
             video_id: video_id.to_owned(),
             stream_url: url,
@@ -871,6 +875,7 @@ impl Orchestrator {
             duration: if live { None } else { vd.and_then(|v| v.length_seconds.clone()) },
             thumbnail: main_resp.as_ref().and_then(best_thumbnail),
             is_video: vd.and_then(|v| v.is_music_video()),
+            is_episode: vd.and_then(|v| v.is_podcast_episode()),
             live,
             stream_client: client.to_owned(),
         }

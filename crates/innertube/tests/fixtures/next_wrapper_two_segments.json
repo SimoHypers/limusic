@@ -1,0 +1,1104 @@
+{
+  "playlistPanelVideoWrapperRenderer": {
+    "primaryRenderer": {
+      "playlistPanelVideoRenderer": {
+        "title": {
+          "runs": [
+            {
+              "text": "Locked Away (feat. Adam Levine)"
+            }
+          ]
+        },
+        "longBylineText": {
+          "runs": [
+            {
+              "text": "R. City",
+              "navigationEndpoint": {
+                "clickTrackingParams": "SANITIZED",
+                "browseEndpoint": {
+                  "browseId": "UC6Ilv4j2Gbnz5LXmn3QgzGA",
+                  "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                      "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "text": " • "
+            },
+            {
+              "text": "What Dreams Are Made Of",
+              "navigationEndpoint": {
+                "clickTrackingParams": "SANITIZED",
+                "browseEndpoint": {
+                  "browseId": "MPREb_ZXGTJbnoFA2",
+                  "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                      "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "text": " • "
+            },
+            {
+              "text": "2015"
+            }
+          ]
+        },
+        "thumbnail": {
+          "thumbnails": [
+            {
+              "url": "https://yt3.googleusercontent.com/DQpsXibLwW_4OYu1t2kUgcmtva96FBKs4-QUr0aFu_odHEgZcA5sUBBEBuSxdEgofs1Yu-yyM5T4ogyk=w60-h60-l90-rj",
+              "width": 60,
+              "height": 60
+            },
+            {
+              "url": "https://yt3.googleusercontent.com/DQpsXibLwW_4OYu1t2kUgcmtva96FBKs4-QUr0aFu_odHEgZcA5sUBBEBuSxdEgofs1Yu-yyM5T4ogyk=w120-h120-l90-rj",
+              "width": 120,
+              "height": 120
+            },
+            {
+              "url": "https://yt3.googleusercontent.com/DQpsXibLwW_4OYu1t2kUgcmtva96FBKs4-QUr0aFu_odHEgZcA5sUBBEBuSxdEgofs1Yu-yyM5T4ogyk=w180-h180-l90-rj",
+              "width": 180,
+              "height": 180
+            },
+            {
+              "url": "https://yt3.googleusercontent.com/DQpsXibLwW_4OYu1t2kUgcmtva96FBKs4-QUr0aFu_odHEgZcA5sUBBEBuSxdEgofs1Yu-yyM5T4ogyk=w226-h226-l90-rj",
+              "width": 226,
+              "height": 226
+            },
+            {
+              "url": "https://yt3.googleusercontent.com/DQpsXibLwW_4OYu1t2kUgcmtva96FBKs4-QUr0aFu_odHEgZcA5sUBBEBuSxdEgofs1Yu-yyM5T4ogyk=w302-h302-l90-rj",
+              "width": 302,
+              "height": 302
+            },
+            {
+              "url": "https://yt3.googleusercontent.com/DQpsXibLwW_4OYu1t2kUgcmtva96FBKs4-QUr0aFu_odHEgZcA5sUBBEBuSxdEgofs1Yu-yyM5T4ogyk=w544-h544-l90-rj",
+              "width": 544,
+              "height": 544
+            }
+          ]
+        },
+        "lengthText": {
+          "runs": [
+            {
+              "text": "3:48"
+            }
+          ],
+          "accessibility": {
+            "accessibilityData": {
+              "label": "3 minutes, 48 seconds"
+            }
+          }
+        },
+        "selected": true,
+        "navigationEndpoint": {
+          "clickTrackingParams": "SANITIZED",
+          "watchEndpoint": {
+            "videoId": "wTR_tymnbac",
+            "params": "SANITIZED",
+            "playerParams": "SANITIZED",
+            "watchEndpointMusicSupportedConfigs": {
+              "watchEndpointMusicConfig": {
+                "hasPersistentPlaylistPanel": true,
+                "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+              }
+            }
+          }
+        },
+        "videoId": "wTR_tymnbac",
+        "shortBylineText": {
+          "runs": [
+            {
+              "text": "R. City"
+            }
+          ]
+        },
+        "trackingParams": "SANITIZED",
+        "menu": {
+          "menuRenderer": {
+            "items": [
+              {
+                "menuNavigationItemRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Start mix"
+                      }
+                    ]
+                  },
+                  "icon": {
+                    "iconType": "MIX"
+                  },
+                  "navigationEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "watchEndpoint": {
+                      "videoId": "wTR_tymnbac",
+                      "playlistId": "RDAMVMwTR_tymnbac",
+                      "params": "SANITIZED",
+                      "loggingContext": {
+                        "vssLoggingContext": {
+                          "serializedContextData": "GhFSREFNVk13VFJfdHltbmJhYw%3D%3D"
+                        }
+                      },
+                      "watchEndpointMusicSupportedConfigs": {
+                        "watchEndpointMusicConfig": {
+                          "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                        }
+                      }
+                    }
+                  },
+                  "trackingParams": "SANITIZED"
+                }
+              },
+              {
+                "menuServiceItemRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Play next"
+                      }
+                    ]
+                  },
+                  "icon": {
+                    "iconType": "QUEUE_PLAY_NEXT"
+                  },
+                  "serviceEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "queueAddEndpoint": {
+                      "queueTarget": {
+                        "videoId": "wTR_tymnbac",
+                        "onEmptyQueue": {
+                          "clickTrackingParams": "SANITIZED",
+                          "watchEndpoint": {
+                            "videoId": "wTR_tymnbac"
+                          }
+                        },
+                        "backingQueuePlaylistId": "QP4BT39Ah-gfoy9gpmkoRK5goGAjKiYdEXx"
+                      },
+                      "queueInsertPosition": "INSERT_AFTER_CURRENT_VIDEO",
+                      "commands": [
+                        {
+                          "clickTrackingParams": "SANITIZED",
+                          "addToToastAction": {
+                            "item": {
+                              "notificationTextRenderer": {
+                                "successResponseText": {
+                                  "runs": [
+                                    {
+                                      "text": "Song will play next"
+                                    }
+                                  ]
+                                },
+                                "trackingParams": "SANITIZED"
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "trackingParams": "SANITIZED"
+                }
+              },
+              {
+                "menuServiceItemRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Add to queue"
+                      }
+                    ]
+                  },
+                  "icon": {
+                    "iconType": "ADD_TO_REMOTE_QUEUE"
+                  },
+                  "serviceEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "queueAddEndpoint": {
+                      "queueTarget": {
+                        "videoId": "wTR_tymnbac",
+                        "onEmptyQueue": {
+                          "clickTrackingParams": "SANITIZED",
+                          "watchEndpoint": {
+                            "videoId": "wTR_tymnbac"
+                          }
+                        },
+                        "backingQueuePlaylistId": "QP4BT39Ah-gfoy9gpmkoRK5goGAjKiYdEXx"
+                      },
+                      "queueInsertPosition": "INSERT_AT_END",
+                      "commands": [
+                        {
+                          "clickTrackingParams": "SANITIZED",
+                          "addToToastAction": {
+                            "item": {
+                              "notificationTextRenderer": {
+                                "successResponseText": {
+                                  "runs": [
+                                    {
+                                      "text": "Song added to queue"
+                                    }
+                                  ]
+                                },
+                                "trackingParams": "SANITIZED"
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "trackingParams": "SANITIZED"
+                }
+              },
+              {
+                "toggleMenuServiceItemRenderer": {
+                  "defaultText": {
+                    "runs": [
+                      {
+                        "text": "Save to library"
+                      }
+                    ]
+                  },
+                  "defaultIcon": {
+                    "iconType": "BOOKMARK_BORDER"
+                  },
+                  "defaultServiceEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "feedbackEndpoint": {
+                      "feedbackToken": "SANITIZED"
+                    }
+                  },
+                  "toggledText": {
+                    "runs": [
+                      {
+                        "text": "Remove from library"
+                      }
+                    ]
+                  },
+                  "toggledIcon": {
+                    "iconType": "BOOKMARK"
+                  },
+                  "toggledServiceEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "feedbackEndpoint": {
+                      "feedbackToken": "SANITIZED"
+                    }
+                  },
+                  "trackingParams": "SANITIZED",
+                  "isToggled": true
+                }
+              },
+              {
+                "toggleMenuServiceItemRenderer": {
+                  "defaultText": {
+                    "runs": [
+                      {
+                        "text": "Remove from liked songs"
+                      }
+                    ]
+                  },
+                  "defaultIcon": {
+                    "iconType": "UNFAVORITE"
+                  },
+                  "defaultServiceEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "likeEndpoint": {
+                      "status": "INDIFFERENT",
+                      "target": {
+                        "videoId": "wTR_tymnbac"
+                      },
+                      "removeLikeParams": "MAI%3D"
+                    }
+                  },
+                  "toggledText": {
+                    "runs": [
+                      {
+                        "text": "Add to liked songs"
+                      }
+                    ]
+                  },
+                  "toggledIcon": {
+                    "iconType": "FAVORITE"
+                  },
+                  "toggledServiceEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "likeEndpoint": {
+                      "status": "LIKE",
+                      "target": {
+                        "videoId": "wTR_tymnbac"
+                      },
+                      "actions": [
+                        {
+                          "clickTrackingParams": "SANITIZED",
+                          "musicLibraryStatusUpdateCommand": {
+                            "libraryStatus": "MUSIC_LIBRARY_STATUS_IN_LIBRARY",
+                            "addToLibraryFeedbackToken": "AB9zfpLpIBw-E_FOiAFANQNBmVKKIgdlFUJ-CReI6H-xh7z0ye_gDiB3HXa_bIi-3Zys8onA4-LqSwbiItOe7TrvTCGDlOpkvw"
+                          }
+                        }
+                      ],
+                      "likeParams": "OAI%3D"
+                    }
+                  },
+                  "trackingParams": "SANITIZED"
+                }
+              },
+              {
+                "menuServiceItemDownloadRenderer": {
+                  "serviceEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "offlineVideoEndpoint": {
+                      "videoId": "wTR_tymnbac",
+                      "onAddCommand": {
+                        "clickTrackingParams": "SANITIZED",
+                        "getDownloadActionCommand": {
+                          "videoId": "wTR_tymnbac",
+                          "params": "SANITIZED"
+                        }
+                      }
+                    }
+                  },
+                  "trackingParams": "SANITIZED"
+                }
+              },
+              {
+                "menuNavigationItemRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Save to playlist"
+                      }
+                    ]
+                  },
+                  "icon": {
+                    "iconType": "ADD_TO_PLAYLIST"
+                  },
+                  "navigationEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "addToPlaylistEndpoint": {
+                      "videoId": "wTR_tymnbac"
+                    }
+                  },
+                  "trackingParams": "SANITIZED"
+                }
+              },
+              {
+                "menuServiceItemRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Remove from queue"
+                      }
+                    ]
+                  },
+                  "icon": {
+                    "iconType": "REMOVE"
+                  },
+                  "serviceEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "removeFromQueueEndpoint": {
+                      "videoId": "wTR_tymnbac",
+                      "commands": [
+                        {
+                          "clickTrackingParams": "SANITIZED",
+                          "addToToastAction": {
+                            "item": {
+                              "notificationTextRenderer": {
+                                "successResponseText": {
+                                  "runs": [
+                                    {
+                                      "text": "Item removed from queue"
+                                    }
+                                  ]
+                                },
+                                "trackingParams": "SANITIZED"
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "trackingParams": "SANITIZED"
+                }
+              },
+              {
+                "menuNavigationItemRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Go to album"
+                      }
+                    ]
+                  },
+                  "icon": {
+                    "iconType": "ALBUM"
+                  },
+                  "navigationEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "browseEndpoint": {
+                      "browseId": "MPREb_ZXGTJbnoFA2",
+                      "browseEndpointContextSupportedConfigs": {
+                        "browseEndpointContextMusicConfig": {
+                          "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                        }
+                      }
+                    }
+                  },
+                  "trackingParams": "SANITIZED"
+                }
+              },
+              {
+                "menuNavigationItemRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Go to artist"
+                      }
+                    ]
+                  },
+                  "icon": {
+                    "iconType": "ARTIST"
+                  },
+                  "navigationEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "browseEndpoint": {
+                      "browseId": "UC6Ilv4j2Gbnz5LXmn3QgzGA",
+                      "browseEndpointContextSupportedConfigs": {
+                        "browseEndpointContextMusicConfig": {
+                          "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                        }
+                      }
+                    }
+                  },
+                  "trackingParams": "SANITIZED"
+                }
+              },
+              {
+                "menuNavigationItemRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "View song credits"
+                      }
+                    ]
+                  },
+                  "icon": {
+                    "iconType": "PEOPLE_GROUP"
+                  },
+                  "navigationEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "browseEndpoint": {
+                      "browseId": "MPTCwTR_tymnbac",
+                      "browseEndpointContextSupportedConfigs": {
+                        "browseEndpointContextMusicConfig": {
+                          "pageType": "MUSIC_PAGE_TYPE_TRACK_CREDITS"
+                        }
+                      }
+                    }
+                  },
+                  "trackingParams": "SANITIZED"
+                }
+              },
+              {
+                "menuNavigationItemRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Share"
+                      }
+                    ]
+                  },
+                  "icon": {
+                    "iconType": "SHARE"
+                  },
+                  "navigationEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "shareEntityEndpoint": {
+                      "serializedShareEntity": "SANITIZED",
+                      "sharePanelType": "SHARE_PANEL_TYPE_UNIFIED_SHARE_PANEL"
+                    }
+                  },
+                  "trackingParams": "SANITIZED"
+                }
+              },
+              {
+                "menuServiceItemRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Report"
+                      }
+                    ]
+                  },
+                  "icon": {
+                    "iconType": "FLAG"
+                  },
+                  "serviceEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "getReportFormEndpoint": {
+                      "params": "SANITIZED"
+                    }
+                  },
+                  "trackingParams": "SANITIZED"
+                }
+              },
+              {
+                "toggleMenuServiceItemRenderer": {
+                  "defaultText": {
+                    "runs": [
+                      {
+                        "text": "Pin to Listen again"
+                      }
+                    ]
+                  },
+                  "defaultIcon": {
+                    "iconType": "KEEP"
+                  },
+                  "defaultServiceEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "feedbackEndpoint": {
+                      "feedbackToken": "SANITIZED"
+                    }
+                  },
+                  "toggledText": {
+                    "runs": [
+                      {
+                        "text": "Unpin from Listen again"
+                      }
+                    ]
+                  },
+                  "toggledIcon": {
+                    "iconType": "KEEP_OFF"
+                  },
+                  "toggledServiceEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "feedbackEndpoint": {
+                      "feedbackToken": "SANITIZED"
+                    }
+                  },
+                  "trackingParams": "SANITIZED"
+                }
+              },
+              {
+                "menuServiceItemRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Dismiss queue"
+                      }
+                    ]
+                  },
+                  "icon": {
+                    "iconType": "DISMISS_QUEUE"
+                  },
+                  "serviceEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "deletePlaylistEndpoint": {
+                      "playlistId": "QP4BT39Ah-gfoy9gpmkoRK5goGAjKiYdEXx",
+                      "command": {
+                        "clickTrackingParams": "SANITIZED",
+                        "dismissQueueCommand": {}
+                      }
+                    }
+                  },
+                  "trackingParams": "SANITIZED"
+                }
+              }
+            ],
+            "trackingParams": "SANITIZED",
+            "accessibility": {
+              "accessibilityData": {
+                "label": "Action menu"
+              }
+            }
+          }
+        },
+        "canReorder": true,
+        "playlistEditParams": "SANITIZED",
+        "queueNavigationEndpoint": {
+          "clickTrackingParams": "SANITIZED",
+          "queueAddEndpoint": {
+            "queueTarget": {
+              "videoId": "wTR_tymnbac",
+              "backingQueuePlaylistId": "QP4BT39Ah-gfoy9gpmkoRK5goGAjKiYdEXx"
+            },
+            "queueInsertPosition": "INSERT_AT_END",
+            "params": "SANITIZED"
+          }
+        }
+      }
+    },
+    "counterpart": [
+      {
+        "counterpartRenderer": {
+          "playlistPanelVideoRenderer": {
+            "title": {
+              "runs": [
+                {
+                  "text": "Locked Away (Official Video) (feat. Adam Levine)"
+                }
+              ]
+            },
+            "longBylineText": {
+              "runs": [
+                {
+                  "text": "R. City",
+                  "navigationEndpoint": {
+                    "clickTrackingParams": "SANITIZED",
+                    "browseEndpoint": {
+                      "browseId": "UC6Ilv4j2Gbnz5LXmn3QgzGA",
+                      "browseEndpointContextSupportedConfigs": {
+                        "browseEndpointContextMusicConfig": {
+                          "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "text": " • "
+                },
+                {
+                  "text": "1.1B views"
+                },
+                {
+                  "text": " • "
+                },
+                {
+                  "text": "6.4M likes"
+                }
+              ]
+            },
+            "thumbnail": {
+              "thumbnails": [
+                {
+                  "url": "https://i.ytimg.com/vi/6GUm5g8SG4o/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3naKFVQMBgcKw66dsojngi0IRMwrg",
+                  "width": 400,
+                  "height": 225
+                },
+                {
+                  "url": "https://i.ytimg.com/vi/6GUm5g8SG4o/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3lIYVbQamFd4gkJ4nTejZMHoU7mKQ",
+                  "width": 800,
+                  "height": 450
+                },
+                {
+                  "url": "https://i.ytimg.com/vi/6GUm5g8SG4o/hq720.jpg?sqp=-oaymwEKCNUGEN8DIABIWg&rs=AMzJL3mrsigf9xlTJd94hdY5FAmfCrTxQQ",
+                  "width": 853,
+                  "height": 479
+                }
+              ]
+            },
+            "lengthText": {
+              "runs": [
+                {
+                  "text": "4:26"
+                }
+              ],
+              "accessibility": {
+                "accessibilityData": {
+                  "label": "4 minutes, 26 seconds"
+                }
+              }
+            },
+            "selected": true,
+            "navigationEndpoint": {
+              "clickTrackingParams": "SANITIZED",
+              "watchEndpoint": {
+                "videoId": "6GUm5g8SG4o",
+                "params": "SANITIZED",
+                "playerParams": "SANITIZED",
+                "watchEndpointMusicSupportedConfigs": {
+                  "watchEndpointMusicConfig": {
+                    "hasPersistentPlaylistPanel": true,
+                    "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                  }
+                }
+              }
+            },
+            "videoId": "6GUm5g8SG4o",
+            "shortBylineText": {
+              "runs": [
+                {
+                  "text": "R. City"
+                }
+              ]
+            },
+            "trackingParams": "SANITIZED",
+            "menu": {
+              "menuRenderer": {
+                "items": [
+                  {
+                    "menuNavigationItemRenderer": {
+                      "text": {
+                        "runs": [
+                          {
+                            "text": "Start mix"
+                          }
+                        ]
+                      },
+                      "icon": {
+                        "iconType": "MIX"
+                      },
+                      "navigationEndpoint": {
+                        "clickTrackingParams": "SANITIZED",
+                        "watchEndpoint": {
+                          "videoId": "6GUm5g8SG4o",
+                          "playlistId": "RDAMVM6GUm5g8SG4o",
+                          "params": "SANITIZED",
+                          "loggingContext": {
+                            "vssLoggingContext": {
+                              "serializedContextData": "GhFSREFNVk02R1VtNWc4U0c0bw%3D%3D"
+                            }
+                          },
+                          "watchEndpointMusicSupportedConfigs": {
+                            "watchEndpointMusicConfig": {
+                              "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                            }
+                          }
+                        }
+                      },
+                      "trackingParams": "SANITIZED"
+                    }
+                  },
+                  {
+                    "menuServiceItemRenderer": {
+                      "text": {
+                        "runs": [
+                          {
+                            "text": "Play next"
+                          }
+                        ]
+                      },
+                      "icon": {
+                        "iconType": "QUEUE_PLAY_NEXT"
+                      },
+                      "serviceEndpoint": {
+                        "clickTrackingParams": "SANITIZED",
+                        "queueAddEndpoint": {
+                          "queueTarget": {
+                            "videoId": "6GUm5g8SG4o",
+                            "onEmptyQueue": {
+                              "clickTrackingParams": "SANITIZED",
+                              "watchEndpoint": {
+                                "videoId": "6GUm5g8SG4o"
+                              }
+                            }
+                          },
+                          "queueInsertPosition": "INSERT_AFTER_CURRENT_VIDEO",
+                          "commands": [
+                            {
+                              "clickTrackingParams": "SANITIZED",
+                              "addToToastAction": {
+                                "item": {
+                                  "notificationTextRenderer": {
+                                    "successResponseText": {
+                                      "runs": [
+                                        {
+                                          "text": "Song will play next"
+                                        }
+                                      ]
+                                    },
+                                    "trackingParams": "SANITIZED"
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      "trackingParams": "SANITIZED"
+                    }
+                  },
+                  {
+                    "menuServiceItemRenderer": {
+                      "text": {
+                        "runs": [
+                          {
+                            "text": "Add to queue"
+                          }
+                        ]
+                      },
+                      "icon": {
+                        "iconType": "ADD_TO_REMOTE_QUEUE"
+                      },
+                      "serviceEndpoint": {
+                        "clickTrackingParams": "SANITIZED",
+                        "queueAddEndpoint": {
+                          "queueTarget": {
+                            "videoId": "6GUm5g8SG4o",
+                            "onEmptyQueue": {
+                              "clickTrackingParams": "SANITIZED",
+                              "watchEndpoint": {
+                                "videoId": "6GUm5g8SG4o"
+                              }
+                            }
+                          },
+                          "queueInsertPosition": "INSERT_AT_END",
+                          "commands": [
+                            {
+                              "clickTrackingParams": "SANITIZED",
+                              "addToToastAction": {
+                                "item": {
+                                  "notificationTextRenderer": {
+                                    "successResponseText": {
+                                      "runs": [
+                                        {
+                                          "text": "Song added to queue"
+                                        }
+                                      ]
+                                    },
+                                    "trackingParams": "SANITIZED"
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      "trackingParams": "SANITIZED"
+                    }
+                  },
+                  {
+                    "toggleMenuServiceItemRenderer": {
+                      "defaultText": {
+                        "runs": [
+                          {
+                            "text": "Add to liked songs"
+                          }
+                        ]
+                      },
+                      "defaultIcon": {
+                        "iconType": "FAVORITE"
+                      },
+                      "defaultServiceEndpoint": {
+                        "clickTrackingParams": "SANITIZED",
+                        "likeEndpoint": {
+                          "status": "LIKE",
+                          "target": {
+                            "videoId": "6GUm5g8SG4o"
+                          },
+                          "likeParams": "OAI%3D"
+                        }
+                      },
+                      "toggledText": {
+                        "runs": [
+                          {
+                            "text": "Remove from liked songs"
+                          }
+                        ]
+                      },
+                      "toggledIcon": {
+                        "iconType": "UNFAVORITE"
+                      },
+                      "toggledServiceEndpoint": {
+                        "clickTrackingParams": "SANITIZED",
+                        "likeEndpoint": {
+                          "status": "INDIFFERENT",
+                          "target": {
+                            "videoId": "6GUm5g8SG4o"
+                          },
+                          "removeLikeParams": "MAI%3D"
+                        }
+                      },
+                      "trackingParams": "SANITIZED"
+                    }
+                  },
+                  {
+                    "menuServiceItemDownloadRenderer": {
+                      "serviceEndpoint": {
+                        "clickTrackingParams": "SANITIZED",
+                        "offlineVideoEndpoint": {
+                          "videoId": "6GUm5g8SG4o",
+                          "onAddCommand": {
+                            "clickTrackingParams": "SANITIZED",
+                            "getDownloadActionCommand": {
+                              "videoId": "6GUm5g8SG4o",
+                              "params": "SANITIZED"
+                            }
+                          }
+                        }
+                      },
+                      "trackingParams": "SANITIZED"
+                    }
+                  },
+                  {
+                    "menuNavigationItemRenderer": {
+                      "text": {
+                        "runs": [
+                          {
+                            "text": "Save to playlist"
+                          }
+                        ]
+                      },
+                      "icon": {
+                        "iconType": "ADD_TO_PLAYLIST"
+                      },
+                      "navigationEndpoint": {
+                        "clickTrackingParams": "SANITIZED",
+                        "addToPlaylistEndpoint": {
+                          "videoId": "6GUm5g8SG4o"
+                        }
+                      },
+                      "trackingParams": "SANITIZED"
+                    }
+                  },
+                  {
+                    "menuServiceItemRenderer": {
+                      "text": {
+                        "runs": [
+                          {
+                            "text": "Remove from queue"
+                          }
+                        ]
+                      },
+                      "icon": {
+                        "iconType": "REMOVE"
+                      },
+                      "serviceEndpoint": {
+                        "clickTrackingParams": "SANITIZED",
+                        "removeFromQueueEndpoint": {
+                          "videoId": "6GUm5g8SG4o",
+                          "commands": [
+                            {
+                              "clickTrackingParams": "SANITIZED",
+                              "addToToastAction": {
+                                "item": {
+                                  "notificationTextRenderer": {
+                                    "successResponseText": {
+                                      "runs": [
+                                        {
+                                          "text": "Item removed from queue"
+                                        }
+                                      ]
+                                    },
+                                    "trackingParams": "SANITIZED"
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      "trackingParams": "SANITIZED"
+                    }
+                  },
+                  {
+                    "menuNavigationItemRenderer": {
+                      "text": {
+                        "runs": [
+                          {
+                            "text": "Go to artist"
+                          }
+                        ]
+                      },
+                      "icon": {
+                        "iconType": "ARTIST"
+                      },
+                      "navigationEndpoint": {
+                        "clickTrackingParams": "SANITIZED",
+                        "browseEndpoint": {
+                          "browseId": "UC6Ilv4j2Gbnz5LXmn3QgzGA",
+                          "browseEndpointContextSupportedConfigs": {
+                            "browseEndpointContextMusicConfig": {
+                              "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                            }
+                          }
+                        }
+                      },
+                      "trackingParams": "SANITIZED"
+                    }
+                  },
+                  {
+                    "menuNavigationItemRenderer": {
+                      "text": {
+                        "runs": [
+                          {
+                            "text": "Share"
+                          }
+                        ]
+                      },
+                      "icon": {
+                        "iconType": "SHARE"
+                      },
+                      "navigationEndpoint": {
+                        "clickTrackingParams": "SANITIZED",
+                        "shareEntityEndpoint": {
+                          "serializedShareEntity": "SANITIZED",
+                          "sharePanelType": "SHARE_PANEL_TYPE_UNIFIED_SHARE_PANEL"
+                        }
+                      },
+                      "trackingParams": "SANITIZED"
+                    }
+                  },
+                  {
+                    "menuServiceItemRenderer": {
+                      "text": {
+                        "runs": [
+                          {
+                            "text": "Dismiss queue"
+                          }
+                        ]
+                      },
+                      "icon": {
+                        "iconType": "DISMISS_QUEUE"
+                      },
+                      "serviceEndpoint": {
+                        "clickTrackingParams": "SANITIZED",
+                        "deletePlaylistEndpoint": {
+                          "playlistId": "QP4BT39Ah-gfoy9gpmkoRK5goGAjKiYdEXx",
+                          "command": {
+                            "clickTrackingParams": "SANITIZED",
+                            "dismissQueueCommand": {}
+                          }
+                        }
+                      },
+                      "trackingParams": "SANITIZED"
+                    }
+                  }
+                ],
+                "trackingParams": "SANITIZED",
+                "accessibility": {
+                  "accessibilityData": {
+                    "label": "Action menu"
+                  }
+                }
+              }
+            },
+            "canReorder": true,
+            "playlistEditParams": "SANITIZED",
+            "queueNavigationEndpoint": {
+              "clickTrackingParams": "SANITIZED",
+              "queueAddEndpoint": {
+                "queueTarget": {
+                  "videoId": "6GUm5g8SG4o"
+                },
+                "queueInsertPosition": "INSERT_AT_END",
+                "params": "SANITIZED"
+              }
+            }
+          }
+        },
+        "segmentMap": {
+          "segment": [
+            {
+              "primaryVideoStartTimeMilliseconds": "0",
+              "counterpartVideoStartTimeMilliseconds": "22698",
+              "durationMilliseconds": "86438"
+            },
+            {
+              "primaryVideoStartTimeMilliseconds": "86439",
+              "counterpartVideoStartTimeMilliseconds": "123644",
+              "durationMilliseconds": "141061"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

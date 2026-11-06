@@ -335,6 +335,50 @@ pub(crate) fn tune_webview_labelled(app: &tauri::AppHandle, label: &str, media: 
     }
 }
 
+/// Let a destroyed webview's web process exit (#572). Runs for every webview, from the plugin hook
+/// in [`run`].
+///
+/// wry 0.55 connects its IPC handler on the view's own `UserContentManager` with a closure that
+/// holds the view (tauri-apps/wry#1871), so the view is never freed. WebKitGTK 2.52 closes the
+/// web process when the widget is destroyed anyway; 2.54 keeps it until the view is freed, so every
+/// webview torn down at runtime (cipher idle teardown, mini player, sign-in, session refresh) left
+/// a whole `WebKitWebProcess` behind, ~90 MiB PSS each. Dropping the manager's handlers when GTK
+/// destroys the view breaks the cycle.
+///
+/// ponytail: delete once wry captures the view weakly.
+#[cfg(target_os = "linux")]
+fn release_on_destroy(webview: &tauri::Webview) {
+    use gtk::glib::{gobject_ffi, prelude::*, translate::IntoGlib};
+    use gtk::prelude::WidgetExt;
+    use webkit2gtk::{UserContentManager, WebViewExt};
+
+    let _ = webview.with_webview(|wv| {
+        let view = wv.inner();
+        let Some(manager) = view.user_content_manager() else { return };
+        view.connect_destroy(move |_| {
+            let signal = gtk::glib::subclass::signal::SignalId::lookup(
+                "script-message-received",
+                UserContentManager::static_type(),
+            );
+            if let Some(signal) = signal {
+                // Safe: `manager` is a live GObject we hold a reference to, and matching on the
+                // signal id alone needs none of the closure/func/data pointers.
+                unsafe {
+                    gobject_ffi::g_signal_handlers_disconnect_matched(
+                        manager.as_ptr().cast(),
+                        gobject_ffi::G_SIGNAL_MATCH_ID,
+                        signal.into_glib(),
+                        0,
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                    );
+                }
+            }
+        });
+    });
+}
+
 /// Pull the main window back onto a display if the window-state plugin restored it somewhere that
 /// no longer exists (#459). The plugin keeps a saved position when any one corner lands on a
 /// monitor, so after a layout change the window could come back with only its invisible resize
@@ -511,6 +555,11 @@ const RESTARTED_ENV: &str = "LIMUSIC_RESTARTED";
 /// strings either way: `parseYtLink` in the UI decides what is a link, so there is one parser.
 pub(crate) static LAUNCH_ARGS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
+/// Raised by `show_main` once the SPA has mounted, whether it shows the window or stays in the
+/// tray. `play_on_start` waits for it: started off the setup timeline, the music began while the
+/// window was still coming up.
+pub(crate) static UI_MOUNTED: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
 /// Stay in the tray instead of showing the window: launched at login with "Start minimized to
 /// tray" on, and a tray icon to come back from. Asked by the startup safety net and by
 /// `show_main` once the SPA has mounted.
@@ -619,6 +668,16 @@ pub fn run() {
                 let _ = app.emit_to("main", "open-link", &args[1..]);
             }
         }));
+    }
+
+    // Every webview, so a destroyed one gives its web process back on WebKitGTK 2.54 (#572).
+    #[cfg(target_os = "linux")]
+    {
+        builder = builder.plugin(
+            tauri::plugin::Builder::<_, ()>::new("webview-release")
+                .on_webview_ready(|webview| release_on_destroy(&webview))
+                .build(),
+        );
     }
 
     builder
@@ -921,11 +980,12 @@ pub fn run() {
                 });
             }
 
-            // Restore the last session's queue (paused, not autoplaying). context/11 §state.
+            // Restore the last session's queue, then optionally start playback.
             {
                 let st = app_state.clone();
                 tauri::async_runtime::spawn(async move {
                     st.restore_queue().await;
+                    st.play_on_start().await;
                 });
             }
 
@@ -1199,6 +1259,7 @@ pub fn run() {
             commands::local_playlists,
             commands::remove_from_playlist,
             commands::remove_many_from_playlist,
+            commands::move_in_playlist,
             commands::create_playlist,
             commands::edit_playlist_details,
             commands::set_playlist_cover,

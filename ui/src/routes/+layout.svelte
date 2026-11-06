@@ -38,6 +38,7 @@
 	import AddToPlaylist from '$lib/components/AddToPlaylist.svelte';
 	import NewPlaylistDialog from '$lib/components/NewPlaylistDialog.svelte';
 	import SettingsDialog from '$lib/components/SettingsDialog.svelte';
+	import TempoPitchDialog from '$lib/components/TempoPitchDialog.svelte';
 	import ShareDialog from '$lib/components/ShareDialog.svelte';
 	import ChannelPicker from '$lib/components/ChannelPicker.svelte';
 	import ListenTogether from '$lib/components/ListenTogether.svelte';
@@ -218,6 +219,8 @@
 	     Invisible while theater mode shows mpv's picture: theater is transparent over the hole, and
 	     the titlebar, sidebar or player bar under it would paint over the video. -->
 	<div
+		data-app-shell
+		data-video-hole={video.hole ? '' : undefined}
 		class="relative flex h-screen flex-col overflow-hidden text-foreground {video.hole
 			? ''
 			: 'bg-background'} {windowCorners()} {ui.theaterOpen && video.hole ? 'invisible' : ''}"
@@ -242,6 +245,7 @@
 			<!-- dragScroll: dragging a card up to home's Shortcuts grid has to be possible from anywhere in
 			     the feed, so aiming at the top edge scrolls this container while the drag is in flight. -->
 			<main
+				data-app-main
 				class="min-w-0 flex-1 overflow-y-auto {video.hole ? 'invisible' : ''}"
 				bind:this={scroller}
 				{@attach dragScroll}
@@ -310,6 +314,7 @@
 	<NewPlaylistDialog />
 	<ShareDialog />
 	<SettingsDialog />
+	<TempoPitchDialog bind:open={ui.tempoPitchOpen} />
 	<ChannelPicker />
 	<ListenTogether />
 	<LinkDialog />
