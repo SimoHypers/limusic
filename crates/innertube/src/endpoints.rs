@@ -31,6 +31,9 @@ pub const FILTER_SONG: &str = "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D";
 pub const FILTER_VIDEO: &str = "EgWKAQIQAWoKEAkQChAFEAMQBA%3D%3D";
 pub const FILTER_ALBUM: &str = "EgWKAQIYAWoKEAkQChAFEAMQBA%3D%3D";
 pub const FILTER_ARTIST: &str = "EgWKAQIgAWoKEAkQChAFEAMQBA%3D%3D";
+/// YouTube's (not YouTube Music's) search filter for broadcasts on air. Only the WEB client's
+/// search understands it.
+pub const FILTER_LIVE_NOW: &str = "EgJAAQ%3D%3D";
 pub const FILTER_COMMUNITY_PLAYLIST: &str = "EgeKAQQoAEABagoQAxAEEAoQCRAF";
 
 /// A comment's like/unlike/dislike/undislike and delete: `{context, actions: [<token>]}`.
@@ -226,6 +229,21 @@ impl InnerTube {
         // No history: "Show more" repeats the query the search page already recorded.
         let value = self.search_raw(client, query, Some(filter), false).await?;
         Ok(browse::parse_search_cards(&value))
+    }
+
+    /// Broadcasts on air for `query`, from YouTube's search with its Live filter (#424). `client`
+    /// is the WEB client: YouTube Music's own search returns no live marker at all. Anonymous,
+    /// like every search that records no history.
+    pub async fn live_now(
+        &self,
+        client: &YouTubeClient,
+        query: &str,
+    ) -> Result<Vec<browse::LiveVideo>, Error> {
+        let value = self.search_raw(client, query, Some(FILTER_LIVE_NOW), false).await?;
+        let mut live = browse::parse_live_search(&value);
+        let blocked = self.blocked();
+        live.retain(|l| !blocked.blocks_card(&l.item));
+        Ok(live)
     }
 
     /// Up-next queue / radio for a video. context/08. Uses the metadata client.
