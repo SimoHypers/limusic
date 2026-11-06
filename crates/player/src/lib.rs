@@ -675,7 +675,19 @@ impl Player {
     /// seek: inside the cache it is instant and never touches the network, past it mpv has to open
     /// a *fresh* HTTP request for the new offset. A report that says "seeking hangs" is answered by
     /// which of those it was, and nothing used to record it. Issue #188.
+    /// The file playing is the broadcast `load` was told about (#424). By `path`, like the event
+    /// thread's `on_air`: the lookahead that follows a track is never live.
+    fn on_air(&self) -> bool {
+        let live = self.decks.live_url.lock().unwrap();
+        live.is_some() && self.mpv().get_property::<String>("path").ok() == *live
+    }
+
     pub fn seek(&self, position_secs: f64) -> Result<(), Error> {
+        // A broadcast's timeline is its DVR window, not a track (#424): a position from the UI,
+        // a media key or a Listen Together host means nothing in it.
+        if self.on_air() {
+            return Ok(());
+        }
         // Scrubbing is aimed at the track that is playing, which during an overlap is the
         // incoming deck. The outgoing one has nothing to do with the new position.
         self.cancel_fade();
@@ -2427,5 +2439,34 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         };
         assert!((1.9..3.0).contains(&pos), "started at {pos}");
+    }
+
+    /// A seek into a broadcast is refused, whoever sends it (#424), and the next ordinary file
+    /// seeks again: the guard follows `path`, not a flag left behind by the live load.
+    #[test]
+    fn a_live_file_ignores_seeks_and_the_next_one_does_not() {
+        use super::Player;
+        use std::time::{Duration, Instant};
+
+        let dir = std::env::temp_dir().join("limusic-live-seek-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = Player::new(dir.to_str().unwrap()).expect("libmpv");
+        p.mpv().set_property("ao", "null").unwrap();
+        p.mpv().set_property("pause", true).unwrap();
+        let pos_after_seek = |url: &str, live: bool| {
+            p.load(url, &Default::default(), None, None, live).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while p.mpv().get_property::<f64>("time-pos").is_err() {
+                assert!(Instant::now() < deadline, "file never loaded");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            p.seek(20.0).unwrap();
+            std::thread::sleep(Duration::from_millis(300));
+            p.mpv().get_property::<f64>("time-pos").unwrap()
+        };
+        let live = pos_after_seek("av://lavfi:sine=f=440:d=30", true);
+        assert!(live < 1.0, "seeked a live file to {live}");
+        let file = pos_after_seek("av://lavfi:sine=f=880:d=30", false);
+        assert!(file > 19.0, "an ordinary file after it stayed at {file}");
     }
 }

@@ -87,6 +87,8 @@ export interface NowPlaying {
 	isVideo?: boolean;
 	/** A podcast episode: the transport offers speed and 15-second skips (#500). */
 	isEpisode?: boolean;
+	/** A broadcast on air: no length and nothing to seek, so a Live badge stands in for the bar (#424). */
+	live?: boolean;
 }
 
 export type RepeatMode = 'off' | 'all' | 'one';

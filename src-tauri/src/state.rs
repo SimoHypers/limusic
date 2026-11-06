@@ -348,9 +348,9 @@ struct QueueState {
     cpn: String,
     /// Latest mpv-reported track duration (secs), for the history-ping threshold.
     duration: f64,
-    /// The current track is a broadcast on air (#424). Its deck carries the live file options and
-    /// its timeline is the DVR window, so nothing is primed behind it and a guest never seeks it to
-    /// the host's position. Only a `load` sets it; a gapless advance can't land on one.
+    /// The current track is a broadcast on air (#424). Its deck carries the live file options, so
+    /// nothing is primed behind it (seeks into it are the player's to refuse, see `Player::seek`).
+    /// Only a `load` sets it; a gapless advance can't land on one.
     live: bool,
     /// Last videoId we re-resolved after a playback failure — guards the one-shot retry in
     /// `on_track_failed` against a retry loop when the retried stream dies too.
@@ -2037,7 +2037,7 @@ impl AppState {
             q.live = false;
         }
         if let Some(item) = self.current_item().await {
-            self.emit_now_playing(&item, "gapless");
+            self.emit_now_playing(&item, "gapless", false);
             // Same as `start_current`: an autoplay-appended track carries no rating of its own.
             self.refresh_from_next(&item.video_id, gen);
         }
@@ -2329,7 +2329,7 @@ impl AppState {
                 tracing::warn!(%error, "live: tempo stays as it was");
             }
         }
-        self.emit_now_playing(&item, &data.stream_client);
+        self.emit_now_playing(&item, &data.stream_client, data.live);
         // The rating just emitted is whatever the row was parsed with, which for a search result
         // or a radio track is nothing at all (issue #93). Ask.
         self.refresh_from_next(&item.video_id, gen);
@@ -2518,7 +2518,7 @@ impl AppState {
     /// Everything the `now-playing` event carries. Shared with [`Self::playback_snapshot`] so a
     /// window that asks for the current track can't be told a different shape than one that
     /// listened for it.
-    fn now_playing_json(item: &SongItem, stream_client: &str) -> serde_json::Value {
+    fn now_playing_json(item: &SongItem, stream_client: &str, live: bool) -> serde_json::Value {
         serde_json::json!({
             "videoId": item.video_id,
             "title": item.title,
@@ -2538,6 +2538,8 @@ impl AppState {
             "isVideo": item.is_video,
             // Podcast controls in the transport (#500).
             "isEpisode": item.is_episode,
+            // A broadcast on air: no length, nothing to seek, a Live badge for the bar (#424).
+            "live": live,
         })
     }
 
@@ -2546,12 +2548,12 @@ impl AppState {
     /// cold start both have to ask once instead of guessing.
     pub async fn playback_snapshot(&self) -> serde_json::Value {
         let (speed, semitones, reverb) = self.player.playback_params();
-        let (duration, item) = {
+        let (duration, item, live) = {
             let q = self.queue.lock().await;
-            (q.duration, q.items.get(q.current).cloned())
+            (q.duration, q.items.get(q.current).cloned(), q.live)
         };
         serde_json::json!({
-            "now": item.as_ref().map(|i| Self::now_playing_json(i, "current")),
+            "now": item.as_ref().map(|i| Self::now_playing_json(i, "current", live)),
             "paused": !self.is_playing.load(Ordering::Relaxed),
             "position": self.current_position(),
             // 0 until mpv loads the file, which a restored track waits for until play (#502).
@@ -2645,8 +2647,8 @@ impl AppState {
         });
     }
 
-    fn emit_now_playing(&self, item: &SongItem, stream_client: &str) {
-        let _ = self.app.emit("now-playing", Self::now_playing_json(item, stream_client));
+    fn emit_now_playing(&self, item: &SongItem, stream_client: &str, live: bool) {
+        let _ = self.app.emit("now-playing", Self::now_playing_json(item, stream_client, live));
         let _ = self.app.emit("playback-state", "playing");
         // Push the same metadata to the OS media widget (context/16) and Discord.
         if let Some(m) = &self.media {
@@ -3359,7 +3361,7 @@ impl AppState {
             // announced before this would briefly look like it was playing (and put a presence card
             // up for a song nobody started).
             self.media_set_playing(false);
-            self.emit_now_playing(&item, "restored");
+            self.emit_now_playing(&item, "restored", false);
             // The stored rating is as old as the database: a like made on another device since
             // has never been seen here (issue #93).
             self.refresh_from_next(&item.video_id, self.generation.load(Ordering::SeqCst));
@@ -3573,22 +3575,21 @@ impl AppState {
             let _ = self.player.pause();
             return;
         };
-        let (already_loaded, live) = {
+        let already_loaded = {
             let q = self.queue.lock().await;
-            (q.items.get(q.current).map(|i| i.video_id == track.id).unwrap_or(false), q.live)
+            q.items.get(q.current).map(|i| i.video_id == track.id).unwrap_or(false)
         };
         if already_loaded && !self.player.is_idle() {
             let target = state.position_ms as f64 / 1000.0;
-            // A broadcast's position is the DVR window's, not the host's: never seek it (#424).
             if state.is_playing {
                 // Only correct meaningful drift — avoid a re-buffer glitch when we're already synced
                 // (e.g. the post-join auto re-sync after the initial compensation nailed it).
-                if !live && (self.current_position() - target).abs() > 0.35 {
+                if (self.current_position() - target).abs() > 0.35 {
                     let _ = self.player.seek(target);
                 }
                 let _ = self.player.play();
             } else {
-                if !live && target > 0.5 {
+                if target > 0.5 {
                     let _ = self.player.seek(target);
                 }
                 let _ = self.player.pause();
@@ -3695,7 +3696,7 @@ impl AppState {
             }
         }
         if let Some(item) = self.current_item().await {
-            self.emit_now_playing(&item, "listen-together");
+            self.emit_now_playing(&item, "listen-together", data.live);
             // `&self` here, and the attach outlives it: the managed Arc is the same state.
             let st = tauri::Manager::state::<Arc<AppState>>(&self.app).inner().clone();
             st.attach_video(&item.video_id, item.is_video, &stream_url);
@@ -3735,7 +3736,8 @@ impl AppState {
     /// transit, and a guest whose clock ran a few seconds fast landed that far ahead. The transit
     /// itself is tens of ms, far inside the 2s tolerance.
     async fn lt_apply_play(&self, position_ms: i64) {
-        if self.lt_drifted(position_ms).await {
+        let cur_ms = (self.current_position() * 1000.0) as i64;
+        if (cur_ms - position_ms).abs() > 2000 {
             let _ = self.player.seek(position_ms as f64 / 1000.0);
         }
         let _ = self.player.play();
@@ -3743,20 +3745,11 @@ impl AppState {
 
     /// Guest: apply a pause, correcting position if it drifted past tolerance.
     async fn lt_apply_pause(&self, position_ms: i64) {
-        if self.lt_drifted(position_ms).await {
+        let cur_ms = (self.current_position() * 1000.0) as i64;
+        if (cur_ms - position_ms).abs() > 2000 {
             let _ = self.player.seek(position_ms as f64 / 1000.0);
         }
         let _ = self.player.pause();
-    }
-
-    /// Past the 2s tolerance from the host's position, and not a broadcast, whose position is
-    /// the DVR window's and compares with nothing on the host (#424).
-    async fn lt_drifted(&self, position_ms: i64) -> bool {
-        if self.queue.lock().await.live {
-            return false;
-        }
-        let cur_ms = (self.current_position() * 1000.0) as i64;
-        (cur_ms - position_ms).abs() > 2000
     }
 
     /// Host: broadcast the current track + upcoming queue as a ChangeTrack. No-op unless host.

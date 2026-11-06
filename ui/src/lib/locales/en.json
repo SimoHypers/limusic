@@ -191,6 +191,7 @@
 		"back_to": "Back to {title}",
 		"repeat_state": "Repeat: {state}",
 		"seek": "Seek",
+		"live": "Live",
 		"skip_back": "Back {seconds} seconds",
 		"skip_forward": "Forward {seconds} seconds",
 		"speed": "Playback speed",
