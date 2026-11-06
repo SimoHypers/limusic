@@ -37,8 +37,8 @@ pub use models::metadata::{
     AccountIdentity, AccountInfo, NextResult, Rating, SearchResult, Segment, SongItem,
 };
 pub use models::player::{
-    find_format, find_video_format, AudioQuality, Format, PlaybackTracking, PlayerResponse,
-    StreamingData,
+    find_format, find_video_format, pick_hls_variant, AudioQuality, Format, Live, PlaybackTracking,
+    PlayerResponse, StreamingData,
 };
 pub use rustypipe_fallback::{FallbackError, StreamCandidate};
 pub use transport::{
