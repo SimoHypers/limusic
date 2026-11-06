@@ -1159,6 +1159,7 @@ pub fn run() {
             commands::search_all,
             commands::search_suggestions,
             commands::search_cards,
+            commands::get_live_now,
             commands::search_videos,
             commands::song,
             commands::play,
