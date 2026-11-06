@@ -526,6 +526,9 @@ impl Player {
             .set_property("stream-lavf-o", if live { LAVF_LIVE_OPTS } else { LAVF_FILE_OPTS })?;
         self.mpv().set_property("demuxer-lavf-o", if live { LAVF_LIVE_DEMUX_OPTS } else { "" })?;
         *self.decks.live_url.lock().unwrap() = live.then(|| url.to_owned());
+        // A broadcast always starts at its live edge: a resume point or a host's position is a
+        // track position, and as an offset into the DVR window it lands hours behind (#424).
+        let start = start.filter(|_| !live);
         let args = loadfile_args(url, start, loadfile_has_index(self.mpv()));
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
         self.mpv().command("loadfile", &refs)?;
@@ -2441,10 +2444,10 @@ mod tests {
         assert!((1.9..3.0).contains(&pos), "started at {pos}");
     }
 
-    /// A seek into a broadcast is refused, whoever sends it (#424), and the next ordinary file
-    /// seeks again: the guard follows `path`, not a flag left behind by the live load.
+    /// A broadcast ignores a start position and every seek, whoever sends them (#424), and the next
+    /// ordinary file honours both again: the guard follows `path`, not a flag the live load left.
     #[test]
-    fn a_live_file_ignores_seeks_and_the_next_one_does_not() {
+    fn a_live_file_ignores_start_and_seeks_the_next_one_does_not() {
         use super::Player;
         use std::time::{Duration, Instant};
 
@@ -2454,7 +2457,7 @@ mod tests {
         p.mpv().set_property("ao", "null").unwrap();
         p.mpv().set_property("pause", true).unwrap();
         let pos_after_seek = |url: &str, live: bool| {
-            p.load(url, &Default::default(), None, None, live).unwrap();
+            p.load(url, &Default::default(), None, Some(10.0), live).unwrap();
             let deadline = Instant::now() + Duration::from_secs(5);
             while p.mpv().get_property::<f64>("time-pos").is_err() {
                 assert!(Instant::now() < deadline, "file never loaded");
@@ -2465,7 +2468,7 @@ mod tests {
             p.mpv().get_property::<f64>("time-pos").unwrap()
         };
         let live = pos_after_seek("av://lavfi:sine=f=440:d=30", true);
-        assert!(live < 1.0, "seeked a live file to {live}");
+        assert!(live < 1.0, "a live file got to {live}");
         let file = pos_after_seek("av://lavfi:sine=f=880:d=30", false);
         assert!(file > 19.0, "an ordinary file after it stayed at {file}");
     }

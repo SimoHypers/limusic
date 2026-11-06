@@ -2308,6 +2308,12 @@ impl AppState {
             self.history_pinged.store(false, Ordering::Relaxed);
             self.end_listen();
             q.duration = 0.0;
+            // Across a restart too: the restored track is announced before anything resolves it,
+            // and a broadcast restored as an ordinary track came back with a seek bar (#424).
+            if q.live || data.live {
+                let id = if data.live { item.video_id.as_str() } else { "" };
+                self.db.set_setting("live_video", id);
+            }
             q.live = data.live;
             let cur = q.current;
             if let Some(qi) = q.items.get_mut(cur) {
@@ -3334,8 +3340,10 @@ impl AppState {
                 repeat = r;
             }
         }
+        let live = self.db.get_setting("live_video").as_deref() == Some(&items[current].video_id);
         let pos = self.db.get_setting("queue_position").and_then(|s| s.parse::<f64>().ok());
-        if let Some(p) = pos.filter(|p| *p > 0.0) {
+        // A broadcast resumes at its live edge, so its saved position means nothing.
+        if let Some(p) = pos.filter(|p| *p > 0.0 && !live) {
             *self.pending_seek.lock().unwrap() = Some((items[current].video_id.clone(), p));
             // Also what the seekbar shows, and what an exit before the first play saves back.
             // Left at 0, quitting without pressing play overwrote the saved position (#502).
@@ -3351,6 +3359,7 @@ impl AppState {
             q.source_name = source_name;
             q.source_id = source_id;
             q.radio = radio;
+            q.live = live;
         }
         if repeat == RepeatMode::One {
             let _ = self.player.set_loop_file(true);
@@ -3361,7 +3370,7 @@ impl AppState {
             // announced before this would briefly look like it was playing (and put a presence card
             // up for a song nobody started).
             self.media_set_playing(false);
-            self.emit_now_playing(&item, "restored", false);
+            self.emit_now_playing(&item, "restored", live);
             // The stored rating is as old as the database: a like made on another device since
             // has never been seen here (issue #93).
             self.refresh_from_next(&item.video_id, self.generation.load(Ordering::SeqCst));
@@ -3659,7 +3668,7 @@ impl AppState {
             &stream_url,
             &data.headers,
             self.track_gain(data.loudness_db),
-            (pos > 0.5 && !data.live).then_some(pos),
+            (pos > 0.5).then_some(pos),
             data.live,
         ) {
             self.emit_error(&track.id, &e.to_string());
