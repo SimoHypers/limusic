@@ -17,6 +17,7 @@
 	const UVR_URL = 'https://github.com/Anjok07/ultimatevocalremovergui';
 	// DirectML (and its telemetry note) only exists on Windows.
 	const IS_WINDOWS = browser && navigator.userAgent.includes('Windows');
+	const IS_LINUX = browser && navigator.userAgent.includes('Linux');
 
 	const currentModelId = $derived(karaokeConsent.model ?? karaokeSelection.model);
 	const currentModelState = $derived(karaokeModels[currentModelId] ?? karaokeModels.kara);
@@ -79,6 +80,8 @@
 			<li>{t('karaoke.consent.source')}</li>
 			{#if IS_WINDOWS}
 				<li>{t('karaoke.consent.runtime_windows')}</li>
+			{:else if IS_LINUX}
+				<li>{t('karaoke.consent.runtime_linux')}</li>
 			{:else}
 				<li>{t('karaoke.consent.runtime')}</li>
 			{/if}

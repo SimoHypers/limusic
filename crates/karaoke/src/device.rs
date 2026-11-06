@@ -199,17 +199,18 @@ impl DevicePref {
         }
     }
 
+    /// Returns the default device preference for the current platform (CPU on macOS and Linux, Auto elsewhere).
     pub fn platform_default() -> DevicePref {
-        if cfg!(target_os = "macos") {
+        if cfg!(target_os = "macos") || cfg!(target_os = "linux") {
             DevicePref::Cpu
         } else {
             DevicePref::Auto
         }
     }
 
-    /// Becomes true on macOS when a CoreML backend exists.
+    /// Becomes true on Windows (DirectML) and Linux x86_64 (WebGPU plugin over Vulkan).
     pub const fn gpu_supported() -> bool {
-        cfg!(windows)
+        cfg!(windows) || cfg!(all(target_os = "linux", target_arch = "x86_64"))
     }
 }
 
@@ -482,6 +483,17 @@ mod tests {
         let adapters = list_adapters();
         for (i, a) in adapters.iter().enumerate() {
             assert!(a.index >= i as i32);
+        }
+    }
+
+    #[test]
+    fn gpu_support_and_default_match_the_platform() {
+        assert_eq!(
+            DevicePref::gpu_supported(),
+            cfg!(windows) || cfg!(all(target_os = "linux", target_arch = "x86_64"))
+        );
+        if cfg!(target_os = "linux") {
+            assert_eq!(DevicePref::platform_default(), DevicePref::Cpu);
         }
     }
 }
