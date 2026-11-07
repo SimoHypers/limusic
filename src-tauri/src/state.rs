@@ -2579,6 +2579,7 @@ impl AppState {
         // it. Left unprimed, it is reached through `start_current` like a first play.
         if data.live {
             tracing::debug!(index = next_idx, "next track is live, not primed");
+            self.unpin_karaoke(PinSlot::Next);
             return;
         }
         let url = self.play_url(PinSlot::Next, next_video, &stream_url);
