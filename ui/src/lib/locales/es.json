@@ -159,7 +159,8 @@
 		"scroll_to_end": "Desplazar hasta el final",
 		"skip_back": "Retroceder {seconds} segundos",
 		"skip_forward": "Avanzar {seconds} segundos",
-		"speed": "Velocidad de reproducción"
+		"speed": "Velocidad de reproducción",
+		"live": "En directo"
 	},
 	"home": {
 		"good_morning": "Buenos días",
@@ -210,7 +211,8 @@
 			"mixed_for_you": "Mixes para ti",
 			"daily_discover": "Tu descubrimiento diario",
 			"music_videos": "Videos musicales para ti"
-		}
+		},
+		"live_now": "En directo ahora"
 	},
 	"artist": {
 		"subscribe": "Suscribirse",
@@ -428,8 +430,8 @@
 			"preview_hint": "Los controles deslizantes y el selector de color aparecen aquí a medida que arrastras, y la aplicación responde cuando sueltas.",
 			"blur_playlist_header": "Desenfocar cabecera de playlist",
 			"blur_playlist_header_hint": "Muestra la portada de la playlist desenfocada detrás de la cabecera. Suaviza las portadas que se ven pixeladas al estirarse a todo lo ancho.",
-			"matugen": "Matugen",
-			"matugen_hint": "Toma cualquier color, acentos incluidos, de la paleta de colores que Matugen crea de tu fondo de pantalla. Crea una plantilla de Limusic en Matugen primero.",
+			"matugen": "Paleta del fondo de pantalla",
+			"matugen_hint": "Toma todos los colores, incluido el de acento, de la paleta que Matugen, wallust o pywal generan a partir de tu fondo de pantalla. Configura primero la plantilla de Limusic en esa herramienta.",
 			"classic_player": "Diseño clásico del reproductor",
 			"classic_player_hint": "El diseño original del reproductor: La carátula sola sobre una copia desenfocada de la misma, con los detalles de la canción a la izquierda del barra de reproducción. Desactivado usa el nuevo diseño, con el título, artista y álbum debajo de la carátula e iluminado con los colores de esta.",
 			"now_playing_pill": "Botón de reproduciendo ahora",
