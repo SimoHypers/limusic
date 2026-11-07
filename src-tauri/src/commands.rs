@@ -232,6 +232,17 @@ pub async fn set_playback_params(
     state.set_playback_params(speed, semitones, reverb).await
 }
 
+/// The ten-band equalizer. Unlike tempo and reverb it is saved, and restored on the next launch.
+#[tauri::command]
+pub async fn set_equalizer(state: St<'_>, eq: player::Equalizer) -> Result<(), String> {
+    state.set_equalizer(eq).await
+}
+
+#[tauri::command]
+pub async fn get_equalizer(state: St<'_>) -> Result<player::Equalizer, String> {
+    Ok(state.equalizer())
+}
+
 #[tauri::command]
 pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
     Ok(state.queue_snapshot().await)

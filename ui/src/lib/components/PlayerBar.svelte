@@ -20,6 +20,7 @@
 		ArrowUp01Icon,
 		ArrowDown01Icon,
 		PreferenceVerticalIcon,
+		AudioLinesIcon,
 		GoBackward15SecIcon,
 		GoForward15SecIcon
 	} from '@hugeicons/core-free-icons';
@@ -90,6 +91,10 @@
 	// catch, since the song then just sounds wrong.
 	const effectsOn = $derived(
 		playback.speed !== 1 || playback.semitones !== 0 || playback.reverb.enabled
+	);
+	const eqOn = $derived(
+		playback.equalizer.enabled &&
+			(playback.equalizer.preamp !== 0 || playback.equalizer.bands.some((g) => g !== 0))
 	);
 	const repeat = $derived(playback.queue.repeat ?? 'off');
 	// A podcast episode trades shuffle for speed and gets the 15-second skips either side of play.
@@ -452,6 +457,16 @@
 					icon={PreferenceVerticalIcon}
 					class="h-5 w-5 {effectsOn ? 'text-primary' : ''}"
 				/>
+			</Button>
+			<Button
+				variant={ui.equalizerOpen ? 'secondary' : 'ghost'}
+				size="icon-sm"
+				onclick={() => (ui.equalizerOpen = !ui.equalizerOpen)}
+				aria-label={t('dialogs.equalizer.title')}
+				aria-expanded={ui.equalizerOpen}
+				title={t('dialogs.equalizer.title')}
+			>
+				<HugeiconsIcon icon={AudioLinesIcon} class="h-5 w-5 {eqOn ? 'text-primary' : ''}" />
 			</Button>
 			<Button
 				variant={lyricsOpen ? 'secondary' : 'ghost'}

@@ -848,6 +848,10 @@ pub fn run() {
                 hotkeys::LAST_NONZERO_VOLUME.store(volume, std::sync::atomic::Ordering::Relaxed);
             }
             player.set_crossfade(state::saved_crossfade(&db));
+            // Best-effort: a libmpv that refuses the curve still plays, just without it.
+            if let Err(e) = player.set_equalizer(state::saved_equalizer(&db)) {
+                tracing::warn!("equalizer not restored: {e}");
+            }
             let events = match player.take_events() {
                 Some(ev) => ev,
                 None => fatal(
@@ -1178,6 +1182,8 @@ pub fn run() {
             commands::seek,
             commands::set_volume,
             commands::set_playback_params,
+            commands::set_equalizer,
+            commands::get_equalizer,
             commands::get_queue,
             commands::get_playback,
             commands::video_stream,

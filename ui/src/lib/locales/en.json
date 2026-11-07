@@ -894,6 +894,37 @@
 			"quit_app": "Quit Limusic",
 			"show_this_list": "Show this list"
 		},
+		"equalizer": {
+			"title": "Equalizer",
+			"desc": "Ten bands, heard while you drag. Saved and restored on the next launch.",
+			"enable": "Equalizer on",
+			"presets": "Presets",
+			"bands": "Bands",
+			"preamp": "Pre",
+			"band_aria": "Gain at {freq}",
+			"band_reset": "Double-click to reset this band",
+			"footnote": "Boosted curves pass through a peak limiter so they never clip. Cut-only curves, like Low Latency, skip it and add no delay at all.",
+			"preset_names": {
+				"flat": "Flat",
+				"bass_enhancer": "Bass Enhancer",
+				"clear_audio": "Clear Audio",
+				"low_latency": "Low Latency",
+				"bass_clear": "Bass + Clear",
+				"vocal": "Vocal",
+				"rock": "Rock",
+				"electronic": "Electronic"
+			},
+			"hints": {
+				"flat": "No change to the sound",
+				"bass_enhancer": "Deep sub-bass and punch, level-matched so it doesn't just sound louder",
+				"clear_audio": "Removes low-mid mud and adds presence and air for detail",
+				"low_latency": "V-shaped curve built only from cuts: no limiter, zero added delay",
+				"bass_clear": "Bass Enhancer and Clear Audio together",
+				"vocal": "Brings voices forward",
+				"rock": "Tight low end, bright guitars and cymbals",
+				"electronic": "Heavy sub, scooped mids, crisp highs"
+			}
+		},
 		"tempo_pitch": {
 			"title": "Tempo, Pitch & Reverb",
 			"desc": "Applies to everything you play, until you change it back or restart the app.",

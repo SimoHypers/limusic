@@ -1,0 +1,151 @@
+name: Windows build (unsigned)
+
+# Builds a Windows installer (.exe) and a portable zip from whatever branch it runs on, and keeps
+# both as workflow artifacts. No release, no signing secrets, no updater manifest: this is for
+# trying a branch on a Windows PC, not for shipping auto-updates. The libmpv and toolchain steps
+# are the same as windows-release.yml; keep the two in step when bumping either.
+#
+# Download: Actions ▸ Windows build (unsigned) ▸ the run ▸ Artifacts.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/great-cannon-krfuyn]
+    paths-ignore: ['website/**', 'docs/**', '**.md']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MPV_DEV_URL: https://github.com/SimoHypers/limusic/releases/download/deps/libmpv-2-x86_64-20260610-git-304426c.7z
+  MPV_DEV_SHA256: af708edcdf6ed12ac7b2bb31b4cbeba0bf7d4eef345a715ef5de782c0ddd6671
+  MPV_DIR: ${{ github.workspace }}\.libmpv
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      # Never fatal: without a snapshot the app fetches the cipher table at runtime anyway.
+      - name: Bake in the player-cipher registry
+        shell: bash
+        run: |
+          FARADAY=https://raw.githubusercontent.com/MetrolistGroup/faraday/master/registry/player_configs.json
+          ZEMER=https://raw.githubusercontent.com/ZemerTeam/zemer-cipher/master/library/src/main/assets/player_configs.json
+          tmp="$(mktemp)"
+          for url in "$FARADAY" "$ZEMER"; do
+            if curl -fsSL --max-time 30 "$url" -o "$tmp" \
+               && jq -e '(.players | objects | length) > 0' "$tmp" >/dev/null 2>&1; then
+              cp "$tmp" src-tauri/cipher_configs.json
+              echo "bundled $(jq '.players | length' "$tmp") player configs from $url"
+              exit 0
+            fi
+            echo "::warning::player-cipher registry unusable: $url"
+          done
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - name: Frontend deps
+        shell: bash
+        run: cd ui && pnpm install --frozen-lockfile
+
+      - name: Rust (MSVC)
+        shell: bash
+        run: rustup default stable-msvc
+
+      # Before rust-cache, so the cache key and cargo's fingerprints agree (see windows-release.yml).
+      - name: Resolve RUSTFLAGS (linker + libmpv link path)
+        shell: bash
+        run: |
+          set -euo pipefail
+          FLAGS="-L native=${{ github.workspace }}\.libmpv"
+          SYSROOT="$(rustc --print sysroot | tr '\\' '/')"
+          RUST_LLD="$SYSROOT/lib/rustlib/x86_64-pc-windows-msvc/bin/rust-lld.exe"
+          if [ -f "$RUST_LLD" ]; then
+            FLAGS="$FLAGS -C linker-flavor=lld-link -C linker=$RUST_LLD"
+          fi
+          echo "RUSTFLAGS=$FLAGS" >> "$GITHUB_ENV"
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: . -> target
+
+      - name: Tauri CLI
+        shell: bash
+        run: npm install -g "@tauri-apps/cli@2.11.5"
+
+      # The dev package ships a MinGW import lib MSVC can't use: build mpv.lib from the DLL's exports.
+      - name: Build the libmpv import library
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path "$env:MPV_DIR" | Out-Null
+          curl.exe -fsSL -o "$env:MPV_DIR\mpv-dev.7z" "$env:MPV_DEV_URL"
+          if ((Get-FileHash "$env:MPV_DIR\mpv-dev.7z" -Algorithm SHA256).Hash -ne $env:MPV_DEV_SHA256) { throw "mpv-dev.7z does not match MPV_DEV_SHA256" }
+          7z x "$env:MPV_DIR\mpv-dev.7z" -o"$env:MPV_DIR" -y | Out-Null
+          if (-not (Test-Path "$env:MPV_DIR\libmpv-2.dll")) { throw "libmpv-2.dll not found" }
+
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+
+          Set-Location "$env:MPV_DIR"
+          $names = & dumpbin /exports libmpv-2.dll |
+            Select-String -Pattern '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\w+)' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value }
+          if ($names.Count -lt 50) { throw "parsed only $($names.Count) exports from libmpv-2.dll" }
+          @("EXPORTS") + ($names | ForEach-Object { "    $_" }) | Set-Content -Path mpv.def -Encoding ascii
+          & lib /def:mpv.def /name:libmpv-2.dll /out:mpv.lib /machine:x64
+          if (-not (Test-Path "$env:MPV_DIR\mpv.lib")) { throw "lib.exe did not produce mpv.lib" }
+          Copy-Item "$env:MPV_DIR\libmpv-2.dll" "$env:GITHUB_WORKSPACE\src-tauri\libmpv-2.dll" -Force
+
+      # Unsigned: no updater artifacts, so no signing key is needed. NSIS only (the MSI's WiX
+      # rejects the -rc version suffix).
+      - name: Build the installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd ui && pnpm build)
+          tauri build --bundles nsis \
+            --config '{"build":{"beforeBuildCommand":""},"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: Portable zip (exe + libmpv)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $out = "$env:GITHUB_WORKSPACE\portable"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item "$env:GITHUB_WORKSPACE\target\release\limusic-app.exe" "$out\limusic.exe"
+          Copy-Item "$env:MPV_DIR\libmpv-2.dll" $out
+          Compress-Archive -Path "$out\*" -DestinationPath "$env:GITHUB_WORKSPACE\limusic-portable-windows-x64.zip"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: limusic-windows-installer
+          path: target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: limusic-windows-portable
+          path: limusic-portable-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 30

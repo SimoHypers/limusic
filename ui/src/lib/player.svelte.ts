@@ -21,6 +21,7 @@ import { currentLocale, pushLocaleToRust, t } from './i18n.svelte';
 import { friendlyNetError, isUnreachable } from './neterr';
 import { whenBackOnline } from './reconnect';
 import { parseScrobbleConfig } from './scrobble';
+import { FLAT, normalizeEq, type Equalizer } from './equalizer';
 
 export const playback = $state({
 	now: null as NowPlaying | null,
@@ -37,6 +38,8 @@ export const playback = $state({
 	speed: 1,
 	semitones: 0,
 	reverb: { ...api.DEFAULT_REVERB },
+	// The equalizer, unlike the effects above, is saved by the backend across launches.
+	equalizer: { ...FLAT, bands: [...FLAT.bands] } as Equalizer,
 	// Rating of the current track — seeded from its real `likeStatus` on each change, then
 	// optimistic on toggle. Owned here rather than in `ratings` below because the mini player is a
 	// separate webview with its own module instance: the backend reseed is what keeps them agreeing.
@@ -939,6 +942,36 @@ export function setTempoPitch(speed: number, semitones: number, reverb = playbac
 }
 // playback-effects-check:end
 
+/**
+ * Retune the equalizer. Sliders call this while dragging, so sends are coalesced: at most one in
+ * flight, and only the latest curve goes next. A refused curve snaps the dialog back to the last
+ * one the backend confirmed.
+ */
+let eqInFlight = false;
+let eqQueued: Equalizer | null = null;
+export function setEqualizer(eq: Equalizer) {
+	const next = normalizeEq(eq);
+	playback.equalizer = next;
+	if (eqInFlight) {
+		eqQueued = next;
+		return;
+	}
+	eqInFlight = true;
+	api.setEqualizer(next)
+		.catch((e) => {
+			toast.error(String(e));
+			api.getEqualizer()
+				.then((c) => (playback.equalizer = normalizeEq(c)))
+				.catch(() => {});
+		})
+		.finally(() => {
+			eqInFlight = false;
+			const q = eqQueued;
+			eqQueued = null;
+			if (q) setEqualizer(q);
+		});
+}
+
 /** The podcast skip (#500), in the episode's own seconds whatever the tempo. Past the end is the
  *  end, which advances the queue the way finishing the episode would. */
 export const SKIP_SECS = 15;
@@ -1216,6 +1249,7 @@ export const ui = $state({
 	toast: null as Toast | null,
 	settingsOpen: false, // the settings modal
 	tempoPitchOpen: false, // playback effects stay open when the current track menu is replaced
+	equalizerOpen: false, // the ten-band equalizer dialog
 	settingsFocus: null as 'lyrics' | 'scrobbling' | null, // a section to open settings on, once
 	scrobbleTrack: null as SongItem | null, // "Edit scrobble" from a track menu: the track to edit
 	ltOpen: false, // the Listen Together modal
@@ -1538,6 +1572,10 @@ export function initApp(mini = false): () => void {
 			receivedEffects = true;
 			Object.assign(playback, p);
 		}),
+		// Another window (the mini player) moved it; ours follows unless a drag is mid-flight here.
+		api.onEqualizer((eq) => {
+			if (!eqInFlight) playback.equalizer = normalizeEq(eq);
+		}),
 		api.onNowPlaying((n) => {
 			playback.now = n;
 			playback.rating = n.rating ?? 'indifferent'; // the track's real rating when known
@@ -1641,6 +1679,9 @@ export function initApp(mini = false): () => void {
 	const teardown = () => subs.forEach((u) => u.then((f) => f()));
 	api.getQueue()
 		.then((q) => (playback.queue = q))
+		.catch(() => {});
+	api.getEqualizer()
+		.then((eq) => (playback.equalizer = normalizeEq(eq)))
 		.catch(() => {});
 	// The events above are fire-and-forget, and this window missed every one that already fired:
 	// on a cold start the backend restores the queue before the UI subscribes, and the mini player
