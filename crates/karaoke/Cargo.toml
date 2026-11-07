@@ -1,0 +1,50 @@
+[package]
+name = "karaoke"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+hound = "3.5"
+realfft = "3.5"
+flacenc = "0.4"
+# The model download (download.rs) and the SHA-256 checks. The app passes in its own reqwest client
+# (proxy, TLS), so no TLS feature here.
+reqwest = { version = "0.12", default-features = false, features = ["stream"] }
+tokio = { workspace = true, features = ["fs", "io-util"] }
+futures-util = { workspace = true }
+sha2 = "0.10"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+tar = { version = "0.4", default-features = false }
+zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
+# ONNX Runtime is never linked on any platform; it is loaded by full path through `karaoke::runtime`.
+# api-24 = ONNX Runtime 1.24.x (NuGet Microsoft.ML.OnnxRuntime.DirectML 1.24.4).
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "tracing", "load-dynamic", "api-24"] }
+
+[dev-dependencies]
+serde_json = "1"
+# Only the tests and examples decode audio (flac_read.rs, examples/separate.rs).
+symphonia = { version = "0.5", features = ["mp3", "flac", "wav", "aac", "ogg"] }
+rubato = "0.14"
+# Only the ignored real-download test needs TLS; the library takes the app's client.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+
+# Windows: DirectML feature adds DirectML provider support.
+[target.'cfg(windows)'.dependencies]
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["directml"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dxgi", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D12", "Win32_System_LibraryLoader"] }
+
+[[example]]
+name = "inspect"
+
+[[example]]
+name = "separate"
+
+[[example]]
+name = "devices"
+
+[[example]]
+name = "cache_test"

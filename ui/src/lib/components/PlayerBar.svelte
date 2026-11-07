@@ -44,6 +44,7 @@
 	import { thumb } from '$lib/thumb';
 	import { appearance } from '$lib/theme.svelte';
 	import ArtistLine from './ArtistLine.svelte';
+	import KaraokeButton from './KaraokeButton.svelte';
 	import M3SeekWave from './M3SeekWave.svelte';
 	import Marquee from './Marquee.svelte';
 	import SpeedPicker from './SpeedPicker.svelte';
@@ -462,6 +463,7 @@
 					class="h-5 w-5 {effectsOn ? 'text-primary' : ''}"
 				/>
 			</Button>
+			<KaraokeButton />
 			<Button
 				variant={lyricsOpen ? 'secondary' : 'ghost'}
 				size="icon-sm"

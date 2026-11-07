@@ -5,6 +5,7 @@ members = [
     "crates/player",
     "crates/listen-protocol",
     "crates/sync-server",
+    "crates/karaoke",
     "src-tauri",
 ]
 
@@ -33,3 +34,19 @@ listen-protocol = { path = "crates/listen-protocol" }
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
+
+# karaoke DSP is far too slow unoptimized in dev builds
+[profile.dev.package.karaoke]
+opt-level = 3
+
+[profile.dev.package.realfft]
+opt-level = 3
+
+[profile.dev.package.flacenc]
+opt-level = 3
+
+[profile.dev.package.rubato]
+opt-level = 3
+
+[profile.dev.package.ort]
+opt-level = 3
