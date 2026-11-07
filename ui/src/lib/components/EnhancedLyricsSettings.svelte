@@ -1,7 +1,6 @@
 <script lang="ts">
-	// Enhanced lyrics (#591), one card for both places it shows: Appearance ▸ Player view and
-	// Playback ▸ Lyrics. The tuning rows only exist while the switch is on, and each slider carries a
-	// reset to its default.
+	// Enhanced lyrics (#591), in Playback ▸ Lyrics above the sources, and only there. The tuning rows
+	// only exist while the switch is on, and each slider carries a reset to its default.
 	import type { Snippet } from 'svelte';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { ArrowTurnBackwardIcon } from '@hugeicons/core-free-icons';

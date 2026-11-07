@@ -8,6 +8,12 @@
     "useSignatureTimestamp": true,
     "useWebPoTokens": true
   },
+  "WEB": {
+    "clientName": "WEB",
+    "clientVersion": "2.20261101.01.00",
+    "clientId": "1",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"
+  },
   "WEB_CREATOR": {
     "clientName": "WEB_CREATOR",
     "clientVersion": "1.20220726.00.00",

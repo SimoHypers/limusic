@@ -2,7 +2,7 @@
  *
  * Copy this file into your Matugen templates directory as limusic.css, point your
  * Matugen config at it and write the output to Limusic's CSS path
- * (see docs/MATUGEN.md). Matugen expands the placeholders below.
+ * (see docs/MATUGEN.md, which also covers wallust and pywal). Matugen expands the placeholders below.
  *
  * Light values are emitted under html.matugen-theme; dark values under
  * html.matugen-theme.dark, matching Limusic's root selector cascade.
