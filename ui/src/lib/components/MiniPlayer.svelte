@@ -49,6 +49,7 @@
 	import M3SeekWave from './M3SeekWave.svelte';
 	import Marquee from './Marquee.svelte';
 	import { t } from '$lib/i18n.svelte';
+	import LiveBadge from './LiveBadge.svelte';
 
 	// Which of the two the right column is showing. Local, and reset when the widget is destroyed:
 	// nothing here is worth persisting. The queue is the default because it is the cheaper view —
@@ -222,10 +223,12 @@
 		<!-- Position, as a line along the bottom edge. Display only: a slider this thin is a target
 		     nobody hits, and seeking is one click away in the full layout. scaleX rather than width,
 		     so a position tick repaints the line without laying anything out. -->
-		<div
-			class="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 origin-left bg-primary"
-			style="transform:scaleX({progress})"
-		></div>
+		{#if !now?.live}
+			<div
+				class="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 origin-left bg-primary"
+				style="transform:scaleX({progress})"
+			></div>
+		{/if}
 	{:else}
 		<!-- Cover art under the left half, masked so it dissolves into the card instead of ending on a
 		     seam. Keyed so a track change cross-fades. -->
@@ -363,28 +366,34 @@
 				<button class={artBtn} onclick={() => api.prevTrack()} aria-label={t('a11y.previous')}>
 					<HugeiconsIcon icon={PreviousIcon} class="h-4 w-4" />
 				</button>
-				<div
-					class="m3-seek on-art relative flex min-w-0 flex-1 items-center"
-					style="--pct:{shownDuration ? (shownPosition / shownDuration) * 100 : 0}%"
-				>
-					<M3SeekWave
-						pct={shownDuration > 0 ? Math.min(1, Math.max(0, shownPosition / shownDuration)) : 0}
-						paused={playback.paused}
-						duration={shownDuration}
-						dragging={seekDrag !== null}
-					/>
-					<input
-						type="range"
-						class="range on-art min-w-0 flex-1"
+				{#if now?.live}
+					<div class="flex h-4 min-w-0 flex-1 items-center justify-center">
+						<LiveBadge onArt />
+					</div>
+				{:else}
+					<div
+						class="m3-seek on-art relative flex min-w-0 flex-1 items-center"
 						style="--pct:{shownDuration ? (shownPosition / shownDuration) * 100 : 0}%"
-						min="0"
-						max={shownDuration || 0}
-						value={shownPosition}
-						oninput={onSeekInput}
-						onchange={onSeekCommit}
-						aria-label={t('a11y.seek')}
-					/>
-				</div>
+					>
+						<M3SeekWave
+							pct={shownDuration > 0 ? Math.min(1, Math.max(0, shownPosition / shownDuration)) : 0}
+							paused={playback.paused}
+							duration={shownDuration}
+							dragging={seekDrag !== null}
+						/>
+						<input
+							type="range"
+							class="range on-art min-w-0 flex-1"
+							style="--pct:{shownDuration ? (shownPosition / shownDuration) * 100 : 0}%"
+							min="0"
+							max={shownDuration || 0}
+							value={shownPosition}
+							oninput={onSeekInput}
+							onchange={onSeekCommit}
+							aria-label={t('a11y.seek')}
+						/>
+					</div>
+				{/if}
 				<button class={artBtn} onclick={() => api.nextTrack()} aria-label={t('a11y.next')}>
 					<HugeiconsIcon icon={NextIcon} class="h-4 w-4" />
 				</button>

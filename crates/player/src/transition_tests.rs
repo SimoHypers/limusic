@@ -63,7 +63,7 @@ fn render(dir: &Path, input: &Path, speed: f64, pitch: i32, room: Reverb) -> Vec
     pcm(p.mpv(), &output);
     p.mpv().set_property("keep-open", true).unwrap();
     p.set_playback_params(speed, pitch, room).unwrap();
-    p.load(input.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+    p.load(input.to_str().unwrap(), &HashMap::new(), None, None, false).unwrap();
     p.play().unwrap();
     wait_for("render EOF", 10.0, || p.mpv().get_property::<bool>("eof-reached").unwrap_or(false));
     p.stop().unwrap();
@@ -205,7 +205,7 @@ fn consecutive_gapless_tracks_keep_their_boundary_notes() {
         let output = dir.path().join("gapless.pcm");
         pcm(p.mpv(), &output);
         p.set_playback_params(speed, 3, effects()).unwrap();
-        p.load(paths[0].to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+        p.load(paths[0].to_str().unwrap(), &HashMap::new(), None, None, false).unwrap();
         for path in &paths[1..] {
             p.enqueue(path.to_str().unwrap()).unwrap();
         }
@@ -287,7 +287,7 @@ fn automatic_crossfade_runs_both_effected_decks_in_real_time() {
         p.set_volume(100).unwrap();
         p.set_playback_params(speed, 3, effects()).unwrap();
         p.set_crossfade(Some(1.5));
-        p.load(first.to_str().unwrap(), &HashMap::new(), None, None).unwrap();
+        p.load(first.to_str().unwrap(), &HashMap::new(), None, None, false).unwrap();
         p.enqueue(second.to_str().unwrap()).unwrap();
         wait_for("incoming preload", 5.0, || p.decks.preloaded.load(Ordering::Acquire));
         p.play().unwrap();
