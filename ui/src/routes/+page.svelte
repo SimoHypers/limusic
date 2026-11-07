@@ -19,6 +19,7 @@
 	import Shelf from '$lib/components/Shelf.svelte';
 	import ForgottenFavourites from '$lib/components/ForgottenFavourites.svelte';
 	import FamiliarArtists from '$lib/components/FamiliarArtists.svelte';
+	import LiveNow from '$lib/components/LiveNow.svelte';
 	import HomeLayoutDialog from '$lib/components/HomeLayoutDialog.svelte';
 	import TrackRowSkeleton from '$lib/components/TrackRowSkeleton.svelte';
 	import * as api from '$lib/api';
@@ -121,6 +122,7 @@
 	const SHORTCUTS = '@shortcuts';
 	const RECENT = '@recent';
 	const FAMILIAR = '@familiar';
+	const LIVE = '@live';
 	const FORGOTTEN = '@forgotten';
 	type Block =
 		| { id: string; key: string; title: string; shelf?: undefined }
@@ -132,6 +134,7 @@
 		{ id: SHORTCUTS, key: SHORTCUTS, title: t('home.shortcuts') },
 		{ id: RECENT, key: RECENT, title: t('home.jump_back_in') },
 		{ id: FAMILIAR, key: FAMILIAR, title: t('home.familiar_artists') },
+		{ id: LIVE, key: LIVE, title: t('home.live_now') },
 		{ id: FORGOTTEN, key: FORGOTTEN, title: t('home.forgotten_favourites') }
 	]);
 	/**
@@ -195,7 +198,7 @@
 		const order = personal.home.order;
 		if (!order.length) return false;
 		const rank = new Map(order.map((k, i) => [k, i]));
-		const here = new Set([SHORTCUTS, RECENT, FAMILIAR, FORGOTTEN, ...feed.map((s) => s.kind)]);
+		const here = new Set([SHORTCUTS, RECENT, FAMILIAR, LIVE, FORGOTTEN, ...feed.map((s) => s.kind)]);
 		let deepest = -1;
 		for (const [k, r] of rank) if (here.has(k) && r > deepest) deepest = r;
 		// Kinds only: a title key left from another language would never arrive.
@@ -463,6 +466,8 @@
 					{#if recent.length}<RecentRail items={recent} />{/if}
 				{:else if block.key === FAMILIAR}
 					<FamiliarArtists />
+				{:else if block.key === LIVE}
+					<LiveNow />
 				{:else if forgotten}
 					<ForgottenFavourites
 						section={forgotten}

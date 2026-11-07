@@ -87,6 +87,8 @@ export interface NowPlaying {
 	isVideo?: boolean;
 	/** A podcast episode: the transport offers speed and 15-second skips (#500). */
 	isEpisode?: boolean;
+	/** A broadcast on air: no length and nothing to seek, so a Live badge stands in for the bar (#424). */
+	live?: boolean;
 }
 
 export type RepeatMode = 'off' | 'all' | 'one';
@@ -162,6 +164,8 @@ export interface BrowseItem {
 	/** Song cards only: one of the user's own uploads. Carried into the SongItem `asSong` builds,
 	 *  because that flag is what picks the login-only client chain when it plays. */
 	isUpload?: boolean;
+	/** A broadcast on air (home's Live section): the card wears a Live badge. UI-only. */
+	live?: boolean;
 }
 
 export interface HomeSection {
@@ -639,6 +643,8 @@ export const setMiniCompact = (compact: boolean) => invoke<void>('set_mini_compa
 // --- browse / library (context/08) ---------------------------------------------------------
 /** `params` is a `HomeChip.params` token — omit for the unfiltered feed. */
 export const getHome = (params?: string) => invoke<HomePage>('get_home', { params });
+/** Home's Live section: broadcasts on air from official artist channels, most watched first (#424). */
+export const getLiveNow = () => invoke<BrowseItem[]>('get_live_now');
 export const getHomeMore = (token: string) => invoke<HomePage>('get_home_more', { token });
 
 /** A comment's author. `channel_id` and `avatar` are absent when YouTube omitted them. */

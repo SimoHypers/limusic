@@ -358,6 +358,10 @@ struct QueueState {
     cpn: String,
     /// Latest mpv-reported track duration (secs), for the history-ping threshold.
     duration: f64,
+    /// The current track is a broadcast on air (#424). Its deck carries the live file options, so
+    /// nothing is primed behind it (seeks into it are the player's to refuse, see `Player::seek`).
+    /// Only a `load` sets it; a gapless advance can't land on one.
+    live: bool,
     /// Last videoId we re-resolved after a playback failure — guards the one-shot retry in
     /// `on_track_failed` against a retry loop when the retried stream dies too.
     retried: Option<String>,
@@ -1279,6 +1283,7 @@ impl AppState {
                 // to the queue row's flag, which is exactly the thing that can't be trusted.
                 is_video: c.is_video,
                 is_episode: c.is_episode,
+                live: false, // never written to the cache, see below
                 stream_client: c.client.unwrap_or_else(|| "cache".to_owned()),
             });
         }
@@ -1291,7 +1296,10 @@ impl AppState {
         //
         // Nor upload URLs: they expire in minutes (32 seconds without the MLPT context), and the
         // read above only accepts a row with 60s of life left, so the write is dead on arrival.
-        if data.stream_client != "rustypipe" && !is_upload {
+        //
+        // Nor a live playlist (#424): the broadcast it describes can end and the recording take
+        // its videoId within the cache window, and a replay then needs a real `/player` answer.
+        if data.stream_client != "rustypipe" && !is_upload && !data.live {
             self.db.put_stream(
                 video_id,
                 &crate::db::CachedStream {
@@ -2049,9 +2057,10 @@ impl AppState {
             self.history_pinged.store(false, Ordering::Relaxed);
             self.end_listen();
             q.duration = 0.0;
+            q.live = false;
         }
         if let Some(item) = self.current_item().await {
-            self.emit_now_playing(&item, "gapless");
+            self.emit_now_playing(&item, "gapless", false);
             // Same as `start_current`: an autoplay-appended track carries no rating of its own.
             self.refresh_from_next(&item.video_id, gen);
         }
@@ -2297,9 +2306,13 @@ impl AppState {
         let is_karaoke = play_u != stream_url;
         // `load` replaces mpv's playlist: nothing is queued next any more.
         self.unpin_karaoke(PinSlot::Next);
-        if let Err(e) =
-            self.player.load(&play_u, &data.headers, self.track_gain(data.loudness_db), seek)
-        {
+        if let Err(e) = self.player.load(
+            &play_u,
+            &data.headers,
+            self.track_gain(data.loudness_db),
+            seek,
+            data.live,
+        ) {
             self.emit_error(&item.video_id, &e.to_string());
             return false;
         }
@@ -2318,7 +2331,8 @@ impl AppState {
             data.is_video,
             data.is_episode,
         );
-        self.attach_video(&item.video_id, item.is_video, &play_u);
+        // A broadcast's picture is segment bases too (#424), so there is no 720p file to pair.
+        self.attach_video(&item.video_id, item.is_video && !data.live, &play_u);
         {
             let mut q = self.queue.lock().await;
             q.current_client = Some(data.stream_client.clone());
@@ -2336,6 +2350,13 @@ impl AppState {
             self.history_pinged.store(false, Ordering::Relaxed);
             self.end_listen();
             q.duration = 0.0;
+            // Across a restart too: the restored track is announced before anything resolves it,
+            // and a broadcast restored as an ordinary track came back with a seek bar (#424).
+            if q.live || data.live {
+                let id = if data.live { item.video_id.as_str() } else { "" };
+                self.db.set_setting("live_video", id);
+            }
+            q.live = data.live;
             let cur = q.current;
             if let Some(qi) = q.items.get_mut(cur) {
                 // Same repair on the queue's own copy: it's what the queue panel renders, what
@@ -2351,7 +2372,12 @@ impl AppState {
                 }
             }
         }
-        self.emit_now_playing(&item, &data.stream_client);
+        if data.live {
+            if let Err(error) = self.reset_tempo(true).await {
+                tracing::warn!(%error, "live: tempo stays as it was");
+            }
+        }
+        self.emit_now_playing(&item, &data.stream_client, data.live);
         // The rating just emitted is whatever the row was parsed with, which for a search result
         // or a radio track is nothing at all (issue #93). Ask.
         self.refresh_from_next(&item.video_id, gen);
@@ -2389,6 +2415,12 @@ impl AppState {
                 let Some(next) = next_index(q.items.len(), q.current, q.repeat) else { return };
                 if q.lookahead_loaded == Some(next) {
                     return; // already primed
+                }
+                // `enqueue` appends with the deck's options as they are, and a live load left them
+                // at the live set (no reconnect). When the broadcast ends the next track comes in
+                // through `start_current`, which sets its own.
+                if q.live {
+                    return;
                 }
                 next
             };
@@ -2540,6 +2572,13 @@ impl AppState {
                 index = next_idx,
                 "lookahead already primed by a concurrent resolve — dropped"
             );
+            return;
+        }
+        // A broadcast is not appended (#424): the player's `load` is what knows a URL is live, and
+        // an appended entry inherits the file options and duration handling of the track before
+        // it. Left unprimed, it is reached through `start_current` like a first play.
+        if data.live {
+            tracing::debug!(index = next_idx, "next track is live, not primed");
             return;
         }
         let url = self.play_url(PinSlot::Next, next_video, &stream_url);
@@ -3024,7 +3063,7 @@ impl AppState {
     /// Everything the `now-playing` event carries. Shared with [`Self::playback_snapshot`] so a
     /// window that asks for the current track can't be told a different shape than one that
     /// listened for it.
-    fn now_playing_json(item: &SongItem, stream_client: &str) -> serde_json::Value {
+    fn now_playing_json(item: &SongItem, stream_client: &str, live: bool) -> serde_json::Value {
         serde_json::json!({
             "videoId": item.video_id,
             "title": item.title,
@@ -3044,6 +3083,8 @@ impl AppState {
             "isVideo": item.is_video,
             // Podcast controls in the transport (#500).
             "isEpisode": item.is_episode,
+            // A broadcast on air: no length, nothing to seek, a Live badge for the bar (#424).
+            "live": live,
         })
     }
 
@@ -3052,12 +3093,12 @@ impl AppState {
     /// cold start both have to ask once instead of guessing.
     pub async fn playback_snapshot(&self) -> serde_json::Value {
         let (speed, semitones, reverb) = self.player.playback_params();
-        let (duration, item) = {
+        let (duration, item, live) = {
             let q = self.queue.lock().await;
-            (q.duration, q.items.get(q.current).cloned())
+            (q.duration, q.items.get(q.current).cloned(), q.live)
         };
         serde_json::json!({
-            "now": item.as_ref().map(|i| Self::now_playing_json(i, "current")),
+            "now": item.as_ref().map(|i| Self::now_playing_json(i, "current", live)),
             "paused": !self.is_playing.load(Ordering::Relaxed),
             "position": self.current_position(),
             // 0 until mpv loads the file, which a restored track waits for until play (#502).
@@ -3151,8 +3192,8 @@ impl AppState {
         });
     }
 
-    fn emit_now_playing(&self, item: &SongItem, stream_client: &str) {
-        let _ = self.app.emit("now-playing", Self::now_playing_json(item, stream_client));
+    fn emit_now_playing(&self, item: &SongItem, stream_client: &str, live: bool) {
+        let _ = self.app.emit("now-playing", Self::now_playing_json(item, stream_client, live));
         let _ = self.app.emit("playback-state", "playing");
         // Push the same metadata to the OS media widget (context/16) and Discord.
         if let Some(m) = &self.media {
@@ -3226,10 +3267,12 @@ impl AppState {
         Ok(())
     }
 
-    async fn reset_room_tempo(&self) -> Result<(), String> {
+    /// Back to 1x in a listening room, or for a broadcast (`live`, #424): played faster, a live
+    /// stream catches up with its own live edge within seconds and stalls on every segment.
+    async fn reset_tempo(&self, live: bool) -> Result<(), String> {
         let _effects = self.playback_effects.lock().await;
         let (speed, semitones, reverb) = self.player.playback_params();
-        if self.lt.in_room().await && speed != 1.0 {
+        if speed != 1.0 && (live || self.lt.in_room().await) {
             self.apply_playback_params(1.0, semitones, reverb).await?;
         }
         Ok(())
@@ -3836,8 +3879,10 @@ impl AppState {
                 repeat = r;
             }
         }
+        let live = self.db.get_setting("live_video").as_deref() == Some(&items[current].video_id);
         let pos = self.db.get_setting("queue_position").and_then(|s| s.parse::<f64>().ok());
-        if let Some(p) = pos.filter(|p| *p > 0.0) {
+        // A broadcast resumes at its live edge, so its saved position means nothing.
+        if let Some(p) = pos.filter(|p| *p > 0.0 && !live) {
             *self.pending_seek.lock().unwrap() = Some((items[current].video_id.clone(), p));
             // Also what the seekbar shows, and what an exit before the first play saves back.
             // Left at 0, quitting without pressing play overwrote the saved position (#502).
@@ -3853,6 +3898,7 @@ impl AppState {
             q.source_name = source_name;
             q.source_id = source_id;
             q.radio = radio;
+            q.live = live;
         }
         if repeat == RepeatMode::One {
             let _ = self.player.set_loop_file(true);
@@ -3863,7 +3909,7 @@ impl AppState {
             // announced before this would briefly look like it was playing (and put a presence card
             // up for a song nobody started).
             self.media_set_playing(false);
-            self.emit_now_playing(&item, "restored");
+            self.emit_now_playing(&item, "restored", live);
             // The stored rating is as old as the database: a like made on another device since
             // has never been seen here (issue #93).
             self.refresh_from_next(&item.video_id, self.generation.load(Ordering::SeqCst));
@@ -4025,7 +4071,7 @@ impl AppState {
     pub async fn apply_sync(self: &std::sync::Arc<Self>, cmd: SyncCommand) {
         // Membership has already changed. Finish any earlier effect request, restore the shared
         // clock, then seed/apply playback. Later non-1x commands recheck membership under the lock.
-        if let Err(error) = self.reset_room_tempo().await {
+        if let Err(error) = self.reset_tempo(false).await {
             let _ = self.player.pause();
             self.emit_error("", &format!("Could not restore shared playback tempo: {error}"));
             return;
@@ -4162,6 +4208,7 @@ impl AppState {
             &data.headers,
             self.track_gain(data.loudness_db),
             (pos > 0.5).then_some(pos),
+            data.live,
         ) {
             self.emit_error(&track.id, &e.to_string());
             return;
@@ -4182,6 +4229,7 @@ impl AppState {
             self.history_pinged.store(false, Ordering::Relaxed);
             self.end_listen();
             q.duration = 0.0;
+            q.live = data.live;
             // The wire row carries neither flag, so this guest's own `/player` reply sets them, as
             // `start_current` does: the music video and the podcast controls (#500).
             let cur = q.current;
@@ -4196,7 +4244,7 @@ impl AppState {
             }
         }
         if let Some(item) = self.current_item().await {
-            self.emit_now_playing(&item, "listen-together");
+            self.emit_now_playing(&item, "listen-together", data.live);
             // `&self` here, and the attach outlives it: the managed Arc is the same state.
             let st = tauri::Manager::state::<Arc<AppState>>(&self.app).inner().clone();
             st.attach_video(&item.video_id, item.is_video, &stream_url);
@@ -5512,7 +5560,10 @@ fn mpv_stream_url(data: &PlaybackData) -> String {
     // googlevideo URL instead and let the user's proxy carry it: no chunked proxy, but working
     // playback. Nothing else is lost, because the proxy's own upstream fetch already goes through
     // `http::client()`, which is proxied.
-    if crate::http::has_proxy() {
+    //
+    // A live playlist (#424) goes direct too: the chunking proxy serves one byte-range file per
+    // registration, and a playlist is text that names other URLs, which mpv has to fetch itself.
+    if crate::http::has_proxy() || data.live {
         return data.stream_url.clone();
     }
     let http = data.stream_url.starts_with("http://") || data.stream_url.starts_with("https://");

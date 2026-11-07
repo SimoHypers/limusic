@@ -78,6 +78,33 @@ pub struct PlayerResponse {
     pub playback_tracking: Option<PlaybackTracking>,
 }
 
+/// What a live broadcast resolves to: the client said it is on air, and handed over the HLS
+/// playlist. One without the other is nothing to play: `adaptiveFormats` of a broadcast are
+/// segment bases, not files, and a client that knows that but holds no playlist back (iOS does)
+/// has to be passed over for one that does.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Live<'a> {
+    /// A recording, or a client that never says (`isLive` absent): pick a format as usual.
+    No,
+    /// On air, playlist in hand.
+    Hls(&'a str),
+    /// On air, but this client gave no playlist.
+    NoManifest,
+}
+
+impl PlayerResponse {
+    pub fn live(&self) -> Live<'_> {
+        let on_air = self.video_details.as_ref().is_some_and(|v| v.is_live == Some(true));
+        if !on_air {
+            return Live::No;
+        }
+        match self.streaming_data.as_ref().and_then(|s| s.hls_manifest_url.as_deref()) {
+            Some(url) => Live::Hls(url),
+            None => Live::NoManifest,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayabilityStatus {
@@ -127,6 +154,11 @@ pub struct StreamingData {
     pub adaptive_formats: Vec<Format>,
     #[serde(default, deserialize_with = "deserialize_opt_i64_lenient")]
     pub expires_in_seconds: Option<i64>,
+    /// A live broadcast's HLS variant playlist. Its `adaptiveFormats` are segment bases
+    /// (`source=yt_live_broadcast`, no `contentLength`) that nothing here can play as one file,
+    /// so this is the only stream a live video has (#424).
+    #[serde(default)]
+    pub hls_manifest_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -228,6 +260,34 @@ pub enum AudioQuality {
     Auto,
 }
 
+/// The rendition of a live HLS master playlist to hand mpv (#424), so it opens one and none of
+/// the others. A web client's variants are muxed picture and sound (itags 91-96): 144p and 240p
+/// carry HE-AAC (`mp4a.40.5`), 360p and up AAC-LC (`mp4a.40.2`), and the picture is never
+/// decoded. So the smallest variant with AAC-LC is the sound at the fewest bytes, and `Low` takes
+/// the smallest of all. `None` for a master with separate audio renditions (`#EXT-X-MEDIA`), where
+/// a variant alone would be the picture without the sound: mpv gets the master and picks.
+pub fn pick_hls_variant(master: &str, quality: AudioQuality) -> Option<&str> {
+    if master.contains("#EXT-X-MEDIA:") {
+        return None;
+    }
+    let mut variants = Vec::new();
+    let mut lines = master.lines();
+    while let Some(line) = lines.next() {
+        let Some(attrs) = line.strip_prefix("#EXT-X-STREAM-INF:") else { continue };
+        let Some(url) = lines.next().map(str::trim).filter(|u| u.starts_with("https://")) else {
+            continue;
+        };
+        let bandwidth = attrs
+            .split(',')
+            .find_map(|a| a.strip_prefix("BANDWIDTH="))
+            .and_then(|b| b.parse::<u64>().ok())
+            .unwrap_or(u64::MAX);
+        variants.push((bandwidth, attrs.contains("mp4a.40.2"), url));
+    }
+    let lc = variants.iter().filter(|v| v.1 && quality != AudioQuality::Low).min_by_key(|v| v.0);
+    lc.or_else(|| variants.iter().min_by_key(|v| v.0)).map(|v| v.2)
+}
+
 /// Pick the best audio format for the requested quality. Port of `YTPlayerUtils.findFormat`,
 /// context/03. Returns a reference into `adaptive_formats`, or into `formats` when there is no
 /// adaptive audio: a podcast added to the library by RSS feed is not hosted by YouTube, and WEB_REMIX
@@ -297,6 +357,9 @@ pub struct VideoDetails {
     pub author: Option<String>,
     #[serde(default)]
     pub length_seconds: Option<String>,
+    /// A broadcast still on air. Its `lengthSeconds` is `"0"`, which is not a duration.
+    #[serde(default)]
+    pub is_live: Option<bool>,
     #[serde(default)]
     pub music_video_type: Option<String>,
     #[serde(default)]
@@ -440,6 +503,49 @@ mod tests {
         assert!(v.direct_url().is_none() && v.cipher_string().is_some());
         assert_eq!(find_video_format(&sd, 480).unwrap().itag, 244);
         assert!(find_format(&sd, AudioQuality::High).unwrap().is_audio());
+    }
+
+    /// A real ANDROID `/player` reply for a broadcast on air (Lofi Girl's 0muHFBSiybw,
+    /// 2026-10-23; trimmed to the fields read here, signed URLs scrubbed). Its audio formats are
+    /// segment bases with no `contentLength`, and `lengthSeconds` is "0": only the HLS playlist is
+    /// a stream, and only `isLive` says so. The same reply without the playlist (iOS answers that
+    /// way) is a client to pass over, not a recording to pick a format from (#424).
+    #[test]
+    fn live_reply_resolves_to_its_hls_playlist() {
+        let body = include_str!("../../tests/fixtures/player_android_live.json");
+        let r: PlayerResponse = serde_json::from_str(body).unwrap();
+        assert!(r.playability_status.is_ok());
+        let Live::Hls(url) = r.live() else { panic!("{:?}", r.live()) };
+        assert!(url.starts_with("https://manifest.googlevideo.com/api/manifest/hls_variant/"));
+        assert_eq!(r.video_details.as_ref().unwrap().length_seconds.as_deref(), Some("0"));
+        // A format is still there to be found, and that is the trap: it is not a file.
+        assert!(find_format(r.streaming_data.as_ref().unwrap(), AudioQuality::High).is_some());
+
+        let no_manifest: PlayerResponse =
+            serde_json::from_str(&body.replace("\"hlsManifestUrl\"", "\"x\"")).unwrap();
+        assert_eq!(no_manifest.live(), Live::NoManifest);
+
+        let recording: PlayerResponse =
+            serde_json::from_str(&body.replace("\"isLive\": true", "\"isLive\": false")).unwrap();
+        assert_eq!(recording.live(), Live::No);
+    }
+
+    /// WEB_REMIX's master playlist for a broadcast on air (Lofi Girl's 4t4AQ15yj1M, 2026-11-06,
+    /// URLs scrubbed): six muxed variants, the two smallest with HE-AAC.
+    #[test]
+    fn live_master_picks_the_smallest_aac_lc_variant() {
+        let master = include_str!("../../tests/fixtures/hls_master_web_remix_live.m3u8");
+        let itag = |q| {
+            pick_hls_variant(master, q).map(|u| u.split("/itag/").nth(1).unwrap()[..2].to_owned())
+        };
+        assert_eq!(itag(AudioQuality::Auto).as_deref(), Some("93"));
+        assert_eq!(itag(AudioQuality::High).as_deref(), Some("93"));
+        assert_eq!(itag(AudioQuality::Low).as_deref(), Some("91"));
+        // Separate audio renditions: a variant URL alone would be silent, so mpv gets the master.
+        let split =
+            format!("#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",URI=\"https://x/a.m3u8\"\n{master}");
+        assert_eq!(pick_hls_variant(&split, AudioQuality::Auto), None);
+        assert_eq!(pick_hls_variant("#EXTM3U\n", AudioQuality::Auto), None);
     }
 
     /// Audio-only response (the ordinary case for a song): no video, so the view keeps the artwork.

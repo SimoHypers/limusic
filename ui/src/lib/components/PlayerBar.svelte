@@ -50,6 +50,7 @@
 	import SpeedPicker from './SpeedPicker.svelte';
 	import TrackMenu from './TrackMenu.svelte';
 	import { t } from '$lib/i18n.svelte';
+	import LiveBadge from './LiveBadge.svelte';
 
 	let {
 		onToggleQueue,
@@ -378,34 +379,42 @@
 				/>
 			</Button>
 		</div>
-		<div class="flex w-full max-w-md items-center gap-2 text-xs text-muted-foreground">
-			<!-- Fixed slots, or the seek bar twitches as the position ticks: DM Sans has no tabular
-			     figures, so `tabular-nums` does nothing there (#463). -->
-			<span class="min-w-[5ch] text-right tabular-nums">{fmt(shownPosition)}</span>
-			<div
-				class="m3-seek relative flex flex-1 items-center"
-				style="--pct:{seekPct * 100}%"
-			>
-				<M3SeekWave
-					pct={seekPct}
-					paused={playback.paused}
-					duration={shownDuration}
-					dragging={seekDrag !== null}
-				/>
-				<input
-					type="range"
-					class="range w-full flex-1"
-					style="--pct:{seekPct * 100}%"
-					min="0"
-					max={shownDuration || 0}
-					value={shownPosition}
-					oninput={onSeekInput}
-					onchange={onSeekCommit}
-					aria-label={t('player.seek')}
-				/>
+		{#if playback.now?.live}
+			<!-- Same height as the seek row below, so the transport doesn't move when a broadcast
+			     starts or ends. -->
+			<div class="flex h-4 w-full max-w-md items-center justify-center">
+				<LiveBadge />
 			</div>
-			<span class="min-w-[5ch] tabular-nums">{fmt(shownDuration)}</span>
-		</div>
+		{:else}
+			<div class="flex w-full max-w-md items-center gap-2 text-xs text-muted-foreground">
+				<!-- Fixed slots, or the seek bar twitches as the position ticks: DM Sans has no tabular
+				     figures, so `tabular-nums` does nothing there (#463). -->
+				<span class="min-w-[5ch] text-right tabular-nums">{fmt(shownPosition)}</span>
+				<div
+					class="m3-seek relative flex flex-1 items-center"
+					style="--pct:{seekPct * 100}%"
+				>
+					<M3SeekWave
+						pct={seekPct}
+						paused={playback.paused}
+						duration={shownDuration}
+						dragging={seekDrag !== null}
+					/>
+					<input
+						type="range"
+						class="range w-full flex-1"
+						style="--pct:{seekPct * 100}%"
+						min="0"
+						max={shownDuration || 0}
+						value={shownPosition}
+						oninput={onSeekInput}
+						onchange={onSeekCommit}
+						aria-label={t('player.seek')}
+					/>
+				</div>
+				<span class="min-w-[5ch] tabular-nums">{fmt(shownDuration)}</span>
+			</div>
+		{/if}
 	</div>
 
 	<!-- Volume + queue -->
