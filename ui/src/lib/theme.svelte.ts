@@ -154,6 +154,12 @@ export const appearance = $state({
 	theaterQueue: false,
 	/** Derive the whole palette from Matugen. Off by default. */
 	matugen: false,
+	/** Theater mode: a small clock in a top corner, for a screen that hides the system clock. */
+	theaterClock: false,
+	theaterClockSide: 'right' as 'left' | 'right',
+	/** A CSS font-family value; '' follows the app's own font. */
+	theaterClockFont: '',
+	theaterClockFormat: 'auto' as 'auto' | '12' | '24',
 	enhancedLyrics: false,
 	...LYRICS_DEFAULTS
 });
@@ -328,6 +334,9 @@ function forget(path: string): void {
 	const gone = `'${fileFamily(path)}', sans-serif`;
 	if (custom.fontSans === gone) custom.fontSans = null;
 	if (custom.fontHeading === gone) custom.fontHeading = null;
+	// The clock has its own font row, so it has to be cleared here too (and saved: it lives
+	// in the appearance store, not in `custom`).
+	if (appearance.theaterClockFont === gone) setAppearance({ theaterClockFont: '' });
 }
 
 /**
@@ -588,11 +597,19 @@ export function initTheme(): void {
 			'theaterLyrics',
 			'theaterQueue',
 			'matugen',
+			'theaterClock',
 			'enhancedLyrics',
 			'enhancedLyricsLineSync'
 		] as const) {
 			if (typeof saved?.[k] === 'boolean') appearance[k] = saved[k];
 		}
+		// Not booleans, so they are not in the list above: one value each, checked on its own.
+		if (saved?.theaterClockSide === 'left' || saved?.theaterClockSide === 'right')
+			appearance.theaterClockSide = saved.theaterClockSide;
+		if (typeof saved?.theaterClockFont === 'string')
+			appearance.theaterClockFont = saved.theaterClockFont;
+		if (['auto', '12', '24'].includes(saved?.theaterClockFormat))
+			appearance.theaterClockFormat = saved.theaterClockFormat;
 		if (LYRICS_ANIMS.includes(saved?.lyricsAnim)) appearance.lyricsAnim = saved.lyricsAnim;
 		if (LYRICS_STYLES.includes(saved?.lyricsStyle)) appearance.lyricsStyle = saved.lyricsStyle;
 		if (typeof saved?.lyricsAnimStrength === 'number') {
