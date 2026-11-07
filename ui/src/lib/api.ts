@@ -432,6 +432,12 @@ export const setPlaybackParams = (speed: number, semitones: number, reverb: Reve
 	invoke<void>('set_playback_params', { speed, semitones, reverb });
 export const onPlaybackParams = (cb: (p: { speed: number; semitones: number; reverb: Reverb }) => void) =>
 	listen<{ speed: number; semitones: number; reverb: Reverb }>('playback-params', (e) => cb(e.payload));
+export type { Equalizer } from './equalizer';
+/** The ten-band equalizer. Saved by the backend and restored on the next launch. */
+export const setEqualizer = (eq: import('./equalizer').Equalizer) => invoke<void>('set_equalizer', { eq });
+export const getEqualizer = () => invoke<import('./equalizer').Equalizer>('get_equalizer');
+export const onEqualizer = (cb: (eq: import('./equalizer').Equalizer) => void) =>
+	listen<import('./equalizer').Equalizer>('equalizer', (e) => cb(e.payload));
 export const getQueue = () => invoke<QueueState>('get_queue');
 /** A `limusicvideo://` URL for the track's music video, or null when there isn't one. `maxHeight`
  *  caps the picture at what the box on screen can actually show. The bytes are proxied through

@@ -2687,6 +2687,21 @@ impl AppState {
         Ok(())
     }
 
+    /// Retune the equalizer, remember it for the next launch, and tell every window.
+    pub async fn set_equalizer(&self, eq: player::Equalizer) -> Result<(), String> {
+        let _effects = self.playback_effects.lock().await;
+        self.player.set_equalizer(eq).map_err(|e| e.to_string())?;
+        if let Ok(json) = serde_json::to_string(&eq) {
+            self.db.set_setting(EQUALIZER_KEY, &json);
+        }
+        let _ = self.app.emit("equalizer", eq);
+        Ok(())
+    }
+
+    pub fn equalizer(&self) -> player::Equalizer {
+        self.player.equalizer()
+    }
+
     async fn reset_room_tempo(&self) -> Result<(), String> {
         let _effects = self.playback_effects.lock().await;
         let (speed, semitones, reverb) = self.player.playback_params();
@@ -4859,6 +4874,14 @@ pub fn saved_volume(db: &Db) -> i64 {
     let v = db.get_setting("volume").and_then(|s| s.parse().ok());
     v.filter(|v| (0..=100).contains(v)).unwrap_or(100)
 }
+
+/// The equalizer as last saved. A missing or unreadable row is a flat, switched-off curve.
+pub fn saved_equalizer(db: &Db) -> player::Equalizer {
+    db.get_setting(EQUALIZER_KEY).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+}
+
+/// Internal row: written only through `set_equalizer`, which validates the curve first.
+pub const EQUALIZER_KEY: &str = "equalizer_json";
 
 /// Crossfade length in seconds, or `None` when it's off. Experimental, so off unless asked for,
 /// and clamped to the range the settings slider offers in case the stored value predates it.

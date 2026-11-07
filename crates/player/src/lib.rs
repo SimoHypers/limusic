@@ -27,6 +27,8 @@ pub enum Error {
     NoPitchFilter,
     #[error("Reverb isn't available: {0}")]
     Reverb(String),
+    #[error("Equalizer isn't available: {0}")]
+    Equalizer(String),
     #[error("Invalid playback effect values")]
     InvalidParams,
 }
@@ -124,6 +126,7 @@ struct AudioFilters {
     speed: f64,
     semitones: i32,
     reverb: Reverb,
+    eq: Equalizer,
 }
 
 /// Session reverb controls. Dry and wet are independent signal levels, not a crossfade.
@@ -152,6 +155,76 @@ impl Default for Reverb {
             damping: 8000,
             reflections: 100,
         }
+    }
+}
+
+/// Centre frequencies of the ten graphic-EQ bands, in Hz (ISO octave bands).
+pub const EQ_BANDS: [u32; 10] = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+/// Every band and the preamp move within ±EQ_MAX_DB.
+pub const EQ_MAX_DB: f64 = 12.0;
+
+/// Ten-band graphic equalizer, persisted across restarts.
+///
+/// Built from FFmpeg's biquad filters (IIR, zero lookahead), so it adds no latency of its own. Two
+/// shelves bound the curve: a low shelf at 31 Hz carries sub-bass without the ringing a narrow
+/// peak that low would have, and a high shelf at 16 kHz lifts "air" evenly up to Nyquist. The eight
+/// bands between are one-octave peaking filters, so neighbours overlap smoothly.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Equalizer {
+    pub enabled: bool,
+    /// Gain applied before the bands, dB.
+    pub preamp: f64,
+    /// Per-band gain, dB, in [`EQ_BANDS`] order.
+    pub bands: [f64; 10],
+}
+
+impl Default for Equalizer {
+    fn default() -> Self {
+        Self { enabled: false, preamp: 0.0, bands: [0.0; 10] }
+    }
+}
+
+impl Equalizer {
+    fn valid(&self) -> bool {
+        let ok = |g: f64| g.is_finite() && (-EQ_MAX_DB..=EQ_MAX_DB).contains(&g);
+        ok(self.preamp) && self.bands.iter().all(|&g| ok(g))
+    }
+
+    /// Flat (or off) does nothing, so it costs nothing: no filter enters the chain.
+    fn is_audible(&self) -> bool {
+        self.enabled && (self.preamp != 0.0 || self.bands.iter().any(|&g| g != 0.0))
+    }
+
+    /// The `af` entry for this curve, or empty when it would not change the sound.
+    ///
+    /// A limiter follows whenever the curve can push the signal above unity (any boosted band or a
+    /// positive preamp): a +12 dB bass shelf on an already-mastered track clips otherwise. Same
+    /// limiter settings as loudness gain, so it only touches true overs and keeps gapless intact.
+    fn filter(&self) -> String {
+        if !self.is_audible() {
+            return String::new();
+        }
+        let mut parts = Vec::new();
+        if self.preamp != 0.0 {
+            parts.push(format!("volume={}dB", self.preamp));
+        }
+        for (i, (&f, &g)) in EQ_BANDS.iter().zip(self.bands.iter()).enumerate() {
+            if g == 0.0 {
+                continue;
+            }
+            let kind = match i {
+                0 => "lowshelf",
+                9 => "highshelf",
+                _ => "equalizer",
+            };
+            parts.push(format!("{kind}=f={f}:t=o:w=1:g={g}"));
+        }
+        let peak = self.preamp + self.bands.iter().copied().fold(0.0, f64::max);
+        if peak > 0.0 {
+            parts.push("alimiter=limit=1:level=disabled:latency=1".into());
+        }
+        format!("@eq:lavfi=[{}]", parts.join(","))
     }
 }
 
@@ -397,6 +470,7 @@ impl Player {
                 speed: 1.0,
                 semitones: 0,
                 reverb: Reverb::default(),
+                eq: Equalizer::default(),
             }),
             speed_bits: AtomicU64::new(1.0_f64.to_bits()),
             a: a.clone(),
@@ -810,6 +884,33 @@ impl Player {
         self.decks.speed()
     }
 
+    /// Set the ten-band equalizer on both decks, rolling both back if either refuses it.
+    pub fn set_equalizer(&self, eq: Equalizer) -> Result<(), Error> {
+        if !eq.valid() {
+            return Err(Error::InvalidParams);
+        }
+        let mut af = self.decks.af.lock().unwrap();
+        let previous = *af;
+        if previous.eq == eq {
+            return Ok(());
+        }
+        let wanted = AudioFilters { eq, ..previous };
+        for deck in 0..2 {
+            if let Err(e) = apply_filters(&self.decks, deck, &wanted) {
+                for rollback in 0..2 {
+                    let _ = apply_filters(&self.decks, rollback, &previous);
+                }
+                return Err(e);
+            }
+        }
+        *af = wanted;
+        Ok(())
+    }
+
+    pub fn equalizer(&self) -> Equalizer {
+        self.decks.af.lock().unwrap().eq
+    }
+
     pub fn playback_params(&self) -> (f64, i32, Reverb) {
         let af = self.decks.af.lock().unwrap();
         (af.speed, af.semitones, af.reverb)
@@ -839,6 +940,15 @@ fn ensure_reverb_asset(decks: &Decks, preset: u8) -> Result<std::path::PathBuf, 
 fn apply_filters(decks: &Decks, deck: usize, af: &AudioFilters) -> Result<(), Error> {
     let Some(mpv) = decks.mpv(deck) else { return Ok(()) };
     let mut chain = af_chain(af.gain[deck], 0, 1.0);
+    // Tone shaping right after loudness gain: the EQ sees each track at its normalized level, and
+    // reverb and time-stretch then work on the sound the listener chose.
+    let eq = af.eq.filter();
+    if !eq.is_empty() {
+        if !chain.is_empty() {
+            chain.push(',');
+        }
+        chain.push_str(&eq);
+    }
     if af.reverb.enabled {
         if !chain.is_empty() {
             chain.push(',');
@@ -886,6 +996,8 @@ fn apply_filters(decks: &Decks, deck: usize, af: &AudioFilters) -> Result<(), Er
     set_filter_chain(mpv, &chain).map_err(|e| {
         if af.reverb.enabled {
             Error::Reverb(e.to_string())
+        } else if af.eq.is_audible() && af.semitones == 0 && af.speed == 1.0 {
+            Error::Equalizer(e.to_string())
         } else if af.semitones != 0 || af.speed != 1.0 {
             Error::NoPitchFilter
         } else {
@@ -899,7 +1011,8 @@ fn apply_filters(decks: &Decks, deck: usize, af: &AudioFilters) -> Result<(), Er
 fn set_filter_chain(mpv: &Mpv, chain: &str) -> Result<(), libmpv2::Error> {
     // `af set` initializes the graph and reports failure; writing the `af` property does not.
     // Cold decks only store the chain; probe effect graphs before accepting them.
-    let needs_probe = chain.contains("@reverb") || chain.contains(pitch_filter());
+    let needs_probe =
+        chain.contains("@reverb") || chain.contains("@eq") || chain.contains(pitch_filter());
     if needs_probe && mpv.get_property::<MpvNode>("audio-out-params").is_err() {
         validate_lavfi(chain)?;
     }
@@ -1588,6 +1701,53 @@ mod tests {
         );
         assert_eq!(probes, ["irnorm=-1", "gtype=none"]);
         assert!(choose_afir_normalization(|_| Err(Error::Raw(mpv_error::Command))).is_err());
+    }
+
+    #[test]
+    fn equalizer_filter_strings() {
+        use super::{Equalizer, EQ_MAX_DB};
+        // Off and flat are both free: nothing enters the chain.
+        assert_eq!(Equalizer::default().filter(), "");
+        assert_eq!(Equalizer { enabled: true, ..Default::default() }.filter(), "");
+        let mut bands = [0.0; 10];
+        bands[0] = 6.0;
+        bands[5] = -3.0;
+        bands[9] = 2.5;
+        let eq = Equalizer { enabled: true, preamp: -4.0, bands };
+        assert_eq!(
+            eq.filter(),
+            "@eq:lavfi=[volume=-4dB,lowshelf=f=31:t=o:w=1:g=6,equalizer=f=1000:t=o:w=1:g=-3,\
+             highshelf=f=16000:t=o:w=1:g=2.5,alimiter=limit=1:level=disabled:latency=1]"
+        );
+        // Cuts only can never clip, so no limiter.
+        let cut = Equalizer { enabled: true, preamp: 0.0, bands: [-2.0; 10] };
+        assert!(!cut.filter().contains("alimiter"));
+        assert!(!Equalizer { enabled: true, preamp: EQ_MAX_DB + 1.0, bands }.valid());
+        assert!(!Equalizer { enabled: true, preamp: f64::NAN, bands }.valid());
+        assert!(eq.valid());
+    }
+
+    #[test]
+    fn mpv_accepts_the_equalizer() {
+        let dir = std::env::temp_dir().join("limusic-eq-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = super::Player::new(dir.to_str().unwrap()).expect("libmpv");
+        let mut bands = [0.0; 10];
+        bands[0] = 9.0;
+        bands[1] = 7.0;
+        bands[7] = 3.0;
+        let eq = super::Equalizer { enabled: true, preamp: -3.0, bands };
+        p.set_equalizer(eq).unwrap();
+        assert_eq!(p.equalizer(), eq);
+        // Gain changes per track; the curve must survive them.
+        p.set_gain(Some(-2.0)).unwrap();
+        let chain = p.mpv().get_property::<String>("af").unwrap();
+        assert!(chain.contains("lowshelf"), "eq lost: {chain}");
+        assert!(chain.contains("volume=-2dB"), "gain lost: {chain}");
+        p.set_equalizer(super::Equalizer::default()).unwrap();
+        let chain = p.mpv().get_property::<String>("af").unwrap();
+        assert!(!chain.contains("lowshelf"), "eq stayed: {chain}");
+        assert!(p.set_equalizer(super::Equalizer { preamp: 40.0, ..eq }).is_err());
     }
 
     #[test]

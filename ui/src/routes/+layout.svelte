@@ -39,6 +39,7 @@
 	import NewPlaylistDialog from '$lib/components/NewPlaylistDialog.svelte';
 	import SettingsDialog from '$lib/components/SettingsDialog.svelte';
 	import TempoPitchDialog from '$lib/components/TempoPitchDialog.svelte';
+	import EqualizerDialog from '$lib/components/EqualizerDialog.svelte';
 	import ShareDialog from '$lib/components/ShareDialog.svelte';
 	import ChannelPicker from '$lib/components/ChannelPicker.svelte';
 	import ListenTogether from '$lib/components/ListenTogether.svelte';
@@ -315,6 +316,7 @@
 	<ShareDialog />
 	<SettingsDialog />
 	<TempoPitchDialog bind:open={ui.tempoPitchOpen} />
+	<EqualizerDialog bind:open={ui.equalizerOpen} />
 	<ChannelPicker />
 	<ListenTogether />
 	<LinkDialog />
