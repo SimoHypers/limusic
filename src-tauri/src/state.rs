@@ -2766,14 +2766,18 @@ impl AppState {
         }
         // `load` replaces mpv's playlist; `prime_lookahead` below queues (and pins) the next again.
         self.unpin_karaoke(PinSlot::Next);
-        if let Err(e) =
-            self.player.load(&play_u, &data.headers, self.track_gain(data.loudness_db), Some(pos))
-        {
+        if let Err(e) = self.player.load(
+            &play_u,
+            &data.headers,
+            self.track_gain(data.loudness_db),
+            Some(pos),
+            data.live,
+        ) {
             self.emit_error(&item.video_id, &e.to_string());
             return;
         }
         // The picture is keyed by the file mpv plays, and that just changed.
-        self.attach_video(&item.video_id, item.is_video, &play_u);
+        self.attach_video(&item.video_id, item.is_video && !data.live, &play_u);
         if was_paused {
             let _ = self.player.pause();
         } else if was_playing {
