@@ -13,6 +13,7 @@
 	import { openItem, playItem } from '$lib/browse';
 	import ItemMenu from './ItemMenu.svelte';
 	import ExplicitIcon from './ExplicitIcon.svelte';
+	import LiveBadge from './LiveBadge.svelte';
 	import { t } from '$lib/i18n.svelte';
 
 	let { item, compact = false }: { item: BrowseItem; compact?: boolean } = $props();
@@ -139,6 +140,9 @@
 									: 'h-7 w-7'}
 						/>
 					</div>
+				{/if}
+				{#if item.live}
+					<div class="absolute left-2 top-2"><LiveBadge onArt /></div>
 				{/if}
 				{#if item.kind !== 'artist'}
 					<!-- A fade only: the slide it used to have is a transform transition (see above). -->

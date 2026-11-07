@@ -641,6 +641,7 @@ pub fn playback_data(video_id: &str, path: &str) -> Result<crate::orchestrator::
         // A file on disk has no `musicVideoType`, and video mode skips local ids anyway.
         is_video: None,
         is_episode: None,
+        live: false,
         thumbnail: None,
         stream_client: "local".to_owned(),
     })
