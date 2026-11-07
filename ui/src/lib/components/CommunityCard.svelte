@@ -4,17 +4,26 @@
 	// packing more of them per row (see Shelf's `community` prop).
 	import { goto } from '$app/navigation';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { PlayIcon, PlayListAddIcon, MusicNote01Icon } from '@hugeicons/core-free-icons';
+	import { PlayIcon, PauseIcon, PlayListAddIcon, MusicNote01Icon } from '@hugeicons/core-free-icons';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import * as api from '$lib/api';
 	import type { BrowseItem, PlaylistPage } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import { getCached, putCached } from '$lib/pagecache';
-	import { openAddManyToPlaylist, playFrom, toast, touchPick } from '$lib/player.svelte';
+	import {
+		isQueueSource,
+		openAddManyToPlaylist,
+		playFrom,
+		playback,
+		toast,
+		touchPick
+	} from '$lib/player.svelte';
 	import ItemMenu from './ItemMenu.svelte';
 	import { t } from '$lib/i18n.svelte';
 
 	let { item }: { item: BrowseItem } = $props();
+
+	const active = $derived(isQueueSource(item));
 
 	// A community playlist's "cover" is usually just the creator's channel avatar — often the
 	// generated first-letter tile. Those are served from yt3.*; a real playlist cover is an
@@ -218,13 +227,22 @@
 
 	<div class="mt-auto flex items-center justify-center gap-3 pt-1">
 		<button
-			aria-label={t('a11y.play')}
+			aria-label={active && !playback.paused ? t('player.pause') : t('a11y.play')}
 			disabled={busy}
 			class:animate-pulse={busy}
 			class="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md transition hover:brightness-110"
-			onclick={() => act((p) => playFrom(item, p.items, null, item.id, undefined, p.continuation))}
+			onclick={() =>
+				active
+					? api.togglePause()
+					: act((p) => playFrom(item, p.items, null, item.id, undefined, p.continuation))}
 		>
-			<HugeiconsIcon icon={PlayIcon} class="h-3.5 w-3.5" />
+			<!-- altIcon/showAlt, not a ternary on `icon`: `icon` is read once at mount. -->
+			<HugeiconsIcon
+				icon={PauseIcon}
+				altIcon={PlayIcon}
+				showAlt={!active || playback.paused}
+				class="h-3.5 w-3.5"
+			/>
 		</button>
 		<button
 			aria-label={t('player.add_to_playlist')}

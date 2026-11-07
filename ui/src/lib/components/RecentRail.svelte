@@ -10,17 +10,19 @@
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		PlayIcon,
+		PauseIcon,
 		MusicNote01Icon,
 		UserIcon,
 		ListRestartIcon,
 		ArrowTurnBackwardIcon
 	} from '@hugeicons/core-free-icons';
 	import SectionHeading from './SectionHeading.svelte';
-	import { ON_REPEAT_ID } from '$lib/api';
+	import { ON_REPEAT_ID, togglePause } from '$lib/api';
 	import type { BrowseItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import { setDragItem } from '$lib/dnd';
 	import { openItem, playItem } from '$lib/browse';
+	import { isQueueSource, playback } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import ItemMenu from './ItemMenu.svelte';
 
@@ -36,6 +38,10 @@
 	let failed = $state<Record<string, boolean>>({});
 
 	async function play(item: BrowseItem) {
+		if (isQueueSource(item)) {
+			togglePause();
+			return;
+		}
 		if (busy) return;
 		busy = item.id;
 		try {
@@ -53,6 +59,7 @@
 	<div class="columns-1 gap-x-6 md:columns-2 xl:columns-3">
 		{#each items as item (item.id)}
 			{@const round = item.kind === 'artist'}
+			{@const active = isQueueSource(item)}
 			<div
 				class="group/row flex break-inside-avoid cursor-pointer items-center gap-3 rounded-lg p-1.5 text-left transition-colors hover:bg-accent/10"
 				data-ctx
@@ -125,13 +132,21 @@
 						class="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-md transition-opacity hover:brightness-110 focus-visible:opacity-100 group-hover/row:opacity-100"
 						class:animate-pulse={busy === item.id}
 						disabled={busy === item.id}
-						aria-label={t('a11y.play_item', { title: item.title })}
+						aria-label={active && !playback.paused
+							? t('a11y.pause_item', { title: item.title })
+							: t('a11y.play_item', { title: item.title })}
 						onclick={(e) => {
 							e.stopPropagation();
 							play(item);
 						}}
 					>
-						<HugeiconsIcon icon={PlayIcon} class="h-3.5 w-3.5" />
+						<!-- altIcon/showAlt, not a ternary on `icon`: `icon` is read once at mount. -->
+						<HugeiconsIcon
+							icon={PauseIcon}
+							altIcon={PlayIcon}
+							showAlt={!active || playback.paused}
+							class="h-3.5 w-3.5"
+						/>
 					</button>
 				{/if}
 			</div>
