@@ -32,7 +32,6 @@
 	import Titlebar from '$lib/components/Titlebar.svelte';
 	import ResizeBorders from '$lib/components/ResizeBorders.svelte';
 	import PlayerBar from '$lib/components/PlayerBar.svelte';
-	import LinkStrip from '$lib/components/LinkStrip.svelte';
 	import QueuePanel from '$lib/components/QueuePanel.svelte';
 	import LyricsPanel from '$lib/components/LyricsPanel.svelte';
 	import CommentsPanel from '$lib/components/CommentsPanel.svelte';
@@ -300,7 +299,6 @@
 					}}
 					commentsOpen={tabbed ? np.tab === 'comments' : commentsOpen}
 				/>
-				<LinkStrip />
 			</div>
 		{/if}
 	</div>

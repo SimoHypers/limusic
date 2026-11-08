@@ -62,15 +62,31 @@
 	{/snippet}
 
 <Popover.Root bind:open>
-	<Popover.Trigger
-		class="inline-flex size-8 cursor-pointer items-center justify-center rounded-md transition hover:bg-muted {here
-			? 'text-muted-foreground hover:text-foreground'
-			: 'text-primary'}"
-		aria-label={t('player.devices')}
-		title={t('player.devices')}
-	>
-		<HugeiconsIcon icon={LaptopPhoneSyncIcon} class="h-5 w-5" />
-	</Popover.Trigger>
+	<!-- While the bar is another device's remote, the button names that device: the only marker
+	     that this bar is not playing here. -->
+	{#if link.remote && link.player}
+		{@const where = link.isPlaying
+			? t('player.link_playing_on', { name: link.player.name })
+			: t('player.link_paused_on', { name: link.player.name })}
+		<Popover.Trigger
+			class="inline-flex h-8 max-w-44 cursor-pointer items-center gap-1.5 rounded-full bg-primary/15 px-3 text-xs font-medium text-primary transition hover:bg-primary/25"
+			aria-label={where}
+			title={where}
+		>
+			<HugeiconsIcon icon={SmartPhone01Icon} class="size-4 shrink-0" />
+			<span class="truncate">{link.player.name}</span>
+		</Popover.Trigger>
+	{:else}
+		<Popover.Trigger
+			class="inline-flex size-8 cursor-pointer items-center justify-center rounded-md transition hover:bg-muted {here
+				? 'text-muted-foreground hover:text-foreground'
+				: 'text-primary'}"
+			aria-label={t('player.devices')}
+			title={t('player.devices')}
+		>
+			<HugeiconsIcon icon={LaptopPhoneSyncIcon} class="h-5 w-5" />
+		</Popover.Trigger>
+	{/if}
 	<Popover.Content side="top" align="end" sideOffset={10} class="w-72 p-1.5">
 		<p class="px-2.5 pb-1.5 pt-1 text-xs font-medium text-muted-foreground">
 			{t('player.devices_title')}
