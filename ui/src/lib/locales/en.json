@@ -147,6 +147,8 @@
 		"link_continue_here": "Continue here",
 		"devices": "Devices",
 		"devices_title": "Play on",
+		"devices_hint": "Pick where the music plays.",
+		"devices_settings": "Devices settings",
 		"this_computer": "This computer",
 		"devices_this_computer_hint": "Plays here",
 		"devices_playing_here": "Playing here",

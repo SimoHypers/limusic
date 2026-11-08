@@ -5,10 +5,13 @@
 	import {
 		ComputerIcon,
 		LaptopPhoneSyncIcon,
+		PlusSignIcon,
+		Settings02Icon,
 		SmartPhone01Icon,
-		Tick02Icon
+		VolumeHighIcon
 	} from '@hugeicons/core-free-icons';
 	import * as Popover from '$lib/components/ui/popover';
+	import { Button } from '$lib/components/ui/button';
 	import * as api from '$lib/api';
 	import { link } from '$lib/link.svelte';
 	import { playback, toast, ui } from '$lib/player.svelte';
@@ -50,22 +53,25 @@
 
 	{#snippet row(icon: typeof ComputerIcon, name: string, status: string, active: boolean, disabled: boolean, pick: () => void)}
 		<button
-			class="flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition enabled:cursor-pointer enabled:hover:bg-muted disabled:opacity-50"
+			class="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition enabled:cursor-pointer disabled:opacity-50 {active
+				? 'bg-primary/10'
+				: 'enabled:hover:bg-foreground/10'}"
 			{disabled}
+			aria-current={active}
 			onclick={pick}
 		>
 			<span
-				class="flex size-9 shrink-0 items-center justify-center rounded-full {active
-					? 'bg-primary text-primary-foreground'
+				class="flex size-8 shrink-0 items-center justify-center rounded-md {active
+					? 'bg-primary/15 text-primary'
 					: 'bg-muted text-muted-foreground'}"
 			>
-				<HugeiconsIcon {icon} class="h-4 w-4" />
+				<HugeiconsIcon {icon} class="size-4" />
 			</span>
 			<span class="min-w-0 flex-1">
 				<span class="block truncate text-sm font-medium {active ? 'text-primary' : ''}">{name}</span>
 				<span class="block truncate text-xs text-muted-foreground">{status}</span>
 			</span>
-			{#if active}<HugeiconsIcon icon={Tick02Icon} class="h-4 w-4 shrink-0 text-primary" />{/if}
+			{#if active}<HugeiconsIcon icon={VolumeHighIcon} class="size-4 shrink-0 text-primary" />{/if}
 		</button>
 	{/snippet}
 
@@ -90,39 +96,62 @@
 			<HugeiconsIcon icon={LaptopPhoneSyncIcon} class="h-5 w-5" />
 		{/if}
 	</Popover.Trigger>
-	<Popover.Content side="top" align="end" sideOffset={10} class="w-72 p-1.5">
-		<p class="px-2.5 pb-1.5 pt-1 text-xs font-medium text-muted-foreground">
-			{t('player.devices_title')}
-		</p>
-		{@render row(
-			ComputerIcon,
-			t('player.this_computer'),
-			here && playback.now
-				? playback.paused
-					? t('player.devices_paused')
-					: t('player.devices_playing_here')
-				: t('player.devices_this_computer_hint'),
-			here,
-			false,
-			() => (here ? (open = false) : playOn(''))
-		)}
-		{#each link.devices as d (d.id)}
-			{@render row(
-				SmartPhone01Icon,
-				d.name,
-				deviceStatus(d),
-				!here && link.player?.id === d.id,
-				!d.online,
-				() => (!here && link.player?.id === d.id ? (open = false) : playOn(d.id))
-			)}
-		{/each}
-		{#if !link.devices.length}
-			<button
-				class="mt-1 w-full cursor-pointer rounded-md px-2.5 py-2 text-left text-sm text-primary transition hover:bg-muted"
+	<Popover.Content
+		side="top"
+		align="end"
+		sideOffset={10}
+		class="w-80 max-w-[calc(100vw-2rem)] gap-0 overflow-hidden p-0"
+	>
+		<div class="flex items-start gap-3 border-b px-4 pb-3 pt-3.5">
+			<div class="min-w-0 flex-1">
+				<p class="font-heading text-sm font-semibold">{t('player.devices_title')}</p>
+				<p class="mt-0.5 text-xs leading-relaxed text-muted-foreground">{t('player.devices_hint')}</p>
+			</div>
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				class="-mr-1.5 -mt-1 shrink-0 text-muted-foreground"
+				aria-label={t('player.devices_settings')}
+				title={t('player.devices_settings')}
 				onclick={linkPhone}
 			>
-				{t('settings.devices.link_phone')}
+				<HugeiconsIcon icon={Settings02Icon} class="h-4 w-4" />
+			</Button>
+		</div>
+		<div class="flex flex-col gap-0.5 p-1.5">
+			{@render row(
+				ComputerIcon,
+				t('player.this_computer'),
+				here && playback.now
+					? playback.paused
+						? t('player.devices_paused')
+						: t('player.devices_playing_here')
+					: t('player.devices_this_computer_hint'),
+				here,
+				false,
+				() => (here ? (open = false) : playOn(''))
+			)}
+			{#each link.devices as d (d.id)}
+				{@render row(
+					SmartPhone01Icon,
+					d.name,
+					deviceStatus(d),
+					!here && link.player?.id === d.id,
+					!d.online,
+					() => (!here && link.player?.id === d.id ? (open = false) : playOn(d.id))
+				)}
+			{/each}
+		</div>
+		<div class="border-t p-1.5">
+			<button
+				class="flex w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"
+				onclick={linkPhone}
+			>
+				<span class="flex size-8 shrink-0 items-center justify-center">
+					<HugeiconsIcon icon={PlusSignIcon} class="size-4" />
+				</span>
+				{link.devices.length ? t('settings.devices.link_another') : t('settings.devices.link_phone')}
 			</button>
-		{/if}
+		</div>
 	</Popover.Content>
 </Popover.Root>
