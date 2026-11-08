@@ -6,7 +6,7 @@
 			"source": "Downloaded from GitHub (TRvlvr/model_repo), the model's official source.",
 			"runtime": "The ONNX Runtime (Microsoft, MIT License) is downloaded too, from its official GitHub release.",
 			"runtime_windows": "ONNX Runtime and DirectML (both from Microsoft) are downloaded too, from Microsoft's official NuGet packages.",
-			"credit": "UVR-MDX-NET-Inst_HQ_3 by Anjok07 and aufr33 (Ultimate Vocal Remover), MIT License.",
+			"credit": "UVR-MDX-NET-Inst_HQ_3, UVR_MDXNET_KARA_2 and UVR_MDXNET_KARA, all by Anjok07 and aufr33 (Ultimate Vocal Remover), MIT License.",
 			"credit_link": "Ultimate Vocal Remover",
 			"redownload": "To prepare a song, Limusic downloads its audio once more.",
 			"directml": "On a graphics card, karaoke runs through Microsoft DirectML, which may send usage data to Microsoft."
