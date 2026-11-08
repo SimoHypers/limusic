@@ -4,7 +4,7 @@
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		ComputerIcon,
-		LaptopPhoneSyncIcon,
+		ComputerPhoneSyncIcon,
 		PlusSignIcon,
 		Settings02Icon,
 		SmartPhone01Icon,
@@ -93,7 +93,7 @@
 			<HugeiconsIcon icon={SmartPhone01Icon} class="size-4 shrink-0" />
 			<span class="truncate">{remotePlayer.name}</span>
 		{:else}
-			<HugeiconsIcon icon={LaptopPhoneSyncIcon} class="h-5 w-5" />
+			<HugeiconsIcon icon={ComputerPhoneSyncIcon} class="h-5 w-5" />
 		{/if}
 	</Popover.Trigger>
 	<Popover.Content
