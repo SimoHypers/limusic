@@ -21,6 +21,7 @@
 	import { ui, toast } from '$lib/player.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import { t } from '$lib/i18n.svelte';
+	import { makeInvite, parseInvite } from '$lib/invite';
 
 	let mode = $state<'join' | 'host'>('join');
 	let name = $state('');
@@ -66,34 +67,6 @@
 	/** First letter of a display name, for the participant circles. */
 	function initial(username: string): string {
 		return (username.trim()[0] ?? '?').toUpperCase();
-	}
-
-	// An invite bundles the server + code so a guest only pastes one thing: `<code>@<host>`.
-	// `wss://` and the `/ws` path are implied, so the usual invite stays short and typable.
-	// An empty server is the built-in default, which the backend fills in, so that invite is the
-	// bare code: a host on the default never shares a hostname, and a guest never types one.
-	function makeInvite(server: string, code: string): string {
-		if (!server) return code;
-		return code + '@' + server.replace(/^wss:\/\//, '').replace(/\/ws$/, '');
-	}
-	function parseInvite(raw: string): { server: string; code: string } | null {
-		const s = raw.trim();
-		// Invites minted before 0.6.5: `LMSC~<base64(server|code)>`.
-		if (s.startsWith('LMSC~')) {
-			try {
-				const [server, code] = atob(s.slice(5)).split('|');
-				return { server: server ?? '', code: (code ?? '').toUpperCase() };
-			} catch {
-				return null;
-			}
-		}
-		const at = s.lastIndexOf('@');
-		// A bare room code: reuse whatever server we last connected to.
-		if (at < 0) return { server: '', code: s.toUpperCase() };
-		let server = s.slice(at + 1);
-		if (!/^wss?:\/\//.test(server)) server = 'wss://' + server;
-		if (!server.replace(/^wss?:\/\//, '').includes('/')) server += '/ws';
-		return { server, code: s.slice(0, at).toUpperCase() };
 	}
 
 	/** The default is stored as empty, so typing it in by hand still mints bare invites. */
