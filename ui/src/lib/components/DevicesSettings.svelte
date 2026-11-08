@@ -160,7 +160,11 @@
 							<p class="pt-0.5 text-sm">{t('settings.devices.step_type')}</p>
 							<div class="mt-3 flex items-center gap-5" aria-live="polite">
 								<div class="flex gap-1.5 {expired ? 'opacity-40' : ''}">
-									{#each Array.from({ length: 6 }, (_, i) => link.pairing?.code[i] ?? '') as ch, i (i)}
+									<!-- The letter is read inside the tile: as each items, values that change under
+									     the same key are never written back (Svelte 5 compiles them fixed), so tiles
+									     drawn before the code arrived stayed empty. -->
+									{#each [0, 1, 2, 3, 4, 5] as i (i)}
+										{@const ch = link.pairing?.code[i] ?? ''}
 										<span
 											class="flex h-14 w-11 items-center justify-center rounded-lg border bg-muted/40 font-mono text-2xl font-semibold {ch
 												? ''
