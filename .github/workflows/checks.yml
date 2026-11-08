@@ -1,19 +1,21 @@
 name: Checks
 
-# Formatting only, on purpose.
+# Four jobs, cheapest first: `rustfmt` (formatting only, on purpose), `ui` (svelte-check), `test`
+# (cargo test on Linux) and `windows` (the release link and the import-table check).
 #
-# WHY THIS EXISTS: PR #13 ran `cargo fmt` against a repo that had no `rustfmt.toml`, so rustfmt's
-# defaults reformatted 21 files the change never touched and buried ~900 lines of real work inside a
-# 2400-line diff. The convention was written down only in a gitignored CLAUDE.md, so the contributor
-# had no way to know. `rustfmt.toml` is committed now and the tree was normalised to it, which means
-# the drift is detectable mechanically instead of during review.
+# WHY THE rustfmt JOB EXISTS: PR #13 ran `cargo fmt` against a repo that had no `rustfmt.toml`, so
+# rustfmt's defaults reformatted 21 files the change never touched and buried ~900 lines of real
+# work inside a 2400-line diff. The convention was written down only in a gitignored CLAUDE.md, so
+# the contributor had no way to know. `rustfmt.toml` is committed now and the tree was normalised
+# to it, which means the drift is detectable mechanically instead of during review.
 #
-# WHY NOT ALSO BUILD AND TEST HERE: `limusic-app` links libmpv and webkit2gtk, so testing it needs
-# the full Tauri system-dependency install and a cold Rust compile. This job needs neither: rustfmt
-# parses the source and never builds it, so it finishes in seconds on a bare runner and stays cheap
-# enough to run on every push. The tests live in the `test` job below for exactly that reason.
-# Note for anyone trimming that job: `crates/player` depends on libmpv2, so it is NOT free of the
-# system setup. `-p innertube -p listen-protocol` is the subset that builds on a bare runner.
+# WHY THE rustfmt JOB DOES NOT BUILD OR TEST: `limusic-app` links libmpv and webkit2gtk, so testing
+# it needs the full Tauri system-dependency install and a cold Rust compile. That job needs
+# neither: rustfmt parses the source and never builds it, so it finishes in seconds on a bare
+# runner and stays cheap enough to run on every push. The tests live in the `test` job below for
+# exactly that reason. Note for anyone trimming the `test` job: `crates/player` depends on libmpv2,
+# so it is NOT free of the system setup. `-p innertube -p listen-protocol` is the subset that
+# builds on a bare runner.
 
 on:
   push:

@@ -10,6 +10,13 @@
 # Karaoke's ONNX Runtime, DirectML, D3D12/DXGI and the C++ runtime are deliberately NOT here: they
 # are loaded at run time, by full path, only when karaoke is turned on. Do not add them.
 # No delay-load section is allowed either.
+#
+# Some entries come from Rust's std rather than from this repo (e.g. bcryptprimitives.dll and
+# api-ms-win-core-synch-l1-2-0.dll). CI and releases both build with the current stable toolchain
+# (`rustup default stable-msvc`), so a Rust release can change this list without any change here.
+# If the check fails on a PR that touched no dependency, build the same commit with the previous
+# stable toolchain and compare: if only std-provided DLLs differ, update this list in a separate,
+# deliberate commit; if a DLL from a dependency appears, that is what this check exists to catch.
 advapi32.dll
 api-ms-win-core-synch-l1-2-0.dll
 api-ms-win-core-winrt-l1-1-0.dll

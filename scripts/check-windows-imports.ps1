@@ -74,6 +74,7 @@ if ($missing.Count) { $ok = $false; Write-Host "no longer imported (update the a
 if ($delay.Count) { $ok = $false; Write-Host "delay-load imports are not allowed: $($delay -join ', ')" }
 if (-not $ok) {
     Write-Host "allow-list: $AllowList"
+    Write-Host "If no dependency changed, a Rust toolchain update may have changed std's imports; see the header of the allow-list."
     throw "$Exe imports differ from the allow-list"
 }
 Write-Host "$Exe imports $($imports.Count) DLLs, exactly the allow-list"
