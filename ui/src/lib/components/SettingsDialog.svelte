@@ -17,7 +17,8 @@
 		Globe02Icon,
 		ArrowDown01Icon,
 		Alert02Icon,
-		LinkSquare02Icon
+		LinkSquare02Icon,
+		ComputerPhoneSyncIcon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -36,6 +37,7 @@
 	import Changelog from '$lib/components/Changelog.svelte';
 	import DiscordSettings from '$lib/components/DiscordSettings.svelte';
 	import ScrobbleSettings from '$lib/components/ScrobbleSettings.svelte';
+	import DevicesSettings from '$lib/components/DevicesSettings.svelte';
 	import {
 		updateState,
 		availableMessage,
@@ -58,6 +60,7 @@
 		| 'hotkeys'
 		| 'discord'
 		| 'scrobbling'
+		| 'devices'
 		| 'data'
 		| 'about';
 	const TABS = $derived<{ id: TabId; label: string; hint: string; icon: typeof Settings02Icon }[]>([
@@ -67,6 +70,7 @@
 		{ id: 'hotkeys', label: t('settings.tabs.hotkeys'), hint: t('settings.tabs.hotkeys_hint'), icon: KeyboardIcon },
 		{ id: 'discord', label: t('settings.tabs.discord'), hint: t('settings.tabs.discord_hint'), icon: DiscordIcon },
 		{ id: 'scrobbling', label: t('settings.tabs.scrobbling'), hint: t('settings.tabs.scrobbling_hint'), icon: LastFmIcon },
+		{ id: 'devices', label: t('settings.tabs.devices'), hint: t('settings.tabs.devices_hint'), icon: ComputerPhoneSyncIcon },
 		{ id: 'data', label: t('settings.tabs.data'), hint: t('settings.tabs.data_hint'), icon: Database02Icon },
 		{ id: 'about', label: t('settings.tabs.about'), hint: t('settings.tabs.about_hint'), icon: InformationCircleIcon }
 	]);
@@ -121,8 +125,8 @@
 		untrack(() => {
 			// Opened on a section from elsewhere (the lyrics source picker): its tab, scrolled to it
 			// once the tab has rendered. The Last.fm menu and "Edit scrobble" open a whole tab.
-			if (ui.settingsFocus === 'scrobbling') {
-				tab = 'scrobbling';
+			if (ui.settingsFocus === 'scrobbling' || ui.settingsFocus === 'devices') {
+				tab = ui.settingsFocus;
 				ui.settingsFocus = null;
 				load();
 			} else if (ui.settingsFocus) {
@@ -531,6 +535,8 @@
 					<DiscordSettings {settings} />
 				{:else if loaded && tab === 'scrobbling'}
 					<ScrobbleSettings {settings} />
+				{:else if tab === 'devices'}
+					<DevicesSettings />
 				{:else if tab === 'themes'}
 					<AppearanceSettings />
 				{:else}

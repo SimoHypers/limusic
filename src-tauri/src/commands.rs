@@ -416,6 +416,13 @@ pub async fn set_setting(
     if !UI_SETTINGS.contains(&key.as_str()) {
         return Err(format!("unknown setting: {key}"));
     }
+    // The queue panel's switch is the playing device's: while the player bar controls a linked
+    // phone, it flips the phone's Autoplay and leaves this desktop's as it is.
+    if key == "autoplay" && state.showing_remote() {
+        let on = value != "false";
+        state.link.remote(listen_protocol::RemoteAction::SetAutoplay { on }, None);
+        return Ok(());
+    }
     // Registers/removes the login autostart entry on toggle; the OS persists it from there, and
     // startup repoints an existing entry at the running binary (lib.rs). Before the write, so a
     // failure leaves the setting as it was. A dev build would register itself, and at login its
@@ -2396,6 +2403,51 @@ async fn scan_local(state: &Arc<AppState>) -> Result<crate::local::LocalLibrary,
     // Artwork reaches the page over the asset protocol, which starts out allowing nothing.
     crate::local::allow_covers(&app, &lib.songs);
     Ok(lib)
+}
+
+// --- Device link (crate::devicelink) -------------------------------------------------------
+
+#[tauri::command]
+pub async fn link_state(state: St<'_>) -> Result<serde_json::Value, String> {
+    Ok(state.link.snapshot())
+}
+
+/// "Link a phone" / "New code": make the link if there is none and ask the server for a code.
+#[tauri::command]
+pub async fn link_start_pairing(state: St<'_>) -> Result<(), String> {
+    state.link.start_pairing();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn link_cancel_pairing(state: St<'_>) -> Result<(), String> {
+    state.link.cancel_pairing();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn link_unlink(state: St<'_>, device_id: String) -> Result<(), String> {
+    state.link.unlink(&device_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn link_forget(state: St<'_>) -> Result<(), String> {
+    state.link.forget();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn link_continue_here(state: St<'_>) -> Result<(), String> {
+    state.inner().clone().link_continue_here().await;
+    Ok(())
+}
+
+/// The device picker: play on a linked device, or on this desktop when `device_id` is empty.
+#[tauri::command]
+pub async fn link_play_on(state: St<'_>, device_id: String) -> Result<(), String> {
+    state.inner().clone().link_play_on(device_id).await;
+    Ok(())
 }
 
 // --- Listen Together (context/19) ----------------------------------------------------------

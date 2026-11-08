@@ -13,6 +13,7 @@ import type {
 	SongItem
 } from './api';
 import { applyLtState, lt } from './lt.svelte';
+import { applyLinkState, link } from './link.svelte';
 import { clearCached, invalidateCached, LIBRARY_SONGS_KEY } from './pagecache';
 import * as pl from './personal';
 import type { Personal } from './personal';
@@ -77,7 +78,9 @@ export const prefs = $state({
 /** Rust drops the upcoming autoplay tracks when this goes off, and tops a short queue up when it
  *  comes on, so the queue shows what will actually play. */
 export function setAutoplay(on: boolean): void {
-	prefs.autoplay = on;
+	// While the bar controls a linked phone, Rust sends this to the phone; ours stays as it is.
+	if (!link.remote) prefs.autoplay = on;
+	playback.queue.autoplay = on;
 	api.setSetting('autoplay', on ? 'true' : 'false').catch((e) => toast.error(String(e)));
 }
 
@@ -1216,7 +1219,7 @@ export const ui = $state({
 	toast: null as Toast | null,
 	settingsOpen: false, // the settings modal
 	tempoPitchOpen: false, // playback effects stay open when the current track menu is replaced
-	settingsFocus: null as 'lyrics' | 'scrobbling' | null, // a section to open settings on, once
+	settingsFocus: null as 'lyrics' | 'scrobbling' | 'devices' | null, // a section to open settings on, once
 	scrobbleTrack: null as SongItem | null, // "Edit scrobble" from a track menu: the track to edit
 	ltOpen: false, // the Listen Together modal
 	linkOpen: false, // the "open a pasted link" modal
@@ -1540,6 +1543,8 @@ export function initApp(mini = false): () => void {
 		}),
 		api.onNowPlaying((n) => {
 			playback.now = n;
+			// Nothing of its own to show after a linked device's playback (devicelink).
+			if (!n) return;
 			playback.rating = n.rating ?? 'indifferent'; // the track's real rating when known
 			// Feeds Shortcuts recency. Every track start lands here, gapless advances included, so
 			// it's the one hook that sees them all. Never count plays here: skips and the track
@@ -1576,7 +1581,8 @@ export function initApp(mini = false): () => void {
 				repeat: q.repeat,
 				sourceName: q.sourceName,
 				sourceId: q.sourceId,
-				prevTrack: q.prevTrack
+				prevTrack: q.prevTrack,
+				autoplay: q.autoplay
 			};
 		}),
 		api.onQueueAppended((q) => {
@@ -1636,7 +1642,8 @@ export function initApp(mini = false): () => void {
 		// Listen Together (context/19): mirror the Rust session state; surface notices as toasts.
 		// Rust restores the shared clock before applying room playback, even with no UI open.
 		api.onLtState(applyLtState),
-		api.onLtNotice((msg) => toast(msg))
+		api.onLtNotice((msg) => toast(msg)),
+		api.onLinkState(applyLinkState)
 	];
 	const teardown = () => subs.forEach((u) => u.then((f) => f()));
 	api.getQueue()
@@ -1704,5 +1711,6 @@ export function initApp(mini = false): () => void {
 	loadBlocked();
 	// Seed the Listen Together state (server URL, any active room after a UI reload).
 	api.ltGetState().then(applyLtState).catch(() => {});
+	api.linkState().then(applyLinkState).catch(() => {});
 	return teardown;
 }

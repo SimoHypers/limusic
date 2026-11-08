@@ -3421,6 +3421,7 @@ dependencies = [
  "csv",
  "discord-rich-presence",
  "futures-util",
+ "gethostname",
  "gtk",
  "http-body-util",
  "hyper",
