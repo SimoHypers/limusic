@@ -1272,8 +1272,8 @@ export interface ListenBrainzState {
 }
 export const listenbrainzStatus = () => invoke<ListenBrainzState>('listenbrainz_status');
 /** Validates the pasted user token and stores it. Rejects on a bad token or no network. */
-export const listenbrainzConnect = (token: string) =>
-	invoke<void>('listenbrainz_connect', { token });
+export const listenbrainzConnect = (token: string, url?: string) =>
+	invoke<void>('listenbrainz_connect', { token, url });
 export const listenbrainzDisconnect = () => invoke<void>('listenbrainz_disconnect');
 export const onListenBrainzState = (cb: (s: ListenBrainzState) => void): Promise<UnlistenFn> =>
 	listen<ListenBrainzState>('listenbrainz-state', (e) => cb(e.payload));

@@ -887,6 +887,7 @@ pub fn run() {
 
             // Scrobbler — one task, one clock for Last.fm + ListenBrainz. Each half parks until
             // its own credential exists (session key via the titlebar flow, user token via settings).
+            listenbrainz::set_root(&db.get_setting("listenbrainz_url").unwrap_or_default());
             let lastfm = lastfm::spawn(
                 handle.clone(),
                 db.get_setting("lastfm_session_key").filter(|s| !s.is_empty()),
