@@ -360,7 +360,7 @@
 		<section class={GROUP}>
 			<!-- The account, the way Last.fm's own profile header shows it: avatar, name, and the
 			     three counts under it. -->
-			<div class="mb-2.5 overflow-hidden rounded-xl border bg-card">
+			<div data-settings-card class="mb-2.5 overflow-hidden rounded-xl border bg-card">
 				<div class="flex items-center gap-3.5 px-4 py-4">
 					<div
 						class="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted ring-1 ring-border"
@@ -421,7 +421,7 @@
 				{/if}
 			</div>
 			<!-- ListenBrainz: same plays, second service. Token auth instead of the browser flow. -->
-			<div class="mb-2.5 overflow-hidden rounded-xl border bg-card">
+			<div data-settings-card class="mb-2.5 overflow-hidden rounded-xl border bg-card">
 				<div class="flex items-center gap-3.5 px-4 py-4">
 					<div
 						class="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted ring-1 ring-border"
@@ -528,7 +528,7 @@
 					</div>
 				{/if}
 			</div>
-			<div class={CARD}>
+			<div data-settings-card class={CARD}>
 				{@render row_({
 					title: t('settings.scrobbling.enable'),
 					desc: t('settings.scrobbling.enable_hint'),
@@ -544,7 +544,7 @@
 
 		<section class={GROUP}>
 			<h3 class={LABEL}>{t('settings.scrobbling.section_timing')}</h3>
-			<div class={CARD}>
+			<div data-settings-card class={CARD}>
 				{@render row_({
 					title: t('settings.scrobbling.percent'),
 					desc: t('settings.scrobbling.percent_hint'),
@@ -560,7 +560,7 @@
 
 		<section class={GROUP}>
 			<h3 class={LABEL}>{t('settings.scrobbling.section_metadata')}</h3>
-			<div class={CARD}>
+			<div data-settings-card class={CARD}>
 				{@render row_({
 					title: t('settings.scrobbling.split_titles'),
 					desc: t('settings.scrobbling.split_titles_hint'),
@@ -585,7 +585,7 @@
 			<h3 class={LABEL}>{t('settings.scrobbling.section_rules')}</h3>
 			<p class={HINT}>{t('settings.scrobbling.rules_hint')}</p>
 			{#if cfg.rules.length}
-				<div class="{CARD} mb-2.5">
+				<div data-settings-card class="{CARD} mb-2.5">
 					{#each cfg.rules as rule, i (i)}
 						<div class="px-4 py-3 {rule.enabled ? '' : 'opacity-60'}">
 							<div class="flex items-center gap-2.5">
@@ -732,7 +732,7 @@
 		<section class={GROUP}>
 			<h3 class={LABEL}>{t('settings.scrobbling.section_edits')}</h3>
 			<p class={HINT}>{t('settings.scrobbling.edits_hint')}</p>
-			<div class={CARD}>
+			<div data-settings-card class={CARD}>
 				{#each shownEdits as e, i (i)}
 					<div class="flex items-center gap-3 px-4 py-2.5">
 						<div class="min-w-0 flex-1">
@@ -773,6 +773,7 @@
 	</div>
 
 	<aside
+		data-settings-aside
 		class="flex shrink-0 flex-col overflow-y-auto bg-muted/30 px-5 py-5 lg:w-[22rem] lg:border-l max-lg:border-t"
 	>
 		<div class="mb-2.5 flex items-center gap-2">

@@ -13,6 +13,7 @@
 	import { openItem, playItem } from '$lib/browse';
 	import ItemMenu from './ItemMenu.svelte';
 	import ExplicitIcon from './ExplicitIcon.svelte';
+	import LiveBadge from './LiveBadge.svelte';
 	import { t } from '$lib/i18n.svelte';
 
 	let { item, compact = false }: { item: BrowseItem; compact?: boolean } = $props();
@@ -140,9 +141,13 @@
 						/>
 					</div>
 				{/if}
+				{#if item.live}
+					<div class="absolute left-2 top-2"><LiveBadge onArt /></div>
+				{/if}
 				{#if item.kind !== 'artist'}
 					<!-- A fade only: the slide it used to have is a transform transition (see above). -->
 					<button
+						data-card-play
 						class="absolute flex cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-lg transition-opacity duration-200 ease-out group-hover:opacity-100 focus-visible:opacity-100 {compact
 							? 'bottom-1.5 right-1.5 h-7 w-7'
 							: 'bottom-2 right-2 h-9 w-9'}"

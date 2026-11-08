@@ -946,10 +946,32 @@ export function setTempoPitch(speed: number, semitones: number, reverb = playbac
  *  end, which advances the queue the way finishing the episode would. */
 export const SKIP_SECS = 15;
 export function skipBy(secs: number) {
-	const to = Math.max(0, Math.min(playback.position + secs, playback.duration || Infinity));
+	seekTo(playback.position + secs);
+}
+
+/** Seek the playing track to `secs`, clamped to its length. The bar moves at once instead of
+ *  waiting for the next position tick. */
+export function seekTo(secs: number) {
+	const to = Math.max(0, Math.min(secs, playback.duration || Infinity));
 	playback.position = to;
 	playback.positionAt = performance.now();
 	api.seek(to);
+}
+
+/**
+ * Play `videoId` from `secs`: a timecode in a comment. The playing track just seeks; one that is
+ * in the queue is jumped to; anything else (comments held on a track that has left the queue)
+ * starts as a song radio. The last two hand the offset to the backend rather than seeking
+ * afterwards, because a seek sent while the new track is still loading hits the old one or fails.
+ */
+export function playAt(videoId: string, secs: number, title?: string) {
+	if (playback.now?.videoId === videoId) return seekTo(secs);
+	const i = playback.queue.items.findIndex((s) => s.video_id === videoId);
+	if (i >= 0) {
+		api.playIndex(i, secs).catch((e) => toast.error(String(e)));
+		return;
+	}
+	startRadio('song', videoId, title, secs);
 }
 
 // Mute *is* volume 0 — no separate flag, so dragging the slider off zero un-mutes for free and the
@@ -1176,12 +1198,13 @@ export async function enqueue(
 export async function startRadio(
 	kind: 'song' | 'artist' | 'album' | 'playlist',
 	id: string,
-	name?: string
+	name?: string,
+	start?: number
 ) {
 	toast(t('toasts.starting_radio'));
 	openPlayer();
 	try {
-		await api.startRadio(kind, id, name);
+		await api.startRadio(kind, id, name, start);
 	} catch (e) {
 		toast.error(String(e));
 	}

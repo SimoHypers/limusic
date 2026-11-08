@@ -138,13 +138,14 @@ fn header(app: &AppHandle, db: &Db) -> String {
     let disabled = db.get_setting("disabled_stream_clients").unwrap_or_default();
     let _ = writeln!(
         out,
-        "Signed in: {} | Proxy: {} | Quality: {} | Normalize: {} | Crossfade: {} | Music videos: {} | Disabled clients: {}",
+        "Signed in: {} | Proxy: {} | Quality: {} | Normalize: {} | Crossfade: {} | Music videos: {} | Hide videos: {} | Disabled clients: {}",
         yes_no(db.get_setting("session_cookie").is_some_and(|c| !c.is_empty())),
         yes_no(db.get_setting("proxy").is_some_and(|p| !p.is_empty())),
         db.get_setting("quality").unwrap_or_else(|| "HIGH".into()),
         yes_no(db.get_setting("normalize_volume").as_deref() != Some("false")),
         crate::state::saved_crossfade(db).map_or_else(|| "off".into(), |s| format!("{s}s")),
         yes_no(db.get_setting("music_videos").as_deref() == Some("true")),
+        yes_no(db.get_setting("hide_videos").as_deref() == Some("true")),
         if disabled.is_empty() { "none".into() } else { disabled },
     );
 

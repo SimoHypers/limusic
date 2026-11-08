@@ -90,9 +90,9 @@ pub async fn play(state: St<'_>, item: SongItem) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn play_index(state: St<'_>, index: usize) -> Result<(), String> {
+pub async fn play_index(state: St<'_>, index: usize, start: Option<f64>) -> Result<(), String> {
     let state = state.inner().clone();
-    state.play_index(index).await;
+    state.play_index_at(index, start).await;
     Ok(())
 }
 
@@ -242,7 +242,7 @@ pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
 /// `visitor_data`) and internal blobs (`queue_json`, `queue_index`, `queue_position`) never cross
 /// into the webview: they'd otherwise ship the login credential to the renderer on every open, and
 /// the webview can't overwrite them either.
-const UI_SETTINGS: [&str; 32] = [
+const UI_SETTINGS: [&str; 33] = [
     "volume",
     "proxy",
     "quality",
@@ -263,6 +263,7 @@ const UI_SETTINGS: [&str; 32] = [
     "update_banner",
     "update_channel",
     "lyrics_providers",
+    "lyrics_prefer_words",
     "music_videos",
     "videos_first",
     "ambient_light",
@@ -499,7 +500,7 @@ pub async fn set_setting(
     }
     // Cached lyrics outlive the order that produced them, so a reorder would otherwise reach only
     // songs never played. Songs whose source was picked by hand keep it.
-    if key == "lyrics_providers" {
+    if key == "lyrics_providers" || key == "lyrics_prefer_words" {
         state.db.clear_lyrics_cache();
     }
     // Hand the frame back to the compositor (or take it again). macOS is not on this path: its
@@ -814,6 +815,62 @@ fn metadata_client(state: &Arc<AppState>) -> Result<&innertube::YouTubeClient, S
 pub async fn get_home(state: St<'_>, params: Option<String>) -> Result<HomePage, String> {
     let client = metadata_client(&state)?;
     state.it.home(client, params.as_deref()).await.map_err(|e| e.to_string())
+}
+
+/// Home's Live section (#424): broadcasts on air from official artist channels, most watched
+/// first. YouTube curates no such list (its Live hub is gaming, news and sports, the Music hub
+/// only recordings, and YouTube Music's search marks nothing as live), so this is a few music
+/// searches with YouTube's Live filter. Only rows with the official-artist badge survive: the rest
+/// were mostly re-uploads of the same few streams by unrelated channels. Cached for an hour, so
+/// home costs at most three searches an hour however often it is opened.
+#[tauri::command]
+pub async fn get_live_now(state: St<'_>) -> Result<Vec<BrowseItem>, String> {
+    use std::time::{Duration, Instant};
+    static CACHE: std::sync::Mutex<Option<(Instant, Vec<BrowseItem>)>> =
+        std::sync::Mutex::new(None);
+    const TTL: Duration = Duration::from_secs(60 * 60);
+    if let Some((at, items)) = CACHE.lock().unwrap().as_ref() {
+        if at.elapsed() < TTL {
+            return Ok(items.clone());
+        }
+    }
+    let client = state.clients.get("WEB").ok_or("WEB client missing")?;
+    let searches = LIVE_QUERIES.iter().map(|q| state.it.live_now(client, q));
+    let results = futures_util::future::join_all(searches).await;
+    if results.iter().all(Result::is_err) {
+        let first = results.into_iter().find_map(Result::err);
+        return Err(first.map(|e| e.to_string()).unwrap_or_default());
+    }
+    let items = pick_live(results.into_iter().flatten().flatten().collect());
+    *CACHE.lock().unwrap() = Some((Instant::now(), items.clone()));
+    Ok(items)
+}
+
+/// What `get_live_now` asks for. Broad on purpose: each brings a different handful of official
+/// channels (labels' radio streams, Lofi Girl and its kin, the jazz café channels).
+const LIVE_QUERIES: [&str; 3] = ["music radio", "lofi", "jazz"];
+const LIVE_MAX: usize = 12;
+
+/// Official channels only, one card per stream (the same broadcast turns up under two queries, and
+/// a label runs one title on several of its channels), at most three per channel (Lofi Girl alone
+/// has eight on air at once), most watched first.
+fn pick_live(mut all: Vec<innertube::LiveVideo>) -> Vec<BrowseItem> {
+    const PER_CHANNEL: usize = 3;
+    all.retain(|l| l.official);
+    all.sort_by_key(|l| std::cmp::Reverse(l.watching));
+    let (mut ids, mut titles) =
+        (std::collections::HashSet::new(), std::collections::HashSet::new());
+    let mut per_channel = std::collections::HashMap::<Option<String>, usize>::new();
+    all.into_iter()
+        .filter(|l| ids.insert(l.item.id.clone()) && titles.insert(l.item.title.to_lowercase()))
+        .filter(|l| {
+            let n = per_channel.entry(l.item.subtitle.clone()).or_default();
+            *n += 1;
+            *n <= PER_CHANNEL
+        })
+        .map(|l| l.item)
+        .take(LIVE_MAX)
+        .collect()
 }
 
 #[tauri::command]
@@ -1511,9 +1568,10 @@ pub async fn start_radio(
     kind: String,
     id: String,
     name: Option<String>,
+    start: Option<f64>,
 ) -> Result<(), String> {
     let state = state.inner().clone();
-    state.start_radio(&kind, &id, name).await
+    state.start_radio(&kind, &id, name, start).await
 }
 
 // --- write actions (context/01 ✎, context/15) ----------------------------------------------
@@ -2488,6 +2546,7 @@ pub async fn lt_request_sync(state: St<'_>) -> Result<(), String> {
 /// `duration` is mpv's length in seconds. `None` = no lyrics found anywhere. `source` asks one
 /// provider alone, uncached: the source picker's preview.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // the UI's call, flat: `LyricsTrack` + source
 pub async fn get_lyrics(
     state: St<'_>,
     video_id: String,
@@ -2495,15 +2554,18 @@ pub async fn get_lyrics(
     artists: String,
     album: Option<String>,
     duration: Option<f64>,
+    searched: Option<bool>,
     source: Option<String>,
 ) -> Result<Option<crate::lyrics::Lyrics>, String> {
-    let req = crate::lyrics::LyricsRequest { video_id, title, artists, album, duration };
+    let searched = searched.unwrap_or(false);
+    let req = crate::lyrics::LyricsRequest { video_id, title, artists, album, duration, searched };
     crate::lyrics::get_lyrics(state.inner(), req, source).await
 }
 
 /// Keep one provider's lyrics for this song (`source`), or hand it back to the provider order
 /// (`None`). Returns what the song shows now.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // the UI's call, flat: `LyricsTrack` + source
 pub async fn choose_lyrics_source(
     state: St<'_>,
     video_id: String,
@@ -2511,9 +2573,11 @@ pub async fn choose_lyrics_source(
     artists: String,
     album: Option<String>,
     duration: Option<f64>,
+    searched: Option<bool>,
     source: Option<String>,
 ) -> Result<Option<crate::lyrics::Lyrics>, String> {
-    let req = crate::lyrics::LyricsRequest { video_id, title, artists, album, duration };
+    let searched = searched.unwrap_or(false);
+    let req = crate::lyrics::LyricsRequest { video_id, title, artists, album, duration, searched };
     Ok(crate::lyrics::choose_source(state.inner(), req, source).await)
 }
 
@@ -2896,6 +2960,48 @@ pub fn stop_matugen_watcher() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Official channels only, one card per stream, most watched first (#424).
+    #[test]
+    fn live_keeps_official_streams_once_each_by_viewers() {
+        let live = |id: &str, title: &str, watching, official| innertube::LiveVideo {
+            item: BrowseItem {
+                kind: "song",
+                id: id.into(),
+                title: title.into(),
+                subtitle: None,
+                thumbnail: None,
+                duration: None,
+                album_id: None,
+                artist_runs: vec![],
+                play_count: None,
+                is_video: false,
+                is_upload: false,
+                explicit: false,
+            },
+            watching,
+            official,
+        };
+        let picked = pick_live(vec![
+            live("a", "Lofi Radio", 100, true),
+            live("b", "Re-upload", 999, false),
+            live("c", "lofi radio", 50, true), // the same title on another channel
+            live("a", "Lofi Radio", 100, true), // the same stream from a second query
+            live("d", "Jazz Cafe", 200, true),
+        ]);
+        let ids: Vec<_> = picked.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, ["d", "a"]);
+
+        // Three per channel at most, the most watched three.
+        let one = |id: &str, watching| {
+            let mut l = live(id, id, watching, true);
+            l.item.subtitle = Some("Lofi Girl".into());
+            l
+        };
+        let picked = pick_live((1..=5).map(|n| one(&n.to_string(), n)).collect());
+        let ids: Vec<_> = picked.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, ["5", "4", "3"]);
+    }
 
     #[test]
     fn on_repeat_rows_shed_the_queue_slot_they_were_played_from() {

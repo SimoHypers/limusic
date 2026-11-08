@@ -18,7 +18,7 @@
 	// A song has no page to open, so it plays, with its radio behind it like every other song
 	// you click. The link carries the id and nothing else, so the title comes from YouTube.
 	function open(target: LinkTarget) {
-		if (target.kind === 'song') startRadio('song', target.id);
+		if (target.kind === 'song') startRadio('song', target.id, undefined, target.start);
 		else goto(hrefFor({ ...target, title: '' }));
 	}
 

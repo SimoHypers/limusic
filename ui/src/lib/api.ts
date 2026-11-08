@@ -87,6 +87,8 @@ export interface NowPlaying {
 	isVideo?: boolean;
 	/** A podcast episode: the transport offers speed and 15-second skips (#500). */
 	isEpisode?: boolean;
+	/** A broadcast on air: no length and nothing to seek, so a Live badge stands in for the bar (#424). */
+	live?: boolean;
 }
 
 export type RepeatMode = 'off' | 'all' | 'one';
@@ -165,6 +167,8 @@ export interface BrowseItem {
 	/** Song cards only: one of the user's own uploads. Carried into the SongItem `asSong` builds,
 	 *  because that flag is what picks the login-only client chain when it plays. */
 	isUpload?: boolean;
+	/** A broadcast on air (home's Live section): the card wears a Live badge. UI-only. */
+	live?: boolean;
 }
 
 export interface HomeSection {
@@ -381,7 +385,9 @@ export const searchSuggestions = (query: string) =>
 export const searchCards = (query: string, category: 'albums' | 'artists' | 'playlists') =>
 	invoke<BrowseItem[]>('search_cards', { query, category });
 export const play = (item: SongItem) => invoke<void>('play', { item });
-export const playIndex = (index: number) => invoke<void>('play_index', { index });
+/** `start` (seconds) opens the track that far in, for a timecode link. */
+export const playIndex = (index: number, start?: number) =>
+	invoke<void>('play_index', { index, start });
 /** Play the current track's `counterpart` from the same position. Resolves once it plays. */
 export const switchVersion = () => invoke<void>('switch_version');
 /** Remove an upcoming track from the queue (host/local only — guests are add-only). */
@@ -571,6 +577,8 @@ export const setMiniCompact = (compact: boolean) => invoke<void>('set_mini_compa
 // --- browse / library (context/08) ---------------------------------------------------------
 /** `params` is a `HomeChip.params` token — omit for the unfiltered feed. */
 export const getHome = (params?: string) => invoke<HomePage>('get_home', { params });
+/** Home's Live section: broadcasts on air from official artist channels, most watched first (#424). */
+export const getLiveNow = () => invoke<BrowseItem[]>('get_live_now');
 export const getHomeMore = (token: string) => invoke<HomePage>('get_home_more', { token });
 
 /** A comment's author. `channel_id` and `avatar` are absent when YouTube omitted them. */
@@ -862,8 +870,13 @@ export const playPlaylist = (
  * A song radio on the track that's already playing splices in behind it (no re-buffer); every
  * other case replaces the queue. Rejects when YouTube has no radio for the item.
  */
-export const startRadio = (kind: 'song' | 'artist' | 'album' | 'playlist', id: string, name?: string) =>
-	invoke<void>('start_radio', { kind, id, name });
+/** `start` (seconds) only applies to a song radio: the seed song opens at that offset. */
+export const startRadio = (
+	kind: 'song' | 'artist' | 'album' | 'playlist',
+	id: string,
+	name?: string,
+	start?: number
+) => invoke<void>('start_radio', { kind, id, name, start });
 export const getAlbum = (id: string) => invoke<AlbumPage>('get_album', { id });
 export const getArtist = (id: string) => invoke<ArtistPage>('get_artist', { id });
 /** Other artists' releases this one is featured on (#456). `songsId` is the page's `topSongsId`. */
@@ -1175,6 +1188,8 @@ export type LyricsTrack = {
 	artists: string;
 	album?: string;
 	duration?: number;
+	/** Title and artist typed in the source picker, not the song's own. */
+	searched?: boolean;
 };
 /** Cached on the Rust side, down the user's provider order. `null` = none found. `source` asks that
  *  one provider alone and caches nothing (the source picker's preview); it rejects when the

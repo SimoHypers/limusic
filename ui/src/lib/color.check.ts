@@ -4,7 +4,7 @@
 //     node --experimental-strip-types ui/src/lib/color.check.ts
 //
 // Prints "ok" and exits 0, or throws on the first broken invariant.
-import { hexToHsv, hsvToHex, isLight } from './color.ts';
+import { hexToHsv, hexToOklch, hsvToHex, isLight } from './color.ts';
 
 const eq = (a: unknown, b: unknown, msg: string) => {
 	if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${msg}: ${a} !== ${b}`);
@@ -37,5 +37,10 @@ eq(isLight('#6366f1'), false, 'indigo wants light text');
 eq(isLight('#000000'), false, 'black wants light text');
 eq(isLight('#ffffff'), true, 'white wants dark text');
 eq(isLight('garbage'), false, 'invalid falls back to light text');
+
+const purple = hexToOklch('#6750A4')!;
+eq(Math.round(purple.h), 294, 'Material baseline purple OKLCH hue');
+eq(purple.c > 0.004, true, 'Material baseline purple has chroma');
+eq(hexToOklch('#808080')!.c < 0.004, true, 'achromatic grey has no OKLCH chroma');
 
 console.log('ok');

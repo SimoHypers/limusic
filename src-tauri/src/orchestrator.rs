@@ -13,9 +13,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use innertube::{
-    find_format, find_video_format, rustypipe_fallback, AudioQuality, Clients, Format, InnerTube,
-    PlayerResponse, StreamingData, YouTubeClient, MAIN_CLIENT, STREAM_FALLBACK_ORDER,
-    UPLOAD_FALLBACK_ORDER,
+    find_format, find_video_format, pick_hls_variant, rustypipe_fallback, AudioQuality, Clients,
+    Format, InnerTube, Live, PlayerResponse, StreamingData, YouTubeClient, MAIN_CLIENT,
+    STREAM_FALLBACK_ORDER, UPLOAD_FALLBACK_ORDER,
 };
 use tokio::sync::Mutex;
 
@@ -47,6 +47,10 @@ pub struct PlaybackData {
     pub is_video: Option<bool>,
     /// The same field read as "a podcast episode" (#500), `None` on the same terms.
     pub is_episode: Option<bool>,
+    /// A broadcast on air (#424): `stream_url` is an HLS playlist (one rendition, or the master),
+    /// not a file. mpv reads the playlist itself, so it bypasses the chunking proxy, is never
+    /// cached (the playlist outlives nothing), and `duration` is `None`, not YouTube's `"0"`.
+    pub live: bool,
     /// Which client produced the stream (diagnostics). context/06.
     pub stream_client: String,
 }
@@ -382,6 +386,62 @@ impl Orchestrator {
 
             let Some(streaming) = resp.streaming_data.as_ref() else { continue };
             let Some(expires) = streaming.expires_in_seconds else { continue };
+            // A broadcast has no file to pick: its `adaptiveFormats` are segment bases that pass
+            // HEAD and then die in mpv as "unrecognized format", and the proxy's ranged probe 502s
+            // on them. Its one stream is the HLS playlist, read by mpv directly, with a plain GET
+            // to validate, since the playlist has no byte length to probe. A client that knows it
+            // is live but holds the playlist back (iOS does) is passed over. #424.
+            match resp.live() {
+                Live::No => {}
+                Live::NoManifest => {
+                    tracing::debug!(client = %key, "live, but no HLS playlist from this client");
+                    continue;
+                }
+                Live::Hls(manifest) => {
+                    let client = self.clients.get(&key);
+                    // A web client's playlist carries its `n` challenge in the path, and its
+                    // segments 403 until that is solved: the playlist itself opens either way,
+                    // so an unsolved one passes validation and fails in mpv. `sign` solves it
+                    // and adds the PoToken (as a path segment here, see `with_pot`).
+                    let mut url = manifest.to_owned();
+                    if client.is_some_and(|c| c.use_web_po_tokens)
+                        || NEEDS_N_TRANSFORM.contains(&key.as_str())
+                    {
+                        url = self.sign(url, client, video_id, visitor.as_deref()).await;
+                        fn n(u: &str) -> Option<&str> {
+                            crate::cipher::n_param_span(u).map(|(a, b)| &u[a..b])
+                        }
+                        if n(&url).is_some() && n(&url) == n(manifest) {
+                            tracing::debug!(client = %key, "live: n challenge unsolved, next");
+                            continue;
+                        }
+                    }
+                    let headers = stream_headers(
+                        client.map(|c| c.user_agent.clone()),
+                        self.it.cookie(),
+                        is_upload,
+                    );
+                    let Some(master) = self.fetch_manifest(&url, &headers).await else {
+                        tracing::warn!(video_id, client = %key, "HLS playlist refused");
+                        continue;
+                    };
+                    if let Some(variant) = pick_hls_variant(&master, quality) {
+                        url = variant.to_owned();
+                    }
+                    let ping = main_ping.clone().or_else(|| playback_ping(&resp, &key));
+                    return Ok(self.build(
+                        video_id,
+                        None,
+                        url,
+                        expires,
+                        &key,
+                        audio_config_loudness.or_else(|| main_loudness(&resp)),
+                        &main_resp,
+                        ping,
+                        headers,
+                    ));
+                }
+            }
             let Some(format) = find_format(streaming, quality) else { continue };
             if audio_config_loudness.is_none() {
                 audio_config_loudness = main_loudness(&resp);
@@ -444,7 +504,7 @@ impl Orchestrator {
                 let ping = main_ping.clone().or_else(|| playback_ping(&resp, &key));
                 return Ok(self.build(
                     video_id,
-                    format,
+                    Some(format),
                     url,
                     expires,
                     &key,
@@ -486,7 +546,7 @@ impl Orchestrator {
             let headers = self.headers_for(&c.client, is_upload);
             return Ok(self.build(
                 video_id,
-                &c.format,
+                Some(&c.format),
                 c.url,
                 c.expires,
                 &c.client,
@@ -509,7 +569,7 @@ impl Orchestrator {
             let headers = self.headers_for(&c.client, is_upload);
             return Ok(self.build(
                 video_id,
-                &c.format,
+                Some(&c.format),
                 c.url,
                 c.expires,
                 &c.client,
@@ -549,6 +609,7 @@ impl Orchestrator {
                 // rustypipe answers without a `musicVideoType`, so the queue row's flag stands.
                 is_video: None,
                 is_episode: None,
+                live: false,
                 stream_client: "rustypipe".to_owned(),
             }),
             Err(e) => {
@@ -695,8 +756,7 @@ impl Orchestrator {
         if client.is_some_and(|c| c.use_web_po_tokens) {
             if let Some(vd) = visitor {
                 if let Some(pot) = self.potoken.get_streaming_po_token(video_id, vd).await {
-                    let sep = if url.contains('?') { '&' } else { '?' };
-                    url = format!("{url}{sep}pot={}", urlencoding::encode(&pot));
+                    url = with_pot(&url, &pot);
                 }
             }
         }
@@ -752,6 +812,18 @@ impl Orchestrator {
         matches!(req.send().await, Ok(r) if r.status().is_success())
     }
 
+    /// A live playlist is text with no length, so the ranged probe above has nothing to ask for:
+    /// a plain GET within the same budget says whether the manifest host honours this client, and
+    /// its body is what the rendition is picked from. `None` on any error.
+    async fn fetch_manifest(&self, url: &str, headers: &HashMap<String, String>) -> Option<String> {
+        let mut req = crate::http::client().get(url).timeout(Duration::from_secs(10));
+        for (k, v) in headers {
+            req = req.header(k, v);
+        }
+        let r = req.send().await.ok().filter(|r| r.status().is_success())?;
+        r.text().await.ok()
+    }
+
     /// A cipher client's stream was refused, so its config may be stale. Heal off the hot path so
     /// it never blocks falling through (context/06 §7). If the heal changes the config table,
     /// clear the WEB_REMIX failure memory (context/06 §2).
@@ -788,7 +860,7 @@ impl Orchestrator {
     fn build(
         &self,
         video_id: &str,
-        format: &Format,
+        format: Option<&Format>,
         url: String,
         expires: i64,
         client: &str,
@@ -799,21 +871,24 @@ impl Orchestrator {
     ) -> PlaybackData {
         let vd = main_resp.as_ref().and_then(|r| r.video_details.as_ref());
         let video_type = vd.and_then(|v| v.music_video_type.as_deref());
-        tracing::info!(video_id, client, itag = format.itag, video_type, "resolved stream");
+        let live = format.is_none();
+        let itag = format.map_or(0, |f| f.itag as i64);
+        tracing::info!(video_id, client, itag, live, video_type, "resolved stream");
         PlaybackData {
             video_id: video_id.to_owned(),
             stream_url: url,
-            itag: format.itag as i64,
+            itag,
             headers,
             expires_in_seconds: expires,
-            loudness_db: format.loudness_db.or(loudness),
+            loudness_db: format.and_then(|f| f.loudness_db).or(loudness),
             playback_ping: ping,
             title: vd.and_then(|v| v.title.clone()),
             artists: vd.and_then(|v| v.author.clone()),
-            duration: vd.and_then(|v| v.length_seconds.clone()),
+            duration: if live { None } else { vd.and_then(|v| v.length_seconds.clone()) },
             thumbnail: main_resp.as_ref().and_then(best_thumbnail),
             is_video: vd.and_then(|v| v.is_music_video()),
             is_episode: vd.and_then(|v| v.is_podcast_episode()),
+            live,
             stream_client: client.to_owned(),
         }
     }
@@ -840,6 +915,21 @@ pub(crate) fn is_youtube_stream(url: &str) -> bool {
             u.host_str().map(|h| h.ends_with(".googlevideo.com") || h.ends_with(".c.youtube.com"))
         })
         .unwrap_or(false)
+}
+
+/// `pot` where googlevideo reads it: a query parameter on a file URL, a path segment on a live HLS
+/// playlist, ahead of its `/playlist/index.m3u8` tail. That is where yt-dlp puts it, and the
+/// segment URLs in the playlist it gets back carry it on their own (#424).
+fn with_pot(url: &str, pot: &str) -> String {
+    if url.contains("/api/manifest/") {
+        let at = ["/playlist/index.m3u8", "/file/index.m3u8", "?"]
+            .iter()
+            .find_map(|tail| url.find(tail))
+            .unwrap_or(url.len());
+        return format!("{}/pot/{pot}{}", url[..at].trim_end_matches('/'), &url[at..]);
+    }
+    let sep = if url.contains('?') { '&' } else { '?' };
+    format!("{url}{sep}pot={}", urlencoding::encode(pot))
 }
 
 /// The headers mpv (and the validating HEAD) must send for one stream.
@@ -939,7 +1029,7 @@ fn best_thumbnail(resp: &PlayerResponse) -> Option<String> {
 mod tests {
     use super::{
         blacklist_blocks, blacklist_insert, claim_heal, content_length, is_youtube_stream,
-        nothing_played, stream_headers, ResolveError, WEB_REMIX_BLACKLIST_TTL,
+        nothing_played, stream_headers, with_pot, ResolveError, WEB_REMIX_BLACKLIST_TTL,
     };
     use std::collections::HashMap;
     use std::time::{Duration, Instant};
@@ -979,6 +1069,23 @@ mod tests {
 
     /// The HEAD probe and mpv share this, so what it returns has to be identical for both callers
     /// (that mismatch is issue #71): the cookie rides along for an upload and for nothing else.
+    #[test]
+    fn the_pot_goes_in_a_playlist_path_and_a_file_query() {
+        let m = "https://manifest.googlevideo.com/api/manifest/hls_variant/ei/E/n/X/playlist/index.m3u8";
+        assert_eq!(
+            with_pot(m, "T-k_n"),
+            "https://manifest.googlevideo.com/api/manifest/hls_variant/ei/E/n/X/pot/T-k_n/playlist/index.m3u8"
+        );
+        assert_eq!(
+            with_pot("https://manifest.googlevideo.com/api/manifest/hls_variant/ei/E/", "T"),
+            "https://manifest.googlevideo.com/api/manifest/hls_variant/ei/E/pot/T"
+        );
+        assert_eq!(
+            with_pot("https://r1.googlevideo.com/videoplayback?a=1", "T="),
+            "https://r1.googlevideo.com/videoplayback?a=1&pot=T%3D"
+        );
+    }
+
     #[test]
     fn only_an_upload_carries_the_cookie() {
         let ua = || Some("UA/1".to_owned());
