@@ -25,11 +25,21 @@ const DEFAULT_ROOT: &str = "https://api.listenbrainz.org";
 /// scrobbler task, which only holds the token, reaches the same server as connect/profile.
 static ROOT: std::sync::RwLock<String> = std::sync::RwLock::new(String::new());
 
-/// Trimmed, no trailing slash, http(s) only. Empty = official server.
+/// Trimmed, no trailing slash, http(s) with a host and no query or fragment (endpoints are
+/// appended as `{root}/1/...`). Empty = official server.
 fn clean_root(url: &str) -> Result<String, String> {
     let url = url.trim().trim_end_matches('/');
-    if !url.is_empty() && !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err("ListenBrainz: server URL must start with http:// or https://".into());
+    if url.is_empty() {
+        return Ok(String::new());
+    }
+    let ok = reqwest::Url::parse(url).is_ok_and(|u| {
+        matches!(u.scheme(), "http" | "https")
+            && u.host_str().is_some()
+            && u.query().is_none()
+            && u.fragment().is_none()
+    });
+    if !ok {
+        return Err("ListenBrainz: server URL must be http(s)://host[/path], without ? or #".into());
     }
     Ok(url.to_owned())
 }
@@ -151,6 +161,14 @@ async fn validate(token: &str, root: &str) -> Result<String, String> {
         .await
         .map_err(|e| e.to_string())?;
     let status = resp.status();
+    // A bad token is a 200 with `valid:false` (some proxies answer 401); anything else is not
+    // this API talking.
+    if !status.is_success() && status != reqwest::StatusCode::UNAUTHORIZED {
+        return Err(format!(
+            "{status}: ListenBrainz at {} did not accept the request",
+            root_or_default(root)
+        ));
+    }
     let body: serde_json::Value = resp.json().await.map_err(|_| {
         format!(
             "{status}: no ListenBrainz API answered at {} (is this the API address?)",
@@ -291,7 +309,10 @@ mod tests {
     fn custom_root_is_normalized_and_validated() {
         assert_eq!(clean_root(" https://lb.example.com/ ").unwrap(), "https://lb.example.com");
         assert_eq!(clean_root("").unwrap(), "");
-        assert!(clean_root("lb.example.com").is_err());
+        assert_eq!(clean_root("http://10.0.0.2:8080/lb/").unwrap(), "http://10.0.0.2:8080/lb");
+        for bad in ["lb.example.com", "https://", "https://h/p?x=1", "https://h/#f", "ftp://h"] {
+            assert!(clean_root(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

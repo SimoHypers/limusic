@@ -113,10 +113,13 @@
 			.then((p) => listenbrainz.username === name && (lbProfile = p))
 			.catch(() => {});
 	});
+	// Keep the token while connecting so a wrong address doesn't mean pasting it again.
+	$effect(() => {
+		if (listenbrainz.connected) lbToken = '';
+	});
 	function connectLb() {
 		const token = lbToken.trim();
 		if (!token) return;
-		lbToken = '';
 		connectListenBrainz(token, lbCustom ? lbUrl.trim() : '');
 	}
 	const num = (n: number) => n.toLocaleString(currentLocale.id);
