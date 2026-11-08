@@ -160,7 +160,18 @@
 		"skip_back": "Retroceder {seconds} segundos",
 		"skip_forward": "Avanzar {seconds} segundos",
 		"speed": "Velocidad de reproducción",
-		"live": "En directo"
+		"live": "En directo",
+		"link_playing_on": "Reproduciendo en {name}",
+		"link_paused_on": "Pausado en {name}",
+		"link_continue_here": "Continuar aquí",
+		"devices": "Dispositivos",
+		"devices_title": "Reproducir en",
+		"devices_hint": "Elige donde se reproduce la música.",
+		"devices_settings": "Configuración de dispositivos",
+		"this_computer": "Esta computadora",
+		"devices_this_computer_hint": "Se reproduce aquí",
+		"devices_playing_here": "Reproduciendo aquí",
+		"devices_paused": "Pausado"
 	},
 	"home": {
 		"good_morning": "Buenos días",
@@ -322,7 +333,9 @@
 			"hotkeys": "Atajos globales",
 			"hotkeys_hint": "Atajos globales para controlar la reproducción.",
 			"scrobbling": "Scrobbleo",
-			"scrobbling_hint": "Lo que el scrobbleo envía y lo que cuenta como reproducción."
+			"scrobbling_hint": "Lo que el scrobbleo envía y lo que cuenta como reproducción.",
+			"devices": "Dispositivos",
+			"devices_hint": "Controla este dispositivo desde Limusic en tu celular."
 		},
 		"sections": {
 			"language": "Idioma",
@@ -512,7 +525,7 @@
 			"shuffle_whole_queue": "Mezclar toda la cola",
 			"shuffle_whole_queue_hint": "\"Aleatorio\" mezcla las canciones agregadas con \"Agregar a la cola\" junto con la lista actual. Si la desactivas, se reproducirán al final en el orden en que las añadiste. \"Agregar a continuación\" siempre se reproduce justo después.",
 			"videos_first": "Reproducir el video primero",
-			"videos_first_hint": "Canciones de álbumes que tengan un video musical inician con el video. Desactiva esto si quieres iniciar con la canción. El interruptor de Canción/Video en el reproductor los cambia de todas formas.",
+			"videos_first_hint": "Canciones de álbumes y playlists que tengan un video musical inician con el video. Desactiva esto si quieres iniciar con la canción. El interruptor de Canción/Video en el reproductor los cambia de todas formas.",
 			"lyrics_prefer_words": "Preferir letras palabra por palabra",
 			"lyrics_prefer_words_hint": "Las letras palabra por palabra de cualquier fuente tienen prioridad sobre las sincronizadas línea por línea de una fuente situada por encima. La primera vez que suena una canción, sus letras pueden tardar unos segundos más en aparecer."
 		},
@@ -724,6 +737,37 @@
 			"lb_problem_email": "Verifica tu correo de MetaBrainz para que ListenBrainz acepte lo que escuchas.",
 			"lb_problem_rejected": "ListenBrainz ya no acepta este token. Conéctate otra vez con uno nuevo.",
 			"lb_verify_email": "Verificar email"
+		},
+		"devices": {
+			"title": "Reproduce en donde sea",
+			"subtitle": "Tus dispositivos se controlan entre si, la música se mueve entre ellos.",
+			"intro": "Enlaza Limusic en tu celular: cada uno muestra y controla lo que el otro reproduce y la música se mueve al que tu elijas.",
+			"link_phone": "Enlaza un celular",
+			"link_another": "Enlaza otro celular",
+			"step_open": "En tu celular, abre Limusic: Configuración › Integraciones › Dispositivos",
+			"step_type": "Escribe este código",
+			"custom_server": "En este servidor, escribe {invite}",
+			"expires_in": "Expira en {time}",
+			"expired": "Este código ha expirado.",
+			"new_code": "Nuevo código",
+			"unsupported": "Este servidor no soporta enlazar aún.",
+			"try_again": "Intentar de nuevo",
+			"connecting": "Conectando…",
+			"this_computer": "Esta computadora",
+			"linked": "Enlazado",
+			"online": "En linea",
+			"offline": "Sin conexión",
+			"playing": "Reproduciendo",
+			"paused": "Pausado",
+			"playing_here": "Reproduciendo aquí",
+			"ready": "Listo",
+			"remote_for": "Controlando {name}",
+			"play_here": "Reproducir aquí",
+			"play_on_phone": "Reproducir en el celular",
+			"more": "Más",
+			"unlink": "Desenlazar",
+			"unlink_title": "¿Quieres desenlazar {name}?",
+			"unlink_desc": "Ya no puede controlar esta computadora. Puedes enlazarlo otra vez con un código nuevo."
 		}
 	},
 	"dialogs": {
