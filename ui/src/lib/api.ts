@@ -107,6 +107,9 @@ export interface QueueState {
 	 *  Set only while `backToPrevious` would actually do something: at the head of the queue, with
 	 *  a kept one behind it. */
 	prevTrack?: string | null;
+	/** The playing device's Autoplay setting: this desktop's, or a linked phone's while the bar
+	 *  controls it. Absent from a phone that predates it. */
+	autoplay?: boolean | null;
 }
 
 export interface Account {
@@ -1156,6 +1159,7 @@ export interface QueueIndex {
 	sourceId?: string | null;
 	prevTrack?: string | null;
 	current: SongItem | null;
+	autoplay?: boolean | null;
 }
 
 export const onQueueIndex = (cb: (q: QueueIndex) => void): Promise<UnlistenFn> =>
@@ -1432,6 +1436,44 @@ export const onLtState = (cb: (s: LtState) => void): Promise<UnlistenFn> =>
 	listen<LtState>('lt-state', (e) => cb(e.payload));
 export const onLtNotice = (cb: (msg: string) => void): Promise<UnlistenFn> =>
 	listen<string>('lt-notice', (e) => cb(e.payload));
+
+// Device link: the phone as a remote, and Continue here (src-tauri/src/devicelink.rs).
+export interface LinkDevice {
+	id: string;
+	name: string;
+	online: boolean;
+	playing: boolean;
+}
+export interface LinkState {
+	/** `off`: no link. `unsupported`: the server predates linking and never answered. */
+	status: 'off' | 'connecting' | 'connected' | 'unsupported';
+	error: string | null;
+	/** The server the link was made on; empty means the default. */
+	server: string;
+	/** This desktop's name as the other devices see it. */
+	selfName: string;
+	/** A live pairing code; `expiresAt` is unix ms on this machine's clock. */
+	pairing: { code: string; expiresAt: number } | null;
+	/** The other linked devices. */
+	devices: LinkDevice[];
+	/** Another device that is playing, or played last. */
+	player: { id: string; name: string; online: boolean } | null;
+	track: LtTrack | null;
+	isPlaying: boolean;
+	/** The player bar shows and controls the player's playback, not this desktop's. */
+	remote: boolean;
+}
+
+export const linkState = () => invoke<LinkState>('link_state');
+export const linkStartPairing = () => invoke<void>('link_start_pairing');
+export const linkCancelPairing = () => invoke<void>('link_cancel_pairing');
+export const linkUnlink = (deviceId: string) => invoke<void>('link_unlink', { deviceId });
+export const linkForget = () => invoke<void>('link_forget');
+export const linkContinueHere = () => invoke<void>('link_continue_here');
+/** The device picker: play on `deviceId`, or on this desktop when it is empty. */
+export const linkPlayOn = (deviceId: string) => invoke<void>('link_play_on', { deviceId });
+export const onLinkState = (cb: (s: LinkState) => void): Promise<UnlistenFn> =>
+	listen<LinkState>('link-state', (e) => cb(e.payload));
 
 export const getMatugenTheme = () => invoke<string | null>('get_matugen_theme');
 export const onMatugenThemeChanged = (cb: (css: string | null) => void): Promise<UnlistenFn> =>
