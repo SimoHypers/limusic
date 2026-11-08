@@ -89,7 +89,21 @@ impl Status {
 /// bare room code, so nobody has to see (or retype) somebody else's hostname to listen together.
 /// An empty `server_url` means "this one", resolved at connect time in [`LtSession::run`], so
 /// clearing the field is how a self-hoster comes back to the default.
-const DEFAULT_SERVER: &str = "wss://fedora-1.tail9c4985.ts.net/ws";
+const DEFAULT_SERVER: &str = "wss://sync.limusic.app/ws";
+
+/// The previous default, a Tailscale Funnel address some ISP filters reset (#627). Builds that
+/// pre-filled the server field saved it into the setting and minted it into invites, so it still
+/// arrives from both. It means the default, so it is stored as empty and moves with
+/// [`DEFAULT_SERVER`].
+const OLD_DEFAULT_SERVER: &str = "wss://fedora-1.tail9c4985.ts.net/ws";
+
+fn stored_url(url: String) -> String {
+    if url.trim() == OLD_DEFAULT_SERVER {
+        String::new()
+    } else {
+        url
+    }
+}
 
 #[derive(Default)]
 struct Inner {
@@ -170,7 +184,7 @@ impl LtSession {
         // rustls needs a process-wide crypto provider before the first `wss://` handshake.
         let _ = rustls::crypto::ring::default_provider().install_default();
         let (sync_tx, sync_rx) = mpsc::unbounded_channel();
-        let inner = Inner { server_url, ..Inner::default() };
+        let inner = Inner { server_url: stored_url(server_url), ..Inner::default() };
         let s = Arc::new(LtSession {
             app,
             inner: Arc::new(Mutex::new(inner)),
@@ -183,7 +197,7 @@ impl LtSession {
     // --- public API (called by commands + AppState) -----------------------------------------
 
     pub async fn set_server_url(&self, url: String) {
-        self.inner.lock().await.server_url = url;
+        self.inner.lock().await.server_url = stored_url(url);
         self.emit_state().await;
     }
 
@@ -885,6 +899,12 @@ mod tests {
             t.elapsed(),
             CONNECT_TIMEOUT * 2
         );
+    }
+
+    #[test]
+    fn the_old_default_server_means_the_default() {
+        assert_eq!(stored_url(OLD_DEFAULT_SERVER.into()), "");
+        assert_eq!(stored_url("wss://my.host/ws".into()), "wss://my.host/ws");
     }
 
     #[tokio::test]
