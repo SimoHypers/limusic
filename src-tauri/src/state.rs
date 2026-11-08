@@ -363,6 +363,9 @@ struct QueueState {
     /// during the walk used to stop it for good, leaving a shuffled 4,000-track playlist playing
     /// out of its first page or two (issue #316).
     epoch: u64,
+    /// The ids a playlist `/next` has already paired in queue `.0`, so a playlist played in order
+    /// asks once per window, not once per track (`refresh_playlist_twins`, #542).
+    paired: (u64, HashSet<String>),
 }
 
 /// What was playing before a click replaced the whole queue, so Previous can go back to it.
@@ -1898,10 +1901,11 @@ impl AppState {
 
     /// The music video settings changed: move the queue's rows onto the version they now pick, so
     /// the next song follows the switch, not the setting its album was opened under (#464). The
-    /// playing row is left alone, it has its own Song/Video switch.
-    pub async fn apply_version_preference(self: &std::sync::Arc<Self>) {
+    /// playing row is left alone, it has its own Song/Video switch. Also run when a playlist's
+    /// twins arrive (#542). True when a row moved, the queue then emitted and persisted.
+    pub async fn apply_version_preference(self: &std::sync::Arc<Self>) -> bool {
         if self.lt.is_guest().await {
-            return;
+            return false;
         }
         let video = wants_video(&self.db);
         let stale_lookahead = {
@@ -1922,7 +1926,7 @@ impl AppState {
                 changed |= Some(&item.video_id) != playing.as_ref() && prefer_version(item, video);
             }
             if !changed {
-                return;
+                return false;
             }
             // mpv holds the old version as the gapless next.
             let stale = primed.is_some() && primed != primed_id(q);
@@ -1938,6 +1942,7 @@ impl AppState {
             self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
         }
         self.lt_broadcast_queue().await;
+        true
     }
 
     /// Advance the queue after a track ended (EOF) or died (load error). Don't assume mpv
@@ -2587,13 +2592,15 @@ impl AppState {
     /// answer (`generation`), and so does a rating the user set meanwhile (`rate_epoch`).
     ///
     /// The same reply carries the track's Song/Video twin on accounts YouTube pairs them for, so
-    /// it fills that in too, at no extra request (#520).
+    /// it fills that in too, at no extra request (#520). A queue played from a playlist also asks
+    /// the playlist, which can pair the track differently ([`Self::refresh_playlist_twins`]).
     fn refresh_from_next(self: &std::sync::Arc<Self>, video_id: &str, gen: u64) {
         // Signed out there is no rating to be wrong about and no twin to learn (signed-out `/next`
         // never wraps a row), and a local file is not a videoId YouTube has ever heard of.
         if !self.it.is_logged_in() || crate::local::is_local_song(video_id) {
             return;
         }
+        self.refresh_playlist_twins(video_id);
         let me = self.clone();
         let video_id = video_id.to_owned();
         tauri::async_runtime::spawn(async move {
@@ -2650,6 +2657,73 @@ impl AppState {
             // every track start anyway, so a stored copy would only ever be the stale one again.
             let _ =
                 me.app.emit("rating", serde_json::json!({ "videoId": video_id, "rating": rating }));
+        });
+    }
+
+    /// The Song/Video twins the queue's own playlist gives the playing track and the rows after it
+    /// (#542). On its own, `/next` pairs a song with its main video or with nothing, so a playlist
+    /// holding another video of the song, or a video of a song with no main one, lost that video:
+    /// only a request naming the playlist pairs each entry with what the playlist holds. Those
+    /// pairs win over the bare reply's ([`adopt_playlist_twins`]).
+    ///
+    /// One reply covers the playlist from the top to ~49 rows past the track asked about
+    /// (live-checked 2026-11-07: 50 rows for the first, 99 for the 50th), so a playlist played in
+    /// order asks once per window. Detached like the rating: nothing waits on it.
+    fn refresh_playlist_twins(self: &std::sync::Arc<Self>, video_id: &str) {
+        let me = self.clone();
+        let video_id = video_id.to_owned();
+        tauri::async_runtime::spawn(async move {
+            let (playlist, epoch) = {
+                let mut q = me.queue.lock().await;
+                let q = &mut *q;
+                let Some(playlist) = playlist_context(q.source_id.as_deref()) else { return };
+                // A manual add or an autoplay track isn't in the playlist to ask about.
+                let from_playlist = q.items.get(q.current).is_some_and(|i| {
+                    i.video_id == video_id && !i.queued && !i.queued_end && !i.autoplay
+                });
+                if !from_playlist {
+                    return;
+                }
+                if q.paired.0 != q.epoch {
+                    q.paired = (q.epoch, HashSet::new());
+                }
+                // Marked before the request, so a failed one isn't retried on every replay.
+                if !q.paired.1.insert(video_id.clone()) {
+                    return;
+                }
+                (playlist, q.epoch)
+            };
+            let Some(client) = me.clients.get(innertube::METADATA_CLIENT) else { return };
+            let next = match me.it.next(client, Some(&video_id), Some(&playlist)).await {
+                Ok(next) => next,
+                Err(e) => {
+                    tracing::debug!(error = %e, "playlist next failed; keeping the twins we have");
+                    return;
+                }
+            };
+            let learned = {
+                let mut q = me.queue.lock().await;
+                let q = &mut *q;
+                if q.epoch != epoch {
+                    return; // another queue now
+                }
+                for item in &next.items {
+                    q.paired.1.insert(item.video_id.clone());
+                    q.paired.1.extend(item.counterpart.clone());
+                }
+                let rows = q.items.iter_mut().chain(q.shuffle_orig.iter_mut().flatten());
+                adopt_playlist_twins(rows, &next.items)
+            };
+            if !learned {
+                return;
+            }
+            // Rows still to come take the version "Play the video first" picks, as album rows do.
+            // Only with music videos on: off, a video the user put in a playlist stays what it was.
+            let moved = me.db.get_setting("music_videos").as_deref() == Some("true")
+                && me.apply_version_preference().await;
+            if !moved {
+                me.emit_queue().await;
+            }
         });
     }
 
@@ -4738,6 +4812,15 @@ fn is_mix(source_id: Option<&str>) -> bool {
     source_id.is_some_and(|id| id.strip_prefix("VL").unwrap_or(id).starts_with("RD"))
 }
 
+/// The YouTube playlist a queue's `source_id` names, to ask `/next` about (#542). Not a playlist
+/// on this machine, nor a mix (YouTube generated its rows), nor an album, whose page already
+/// pairs its rows (`InnerTube::album`).
+fn playlist_context(source_id: Option<&str>) -> Option<String> {
+    let id = source_id.filter(|id| !is_local_playlist(id))?;
+    let id = id.strip_prefix("VL").unwrap_or(id);
+    (!id.starts_with("RD") && !id.starts_with("OLAK5uy_")).then(|| id.to_owned())
+}
+
 /// Shuffle a *fresh* queue around the clicked track (shuffle was already on when it started,
 /// Spotify semantics): the clicked track plays first, everything else follows in random order.
 /// Returns the new current index (always 0). The swap is fine — everything past 0 is shuffled.
@@ -4799,6 +4882,32 @@ pub(crate) fn swap_version(item: &mut SongItem) -> bool {
     // `twin_position` walks them in this version's order.
     item.counterpart_segments.sort_by_key(|s| s.start_ms);
     true
+}
+
+/// Give each row the twin a playlist's own `/next` pairs it with (#542), over the one it had. A
+/// row matches either side of a pair: a playlist entry reaches the queue as the video it holds or
+/// as the song YouTube serves it as. True when anything changed.
+fn adopt_playlist_twins<'a>(
+    rows: impl Iterator<Item = &'a mut SongItem>,
+    pairs: &[SongItem],
+) -> bool {
+    let mut twins = std::collections::HashMap::new();
+    for pair in pairs {
+        let Some(other) = &pair.counterpart else { continue };
+        let mut flipped = pair.clone();
+        swap_version(&mut flipped);
+        twins.insert(other.as_str(), flipped);
+        twins.insert(pair.video_id.as_str(), pair.clone());
+    }
+    let mut changed = false;
+    for row in rows {
+        let Some(twin) = twins.get(row.video_id.as_str()) else { continue };
+        if row.counterpart != twin.counterpart {
+            row.counterpart = None; // the playlist's twin replaces it, art and segments too
+        }
+        changed |= adopt_twin(row, twin);
+    }
+    changed
 }
 
 /// Take `from`'s twin, with its art and segments, when `into` has none, or fill in what `into`
@@ -5037,13 +5146,13 @@ fn persist_fingerprint(q: &QueueState) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        adopt_twin, append_page, backfill_metadata, cache_horizon, drop_duplicates, enqueue_at,
-        format_duration, freshen, get_url, guest_insert_index, history_threshold, is_mix,
-        loudness_gain, merge_radio, next_index, parse_duration_ms, persist_fingerprint,
-        prefer_version, prev_track_title, put_url, queue_fingerprint, radio_seed_for,
-        retain_upcoming, shuffle_new_queue, shuffle_upcoming, splice_radio_into, swap_version,
-        trim_played, twin_position, unshuffled, upcoming_queued, QueueState, RepeatMode, VideoUrls,
-        KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
+        adopt_playlist_twins, adopt_twin, append_page, backfill_metadata, cache_horizon,
+        drop_duplicates, enqueue_at, format_duration, freshen, get_url, guest_insert_index,
+        history_threshold, is_mix, loudness_gain, merge_radio, next_index, parse_duration_ms,
+        persist_fingerprint, playlist_context, prefer_version, prev_track_title, put_url,
+        queue_fingerprint, radio_seed_for, retain_upcoming, shuffle_new_queue, shuffle_upcoming,
+        splice_radio_into, swap_version, trim_played, twin_position, unshuffled, upcoming_queued,
+        QueueState, RepeatMode, VideoUrls, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -5142,6 +5251,54 @@ mod tests {
         assert_eq!(album.counterpart_thumbnail.as_deref(), Some("cover"));
         assert_eq!(album.counterpart_segments, [seg(5477, 0, 484451)]);
         assert!(!adopt_twin(&mut album, &twin));
+    }
+
+    // #542: the reporter's two-entry playlist. Zoo's entry reached the queue as the song, which the
+    // bare `/next` paired with its main video; The Fox's as the video the playlist holds, which
+    // nothing paired. The playlist's pairs win, whichever side the row is on.
+    #[test]
+    fn a_playlist_twin_replaces_the_bare_one_from_either_side() {
+        let pair = |song: &str, video: &str| innertube::SongItem {
+            video_id: song.into(),
+            thumbnail: Some(format!("{song}-cover")),
+            counterpart: Some(video.into()),
+            counterpart_thumbnail: Some(format!("{video}-frame")),
+            ..Default::default()
+        };
+        let pairs = [pair("zoo", "zoo-playlist-video"), pair("fox", "fox-video")];
+        let mut rows = [
+            innertube::SongItem {
+                counterpart: Some("zoo-main-video".into()),
+                counterpart_thumbnail: Some("main-frame".into()),
+                counterpart_segments: vec![seg(0, 5000, 1000)],
+                ..pair("zoo", "zoo-main-video")
+            },
+            innertube::SongItem {
+                video_id: "fox-video".into(),
+                is_video: true,
+                ..Default::default()
+            },
+            innertube::SongItem { video_id: "elsewhere".into(), ..Default::default() },
+        ];
+        assert!(adopt_playlist_twins(rows.iter_mut(), &pairs));
+        assert_eq!(rows[0].counterpart.as_deref(), Some("zoo-playlist-video"));
+        assert_eq!(rows[0].counterpart_thumbnail.as_deref(), Some("zoo-playlist-video-frame"));
+        assert!(rows[0].counterpart_segments.is_empty(), "the old video's segments went with it");
+        assert_eq!(rows[1].counterpart.as_deref(), Some("fox"));
+        assert_eq!(rows[1].counterpart_thumbnail.as_deref(), Some("fox-cover"));
+        assert_eq!(rows[2].counterpart, None);
+        // A second answer with the same pairs changes nothing.
+        assert!(!adopt_playlist_twins(rows.iter_mut(), &pairs));
+    }
+
+    #[test]
+    fn only_a_youtube_playlist_is_asked_for_its_twins() {
+        assert_eq!(playlist_context(Some("VLPLCruHskPLraU")).as_deref(), Some("PLCruHskPLraU"));
+        assert_eq!(playlist_context(Some("LM")).as_deref(), Some("LM"));
+        assert_eq!(playlist_context(Some("VLRDCLAK5uy_x")), None);
+        assert_eq!(playlist_context(Some("OLAK5uy_album")), None);
+        assert_eq!(playlist_context(Some(&format!("{LOCAL_PLAYLIST_PREFIX}1"))), None);
+        assert_eq!(playlist_context(None), None);
     }
 
     // A video that reorders the song's parts would swap into segments out of order.

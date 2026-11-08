@@ -606,7 +606,7 @@
 			"music_videos": "Enable music videos",
 			"music_videos_hint": "Show video stream when available instead of audio only.",
 			"videos_first": "Play the video first",
-			"videos_first_hint": "Album songs that have a music video start as the video. Turn this off to start with the song. The Song/Video switch in the player view swaps between them either way.",
+			"videos_first_hint": "Album and playlist songs that have a music video start as the video. Turn this off to start with the song. The Song/Video switch in the player view swaps between them either way.",
 			"ambient_light": "Ambient light",
 			"ambient_light_hint": "The player view around a music video glows with the video's colours.",
 			"ambient_light_gpu_title": "Needs a capable graphics card",
