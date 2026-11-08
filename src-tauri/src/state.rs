@@ -2486,7 +2486,7 @@ impl AppState {
                         return;
                     }
                     // Box::pin: remove_from_queue can itself re-prime (async recursion).
-                    Box::pin(self.remove_from_queue(next_idx)).await;
+                    Box::pin(self.remove_from_queue_local(next_idx)).await;
                     self.emit_skip(&next_title, skip_reason(&e));
                 }
             }
@@ -2964,6 +2964,12 @@ impl AppState {
         if self.link_route(|_| Some(RemoteAction::Next)) {
             return;
         }
+        self.next_in_queue_local().await;
+    }
+
+    /// [`Self::next_in_queue`] on this desktop's own queue, never sent to a linked device: for
+    /// callers that mean the queue here, not whatever the player bar shows.
+    async fn next_in_queue_local(self: &std::sync::Arc<Self>) {
         let i = {
             let q = self.queue.lock().await;
             // Manual next escapes a repeat-one loop (the next track then loops too), so treat One
@@ -3576,7 +3582,9 @@ impl AppState {
         if !crate::local::is_local_song(&item.video_id) && !crate::http::wait_for_network().await {
             return;
         }
-        if !enabled() || !self.player.is_idle() || self.lt.is_guest().await {
+        // A linked phone already playing keeps the music; routed, this index would land on its queue.
+        if !enabled() || !self.player.is_idle() || self.showing_remote() || self.lt.is_guest().await
+        {
             return;
         }
         let current = self.queue.lock().await.current;
@@ -4396,6 +4404,13 @@ impl AppState {
         }) {
             return;
         }
+        self.remove_from_queue_local(index).await;
+    }
+
+    /// [`Self::remove_from_queue`] on this desktop's own queue, never sent to a linked device. A
+    /// failed lookahead and a blocked artist name a row here; routed, the index would land on
+    /// whatever row of the phone's queue has it.
+    async fn remove_from_queue_local(self: &std::sync::Arc<Self>, index: usize) {
         if self.lt.is_guest().await {
             return;
         }
@@ -4457,11 +4472,11 @@ impl AppState {
         };
         // Descending: every removal shifts everything after it.
         for i in upcoming.iter().rev() {
-            self.remove_from_queue(*i).await;
+            self.remove_from_queue_local(*i).await;
         }
         // After the purge, so the skip cannot land on another blocked track.
         if playing_blocked && !self.player.is_idle() {
-            self.next_in_queue().await;
+            self.next_in_queue_local().await;
             // The purge can empty the tail: with repeat off and autoplay dead there is nothing to
             // advance into, and `next_in_queue` leaves the blocked track playing. Pausing is the
             // honest end of a queue that now holds nobody the user still wants to hear.
@@ -4616,7 +4631,7 @@ impl AppState {
                 RemoteAction::Pause => {
                     let _ = self.player.pause();
                 }
-                RemoteAction::Next => self.next_in_queue().await,
+                RemoteAction::Next => self.next_in_queue_local().await,
                 RemoteAction::Previous => self.prev_in_queue().await,
                 RemoteAction::Seek { position_ms } => {
                     let _ = self.user_seek(position_ms.max(0) as f64 / 1000.0).await;
@@ -4641,7 +4656,7 @@ impl AppState {
                 }
                 RemoteAction::Remove { index, id } => {
                     if let Some(i) = self.link_row(index, &id).await {
-                        self.remove_from_queue(i).await;
+                        self.remove_from_queue_local(i).await;
                     }
                 }
                 RemoteAction::Move { from, to } => self.move_in_queue(from, to).await,

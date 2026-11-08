@@ -114,6 +114,10 @@ struct Inner {
     error: Option<String>,
     /// "Link a phone" was pressed and no code has come back yet.
     want_pair: bool,
+    /// This pairing attempt made the link, so cancelling it undoes the link too.
+    pair_made_link: bool,
+    /// When `pair_start` went out on the joined socket: the server's answer is timed from here.
+    pair_sent: Option<std::time::Instant>,
     /// The live pairing code and when it expires (unix ms, this machine's clock).
     pair: Option<(String, i64)>,
     /// The room as the server last described it.
@@ -311,12 +315,14 @@ impl LinkSession {
                 };
                 self.db.set_setting(SETTING, &serde_json::to_string(&config).unwrap_or_default());
                 inner.config = Some(config);
+                inner.pair_made_link = true;
             }
             inner.want_pair = true;
             inner.pair = None;
             inner.error = None;
             if inner.joined {
                 inner.send(ClientMessage::PairStart);
+                inner.pair_sent = Some(std::time::Instant::now());
             }
             // A previous attempt hit an old server and stopped: try again from scratch.
             let start = inner.unsupported || (inner.outbound.is_none() && !inner.connecting);
@@ -327,15 +333,24 @@ impl LinkSession {
             self.connect();
         }
         self.emit_state();
+        // Timed from when `pair_start` reaches a joined socket, not from the press: a connect or a
+        // reconnect backoff can take longer than the timeout on a server that supports linking. A
+        // server that ignores `join_link` altogether is the run loop's to catch.
         let me = self.clone();
         tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(REPLY_TIMEOUT).await;
-            let timed_out = {
-                let inner = me.lock();
-                inner.want_pair && inner.pair.is_none() && !inner.unsupported
-            };
-            if timed_out {
-                me.give_up_unsupported();
+            loop {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                let timed_out = {
+                    let inner = me.lock();
+                    if !inner.want_pair || inner.pair.is_some() || inner.unsupported {
+                        return;
+                    }
+                    inner.joined && inner.pair_sent.is_some_and(|t| t.elapsed() > REPLY_TIMEOUT)
+                };
+                if timed_out {
+                    me.give_up_unsupported();
+                    return;
+                }
             }
         });
     }
@@ -346,7 +361,9 @@ impl LinkSession {
             let mut inner = self.lock();
             inner.want_pair = false;
             inner.pair = None;
-            inner.others() == 0
+            // Only a link this attempt made: an existing one can show no devices while the room
+            // is still rejoining, and cancelling then must not delete it.
+            std::mem::take(&mut inner.pair_made_link) && inner.others() == 0
         };
         if nobody {
             self.forget();
@@ -597,6 +614,8 @@ impl LinkSession {
             match sm {
                 ServerMessage::LinkJoined { mut state, status } => {
                     state.queue.retain(shareable);
+                    // Another device took over while our socket was down: it stays the player.
+                    let other_player = !state.host_id.is_empty() && state.host_id != inner.me();
                     inner.room = state;
                     inner.lost_at = None;
                     inner.host_lost_at = None;
@@ -607,8 +626,13 @@ impl LinkSession {
                     inner.connecting = false;
                     if inner.want_pair {
                         inner.send(ClientMessage::PairStart);
+                        inner.pair_sent = Some(std::time::Instant::now());
                     }
-                    let _ = self.cmd_tx.send(LinkCommand::Republish);
+                    let _ = self.cmd_tx.send(if other_player {
+                        LinkCommand::HostLost
+                    } else {
+                        LinkCommand::Republish
+                    });
                 }
                 ServerMessage::PairCode { code, expires_in_s } => {
                     inner.want_pair = false;
@@ -618,6 +642,7 @@ impl LinkSession {
                     // The phone took the code: the pairing screen gives way to the device list.
                     inner.pair = None;
                     inner.want_pair = false;
+                    inner.pair_made_link = false;
                     inner.room.users.retain(|u| u.user_id != user.user_id);
                     inner.room.users.push(user);
                 }
