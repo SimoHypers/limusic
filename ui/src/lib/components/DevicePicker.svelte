@@ -17,6 +17,14 @@
 	let open = $state(false);
 
 	const here = $derived(!link.remote);
+	const remotePlayer = $derived(link.remote ? link.player : null);
+	const label = $derived(
+		remotePlayer
+			? link.isPlaying
+				? t('player.link_playing_on', { name: remotePlayer.name })
+				: t('player.link_paused_on', { name: remotePlayer.name })
+			: t('player.devices')
+	);
 
 	async function playOn(deviceId: string) {
 		open = false;
@@ -63,30 +71,25 @@
 
 <Popover.Root bind:open>
 	<!-- While the bar is another device's remote, the button names that device: the only marker
-	     that this bar is not playing here. -->
-	{#if link.remote && link.player}
-		{@const where = link.isPlaying
-			? t('player.link_playing_on', { name: link.player.name })
-			: t('player.link_paused_on', { name: link.player.name })}
-		<Popover.Trigger
-			class="inline-flex h-8 max-w-44 cursor-pointer items-center gap-1.5 rounded-full bg-primary/15 px-3 text-xs font-medium text-primary transition hover:bg-primary/25"
-			aria-label={where}
-			title={where}
-		>
+	     that this bar is not playing here. One trigger whose contents change, never two in an
+	     if/else: bits-ui keeps a single trigger node per popover, and the one unmounting on a
+	     handover clears it after the new one set it, so the popover stopped opening. -->
+	<Popover.Trigger
+		class={remotePlayer
+			? 'inline-flex h-8 max-w-44 cursor-pointer items-center gap-1.5 rounded-full bg-primary/15 px-3 text-xs font-medium text-primary transition hover:bg-primary/25'
+			: `inline-flex size-8 cursor-pointer items-center justify-center rounded-md transition hover:bg-muted ${here
+					? 'text-muted-foreground hover:text-foreground'
+					: 'text-primary'}`}
+		aria-label={label}
+		title={label}
+	>
+		{#if remotePlayer}
 			<HugeiconsIcon icon={SmartPhone01Icon} class="size-4 shrink-0" />
-			<span class="truncate">{link.player.name}</span>
-		</Popover.Trigger>
-	{:else}
-		<Popover.Trigger
-			class="inline-flex size-8 cursor-pointer items-center justify-center rounded-md transition hover:bg-muted {here
-				? 'text-muted-foreground hover:text-foreground'
-				: 'text-primary'}"
-			aria-label={t('player.devices')}
-			title={t('player.devices')}
-		>
+			<span class="truncate">{remotePlayer.name}</span>
+		{:else}
 			<HugeiconsIcon icon={LaptopPhoneSyncIcon} class="h-5 w-5" />
-		</Popover.Trigger>
-	{/if}
+		{/if}
+	</Popover.Trigger>
 	<Popover.Content side="top" align="end" sideOffset={10} class="w-72 p-1.5">
 		<p class="px-2.5 pb-1.5 pt-1 text-xs font-medium text-muted-foreground">
 			{t('player.devices_title')}
