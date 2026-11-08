@@ -106,7 +106,7 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
 ## macOS
 
 > **You normally don't need to do any of this.** The `.dmg` and the updater bundle are built in CI,
-> `.github/workflows/macos-release.yml`, on a pinned `macos-14` (Apple Silicon) runner, dispatched
+> `.github/workflows/macos-release.yml`, on a pinned `macos-15` (Apple Silicon) runner, dispatched
 > by `scripts/release.sh`. This section is for debugging a macOS problem locally.
 
 1. **Toolchain:** Rust, Xcode Command Line Tools (`xcode-select --install`), Node/pnpm.
@@ -179,7 +179,7 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
    ```bash
    "$APP/Contents/MacOS/$(plutil -extract CFBundleExecutable raw "$APP/Contents/Info.plist")"
    ```
-- `bundle.macOS.minimumSystemVersion` is **14.0** because Homebrew bottles are built per macOS
+- `bundle.macOS.minimumSystemVersion` is **15.0** because Homebrew bottles are built per macOS
   version, so whatever the CI runner ships is the floor. It tracks `runs-on` in the workflow.
 - Media keys use **MPNowPlayingInfoCenter / MPRemoteCommandCenter** (Control Center + the Now
   Playing widget). Works from the `.app` bundle; a bare binary run won't register.
