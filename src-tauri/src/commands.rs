@@ -2704,7 +2704,15 @@ pub struct BetaUpdate {
 pub async fn check_beta_update(webview: tauri::Webview) -> Result<Option<BetaUpdate>, String> {
     use tauri::Manager;
     use tauri_plugin_updater::UpdaterExt;
-    let url = tauri::Url::parse(BETA_MANIFEST).map_err(|e| e.to_string())?;
+    // GitHub's edge caches the download redirect for up to an hour (it carries a one-hour signed
+    // link), so for that long after the pointer moves the bare URL can still name the old manifest
+    // and a beta install is told it is up to date. A query GitHub ignores makes each check its own
+    // cache entry: 1.4.0-rc.5's swap served rc.4 for ~35 minutes without it.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let url = tauri::Url::parse(&format!("{BETA_MANIFEST}?t={now}")).map_err(|e| e.to_string())?;
     let update = webview
         .updater_builder()
         .endpoints(vec![url])
