@@ -72,6 +72,10 @@ export type KaraokeTrackState = {
 
 const karaokeByTrack = $state<Record<string, KaraokeTrackState>>({});
 
+/** Tracks whose instrumental is already playing while the rest of it is still being made
+ *  (`karaoke-streaming`): for the listener the vocals are gone, so they read as ready. */
+const karaokeStreaming = $state<Record<string, boolean>>({});
+
 /** Where each preparing track's clock started: the first progress we saw, and when. Not state:
  *  only the estimate it produces is shown. */
 const karaokeEtaStart: Record<string, { at: number; progress: number; last: number }> = {};
@@ -101,8 +105,13 @@ export function karaokeTrack(videoId: string | undefined): KaraokeTrackState | u
 }
 
 function syncKaraokeStatus() {
-	const entry = playback.now?.videoId ? karaokeByTrack[playback.now.videoId] : undefined;
-	if (entry) {
+	const id = playback.now?.videoId;
+	const entry = id ? karaokeByTrack[id] : undefined;
+	if (id && karaokeStreaming[id] && (!entry || entry.state === 'preparing')) {
+		karaokeStatus.state = 'ready';
+		karaokeStatus.progress = undefined;
+		karaokeStatus.code = undefined;
+	} else if (entry) {
 		karaokeStatus.state = entry.state;
 		karaokeStatus.progress = entry.progress;
 		karaokeStatus.code = entry.code;
@@ -1202,6 +1211,7 @@ export function toggleKaraoke() {
 	playback.karaoke = next;
 	if (!next) {
 		for (const k in karaokeByTrack) delete karaokeByTrack[k];
+		for (const k in karaokeStreaming) delete karaokeStreaming[k];
 		karaokeQueue.slots = [];
 		syncKaraokeStatus();
 	}
@@ -1899,12 +1909,18 @@ export function initApp(mini = false): () => void {
 			playback.karaoke = enabled;
 			if (!enabled) {
 				for (const k in karaokeByTrack) delete karaokeByTrack[k];
+				for (const k in karaokeStreaming) delete karaokeStreaming[k];
 				karaokeQueue.slots = [];
 				syncKaraokeStatus();
 			}
 		}),
 		api.onKaraokeQueue((e) => {
 			karaokeQueue.slots = e.slots;
+		}),
+		api.onKaraokeStreaming((e) => {
+			if (e.on) karaokeStreaming[e.videoId] = true;
+			else delete karaokeStreaming[e.videoId];
+			if (playback.now?.videoId === e.videoId) syncKaraokeStatus();
 		}),
 		api.onKaraokeStatus((e) => {
 			const code: api.KaraokeErrorCode | undefined = e.code === 'incomplete_download' ? 'incomplete_download' : e.code ? 'failed' : undefined;

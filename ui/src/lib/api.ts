@@ -1201,6 +1201,11 @@ export const onKaraokeStatus = (cb: (s: KaraokeStatusEvent) => void): Promise<Un
 	listen<KaraokeStatusEvent>('karaoke-status', (e) => cb(e.payload));
 export const onKaraokeQueue = (cb: (e: KaraokeQueueEvent) => void): Promise<UnlistenFn> =>
 	listen<KaraokeQueueEvent>('karaoke-queue', (e) => cb(e.payload));
+/** The track's instrumental is (or stopped being) what plays, while the rest is still made. */
+export const onKaraokeStreaming = (
+	cb: (e: { videoId: string; on: boolean }) => void
+): Promise<UnlistenFn> =>
+	listen<{ videoId: string; on: boolean }>('karaoke-streaming', (e) => cb(e.payload));
 export const onKaraokeModel = (cb: (m: KaraokeModelEvent) => void): Promise<UnlistenFn> =>
 	listen<KaraokeModelEvent>('karaoke-model', (e) => cb(e.payload));
 export const onPlaybackState = (cb: (s: 'playing' | 'paused') => void): Promise<UnlistenFn> =>

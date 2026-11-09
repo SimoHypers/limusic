@@ -20,10 +20,40 @@ use karaoke::jobs::DesiredSet;
 pub use karaoke::jobs::PrepareRequest;
 use karaoke::mdx::MdxModel;
 use karaoke::models::ModelId;
+use karaoke::pipeline::StreamSink;
 use karaoke::runtime::RuntimeReady;
+use karaoke::stream::GrowingWav;
 use tauri::{AppHandle, Emitter, Manager};
 
 const IDLE_UNLOAD: Duration = Duration::from_secs(30);
+
+/// What playback hears about the instrumental of the song that is playing while it is still being
+/// made: it is played from its `url` long before the job is done (see [`KaraokeStream`]).
+#[derive(Clone, Debug)]
+pub enum StreamEvent {
+    /// More of `video_id` is playable. `rate` is seconds of audio made per second so far: playback
+    /// only switches over when the stream is outrunning it.
+    Progress { video_id: String, url: String, rate: f64 },
+    /// Nothing more is coming (the job failed or was cancelled). If it is playing, go back to the
+    /// original before playback reaches the end of what was written.
+    Abandoned { video_id: String },
+}
+
+/// The song playing now and its stream. Short critical sections only, like the board.
+#[derive(Default)]
+struct Streams {
+    /// Which track is playing, as playback last said ([`KaraokeEngine::want`]).
+    current: Mutex<Option<String>>,
+    /// The newest stream: `(video id, file, loopback url)`. Replacing it unregisters the old
+    /// one; the file goes when the last reader lets go of it.
+    active: Mutex<Option<(String, Arc<GrowingWav>, String)>>,
+    /// The track whose stream mpv is playing, set and cleared by playback.
+    playing: Mutex<Option<String>>,
+}
+
+fn locked<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// Everything the worker and the off-thread helpers need, cheap to clone.
 #[derive(Clone)]
@@ -33,6 +63,8 @@ struct Ctx {
     cache: Arc<InstrumentalCache>,
     board: Arc<JobBoard>,
     ready_tx: tokio::sync::broadcast::Sender<String>,
+    stream_tx: tokio::sync::broadcast::Sender<StreamEvent>,
+    streams: Arc<Streams>,
     /// What the loaded model runs on, for Settings: 0 not loaded yet, 1 CPU, 2 GPU (DirectML).
     processor: Arc<AtomicU8>,
     model: Arc<Mutex<ModelId>>,
@@ -169,12 +201,15 @@ impl KaraokeEngine {
         let cache = Arc::new(InstrumentalCache::new(cache_dir, max_bytes));
         cache.set_model(model_id.cache_tag());
         let (ready_tx, _) = tokio::sync::broadcast::channel(64);
+        let (stream_tx, _) = tokio::sync::broadcast::channel(64);
         let ctx = Ctx {
             app,
             models,
             cache,
             board: Arc::new(JobBoard::new()),
             ready_tx,
+            stream_tx,
+            streams: Arc::new(Streams::default()),
             processor: Arc::new(AtomicU8::new(0)),
             model: Arc::new(Mutex::new(model_id)),
             loaded_model: Arc::new(Mutex::new(None)),
@@ -344,8 +379,48 @@ impl KaraokeEngine {
         self.ctx.board.is_enabled()
     }
 
+    pub fn subscribe_stream(&self) -> tokio::sync::broadcast::Receiver<StreamEvent> {
+        self.ctx.stream_tx.subscribe()
+    }
+
+    /// Seconds of `video_id`'s stream playable from `secs` on without waiting; 0 without one.
+    pub fn stream_ready_secs(&self, video_id: &str, secs: f64) -> f64 {
+        match &*locked(&self.ctx.streams.active) {
+            Some((id, wav, _)) if id == video_id => wav.ready_secs_from(secs),
+            _ => 0.0,
+        }
+    }
+
+    /// `video_id`'s stream has every sample: playback can stay on it, wherever it seeks.
+    pub fn stream_complete(&self, video_id: &str) -> bool {
+        matches!(&*locked(&self.ctx.streams.active), Some((id, wav, _)) if id == video_id && wav.is_complete())
+    }
+
+    /// Playback switched to (`Some`) or away from (`None`) a stream.
+    pub fn set_playing_stream(&self, video_id: Option<String>) {
+        *locked(&self.ctx.streams.playing) = video_id;
+    }
+
+    pub fn playing_stream(&self) -> Option<String> {
+        locked(&self.ctx.streams.playing).clone()
+    }
+
+    /// Clears the playing stream if it is `video_id`'s, saying whether it was: only one caller
+    /// gets to act on it.
+    pub fn take_playing_stream(&self, video_id: &str) -> bool {
+        let mut p = locked(&self.ctx.streams.playing);
+        if p.as_deref() == Some(video_id) {
+            *p = None;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Called by playback with the queue lock held: bookkeeping only, no disk, no waiting.
-    pub fn want(&self, reqs: Vec<PrepareRequest>) {
+    /// `current` is the track playing now: its job streams (see [`KaraokeStream`]).
+    pub fn want(&self, reqs: Vec<PrepareRequest>, current: Option<String>) {
+        *locked(&self.ctx.streams.current) = current;
         let enabled = self.ctx.board.is_enabled();
         let num_reqs = reqs.len();
         let first_id = reqs.first().map_or(String::new(), |r| r.video_id.clone());
@@ -504,6 +579,91 @@ impl KaraokeEngine {
         self.ctx.board.notify();
         self.ctx.refresh_in_background(false);
         count
+    }
+}
+
+/// The instrumental of the song that is playing, written as it is made into a WAV that mpv can
+/// play through the loopback proxy while the rest is still being prepared. Prepared from where
+/// the song is now, so switching to it takes a few chunks instead of the whole song: on Light that
+/// is seconds, not a minute. Playback decides when to switch (`AppState::karaoke_stream_progress`):
+/// only once the stream is ahead of it and outrunning it.
+struct KaraokeStream<'a> {
+    ctx: &'a Ctx,
+    video_id: &'a str,
+    wav: Option<Arc<GrowingWav>>,
+    url: String,
+    started: Instant,
+    made: usize,
+}
+
+impl<'a> KaraokeStream<'a> {
+    fn new(ctx: &'a Ctx, video_id: &'a str) -> Self {
+        Self { ctx, video_id, wav: None, url: String::new(), started: Instant::now(), made: 0 }
+    }
+
+    /// The job ended without finishing: tell a reader waiting on unwritten bytes, and playback.
+    fn abandon(&self) {
+        if let Some(wav) = &self.wav {
+            wav.abandon();
+            let _ = self
+                .ctx
+                .stream_tx
+                .send(StreamEvent::Abandoned { video_id: self.video_id.to_string() });
+        }
+    }
+}
+
+impl StreamSink for KaraokeStream<'_> {
+    fn begin(&mut self, frames: usize) -> usize {
+        // Where the song is now: decoding took a moment, so this is fresher than the request.
+        let pos = self
+            .ctx
+            .app
+            .try_state::<Arc<crate::state::AppState>>()
+            .map_or(0.0, |st| st.current_position());
+        let path = self.ctx.cache.tmp_wav_path(self.video_id).with_extension("stream.wav");
+        let wav = match GrowingWav::create(&path, frames) {
+            Ok(w) => Arc::new(w),
+            Err(e) => {
+                tracing::warn!(target: "app_lib::karaoke", error = %e, "karaoke stream: no file, preparing without it");
+                return 0;
+            }
+        };
+        let Some(url) = crate::audioproxy::register_growing(wav.clone()) else {
+            return 0;
+        };
+        let old = locked(&self.ctx.streams.active).replace((
+            self.video_id.to_string(),
+            wav.clone(),
+            url.clone(),
+        ));
+        if let Some((_, _, old_url)) = old {
+            crate::audioproxy::unregister_growing(&old_url);
+        }
+        let first =
+            ((pos * karaoke::stream::SAMPLE_RATE as f64) as usize).min(frames.saturating_sub(1));
+        wav.set_start(first);
+        self.wav = Some(wav);
+        self.url = url;
+        self.started = Instant::now();
+        tracing::debug!(target: "app_lib::karaoke", video_id = %self.video_id, from_s = pos, "karaoke stream start");
+        first
+    }
+
+    fn write(&mut self, at: usize, left: &[f32], right: &[f32]) {
+        let Some(wav) = &self.wav else { return };
+        if let Err(e) = wav.write(at, left, right) {
+            tracing::warn!(target: "app_lib::karaoke", error = %e, "karaoke stream write failed");
+            return;
+        }
+        self.made += left.len();
+        let secs = self.started.elapsed().as_secs_f64().max(1e-3);
+        let rate = self.made as f64 / karaoke::stream::SAMPLE_RATE as f64 / secs;
+        let _ = self.ctx.stream_tx.send(StreamEvent::Progress {
+            video_id: self.video_id.to_string(),
+            url: self.url.clone(),
+            rate,
+        });
     }
 }
 
@@ -678,37 +838,60 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
         let mut throttle = crate::karaoke_model::ProgressThrottle::new(Duration::from_millis(250));
         let cancel = running.cancel.clone();
         let Some(m) = model.as_mut() else { continue };
+        // The track that is playing streams: its instrumental is played as it is made.
+        let streaming = locked(&ctx.streams.current).as_deref() == Some(req.video_id.as_str());
+        let mut stream = KaraokeStream::new(ctx, &req.video_id);
         let res = isolate(|| {
-            karaoke::pipeline::prepare_instrumental(
-                &ctx.cache,
-                &req.video_id,
-                selected.spec().primary_stem,
-                m,
-                &mut |wav| {
-                    // A few seconds past the cap: enough for the pipeline to see "too long".
-                    let cap = Some(karaoke::jobs::MAX_TRACK_SECS + 5.0);
-                    player::decode_to_wav(&req.url, wav, &req.headers, &cancel, cap)
-                },
-                req.expected_secs,
-                &cancel,
-                &mut |i, n| {
-                    if throttle.should_emit() {
-                        let progress = if n > 0 { i as f64 / n as f64 } else { 0.0 };
-                        ctx.board.with(|s| s.last_progress = progress);
-                        let _ = ctx.app.emit(
-                            "karaoke-status",
-                            &serde_json::json!({
-                                "videoId": &req.video_id,
-                                "state": "preparing",
-                                "progress": progress
-                            }),
-                        );
-                        ctx.emit_queue();
-                    }
-                },
-            )
+            let mut decode = |wav: &Path| {
+                // A few seconds past the cap: enough for the pipeline to see "too long".
+                let cap = Some(karaoke::jobs::MAX_TRACK_SECS + 5.0);
+                player::decode_to_wav(&req.url, wav, &req.headers, &cancel, cap)
+            };
+            let mut progress = |i: usize, n: usize| {
+                if throttle.should_emit() {
+                    let progress = if n > 0 { i as f64 / n as f64 } else { 0.0 };
+                    ctx.board.with(|s| s.last_progress = progress);
+                    let _ = ctx.app.emit(
+                        "karaoke-status",
+                        &serde_json::json!({
+                            "videoId": &req.video_id,
+                            "state": "preparing",
+                            "progress": progress
+                        }),
+                    );
+                    ctx.emit_queue();
+                }
+            };
+            let spec = selected.spec();
+            if streaming {
+                karaoke::pipeline::prepare_instrumental_streaming(
+                    &ctx.cache,
+                    &req.video_id,
+                    spec.primary_stem,
+                    m,
+                    &mut decode,
+                    req.expected_secs,
+                    &cancel,
+                    &mut progress,
+                    &mut stream,
+                )
+            } else {
+                karaoke::pipeline::prepare_instrumental(
+                    &ctx.cache,
+                    &req.video_id,
+                    spec.primary_stem,
+                    m,
+                    &mut decode,
+                    req.expected_secs,
+                    &cancel,
+                    &mut progress,
+                )
+            }
         });
         ctx.board.finish(running.seq);
+        if res.is_err() {
+            stream.abandon();
+        }
 
         match res {
             Ok(_) => {

@@ -8,11 +8,15 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
 pub trait Separator {
+    /// The primary stem for `mix`. Work starts at `first_frame` (see
+    /// [`MdxModel::separate_cancellable`]), and `emit` gets each stretch as soon as it is final.
     fn separate_pcm(
         &mut self,
         mix: [&[f32]; 2],
+        first_frame: usize,
         cancel: &AtomicBool,
         progress: &mut dyn FnMut(usize, usize),
+        emit: Option<&mut dyn FnMut(usize, &[f32], &[f32])>,
     ) -> Result<[Vec<f32>; 2]>;
 }
 
@@ -20,12 +24,25 @@ impl Separator for MdxModel {
     fn separate_pcm(
         &mut self,
         mix: [&[f32]; 2],
+        first_frame: usize,
         cancel: &AtomicBool,
         progress: &mut dyn FnMut(usize, usize),
+        emit: Option<&mut dyn FnMut(usize, &[f32], &[f32])>,
     ) -> Result<[Vec<f32>; 2]> {
         let overlap = self.params().uvr_overlap();
-        self.separate_cancellable(mix, overlap, false, cancel, progress)
+        self.separate_cancellable(mix, overlap, false, first_frame, cancel, progress, emit)
     }
+}
+
+/// Where the instrumental of the song that is playing goes while it is still being prepared, so
+/// playback can switch to it long before the whole song is done (the app's `KaraokeStream`).
+pub trait StreamSink {
+    /// The song is decoded, `frames` long. Returns the frame to prepare from first: where it is
+    /// playing now.
+    fn begin(&mut self, frames: usize) -> usize;
+    /// Final instrumental samples from frame `at` on. Called in no particular order, each frame
+    /// once.
+    fn write(&mut self, at: usize, left: &[f32], right: &[f32]);
 }
 
 struct TmpWavGuard(PathBuf);
@@ -58,6 +75,35 @@ pub fn prepare_instrumental(
         crate::jobs::MAX_TRACK_SECS,
         cancel,
         progress,
+        None,
+    )
+}
+
+/// [`prepare_instrumental`] for the song that is playing: its instrumental also goes to `stream`
+/// as it is made, from where the song is now.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_instrumental_streaming(
+    cache: &InstrumentalCache,
+    track_id: &str,
+    primary_stem: PrimaryStem,
+    separator: &mut dyn Separator,
+    decode_to_wav: &mut dyn FnMut(&Path) -> Result<()>,
+    expected_secs: Option<f64>,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(usize, usize),
+    stream: &mut dyn StreamSink,
+) -> Result<PathBuf> {
+    prepare_instrumental_with_limit(
+        cache,
+        track_id,
+        primary_stem,
+        separator,
+        decode_to_wav,
+        expected_secs,
+        crate::jobs::MAX_TRACK_SECS,
+        cancel,
+        progress,
+        Some(stream),
     )
 }
 
@@ -76,6 +122,7 @@ pub fn prepare_instrumental_with_limit(
     max_secs: f64,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(usize, usize),
+    mut stream: Option<&mut dyn StreamSink>,
 ) -> Result<PathBuf> {
     if let Some(cached_path) = cache.get(track_id) {
         tracing::info!(target: "karaoke::pipeline", video_id = %track_id, "karaoke cache hit");
@@ -179,7 +226,24 @@ pub fn prepare_instrumental_with_limit(
     }
 
     let start_separate = std::time::Instant::now();
-    let [mut sep_l, mut sep_r] = separator.separate_pcm([&left, &right], cancel, progress)?;
+    let first_frame = stream.as_mut().map_or(0, |s| s.begin(left.len()));
+    let streaming = stream.is_some();
+    let vocals = primary_stem == PrimaryStem::Vocals;
+    let mut to_stream = |at: usize, sl: &[f32], sr: &[f32]| {
+        let Some(sink) = stream.as_mut() else { return };
+        if vocals {
+            // What the model made is the vocals: the instrumental is the mix without them.
+            let il: Vec<f32> = sl.iter().zip(&left[at..]).map(|(v, m)| m - v).collect();
+            let ir: Vec<f32> = sr.iter().zip(&right[at..]).map(|(v, m)| m - v).collect();
+            sink.write(at, &il, &ir);
+        } else {
+            sink.write(at, sl, sr);
+        }
+    };
+    let emit: Option<&mut dyn FnMut(usize, &[f32], &[f32])> =
+        if streaming { Some(&mut to_stream) } else { None };
+    let [mut sep_l, mut sep_r] =
+        separator.separate_pcm([&left, &right], first_frame, cancel, progress, emit)?;
     if primary_stem == PrimaryStem::Vocals {
         for (m, v) in left.iter().zip(sep_l.iter_mut()) {
             *v = *m - *v;
@@ -253,11 +317,16 @@ mod tests {
         fn separate_pcm(
             &mut self,
             mix: [&[f32]; 2],
+            _first_frame: usize,
             _cancel: &AtomicBool,
             progress: &mut dyn FnMut(usize, usize),
+            emit: Option<&mut dyn FnMut(usize, &[f32], &[f32])>,
         ) -> Result<[Vec<f32>; 2]> {
             self.calls += 1;
             progress(1, 1);
+            if let Some(emit) = emit {
+                emit(0, mix[0], mix[1]);
+            }
             Ok([mix[0].to_vec(), mix[1].to_vec()])
         }
     }
@@ -526,6 +595,7 @@ mod tests {
             1.0,
             &AtomicBool::new(false),
             &mut |_, _| {},
+            None,
         );
         assert_eq!(res.unwrap_err().to_string(), crate::jobs::TOO_LONG);
         assert_eq!(separator.calls, 0, "no separation for a refused track");

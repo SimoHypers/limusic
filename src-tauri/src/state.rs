@@ -2364,6 +2364,9 @@ impl AppState {
         let is_karaoke = play_u != stream_url;
         // `load` replaces mpv's playlist: nothing is queued next any more.
         self.unpin_karaoke(PinSlot::Next);
+        if let Some(engine) = self.karaoke_engine() {
+            engine.set_playing_stream(None);
+        }
         if let Err(e) = self.player.load(
             &play_u,
             &data.headers,
@@ -2748,7 +2751,8 @@ impl AppState {
                 if let Some(ref next2) = q.karaoke_next2 {
                     reqs.push(next2.clone());
                 }
-                engine.want(reqs);
+                // The current slot is the track playing: its job streams.
+                engine.want(reqs, q.karaoke_cur.as_ref().map(|r| r.video_id.clone()));
             }
         }
     }
@@ -2841,6 +2845,10 @@ impl AppState {
         }
         // The picture is keyed by the file mpv plays, and that just changed.
         self.attach_video(&item.video_id, item.is_video && !data.live, &play_u);
+        // A cached instrumental or the original: not a stream any more.
+        if let Some(engine) = self.karaoke_engine() {
+            engine.set_playing_stream(None);
+        }
         if was_paused {
             let _ = self.player.pause();
         } else if was_playing {
@@ -3027,6 +3035,24 @@ impl AppState {
             return;
         };
         let me = self.clone();
+        let mut streams = engine.subscribe_stream();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                match streams.recv().await {
+                    Ok(crate::karaoke::StreamEvent::Progress { video_id, url, rate }) => {
+                        me.karaoke_stream_progress(&video_id, &url, rate).await;
+                    }
+                    Ok(crate::karaoke::StreamEvent::Abandoned { video_id }) => {
+                        if me.karaoke_engine().is_some_and(|e| e.take_playing_stream(&video_id)) {
+                            me.karaoke_stream_fallback(&video_id).await;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+        let me = self.clone();
         tauri::async_runtime::spawn(async move {
             let mut rx = engine.subscribe_ready();
             loop {
@@ -3043,6 +3069,95 @@ impl AppState {
                 }
             }
         });
+    }
+
+    /// More of the playing track's instrumental can be played (`karaoke::KaraokeStream`). Switch
+    /// to it once it is outrunning playback and far enough ahead that playback won't catch up:
+    /// that is seconds after turning karaoke on, instead of after the whole song.
+    async fn karaoke_stream_progress(
+        self: &std::sync::Arc<Self>,
+        video_id: &str,
+        url: &str,
+        rate: f64,
+    ) {
+        /// Seconds the stream must be ahead of playback at the switch. It only grows after.
+        const LEAD: f64 = 5.0;
+        /// The stream must be made at least this much faster than it plays, or playback would
+        /// catch up before the song ends (Best on a processor): those wait for the whole song.
+        const MIN_RATE: f64 = 1.2;
+        if rate < MIN_RATE || !self.karaoke_active() {
+            return;
+        }
+        let Some(engine) = self.karaoke_engine() else { return };
+        if engine.stream_ready_secs(video_id, self.current_position()) < LEAD {
+            return;
+        }
+        let gen = self.generation.load(Ordering::SeqCst);
+        let _guard = self.reload_mutex.lock().await;
+        if self.generation.load(Ordering::SeqCst) != gen {
+            return;
+        }
+        let (is_video, loudness) = {
+            let q = self.queue.lock().await;
+            let Some(item) = q.items.get(q.current) else { return };
+            if item.video_id != video_id || q.current_is_karaoke {
+                return;
+            }
+            (item.is_video, q.current_loudness_db)
+        };
+        let pos = self.current_position();
+        if engine.stream_ready_secs(video_id, pos) < LEAD {
+            return;
+        }
+        let was_paused = self.player.is_paused();
+        // `load` replaces mpv's playlist; `prime_lookahead` below queues the next again.
+        self.unpin_karaoke(PinSlot::Next);
+        if let Err(e) = self.player.load_wav_stream(url, self.track_gain(loudness), Some(pos)) {
+            tracing::warn!(target: "app_lib::karaoke", error = %e, "karaoke stream load failed");
+            return;
+        }
+        self.attach_video(video_id, is_video, url);
+        if was_paused {
+            let _ = self.player.pause();
+        }
+        engine.set_playing_stream(Some(video_id.to_string()));
+        {
+            let mut q = self.queue.lock().await;
+            q.lookahead_loaded = None;
+            q.lookahead_is_karaoke = false;
+            q.lookahead_karaoke_model = None;
+            q.current_is_karaoke = true;
+            q.current_karaoke_model = Some(engine.model());
+        }
+        let _ = self
+            .app
+            .emit("karaoke-streaming", serde_json::json!({ "videoId": video_id, "on": true }));
+        tracing::debug!(target: "app_lib::karaoke", video_id, position_s = pos, rate, "karaoke: playing the stream");
+        drop(_guard);
+        self.prime_lookahead(gen).await;
+    }
+
+    /// Playback was on `video_id`'s stream and can't stay there: the job stopped, or a seek went
+    /// where nothing is written yet. Back to the cached instrumental if it is done, else the
+    /// original; the stream's progress switches over again once it covers the new spot. The
+    /// caller has taken the playing stream (`take_playing_stream`), so this runs once.
+    async fn karaoke_stream_fallback(self: &std::sync::Arc<Self>, video_id: &str) {
+        let was_current = {
+            let mut q = self.queue.lock().await;
+            let current = q.items.get(q.current).is_some_and(|i| i.video_id == video_id);
+            if current && q.current_is_karaoke {
+                q.current_is_karaoke = false;
+                q.current_karaoke_model = None;
+            }
+            current
+        };
+        let _ = self
+            .app
+            .emit("karaoke-streaming", serde_json::json!({ "videoId": video_id, "on": false }));
+        if was_current {
+            tracing::debug!(target: "app_lib::karaoke", video_id, "karaoke: off the stream");
+            self.reload_current_source().await;
+        }
     }
 
     async fn on_karaoke_ready(self: &std::sync::Arc<Self>, video_id: &str) {
@@ -3719,6 +3834,23 @@ impl AppState {
     pub async fn on_position(&self, pos: f64) {
         self.record_position(pos);
         self.hear(pos);
+        // On a karaoke stream, the playhead must stay where it is written. Every seek lands here
+        // (the bar, media keys, hotkeys, Listen Together), so this is the one check for all of them.
+        if let Some(engine) = self.karaoke_engine() {
+            if let Some(vid) = engine.playing_stream() {
+                if !engine.stream_complete(&vid)
+                    && engine.stream_ready_secs(&vid, pos) < 0.5
+                    && engine.take_playing_stream(&vid)
+                {
+                    if let Some(me) = self.app.try_state::<std::sync::Arc<AppState>>() {
+                        let me = me.inner().clone();
+                        tauri::async_runtime::spawn(async move {
+                            me.karaoke_stream_fallback(&vid).await;
+                        });
+                    }
+                }
+            }
+        }
         // Latched: nothing below can fire again for this play, so don't queue up behind the
         // queue mutex on every tick just to be told so. See `AppState::history_pinged`.
         if self.history_pinged.load(Ordering::Relaxed) {

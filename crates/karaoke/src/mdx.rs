@@ -210,16 +210,24 @@ impl MdxModel {
         progress: &mut dyn FnMut(usize, usize),
     ) -> anyhow::Result<[Vec<f32>; 2]> {
         let cancel = std::sync::atomic::AtomicBool::new(false);
-        self.separate_cancellable(mix, overlap, denoise, &cancel, progress)
+        self.separate_cancellable(mix, overlap, denoise, 0, &cancel, progress, None)
     }
 
+    /// Separates `mix`, starting with the chunk under `first_frame` and running to the end before
+    /// going back for the start: the song from where it is playing comes out first. `emit`, when
+    /// given, gets each stretch of output as soon as it is final (no chunk left to add to it),
+    /// as `(first frame, left, right)` after `compensate`. Every frame is emitted exactly once, and
+    /// the result is the same as a plain front-to-back pass.
+    #[allow(clippy::too_many_arguments)]
     pub fn separate_cancellable(
         &mut self,
         mix: [&[f32]; 2],
         overlap: f32,
         denoise: bool,
+        first_frame: usize,
         cancel: &std::sync::atomic::AtomicBool,
         mut progress: impl FnMut(usize, usize),
+        mut emit: Option<&mut dyn FnMut(usize, &[f32], &[f32])>,
     ) -> anyhow::Result<[Vec<f32>; 2]> {
         let n_fft = self.params.n_fft;
         let hop = self.params.hop;
@@ -258,11 +266,17 @@ impl MdxModel {
             i += step;
         }
         let total_chunks = chunks.len();
+        // A frame is covered by at most two chunks only while chunks overlap by half or less,
+        // which `newly_final` relies on.
+        debug_assert!(step * 2 >= chunk_size);
+        let first = chunks.iter().rposition(|&(s, _)| s <= first_frame + trim).unwrap_or(0);
+        let mut done = vec![false; total_chunks];
 
         let input_name = self.session.inputs()[0].name().to_string();
         let n_bins = self.stft.n_bins();
 
-        for (chunk_idx, &(start, end)) in chunks.iter().enumerate() {
+        for (pass, chunk_idx) in (first..total_chunks).chain(0..first).enumerate() {
+            let (start, end) = chunks[chunk_idx];
             if cancel.load(std::sync::atomic::Ordering::Relaxed) {
                 anyhow::bail!("cancelled");
             }
@@ -379,7 +393,30 @@ impl MdxModel {
                 divider[start + k] += w[k];
             }
 
-            progress(chunk_idx + 1, total_chunks);
+            done[chunk_idx] = true;
+            if let Some(emit) = emit.as_mut() {
+                for (a, b) in newly_final(&chunks, &done, chunk_idx) {
+                    // Mixture frames to output frames: the first `trim` are padding.
+                    let lo = a.max(trim) - trim;
+                    let hi = b.min(trim + l).saturating_sub(trim);
+                    if hi <= lo {
+                        continue;
+                    }
+                    let fin = |res: &[f32], i: usize| {
+                        let d = divider[trim + i];
+                        if d >= 1e-6 {
+                            (res[trim + i] / d) * compensate
+                        } else {
+                            0.0
+                        }
+                    };
+                    let el: Vec<f32> = (lo..hi).map(|i| fin(&result_l, i)).collect();
+                    let er: Vec<f32> = (lo..hi).map(|i| fin(&result_r, i)).collect();
+                    emit(lo, &el, &er);
+                }
+            }
+
+            progress(pass + 1, total_chunks);
         }
 
         let mut final_l = vec![0.0f32; l];
@@ -399,9 +436,71 @@ impl MdxModel {
     }
 }
 
+/// The mixture frames that became final when chunk `k` finished: the ones no unfinished chunk
+/// still covers. Chunks overlap their neighbours only, so a frame has at most two coverers.
+fn newly_final(chunks: &[(usize, usize)], done: &[bool], k: usize) -> Vec<(usize, usize)> {
+    let (s, e) = chunks[k];
+    let prev_end = if k > 0 { chunks[k - 1].1.min(e) } else { s };
+    let next_start = chunks.get(k + 1).map_or(e, |c| c.0.max(s));
+    let mut out = Vec::new();
+    let mut push = |a: usize, b: usize| {
+        if b > a {
+            match out.last_mut() {
+                Some((_, end)) if *end == a => *end = b,
+                _ => out.push((a, b)),
+            }
+        }
+    };
+    if k == 0 || done[k - 1] {
+        push(s, prev_end.max(s));
+    }
+    push(prev_end.max(s), next_start.min(e));
+    if k + 1 == chunks.len() || done[k + 1] {
+        push(next_start.min(e), e);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Whatever chunk the stream starts in, every output frame is emitted exactly once, and only
+    /// once nothing else covers it.
+    #[test]
+    fn every_frame_is_final_once_in_any_start_order() {
+        for overlap in [0.25f32, 6144.0 / 261120.0] {
+            let chunk = 1024 * 255;
+            let step = ((1.0 - overlap) * chunk as f32) as usize;
+            let len = 44100 * 70;
+            let mut chunks = Vec::new();
+            let mut i = 0;
+            while i < len {
+                chunks.push((i, (i + chunk).min(len)));
+                i += step;
+            }
+            for first in [0, 1, chunks.len() / 2, chunks.len() - 1] {
+                let mut done = vec![false; chunks.len()];
+                let mut seen = vec![0u8; len];
+                for k in (first..chunks.len()).chain(0..first) {
+                    done[k] = true;
+                    for (a, b) in newly_final(&chunks, &done, k) {
+                        for f in a..b {
+                            seen[f] += 1;
+                            if f % 97 == 0 {
+                                let covered_by_unfinished = chunks
+                                    .iter()
+                                    .enumerate()
+                                    .any(|(j, &(cs, ce))| !done[j] && cs <= f && f < ce);
+                                assert!(!covered_by_unfinished, "frame {f} emitted early");
+                            }
+                        }
+                    }
+                }
+                assert!(seen.iter().all(|&n| n == 1), "first chunk {first}, overlap {overlap}");
+            }
+        }
+    }
 
     fn test_chunk_bookkeeping(
         l: usize,
