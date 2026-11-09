@@ -191,6 +191,26 @@ const PHONES = [
   { img: androidLyrics, alt: 'Synced lyrics with romanization on Limusic for Android' },
 ]
 
+function Phones() {
+  return (
+    <div className="flex items-end justify-center gap-3 sm:gap-5">
+      {PHONES.map((p, i) => (
+        <img
+          key={p.alt}
+          src={p.img}
+          alt={p.alt}
+          loading="lazy"
+          width={540}
+          height={1200}
+          className={`w-[30%] max-w-[200px] rounded-2xl border border-white/10 shadow-2xl shadow-black/50 sm:rounded-[1.75rem] ${
+            i === 1 ? 'mb-10' : ''
+          }`}
+        />
+      ))}
+    </div>
+  )
+}
+
 function Nav({ stars }: { stars: number | null }) {
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-white/5 bg-background/70 backdrop-blur-md">
@@ -230,11 +250,13 @@ function Hero({
   downloadHref,
   osLabel,
   platforms,
+  android,
 }: {
   version: string | null
   downloadHref: string
   osLabel: string
   platforms: string
+  android: boolean
 }) {
   return (
     <section className="relative overflow-hidden">
@@ -263,9 +285,11 @@ function Hero({
 
         <FadeContent duration={900} delay={400}>
           <p className="mx-auto mt-6 max-w-2xl text-base text-muted-foreground sm:text-lg">
-            Limusic is a lightweight YouTube Music player for your computer and your phone. Search
-            anything, hit play, and listen without ads, with your playlists, your library, synced
-            lyrics and friends listening along.
+            {android
+              ? 'Limusic is a lightweight YouTube Music player for your phone, and for Linux, Windows and macOS too.'
+              : 'Limusic is a lightweight YouTube Music player for your computer and your phone.'}{' '}
+            Search anything, hit play, and listen without ads, with your playlists, your library,
+            synced lyrics and friends listening along.
           </p>
         </FadeContent>
 
@@ -279,7 +303,7 @@ function Hero({
               Download for {osLabel}
             </a>
             <a
-              href={REPO_URL}
+              href={android ? ANDROID_REPO_URL : REPO_URL}
               target="_blank"
               rel="noreferrer"
               className="flex items-center gap-2.5 rounded-full border border-white/15 px-7 py-3.5 font-medium transition-colors hover:border-white/30 hover:bg-white/5"
@@ -295,13 +319,17 @@ function Hero({
 
         <AnimatedContent distance={80} duration={1.1} delay={0.25} scale={0.96} threshold={0}>
           <div className="mt-16">
-            <img
-              src={screenPlaylist}
-              alt="Limusic playing a playlist, with the sidebar and track list open"
-              width={1920}
-              height={1036}
-              className="w-full rounded-xl border border-white/10 shadow-[0_0_120px_-24px_var(--primary-bright)]"
-            />
+            {android ? (
+              <Phones />
+            ) : (
+              <img
+                src={screenPlaylist}
+                alt="Limusic playing a playlist, with the sidebar and track list open"
+                width={1920}
+                height={1036}
+                className="w-full rounded-xl border border-white/10 shadow-[0_0_120px_-24px_var(--primary-bright)]"
+              />
+            )}
           </div>
         </AnimatedContent>
       </div>
@@ -309,11 +337,11 @@ function Hero({
   )
 }
 
-function Features() {
+function Features({ eyebrow }: { eyebrow: string }) {
   return (
     <section id="features" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-24 sm:px-6">
       <FadeContent duration={800}>
-        <p className="text-center text-xs font-semibold tracking-widest text-primary-bright uppercase">Why Limusic</p>
+        <p className="text-center text-xs font-semibold tracking-widest text-primary-bright uppercase">{eyebrow}</p>
         <h2 className="mx-auto mt-3 max-w-2xl text-center font-heading text-3xl font-bold tracking-tight text-balance sm:text-4xl">
           Everything the web player should have been
         </h2>
@@ -383,13 +411,15 @@ function Screens() {
   )
 }
 
-function Android({ info }: { info: ReturnType<typeof useGitHub> }) {
+function Android({ info, lead }: { info: ReturnType<typeof useGitHub>; lead: boolean }) {
   return (
-    <section id="android" className="mx-auto max-w-6xl scroll-mt-20 px-4 pt-32 sm:px-6">
+    <section id="android" className={`mx-auto max-w-6xl scroll-mt-20 px-4 sm:px-6 ${lead ? 'pt-12' : 'pt-32'}`}>
       <div className="flex flex-col items-center gap-14 lg:flex-row lg:gap-16">
-        <FadeContent duration={800} className="lg:w-1/2">
+        <FadeContent duration={800} className={lead ? 'mx-auto max-w-2xl' : 'lg:w-1/2'}>
           <p className="text-xs font-semibold tracking-widest text-primary-bright uppercase">Android</p>
-          <h2 className="mt-3 font-heading text-3xl font-bold tracking-tight sm:text-4xl">In your pocket too</h2>
+          <h2 className="mt-3 font-heading text-3xl font-bold tracking-tight sm:text-4xl">
+            {lead ? 'Limusic for Android' : 'In your pocket too'}
+          </h2>
           <p className="mt-4 leading-relaxed text-muted-foreground">
             Limusic for Android is a native app with the same ad-free playback, signed in to the
             same YouTube Music library, with word-by-word lyrics, Last.fm, Discord and the themes
@@ -434,23 +464,11 @@ function Android({ info }: { info: ReturnType<typeof useGitHub> }) {
           </p>
         </FadeContent>
 
-        <AnimatedContent distance={60} duration={0.9} threshold={0.15} className="w-full lg:w-1/2">
-          <div className="flex items-end justify-center gap-3 sm:gap-5">
-            {PHONES.map((p, i) => (
-              <img
-                key={p.alt}
-                src={p.img}
-                alt={p.alt}
-                loading="lazy"
-                width={540}
-                height={1200}
-                className={`w-[30%] max-w-[200px] rounded-2xl border border-white/10 shadow-2xl shadow-black/50 sm:rounded-[1.75rem] ${
-                  i === 1 ? 'mb-10' : ''
-                }`}
-              />
-            ))}
-          </div>
-        </AnimatedContent>
+        {!lead && (
+          <AnimatedContent distance={60} duration={0.9} threshold={0.15} className="w-full lg:w-1/2">
+            <Phones />
+          </AnimatedContent>
+        )}
       </div>
     </section>
   )
@@ -518,6 +536,7 @@ function Download({ info, os }: { info: ReturnType<typeof useGitHub>; os: string
       note: 'Needs Android 8.0 or newer, and the first one fits nearly every phone. Android asks once to allow installs from your browser, then the app updates itself.',
     },
   ]
+  if (os === 'android') cards.unshift(cards.pop()!)
 
   return (
     <section id="download" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-24 sm:px-6">
@@ -631,10 +650,12 @@ export default function App() {
           downloadHref={downloadHref}
           osLabel={osLabel}
           platforms={android ? 'Android 8.0 or newer' : 'Linux, Windows and macOS'}
+          android={android}
         />
-        <Features />
+        {android && <Android info={info} lead />}
+        <Features eyebrow={android ? 'On your computer' : 'Why Limusic'} />
         <Screens />
-        <Android info={info} />
+        {!android && <Android info={info} lead={false} />}
         <Download info={info} os={os} />
       </main>
       <Footer />
