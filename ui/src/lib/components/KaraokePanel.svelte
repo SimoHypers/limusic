@@ -24,6 +24,7 @@
 	import { thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
 	import { KARAOKE_TIERS, tierMB } from '$lib/karaoke-tiers';
+	import ExperimentalBadge from './ExperimentalBadge.svelte';
 
 	let { onclose }: { onclose: () => void } = $props();
 
@@ -83,7 +84,10 @@
 
 <div class="flex items-start gap-3 px-4 pb-3 pt-3.5">
 	<div class="min-w-0 flex-1">
-		<p class="font-heading text-sm font-semibold">{t('karaoke.panel.title')}</p>
+		<p class="flex items-center gap-2 font-heading text-sm font-semibold">
+			{t('karaoke.panel.title')}
+			<ExperimentalBadge tooltip={t('karaoke.experimental_tooltip')} />
+		</p>
 		<p class="mt-0.5 text-xs leading-relaxed text-muted-foreground">{t('karaoke.panel.hint')}</p>
 	</div>
 	<Switch checked={on} onCheckedChange={flip} aria-label={t('player.karaoke')} class="mt-0.5" />

@@ -9,6 +9,7 @@
 			"redownload": "To prepare a song, Limusic downloads its audio once more.",
 			"directml": "On a graphics card, karaoke runs through Microsoft DirectML, which may send usage data to Microsoft."
 		},
+		"experimental_tooltip": "Still being tuned. Light and Balanced can leave some vocals in, and Best is slow without a graphics card. If a song comes out wrong, please report it.",
 		"button": {
 			"options": "Karaoke options",
 			"ready": "Karaoke on: vocals removed",

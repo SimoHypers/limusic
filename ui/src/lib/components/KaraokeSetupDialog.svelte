@@ -24,6 +24,7 @@
 		toggleKaraoke
 	} from '$lib/player.svelte';
 	import { KARAOKE_TIERS, tierMB } from '$lib/karaoke-tiers';
+	import ExperimentalBadge from './ExperimentalBadge.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import { openExternal } from '$lib/api';
 	import { browser } from '$app/environment';
@@ -68,8 +69,9 @@
 				<HugeiconsIcon icon={SingLeftIcon} class="h-5 w-5" />
 			</div>
 			<div class="min-w-0">
-				<Dialog.Title class="font-heading text-base font-semibold">
+				<Dialog.Title class="flex items-center gap-2 font-heading text-base font-semibold">
 					{t('karaoke.setup.title')}
+					<ExperimentalBadge tooltip={t('karaoke.experimental_tooltip')} />
 				</Dialog.Title>
 				<Dialog.Description class="text-xs leading-relaxed text-muted-foreground">
 					{t('karaoke.setup.desc')}

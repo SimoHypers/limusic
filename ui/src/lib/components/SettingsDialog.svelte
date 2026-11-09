@@ -37,6 +37,7 @@
 	import AppearanceSettings from '$lib/components/AppearanceSettings.svelte';
 	import Changelog from '$lib/components/Changelog.svelte';
 	import DiscordSettings from '$lib/components/DiscordSettings.svelte';
+	import ExperimentalBadge from '$lib/components/ExperimentalBadge.svelte';
 	import ScrobbleSettings from '$lib/components/ScrobbleSettings.svelte';
 	import DevicesSettings from '$lib/components/DevicesSettings.svelte';
 	import {
@@ -907,7 +908,10 @@
 							</div>
 						</section>
 						<section class={GROUP} id="settings-karaoke">
-							<h3 class={LABEL}>{t('karaoke.settings.title')}</h3>
+							<h3 class="{LABEL} flex items-center gap-2">
+								{t('karaoke.settings.title')}
+								<ExperimentalBadge tooltip={t('karaoke.experimental_tooltip')} />
+							</h3>
 							<div class={CARD}>
 								{@render row({
 									title: t('karaoke.settings.model'),
