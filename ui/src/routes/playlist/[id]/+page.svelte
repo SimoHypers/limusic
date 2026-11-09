@@ -209,6 +209,33 @@
 	// is worth drawing, and a blurb that short reads fine in full either way; measure the paragraph
 	// (and re-measure on resize) only if the button starts showing up under one-liners.
 	const longDescription = $derived((pl?.description?.length ?? 0) > 120);
+	// The header's name wraps to as many lines as the column beside the cover allows. At three it
+	// stops reading as a title and starts reading as a list of words, so from there the badge row
+	// and the name step over the cover and use the header's whole width. Measured rather than tied
+	// to a breakpoint: a short name keeps the column in a narrow window, and a long one steps out
+	// in a wide one.
+	//
+	// One threshold would not hold still, because the column is not monotone in the window width:
+	// the sidebar comes back at `sm` and takes 240px out of the row, so dragging the window
+	// narrower walks the name right, left, right, left. Each direction gets its own threshold —
+	// three lines send it out, and it only returns once it fits on a single line.
+	let nameProbe = $state<HTMLElement | null>(null);
+	let hoistedName = $state(false);
+	const name = $derived(pl?.title ?? t('common.playlist_singular'));
+	$effect(() => {
+		const el = nameProbe;
+		if (!el) return;
+		const read = () => {
+			const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 40;
+			const lines = Math.max(1, Math.round(el.scrollHeight / lineHeight));
+			if (lines >= 3) hoistedName = true;
+			else if (lines <= 1) hoistedName = false;
+		};
+		read();
+		const ro = new ResizeObserver(read);
+		ro.observe(el);
+		return () => ro.disconnect();
+	});
 	// The artwork on the page: whatever the user picked on this machine, else YouTube's own.
 	const art = $derived(thumb(pl?.cover ?? pl?.thumbnail, 400));
 
@@ -1181,7 +1208,15 @@
 			{@attach sc.attach}
 			{@attach (node) => dragScroll(node, PLAYLIST_ROW_MIME)}
 		>
-			<div class="relative flex min-h-[38vh] shrink-0 items-end gap-6 overflow-hidden p-6">
+			<!-- A grid so the name can step out of its column on its own: normally the cover sits in
+			     column 1 and the text in column 2, exactly as the row used to look; a name that would
+			     wrap to three lines spans both columns above the cover (see `hoistedName`) and the
+			     rest of the text stays beside the cover. `content-end` keeps the rows together at the
+			     bottom of `min-h`: without it the free height of the header splits evenly between the
+			     rows, which opens a gap between the name and the cover. -->
+			<div
+				class="relative grid min-h-[38vh] shrink-0 grid-cols-[7rem_minmax(0,1fr)] content-end items-end gap-x-6 overflow-hidden p-6 sm:grid-cols-[10rem_minmax(0,1fr)]"
+			>
 				<!-- The backdrop and its fade share one layer (`art-wash` on the wrapper): see HomeHero. -->
 				<div class="art-wash pointer-events-none absolute inset-0 overflow-hidden">
 					{#if backdrop}
@@ -1200,18 +1235,9 @@
 					></div>
 					<div class="absolute inset-0 bg-gradient-to-r from-background via-background/50 to-transparent"></div>
 				</div>
-				{#if isOnRepeat}
-					<div
-						class="relative flex h-40 w-40 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-lg"
-					>
-						<HugeiconsIcon icon={ListRestartIcon} class="h-20 w-20" />
-					</div>
-				{:else if art}
-					<img src={art} alt="" class="relative h-40 w-40 rounded-xl object-cover shadow-lg" />
-				{:else}
-					<div class="relative h-40 w-40 rounded-xl bg-muted"></div>
-				{/if}
-				<div class="relative min-w-0 flex-1">
+				<!-- The badge row and the name: beside the cover normally, and a full-width row of their own
+				     when the name is hoisted, which is why they are rendered outside both columns there. -->
+				{#snippet nameBlock()}
 					<div class="flex items-center gap-2 text-xs font-medium uppercase text-muted-foreground">
 						{t('common.playlist_singular')}
 						{#if isLocalList}
@@ -1223,13 +1249,13 @@
 								{t('library.on_this_device')}
 							</span>
 						{/if}
-						{#if pl.collaborative}
+						{#if pl?.collaborative}
 							<span
 								class="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary"
 								title={t('library.collab_tooltip')}>{t('library.collab')}</span
 							>
 						{/if}
-						{#if spotifyUrl && (pl.owned || isLocalList)}
+						{#if spotifyUrl && (pl?.owned || isLocalList)}
 							<button
 								class="flex cursor-pointer items-center gap-1.5 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary transition-colors hover:bg-primary/25 disabled:cursor-default disabled:opacity-60"
 								title={t('import.update_tooltip')}
@@ -1243,8 +1269,55 @@
 						{/if}
 					</div>
 					<h1 class="mt-1 font-heading text-4xl font-bold tracking-tight drop-shadow-lg">
-						{pl.title ?? t('common.playlist_singular')}
+						{name}
 					</h1>
+				{/snippet}
+				{#if hoistedName}
+					<div class="relative col-span-2 col-start-1 row-start-1 min-w-0">
+						{@render nameBlock()}
+					</div>
+				{/if}
+				{#if isOnRepeat}
+					<div
+						class="relative col-start-1 flex h-40 w-40 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-lg max-sm:h-28 max-sm:w-28 {hoistedName
+							? 'row-start-2 self-start'
+							: 'row-start-1'}"
+					>
+						<HugeiconsIcon icon={ListRestartIcon} class="h-20 w-20" />
+					</div>
+				{:else if art}
+					<img
+						src={art}
+						alt=""
+						class="relative col-start-1 h-40 w-40 rounded-xl object-cover shadow-lg max-sm:h-28 max-sm:w-28 {hoistedName
+							? 'row-start-2 self-start'
+							: 'row-start-1'}"
+					/>
+				{:else}
+					<div
+						class="relative col-start-1 h-40 w-40 rounded-xl bg-muted max-sm:h-28 max-sm:w-28 {hoistedName
+							? 'row-start-2 self-start'
+							: 'row-start-1'}"
+					></div>
+				{/if}
+				<div class="relative col-start-2 min-w-0 {hoistedName ? 'row-start-2' : 'row-start-1'}">
+					<!-- The badge row and the name: beside the cover normally, and a full-width row of their own
+					     when the name is hoisted, which is why they are rendered outside both columns there. -->
+					{#if !hoistedName}
+						{@render nameBlock()}
+					{/if}
+					<!-- The same name, laid out at this column's width and never painted: it exists to
+					     count the lines the title above would take if it stayed here. Out of flow, so it
+					     cannot push anything, and measured at the column width even while the title is
+					     hoisted — otherwise the two would resize each other and flip back and forth. -->
+					<span
+						bind:this={nameProbe}
+						data-name-probe
+						aria-hidden="true"
+						class="invisible absolute inset-x-0 top-0 font-heading text-4xl font-bold tracking-tight"
+					>
+						{name}
+					</span>
 					{#if subtitle}<p class="mt-2 text-sm text-muted-foreground">{subtitle}</p>{/if}
 					{#if pl.description}
 						<!-- Two lines, then More/Less, same as the album page. -->
