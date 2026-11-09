@@ -58,6 +58,10 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
   writes a `GIO_EXTRA_MODULES` containing a literal newline and a path into your own `target/` dir,
   which leaves the webview with `GDummyTlsBackend` and no HTTPS anywhere but this machine. CI runs
   the script automatically; run it by hand if you're testing a local AppImage elsewhere.
+- **Karaoke loads ONNX Runtime dynamically.** It is downloaded on first use together
+  with the WebGPU plugin (about 7 MB) and the model (only when the user agrees), so source builds need NO network access
+  and the bundle ships nothing extra.
+- **Karaoke GPU on Linux x86_64:** uses the ONNX Runtime WebGPU plugin over Vulkan (Intel, AMD, NVIDIA), opt-in through Settings > Karaoke > Processor > Graphics card. It needs `libvulkan.so.1`, a Vulkan driver (Mesa or the NVIDIA proprietary one) and glibc 2.28 or newer; on any failure karaoke falls back to the CPU.
 
 ---
 
@@ -98,6 +102,31 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
    cd ui; pnpm build; cd ..
    cargo tauri build          # → target/release/bundle/{msi,nsis}/limusic_*.{msi,exe}
    ```
+7. **Check the import table:** `powershell -ExecutionPolicy Bypass -File scripts\check-windows-imports.ps1 -Exe target\release\limusic-app.exe`.
+   Every load-time import is a DLL each user needs just to *start* the app (and auto-update ships
+   the exe to everyone), so it must match `.github/windows-exe-imports.txt` exactly. CI checks the
+   same thing in `checks.yml` and `windows-release.yml`. Compare a build linked the way releases
+   are: `cargo tauri build` sets `STATIC_VCRUNTIME=true` (static VC runtime). A plain `cargo build`
+   does not, and adds `vcruntime140*.dll`, so export `STATIC_VCRUNTIME=true` for a debug build you
+   want to check. tauri-build does not re-run when that variable changes, so touch
+   `src-tauri/build.rs` after changing it.
+- **Karaoke on Windows:** the runtime (onnxruntime.dll from the official DirectML
+  NuGet package, DirectML.dll from the Microsoft.AI.DirectML package, both with
+  pinned SHA-256) is downloaded on first use together with the model, into
+  `<app data dir>\runtime\onnxruntime-1.24.4\`; DirectML.dll is taken from the
+  202 MB package with HTTP Range requests, so only about 9 MB are downloaded;
+  the four VC++ runtime DLLs (vcruntime140, vcruntime140_1, msvcp140, msvcp140_1,
+  under 1 MB) are bundled in the installer in the `vcruntime` resource folder and
+  are loaded only when karaoke is turned on; the loader checks that they are at
+  least 14.44 and falls back to the system ones if the folder is absent; the
+  release workflow copies them from the Visual Studio redistributable folder in
+  the step "VC++ runtime (bundled)"; the folder `src-tauri/vcruntime` is in the
+  repository with a placeholder, so local builds work as they are and, with the
+  folder empty, karaoke uses the system VC++ runtime; to bundle the DLLs in a
+  local build, copy the four DLLs from
+  `<Visual Studio>\VC\Redist\MSVC\<version>\x64\Microsoft.VC*.CRT` into it
+  (they are gitignored); to run the karaoke examples set `ORT_DYLIB_PATH` to the
+  `onnxruntime.dll` inside that downloaded folder.
 - Media keys use **SMTC** (the volume-flyout media card). souvlaki binds it to the main window
   handle — see the validation checklist below.
 
@@ -195,6 +224,18 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
   `music.youtube.com` and the jar came back empty (no SAPISID, so sign-in gave up silently).
   `session.rs::youtube_cookie_header` therefore domain-matches by hand. WebKitGTK matches properly,
   which is why Linux never saw this. Fixed in d18ed4a; don't reintroduce `cookies_for_url` here.
+
+---
+
+## Karaoke GPU support
+
+- **Windows:** uses DirectML. Auto picks a graphics card with enough dedicated memory (DXGI
+  reports it), the processor otherwise. Auto exists only here: nothing else says which card beats
+  the processor, so on macOS and Linux the card is opt-in.
+- **Apple Silicon Macs:** uses CoreML (ML Program, CPU+GPU), opt-in through Settings > Karaoke > Processor > Graphics card (default is CPU). CoreML requires the model's batch axis to stay dynamic (see `COREML_STATIC_SHAPES` in `crates/karaoke/src/mdx.rs`).
+- **Intel Macs:** no GPU support.
+- **Linux x86_64:** the ONNX Runtime WebGPU plugin over Vulkan, opt-in (see the Linux section).
+  A GTX 1060 ran the Light model 8x faster than an i5-8400 with the same output.
 
 ---
 

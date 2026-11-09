@@ -1,19 +1,22 @@
 name: Checks
 
-# Formatting only, on purpose.
+# Five jobs, cheapest first: `rustfmt` (formatting only, on purpose), `ui` (svelte-check), `test`
+# (cargo test on Linux), `windows` (the release link and the import-table check) and `macos` (the
+# karaoke crate on Apple Silicon). The Linux GPU path has its own workflow, karaoke-gpu-linux.yml.
 #
-# WHY THIS EXISTS: PR #13 ran `cargo fmt` against a repo that had no `rustfmt.toml`, so rustfmt's
-# defaults reformatted 21 files the change never touched and buried ~900 lines of real work inside a
-# 2400-line diff. The convention was written down only in a gitignored CLAUDE.md, so the contributor
-# had no way to know. `rustfmt.toml` is committed now and the tree was normalised to it, which means
-# the drift is detectable mechanically instead of during review.
+# WHY THE rustfmt JOB EXISTS: PR #13 ran `cargo fmt` against a repo that had no `rustfmt.toml`, so
+# rustfmt's defaults reformatted 21 files the change never touched and buried ~900 lines of real
+# work inside a 2400-line diff. The convention was written down only in a gitignored CLAUDE.md, so
+# the contributor had no way to know. `rustfmt.toml` is committed now and the tree was normalised
+# to it, which means the drift is detectable mechanically instead of during review.
 #
-# WHY NOT ALSO BUILD AND TEST HERE: `limusic-app` links libmpv and webkit2gtk, so testing it needs
-# the full Tauri system-dependency install and a cold Rust compile. This job needs neither: rustfmt
-# parses the source and never builds it, so it finishes in seconds on a bare runner and stays cheap
-# enough to run on every push. The tests live in the `test` job below for exactly that reason.
-# Note for anyone trimming that job: `crates/player` depends on libmpv2, so it is NOT free of the
-# system setup. `-p innertube -p listen-protocol` is the subset that builds on a bare runner.
+# WHY THE rustfmt JOB DOES NOT BUILD OR TEST: `limusic-app` links libmpv and webkit2gtk, so testing
+# it needs the full Tauri system-dependency install and a cold Rust compile. That job needs
+# neither: rustfmt parses the source and never builds it, so it finishes in seconds on a bare
+# runner and stays cheap enough to run on every push. The tests live in the `test` job below for
+# exactly that reason. Note for anyone trimming the `test` job: `crates/player` depends on libmpv2,
+# so it is NOT free of the system setup. `-p innertube -p listen-protocol` is the subset that
+# builds on a bare runner.
 
 on:
   push:
@@ -136,3 +139,138 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --all-targets
         continue-on-error: true
+
+  # Windows: the platform where the release link differs from everything above (MSVC, a static VC
+  # runtime via STATIC_VCRUNTIME, libmpv through a synthesised import library). Builds the app the
+  # way releases link it, runs the karaoke tests, and holds the exe's import table to
+  # .github/windows-exe-imports.txt: a new load-time import is a DLL every user needs just to
+  # start the app, which is how 1.2.0 shipped needing vulkan-1.dll (#436).
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      # Same pinned libmpv as windows-release.yml; keep the two in sync.
+      MPV_DEV_URL: https://github.com/SimoHypers/limusic/releases/download/deps/libmpv-2-x86_64-20260610-git-304426c.7z
+      MPV_DEV_SHA256: af708edcdf6ed12ac7b2bb31b4cbeba0bf7d4eef345a715ef5de782c0ddd6671
+      MPV_DIR: ${{ github.workspace }}\.libmpv
+      # What the tauri CLI exports for release builds (static VC runtime). A plain `cargo build`
+      # would import vcruntime140*.dll and not match the allow-list.
+      STATIC_VCRUNTIME: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      # The app embeds ui/build (tauri.conf.json frontendDist), so it has to exist to compile.
+      - name: Frontend build
+        working-directory: ui
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Rust (MSVC)
+        shell: bash
+        run: rustup default stable-msvc
+
+      # Before rust-cache, for the same reason as in windows-release.yml: the cache key and cargo's
+      # fingerprints both hash RUSTFLAGS.
+      - name: RUSTFLAGS (libmpv link path)
+        shell: bash
+        run: echo "RUSTFLAGS=-L native=${{ github.workspace }}\.libmpv" >> "$GITHUB_ENV"
+
+      - uses: Swatinem/rust-cache@v2
+
+      # mpv.lib from libmpv-2.dll's export table, as in windows-release.yml (see the comments
+      # there). The DLL also has to sit in src-tauri/: it is a bundle resource, and a missing
+      # resource fails the build.
+      - name: libmpv import library
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path "$env:MPV_DIR" | Out-Null
+          curl.exe -fsSL -o "$env:MPV_DIR\mpv-dev.7z" "$env:MPV_DEV_URL"
+          if ((Get-FileHash "$env:MPV_DIR\mpv-dev.7z" -Algorithm SHA256).Hash -ne $env:MPV_DEV_SHA256) { throw "mpv-dev.7z does not match MPV_DEV_SHA256" }
+          7z x "$env:MPV_DIR\mpv-dev.7z" -o"$env:MPV_DIR" -y | Out-Null
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+          Set-Location "$env:MPV_DIR"
+          $names = & dumpbin /exports libmpv-2.dll |
+            Select-String -Pattern '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\w+)' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value }
+          if ($names.Count -lt 50) { throw "parsed only $($names.Count) exports from libmpv-2.dll" }
+          @("EXPORTS") + ($names | ForEach-Object { "    $_" }) | Set-Content -Path mpv.def -Encoding ascii
+          & lib /def:mpv.def /name:libmpv-2.dll /out:mpv.lib /machine:x64
+          if (-not (Test-Path "$env:MPV_DIR\mpv.lib")) { throw "lib.exe did not produce mpv.lib" }
+          Copy-Item "$env:MPV_DIR\libmpv-2.dll" "$env:GITHUB_WORKSPACE\src-tauri\libmpv-2.dll" -Force
+
+      - name: cargo build -p limusic-app
+        run: cargo build -p limusic-app
+
+      - name: cargo test -p karaoke
+        run: cargo test -p karaoke
+
+      - name: Import table check
+        shell: pwsh
+        run: ./scripts/check-windows-imports.ps1 -Exe target/debug/limusic-app.exe
+
+  # Nobody here can run a Mac, so this job is the only check of the macOS-only karaoke code (the
+  # CoreML backend) and of the macOS runtime download.
+  macos:
+    # macos-14 was retired; macos-15 is also what macos-release.yml builds on.
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo test -p karaoke
+        run: cargo test -p karaoke
+
+      - name: Real runtime download and load
+        run: cargo test -p karaoke --test real_runtime_download -- --ignored --nocapture
+
+      # This step is informational until we have seen the numbers on the runner (the runner is a
+      # VM, its GPU is not guaranteed).
+      - name: CoreML against the CPU
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          cargo test -p karaoke --test coreml_parity -- --ignored --nocapture 2>&1 | tee coreml.log
+
+      - name: CoreML node placement
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          cargo test -p karaoke --test coreml_probe -- --ignored --nocapture 2>&1 | tee coreml_probe.log
+
+      - name: CoreML summary
+        if: always()
+        run: |
+          echo "### CoreML against the CPU" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f coreml.log ]; then
+            grep '^COREML_SUMMARY' coreml.log || echo "no summary, see the step log"
+          else
+            echo "no summary, see the step log"
+          fi >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### CoreML node placement" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ -f coreml_probe.log ]; then
+            grep '^COREML_PROBE' coreml_probe.log || echo "no probe output"
+          else
+            echo "no probe output"
+          fi >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

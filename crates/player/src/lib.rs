@@ -16,6 +16,9 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 mod video;
 pub use video::{GlDisplay, Thumbnail, VideoRenderer};
 
+mod decode;
+pub use decode::decode_to_wav;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("mpv: {0}")]
@@ -498,6 +501,34 @@ impl Player {
         start: Option<f64>,
         live: bool,
     ) -> Result<(), Error> {
+        self.load_with(url, headers, gain_db, start, live, &[])
+    }
+
+    /// [`Self::load`] for a WAV served over HTTP while it is still being written (karaoke's
+    /// instrumental of the song that is playing). The header says everything ffmpeg needs, so
+    /// its stream probe is skipped: that probe reads seconds of audio from the start of the file
+    /// before mpv seeks to `start`, and the start of such a file may be the last part written.
+    /// No seekable cache either: what mpv read before the seek may be silence standing in for a
+    /// part not written yet, and a later seek back must ask the server again rather than replay it.
+    pub fn load_wav_stream(
+        &self,
+        url: &str,
+        gain_db: Option<f64>,
+        start: Option<f64>,
+    ) -> Result<(), Error> {
+        let opts = ["demuxer-lavf-probe-info=no", "demuxer-seekable-cache=no"];
+        self.load_with(url, &HashMap::new(), gain_db, start, false, &opts)
+    }
+
+    fn load_with(
+        &self,
+        url: &str,
+        headers: &HashMap<String, String>,
+        gain_db: Option<f64>,
+        start: Option<f64>,
+        live: bool,
+        file_opts: &[&str],
+    ) -> Result<(), Error> {
         // Whatever was queued up on the other deck is not what the user asked for. Cut a fade
         // in progress too: a skip during the last seconds of a track should not leave the old one
         // still fading under the new one.
@@ -529,7 +560,7 @@ impl Player {
         // A broadcast always starts at its live edge: a resume point or a host's position is a
         // track position, and as an offset into the DVR window it lands hours behind (#424).
         let start = start.filter(|_| !live);
-        let args = loadfile_args(url, start, loadfile_has_index(self.mpv()));
+        let args = loadfile_args(url, start, file_opts, loadfile_has_index(self.mpv()));
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
         self.mpv().command("loadfile", &refs)?;
         Ok(())
@@ -639,6 +670,11 @@ impl Player {
     /// lookahead" apart from "stalled — load the next track explicitly".
     pub fn is_idle(&self) -> bool {
         self.mpv().get_property::<bool>("idle-active").unwrap_or(true)
+    }
+
+    /// True when mpv is currently paused.
+    pub fn is_paused(&self) -> bool {
+        self.mpv().get_property::<bool>("pause").unwrap_or(false)
     }
 
     pub fn play(&self) -> Result<(), Error> {
@@ -1534,13 +1570,23 @@ fn quoted(arg: &str) -> String {
 /// `start` is present; older mpv reads the options as argument 3 (see [`loadfile_has_index`]).
 /// A non-finite or non-positive start is dropped: `start=0` is the default anyway, and a NaN would
 /// poison the load.
-fn loadfile_args(url: &str, start: Option<f64>, has_index: bool) -> Vec<String> {
-    let mut args = vec![quoted(url), "replace".to_owned()];
+fn loadfile_args(
+    url: &str,
+    start: Option<f64>,
+    file_opts: &[&str],
+    has_index: bool,
+) -> Vec<String> {
+    let mut opts: Vec<String> = Vec::new();
     if let Some(pos) = start.filter(|p| p.is_finite() && *p > 0.0) {
+        opts.push(format!("start={pos}"));
+    }
+    opts.extend(file_opts.iter().map(|o| o.to_string()));
+    let mut args = vec![quoted(url), "replace".to_owned()];
+    if !opts.is_empty() {
         if has_index {
             args.push("-1".to_owned());
         }
-        args.push(quoted(&format!("start={pos}")));
+        args.push(quoted(&opts.join(",")));
     }
     args
 }
@@ -2225,12 +2271,12 @@ mod tests {
     #[test]
     fn loadfile_start_is_a_file_local_option() {
         // No start: the plain 2-argument loadfile, unchanged.
-        assert_eq!(loadfile_args("u", None, true), vec!["\"u\"", "replace"]);
+        assert_eq!(loadfile_args("u", None, &[], true), vec!["\"u\"", "replace"]);
         // Anything at or below 0 is the default position, so it is not worth the option, and a
         // NaN or infinity must never reach mpv.
         for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
             assert_eq!(
-                loadfile_args("u", Some(bad), true),
+                loadfile_args("u", Some(bad), &[], true),
                 vec!["\"u\"", "replace"],
                 "start={bad}"
             );
@@ -2238,17 +2284,26 @@ mod tests {
         // On mpv 0.38+ the `index` positional has to be present for `options` to be read, and
         // before 0.38 it doesn't exist (issue #384).
         assert_eq!(
-            loadfile_args("u", Some(605.0), true),
+            loadfile_args("u", Some(605.0), &[], true),
             vec!["\"u\"", "replace", "-1", "\"start=605\""]
         );
         assert_eq!(
-            loadfile_args("u", Some(605.0), false),
+            loadfile_args("u", Some(605.0), &[], false),
             vec!["\"u\"", "replace", "\"start=605\""]
         );
         // Fractional resume positions are what `state::pending_seek` actually carries.
         assert_eq!(
-            loadfile_args("u", Some(8.6155624669999), true),
+            loadfile_args("u", Some(8.6155624669999), &[], true),
             vec!["\"u\"", "replace", "-1", "\"start=8.6155624669999\""]
+        );
+        // Per-file options ride in the same string, with or without a start.
+        assert_eq!(
+            loadfile_args("u", Some(60.5), &["demuxer-lavf-probe-info=no"], true),
+            vec!["\"u\"", "replace", "-1", "\"start=60.5,demuxer-lavf-probe-info=no\""]
+        );
+        assert_eq!(
+            loadfile_args("u", None, &["demuxer-lavf-probe-info=no"], false),
+            vec!["\"u\"", "replace", "\"demuxer-lavf-probe-info=no\""]
         );
     }
 

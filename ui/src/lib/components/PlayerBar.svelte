@@ -472,10 +472,16 @@
 			<Button
 				variant={lyricsOpen ? 'secondary' : 'ghost'}
 				size="icon-sm"
+				class="relative"
 				onclick={onToggleLyrics}
 				aria-label={t('player.lyrics')}
+				title={playback.karaoke ? t('karaoke.lyrics_hint') : undefined}
 			>
 				<HugeiconsIcon icon={Mic01Icon} class="h-5 w-5" />
+				<!-- Karaoke's switch is in the lyrics footer; the dot says it's on, and where. -->
+				{#if playback.karaoke}
+					<span class="absolute right-1 top-1 size-1.5 rounded-full bg-primary" aria-hidden="true"></span>
+				{/if}
 			</Button>
 			<!-- A local file has no YouTube comment thread to open. -->
 			{#if playback.now && !api.isLocalId(playback.now.videoId)}
