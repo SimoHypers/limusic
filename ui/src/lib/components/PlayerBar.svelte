@@ -59,7 +59,9 @@
 		onToggleLyrics,
 		lyricsOpen,
 		onToggleComments,
-		commentsOpen
+		commentsOpen,
+		onPullDown,
+		onShowView
 	}: {
 		onToggleQueue: () => void;
 		queueOpen: boolean;
@@ -67,7 +69,19 @@
 		lyricsOpen: boolean;
 		onToggleComments: () => void;
 		commentsOpen: boolean;
+		/** Closes the now-playing view and every panel over it, in one gesture. */
+		onPullDown: () => void;
+		/** Puts the view on top again, dismissing any panel that was covering it. */
+		onShowView: () => void;
 	} = $props();
+
+	// The chevron is one control for every thing that slides down over the page: pointed down while
+	// any of them is open, and pointed up (the only thing it opens on its own) while none is.
+	const overlaysOpen = $derived(np.open || queueOpen || lyricsOpen || commentsOpen);
+
+	// The view counts as visible only while nothing is drawn over it: a panel in front hides the
+	// track, so pressing the track line there has to bring the view back, not put it away.
+	const viewVisible = $derived(np.open && !(queueOpen || lyricsOpen || commentsOpen));
 
 	// Pop the heart once when the user favourites (not when un-favouriting). Reset on animation end
 	// so the next like can replay it.
@@ -156,7 +170,8 @@
 	// Settings can switch it off for whoever keeps tripping it on a missed control.
 	function onBarClick(e: MouseEvent) {
 		if (!appearance.emptyClickTogglesPlayer || pressedControl || isControl(e.target)) return;
-		np.open = !np.open;
+		if (overlaysOpen) onPullDown();
+		else np.open = true;
 	}
 </script>
 
@@ -238,13 +253,13 @@
 	     hidden at this width, and at 400px there is exactly room for a title beside them.
 	     `basis-full` is what pushes the row onto its own line. -->
 	<div class="hidden min-w-0 items-center gap-1 max-sm:flex max-sm:basis-full">
-		<!-- Toggles, like the empty space beside the transport: pressing the name again puts the view
-		     away instead of leaving the only way out to the chevron. -->
+		<!-- One control over everything that slides down: pressing the name puts the view away when
+		     it is what you can see, and brings it back when a panel is covering it. -->
 		<button
 			class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
-			onclick={() => (np.open = !np.open)}
-			aria-expanded={np.open}
-			aria-label={np.open ? t('player.minimize_player') : t('player.open_player')}
+			onclick={() => (viewVisible ? (np.open = false) : onShowView())}
+			aria-label={viewVisible ? t('player.minimize_player') : t('player.open_player')}
+			aria-expanded={viewVisible}
 		>
 			{#if playback.now?.thumbnail}
 				<img
@@ -544,20 +559,20 @@
 			>
 				<HugeiconsIcon icon={Queue01Icon} class="h-5 w-5" />
 			</Button>
-			<!-- The keyboard (and discoverable) way in and out of the now-playing view; clicking the
-			     bar's empty space does the same thing. -->
+			<!-- The keyboard (and discoverable) way in and out of everything that slides down;
+			     clicking the bar's empty space does the same thing. -->
 			<Button
 				variant="ghost"
 				size="icon-sm"
-				onclick={() => (np.open = !np.open)}
-				aria-label={np.open ? t('player.minimize_player') : t('player.open_player')}
-				aria-expanded={np.open}
+				onclick={() => (overlaysOpen ? onPullDown() : (np.open = true))}
+				aria-label={overlaysOpen ? t('player.minimize_player') : t('player.open_player')}
+				aria-expanded={overlaysOpen}
 			>
 				<!-- icon swap via altIcon/showAlt — `icon` is frozen at mount (see play/pause above) -->
 				<HugeiconsIcon
 					icon={ArrowUp01Icon}
 					altIcon={ArrowDown01Icon}
-					showAlt={np.open}
+					showAlt={overlaysOpen}
 					class="h-5 w-5"
 				/>
 			</Button>

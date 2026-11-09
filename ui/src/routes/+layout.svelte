@@ -108,6 +108,36 @@
 	let commentsOpen = $state(false);
 	/** Viewport width, so the now-playing view's tabs only own the bar's buttons while it has them. */
 	let vw = $state(typeof window === 'undefined' ? 1200 : window.innerWidth);
+	// One slot, one panel. The bar's three buttons read as toggles that never let go: the panel you
+	// opened sat beside the next one instead of behind it, and it was still there when you came back
+	// from the player. So opening any of them closes the others, and the now-playing view takes the
+	// slot too — opening it drops whatever was open rather than holding it for later.
+	function openPanel(panel: 'queue' | 'lyrics' | 'comments') {
+		const on = panel === 'queue' ? !queueOpen : panel === 'lyrics' ? !lyricsOpen : !commentsOpen;
+		queueOpen = on && panel === 'queue';
+		lyricsOpen = on && panel === 'lyrics';
+		commentsOpen = on && panel === 'comments';
+	}
+	$effect(() => {
+		if (!np.open) return;
+		queueOpen = false;
+		lyricsOpen = false;
+		commentsOpen = false;
+	});
+	/** One pull-down for everything that slides over the page: the view and the panels. */
+	function pullDown(): void {
+		np.open = false;
+		queueOpen = false;
+		lyricsOpen = false;
+		commentsOpen = false;
+	}
+	/** The opposite of a pull-down, for the track line: the view on top, whatever covered it gone. */
+	function showView(): void {
+		queueOpen = false;
+		lyricsOpen = false;
+		commentsOpen = false;
+		np.open = true;
+	}
 	// Two ways the now-playing view and these panels can divide the same two buttons, picked in
 	// settings (#62). Tabbed (the default): the view carries queue and lyrics itself, so the panels
 	// step aside for it and the bar's buttons switch its tabs. Off: these are the only owner, the
@@ -296,24 +326,14 @@
 			     earlier in the DOM, which is what puts it behind the bar as it slides in and out. -->
 			<div class="relative z-20" in:fly={{ y: 64, duration: 250, easing: cubicOut }}>
 				<PlayerBar
-					onToggleQueue={() => (tabbed ? (np.tab = 'queue') : (queueOpen = !queueOpen))}
+					onToggleQueue={() => (tabbed ? (np.tab = 'queue') : openPanel('queue'))}
 					queueOpen={tabbed ? np.tab === 'queue' : queueOpen}
-					onToggleLyrics={() => {
-						if (tabbed) np.tab = 'lyrics';
-						else {
-							lyricsOpen = !lyricsOpen;
-							if (lyricsOpen) commentsOpen = false;
-						}
-					}}
+					onToggleLyrics={() => (tabbed ? (np.tab = 'lyrics') : openPanel('lyrics'))}
 					lyricsOpen={tabbed ? np.tab === 'lyrics' : lyricsOpen}
-					onToggleComments={() => {
-						if (tabbed) np.tab = 'comments';
-						else {
-							commentsOpen = !commentsOpen;
-							if (commentsOpen) lyricsOpen = false;
-						}
-					}}
+					onToggleComments={() => (tabbed ? (np.tab = 'comments') : openPanel('comments'))}
 					commentsOpen={tabbed ? np.tab === 'comments' : commentsOpen}
+					onPullDown={pullDown}
+					onShowView={showView}
 				/>
 			</div>
 		{/if}
