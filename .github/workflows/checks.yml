@@ -1,7 +1,8 @@
 name: Checks
 
-# Four jobs, cheapest first: `rustfmt` (formatting only, on purpose), `ui` (svelte-check), `test`
-# (cargo test on Linux) and `windows` (the release link and the import-table check).
+# Five jobs, cheapest first: `rustfmt` (formatting only, on purpose), `ui` (svelte-check), `test`
+# (cargo test on Linux), `windows` (the release link and the import-table check) and `macos` (the
+# karaoke crate on Apple Silicon). The Linux GPU path has its own workflow, karaoke-gpu-linux.yml.
 #
 # WHY THE rustfmt JOB EXISTS: PR #13 ran `cargo fmt` against a repo that had no `rustfmt.toml`, so
 # rustfmt's defaults reformatted 21 files the change never touched and buried ~900 lines of real
@@ -225,7 +226,8 @@ jobs:
   # Nobody here can run a Mac, so this job is the only check of the macOS-only karaoke code (the
   # CoreML backend) and of the macOS runtime download.
   macos:
-    runs-on: macos-14
+    # macos-14 was retired; macos-15 is also what macos-release.yml builds on.
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
