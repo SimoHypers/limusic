@@ -449,8 +449,16 @@
 			{/if}
 		</form>
 		{#if res || searching}
-			<div class="mt-3 flex items-center gap-2">
-				<div class="rail flex min-w-0 flex-1 gap-2 overflow-x-auto" role="group" aria-label={t('search.filters')}>
+			<div class="mt-3 flex items-center gap-2 max-md:items-start">
+				<!-- Below md the chips wrap instead of scrolling sideways: a rail whose last chip is
+				     off-screen looks like the whole set, and dragging it is a poor way to find a tab.
+				     Not below `sm`: the sidebar is 240px again from there, so 640-767 is as tight as
+				     a 400px window. -->
+				<div
+					class="rail flex min-w-0 flex-1 gap-2 overflow-x-auto max-md:flex-wrap max-md:overflow-x-visible"
+					role="group"
+					aria-label={t('search.filters')}
+				>
 					{#each CATS as c (c)}
 						<!-- Hidden with music videos off: there is no such thing as a video search then. -->
 						{#if c !== 'videos' || videos.length}
