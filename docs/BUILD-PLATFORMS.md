@@ -101,6 +101,14 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
    cd ui; pnpm build; cd ..
    cargo tauri build          # → target/release/bundle/{msi,nsis}/limusic_*.{msi,exe}
    ```
+7. **Check the import table:** `powershell -ExecutionPolicy Bypass -File scripts\check-windows-imports.ps1 -Exe target\release\limusic-app.exe`.
+   Every load-time import is a DLL each user needs just to *start* the app (and auto-update ships
+   the exe to everyone), so it must match `.github/windows-exe-imports.txt` exactly. CI checks the
+   same thing in `checks.yml` and `windows-release.yml`. Compare a build linked the way releases
+   are: `cargo tauri build` sets `STATIC_VCRUNTIME=true` (static VC runtime). A plain `cargo build`
+   does not, and adds `vcruntime140*.dll`, so export `STATIC_VCRUNTIME=true` for a debug build you
+   want to check. tauri-build does not re-run when that variable changes, so touch
+   `src-tauri/build.rs` after changing it.
 - **Karaoke on Windows:** the runtime (onnxruntime.dll from the official DirectML
   NuGet package, DirectML.dll from the Microsoft.AI.DirectML package, both with
   pinned SHA-256) is downloaded on first use together with the model, into
