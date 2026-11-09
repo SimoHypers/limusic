@@ -39,16 +39,45 @@ pub enum StreamEvent {
     Abandoned { video_id: String },
 }
 
-/// The song playing now and its stream. Short critical sections only, like the board.
+/// One job's instrumental as it is made (see [`KaraokeStream`]).
+struct StreamEntry {
+    video_id: String,
+    wav: Arc<GrowingWav>,
+    url: String,
+    /// Seconds of audio made per second so far.
+    rate: Mutex<f64>,
+}
+
+/// The song playing now and the streams. Short critical sections only, like the board.
 #[derive(Default)]
 struct Streams {
     /// Which track is playing, as playback last said ([`KaraokeEngine::want`]).
     current: Mutex<Option<String>>,
-    /// The newest stream: `(video id, file, loopback url)`. Replacing it unregisters the old
-    /// one; the file goes when the last reader lets go of it.
-    active: Mutex<Option<(String, Arc<GrowingWav>, String)>>,
+    /// The running job's stream, and the one mpv is playing if that is another. A new job's
+    /// stream drops the rest: unregistered, and each file goes when its last reader lets go.
+    active: Mutex<Vec<Arc<StreamEntry>>>,
     /// The track whose stream mpv is playing, set and cleared by playback.
     playing: Mutex<Option<String>>,
+}
+
+impl Streams {
+    fn find(&self, video_id: &str) -> Option<Arc<StreamEntry>> {
+        locked(&self.active).iter().find(|e| e.video_id == video_id).cloned()
+    }
+
+    fn insert(&self, entry: Arc<StreamEntry>) {
+        let playing = locked(&self.playing).clone();
+        let mut active = locked(&self.active);
+        active.retain(|e| {
+            let keep =
+                playing.as_deref() == Some(e.video_id.as_str()) && e.video_id != entry.video_id;
+            if !keep {
+                crate::audioproxy::unregister_growing(&e.url);
+            }
+            keep
+        });
+        active.push(entry);
+    }
 }
 
 fn locked<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -385,15 +414,22 @@ impl KaraokeEngine {
 
     /// Seconds of `video_id`'s stream playable from `secs` on without waiting; 0 without one.
     pub fn stream_ready_secs(&self, video_id: &str, secs: f64) -> f64 {
-        match &*locked(&self.ctx.streams.active) {
-            Some((id, wav, _)) if id == video_id => wav.ready_secs_from(secs),
-            _ => 0.0,
-        }
+        self.ctx.streams.find(video_id).map_or(0.0, |e| e.wav.ready_secs_from(secs))
+    }
+
+    /// `video_id`'s stream, as `(loopback url, rate)`: a track that just started may already have
+    /// one, made while the song before it played.
+    pub fn stream_for(&self, video_id: &str) -> Option<(String, f64)> {
+        self.ctx
+            .streams
+            .find(video_id)
+            .filter(|e| !e.wav.is_abandoned())
+            .map(|e| (e.url.clone(), *locked(&e.rate)))
     }
 
     /// `video_id`'s stream has every sample: playback can stay on it, wherever it seeks.
     pub fn stream_complete(&self, video_id: &str) -> bool {
-        matches!(&*locked(&self.ctx.streams.active), Some((id, wav, _)) if id == video_id && wav.is_complete())
+        self.ctx.streams.find(video_id).is_some_and(|e| e.wav.is_complete())
     }
 
     /// Playback switched to (`Some`) or away from (`None`) a stream.
@@ -590,21 +626,20 @@ impl KaraokeEngine {
 struct KaraokeStream<'a> {
     ctx: &'a Ctx,
     video_id: &'a str,
-    wav: Option<Arc<GrowingWav>>,
-    url: String,
+    entry: Option<Arc<StreamEntry>>,
     started: Instant,
     made: usize,
 }
 
 impl<'a> KaraokeStream<'a> {
     fn new(ctx: &'a Ctx, video_id: &'a str) -> Self {
-        Self { ctx, video_id, wav: None, url: String::new(), started: Instant::now(), made: 0 }
+        Self { ctx, video_id, entry: None, started: Instant::now(), made: 0 }
     }
 
     /// The job ended without finishing: tell a reader waiting on unwritten bytes, and playback.
     fn abandon(&self) {
-        if let Some(wav) = &self.wav {
-            wav.abandon();
+        if let Some(entry) = &self.entry {
+            entry.wav.abandon();
             let _ = self
                 .ctx
                 .stream_tx
@@ -615,12 +650,17 @@ impl<'a> KaraokeStream<'a> {
 
 impl StreamSink for KaraokeStream<'_> {
     fn begin(&mut self, frames: usize) -> usize {
-        // Where the song is now: decoding took a moment, so this is fresher than the request.
-        let pos = self
-            .ctx
-            .app
-            .try_state::<Arc<crate::state::AppState>>()
-            .map_or(0.0, |st| st.current_position());
+        // The song playing starts where it is now (decoding took a moment, so this is fresher
+        // than the request); one prepared ahead starts at the top, where it will start playing.
+        let playing_now = locked(&self.ctx.streams.current).as_deref() == Some(self.video_id);
+        let pos = if playing_now {
+            self.ctx
+                .app
+                .try_state::<Arc<crate::state::AppState>>()
+                .map_or(0.0, |st| st.current_position())
+        } else {
+            0.0
+        };
         let path = self.ctx.cache.tmp_wav_path(self.video_id).with_extension("stream.wav");
         let wav = match GrowingWav::create(&path, frames) {
             Ok(w) => Arc::new(w),
@@ -632,36 +672,35 @@ impl StreamSink for KaraokeStream<'_> {
         let Some(url) = crate::audioproxy::register_growing(wav.clone()) else {
             return 0;
         };
-        let old = locked(&self.ctx.streams.active).replace((
-            self.video_id.to_string(),
-            wav.clone(),
-            url.clone(),
-        ));
-        if let Some((_, _, old_url)) = old {
-            crate::audioproxy::unregister_growing(&old_url);
-        }
         let first =
             ((pos * karaoke::stream::SAMPLE_RATE as f64) as usize).min(frames.saturating_sub(1));
         wav.set_start(first);
-        self.wav = Some(wav);
-        self.url = url;
+        let entry = Arc::new(StreamEntry {
+            video_id: self.video_id.to_string(),
+            wav,
+            url,
+            rate: Mutex::new(0.0),
+        });
+        self.ctx.streams.insert(entry.clone());
+        self.entry = Some(entry);
         self.started = Instant::now();
         tracing::debug!(target: "app_lib::karaoke", video_id = %self.video_id, from_s = pos, "karaoke stream start");
         first
     }
 
     fn write(&mut self, at: usize, left: &[f32], right: &[f32]) {
-        let Some(wav) = &self.wav else { return };
-        if let Err(e) = wav.write(at, left, right) {
+        let Some(entry) = &self.entry else { return };
+        if let Err(e) = entry.wav.write(at, left, right) {
             tracing::warn!(target: "app_lib::karaoke", error = %e, "karaoke stream write failed");
             return;
         }
         self.made += left.len();
         let secs = self.started.elapsed().as_secs_f64().max(1e-3);
         let rate = self.made as f64 / karaoke::stream::SAMPLE_RATE as f64 / secs;
+        *locked(&entry.rate) = rate;
         let _ = self.ctx.stream_tx.send(StreamEvent::Progress {
             video_id: self.video_id.to_string(),
-            url: self.url.clone(),
+            url: entry.url.clone(),
             rate,
         });
     }
@@ -838,8 +877,9 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
         let mut throttle = crate::karaoke_model::ProgressThrottle::new(Duration::from_millis(250));
         let cancel = running.cancel.clone();
         let Some(m) = model.as_mut() else { continue };
-        // The track that is playing streams: its instrumental is played as it is made.
-        let streaming = locked(&ctx.streams.current).as_deref() == Some(req.video_id.as_str());
+        // Every job streams. The song playing is prepared from where it is and switched to as
+        // it is made; one prepared ahead starts at 0:00, so if it starts playing before the job
+        // is done (skipped to, or the song before ended), its stream is already there.
         let mut stream = KaraokeStream::new(ctx, &req.video_id);
         let res = isolate(|| {
             let mut decode = |wav: &Path| {
@@ -862,31 +902,17 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
                     ctx.emit_queue();
                 }
             };
-            let spec = selected.spec();
-            if streaming {
-                karaoke::pipeline::prepare_instrumental_streaming(
-                    &ctx.cache,
-                    &req.video_id,
-                    spec.primary_stem,
-                    m,
-                    &mut decode,
-                    req.expected_secs,
-                    &cancel,
-                    &mut progress,
-                    &mut stream,
-                )
-            } else {
-                karaoke::pipeline::prepare_instrumental(
-                    &ctx.cache,
-                    &req.video_id,
-                    spec.primary_stem,
-                    m,
-                    &mut decode,
-                    req.expected_secs,
-                    &cancel,
-                    &mut progress,
-                )
-            }
+            karaoke::pipeline::prepare_instrumental_streaming(
+                &ctx.cache,
+                &req.video_id,
+                selected.spec().primary_stem,
+                m,
+                &mut decode,
+                req.expected_secs,
+                &cancel,
+                &mut progress,
+                &mut stream,
+            )
         });
         ctx.board.finish(running.seq);
         if res.is_err() {

@@ -2127,6 +2127,9 @@ impl AppState {
                                     // Listen Together host: announce the gapless advance to the room.
         self.lt_broadcast_current_track(0, true).await;
         tracing::info!("advanced to next track (gapless)");
+        // Its instrumental may already be playable, made while the last song played.
+        let me = self.clone();
+        tauri::async_runtime::spawn(async move { me.karaoke_check_current_stream().await });
         // Prime off the pump, not on it. `prime_lookahead` resolves the next stream over the
         // network, and this fn is awaited by the mpv event pump — blocking here stops mpv's events
         // being drained for the length of a round-trip, which delays the new track's `duration`
@@ -2410,6 +2413,11 @@ impl AppState {
             q.current_is_karaoke = is_karaoke;
             q.current_karaoke_model = if is_karaoke { engine_model } else { None };
             self.karaoke_push_wants(&q);
+            if !is_karaoke && self.karaoke_active() {
+                // Skipped to a track being prepared ahead: its stream may be far enough along.
+                let me = self.clone();
+                tauri::async_runtime::spawn(async move { me.karaoke_check_current_stream().await });
+            }
             // Fresh play → fresh history state (context/01 §registerPlayback).
             q.playback_ping = data.playback_ping.clone();
             q.cpn = innertube::generate_cpn();
@@ -3135,6 +3143,16 @@ impl AppState {
         tracing::debug!(target: "app_lib::karaoke", video_id, position_s = pos, rate, "karaoke: playing the stream");
         drop(_guard);
         self.prime_lookahead(gen).await;
+    }
+
+    /// A track just started: switch to its stream now if it already has one far enough along,
+    /// rather than at its job's next chunk.
+    async fn karaoke_check_current_stream(self: &std::sync::Arc<Self>) {
+        let Some(engine) = self.karaoke_engine() else { return };
+        let Some(item) = self.current_item().await else { return };
+        if let Some((url, rate)) = engine.stream_for(&item.video_id) {
+            self.karaoke_stream_progress(&item.video_id, &url, rate).await;
+        }
     }
 
     /// Playback was on `video_id`'s stream and can't stay there: the job stopped, or a seek went
