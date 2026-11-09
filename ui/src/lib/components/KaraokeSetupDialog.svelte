@@ -8,7 +8,7 @@
 		ComputerIcon,
 		Download04Icon,
 		HardDriveIcon,
-		SingLeftIcon,
+		MicVocalIcon,
 		Tick02Icon
 	} from '@hugeicons/core-free-icons';
 	import * as Dialog from '$lib/components/ui/dialog';
@@ -66,7 +66,7 @@
 			<div
 				class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"
 			>
-				<HugeiconsIcon icon={SingLeftIcon} class="h-5 w-5" />
+				<HugeiconsIcon icon={MicVocalIcon} class="h-5 w-5" />
 			</div>
 			<div class="min-w-0">
 				<Dialog.Title class="flex items-center gap-2 font-heading text-base font-semibold">

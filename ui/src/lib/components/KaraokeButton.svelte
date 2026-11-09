@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { ArrowUp01Icon, SingLeftIcon } from '@hugeicons/core-free-icons';
+	import { ArrowUp01Icon, MicVocalIcon } from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
 	import KaraokePanel from './KaraokePanel.svelte';
@@ -61,10 +61,10 @@
 				class="absolute inset-0 rounded-full"
 				style="background: {ring}; mask: radial-gradient(farthest-side, transparent calc(100% - 2px), var(--foreground) calc(100% - 2px));"
 			></span>
-			<HugeiconsIcon icon={SingLeftIcon} class="{smallIconClass} text-primary" />
+			<HugeiconsIcon icon={MicVocalIcon} class="{smallIconClass} text-primary" />
 		</span>
 	{:else}
-		<HugeiconsIcon icon={SingLeftIcon} class="{iconClass} {tone}" />
+		<HugeiconsIcon icon={MicVocalIcon} class="{iconClass} {tone}" />
 	{/if}
 {/snippet}
 
