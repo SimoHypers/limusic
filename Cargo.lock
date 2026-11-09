@@ -3071,7 +3071,7 @@ dependencies = [
 
 [[package]]
 name = "innertube"
-version = "1.4.0-rc.5"
+version = "1.4.0-rc.6"
 dependencies = [
  "base64 0.22.1",
  "futures-util",
@@ -3331,7 +3331,7 @@ dependencies = [
 
 [[package]]
 name = "karaoke"
-version = "1.4.0-rc.5"
+version = "1.4.0-rc.6"
 dependencies = [
  "anyhow",
  "flacenc",
@@ -3524,7 +3524,7 @@ dependencies = [
 
 [[package]]
 name = "limusic-app"
-version = "1.4.0-rc.5"
+version = "1.4.0-rc.6"
 dependencies = [
  "any_ascii",
  "anyhow",
@@ -3852,7 +3852,7 @@ checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
 name = "listen-protocol"
-version = "1.4.0-rc.5"
+version = "1.4.0-rc.6"
 dependencies = [
  "serde",
  "serde_json",
@@ -4864,7 +4864,7 @@ checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 
 [[package]]
 name = "player"
-version = "1.4.0-rc.5"
+version = "1.4.0-rc.6"
 dependencies = [
  "anyhow",
  "hound",
@@ -6649,7 +6649,7 @@ dependencies = [
 
 [[package]]
 name = "sync-server"
-version = "1.4.0-rc.5"
+version = "1.4.0-rc.6"
 dependencies = [
  "futures-util",
  "listen-protocol",
