@@ -27,6 +27,11 @@ import {
   StarIcon,
   SourceCodeIcon,
   Coffee02Icon,
+  AndroidIcon,
+  ComputerPhoneSyncIcon,
+  Download04Icon,
+  SmartPhone01Icon,
+  Car01Icon,
 } from '@hugeicons/core-free-icons'
 
 import Aurora from '@/components/Aurora'
@@ -34,7 +39,7 @@ import SplitText from '@/components/SplitText'
 import AnimatedContent from '@/components/AnimatedContent'
 import FadeContent from '@/components/FadeContent'
 import SpotlightCard from '@/components/SpotlightCard'
-import { useGitHub, detectOS, REPO_URL, RELEASES_URL } from '@/lib/github'
+import { useGitHub, detectOS, REPO_URL, RELEASES_URL, ANDROID_REPO_URL, ANDROID_RELEASES_URL } from '@/lib/github'
 
 import logo from '@/assets/logo.png'
 import screenPlaylist from '@/assets/screen-playlist.webp'
@@ -43,6 +48,9 @@ import screenAlbum from '@/assets/screen-album.webp'
 import screenVideo from '@/assets/screen-video.webp'
 import screenTogether from '@/assets/screen-listen-together.webp'
 import screenMini from '@/assets/screen-mini.webp'
+import androidHome from '@/assets/android-home.webp'
+import androidPlayer from '@/assets/android-player.webp'
+import androidLyrics from '@/assets/android-lyrics.webp'
 
 const SPOTLIGHT = 'rgba(229, 72, 110, 0.16)' as const
 const WEBLATE_URL = 'https://hosted.weblate.org/engage/limusic/'
@@ -94,7 +102,7 @@ const FEATURES = [
   {
     icon: TranslateIcon,
     title: 'Speaks your language',
-    body: 'English, Spanish, French, Turkish, Brazilian Portuguese and Indonesian ship today, with more in progress on Weblate.',
+    body: 'The desktop app ships in 18 languages, from Spanish and German to Japanese and Tamil, translated by its users on Weblate.',
   },
 ]
 
@@ -149,6 +157,40 @@ const SCREENS = [
   },
 ]
 
+const ANDROID_FEATURES = [
+  {
+    icon: Download04Icon,
+    title: 'Downloads',
+    body: 'Tap a playlist or album and it is on the phone. Or keep the whole library downloaded as it grows, on Wi-Fi only if you like.',
+  },
+  {
+    icon: ComputerPhoneSyncIcon,
+    title: 'Play anywhere',
+    body: 'Link the phone to Limusic on your computer, control either one from the other and move the music between them.',
+  },
+  {
+    icon: UserMultiple02Icon,
+    title: 'Listen Together',
+    body: 'The same rooms as the desktop app, so phones and computers listen in sync.',
+  },
+  {
+    icon: SmartPhone01Icon,
+    title: 'Three player styles',
+    body: 'Limusic’s Classic, Material 3 Expressive or Apple Music, all tinted by the cover that is playing.',
+  },
+  {
+    icon: Car01Icon,
+    title: 'Android Auto',
+    body: 'Lock screen and notification controls too, and playback that keeps going in the background.',
+  },
+]
+
+const PHONES = [
+  { img: androidHome, alt: 'The Limusic Android home screen with Shortcuts and Listen again' },
+  { img: androidPlayer, alt: 'The Limusic Android player, colored by the album cover' },
+  { img: androidLyrics, alt: 'Synced lyrics with romanization on Limusic for Android' },
+]
+
 function Nav({ stars }: { stars: number | null }) {
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-white/5 bg-background/70 backdrop-blur-md">
@@ -160,6 +202,7 @@ function Nav({ stars }: { stars: number | null }) {
         <div className="ml-auto hidden items-center gap-6 text-sm text-muted-foreground sm:flex">
           <a href="#features" className="transition-colors hover:text-foreground">Features</a>
           <a href="#screens" className="transition-colors hover:text-foreground">Screens</a>
+          <a href="#android" className="transition-colors hover:text-foreground">Android</a>
           <a href="#download" className="transition-colors hover:text-foreground">Download</a>
         </div>
         <a
@@ -182,7 +225,17 @@ function Nav({ stars }: { stars: number | null }) {
   )
 }
 
-function Hero({ version, downloadHref, osLabel }: { version: string | null; downloadHref: string; osLabel: string }) {
+function Hero({
+  version,
+  downloadHref,
+  osLabel,
+  platforms,
+}: {
+  version: string | null
+  downloadHref: string
+  osLabel: string
+  platforms: string
+}) {
   return (
     <section className="relative overflow-hidden">
       {!window.matchMedia('(prefers-reduced-motion: reduce)').matches && (
@@ -195,7 +248,7 @@ function Hero({ version, downloadHref, osLabel }: { version: string | null; down
       <div className="relative mx-auto max-w-6xl px-4 pt-36 pb-20 text-center sm:px-6 sm:pt-44">
         <FadeContent duration={800}>
           <p className="mx-auto mb-6 w-fit rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs tracking-widest text-muted-foreground uppercase">
-            Free · Open source · Linux, Windows &amp; macOS
+            Free · Open source · Desktop &amp; Android
           </p>
         </FadeContent>
 
@@ -210,9 +263,9 @@ function Hero({ version, downloadHref, osLabel }: { version: string | null; down
 
         <FadeContent duration={900} delay={400}>
           <p className="mx-auto mt-6 max-w-2xl text-base text-muted-foreground sm:text-lg">
-            Limusic is a lightweight desktop player for YouTube Music. Search anything, hit play, and
-            listen without ads. Your playlists, your library, your own files, synced lyrics and
-            friends listening along, in a window that opens instantly.
+            Limusic is a lightweight YouTube Music player for your computer and your phone. Search
+            anything, hit play, and listen without ads, with your playlists, your library, synced
+            lyrics and friends listening along.
           </p>
         </FadeContent>
 
@@ -236,7 +289,7 @@ function Hero({ version, downloadHref, osLabel }: { version: string | null; down
             </a>
           </div>
           <p className="mt-4 text-sm text-muted-foreground">
-            {version ? `Latest release ${version}` : 'Latest release'} · Linux, Windows and macOS
+            {version ? `Latest release ${version}` : 'Latest release'} · {platforms}
           </p>
         </FadeContent>
 
@@ -330,6 +383,79 @@ function Screens() {
   )
 }
 
+function Android({ info }: { info: ReturnType<typeof useGitHub> }) {
+  return (
+    <section id="android" className="mx-auto max-w-6xl scroll-mt-20 px-4 pt-32 sm:px-6">
+      <div className="flex flex-col items-center gap-14 lg:flex-row lg:gap-16">
+        <FadeContent duration={800} className="lg:w-1/2">
+          <p className="text-xs font-semibold tracking-widest text-primary-bright uppercase">Android</p>
+          <h2 className="mt-3 font-heading text-3xl font-bold tracking-tight sm:text-4xl">In your pocket too</h2>
+          <p className="mt-4 leading-relaxed text-muted-foreground">
+            Limusic for Android is a native app with the same ad-free playback, signed in to the
+            same YouTube Music library, with word-by-word lyrics, Last.fm, Discord and the themes
+            from the desktop.
+          </p>
+
+          <ul className="mt-8 space-y-5">
+            {ANDROID_FEATURES.map(f => (
+              <li key={f.title} className="flex gap-4">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary-bright">
+                  <HugeiconsIcon icon={f.icon} size={20} strokeWidth={1.8} />
+                </div>
+                <div>
+                  <h3 className="font-heading font-semibold">{f.title}</h3>
+                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{f.body}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          <div className="mt-9 flex flex-wrap items-center gap-4">
+            <a
+              href={info.apk ?? ANDROID_RELEASES_URL}
+              className="flex items-center gap-2.5 rounded-full bg-primary-bright px-6 py-3 font-semibold text-primary-foreground shadow-lg shadow-primary/40 transition-transform hover:scale-105"
+            >
+              <HugeiconsIcon icon={AndroidIcon} size={20} strokeWidth={2} />
+              Download the APK
+            </a>
+            <a
+              href={ANDROID_REPO_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-2.5 rounded-full border border-white/15 px-6 py-3 font-medium transition-colors hover:border-white/30 hover:bg-white/5"
+            >
+              <HugeiconsIcon icon={GithubIcon} size={20} strokeWidth={2} />
+              Source code
+            </a>
+          </div>
+          <p className="mt-4 text-sm text-muted-foreground">
+            {info.androidVersion ? `Latest release ${info.androidVersion}` : 'Latest release'} · Android 8.0
+            or newer, updates itself
+          </p>
+        </FadeContent>
+
+        <AnimatedContent distance={60} duration={0.9} threshold={0.15} className="w-full lg:w-1/2">
+          <div className="flex items-end justify-center gap-3 sm:gap-5">
+            {PHONES.map((p, i) => (
+              <img
+                key={p.alt}
+                src={p.img}
+                alt={p.alt}
+                loading="lazy"
+                width={540}
+                height={1200}
+                className={`w-[30%] max-w-[200px] rounded-2xl border border-white/10 shadow-2xl shadow-black/50 sm:rounded-[1.75rem] ${
+                  i === 1 ? 'mb-10' : ''
+                }`}
+              />
+            ))}
+          </div>
+        </AnimatedContent>
+      </div>
+    </section>
+  )
+}
+
 interface DownloadCard {
   os: string
   icon: typeof PackageIcon
@@ -380,6 +506,17 @@ function Download({ info, os }: { info: ReturnType<typeof useGitHub>; os: string
         </>
       ),
     },
+    {
+      os: 'Android',
+      icon: AndroidIcon,
+      detected: os === 'android',
+      links: [
+        { label: 'APK, most phones', href: info.apk ?? ANDROID_RELEASES_URL },
+        { label: 'APK, older 32-bit phones', href: info.apk32 ?? ANDROID_RELEASES_URL },
+        { label: 'Universal APK, any device', href: info.apkUniversal ?? ANDROID_RELEASES_URL },
+      ],
+      note: 'Needs Android 8.0 or newer, and the first one fits nearly every phone. Android asks once to allow installs from your browser, then the app updates itself.',
+    },
   ]
 
   return (
@@ -393,7 +530,7 @@ function Download({ info, os }: { info: ReturnType<typeof useGitHub>; os: string
         </p>
       </FadeContent>
 
-      <div className="mt-12 grid gap-5 md:grid-cols-3">
+      <div className="mt-12 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((c, i) => (
           <AnimatedContent key={c.os} distance={40} duration={0.8} delay={i * 0.1} threshold={0.15}>
             <div
@@ -428,9 +565,15 @@ function Download({ info, os }: { info: ReturnType<typeof useGitHub>; os: string
       </div>
 
       <p className="mt-8 text-center text-sm text-muted-foreground">
-        {info.version && <>Latest release <span className="text-foreground">{info.version}</span> · </>}
+        {info.version && <>Desktop <span className="text-foreground">{info.version}</span> · </>}
+        {info.androidVersion && <>Android <span className="text-foreground">{info.androidVersion}</span> · </>}
+        All releases for{' '}
         <a href={`${REPO_URL}/releases`} target="_blank" rel="noreferrer" className="underline underline-offset-4 hover:text-foreground">
-          All releases
+          desktop
+        </a>{' '}
+        and{' '}
+        <a href={`${ANDROID_REPO_URL}/releases`} target="_blank" rel="noreferrer" className="underline underline-offset-4 hover:text-foreground">
+          Android
         </a>
       </p>
     </section>
@@ -453,6 +596,9 @@ function Footer() {
           <a href={REPO_URL} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 transition-colors hover:text-foreground">
             <HugeiconsIcon icon={GithubIcon} size={15} strokeWidth={2} /> Source
           </a>
+          <a href={ANDROID_REPO_URL} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 transition-colors hover:text-foreground">
+            <HugeiconsIcon icon={AndroidIcon} size={15} strokeWidth={2} /> Android source
+          </a>
           <a href={WEBLATE_URL} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 transition-colors hover:text-foreground">
             <HugeiconsIcon icon={TranslateIcon} size={15} strokeWidth={2} /> Translate
           </a>
@@ -471,17 +617,24 @@ function Footer() {
 export default function App() {
   const info = useGitHub()
   const os = detectOS()
-  const osLabel = os === 'windows' ? 'Windows' : os === 'mac' ? 'macOS' : 'Linux'
+  const android = os === 'android'
+  const osLabel = android ? 'Android' : os === 'windows' ? 'Windows' : os === 'mac' ? 'macOS' : 'Linux'
   const downloadHref =
-    (os === 'windows' ? info.exe : os === 'mac' ? info.dmg : info.appimage) ?? '#download'
+    (android ? info.apk : os === 'windows' ? info.exe : os === 'mac' ? info.dmg : info.appimage) ?? '#download'
 
   return (
     <>
       <Nav stars={info.stars} />
       <main>
-        <Hero version={info.version} downloadHref={downloadHref} osLabel={osLabel} />
+        <Hero
+          version={android ? info.androidVersion : info.version}
+          downloadHref={downloadHref}
+          osLabel={osLabel}
+          platforms={android ? 'Android 8.0 or newer' : 'Linux, Windows and macOS'}
+        />
         <Features />
         <Screens />
+        <Android info={info} />
         <Download info={info} os={os} />
       </main>
       <Footer />

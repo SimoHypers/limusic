@@ -4,7 +4,8 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  base: '/limusic/',
+  // Relative, so one build works at limusic.app/ and at the old github.io/limusic/ path.
+  base: './',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

@@ -3,6 +3,9 @@ import { useEffect, useState } from 'react'
 const REPO = 'SimoHypers/limusic'
 export const REPO_URL = `https://github.com/${REPO}`
 export const RELEASES_URL = `${REPO_URL}/releases/latest`
+const ANDROID_REPO = 'SimoHypers/limusic-android'
+export const ANDROID_REPO_URL = `https://github.com/${ANDROID_REPO}`
+export const ANDROID_RELEASES_URL = `${ANDROID_REPO_URL}/releases/latest`
 
 export interface RepoInfo {
   version: string | null
@@ -13,11 +16,28 @@ export interface RepoInfo {
   exe: string | null
   msi: string | null
   dmg: string | null
+  androidVersion: string | null
+  apk: string | null
+  apk32: string | null
+  apkUniversal: string | null
 }
 
-const empty: RepoInfo = { version: null, stars: null, deb: null, rpm: null, appimage: null, exe: null, msi: null, dmg: null }
+const empty: RepoInfo = {
+  version: null,
+  stars: null,
+  deb: null,
+  rpm: null,
+  appimage: null,
+  exe: null,
+  msi: null,
+  dmg: null,
+  androidVersion: null,
+  apk: null,
+  apk32: null,
+  apkUniversal: null,
+}
 
-/* Fetches the latest release + star count once on mount. Everything degrades to the
+/* Fetches the latest desktop and Android releases + star count once on mount. Everything degrades to the
    GitHub releases page if the API is unreachable or rate-limited. */
 export function useGitHub(): RepoInfo {
   const [info, setInfo] = useState<RepoInfo>(empty)
@@ -42,6 +62,19 @@ export function useGitHub(): RepoInfo {
       )
       .catch(() => {})
 
+    fetch(`https://api.github.com/repos/${ANDROID_REPO}/releases/latest`)
+      .then(r => (r.ok ? r.json() : Promise.reject()))
+      .then(d =>
+        setInfo(prev => ({
+          ...prev,
+          androidVersion: d.tag_name,
+          apk: find(d.assets, n => n.endsWith('-arm64-v8a.apk')),
+          apk32: find(d.assets, n => n.endsWith('-armeabi-v7a.apk')),
+          apkUniversal: find(d.assets, n => n.endsWith('-universal.apk')),
+        })),
+      )
+      .catch(() => {})
+
     fetch(`https://api.github.com/repos/${REPO}`)
       .then(r => (r.ok ? r.json() : Promise.reject()))
       .then(d => setInfo(prev => ({ ...prev, stars: d.stargazers_count })))
@@ -51,10 +84,12 @@ export function useGitHub(): RepoInfo {
   return info
 }
 
-export type OS = 'linux' | 'windows' | 'mac'
+export type OS = 'linux' | 'windows' | 'mac' | 'android'
 
 export function detectOS(): OS {
   const ua = navigator.userAgent
+  // Before Linux: every Android user agent also says "Linux".
+  if (/Android/i.test(ua)) return 'android'
   if (/Windows/i.test(ua)) return 'windows'
   if (/Mac/i.test(ua)) return 'mac'
   return 'linux'
