@@ -62,6 +62,11 @@ impl Ctx {
 
     /// Announces `video_id` as ready once per enable.
     fn announce_ready(&self, video_id: &str) {
+        // A job that finishes while karaoke is off stays unannounced: turning back on announces
+        // every cached track, and that announcement is what swaps a queued track over.
+        if !self.board.is_enabled() {
+            return;
+        }
         if self.board.with(|s| s.announced_ready.insert(video_id.to_string())) {
             let _ = self.app.emit(
                 "karaoke-status",
@@ -316,8 +321,8 @@ impl KaraokeEngine {
             })
     }
 
-    /// Never waits for the worker: on sets a flag and wakes it; off also cancels the running job,
-    /// and the worker unloads the model when its current step ends. Turning on starts the worker
+    /// Never waits for the worker: on sets a flag and wakes it; off lets the running job finish
+    /// into the cache (see `JobBoard::set_enabled`), then the worker unloads. Turning on starts the worker
     /// on first use (see [`Self::ensure_worker`]); if that fails, karaoke stays off and the error
     /// is returned for the caller to report.
     pub fn set_enabled(&self, on: bool) -> Result<(), String> {

@@ -71,23 +71,21 @@ impl JobBoard {
         self.wake.notify_all();
     }
 
-    /// Turns karaoke on or off without waiting for the worker. Off clears the queue and cancels
-    /// the running job; the worker sees the flag and unloads when its current step ends.
+    /// Turns karaoke on or off without waiting for the worker. Off starts nothing new, but the
+    /// running job finishes into the cache: people turn karaoke off for a verse and back on, and
+    /// cancelling threw that track's work away on every toggle (up to two minutes of Best on a
+    /// CPU). The wanted list stays too, so turning back on with a different queue still cancels a
+    /// job nobody wants any more (`want`'s deferred cancel). The worker unloads once it is idle.
     pub fn set_enabled(&self, on: bool) {
         // The flag goes first, then the lock: `begin` reads the flag under the lock, so a job
-        // either starts before this and is cancelled below, or sees `false` and never starts.
+        // either started before this and runs to the end, or sees `false` and never starts.
         self.enabled.store(on, Ordering::SeqCst);
         {
             let mut s = self.lock();
             if !on {
-                s.desired.clear();
-                s.last_reqs.clear();
+                // Cleared so that turning back on announces every cached track again.
                 s.announced_ready.clear();
-                s.last_progress = 0.0;
                 s.retries.reset();
-                if let Some(r) = s.running.take() {
-                    r.cancel.store(true, Ordering::SeqCst);
-                }
             }
             s.woken = true;
         }
@@ -173,7 +171,7 @@ mod tests {
     }
 
     /// While a slow job runs (lock released, as the worker does), everything playback and the
-    /// commands do returns at once, and turning karaoke off cancels the job.
+    /// commands do returns at once, and turning karaoke off lets the job finish.
     #[test]
     fn nothing_waits_for_a_running_job() {
         let board = Arc::new(JobBoard::new());
@@ -208,9 +206,32 @@ mod tests {
         board.set_enabled(false);
         assert!(t.elapsed() < Duration::from_millis(50), "took {:?}", t.elapsed());
         assert!(!board.is_enabled());
-        assert!(board.with(|s| s.running.is_none()), "off takes the running job");
+        assert!(board.begin("b").is_none(), "nothing new starts while off");
 
         worker.join().unwrap();
+        assert!(!running.cancel.load(Ordering::SeqCst), "off left the running job alone");
+        assert!(board.with(|s| s.running.is_none()), "and it finished");
+    }
+
+    /// Off and back on mid-job: the same job is still the running one, its work intact, and the
+    /// wanted list is still there for `want` to diff against.
+    #[test]
+    fn a_quick_off_and_on_keeps_the_running_job() {
+        let board = JobBoard::new();
+        board.set_enabled(true);
+        board.with(|s| {
+            s.desired.replace(vec![req("a"), req("b")]);
+        });
+        let running = board.begin("a").unwrap();
+        board.with(|s| s.last_progress = 0.6);
+
+        board.set_enabled(false);
+        board.set_enabled(true);
+
+        assert!(!running.cancel.load(Ordering::SeqCst));
+        assert_eq!(board.with(|s| s.running.as_ref().map(|r| r.seq)), Some(running.seq));
+        assert_eq!(board.with(|s| s.last_progress), 0.6);
+        assert_eq!(board.with(|s| s.desired.ids()), vec!["a".to_string(), "b".to_string()]);
     }
 
     #[test]
