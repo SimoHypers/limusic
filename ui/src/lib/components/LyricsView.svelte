@@ -72,6 +72,8 @@
 	import { appearance } from '$lib/theme.svelte';
 	import * as Popover from '$lib/components/ui/popover';
 	import LyricsSourcePicker from './LyricsSourcePicker.svelte';
+	import KaraokeButton from './KaraokeButton.svelte';
+	import { link } from '$lib/link.svelte';
 
 	// `expanded` only sizes the type and centres the column. The owner of the extra room (the side
 	// panel, or the now-playing view) decides how much there is. Toggling it must not remount this
@@ -574,6 +576,9 @@
 				t('lyrics.romanize_hint')
 			)}
 		{/if}
+		<!-- Karaoke's switch lives here, not in the player bar (KaraokeButton.svelte). It works on
+		     this desktop's player, so it goes while the bar controls a linked device. -->
+		{#if !link.remote}<KaraokeButton />{/if}
 		<!-- One icon, because the footer is full (the side panel is 320px). The popover holds the
 		     `− 115% +` stepper; the ends go dead rather than wrapping. -->
 		{#if canResize}

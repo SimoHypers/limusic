@@ -46,7 +46,6 @@
 		VolumeMute02Icon
 	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
-	import KaraokeButton from './KaraokeButton.svelte';
 	import {
 		commitVolume,
 		cycleRepeat,
@@ -965,15 +964,15 @@
 
 			<!-- What the stage shows, and the volume. -->
 			<div class="flex min-w-0 items-center justify-end gap-3">
-				<!-- One pill, so it reads as a view switch rather than two more actions. The lyrics/queue
-     			switches are hidden below lg, where there is no second column, and in cinema, where
-     			there is no stage for either column; karaoke stays, so the pill itself always shows. -->
-				<div class="flex items-center gap-0.5 rounded-full bg-foreground/[0.06] p-1">
-					<KaraokeButton variant="pill" />
-					<div class="hidden items-center gap-0.5 {cinema ? '' : 'lg:flex'}">
-						{@render sideButton(Mic01Icon, t('player.lyrics'), lyricsShown, toggleLyrics)}
-						{@render sideButton(Queue01Icon, t('player.queue'), queueShown, toggleQueue)}
-					</div>
+				<!-- One pill, so it reads as a view switch rather than two more actions. Not in cinema,
+				     where there is no stage for either column. -->
+				<div
+					class="hidden items-center gap-0.5 rounded-full bg-foreground/[0.06] p-1 {cinema
+						? ''
+						: 'lg:flex'}"
+				>
+					{@render sideButton(Mic01Icon, t('player.lyrics'), lyricsShown, toggleLyrics)}
+					{@render sideButton(Queue01Icon, t('player.queue'), queueShown, toggleQueue)}
 				</div>
 				<!-- svelte-ignore a11y_no_static_element_interactions -- wheel is the volume gesture -->
 				<div class="flex items-center gap-1" onwheel={wheelVolume}>

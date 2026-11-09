@@ -108,7 +108,8 @@
 			"not_started": "Not used yet this session",
 			"get_vc_redist": "Get it from Microsoft",
 			"credit": "Model credit"
-		}
+		},
+		"lyrics_hint": "Lyrics. Karaoke is on, and its switch is at the bottom of the lyrics."
 	},
 	"selection": {
 		"actions": "Selected track actions",
