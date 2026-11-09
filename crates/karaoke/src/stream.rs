@@ -131,10 +131,15 @@ impl GrowingWav {
         r.iter().find(|&&(s, e)| s <= byte && byte < e).map_or(0, |&(_, e)| e - byte)
     }
 
-    /// Seconds of audio readable from `secs` into the song without waiting.
+    /// Seconds of audio readable from `secs` into the song without waiting. Infinite once that
+    /// run reaches the end of the song: however little is left, none of it will be waited for.
     pub fn ready_secs_from(&self, secs: f64) -> f64 {
         let frame = (secs.max(0.0) * SAMPLE_RATE as f64) as u64;
-        let bytes = self.ready_from(HEADER_LEN + frame * BYTES_PER_FRAME);
+        let byte = HEADER_LEN + frame * BYTES_PER_FRAME;
+        let bytes = self.ready_from(byte);
+        if bytes > 0 && byte + bytes == self.len() {
+            return f64::INFINITY;
+        }
         bytes as f64 / BYTES_PER_FRAME as f64 / SAMPLE_RATE as f64
     }
 
@@ -202,10 +207,13 @@ mod tests {
         let ramp =
             |n: usize, from: usize| (0..n).map(|i| (from + i) as f32 / 2000.0).collect::<Vec<_>>();
         // The tail first, as when karaoke starts mid-song.
-        wav.write(600, &ramp(400, 600), &ramp(400, 600)).unwrap();
+        wav.write(600, &ramp(200, 600), &ramp(200, 600)).unwrap();
+        assert!((wav.ready_secs_from(600.0 / 44100.0) - 200.0 / 44100.0).abs() < 1e-9);
+        wav.write(800, &ramp(200, 800), &ramp(200, 800)).unwrap();
         assert_eq!(wav.ready_from(HEADER_LEN + 600 * 4), 1600);
         assert_eq!(wav.ready_from(HEADER_LEN + 599 * 4), 0);
-        assert!((wav.ready_secs_from(600.0 / 44100.0) - 400.0 / 44100.0).abs() < 1e-9);
+        assert_eq!(wav.ready_secs_from(600.0 / 44100.0), f64::INFINITY, "written to the end");
+        assert_eq!(wav.ready_secs_from(1.0), 0.0, "past the end is not ready");
         assert!(!wav.is_complete());
 
         wav.write(0, &ramp(600, 0), &ramp(600, 0)).unwrap();

@@ -971,7 +971,15 @@
 						? ''
 						: 'lg:flex'}"
 				>
-					{@render sideButton(Mic01Icon, t('player.lyrics'), lyricsShown, toggleLyrics)}
+					<!-- Karaoke's switch is in the lyrics footer: with the column closed, the dot says
+					     it's on, and where (as on the player bar's lyrics button). -->
+					{@render sideButton(
+						Mic01Icon,
+						t('player.lyrics'),
+						lyricsShown,
+						toggleLyrics,
+						playback.karaoke && !lyricsColumn
+					)}
 					{@render sideButton(Queue01Icon, t('player.queue'), queueShown, toggleQueue)}
 				</div>
 				<!-- svelte-ignore a11y_no_static_element_interactions -- wheel is the volume gesture -->
@@ -1049,17 +1057,26 @@
 	</button>
 {/snippet}
 
-{#snippet sideButton(icon: typeof Mic01Icon, label: string, on: boolean, toggle: () => void)}
+{#snippet sideButton(
+	icon: typeof Mic01Icon,
+	label: string,
+	on: boolean,
+	toggle: () => void,
+	karaokeDot = false
+)}
 	<button
 		type="button"
 		onclick={toggle}
-		class="flex size-8 cursor-pointer items-center justify-center rounded-full transition-colors {on
+		class="relative flex size-8 cursor-pointer items-center justify-center rounded-full transition-colors {on
 			? 'bg-foreground/10 text-primary'
 			: 'text-muted-foreground hover:bg-foreground/10 hover:text-foreground'}"
 		aria-label={label}
 		aria-pressed={on}
-		title={label}
+		title={karaokeDot ? t('karaoke.lyrics_hint') : label}
 	>
 		<HugeiconsIcon {icon} class="h-4 w-4" />
+		{#if karaokeDot}
+			<span class="absolute right-1 top-1 size-1.5 rounded-full bg-primary" aria-hidden="true"></span>
+		{/if}
 	</button>
 {/snippet}

@@ -661,7 +661,12 @@ impl StreamSink for KaraokeStream<'_> {
         } else {
             0.0
         };
-        let path = self.ctx.cache.tmp_wav_path(self.video_id).with_extension("stream.wav");
+        // One file per job: a second job for the same song (model switch, off and on) must not
+        // truncate the file the first one's reader is still on, nor have its Drop delete this one.
+        static JOB: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = JOB.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path =
+            self.ctx.cache.tmp_wav_path(self.video_id).with_extension(format!("{n}.stream.wav"));
         let wav = match GrowingWav::create(&path, frames) {
             Ok(w) => Arc::new(w),
             Err(e) => {
