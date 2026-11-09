@@ -226,6 +226,15 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
 
 ---
 
+## Karaoke GPU support
+
+- **Windows:** uses DirectML.
+- **Apple Silicon Macs:** uses CoreML (ML Program, CPU+GPU), opt-in through Settings > Karaoke > Processor > Graphics card (default is CPU). CoreML requires the model's batch axis to stay dynamic (see `COREML_STATIC_SHAPES` in `crates/karaoke/src/mdx.rs`).
+- **Intel Macs:** no GPU support.
+- **Linux:** CPU only for now.
+
+---
+
 ## Validation checklist (run on each platform)
 
 Bare unsigned bundles (no code signing / notarization — deferred to Phase 5), so expect an

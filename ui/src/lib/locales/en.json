@@ -98,7 +98,7 @@
 			"status": "Status",
 			"status_desc": "Where karaoke runs, or why it can't.",
 			"device": "Processor",
-			"device_desc": "What the karaoke model runs on. Auto uses a graphics card when it has enough memory, and the processor otherwise.",
+			"device_desc": "Auto picks the best option for this computer. Processor works everywhere. Graphics card is faster where supported (DirectML on Windows, CoreML on Apple Silicon Macs).",
 			"device_auto": "Auto",
 			"device_cpu": "Processor",
 			"device_gpu": "Graphics card",

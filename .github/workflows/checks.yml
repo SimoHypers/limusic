@@ -221,3 +221,54 @@ jobs:
       - name: Import table check
         shell: pwsh
         run: ./scripts/check-windows-imports.ps1 -Exe target/debug/limusic-app.exe
+
+  # Nobody here can run a Mac, so this job is the only check of the macOS-only karaoke code (the
+  # CoreML backend) and of the macOS runtime download.
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo test -p karaoke
+        run: cargo test -p karaoke
+
+      - name: Real runtime download and load
+        run: cargo test -p karaoke --test real_runtime_download -- --ignored --nocapture
+
+      # This step is informational until we have seen the numbers on the runner (the runner is a
+      # VM, its GPU is not guaranteed).
+      - name: CoreML against the CPU
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          cargo test -p karaoke --test coreml_parity -- --ignored --nocapture 2>&1 | tee coreml.log
+
+      - name: CoreML node placement
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          cargo test -p karaoke --test coreml_probe -- --ignored --nocapture 2>&1 | tee coreml_probe.log
+
+      - name: CoreML summary
+        if: always()
+        run: |
+          echo "### CoreML against the CPU" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f coreml.log ]; then
+            grep '^COREML_SUMMARY' coreml.log || echo "no summary, see the step log"
+          else
+            echo "no summary, see the step log"
+          fi >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### CoreML node placement" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ -f coreml_probe.log ]; then
+            grep '^COREML_PROBE' coreml_probe.log || echo "no probe output"
+          else
+            echo "no probe output"
+          fi >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
