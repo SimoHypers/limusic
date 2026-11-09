@@ -171,7 +171,8 @@
 		"this_computer": "Esta computadora",
 		"devices_this_computer_hint": "Se reproduce aquí",
 		"devices_playing_here": "Reproduciendo aquí",
-		"devices_paused": "Pausado"
+		"devices_paused": "Pausado",
+		"karaoke": "Karaoke: eliminar voces"
 	},
 	"home": {
 		"good_morning": "Buenos días",
@@ -1443,5 +1444,119 @@
 		"plays": "Reproducciones",
 		"mine": "Tus reproducciones",
 		"duration": "Duración"
+	},
+	"karaoke": {
+		"consent": {
+			"source": "Descargado desde GitHub (TRlvr/model_repo), La fuente oficial del modelo.",
+			"runtime": "ONNX Runtime (Microsoft, Licencia MIT) también se descarga desde sus lanzamientos oficiales en GitHub.",
+			"runtime_windows": "ONNX Runtime y DirectML (ambos de Microsoft) también se descargan desde los paquetes oficiales de NuGet de Microsoft.",
+			"runtime_linux": "ONNX Runtime (desde su lanzamiento oficial en GitHub) y el plugin ONNX Runtime WebGPU (desde files.pythonhosted.org) también se descargan.",
+			"credit": "UVR-MDX-NET-Inst_HQ_3, UVR-MDX-NET-Inst_Main y UVR_MDXNET_3_9662, de Ultimate Vocal Remover por Anjok07 y aufr33, Licencia MIT.",
+			"credit_link": "Ultimate Vocal Remover",
+			"redownload": "Para preparar la canción, Limusic descarga su audio una vez más.",
+			"directml": "En una tarjeta de video, el karaoke se ejecuta mediante Microsoft DirectML, que puede enviar datos de uso a Microsoft."
+		},
+		"experimental_tooltip": "Aún en desarrollo. El modo \"Leve\" puede dejar un poco de voz, y \"Máximo\" es lento sin tarjeta gráfica. Si una canción sale mal, por favor repórtala.",
+		"button": {
+			"options": "Opciones de karaoke",
+			"ready": "Karaoke activo: voces eliminadas",
+			"preparing": "Karaoke activo: preparando la canción",
+			"failed": "Karaoke no pudo preparar esta canción",
+			"too_long": "Karaoke activo: esta canción es muy larga"
+		},
+		"panel": {
+			"title": "Karaoke",
+			"hint": "Quita las voces para que puedas cantar sobre la pista.",
+			"off": "Actívalo para quitar las voces de esta canción y de las siguientes dos.",
+			"now_ready": "Voces eliminadas",
+			"now_starting": "Preparando esta canción",
+			"now_progress": "{pct}% listo",
+			"now_progress_eta": "{pct}% listo, cerca de {min} min restantes",
+			"now_progress_soon": "{pct}% listo, ya casi está",
+			"now_swap": "La voz se desactivará en cuanto esté lista, justo en el punto donde vas en la canción.",
+			"now_too_long": "Supera los 15 minutos, así que esta canción conserva las voces.",
+			"try_again": "Intentar de nuevo",
+			"up_next": "A continuación",
+			"up_next_empty": "No hay más canciones en la cola.",
+			"slot_ready": "Listo",
+			"slot_waiting": "Esperando",
+			"slot_failed": "No se pudo preparar",
+			"quality": "Calidad",
+			"settings": "Configuración de karaoke"
+		},
+		"setup": {
+			"title": "Configurar el karaoke",
+			"desc": "Limusic quita las voces de las canciones en esta computadora. Escoge una calidad para descargar, la puedes cambiar después.",
+			"local": "Las canciones se preparan en esta computadora y nada se sube.",
+			"cache": "Las canciones preparadas se quedan en el disco, así que se reproducen rápidamente la siguiente vez.",
+			"download": "Descargar {size}",
+			"use": "Usar {name}",
+			"downloaded": "Descargado",
+			"progress": "{done} de {total} MB"
+		},
+		"unavailable": {
+			"not_installed": "El karaoke no está incluido en esta versión de Limusic.",
+			"corrupt": "Los archivos del karaoke están dañados. Intenta activando el karaoke otra vez; si no eso no funciona, reinstala Limusic.",
+			"vc_runtime": "El karaoke requiere una versión más reciente de Microsoft Visual C++ Redistributable (14.44 o posterior).",
+			"load_failed": "Karaoke no pudo iniciar en esta computadora.",
+			"proxy": "El karaoke no está disponible mientras hay un proxy activo.",
+			"stopped": "El karaoke se detuvo inesperadamente. Reinicia Limusic para usarlo otra vez."
+		},
+		"error": {
+			"incomplete_download": "El audio de la canción no se termino de descargar. Intenta otra vez en un poco.",
+			"failed": "No se pudo eliminar las voces de esta canción."
+		},
+		"download_error": {
+			"network": "La descarga falló. Revisa tu conexión e intenta otra vez.",
+			"verify": "El archivo descargado no coincide con el esperado. Intenta otra vez.",
+			"disk": "No se pudo guardar el archivo. Comprueba el espacio libre de tu disco duro e intenta otra vez.",
+			"failed": "La descarga falló. Intenta otra vez."
+		},
+		"download": "Descarga",
+		"cancel": "Cancelar",
+		"retry": "Reintentar",
+		"not_now": "Ahora no",
+		"settings": {
+			"title": "Karaoke",
+			"title_hint": "Configuración de eliminación de voz",
+			"model": "Modelo de IA",
+			"model_desc": "Elige el nivel del modelo para eliminar voces. Se descarga una sola vez y funciona sin conexión.",
+			"model_light": "Leve",
+			"model_light_desc": "El más rapido, pero puede dejar un poco de las voces en la canción. Funciona fluido usando solo el procesador.",
+			"model_balanced": "Balanceado",
+			"model_balanced_desc": "Casi tan limpio como Maximo, y más rápido. Funciona fluido en procesadores de alto rendimiento.",
+			"model_best": "Maximo",
+			"model_best_desc": "La mejor calidad, pero lento. En un procesador no mantiene fluidez, así que esta hecho para tarjetas gráficas.",
+			"model_installed": "Instalado ({size})",
+			"model_missing": "No instalado",
+			"cache_limit": "Limite de tamaño de caché",
+			"cache_limit_desc": "Las versiones karaoke preparadas se almacenan en caché. Al superar el límite, se eliminan las más antiguas.",
+			"cache_custom": "Personalizado ({n} MB)",
+			"cache_used": "Caché en uso",
+			"cache_used_desc": "Espacio tomado por versiones karaoke preparadas.",
+			"clear": "Limpiar caché",
+			"clear_confirm": "Cliquea otra vez para confirmar",
+			"cleared": "Caché liberado",
+			"delete": "Borrar modelo",
+			"delete_confirm": "Cliquea otra vez para confirmar",
+			"deleted": "Modelo borrado",
+			"delete_in_use": "No se puede eliminar el modelo activo mientras esta activo el karaoke",
+			"delete_failed": "No se pudo eliminar el modelo",
+			"status": "Estado",
+			"status_desc": "Donde se ejecuta el karaoke o porque no se puede.",
+			"device": "Procesador",
+			"device_desc": "En donde se ejecuta el modelo de karaoke. Automático usa la tarjeta gráfica cuando tiene suficiente memoria, y el procesador cuando no.",
+			"device_desc_opt_in": "En donde se ejecuta el modelo de karaoke. Una tarjeta gráfica usualmente es más rápido, si no se puede usar, el karaoke opta por el procesador.",
+			"device_auto": "Automático",
+			"device_cpu": "Procesador",
+			"device_gpu": "Tarjeta gráfica",
+			"device_failed": "No se pudo cambiar la configuración del procesador.",
+			"processor_gpu": "Ejecutándose en la tarjeta gráfica",
+			"processor_cpu": "Ejecutándose en el procesador",
+			"not_started": "No se ha usado aún en esta sesión",
+			"get_vc_redist": "Consíguelo desde Microsoft",
+			"credit": "Crédito del modelo"
+		},
+		"lyrics_hint": "Letras. El karaoke está activo y su interruptor está en la parte inferior de las letras."
 	}
 }
