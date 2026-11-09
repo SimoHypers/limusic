@@ -114,12 +114,14 @@
 					class="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground"
 				/>
 				<!-- The panel is wider than this field and hangs off its right edge: the rows carry
-				     artwork and two lines of text, which 20rem can't hold. -->
+				     artwork and two lines of text, which 20rem can't hold. Below `sm` there is no room to
+				     hang anywhere — the field already ends at the window's padding — so the panel takes
+				     the field's own box instead of running off the left side of the window. -->
 				<SearchSuggest
 					bind:value={searchQuery}
 					placeholder={t('common.search')}
 					inputClass="rounded-full pl-9"
-					panelClass="right-0 w-[26rem]"
+					panelClass="right-0 w-[26rem] max-sm:left-0 max-sm:right-0 max-sm:w-auto"
 				/>
 			</form>
 		</div>
