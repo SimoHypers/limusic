@@ -23,7 +23,8 @@ impl Separator for MdxModel {
         cancel: &AtomicBool,
         progress: &mut dyn FnMut(usize, usize),
     ) -> Result<[Vec<f32>; 2]> {
-        self.separate_cancellable(mix, 0.25, false, cancel, progress)
+        let overlap = self.params().uvr_overlap();
+        self.separate_cancellable(mix, overlap, false, cancel, progress)
     }
 }
 
