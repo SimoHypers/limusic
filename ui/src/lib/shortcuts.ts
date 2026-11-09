@@ -45,10 +45,13 @@ const isMuteKey = (e: KeyboardEvent) => keyOf(e) === 'm' && (!IS_MAC || e.shiftK
 /** Percent per press, matching a step of the volume slider's arrow keys. */
 const VOLUME_STEP = 5;
 
-/** Somewhere a bare space or `;` is a character, not a command. */
+/** Somewhere a bare space or `;` is a character, not a command. A slider (seek bar, volume) is an
+ *  input but types nothing, so a click on it no longer leaves Space dead (#574). */
 export const typing = (t: EventTarget | null) =>
 	t instanceof HTMLElement &&
-	(t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
+	(t.isContentEditable ||
+		['TEXTAREA', 'SELECT'].includes(t.tagName) ||
+		(t instanceof HTMLInputElement && t.type !== 'range'));
 
 /** Where focus a click left behind stays put: see `onFocus` below. */
 const KEEPS_FOCUS =

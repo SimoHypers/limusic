@@ -117,6 +117,7 @@
 <svelte:window bind:innerWidth={vw} />
 
 <aside
+	data-nav-rail
 	class="flex h-full w-16 shrink-0 flex-col border-r bg-sidebar p-3 text-sidebar-foreground {wide(
 		'lg:w-60'
 	)} {ui.navOpen
@@ -183,8 +184,19 @@
 		{#each nav as n (n.href)}
 			<a
 				href={n.href}
+				onclick={n.href === '/search' ? async (e) => {
+					if (!isActive('/search') || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+					e.preventDefault();
+					// Run navigation hooks to dismiss the player before focusing the search field.
+					await goto(page.url, { keepFocus: true, replaceState: true });
+					const input = document.querySelector<HTMLInputElement>('#search-form input');
+					input?.focus();
+					input?.select();
+					closeDrawer();
+				} : closeDrawer}
 				title={n.label}
-				onclick={closeDrawer}
+				data-nav-item
+				data-nav-active={isActive(n.href) ? '' : undefined}
 				class="group relative flex items-center justify-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors {wide(
 					'lg:justify-start'
 				)} {drawer('max-sm:justify-start')} {isActive(n.href)
@@ -193,6 +205,7 @@
 			>
 				{#if isActive(n.href)}
 					<span
+						data-nav-indicator
 						transition:scale={{ duration: 200, start: 0.4 }}
 						class="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-primary"
 					></span>
@@ -248,6 +261,7 @@
 	     Always there, signed out included: a playlist can be made on this machine without an
 	     account (#251). -->
 	<div
+		data-nav-playlists
 		class="mt-3 hidden min-h-0 flex-1 flex-col border-t pt-3 {wide('lg:flex')} {drawer(
 			'max-sm:flex'
 		)}"
@@ -266,6 +280,7 @@
 					<a
 						href={playlistHref(pl)}
 						title={pl.title}
+						data-nav-item
 						class="flex items-center gap-2.5 rounded-lg py-1.5 pl-2 pr-9 transition-colors hover:bg-sidebar-accent/50"
 					>
 						<div

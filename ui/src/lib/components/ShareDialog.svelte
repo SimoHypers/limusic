@@ -2,6 +2,7 @@
 	// "Share": the YTM link for a song/album/playlist/artist, with the artwork and title so you can
 	// see what you're about to send. Opened from any ⋯ menu via `openShare`, mounted once in the
 	// layout like AddToPlaylist.
+	import { untrack } from 'svelte';
 	import { fade, scale } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
@@ -11,15 +12,20 @@
 	import { copyText } from '$lib/clipboard';
 	import { getCached, invalidateCached, putCached } from '$lib/pagecache';
 	import { Switch } from '$lib/components/ui/switch';
+	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { thumb } from '$lib/thumb';
-	import { ui, toast } from '$lib/player.svelte';
+	import { formatClock, parseClock } from '$lib/timecode';
+	import { playback, ui, toast } from '$lib/player.svelte';
 	import { windowCorners } from '$lib/win.svelte';
 	import { t } from '$lib/i18n.svelte';
 
 	// Playlist browseIds carry a `VL` prefix that the watch/playlist URLs don't take.
-	function shareUrl(item: BrowseItem): string {
+	function shareUrl(item: BrowseItem, start?: number | null): string {
 		const id = item.id.replace(/^VL/, '');
-		if (item.kind === 'song') return `https://music.youtube.com/watch?v=${id}`;
+		if (item.kind === 'song') {
+			const at = start && start > 0 ? `&t=${Math.floor(start)}` : '';
+			return `https://music.youtube.com/watch?v=${id}${at}`;
+		}
 		if (item.kind === 'artist') return `https://music.youtube.com/channel/${id}`;
 		// Albums only ever reach us as an `MPRE…` browseId, so link the browse page rather than the
 		// `OLAK5uy_…` playlist URL YouTube's own share sheet hands out. Both resolve to the album.
@@ -27,7 +33,32 @@
 		return `https://music.youtube.com/playlist?list=${id}`;
 	}
 
-	const url = $derived(ui.share ? shareUrl(ui.share) : '');
+	// "Start at": a link to the song that is playing right now can open it partway in. Only offered
+	// for that song, because it is the only one whose position we know. The box is filled with the
+	// position at the moment the dialog opens (not live: a moving field is hard to edit).
+	let canStartAt = $state(false);
+	let atTime = $state(false);
+	let startText = $state('');
+	// The shared song's length as of opening the dialog. The player's own `duration` is the shared
+	// song's only while it is still the one playing: the track can change under an open dialog.
+	let openLength = $state(0);
+	const trackLength = $derived(
+		ui.share?.id === playback.now?.videoId ? playback.duration || openLength : openLength
+	);
+	const parsedStart = $derived(canStartAt && atTime ? parseClock(startText) : null);
+	// A switched-on box that doesn't parse, or points past the end of the track, is flagged with a
+	// message; the link just has no `t` until it is fixed. An unknown duration (0) can't be checked.
+	const startError = $derived.by(() => {
+		if (!canStartAt || !atTime) return '';
+		if (parsedStart === null) return t('dialogs.share.start_invalid');
+		if (trackLength > 0 && parsedStart > trackLength) {
+			return t('dialogs.share.start_too_long', { length: formatClock(trackLength) });
+		}
+		return '';
+	});
+	const startSecs = $derived(startError ? null : parsedStart);
+
+	const url = $derived(ui.share ? shareUrl(ui.share, startSecs) : '');
 	let copied = $state(false);
 
 	// A private playlist's link 404s for everyone else, so the modal has to say so before the link
@@ -45,6 +76,14 @@
 		privacy = undefined;
 		owned = false;
 		wasPrivate = false;
+		atTime = false;
+		// Player state is read untracked: this runs when the dialog opens (or retargets), not on
+		// every position tick, and not when the track changes under it, which would drop the row
+		// and whatever was typed into it.
+		const playing = untrack(() => playback.now?.videoId);
+		canStartAt = !!item && item.kind === 'song' && item.id === playing;
+		startText = canStartAt ? formatClock(untrack(() => playback.position)) : '';
+		openLength = canStartAt ? untrack(() => playback.duration) : 0;
 		if (!item || item.kind !== 'playlist') return;
 		const key = `playlist:${item.id}`;
 		const apply = (p: PlaylistPage) => {
@@ -169,6 +208,34 @@
 					{copied ? t('common.done') : t('dialogs.share.copy_link')}
 				</button>
 			</div>
+
+			{#if canStartAt}
+				<!-- YouTube's own share sheet: a checkbox, then the time as part of the sentence, an
+				     underlined field rather than a boxed one. Typing a time ticks it. -->
+				<div class="mt-3 flex items-center gap-2.5 px-1 text-sm">
+					<label class="flex cursor-pointer items-center gap-2.5 select-none">
+						<Checkbox bind:checked={atTime} />
+						{t('dialogs.share.start_at')}
+					</label>
+					<input
+						class="w-16 border-b border-border bg-transparent px-0.5 py-0.5 tabular-nums outline-none focus:border-primary aria-invalid:border-destructive {atTime
+							? ''
+							: 'text-muted-foreground'}"
+						inputmode="numeric"
+						placeholder="0:00"
+						bind:value={startText}
+						oninput={() => (atTime = true)}
+						aria-label={t('a11y.share_start_time')}
+						aria-invalid={!!startError}
+					/>
+				</div>
+				{#if startError}
+					<div class="mt-2 flex items-start gap-2 px-1 text-xs text-destructive" role="alert">
+						<HugeiconsIcon icon={Alert02Icon} class="mt-px h-4 w-4 shrink-0" />
+						<p>{startError}</p>
+					</div>
+				{/if}
+			{/if}
 
 			{#if privacy === 'PRIVATE'}
 				<div class="mt-3 flex items-start gap-2 text-xs text-amber-600 dark:text-amber-500">

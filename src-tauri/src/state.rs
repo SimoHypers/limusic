@@ -11,12 +11,13 @@ use innertube::{
     AccountIdentity, AccountInfo, AudioQuality, BlockList, Clients, InnerTube, SongItem,
     MAIN_CLIENT,
 };
-use listen_protocol::{Playback, PlaybackKind, Track};
+use listen_protocol::{Playback, PlaybackKind, RemoteAction, Track};
 use player::Player;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
 use crate::db::{now_secs, Db, StoredAccount};
+use crate::devicelink::{LinkCommand, LinkSession, Publish, RemoteView};
 use crate::discord::DiscordHandle;
 use crate::listentogether::{LtSession, SyncCommand};
 use crate::media::MediaHandle;
@@ -63,6 +64,8 @@ pub struct AppState {
     pub lt: Arc<LtSession>,
     // Serialize effect commands with the room's tempo reset, including requests already pending.
     playback_effects: Mutex<()>,
+    /// Device link: the phone as a remote, and Continue here (`crate::devicelink`).
+    pub link: Arc<LinkSession>,
     /// mpv's on-disk audio cache dir (context/14) — wiped by the settings "Clear caches" action.
     cache_dir: std::path::PathBuf,
     /// OS media integration (MPRIS/SMTC/NowPlaying). `None` if it failed to init. context/16.
@@ -101,6 +104,16 @@ pub struct AppState {
     /// Mirror of mpv's pause flag (set in `media_set_playing`). Position ticks must consult this
     /// instead of assuming "playing" — mpv fires `time-pos` on seeks while paused too.
     is_playing: AtomicBool,
+    /// The UI shows another linked device's playback (`link_remote_refresh`): its track, position
+    /// and queue reach the windows instead of ours, and the playback methods control it.
+    remote_on: AtomicBool,
+    /// Bumped when `remote_on` turns on, so only the latest position ticker runs.
+    remote_gen: AtomicU64,
+    /// What the windows were last sent of the other device (track id, queue), so a position
+    /// report doesn't resend the queue.
+    remote_sent: std::sync::Mutex<(String, String)>,
+    /// A seek sent to the other device: its old position isn't ticked over the new one until then.
+    remote_hold: std::sync::Mutex<Option<std::time::Instant>>,
     /// Latest mpv position (f64 bits) + wall-clock secs of the last DB write, for throttled
     /// resume-position persistence.
     latest_position: AtomicU64,
@@ -348,6 +361,10 @@ struct QueueState {
     cpn: String,
     /// Latest mpv-reported track duration (secs), for the history-ping threshold.
     duration: f64,
+    /// The current track is a broadcast on air (#424). Its deck carries the live file options, so
+    /// nothing is primed behind it (seeks into it are the player's to refuse, see `Player::seek`).
+    /// Only a `load` sets it; a gapless advance can't land on one.
+    live: bool,
     /// Last videoId we re-resolved after a playback failure — guards the one-shot retry in
     /// `on_track_failed` against a retry loop when the retried stream dies too.
     retried: Option<String>,
@@ -359,6 +376,9 @@ struct QueueState {
     /// during the walk used to stop it for good, leaving a shuffled 4,000-track playlist playing
     /// out of its first page or two (issue #316).
     epoch: u64,
+    /// The ids a playlist `/next` has already paired in queue `.0`, so a playlist played in order
+    /// asks once per window, not once per track (`refresh_playlist_twins`, #542).
+    paired: (u64, HashSet<String>),
 }
 
 /// What was playing before a click replaced the whole queue, so Previous can go back to it.
@@ -383,6 +403,21 @@ struct PrevContext {
 }
 
 impl QueueState {
+    /// Take one row out of the queue, and its copy out of the pre-shuffle snapshot, or turning
+    /// shuffle off rebuilds the queue with it back in. Matched whole, so of two copies of a song
+    /// (two playlist rows, different `set_video_id`) the right one goes. Never by video id alone:
+    /// adds carried into a shuffled `play_tracks` are not in the snapshot, and one that is also in
+    /// the playlist would take the playlist's row with it. `current` is the caller's to fix.
+    fn remove_row(&mut self, index: usize) -> SongItem {
+        let item = self.items.remove(index);
+        if let Some(orig) = self.shuffle_orig.as_mut() {
+            if let Some(at) = orig.iter().position(|s| *s == item) {
+                orig.remove(at);
+            }
+        }
+        item
+    }
+
     /// Move the play pointer within the same queue.
     fn seek_to(&mut self, index: usize) {
         self.current = index;
@@ -475,6 +510,7 @@ impl AppState {
         app: AppHandle,
         orchestrator: Arc<Orchestrator>,
         lt: Arc<LtSession>,
+        link: Arc<LinkSession>,
         cache_dir: std::path::PathBuf,
         media: Option<MediaHandle>,
         discord: Option<DiscordHandle>,
@@ -488,6 +524,7 @@ impl AppState {
             app,
             orchestrator,
             lt,
+            link,
             cache_dir,
             media,
             discord,
@@ -498,6 +535,10 @@ impl AppState {
             history_pinged: AtomicBool::new(false),
             listen: std::sync::Mutex::default(),
             is_playing: AtomicBool::new(false),
+            remote_on: AtomicBool::new(false),
+            remote_gen: AtomicU64::new(0),
+            remote_sent: std::sync::Mutex::default(),
+            remote_hold: std::sync::Mutex::default(),
             generation: AtomicU64::new(0),
             rate_epoch: AtomicU64::new(0),
             comments: std::sync::Mutex::new(innertube::CommentsSession::default()),
@@ -1253,6 +1294,7 @@ impl AppState {
                 // to the queue row's flag, which is exactly the thing that can't be trusted.
                 is_video: c.is_video,
                 is_episode: c.is_episode,
+                live: false, // never written to the cache, see below
                 stream_client: c.client.unwrap_or_else(|| "cache".to_owned()),
             });
         }
@@ -1265,7 +1307,10 @@ impl AppState {
         //
         // Nor upload URLs: they expire in minutes (32 seconds without the MLPT context), and the
         // read above only accepts a row with 60s of life left, so the write is dead on arrival.
-        if data.stream_client != "rustypipe" && !is_upload {
+        //
+        // Nor a live playlist (#424): the broadcast it describes can end and the recording take
+        // its videoId within the cache window, and a replay then needs a real `/player` answer.
+        if data.stream_client != "rustypipe" && !is_upload && !data.live {
             self.db.put_stream(
                 video_id,
                 &crate::db::CachedStream {
@@ -1288,6 +1333,12 @@ impl AppState {
     /// Start a fresh queue from one track (a search-result click), then hydrate the radio via
     /// `next` (skipped when autoplay is off) and prime the gapless lookahead.
     pub async fn play_song(self: &std::sync::Arc<Self>, seed: SongItem) {
+        if self.link_route(|_| {
+            let track = song_to_track(&seed);
+            crate::listentogether::shareable(&track).then_some(RemoteAction::PlayTrack { track })
+        }) {
+            return;
+        }
         if self.lt.is_guest().await {
             // Guests follow the host; clicking a song adds it to the shared queue instead
             // (Spotify-Jam-style). The host client auto-approves and stamps who added it.
@@ -1438,6 +1489,18 @@ impl AppState {
         if items.is_empty() {
             return;
         }
+        if self.link_route(|_| {
+            let (tracks, start) = remote_list(&items, start);
+            (!tracks.is_empty()).then(|| RemoteAction::PlayTracks {
+                tracks,
+                start,
+                source_id: source_id.clone(),
+                source_name: source_name.clone(),
+                shuffle,
+            })
+        }) {
+            return;
+        }
         if self.lt.is_guest().await {
             self.emit_guest_hint();
             return;
@@ -1522,6 +1585,7 @@ impl AppState {
         kind: &str,
         id: &str,
         name: Option<String>,
+        start: Option<f64>,
     ) -> Result<(), String> {
         if self.lt.is_guest().await {
             self.emit_guest_hint();
@@ -1579,9 +1643,21 @@ impl AppState {
             let q = self.queue.lock().await;
             video_id.is_some() && q.items.get(q.current).map(|i| &i.video_id) == video_id.as_ref()
         };
+        // A shared link's `t=`: only a song radio has a seed track to start partway into.
+        let start = start.filter(|s| kind == "song" && s.is_finite() && *s > 0.0);
         if playing_seed && !self.player.is_idle() {
             self.splice_radio(items, seed, title).await;
+            if let Some(pos) = start {
+                self.user_seek(pos).await?;
+            }
             return Ok(());
+        }
+        // Handed to `loadfile` as `start=` (see `start_current`); mpv drops a seek sent before the
+        // file is loaded. Keyed on the seed's id, so it can't land on a different track.
+        // `latest_position` is left alone on purpose: `play_tracks` below reads it as the position
+        // the replaced queue is resumed at (`keep_context`), and that is not the link's offset.
+        if let (Some(pos), Some(vid), Some(_)) = (start, video_id.as_ref(), seed_at) {
+            *self.pending_seek.lock().unwrap() = Some((vid.clone(), pos));
         }
         self.play_tracks(items, Some(seed_at.unwrap_or(0)), Some(seed), title, false, None).await;
         self.queue.lock().await.radio = true;
@@ -1762,6 +1838,15 @@ impl AppState {
     /// loaded but the queue is non-empty, load the current track (applying any resume position);
     /// otherwise just toggle mpv. Keeps the UI's single play/pause button working after a restart.
     pub async fn resume_or_toggle(self: &std::sync::Arc<Self>) {
+        let mut playing = false;
+        if self.link_route(|v| {
+            playing = !v.playing;
+            Some(if v.playing { RemoteAction::Pause } else { RemoteAction::Play })
+        }) {
+            // Shown at once; the other device's answer follows within a round trip.
+            let _ = self.app.emit("playback-state", if playing { "playing" } else { "paused" });
+            return;
+        }
         if self.lt.is_guest().await {
             return; // guest playback is host-driven
         }
@@ -1780,6 +1865,20 @@ impl AppState {
 
     /// Jump to a specific queue index.
     pub async fn play_index(self: &std::sync::Arc<Self>, index: usize) {
+        self.play_index_at(index, None).await;
+    }
+
+    /// [`Self::play_index`], opening the track `start` seconds in (a comment's timecode). Goes
+    /// through `pending_seek` like every other start offset: mpv drops a seek sent before the file
+    /// is loaded, so it can't be issued after this returns.
+    pub async fn play_index_at(self: &std::sync::Arc<Self>, index: usize, start: Option<f64>) {
+        // ponytail: the remote's PlayIndex carries no start, so a timecode on a linked phone plays
+        // from the top. Add `start` to the action if that ever matters.
+        if self.link_route(|v| {
+            remote_row(v, index).map(|(index, id)| RemoteAction::PlayIndex { index, id })
+        }) {
+            return;
+        }
         if self.lt.is_guest().await {
             self.emit_guest_hint(); // guest playback is host-driven
             return;
@@ -1794,6 +1893,9 @@ impl AppState {
             q.lookahead_loaded = None;
             q.items[index].video_id.clone()
         };
+        if let Some(pos) = start.filter(|s| s.is_finite() && *s > 0.0) {
+            *self.pending_seek.lock().unwrap() = Some((video_id.clone(), pos));
+        }
         // The next mpv tick is seconds away because the track must be resolved first. Until then
         // `latest_position` is still the value that pause/exit persistence will write, so seed it
         // from `pending_seek` when that saved position belongs to this exact video. A different
@@ -1852,10 +1954,11 @@ impl AppState {
 
     /// The music video settings changed: move the queue's rows onto the version they now pick, so
     /// the next song follows the switch, not the setting its album was opened under (#464). The
-    /// playing row is left alone, it has its own Song/Video switch.
-    pub async fn apply_version_preference(self: &std::sync::Arc<Self>) {
+    /// playing row is left alone, it has its own Song/Video switch. Also run when a playlist's
+    /// twins arrive (#542). True when a row moved, the queue then emitted and persisted.
+    pub async fn apply_version_preference(self: &std::sync::Arc<Self>) -> bool {
         if self.lt.is_guest().await {
-            return;
+            return false;
         }
         let video = wants_video(&self.db);
         let stale_lookahead = {
@@ -1876,7 +1979,7 @@ impl AppState {
                 changed |= Some(&item.video_id) != playing.as_ref() && prefer_version(item, video);
             }
             if !changed {
-                return;
+                return false;
             }
             // mpv holds the old version as the gapless next.
             let stale = primed.is_some() && primed != primed_id(q);
@@ -1892,6 +1995,7 @@ impl AppState {
             self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
         }
         self.lt_broadcast_queue().await;
+        true
     }
 
     /// Advance the queue after a track ended (EOF) or died (load error). Don't assume mpv
@@ -1935,7 +2039,7 @@ impl AppState {
                     }
                 } else {
                     tracing::info!("queue exhausted");
-                    let _ = me.app.emit("playback-state", "paused");
+                    me.emit_own("playback-state", "paused");
                     // mpv goes idle without flipping its pause flag, so no Paused event will fire
                     // — tell the OS widget + Discord ourselves or they show "playing" forever
                     // past the last song.
@@ -1988,9 +2092,10 @@ impl AppState {
             self.history_pinged.store(false, Ordering::Relaxed);
             self.end_listen();
             q.duration = 0.0;
+            q.live = false;
         }
         if let Some(item) = self.current_item().await {
-            self.emit_now_playing(&item, "gapless");
+            self.emit_now_playing(&item, "gapless", false);
             // Same as `start_current`: an autoplay-appended track carries no rating of its own.
             self.refresh_from_next(&item.video_id, gen);
         }
@@ -2161,7 +2266,7 @@ impl AppState {
                         let mut q = self.queue.lock().await;
                         let cur = q.current;
                         if cur < q.items.len() {
-                            q.items.remove(cur);
+                            q.remove_row(cur);
                         }
                         q.lookahead_loaded = None;
                         // `current` now points at what followed it. When it was the tail, step
@@ -2224,12 +2329,21 @@ impl AppState {
             .filter(|(vid, _)| *vid == item.video_id)
             .map(|(_, pos)| pos);
         let stream_url = mpv_stream_url(&data);
-        if let Err(e) =
-            self.player.load(&stream_url, &data.headers, self.track_gain(data.loudness_db), seek)
-        {
+        if let Err(e) = self.player.load(
+            &stream_url,
+            &data.headers,
+            self.track_gain(data.loudness_db),
+            seek,
+            data.live,
+        ) {
             self.emit_error(&item.video_id, &e.to_string());
             return false;
         }
+        // Where mpv starts, from now on: its first tick comes after the unpause, and that pause
+        // flag's Play (`lt_on_play_state`) reads this. Left at the last track's position, a Continue
+        // here told the device link the music was back where this desktop last stopped, and the
+        // phone picked it up there later.
+        self.latest_position.store(seek.unwrap_or(0.0).to_bits(), Ordering::SeqCst);
         // Listen Together host: announce the track before `play`, whose pause-flag change is the
         // room's Play. Sent after, a skip while paused reaches guests as "play" on the old track
         // first. At the position mpv starts at, so a retry or a restored context isn't sent as 0.
@@ -2245,7 +2359,8 @@ impl AppState {
             data.is_video,
             data.is_episode,
         );
-        self.attach_video(&item.video_id, item.is_video, &stream_url);
+        // A broadcast's picture is segment bases too (#424), so there is no 720p file to pair.
+        self.attach_video(&item.video_id, item.is_video && !data.live, &stream_url);
         {
             let mut q = self.queue.lock().await;
             q.current_client = Some(data.stream_client.clone());
@@ -2256,6 +2371,13 @@ impl AppState {
             self.history_pinged.store(false, Ordering::Relaxed);
             self.end_listen();
             q.duration = 0.0;
+            // Across a restart too: the restored track is announced before anything resolves it,
+            // and a broadcast restored as an ordinary track came back with a seek bar (#424).
+            if q.live || data.live {
+                let id = if data.live { item.video_id.as_str() } else { "" };
+                self.db.set_setting("live_video", id);
+            }
+            q.live = data.live;
             let cur = q.current;
             if let Some(qi) = q.items.get_mut(cur) {
                 // Same repair on the queue's own copy: it's what the queue panel renders, what
@@ -2271,7 +2393,12 @@ impl AppState {
                 }
             }
         }
-        self.emit_now_playing(&item, &data.stream_client);
+        if data.live {
+            if let Err(error) = self.reset_tempo(true).await {
+                tracing::warn!(%error, "live: tempo stays as it was");
+            }
+        }
+        self.emit_now_playing(&item, &data.stream_client, data.live);
         // The rating just emitted is whatever the row was parsed with, which for a search result
         // or a radio track is nothing at all (issue #93). Ask.
         self.refresh_from_next(&item.video_id, gen);
@@ -2309,6 +2436,12 @@ impl AppState {
                 let Some(next) = next_index(q.items.len(), q.current, q.repeat) else { return };
                 if q.lookahead_loaded == Some(next) {
                     return; // already primed
+                }
+                // `enqueue` appends with the deck's options as they are, and a live load left them
+                // at the live set (no reconnect). When the broadcast ends the next track comes in
+                // through `start_current`, which sets its own.
+                if q.live {
+                    return;
                 }
                 next
             };
@@ -2353,7 +2486,7 @@ impl AppState {
                         return;
                     }
                     // Box::pin: remove_from_queue can itself re-prime (async recursion).
-                    Box::pin(self.remove_from_queue(next_idx)).await;
+                    Box::pin(self.remove_from_queue_local(next_idx)).await;
                     self.emit_skip(&next_title, skip_reason(&e));
                 }
             }
@@ -2390,6 +2523,13 @@ impl AppState {
                 index = next_idx,
                 "lookahead already primed by a concurrent resolve — dropped"
             );
+            return;
+        }
+        // A broadcast is not appended (#424): the player's `load` is what knows a URL is live, and
+        // an appended entry inherits the file options and duration handling of the track before
+        // it. Left unprimed, it is reached through `start_current` like a first play.
+        if data.live {
+            tracing::debug!(index = next_idx, "next track is live, not primed");
             return;
         }
         // Headers are global in mpv; the direct-URL clients need none beyond UA, which the
@@ -2447,7 +2587,7 @@ impl AppState {
     /// Everything the `now-playing` event carries. Shared with [`Self::playback_snapshot`] so a
     /// window that asks for the current track can't be told a different shape than one that
     /// listened for it.
-    fn now_playing_json(item: &SongItem, stream_client: &str) -> serde_json::Value {
+    fn now_playing_json(item: &SongItem, stream_client: &str, live: bool) -> serde_json::Value {
         serde_json::json!({
             "videoId": item.video_id,
             "title": item.title,
@@ -2467,6 +2607,8 @@ impl AppState {
             "isVideo": item.is_video,
             // Podcast controls in the transport (#500).
             "isEpisode": item.is_episode,
+            // A broadcast on air: no length, nothing to seek, a Live badge for the bar (#424).
+            "live": live,
         })
     }
 
@@ -2475,12 +2617,25 @@ impl AppState {
     /// cold start both have to ask once instead of guessing.
     pub async fn playback_snapshot(&self) -> serde_json::Value {
         let (speed, semitones, reverb) = self.player.playback_params();
-        let (duration, item) = {
+        if let Some(v) = self.link.remote_view().filter(|_| self.showing_remote()) {
+            return serde_json::json!({
+                "now": Self::now_playing_json(&track_to_song(&v.track), "remote", false),
+                "paused": !v.playing,
+                "position": v.position_ms as f64 / 1000.0,
+                "duration": remote_duration_ms(&v) as f64 / 1000.0,
+                "volume": saved_volume(&self.db),
+                "speed": speed,
+                "semitones": semitones,
+                "reverb": reverb,
+                "live": false,
+            });
+        }
+        let (duration, item, live) = {
             let q = self.queue.lock().await;
-            (q.duration, q.items.get(q.current).cloned())
+            (q.duration, q.items.get(q.current).cloned(), q.live)
         };
         serde_json::json!({
-            "now": item.as_ref().map(|i| Self::now_playing_json(i, "current")),
+            "now": item.as_ref().map(|i| Self::now_playing_json(i, "current", live)),
             "paused": !self.is_playing.load(Ordering::Relaxed),
             "position": self.current_position(),
             // 0 until mpv loads the file, which a restored track waits for until play (#502).
@@ -2508,13 +2663,15 @@ impl AppState {
     /// answer (`generation`), and so does a rating the user set meanwhile (`rate_epoch`).
     ///
     /// The same reply carries the track's Song/Video twin on accounts YouTube pairs them for, so
-    /// it fills that in too, at no extra request (#520).
+    /// it fills that in too, at no extra request (#520). A queue played from a playlist also asks
+    /// the playlist, which can pair the track differently ([`Self::refresh_playlist_twins`]).
     fn refresh_from_next(self: &std::sync::Arc<Self>, video_id: &str, gen: u64) {
         // Signed out there is no rating to be wrong about and no twin to learn (signed-out `/next`
         // never wraps a row), and a local file is not a videoId YouTube has ever heard of.
         if !self.it.is_logged_in() || crate::local::is_local_song(video_id) {
             return;
         }
+        self.refresh_playlist_twins(video_id);
         let me = self.clone();
         let video_id = video_id.to_owned();
         tauri::async_runtime::spawn(async move {
@@ -2574,22 +2731,80 @@ impl AppState {
         });
     }
 
-    fn emit_now_playing(&self, item: &SongItem, stream_client: &str) {
-        let _ = self.app.emit("now-playing", Self::now_playing_json(item, stream_client));
-        let _ = self.app.emit("playback-state", "playing");
-        // Push the same metadata to the OS media widget (context/16) and Discord.
-        if let Some(m) = &self.media {
-            // MPRIS/SMTC want a URL; a local track's artwork is a path, so hand it a file:// one.
-            // Scheme, not leading slash: a Windows cover path is `C:\...`, and SMTC drops the whole
-            // metadata update (cover included) when the thumbnail URI won't parse.
-            let cover = item.thumbnail.as_ref().map(|t| {
-                if t.contains("://") {
-                    crate::media::cover_url(t)
-                } else {
-                    format!("file://{t}")
+    /// The Song/Video twins the queue's own playlist gives the playing track and the rows after it
+    /// (#542). On its own, `/next` pairs a song with its main video or with nothing, so a playlist
+    /// holding another video of the song, or a video of a song with no main one, lost that video:
+    /// only a request naming the playlist pairs each entry with what the playlist holds. Those
+    /// pairs win over the bare reply's ([`adopt_playlist_twins`]).
+    ///
+    /// One reply covers the playlist from the top to ~49 rows past the track asked about
+    /// (live-checked 2026-11-07: 50 rows for the first, 99 for the 50th), so a playlist played in
+    /// order asks once per window. Detached like the rating: nothing waits on it.
+    fn refresh_playlist_twins(self: &std::sync::Arc<Self>, video_id: &str) {
+        let me = self.clone();
+        let video_id = video_id.to_owned();
+        tauri::async_runtime::spawn(async move {
+            let (playlist, epoch) = {
+                let mut q = me.queue.lock().await;
+                let q = &mut *q;
+                let Some(playlist) = playlist_context(q.source_id.as_deref()) else { return };
+                // A manual add or an autoplay track isn't in the playlist to ask about.
+                let from_playlist = q.items.get(q.current).is_some_and(|i| {
+                    i.video_id == video_id && !i.queued && !i.queued_end && !i.autoplay
+                });
+                if !from_playlist {
+                    return;
                 }
-            });
-            m.set_metadata(&item.title, &item.artists, item.album.as_deref(), cover.as_deref());
+                if q.paired.0 != q.epoch {
+                    q.paired = (q.epoch, HashSet::new());
+                }
+                // Marked before the request, so a failed one isn't retried on every replay.
+                if !q.paired.1.insert(video_id.clone()) {
+                    return;
+                }
+                (playlist, q.epoch)
+            };
+            let Some(client) = me.clients.get(innertube::METADATA_CLIENT) else { return };
+            let next = match me.it.next(client, Some(&video_id), Some(&playlist)).await {
+                Ok(next) => next,
+                Err(e) => {
+                    tracing::debug!(error = %e, "playlist next failed; keeping the twins we have");
+                    return;
+                }
+            };
+            let learned = {
+                let mut q = me.queue.lock().await;
+                let q = &mut *q;
+                if q.epoch != epoch {
+                    return; // another queue now
+                }
+                for item in &next.items {
+                    q.paired.1.insert(item.video_id.clone());
+                    q.paired.1.extend(item.counterpart.clone());
+                }
+                let rows = q.items.iter_mut().chain(q.shuffle_orig.iter_mut().flatten());
+                adopt_playlist_twins(rows, &next.items)
+            };
+            if !learned {
+                return;
+            }
+            // Rows still to come take the version "Play the video first" picks, as album rows do.
+            // Only with music videos on: off, a video the user put in a playlist stays what it was.
+            let moved = me.db.get_setting("music_videos").as_deref() == Some("true")
+                && me.apply_version_preference().await;
+            if !moved {
+                me.emit_queue().await;
+            }
+        });
+    }
+
+    fn emit_now_playing(&self, item: &SongItem, stream_client: &str, live: bool) {
+        self.emit_own("now-playing", Self::now_playing_json(item, stream_client, live));
+        self.emit_own("playback-state", "playing");
+        // Push the same metadata to the OS media widget (context/16) and Discord. The widget keeps
+        // showing a linked device's song while the windows do.
+        if !self.showing_remote() {
+            self.media_show(item);
         }
         if let Some(d) = &self.discord {
             d.set_track(item);
@@ -2612,11 +2827,33 @@ impl AppState {
         self.last_media_push.store(0, Ordering::Relaxed);
     }
 
+    /// The OS media widget's track (context/16).
+    fn media_show(&self, item: &SongItem) {
+        if let Some(m) = &self.media {
+            // MPRIS/SMTC want a URL; a local track's artwork is a path, so hand it a file:// one.
+            // Scheme, not leading slash: a Windows cover path is `C:\...`, and SMTC drops the whole
+            // metadata update (cover included) when the thumbnail URI won't parse.
+            let cover = item.thumbnail.as_ref().map(|t| {
+                if t.contains("://") {
+                    crate::media::cover_url(t)
+                } else {
+                    format!("file://{t}")
+                }
+            });
+            m.set_metadata(&item.title, &item.artists, item.album.as_deref(), cover.as_deref());
+        }
+    }
+
     /// Push the volume to MPRIS (#220). Called after every change, wherever it came from.
     pub fn media_set_volume(&self, volume: i64) {
         if let Some(m) = &self.media {
             m.set_volume(volume);
         }
+        // Every volume change lands here (slider, hotkeys, MPRIS, a remote): the link's player
+        // reports it, so the phone's slider follows.
+        let mut v = Playback::new(PlaybackKind::SetVolume);
+        v.volume = volume as f64 / 100.0;
+        self.link.publish(v);
     }
 
     pub async fn set_playback_params(
@@ -2649,10 +2886,12 @@ impl AppState {
         Ok(())
     }
 
-    async fn reset_room_tempo(&self) -> Result<(), String> {
+    /// Back to 1x in a listening room, or for a broadcast (`live`, #424): played faster, a live
+    /// stream catches up with its own live edge within seconds and stalls on every segment.
+    async fn reset_tempo(&self, live: bool) -> Result<(), String> {
         let _effects = self.playback_effects.lock().await;
         let (speed, semitones, reverb) = self.player.playback_params();
-        if self.lt.in_room().await && speed != 1.0 {
+        if speed != 1.0 && (live || self.lt.in_room().await) {
             self.apply_playback_params(1.0, semitones, reverb).await?;
         }
         Ok(())
@@ -2722,6 +2961,15 @@ impl AppState {
     /// Advance/rewind the queue (OS "next"/"previous" keys + the UI's skip buttons). `play_index`
     /// itself no-ops for guests.
     pub async fn next_in_queue(self: &std::sync::Arc<Self>) {
+        if self.link_route(|_| Some(RemoteAction::Next)) {
+            return;
+        }
+        self.next_in_queue_local().await;
+    }
+
+    /// [`Self::next_in_queue`] on this desktop's own queue, never sent to a linked device: for
+    /// callers that mean the queue here, not whatever the player bar shows.
+    async fn next_in_queue_local(self: &std::sync::Arc<Self>) {
         let i = {
             let q = self.queue.lock().await;
             // Manual next escapes a repeat-one loop (the next track then loops too), so treat One
@@ -2750,6 +2998,9 @@ impl AppState {
     /// earlier track means pressing it again from the top. Guests fall through to `play_index`,
     /// which is where they get the host-only hint.
     pub async fn prev_in_queue(self: &std::sync::Arc<Self>) {
+        if self.link_route(|_| Some(RemoteAction::Previous)) {
+            return;
+        }
         if self.current_position() > PREV_REWIND_SECS && !self.lt.is_guest().await {
             let _ = self.user_seek(0.0).await;
             return;
@@ -2823,6 +3074,7 @@ impl AppState {
                 // The playing row, so `start_current`'s duration/artists backfill still reaches
                 // the panel without shipping the other 4,999 rows to carry it.
                 "current": q.items.get(q.current),
+                "autoplay": self.autoplay_enabled(),
             })
         } else {
             serde_json::json!({
@@ -2833,9 +3085,13 @@ impl AppState {
                 "sourceName": &q.source_name,
                 "sourceId": &q.source_id,
                 "prevTrack": prev_track_title(&q),
+                "autoplay": self.autoplay_enabled(),
             })
         };
-        let _ = self.app.emit(if unchanged { "queue-index" } else { "queue-changed" }, payload);
+        self.emit_own(if unchanged { "queue-index" } else { "queue-changed" }, payload);
+        if self.link.linked() {
+            self.link.publish_status(link_status(&q, self.autoplay_enabled()));
+        }
     }
 
     /// A pure tail append: ship the added rows, not the whole list.
@@ -2856,7 +3112,10 @@ impl AppState {
         // Load-bearing: without it the next `emit_queue` thinks the rows are unchanged and sends a
         // `queue-index` for a list that grew, leaving the panel stale.
         self.last_queue_fingerprint.store(queue_fingerprint(&q.items), Ordering::Relaxed);
-        let _ = self.app.emit("queue-appended", payload);
+        self.emit_own("queue-appended", payload);
+        if self.link.linked() {
+            self.link.publish_status(link_status(&q, self.autoplay_enabled()));
+        }
     }
 
     fn emit_error(&self, video_id: &str, message: &str) {
@@ -2893,6 +3152,9 @@ impl AppState {
     }
 
     pub async fn queue_snapshot(&self) -> serde_json::Value {
+        if let Some(v) = self.link.remote_view().filter(|_| self.showing_remote()) {
+            return remote_queue_json(&v);
+        }
         let q = self.queue.lock().await;
         serde_json::json!({
             "items": &q.items,
@@ -2902,6 +3164,7 @@ impl AppState {
             "sourceName": &q.source_name,
             "sourceId": &q.source_id,
             "prevTrack": prev_track_title(&q),
+            "autoplay": self.autoplay_enabled(),
         })
     }
 
@@ -3259,8 +3522,10 @@ impl AppState {
                 repeat = r;
             }
         }
+        let live = self.db.get_setting("live_video").as_deref() == Some(&items[current].video_id);
         let pos = self.db.get_setting("queue_position").and_then(|s| s.parse::<f64>().ok());
-        if let Some(p) = pos.filter(|p| *p > 0.0) {
+        // A broadcast resumes at its live edge, so its saved position means nothing.
+        if let Some(p) = pos.filter(|p| *p > 0.0 && !live) {
             *self.pending_seek.lock().unwrap() = Some((items[current].video_id.clone(), p));
             // Also what the seekbar shows, and what an exit before the first play saves back.
             // Left at 0, quitting without pressing play overwrote the saved position (#502).
@@ -3276,6 +3541,7 @@ impl AppState {
             q.source_name = source_name;
             q.source_id = source_id;
             q.radio = radio;
+            q.live = live;
         }
         if repeat == RepeatMode::One {
             let _ = self.player.set_loop_file(true);
@@ -3286,17 +3552,15 @@ impl AppState {
             // announced before this would briefly look like it was playing (and put a presence card
             // up for a song nobody started).
             self.media_set_playing(false);
-            self.emit_now_playing(&item, "restored");
+            self.emit_now_playing(&item, "restored", live);
             // The stored rating is as old as the database: a like made on another device since
             // has never been seen here (issue #93).
             self.refresh_from_next(&item.video_id, self.generation.load(Ordering::SeqCst));
-            let _ = self.app.emit("playback-state", "paused");
+            self.emit_own("playback-state", "paused");
             // mpv has nothing loaded until play, so it reports neither: the bar gets the saved
             // position and the row's own length from here.
-            let _ = self
-                .app
-                .emit("position", serde_json::json!({ "position": self.current_position() }));
-            let _ = self.app.emit("duration", serde_json::json!({ "duration": row_secs(&item) }));
+            self.emit_own("position", serde_json::json!({ "position": self.current_position() }));
+            self.emit_own("duration", serde_json::json!({ "duration": row_secs(&item) }));
         }
         self.emit_queue().await;
     }
@@ -3318,7 +3582,9 @@ impl AppState {
         if !crate::local::is_local_song(&item.video_id) && !crate::http::wait_for_network().await {
             return;
         }
-        if !enabled() || !self.player.is_idle() || self.lt.is_guest().await {
+        // A linked phone already playing keeps the music; routed, this index would land on its queue.
+        if !enabled() || !self.player.is_idle() || self.showing_remote() || self.lt.is_guest().await
+        {
             return;
         }
         let current = self.queue.lock().await.current;
@@ -3448,7 +3714,7 @@ impl AppState {
     pub async fn apply_sync(self: &std::sync::Arc<Self>, cmd: SyncCommand) {
         // Membership has already changed. Finish any earlier effect request, restore the shared
         // clock, then seed/apply playback. Later non-1x commands recheck membership under the lock.
-        if let Err(error) = self.reset_room_tempo().await {
+        if let Err(error) = self.reset_tempo(false).await {
             let _ = self.player.pause();
             self.emit_error("", &format!("Could not restore shared playback tempo: {error}"));
             return;
@@ -3585,6 +3851,7 @@ impl AppState {
             &data.headers,
             self.track_gain(data.loudness_db),
             (pos > 0.5).then_some(pos),
+            data.live,
         ) {
             self.emit_error(&track.id, &e.to_string());
             return;
@@ -3605,6 +3872,7 @@ impl AppState {
             self.history_pinged.store(false, Ordering::Relaxed);
             self.end_listen();
             q.duration = 0.0;
+            q.live = data.live;
             // The wire row carries neither flag, so this guest's own `/player` reply sets them, as
             // `start_current` does: the music video and the podcast controls (#500).
             let cur = q.current;
@@ -3619,13 +3887,13 @@ impl AppState {
             }
         }
         if let Some(item) = self.current_item().await {
-            self.emit_now_playing(&item, "listen-together");
+            self.emit_now_playing(&item, "listen-together", data.live);
             // `&self` here, and the attach outlives it: the managed Arc is the same state.
             let st = tauri::Manager::state::<Arc<AppState>>(&self.app).inner().clone();
             st.attach_video(&item.video_id, item.is_video, &stream_url);
         }
         if !playing {
-            let _ = self.app.emit("playback-state", "paused");
+            self.emit_own("playback-state", "paused");
         }
         self.emit_queue().await;
         // The elapsed-compensation above still can't see mpv's own decode/buffer startup. Fire one
@@ -3638,6 +3906,9 @@ impl AppState {
                 lt.request_sync().await;
             });
         }
+        // A guest may still be the device link's player: what it plays is published there (the
+        // Listen Together half of this no-ops for a guest).
+        self.lt_broadcast_current_track(target_ms, playing).await;
         // Resolve the host's next track now, into the URL cache, so its ChangeTrack only has to
         // load it. A guest never primes (the host decides what is next), so without this every
         // track change waited on a full resolve, a gap of a second or more the host doesn't have.
@@ -3675,25 +3946,77 @@ impl AppState {
         let _ = self.player.pause();
     }
 
-    /// Host: broadcast the current track + upcoming queue as a ChangeTrack. No-op unless host.
+    /// Broadcast the current track + upcoming queue as a ChangeTrack: to the device link (through
+    /// its send rule) and, when hosting, to the Listen Together room.
     async fn lt_broadcast_current_track(&self, position_ms: i64, playing: bool) {
-        if !self.lt.is_host().await {
+        let lt_host = self.lt.is_host().await;
+        if !lt_host && !self.link.linked() {
             return;
         }
-        let (track, queue) = {
-            let q = self.queue.lock().await;
-            let Some(cur) = q.items.get(q.current) else { return };
-            let track = song_to_track(cur);
-            let queue: Vec<Track> =
-                q.items.iter().skip(q.current + 1).take(50).map(song_to_track).collect();
-            (track, queue)
-        };
-        let mut p = Playback::new(PlaybackKind::ChangeTrack);
+        let Some(p) = self.current_change_track(position_ms, playing).await else { return };
+        if self.link.publish(p.clone()) == Publish::Sent {
+            self.link_publish_volume();
+            self.link_publish_status().await;
+        }
+        if lt_host {
+            self.lt.broadcast_playback(p).await;
+        }
+    }
+
+    /// The current track and up to 50 upcoming ones as a ChangeTrack.
+    async fn current_change_track(&self, position_ms: i64, playing: bool) -> Option<Playback> {
+        let q = self.queue.lock().await;
+        let cur = q.items.get(q.current)?;
+        let mut p = Playback::at(PlaybackKind::ChangeTrack, position_ms);
+        let mut track = song_to_track(cur);
+        // A row from a card or autoplay can lack a length that mpv already knows.
+        if track.duration_ms == 0 && q.duration > 0.0 {
+            track.duration_ms = (q.duration * 1000.0) as i64;
+        }
         p.track = Some(track);
-        p.position_ms = position_ms;
+        p.queue = Some(q.items.iter().skip(q.current + 1).take(50).map(song_to_track).collect());
         p.playing = playing;
-        p.queue = Some(queue);
-        self.lt.broadcast_playback(p).await;
+        Some(p)
+    }
+
+    /// Device link: publish through the send rule. A resume on a device that isn't the player
+    /// becomes a takeover, a ChangeTrack built from what we are playing.
+    async fn link_publish(&self, p: Playback) {
+        if self.link.publish(p.clone()) == Publish::Takeover {
+            if let Some(ct) = self.current_change_track(p.position_ms, true).await {
+                self.link.publish(ct);
+                self.link_publish_volume();
+                self.link_publish_status().await;
+            }
+        }
+    }
+
+    /// Our queue for the other devices' player views. The session sends it only while we are the
+    /// player, and only when it changed.
+    async fn link_publish_status(&self) {
+        if self.link.linked() {
+            self.link
+                .publish_status(link_status(&*self.queue.lock().await, self.autoplay_enabled()));
+        }
+    }
+
+    /// A row named by a remote: `index` in our whole queue, unless the queue moved since the
+    /// remote looked and another row holds `id` now. Then the nearest row with `id`, if any.
+    async fn link_row(&self, index: usize, id: &str) -> Option<usize> {
+        let q = self.queue.lock().await;
+        let at = |i: usize| q.items.get(i).map(|s| s.video_id.as_str());
+        // A local file crosses the wire without its id: only its place names it.
+        if at(index).is_some_and(|v| v == id || (id.is_empty() && crate::local::is_local_song(v))) {
+            return Some(index);
+        }
+        (!id.is_empty()).then(|| q.items.iter().position(|s| s.video_id == id)).flatten()
+    }
+
+    /// The remote's volume slider starts from what the player last said.
+    fn link_publish_volume(&self) {
+        let mut v = Playback::new(PlaybackKind::SetVolume);
+        v.volume = self.player.volume() as f64 / 100.0;
+        self.link.publish(v);
     }
 
     /// Put the user's crossfade setting on the player, unless we are in a Listen Together room.
@@ -3722,10 +4045,12 @@ impl AppState {
         self.lt_broadcast_current_track(position_ms, playing).await;
     }
 
-    /// Host: broadcast play/pause with the live position. Called on a pause press (the pump's
-    /// `Paused` arm) and when the queue runs out, never on a track change. No-op unless host.
+    /// Broadcast play/pause with the live position. Called on a pause press (the pump's `Paused`
+    /// arm) and when the queue runs out, never on a track change. Goes to the device link, and to
+    /// the Listen Together room when hosting.
     pub async fn lt_on_play_state(&self, playing: bool) {
-        if !self.lt.is_host().await {
+        let lt_host = self.lt.is_host().await;
+        if !lt_host && !self.link.linked() {
             return;
         }
         let pos_ms = (self.current_position() * 1000.0) as i64;
@@ -3736,11 +4061,21 @@ impl AppState {
         } else {
             Playback::at(PlaybackKind::Pause, pos_ms)
         };
-        self.lt.broadcast_playback(p).await;
+        self.link_publish(p.clone()).await;
+        if lt_host {
+            self.lt.broadcast_playback(p).await;
+        }
     }
 
     /// User seek from the UI. Blocked for guests; broadcast for host.
     pub async fn user_seek(&self, position: f64) -> Result<(), String> {
+        let position_ms = (position.max(0.0) * 1000.0) as i64;
+        if self.link_route(|_| Some(RemoteAction::Seek { position_ms })) {
+            *self.remote_hold.lock().unwrap() =
+                Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+            let _ = self.app.emit("position", serde_json::json!({ "position": position.max(0.0) }));
+            return Ok(());
+        }
         if self.lt.is_guest().await {
             return Ok(()); // guests can't scrub — the host controls the timeline
         }
@@ -3754,10 +4089,10 @@ impl AppState {
             return Ok(());
         }
         self.player.seek(position).map_err(|e| e.to_string())?;
+        let p = Playback::at(PlaybackKind::Seek, (position * 1000.0) as i64);
+        self.link.publish(p.clone());
         if self.lt.is_host().await {
-            self.lt
-                .broadcast_playback(Playback::at(PlaybackKind::Seek, (position * 1000.0) as i64))
-                .await;
+            self.lt.broadcast_playback(p).await;
         }
         Ok(())
     }
@@ -3768,6 +4103,11 @@ impl AppState {
     /// ponytail: OFF restores from the snapshot — tracks added while shuffled are dropped from the
     /// restored order (still playing/played fine; snapshot semantics).
     pub async fn toggle_shuffle(self: &std::sync::Arc<Self>) {
+        if self.link_route(|v| {
+            Some(RemoteAction::SetShuffle { on: !v.status.as_ref().is_some_and(|s| s.shuffle) })
+        }) {
+            return;
+        }
         if self.lt.is_guest().await {
             self.emit_guest_hint();
             return;
@@ -3814,6 +4154,12 @@ impl AppState {
     /// Set the repeat mode. Repeat-one is enforced by mpv's `loop-file` (seamless, no end-file
     /// event); all/off live in the queue-advance logic (`next_index`). Guests: host-only hint.
     pub async fn set_repeat(self: &std::sync::Arc<Self>, mode: RepeatMode) {
+        if self.link_route(|_| {
+            let mode = serde_json::to_value(mode).ok()?.as_str()?.to_string();
+            Some(RemoteAction::SetRepeat { mode })
+        }) {
+            return;
+        }
         self.update_repeat(|_| mode).await;
     }
 
@@ -3883,6 +4229,19 @@ impl AppState {
         continuation: Option<String>,
     ) {
         if items.is_empty() {
+            return;
+        }
+        if self.link_route(|_| {
+            let (tracks, _) = remote_list(&items, None);
+            let from = from.clone();
+            (!tracks.is_empty()).then(|| {
+                if next {
+                    RemoteAction::PlayNext { tracks, from }
+                } else {
+                    RemoteAction::AddToQueue { tracks, from }
+                }
+            })
+        }) {
             return;
         }
         if self.lt.is_guest().await {
@@ -4040,6 +4399,18 @@ impl AppState {
     /// editing outside a session). The currently playing index can't be removed; guests can't
     /// remove anything (add-only).
     pub async fn remove_from_queue(self: &std::sync::Arc<Self>, index: usize) {
+        if self.link_route(|v| {
+            remote_row(v, index).map(|(index, id)| RemoteAction::Remove { index, id })
+        }) {
+            return;
+        }
+        self.remove_from_queue_local(index).await;
+    }
+
+    /// [`Self::remove_from_queue`] on this desktop's own queue, never sent to a linked device. A
+    /// failed lookahead and a blocked artist name a row here; routed, the index would land on
+    /// whatever row of the phone's queue has it.
+    async fn remove_from_queue_local(self: &std::sync::Arc<Self>, index: usize) {
         if self.lt.is_guest().await {
             return;
         }
@@ -4048,7 +4419,7 @@ impl AppState {
             if index >= q.items.len() || index == q.current {
                 return;
             }
-            q.items.remove(index);
+            q.remove_row(index);
             if index < q.current {
                 q.current -= 1;
             }
@@ -4101,11 +4472,11 @@ impl AppState {
         };
         // Descending: every removal shifts everything after it.
         for i in upcoming.iter().rev() {
-            self.remove_from_queue(*i).await;
+            self.remove_from_queue_local(*i).await;
         }
         // After the purge, so the skip cannot land on another blocked track.
         if playing_blocked && !self.player.is_idle() {
-            self.next_in_queue().await;
+            self.next_in_queue_local().await;
             // The purge can empty the tail: with repeat off and autoplay dead there is nothing to
             // advance into, and `next_in_queue` leaves the blocked track playing. Pausing is the
             // honest end of a queue that now holds nobody the user still wants to hear.
@@ -4135,6 +4506,12 @@ impl AppState {
     /// a playlist track, so Clear queue leaves it. Adopt-the-block-you-land-in only if that reads
     /// wrong in practice.
     pub async fn move_in_queue(self: &std::sync::Arc<Self>, from: usize, to: usize) {
+        if self.link_route(|v| {
+            let offset = v.status.as_ref()?.offset;
+            Some(RemoteAction::Move { from: offset + from, to: offset + to })
+        }) {
+            return;
+        }
         if self.lt.is_guest().await {
             return;
         }
@@ -4176,6 +4553,9 @@ impl AppState {
     /// Remove every upcoming track the user queued by hand, both "Play next" and "Add to queue"
     /// (the panel's Clear queue). Played/playing items and the playlist context stay.
     pub async fn clear_queued(self: &std::sync::Arc<Self>) {
+        if self.link_route(|_| Some(RemoteAction::ClearQueued)) {
+            return;
+        }
         self.drop_upcoming(|item| item.queued || item.queued_end).await;
     }
 
@@ -4189,6 +4569,9 @@ impl AppState {
         } else {
             self.drop_upcoming(|item| item.autoplay).await;
         }
+        // The switch's own state, even when no row came or went: the queue panels and a linked
+        // phone show it.
+        self.emit_queue().await;
     }
 
     /// Remove every upcoming track `pick` matches. Guests: add-only, no clearing.
@@ -4213,10 +4596,11 @@ impl AppState {
         self.lt_broadcast_queue().await;
     }
 
-    /// Host: broadcast the upcoming queue (everything after current) to the room. No-op for
-    /// non-hosts (`broadcast_playback` gates on role).
+    /// Broadcast the upcoming queue (everything after current) to the device link and, when
+    /// hosting, to the Listen Together room.
     async fn lt_broadcast_queue(&self) {
-        if !self.lt.is_host().await {
+        let lt_host = self.lt.is_host().await;
+        if !lt_host && !self.link.linked() {
             return;
         }
         let queue: Vec<Track> = {
@@ -4225,7 +4609,278 @@ impl AppState {
         };
         let mut p = Playback::new(PlaybackKind::SyncQueue);
         p.queue = Some(queue);
-        self.lt.broadcast_playback(p).await;
+        self.link.publish(p.clone());
+        if lt_host {
+            self.lt.broadcast_playback(p).await;
+        }
+    }
+
+    // --- Device link (crate::devicelink) ------------------------------------------------------
+
+    /// Apply what the link asks of the player. Remote actions take the same paths as the OS media
+    /// keys (`media::handle_event`), so a Listen Together guest's locks still hold.
+    pub async fn apply_link(self: &std::sync::Arc<Self>, cmd: LinkCommand) {
+        match cmd {
+            LinkCommand::Remote(action) => match action {
+                // Resume, not toggle: a play that crossed a pause on the wire must not pause.
+                RemoteAction::Play => {
+                    if !self.is_playing.load(Ordering::Relaxed) {
+                        self.resume_or_toggle().await;
+                    }
+                }
+                RemoteAction::Pause => {
+                    let _ = self.player.pause();
+                }
+                RemoteAction::Next => self.next_in_queue_local().await,
+                RemoteAction::Previous => self.prev_in_queue().await,
+                RemoteAction::Seek { position_ms } => {
+                    let _ = self.user_seek(position_ms.max(0) as f64 / 1000.0).await;
+                }
+                RemoteAction::SetVolume { volume } => {
+                    let v = (volume.clamp(0.0, 1.0) * 100.0).round() as i64;
+                    crate::hotkeys::change_volume(self, &self.app, |_| v);
+                }
+                RemoteAction::PlayTrack { track } => {
+                    if crate::listentogether::shareable(&track) {
+                        self.play_song(track_to_song(&track)).await;
+                    }
+                }
+                RemoteAction::PlayTracks { tracks, start, source_id, source_name, shuffle } => {
+                    let (items, start) = linkable_songs(&tracks, start);
+                    self.play_tracks(items, start, source_id, source_name, shuffle, None).await;
+                }
+                RemoteAction::PlayIndex { index, id } => {
+                    if let Some(i) = self.link_row(index, &id).await {
+                        self.play_index(i).await;
+                    }
+                }
+                RemoteAction::Remove { index, id } => {
+                    if let Some(i) = self.link_row(index, &id).await {
+                        self.remove_from_queue_local(i).await;
+                    }
+                }
+                RemoteAction::Move { from, to } => self.move_in_queue(from, to).await,
+                RemoteAction::PlayNext { tracks, from } => {
+                    self.play_next(linkable_songs(&tracks, None).0, from).await
+                }
+                RemoteAction::AddToQueue { tracks, from } => {
+                    self.add_to_queue(linkable_songs(&tracks, None).0, from, None).await
+                }
+                RemoteAction::ClearQueued => self.clear_queued().await,
+                RemoteAction::SetShuffle { on } => {
+                    let shuffled = self.queue.lock().await.shuffle_orig.is_some();
+                    if shuffled != on {
+                        self.toggle_shuffle().await;
+                    }
+                }
+                RemoteAction::SetRepeat { mode } => {
+                    if let Ok(mode) = serde_json::from_value(serde_json::Value::String(mode)) {
+                        self.set_repeat(mode).await;
+                    }
+                }
+                RemoteAction::SetAutoplay { on } => {
+                    self.db.set_setting("autoplay", if on { "true" } else { "false" });
+                    self.autoplay_changed(on).await;
+                }
+                // The session only hands this over when we aren't the player.
+                RemoteAction::TakeOver => {}
+            },
+            LinkCommand::TakeOver => self.link_continue_here().await,
+            LinkCommand::Changed => self.link_remote_refresh().await,
+            LinkCommand::HostLost => {
+                if self.is_playing.load(Ordering::Relaxed) {
+                    let _ = self.player.pause();
+                }
+            }
+            LinkCommand::Republish => {
+                if self.is_playing.load(Ordering::Relaxed) {
+                    let pos_ms = (self.current_position() * 1000.0) as i64;
+                    if let Some(p) = self.current_change_track(pos_ms, true).await {
+                        self.link.publish(p);
+                        self.link_publish_volume();
+                        self.link_publish_status().await;
+                    }
+                }
+            }
+        }
+    }
+
+    // --- Showing another device (Spotify Connect style) ---------------------------------------
+
+    /// Show another linked device's playback in the windows, or stop. It is shown while that device
+    /// is the player, online and recent (`LinkSession::remote_view`) and nothing plays here. Runs on
+    /// every link change and every play/pause here.
+    pub async fn link_remote_refresh(self: &std::sync::Arc<Self>) {
+        let view =
+            if self.is_playing.load(Ordering::Relaxed) { None } else { self.link.remote_view() };
+        match view {
+            Some(v) => {
+                let first = !self.remote_on.swap(true, Ordering::SeqCst);
+                if first {
+                    self.link.set_showing_remote(true);
+                    self.spawn_remote_ticker();
+                }
+                self.emit_remote(&v, first);
+            }
+            None => {
+                if self.remote_on.swap(false, Ordering::SeqCst) {
+                    self.link.set_showing_remote(false);
+                    self.emit_own_playback().await;
+                }
+            }
+        }
+    }
+
+    pub(crate) fn showing_remote(&self) -> bool {
+        self.remote_on.load(Ordering::SeqCst)
+    }
+
+    /// The windows' playback events from this desktop's own player. Quiet while they show another
+    /// device's, which `emit_remote` sends instead.
+    fn emit_own<S: serde::Serialize + Clone>(&self, event: &str, payload: S) {
+        if !self.showing_remote() {
+            let _ = self.app.emit(event, payload);
+        }
+    }
+
+    /// The other device's position four times a second while it plays, as mpv's ticks would be.
+    fn spawn_remote_ticker(self: &std::sync::Arc<Self>) {
+        let gen = self.remote_gen.fetch_add(1, Ordering::SeqCst) + 1;
+        let me = self.clone();
+        tauri::async_runtime::spawn(async move {
+            while me.showing_remote() && me.remote_gen.load(Ordering::SeqCst) == gen {
+                let now = std::time::Instant::now();
+                let held = me.remote_hold.lock().unwrap().is_some_and(|t| t > now);
+                if let Some(v) = me.link.remote_view().filter(|v| v.playing && !held) {
+                    let position = v.position_ms as f64 / 1000.0;
+                    let _ = me.app.emit("position", serde_json::json!({ "position": position }));
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            }
+        });
+    }
+
+    /// The other device's playback, through the events the windows already follow. `all` sends
+    /// everything; otherwise the track and queue only when they changed.
+    fn emit_remote(&self, v: &RemoteView, all: bool) {
+        let queue = remote_queue_json(v);
+        let sig = queue.to_string();
+        let duration_ms = remote_duration_ms(v);
+        let key = format!("{}:{duration_ms}", v.track.id);
+        let mut sent = self.remote_sent.lock().unwrap();
+        if all || sent.0 != key {
+            let mut song = track_to_song(&v.track);
+            if duration_ms > 0 {
+                song.duration = Some(format_duration(duration_ms));
+            }
+            let now = Self::now_playing_json(&song, "remote", false);
+            let _ = self.app.emit("now-playing", now);
+            let duration = duration_ms as f64 / 1000.0;
+            let _ = self.app.emit("duration", serde_json::json!({ "duration": duration }));
+            // The OS widget too: its keys already reach the other device (`link_route`).
+            self.media_show(&song);
+            if let Some(m) = &self.media {
+                m.set_duration(duration, 1.0);
+            }
+            sent.0 = key;
+        }
+        if all || sent.1 != sig {
+            let _ = self.app.emit("queue-changed", queue);
+            sent.1 = sig;
+        }
+        let _ = self.app.emit("playback-state", if v.playing { "playing" } else { "paused" });
+        let position = v.position_ms as f64 / 1000.0;
+        let _ = self.app.emit("position", serde_json::json!({ "position": position }));
+        if let Some(m) = &self.media {
+            m.set_playback(v.playing, position, 1.0);
+        }
+    }
+
+    /// Back from showing another device: the windows get this desktop's own playback again.
+    async fn emit_own_playback(&self) {
+        *self.remote_sent.lock().unwrap() = Default::default();
+        let snap = self.playback_snapshot().await;
+        let paused = snap["paused"].as_bool().unwrap_or(true);
+        let _ = self.app.emit("now-playing", &snap["now"]);
+        let _ = self.app.emit("playback-state", if paused { "paused" } else { "playing" });
+        let _ = self.app.emit("position", serde_json::json!({ "position": snap["position"] }));
+        let _ = self.app.emit("duration", serde_json::json!({ "duration": snap["duration"] }));
+        // The windows hold the other device's rows: send ours whole, not just the index.
+        self.last_queue_fingerprint.store(0, Ordering::Relaxed);
+        self.emit_queue().await;
+        // And the OS widget its own track back.
+        if let Some(item) = self.current_item().await {
+            self.media_show(&item);
+        }
+        if let Some(m) = &self.media {
+            let speed = self.player.speed();
+            m.set_duration(snap["duration"].as_f64().unwrap_or(0.0), speed);
+            m.set_playback(!paused, self.current_position(), speed);
+        }
+    }
+
+    /// While the windows show another device, playback goes there: `action` picks what to send
+    /// (nothing, for what it can't do). True when the call was the other device's.
+    fn link_route(&self, action: impl FnOnce(&RemoteView) -> Option<RemoteAction>) -> bool {
+        if !self.showing_remote() {
+            return false;
+        }
+        let Some(v) = self.link.remote_view() else { return false };
+        if let Some(a) = action(&v) {
+            self.link.remote(a, None);
+        }
+        true
+    }
+
+    /// The device picker: play on `device_id`, or on this desktop when it is empty.
+    pub async fn link_play_on(self: &std::sync::Arc<Self>, device_id: String) {
+        if device_id.is_empty() {
+            self.link_continue_here().await;
+        } else if self.link.player_id().as_deref() == Some(device_id.as_str()) {
+            // It played last: it picks its own song up again.
+            self.link.remote(RemoteAction::Play, None);
+        } else {
+            // What plays here moves there, where it is.
+            self.link.remote(RemoteAction::TakeOver, Some(device_id));
+        }
+    }
+
+    /// Continue here: play what another linked device is playing, from where it is now, with its
+    /// upcoming queue. A normal queue from then on (autoplay, history, Previous's context), unlike
+    /// a Listen Together guest's. Starting it is the takeover that pauses the other device.
+    pub async fn link_continue_here(self: &std::sync::Arc<Self>) {
+        if self.lt.is_guest().await {
+            self.emit_guest_hint();
+            return;
+        }
+        let Some((track, _, _)) = self.link.handoff() else { return };
+        // Resolve first, into the URL cache, while the other device keeps playing: the load below
+        // is then quick, and the position read after it is where the music is now.
+        if let Err(e) = self.resolve(&track.id, false, track.duration_ms / 1000).await {
+            self.emit_error(&track.id, &e.to_string());
+            return;
+        }
+        let Some((track, upcoming, position_ms)) = self.link.handoff() else { return };
+        let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let position = self.current_position();
+        {
+            let mut q = self.queue.lock().await;
+            q.keep_context(position);
+            q.items = std::iter::once(&track).chain(&upcoming).map(track_to_song).collect();
+            q.epoch += 1;
+            q.current = 0;
+            q.lookahead_loaded = None;
+            q.radio_seed = None; // autoplay carries on from the last track, as after play_song
+            q.source_id = None;
+            q.source_name = None;
+            q.radio = false;
+            q.hydrating = None;
+            q.shuffle_orig = None;
+        }
+        *self.pending_seek.lock().unwrap() = Some((track.id.clone(), position_ms as f64 / 1000.0));
+        if self.start_current(gen).await {
+            self.prime_lookahead(gen).await;
+        }
     }
 
     /// Guest: mirror the host's upcoming queue into the local one (everything after current), so
@@ -4250,6 +4905,147 @@ pub(crate) fn song_to_track(s: &SongItem) -> Track {
         duration_ms: parse_duration_ms(s.duration.as_deref()),
         queued_by: s.queued_by.clone(),
     }
+}
+
+/// Rows of history and of what's coming that a linked device's queue view gets. ponytail: a
+/// window, not the queue; a 5,000-track queue would blow the server's status cap. A remote that
+/// scrolls past the window sees where it ends.
+const LINK_HISTORY: usize = 20;
+const LINK_UPCOMING: usize = 100;
+
+/// The queue around the playing track, for the linked devices (`devicelink::publish_status`).
+fn link_status(q: &QueueState, autoplay: bool) -> listen_protocol::LinkStatus {
+    let start = q.current.saturating_sub(LINK_HISTORY).min(q.items.len());
+    let end = (q.current + 1 + LINK_UPCOMING).min(q.items.len());
+    listen_protocol::LinkStatus {
+        items: q.items[start..end]
+            .iter()
+            .map(|s| listen_protocol::LinkItem {
+                track: song_to_track(s),
+                queued: s.queued,
+                queued_end: s.queued_end,
+                queued_from: s.queued_from.clone(),
+                autoplay: s.autoplay,
+            })
+            .collect(),
+        offset: start,
+        current: q.current.saturating_sub(start),
+        shuffle: q.shuffle_orig.is_some(),
+        repeat: serde_json::to_value(q.repeat)
+            .ok()
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default(),
+        source: q.source_name.clone(),
+        autoplay: Some(autoplay),
+    }
+}
+
+/// Another device's queue as the queue panel takes it (`emit_queue`'s shape): its own, or until it
+/// sends one, its track and the room's upcoming ones.
+fn remote_queue_json(v: &RemoteView) -> serde_json::Value {
+    let (items, current, shuffle, repeat, source): (
+        Vec<SongItem>,
+        usize,
+        bool,
+        &str,
+        Option<&str>,
+    ) = match &v.status {
+        Some(s) if !s.items.is_empty() => (
+            s.items
+                .iter()
+                .map(|i| SongItem {
+                    queued: i.queued,
+                    queued_end: i.queued_end,
+                    queued_from: i.queued_from.clone(),
+                    autoplay: i.autoplay,
+                    ..track_to_song(&i.track)
+                })
+                .collect(),
+            s.current.min(s.items.len() - 1),
+            s.shuffle,
+            s.repeat.as_str(),
+            s.source.as_deref(),
+        ),
+        _ => (
+            std::iter::once(&v.track).chain(&v.upcoming).map(track_to_song).collect(),
+            0,
+            false,
+            "off",
+            None,
+        ),
+    };
+    serde_json::json!({
+        "items": items,
+        "currentIndex": current,
+        "shuffle": shuffle,
+        "repeat": repeat,
+        "sourceName": source,
+        "sourceId": null,
+        "prevTrack": null,
+        "autoplay": v.status.as_ref().and_then(|s| s.autoplay),
+    })
+}
+
+/// The other device's track length: what it announced, or when it announced none (the track had
+/// only just started there), the playing row of the queue it sent since.
+fn remote_duration_ms(v: &RemoteView) -> i64 {
+    if v.track.duration_ms > 0 {
+        return v.track.duration_ms;
+    }
+    v.status
+        .as_ref()
+        .and_then(|s| s.items.get(s.current))
+        .filter(|i| i.track.id == v.track.id)
+        .map_or(0, |i| i.track.duration_ms)
+}
+
+/// Queue row `index` of what the windows show of another device: its place in that device's
+/// queue, and its id. None until the device has sent where its rows are.
+fn remote_row(v: &RemoteView, index: usize) -> Option<(usize, String)> {
+    let s = v.status.as_ref()?;
+    Some((s.offset + index, s.items.get(index)?.track.id.clone()))
+}
+
+/// A list for another device: its YouTube rows (local files can't play there), at most
+/// `REMOTE_LIST` around the tapped one, which keeps its place. ponytail: the window, not a huge
+/// playlist; the server's message cap is 256 KiB.
+fn remote_list(items: &[SongItem], start: Option<usize>) -> (Vec<Track>, Option<usize>) {
+    const REMOTE_LIST: usize = 500;
+    let mut tracks = Vec::new();
+    let mut at = None;
+    for (i, s) in items.iter().enumerate() {
+        let t = song_to_track(s);
+        if !crate::listentogether::shareable(&t) {
+            continue;
+        }
+        if start == Some(i) {
+            at = Some(tracks.len());
+        }
+        tracks.push(t);
+    }
+    let from = at
+        .unwrap_or(0)
+        .saturating_sub(REMOTE_LIST / 2)
+        .min(tracks.len().saturating_sub(REMOTE_LIST));
+    let end = (from + REMOTE_LIST).min(tracks.len());
+    (tracks[from..end].to_vec(), at.map(|a| a - from))
+}
+
+/// A remote's list as queue rows, with its tapped row's index kept on the same track. Only
+/// YouTube ids can be played here; anything else is dropped on the way.
+fn linkable_songs(tracks: &[Track], start: Option<usize>) -> (Vec<SongItem>, Option<usize>) {
+    let mut out = Vec::with_capacity(tracks.len());
+    let mut at = None;
+    for (i, t) in tracks.iter().enumerate() {
+        if !crate::listentogether::shareable(t) {
+            continue;
+        }
+        if start == Some(i) {
+            at = Some(out.len());
+        }
+        out.push(track_to_song(t));
+    }
+    (out, at)
 }
 
 fn track_to_song(t: &Track) -> SongItem {
@@ -4652,6 +5448,15 @@ fn is_mix(source_id: Option<&str>) -> bool {
     source_id.is_some_and(|id| id.strip_prefix("VL").unwrap_or(id).starts_with("RD"))
 }
 
+/// The YouTube playlist a queue's `source_id` names, to ask `/next` about (#542). Not a playlist
+/// on this machine, nor a mix (YouTube generated its rows), nor an album, whose page already
+/// pairs its rows (`InnerTube::album`).
+fn playlist_context(source_id: Option<&str>) -> Option<String> {
+    let id = source_id.filter(|id| !is_local_playlist(id))?;
+    let id = id.strip_prefix("VL").unwrap_or(id);
+    (!id.starts_with("RD") && !id.starts_with("OLAK5uy_")).then(|| id.to_owned())
+}
+
 /// Shuffle a *fresh* queue around the clicked track (shuffle was already on when it started,
 /// Spotify semantics): the clicked track plays first, everything else follows in random order.
 /// Returns the new current index (always 0). The swap is fine — everything past 0 is shuffled.
@@ -4713,6 +5518,32 @@ pub(crate) fn swap_version(item: &mut SongItem) -> bool {
     // `twin_position` walks them in this version's order.
     item.counterpart_segments.sort_by_key(|s| s.start_ms);
     true
+}
+
+/// Give each row the twin a playlist's own `/next` pairs it with (#542), over the one it had. A
+/// row matches either side of a pair: a playlist entry reaches the queue as the video it holds or
+/// as the song YouTube serves it as. True when anything changed.
+fn adopt_playlist_twins<'a>(
+    rows: impl Iterator<Item = &'a mut SongItem>,
+    pairs: &[SongItem],
+) -> bool {
+    let mut twins = std::collections::HashMap::new();
+    for pair in pairs {
+        let Some(other) = &pair.counterpart else { continue };
+        let mut flipped = pair.clone();
+        swap_version(&mut flipped);
+        twins.insert(other.as_str(), flipped);
+        twins.insert(pair.video_id.as_str(), pair.clone());
+    }
+    let mut changed = false;
+    for row in rows {
+        let Some(twin) = twins.get(row.video_id.as_str()) else { continue };
+        if row.counterpart != twin.counterpart {
+            row.counterpart = None; // the playlist's twin replaces it, art and segments too
+        }
+        changed |= adopt_twin(row, twin);
+    }
+    changed
 }
 
 /// Take `from`'s twin, with its art and segments, when `into` has none, or fill in what `into`
@@ -4885,7 +5716,10 @@ fn mpv_stream_url(data: &PlaybackData) -> String {
     // googlevideo URL instead and let the user's proxy carry it: no chunked proxy, but working
     // playback. Nothing else is lost, because the proxy's own upstream fetch already goes through
     // `http::client()`, which is proxied.
-    if crate::http::has_proxy() {
+    //
+    // A live playlist (#424) goes direct too: the chunking proxy serves one byte-range file per
+    // registration, and a playlist is text that names other URLs, which mpv has to fetch itself.
+    if crate::http::has_proxy() || data.live {
         return data.stream_url.clone();
     }
     let http = data.stream_url.starts_with("http://") || data.stream_url.starts_with("https://");
@@ -4948,13 +5782,14 @@ fn persist_fingerprint(q: &QueueState) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        adopt_twin, append_page, backfill_metadata, cache_horizon, drop_duplicates, enqueue_at,
-        format_duration, freshen, get_url, guest_insert_index, history_threshold, is_mix,
-        loudness_gain, merge_radio, next_index, parse_duration_ms, persist_fingerprint,
-        prefer_version, prev_track_title, put_url, queue_fingerprint, radio_seed_for,
-        retain_upcoming, shuffle_new_queue, shuffle_upcoming, splice_radio_into, swap_version,
-        trim_played, twin_position, unshuffled, upcoming_queued, QueueState, RepeatMode, VideoUrls,
-        KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
+        adopt_playlist_twins, adopt_twin, append_page, backfill_metadata, cache_horizon,
+        drop_duplicates, enqueue_at, format_duration, freshen, get_url, guest_insert_index,
+        history_threshold, is_mix, loudness_gain, merge_radio, next_index, parse_duration_ms,
+        persist_fingerprint, playlist_context, prefer_version, prev_track_title, put_url,
+        queue_fingerprint, radio_seed_for, remote_list, retain_upcoming, shuffle_new_queue,
+        shuffle_upcoming, splice_radio_into, swap_version, trim_played, twin_position, unshuffled,
+        upcoming_queued, QueueState, RepeatMode, VideoUrls, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX,
+        MAX_BOOST_DB,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -5055,6 +5890,54 @@ mod tests {
         assert!(!adopt_twin(&mut album, &twin));
     }
 
+    // #542: the reporter's two-entry playlist. Zoo's entry reached the queue as the song, which the
+    // bare `/next` paired with its main video; The Fox's as the video the playlist holds, which
+    // nothing paired. The playlist's pairs win, whichever side the row is on.
+    #[test]
+    fn a_playlist_twin_replaces_the_bare_one_from_either_side() {
+        let pair = |song: &str, video: &str| innertube::SongItem {
+            video_id: song.into(),
+            thumbnail: Some(format!("{song}-cover")),
+            counterpart: Some(video.into()),
+            counterpart_thumbnail: Some(format!("{video}-frame")),
+            ..Default::default()
+        };
+        let pairs = [pair("zoo", "zoo-playlist-video"), pair("fox", "fox-video")];
+        let mut rows = [
+            innertube::SongItem {
+                counterpart: Some("zoo-main-video".into()),
+                counterpart_thumbnail: Some("main-frame".into()),
+                counterpart_segments: vec![seg(0, 5000, 1000)],
+                ..pair("zoo", "zoo-main-video")
+            },
+            innertube::SongItem {
+                video_id: "fox-video".into(),
+                is_video: true,
+                ..Default::default()
+            },
+            innertube::SongItem { video_id: "elsewhere".into(), ..Default::default() },
+        ];
+        assert!(adopt_playlist_twins(rows.iter_mut(), &pairs));
+        assert_eq!(rows[0].counterpart.as_deref(), Some("zoo-playlist-video"));
+        assert_eq!(rows[0].counterpart_thumbnail.as_deref(), Some("zoo-playlist-video-frame"));
+        assert!(rows[0].counterpart_segments.is_empty(), "the old video's segments went with it");
+        assert_eq!(rows[1].counterpart.as_deref(), Some("fox"));
+        assert_eq!(rows[1].counterpart_thumbnail.as_deref(), Some("fox-cover"));
+        assert_eq!(rows[2].counterpart, None);
+        // A second answer with the same pairs changes nothing.
+        assert!(!adopt_playlist_twins(rows.iter_mut(), &pairs));
+    }
+
+    #[test]
+    fn only_a_youtube_playlist_is_asked_for_its_twins() {
+        assert_eq!(playlist_context(Some("VLPLCruHskPLraU")).as_deref(), Some("PLCruHskPLraU"));
+        assert_eq!(playlist_context(Some("LM")).as_deref(), Some("LM"));
+        assert_eq!(playlist_context(Some("VLRDCLAK5uy_x")), None);
+        assert_eq!(playlist_context(Some("OLAK5uy_album")), None);
+        assert_eq!(playlist_context(Some(&format!("{LOCAL_PLAYLIST_PREFIX}1"))), None);
+        assert_eq!(playlist_context(None), None);
+    }
+
     // A video that reorders the song's parts would swap into segments out of order.
     #[test]
     fn swapped_segments_stay_in_order() {
@@ -5116,6 +5999,23 @@ mod tests {
         }
         assert_eq!(map.len(), 1);
         assert!(get_url(&map, "id8", 0).is_some(), "the newest insert survives the clear");
+    }
+
+    #[test]
+    fn remote_list_keeps_the_tapped_row_and_drops_local_files() {
+        let row = |id: &str| innertube::SongItem { video_id: id.into(), ..Default::default() };
+        let items = vec![row("aaaaaaaaaaa"), row("/music/x.flac"), row("bbbbbbbbbbb")];
+        let (tracks, start) = remote_list(&items, Some(2));
+        let ids: Vec<_> = tracks.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, ["aaaaaaaaaaa", "bbbbbbbbbbb"]);
+        assert_eq!(start, Some(1));
+        // A long list goes as a window around the tap, which keeps its place in it.
+        let many: Vec<_> = (0..1200).map(|i| row(&format!("{i:011}"))).collect();
+        let (tracks, start) = remote_list(&many, Some(1000));
+        assert_eq!(tracks.len(), 500);
+        assert_eq!(tracks[start.unwrap()].id, format!("{:011}", 1000));
+        let (tracks, start) = remote_list(&many, None);
+        assert_eq!((tracks[0].id.as_str(), start), ("00000000000", None));
     }
 
     #[test]
@@ -5663,6 +6563,36 @@ mod tests {
         assert!(!is_mix(Some("VLPL123")));
         assert!(!is_mix(Some("VLOLAK5uy_abc")));
         assert!(!is_mix(None));
+    }
+
+    /// A row removed while shuffled stays gone when shuffle goes off, and of two copies of a song
+    /// only the one removed leaves the snapshot.
+    #[test]
+    fn removed_row_stays_out_after_unshuffle() {
+        let row = |id: &str, set: &str| innertube::SongItem {
+            set_video_id: Some(set.into()),
+            ..song(id, None)
+        };
+        let orig = vec![row("a", "1"), row("b", "2"), row("c", "3"), row("b", "4")];
+        let mut q = QueueState {
+            items: vec![row("a", "1"), row("b", "4"), row("c", "3"), row("b", "2")],
+            shuffle_orig: Some(orig),
+            ..Default::default()
+        };
+        assert_eq!(q.remove_row(3).set_video_id.as_deref(), Some("2"));
+        let orig = q.shuffle_orig.take().unwrap();
+        let sets = orig.iter().map(|s| s.set_video_id.clone().unwrap()).collect::<Vec<_>>();
+        assert_eq!(sets, ["1", "3", "4"]);
+        let (items, _) = unshuffled(orig, &HashSet::from(["a".to_owned()]), "a", 0);
+        assert_eq!(items.iter().filter(|s| s.video_id == "b").count(), 1);
+        // A carried "Play next" of a song the playlist also holds has no snapshot row of its own.
+        let mut q = QueueState {
+            items: vec![row("a", "1"), song("c", Some("me")), row("c", "3")],
+            shuffle_orig: Some(vec![row("a", "1"), row("c", "3")]),
+            ..Default::default()
+        };
+        q.remove_row(1);
+        assert_eq!(q.shuffle_orig.unwrap().len(), 2, "the playlist's own copy stays");
     }
 
     #[test]

@@ -13,6 +13,7 @@ import type {
 	SongItem
 } from './api';
 import { applyLtState, lt } from './lt.svelte';
+import { applyLinkState, link } from './link.svelte';
 import { clearCached, invalidateCached, LIBRARY_SONGS_KEY } from './pagecache';
 import * as pl from './personal';
 import type { Personal } from './personal';
@@ -77,7 +78,9 @@ export const prefs = $state({
 /** Rust drops the upcoming autoplay tracks when this goes off, and tops a short queue up when it
  *  comes on, so the queue shows what will actually play. */
 export function setAutoplay(on: boolean): void {
-	prefs.autoplay = on;
+	// While the bar controls a linked phone, Rust sends this to the phone; ours stays as it is.
+	if (!link.remote) prefs.autoplay = on;
+	playback.queue.autoplay = on;
 	api.setSetting('autoplay', on ? 'true' : 'false').catch((e) => toast.error(String(e)));
 }
 
@@ -943,10 +946,32 @@ export function setTempoPitch(speed: number, semitones: number, reverb = playbac
  *  end, which advances the queue the way finishing the episode would. */
 export const SKIP_SECS = 15;
 export function skipBy(secs: number) {
-	const to = Math.max(0, Math.min(playback.position + secs, playback.duration || Infinity));
+	seekTo(playback.position + secs);
+}
+
+/** Seek the playing track to `secs`, clamped to its length. The bar moves at once instead of
+ *  waiting for the next position tick. */
+export function seekTo(secs: number) {
+	const to = Math.max(0, Math.min(secs, playback.duration || Infinity));
 	playback.position = to;
 	playback.positionAt = performance.now();
 	api.seek(to);
+}
+
+/**
+ * Play `videoId` from `secs`: a timecode in a comment. The playing track just seeks; one that is
+ * in the queue is jumped to; anything else (comments held on a track that has left the queue)
+ * starts as a song radio. The last two hand the offset to the backend rather than seeking
+ * afterwards, because a seek sent while the new track is still loading hits the old one or fails.
+ */
+export function playAt(videoId: string, secs: number, title?: string) {
+	if (playback.now?.videoId === videoId) return seekTo(secs);
+	const i = playback.queue.items.findIndex((s) => s.video_id === videoId);
+	if (i >= 0) {
+		api.playIndex(i, secs).catch((e) => toast.error(String(e)));
+		return;
+	}
+	startRadio('song', videoId, title, secs);
 }
 
 // Mute *is* volume 0 — no separate flag, so dragging the slider off zero un-mutes for free and the
@@ -1173,12 +1198,13 @@ export async function enqueue(
 export async function startRadio(
 	kind: 'song' | 'artist' | 'album' | 'playlist',
 	id: string,
-	name?: string
+	name?: string,
+	start?: number
 ) {
 	toast(t('toasts.starting_radio'));
 	openPlayer();
 	try {
-		await api.startRadio(kind, id, name);
+		await api.startRadio(kind, id, name, start);
 	} catch (e) {
 		toast.error(String(e));
 	}
@@ -1193,7 +1219,7 @@ export const ui = $state({
 	toast: null as Toast | null,
 	settingsOpen: false, // the settings modal
 	tempoPitchOpen: false, // playback effects stay open when the current track menu is replaced
-	settingsFocus: null as 'lyrics' | 'scrobbling' | null, // a section to open settings on, once
+	settingsFocus: null as 'lyrics' | 'scrobbling' | 'devices' | null, // a section to open settings on, once
 	scrobbleTrack: null as SongItem | null, // "Edit scrobble" from a track menu: the track to edit
 	ltOpen: false, // the Listen Together modal
 	linkOpen: false, // the "open a pasted link" modal
@@ -1521,6 +1547,8 @@ export function initApp(mini = false): () => void {
 		}),
 		api.onNowPlaying((n) => {
 			playback.now = n;
+			// Nothing of its own to show after a linked device's playback (devicelink).
+			if (!n) return;
 			playback.rating = n.rating ?? 'indifferent'; // the track's real rating when known
 			// Feeds Shortcuts recency. Every track start lands here, gapless advances included, so
 			// it's the one hook that sees them all. Never count plays here: skips and the track
@@ -1557,7 +1585,8 @@ export function initApp(mini = false): () => void {
 				repeat: q.repeat,
 				sourceName: q.sourceName,
 				sourceId: q.sourceId,
-				prevTrack: q.prevTrack
+				prevTrack: q.prevTrack,
+				autoplay: q.autoplay
 			};
 		}),
 		api.onQueueAppended((q) => {
@@ -1617,7 +1646,8 @@ export function initApp(mini = false): () => void {
 		// Listen Together (context/19): mirror the Rust session state; surface notices as toasts.
 		// Rust restores the shared clock before applying room playback, even with no UI open.
 		api.onLtState(applyLtState),
-		api.onLtNotice((msg) => toast(msg))
+		api.onLtNotice((msg) => toast(msg)),
+		api.onLinkState(applyLinkState)
 	];
 	const teardown = () => subs.forEach((u) => u.then((f) => f()));
 	api.getQueue()
@@ -1685,5 +1715,6 @@ export function initApp(mini = false): () => void {
 	loadBlocked();
 	// Seed the Listen Together state (server URL, any active room after a UI reload).
 	api.ltGetState().then(applyLtState).catch(() => {});
+	api.linkState().then(applyLinkState).catch(() => {});
 	return teardown;
 }

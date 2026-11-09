@@ -177,7 +177,7 @@
 <div class="flex min-h-0 flex-1 max-lg:flex-col max-lg:overflow-y-auto max-lg:overflow-x-hidden">
 	<div class="min-w-0 flex-1 overflow-y-auto px-6 py-5 max-lg:flex-none max-lg:overflow-visible">
 		<section class={GROUP}>
-			<div class={CARD}>
+			<div data-settings-card class={CARD}>
 				{@render row_({
 					title: t('settings.discord.enable'),
 					desc: t('settings.discord.enable_hint'),
@@ -203,7 +203,7 @@
 		<div class={enabled ? '' : 'opacity-60'}>
 			<section class={GROUP}>
 				<h3 class={LABEL}>{t('settings.sections.discord_status')}</h3>
-				<div class={CARD}>
+				<div data-settings-card class={CARD}>
 					{@render row_({
 						title: t('settings.discord.status_line'),
 						desc: t('settings.discord.status_line_hint'),
@@ -219,7 +219,7 @@
 
 			<section class={GROUP}>
 				<h3 class={LABEL}>{t('settings.sections.discord_card')}</h3>
-				<div class={CARD}>
+				<div data-settings-card class={CARD}>
 					{@render row_({
 						title: t('settings.discord.line1'),
 						desc: t('settings.discord.line1_hint'),
@@ -260,7 +260,7 @@
 				<p class="mb-2 px-1 max-w-prose text-xs leading-relaxed text-muted-foreground">
 					{t('settings.discord.links_hint')}
 				</p>
-				<div class={CARD}>
+				<div data-settings-card class={CARD}>
 					{@render row_({ title: t('settings.discord.link_line1'), control: link1Switch })}
 					{@render row_({ title: t('settings.discord.link_line2'), control: link2Switch })}
 					{#if cfg.cover}
@@ -274,7 +274,7 @@
 				<p class="mb-2 px-1 max-w-prose text-xs leading-relaxed text-muted-foreground">
 					{t('settings.discord.buttons_hint')}
 				</p>
-				<div class={CARD}>
+				<div data-settings-card class={CARD}>
 					{@render row_({ title: t('settings.discord.button1'), control: button1Picker })}
 					{@render row_({ title: t('settings.discord.button2'), control: button2Picker })}
 				</div>
@@ -284,6 +284,7 @@
 	</div>
 
 	<aside
+		data-settings-aside
 		class="flex shrink-0 flex-col bg-muted/30 px-5 py-5 lg:w-[22rem] lg:border-l max-lg:border-t"
 	>
 		<div class="mb-2.5 flex items-center gap-2">

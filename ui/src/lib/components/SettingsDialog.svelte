@@ -17,7 +17,8 @@
 		Globe02Icon,
 		ArrowDown01Icon,
 		Alert02Icon,
-		LinkSquare02Icon
+		LinkSquare02Icon,
+		ComputerPhoneSyncIcon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -36,6 +37,7 @@
 	import Changelog from '$lib/components/Changelog.svelte';
 	import DiscordSettings from '$lib/components/DiscordSettings.svelte';
 	import ScrobbleSettings from '$lib/components/ScrobbleSettings.svelte';
+	import DevicesSettings from '$lib/components/DevicesSettings.svelte';
 	import {
 		updateState,
 		availableMessage,
@@ -48,6 +50,7 @@
 	import { t, setLocale, currentLocale, LOCALES } from '$lib/i18n.svelte';
 	import GlobalHotkeysSettings from '$lib/components/GlobalHotkeysSettings.svelte';
 	import LyricsSourcesSettings from '$lib/components/LyricsSourcesSettings.svelte';
+	import EnhancedLyricsSettings from '$lib/components/EnhancedLyricsSettings.svelte';
 	import LanguagePicker from '$lib/components/LanguagePicker.svelte';
 
 	type TabId =
@@ -57,6 +60,7 @@
 		| 'hotkeys'
 		| 'discord'
 		| 'scrobbling'
+		| 'devices'
 		| 'data'
 		| 'about';
 	const TABS = $derived<{ id: TabId; label: string; hint: string; icon: typeof Settings02Icon }[]>([
@@ -66,6 +70,7 @@
 		{ id: 'hotkeys', label: t('settings.tabs.hotkeys'), hint: t('settings.tabs.hotkeys_hint'), icon: KeyboardIcon },
 		{ id: 'discord', label: t('settings.tabs.discord'), hint: t('settings.tabs.discord_hint'), icon: DiscordIcon },
 		{ id: 'scrobbling', label: t('settings.tabs.scrobbling'), hint: t('settings.tabs.scrobbling_hint'), icon: LastFmIcon },
+		{ id: 'devices', label: t('settings.tabs.devices'), hint: t('settings.tabs.devices_hint'), icon: ComputerPhoneSyncIcon },
 		{ id: 'data', label: t('settings.tabs.data'), hint: t('settings.tabs.data_hint'), icon: Database02Icon },
 		{ id: 'about', label: t('settings.tabs.about'), hint: t('settings.tabs.about_hint'), icon: InformationCircleIcon }
 	]);
@@ -120,8 +125,8 @@
 		untrack(() => {
 			// Opened on a section from elsewhere (the lyrics source picker): its tab, scrolled to it
 			// once the tab has rendered. The Last.fm menu and "Edit scrobble" open a whole tab.
-			if (ui.settingsFocus === 'scrobbling') {
-				tab = 'scrobbling';
+			if (ui.settingsFocus === 'scrobbling' || ui.settingsFocus === 'devices') {
+				tab = ui.settingsFocus;
 				ui.settingsFocus = null;
 				load();
 			} else if (ui.settingsFocus) {
@@ -227,6 +232,7 @@
 		return Number.isFinite(secs) ? Math.min(10, Math.max(1, secs)) : 5;
 	});
 	const hideVideosOn = $derived(settings.hide_videos === 'true');
+	const preferWordsOn = $derived(settings.lyrics_prefer_words === 'true');
 	// Off until the setting is turned on: still experimental, so nobody gets video they didn't ask
 	// for. Same test in `player.svelte.ts`, which hydrates `prefs` at launch.
 	const musicVideosOn = $derived(settings.music_videos === 'true');
@@ -314,6 +320,11 @@
 		settings.ambient_light = on ? 'true' : 'false';
 		await api.setSetting('ambient_light', settings.ambient_light);
 		prefs.ambient = on;
+	}
+
+	async function setPreferWords(on: boolean) {
+		settings.lyrics_prefer_words = on ? 'true' : 'false';
+		await api.setSetting('lyrics_prefer_words', settings.lyrics_prefer_words);
 	}
 
 	async function setHideVideos(on: boolean) {
@@ -480,7 +491,11 @@
 		<!-- Below sm the rail becomes icons only: at 400px the labels took more than half the
 		     dialog and squeezed the pane until its controls were unreadable. -->
 		<div class="flex min-w-0 h-[min(38rem,80vh)]">
-			<nav class="flex w-52 shrink-0 flex-col border-r bg-muted/40 p-3 max-sm:w-14 max-sm:px-1.5">
+			<!-- Tab rail -->
+			<nav
+				data-settings-nav
+				class="flex w-52 shrink-0 flex-col border-r bg-muted/40 p-3 max-sm:w-14 max-sm:px-1.5"
+			>
 				<Dialog.Title
 					class="px-3 pt-1 pb-4 font-heading text-base font-semibold max-sm:sr-only"
 				>
@@ -519,7 +534,10 @@
 			     (a long font name, a long path) widens the pane and pushes every tab off the modal. -->
 			<div class="flex min-w-0 flex-1 flex-col">
 				<!-- h-14 also keeps the dialog's close button clear of the first row. -->
-				<header class="flex h-14 shrink-0 flex-col justify-center border-b px-6 pr-14">
+				<header
+					data-settings-header
+					class="flex h-14 shrink-0 flex-col justify-center border-b px-6 pr-14"
+				>
 					<h2 class="text-sm font-semibold">{currentTab.label}</h2>
 					<p class="truncate text-xs text-muted-foreground">{currentTab.hint}</p>
 				</header>
@@ -528,6 +546,8 @@
 					<DiscordSettings {settings} />
 				{:else if loaded && tab === 'scrobbling'}
 					<ScrobbleSettings {settings} />
+				{:else if tab === 'devices'}
+					<DevicesSettings />
 				{:else if tab === 'themes'}
 					<AppearanceSettings />
 				{:else}
@@ -556,7 +576,7 @@
 						</button>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.language')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.general.language'),
 									desc: t('settings.general.language_hint'),
@@ -567,7 +587,7 @@
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.activity')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('player.history'),
 									desc: t('settings.playback.play_history_hint'),
@@ -577,7 +597,7 @@
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.system')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.general.close_to_tray'),
 									desc: t('settings.general.close_to_tray_hint'),
@@ -624,7 +644,7 @@
 					{:else if tab === 'playback'}
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.audio')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.playback.audio_quality'),
 									desc: t('settings.playback.audio_quality_hint'),
@@ -680,7 +700,7 @@
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.video')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.playback.music_videos'),
 									badge: t('settings.themes.experimental'),
@@ -714,7 +734,7 @@
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.blocked')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.playback.blocked_artists'),
 									desc: t('settings.playback.blocked_artists_hint'),
@@ -724,11 +744,22 @@
 						</section>
 						<section class={GROUP} id="settings-lyrics">
 							<h3 class={LABEL}>{t('settings.sections.lyrics')}</h3>
-							<LyricsSourcesSettings {settings} />
+							<div class="space-y-3">
+								<EnhancedLyricsSettings />
+								<LyricsSourcesSettings {settings} />
+							</div>
+							<div data-settings-card class="mt-3 {CARD}">
+								{@render row({
+									title: t('settings.playback.lyrics_prefer_words'),
+									desc: t('settings.playback.lyrics_prefer_words_hint'),
+									control: preferWordsSwitch,
+									tall: true
+								})}
+							</div>
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.advanced')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({ title: t('settings.general.stream_clients'), below: clientList })}
 							</div>
 						</section>
@@ -737,7 +768,7 @@
 					{:else if tab === 'data'}
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.network')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.general.proxy'),
 									desc: t('settings.general.proxy_hint'),
@@ -747,7 +778,7 @@
 						</section>
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.storage')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.data.clear_cache'),
 									desc: t('settings.data.clear_cache_hint'),
@@ -776,7 +807,7 @@
 
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.support')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.about.kofi'),
 									desc: t('settings.about.kofi_hint'),
@@ -788,7 +819,7 @@
 
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.updates')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.about.check_updates'),
 									desc: updateState.available && !updateState.canInstall
@@ -818,7 +849,7 @@
 
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.report')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.about.diagnostics'),
 									desc: t('settings.about.diagnostics_hint'),
@@ -841,7 +872,7 @@
 
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.whats_new')}</h3>
-							<div class={CARD}>
+							<div data-settings-card class={CARD}>
 								{@render row({
 									title: t('settings.about.changelog'),
 									desc: t('settings.about.version').replace('{version}', version),
@@ -975,6 +1006,7 @@
 		</Popover.Content>
 	</Popover.Root>
 {/snippet}
+{#snippet preferWordsSwitch()}<Switch checked={preferWordsOn} onCheckedChange={setPreferWords} />{/snippet}
 {#snippet hideVideoSwitch()}<Switch checked={hideVideosOn} onCheckedChange={setHideVideos} />{/snippet}
 {#snippet bannerSwitch()}<Switch checked={updateBannerOn} onCheckedChange={setUpdateBanner} />{/snippet}
 {#snippet betaSwitch()}<Switch checked={betaOn} onCheckedChange={setBeta} />{/snippet}

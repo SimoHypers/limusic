@@ -29,6 +29,7 @@
 	transition:fade={{ duration: 150 }}
 ></button>
 <aside
+	data-side-panel
 	transition:fly={{ x: 32, duration: 220, easing: cubicOut }}
 	class={expanded
 		? // ponytail: left offsets mirror Sidebar's w-16/lg:w-60 (and its manual collapse), right
@@ -37,7 +38,7 @@
 			`absolute inset-y-0 left-16 right-0 z-30 flex h-full flex-col border-l bg-card/95 shadow-2xl max-sm:left-0 ${ui.sidebarCollapsed ? '' : 'sm:left-60'} ${queueOpen ? 'sm:right-80' : ''}`
 		: `absolute inset-y-0 right-0 z-30 flex h-full w-80 max-w-[80vw] flex-col border-l bg-card/95 shadow-2xl max-sm:w-full max-sm:max-w-none ${queueOpen ? 'lg:right-80' : ''}`}
 >
-	<div class="flex items-center justify-between border-b px-4 py-3">
+	<div data-side-panel-header class="flex items-center justify-between border-b px-4 py-3">
 		<h2 class="font-heading text-sm font-semibold">{t('lyrics.title')}</h2>
 		<button
 			onclick={() => (expanded = !expanded)}
