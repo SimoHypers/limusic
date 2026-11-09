@@ -31,7 +31,7 @@
 	import { HELP_COMBO } from '$lib/shortcuts';
 	import { copyText } from '$lib/clipboard';
 	import * as api from '$lib/api';
-	import { blocked, karaokeAvailability, karaokeConsent, karaokeModels, karaokeSelection, cancelKaraokeModelDownload, deleteKaraokeModel, playback, prefs, refreshLanguage, setAutoplay, ui, toast, unblockArtist, setKaraokeDevice, applyKaraokeStatus } from '$lib/player.svelte';
+	import { blocked, karaokeAvailability, karaokeConsent, karaokeModels, karaokeSelection, cancelKaraokeModelDownload, deleteKaraokeModel, playback, prefs, refreshLanguage, setAutoplay, ui, toast, unblockArtist, setKaraokeDevice, applyKaraokeStatus, chooseKaraokeModel } from '$lib/player.svelte';
 	import { win } from '$lib/win.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import AppearanceSettings from '$lib/components/AppearanceSettings.svelte';
@@ -207,7 +207,6 @@
 	}
 
 	// Microsoft's permalink for the latest x64 VC++ runtime (karaoke's ONNX Runtime needs >= 14.44).
-	const VC_REDIST_URL = 'https://aka.ms/vc14/vc_redist.x64.exe';
 	// Credit for the vocal-removal model, as the UVR README asks.
 	const UVR_URL = 'https://github.com/Anjok07/ultimatevocalremovergui';
 
@@ -315,23 +314,9 @@
 			: [])
 	]);
 
-	async function setKaraokeModel(val: string) {
-		const modelId = val as api.KaraokeModelId;
+	function setKaraokeModel(val: string) {
 		deleteConfirmModel = null;
-		if (!karaokeModels[modelId]?.installed) {
-			karaokeConsent.model = modelId;
-			karaokeConsent.enableAfter = false;
-			karaokeConsent.open = true;
-			return;
-		}
-		try {
-			await api.karaokeModelSet(modelId);
-			karaokeSelection.model = modelId;
-			const status = await api.karaokeEngineStatus();
-			applyKaraokeStatus(status);
-		} catch (e) {
-			toast.error(String(e));
-		}
+		void chooseKaraokeModel(val as api.KaraokeModelId);
 	}
 
 	async function loadKaraoke() {
@@ -921,13 +906,7 @@
 								})}
 							</div>
 						</section>
-						<section class={GROUP}>
-							<h3 class={LABEL}>{t('settings.sections.advanced')}</h3>
-							<div data-settings-card class={CARD}>
-								{@render row({ title: t('settings.general.stream_clients'), below: clientList })}
-							</div>
-						</section>
-						<section class={GROUP}>
+						<section class={GROUP} id="settings-karaoke">
 							<h3 class={LABEL}>{t('karaoke.settings.title')}</h3>
 							<div class={CARD}>
 								{@render row({
@@ -947,11 +926,14 @@
 									desc: t('karaoke.settings.cache_used_desc'),
 									control: karaokeCacheUsedControl
 								})}
-								{@render row({
-									title: t('karaoke.settings.device'),
-									desc: t('karaoke.settings.device_desc'),
-									control: karaokeDeviceControl
-								})}
+								<!-- Linux and macOS have no GPU path: Auto and Processor would both mean the CPU. -->
+								{#if karaokeAvailability.gpuSupported}
+									{@render row({
+										title: t('karaoke.settings.device'),
+										desc: t('karaoke.settings.device_desc'),
+										control: karaokeDeviceControl
+									})}
+								{/if}
 								{@render row({
 									title: t('karaoke.settings.status'),
 									desc: t('karaoke.settings.status_desc'),
@@ -962,6 +944,12 @@
 									desc: t('karaoke.consent.credit'),
 									control: karaokeCreditControl
 								})}
+							</div>
+						</section>
+						<section class={GROUP}>
+							<h3 class={LABEL}>{t('settings.sections.advanced')}</h3>
+							<div data-settings-card class={CARD}>
+								{@render row({ title: t('settings.general.stream_clients'), below: clientList })}
 							</div>
 						</section>
 					{:else if tab === 'hotkeys'}
@@ -1459,7 +1447,7 @@
 			{/if}
 		</span>
 		{#if karaokeAvailability.reason === 'vc_runtime'}
-			<Button variant="outline" size="sm" onclick={() => api.openExternal(VC_REDIST_URL)}>
+			<Button variant="outline" size="sm" onclick={() => api.openExternal(api.VC_REDIST_URL)}>
 				{t('karaoke.settings.get_vc_redist')}
 			</Button>
 		{/if}

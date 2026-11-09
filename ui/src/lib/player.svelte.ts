@@ -62,16 +62,43 @@ export const karaokeStatus = $state({
 
 export const karaokeQueue = $state<{ slots: api.KaraokeQueueSlot[] }>({ slots: [] });
 
-const karaokeByTrack = $state<
-	Record<
-		string,
-		{
-			state: 'off' | 'needs-model' | 'preparing' | 'ready' | 'error' | 'too-long';
-			progress?: number;
-			code?: api.KaraokeErrorCode | undefined;
-		}
-	>
->({});
+export type KaraokeTrackState = {
+	state: 'off' | 'needs-model' | 'preparing' | 'ready' | 'error' | 'too-long';
+	progress?: number;
+	code?: api.KaraokeErrorCode | undefined;
+	/** Seconds until this track is ready, from how fast its progress has been moving. */
+	etaSecs?: number;
+};
+
+const karaokeByTrack = $state<Record<string, KaraokeTrackState>>({});
+
+/** Where each preparing track's clock started: the first progress we saw, and when. Not state:
+ *  only the estimate it produces is shown. */
+const karaokeEtaStart: Record<string, { at: number; progress: number; last: number }> = {};
+
+/** The estimate needs a few percent of movement before it means anything; earlier than that it
+ *  swings between "1 minute" and "20 minutes". */
+function karaokeEta(videoId: string, progress: number | undefined): number | undefined {
+	if (progress === undefined) return undefined;
+	const now = Date.now();
+	const start = karaokeEtaStart[videoId];
+	// A restarted job (switched quality, retried, or cancelled and wanted again, which sends no
+	// event of its own) counts from zero again. Progress arrives once per chunk: about 2 s apart on
+	// Light and 6 s on Best on a CPU, so a 30 s silence means the job stopped in between.
+	if (!start || progress < start.progress || now - start.last > 30_000) {
+		karaokeEtaStart[videoId] = { at: now, progress, last: now };
+		return undefined;
+	}
+	start.last = now;
+	const moved = progress - start.progress;
+	if (moved < 0.03) return undefined;
+	return (((now - start.at) / 1000) * (1 - progress)) / moved;
+}
+
+/** One track's karaoke state, for the panel's rows. Reactive when read inside `$derived`. */
+export function karaokeTrack(videoId: string | undefined): KaraokeTrackState | undefined {
+	return videoId ? karaokeByTrack[videoId] : undefined;
+}
 
 function syncKaraokeStatus() {
 	const entry = playback.now?.videoId ? karaokeByTrack[playback.now.videoId] : undefined;
@@ -229,6 +256,32 @@ export async function deleteKaraokeModel(model: api.KaraokeModelId) {
 export function dismissKaraokeConsent() {
 	karaokeConsent.open = false;
 	karaokeConsent.enableAfter = false;
+}
+
+/** Switch the quality tier. One that isn't downloaded yet opens setup for it; once it arrives,
+ *  karaoke stays as it was (on stays on, now with the new tier). Settings and the player bar's
+ *  panel both come through here. */
+export async function chooseKaraokeModel(model: api.KaraokeModelId): Promise<void> {
+	if (!karaokeModels[model]?.installed) {
+		karaokeConsent.model = model;
+		karaokeConsent.enableAfter = playback.karaoke;
+		karaokeConsent.open = true;
+		return;
+	}
+	const prev = karaokeSelection.model;
+	karaokeSelection.model = model;
+	try {
+		await api.karaokeModelSet(model);
+		applyKaraokeStatus(await api.karaokeEngineStatus());
+	} catch {
+		karaokeSelection.model = prev;
+		toast.error(t('karaoke.error.failed'));
+	}
+}
+
+export function openKaraokeSettings(): void {
+	ui.settingsFocus = 'karaoke';
+	ui.settingsOpen = true;
 }
 
 /**
@@ -1442,7 +1495,7 @@ export const ui = $state({
 	toast: null as Toast | null,
 	settingsOpen: false, // the settings modal
 	tempoPitchOpen: false, // playback effects stay open when the current track menu is replaced
-	settingsFocus: null as 'lyrics' | 'scrobbling' | 'devices' | null, // a section to open settings on, once
+	settingsFocus: null as 'lyrics' | 'scrobbling' | 'devices' | 'karaoke' | null, // a section to open settings on, once
 	scrobbleTrack: null as SongItem | null, // "Edit scrobble" from a track menu: the track to edit
 	ltOpen: false, // the Listen Together modal
 	linkOpen: false, // the "open a pasted link" modal
@@ -1887,13 +1940,16 @@ export function initApp(mini = false): () => void {
 					const keys = Object.keys(karaokeByTrack);
 					if (keys.length >= 10) {
 						delete karaokeByTrack[keys[0]];
+						delete karaokeEtaStart[keys[0]];
 					}
 				}
 				karaokeByTrack[e.videoId] = {
 					state: e.state,
 					progress: e.progress,
-					code
+					code,
+					etaSecs: e.state === 'preparing' ? karaokeEta(e.videoId, e.progress) : undefined
 				};
+				if (e.state !== 'preparing') delete karaokeEtaStart[e.videoId];
 				if (playback.now?.videoId === e.videoId) {
 					syncKaraokeStatus();
 				}
