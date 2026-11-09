@@ -126,14 +126,32 @@ export type KaraokeModelState = {
 };
 
 export const karaokeModels = $state<Record<api.KaraokeModelId, KaraokeModelState>>({
-	kara: { installed: false, downloading: false, downloaded: 0, total: 0, error: undefined },
-	kara_2: { installed: false, downloading: false, downloaded: 0, total: 0, error: undefined },
-	inst_hq_3: { installed: false, downloading: false, downloaded: 0, total: 0, error: undefined }
+	light: { installed: false, downloading: false, downloaded: 0, total: 0, error: undefined },
+	balanced: { installed: false, downloading: false, downloaded: 0, total: 0, error: undefined },
+	best: { installed: false, downloading: false, downloaded: 0, total: 0, error: undefined }
 });
 
-export const karaokeSelection = $state<{ model: api.KaraokeModelId }>({ model: 'kara' });
+export const karaokeSelection = $state<{ model: api.KaraokeModelId }>({ model: 'light' });
 
-export const karaokeConsent = $state({ open: false, model: 'kara' as api.KaraokeModelId, enableAfter: false });
+/** Re-reads whether each tier is downloaded, and its download size. One failing leaves the others
+ *  alone; the download itself reports its own errors. */
+export async function refreshKaraokeModels(): Promise<void> {
+	await Promise.all(
+		(Object.keys(karaokeModels) as api.KaraokeModelId[]).map(async (id) => {
+			try {
+				const s = await api.karaokeModelStatus(id);
+				if (!s) return;
+				karaokeModels[id].installed = s.installed;
+				karaokeModels[id].downloading = s.downloading;
+				karaokeModels[id].total = s.sizeBytes;
+			} catch {
+				// Advisory.
+			}
+		})
+	);
+}
+
+export const karaokeConsent = $state({ open: false, model: 'light' as api.KaraokeModelId, enableAfter: false });
 
 /**
  * Why karaoke can't run here, from the backend's last attempt to start it (`reason` is an en.json
@@ -227,29 +245,7 @@ export async function deleteKaraokeModel(model: api.KaraokeModelId) {
 			toast.error(t('karaoke.settings.delete_failed'));
 		}
 	} finally {
-		Promise.all([
-			api.karaokeModelStatus('kara'),
-			api.karaokeModelStatus('kara_2'),
-			api.karaokeModelStatus('inst_hq_3')
-		])
-			.then(([sKara, sKara2, sInst3]) => {
-				if (sKara) {
-					karaokeModels.kara.installed = sKara.installed;
-					karaokeModels.kara.downloading = sKara.downloading;
-					karaokeModels.kara.total = sKara.sizeBytes;
-				}
-				if (sKara2) {
-					karaokeModels.kara_2.installed = sKara2.installed;
-					karaokeModels.kara_2.downloading = sKara2.downloading;
-					karaokeModels.kara_2.total = sKara2.sizeBytes;
-				}
-				if (sInst3) {
-					karaokeModels.inst_hq_3.installed = sInst3.installed;
-					karaokeModels.inst_hq_3.downloading = sInst3.downloading;
-					karaokeModels.inst_hq_3.total = sInst3.sizeBytes;
-				}
-			})
-			.catch(() => {});
+		void refreshKaraokeModels();
 	}
 }
 
@@ -2041,43 +2037,8 @@ export function initApp(mini = false): () => void {
 		.then((sel) => {
 			if (sel) karaokeSelection.model = sel;
 		})
-		.catch(() => {})
-		.finally(() => {
-			Promise.all([
-				api.karaokeModelStatus('kara'),
-				api.karaokeModelStatus('kara_2'),
-				api.karaokeModelStatus('inst_hq_3')
-			])
-				.then(([sKara, sKara2, sInst3]) => {
-					if (sKara) {
-						karaokeModels.kara.installed = sKara.installed;
-						karaokeModels.kara.downloading = sKara.downloading;
-						karaokeModels.kara.total = sKara.sizeBytes;
-					}
-					if (sKara2) {
-						karaokeModels.kara_2.installed = sKara2.installed;
-						karaokeModels.kara_2.downloading = sKara2.downloading;
-						karaokeModels.kara_2.total = sKara2.sizeBytes;
-					}
-					if (sInst3) {
-						karaokeModels.inst_hq_3.installed = sInst3.installed;
-						karaokeModels.inst_hq_3.downloading = sInst3.downloading;
-						karaokeModels.inst_hq_3.total = sInst3.sizeBytes;
-					}
-				})
-				.catch(() => {
-					api.karaokeModelStatus()
-						.then((s) => {
-							if (s) {
-								const target = s.model ?? karaokeSelection.model;
-								karaokeModels[target].installed = s.installed;
-								karaokeModels[target].downloading = s.downloading;
-								karaokeModels[target].total = s.sizeBytes;
-							}
-						})
-						.catch(() => {});
-				});
-		});
+		.catch(() => {});
+	void refreshKaraokeModels();
 	// The events above are fire-and-forget, and this window missed every one that already fired:
 	// on a cold start the backend restores the queue before the UI subscribes, and the mini player
 	// is created mid-song. Ask for the current state once rather than guessing at it.

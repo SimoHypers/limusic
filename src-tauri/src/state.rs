@@ -6222,7 +6222,8 @@ pub fn set_saved_karaoke_cache_limit_mb(db: &Db, mb: u64) -> u64 {
     clamped
 }
 
-/// Karaoke separation model key (default "kara", valid keys: "kara", "kara_2", "inst_hq_3").
+/// The karaoke quality tier (`light`, the default, `balanced` or `best`). Anything else, such as a
+/// model key from before the tiers were named, falls back to the default.
 pub fn saved_karaoke_model(db: &Db) -> karaoke::models::ModelId {
     db.get_setting("karaoke_model")
         .as_deref()

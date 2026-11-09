@@ -5,9 +5,9 @@ import { karaokeModels } from './player.svelte';
  *  and `_desc`); `level` is how many bars the pickers draw for it. */
 export const KARAOKE_TIERS: { id: KaraokeModelId; key: 'light' | 'balanced' | 'best'; level: number }[] =
 	[
-		{ id: 'kara', key: 'light', level: 1 },
-		{ id: 'kara_2', key: 'balanced', level: 2 },
-		{ id: 'inst_hq_3', key: 'best', level: 3 }
+		{ id: 'light', key: 'light', level: 1 },
+		{ id: 'balanced', key: 'balanced', level: 2 },
+		{ id: 'best', key: 'best', level: 3 }
 	];
 
 /** A tier's download size (the model, plus the runtime while that isn't installed), or '' while

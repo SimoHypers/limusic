@@ -31,13 +31,14 @@
 	import { HELP_COMBO } from '$lib/shortcuts';
 	import { copyText } from '$lib/clipboard';
 	import * as api from '$lib/api';
-	import { blocked, karaokeAvailability, karaokeConsent, karaokeModels, karaokeSelection, cancelKaraokeModelDownload, deleteKaraokeModel, playback, prefs, refreshLanguage, setAutoplay, ui, toast, unblockArtist, setKaraokeDevice, applyKaraokeStatus, chooseKaraokeModel } from '$lib/player.svelte';
+	import { blocked, karaokeAvailability, karaokeConsent, karaokeModels, karaokeSelection, cancelKaraokeModelDownload, deleteKaraokeModel, playback, prefs, refreshLanguage, setAutoplay, ui, toast, unblockArtist, setKaraokeDevice, applyKaraokeStatus, chooseKaraokeModel, refreshKaraokeModels } from '$lib/player.svelte';
 	import { win } from '$lib/win.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import AppearanceSettings from '$lib/components/AppearanceSettings.svelte';
 	import Changelog from '$lib/components/Changelog.svelte';
 	import DiscordSettings from '$lib/components/DiscordSettings.svelte';
 	import ExperimentalBadge from '$lib/components/ExperimentalBadge.svelte';
+	import { KARAOKE_TIERS, tierMB } from '$lib/karaoke-tiers';
 	import ScrobbleSettings from '$lib/components/ScrobbleSettings.svelte';
 	import DevicesSettings from '$lib/components/DevicesSettings.svelte';
 	import {
@@ -289,23 +290,17 @@
 
 	let deleteConfirmModel = $state<api.KaraokeModelId | null>(null);
 
-	const karaokeModelOptions = $derived([
-		{
-			value: 'kara',
-			label: `${t('karaoke.settings.model_light')} (${karaokeModels.kara.total > 0 ? (karaokeModels.kara.total / 1048576).toFixed(1) : '66.8'} MB)`,
-			desc: t('karaoke.settings.model_light_desc')
-		},
-		{
-			value: 'kara_2',
-			label: `${t('karaoke.settings.model_balanced')} (${karaokeModels.kara_2.total > 0 ? (karaokeModels.kara_2.total / 1048576).toFixed(1) : '66.8'} MB)`,
-			desc: t('karaoke.settings.model_balanced_desc')
-		},
-		{
-			value: 'inst_hq_3',
-			label: `${t('karaoke.settings.model_best')} (${karaokeModels.inst_hq_3.total > 0 ? (karaokeModels.inst_hq_3.total / 1048576).toFixed(1) : '66.8'} MB)`,
-			desc: t('karaoke.settings.model_best_desc')
-		}
-	]);
+	const karaokeModelOptions = $derived(
+		KARAOKE_TIERS.map((tier) => {
+			const name = t(`karaoke.settings.model_${tier.key}`);
+			const size = tierMB(tier.id);
+			return {
+				value: tier.id,
+				label: size ? `${name} (${size})` : name,
+				desc: t(`karaoke.settings.model_${tier.key}_desc`)
+			};
+		})
+	);
 
 	const karaokeDeviceOptions = $derived([
 		{ value: 'auto' as api.KaraokeDevice, label: t('karaoke.settings.device_auto') },
@@ -324,28 +319,11 @@
 		try {
 			const sel = await api.karaokeModelGet();
 			if (sel) karaokeSelection.model = sel;
-			const [m1Res, m2Res, m3Res, limitRes, statusRes] = await Promise.allSettled([
-				api.karaokeModelStatus('kara'),
-				api.karaokeModelStatus('kara_2'),
-				api.karaokeModelStatus('inst_hq_3'),
+			const [, limitRes, statusRes] = await Promise.allSettled([
+				refreshKaraokeModels(),
 				api.karaokeCacheLimitMb(),
 				api.karaokeEngineStatus()
 			]);
-			if (m1Res.status === 'fulfilled' && m1Res.value) {
-				karaokeModels.kara.installed = m1Res.value.installed;
-				karaokeModels.kara.downloading = m1Res.value.downloading;
-				karaokeModels.kara.total = m1Res.value.sizeBytes;
-			}
-			if (m2Res.status === 'fulfilled' && m2Res.value) {
-				karaokeModels.kara_2.installed = m2Res.value.installed;
-				karaokeModels.kara_2.downloading = m2Res.value.downloading;
-				karaokeModels.kara_2.total = m2Res.value.sizeBytes;
-			}
-			if (m3Res.status === 'fulfilled' && m3Res.value) {
-				karaokeModels.inst_hq_3.installed = m3Res.value.installed;
-				karaokeModels.inst_hq_3.downloading = m3Res.value.downloading;
-				karaokeModels.inst_hq_3.total = m3Res.value.sizeBytes;
-			}
 			if (limitRes.status === 'fulfilled') {
 				karaokeCacheLimit = limitRes.value;
 			}
@@ -1391,8 +1369,8 @@
 {/snippet}
 
 {#snippet karaokeModelBelow()}
-	{@const currentModelSt = karaokeModels[karaokeSelection.model] ?? karaokeModels.kara}
-	{@const sizeStr = currentModelSt.total > 0 ? `${(currentModelSt.total / 1048576).toFixed(1)} MB` : '66.8 MB'}
+	{@const currentModelSt = karaokeModels[karaokeSelection.model] ?? karaokeModels.light}
+	{@const sizeStr = tierMB(karaokeSelection.model)}
 	{@const downloadedStr = (currentModelSt.downloaded / 1048576).toFixed(1)}
 	{@const totalStr = (currentModelSt.total / 1048576).toFixed(1)}
 	{@const anyDownloading = Object.values(karaokeModels).some((m) => m.downloading)}

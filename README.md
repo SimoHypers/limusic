@@ -266,6 +266,6 @@ this project belong to their respective owners.
 
 [GPL-3.0](LICENSE)
 
-Karaoke uses the UVR-MDX-NET-Inst_HQ_3, UVR_MDXNET_KARA_2 and UVR_MDXNET_KARA models, all by Anjok07 and aufr33
-([Ultimate Vocal Remover](https://github.com/Anjok07/ultimatevocalremovergui), MIT) and, on
+Karaoke uses the UVR-MDX-NET-Inst_HQ_3, UVR-MDX-NET-Inst_Main and UVR_MDXNET_3_9662 models from
+[Ultimate Vocal Remover](https://github.com/Anjok07/ultimatevocalremovergui) by Anjok07 and aufr33 (MIT) and, on
 Windows, ONNX Runtime and DirectML from Microsoft. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

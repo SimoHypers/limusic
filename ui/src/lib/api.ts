@@ -426,7 +426,7 @@ export const setKaraoke = (enabled: boolean) => invoke<void>('set_karaoke', { en
 /** Microsoft's permalink for the latest x64 VC++ runtime (karaoke's ONNX Runtime needs >= 14.44). */
 export const VC_REDIST_URL = 'https://aka.ms/vc14/vc_redist.x64.exe';
 export type KaraokeDevice = 'auto' | 'cpu' | 'gpu';
-export type KaraokeModelId = 'kara' | 'kara_2' | 'inst_hq_3';
+export type KaraokeModelId = 'light' | 'balanced' | 'best';
 
 export interface ModelStatus {
 	installed: boolean;

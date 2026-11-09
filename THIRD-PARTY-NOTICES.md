@@ -10,8 +10,8 @@ on Linux/macOS next to the library in `<app data dir>/runtime/onnxruntime-1.24.4
 ## UVR MDX-Net models (vocal removal)
 
 - Three models from the same source, selectable in Settings → Karaoke: **UVR-MDX-NET-Inst_HQ_3**
-  (Best), **UVR_MDXNET_KARA_2** (Balanced) and **UVR_MDXNET_KARA** (Light).
-- [Ultimate Vocal Remover](https://github.com/Anjok07/ultimatevocalremovergui) by Anjok07 and
+  (Best), **UVR-MDX-NET-Inst_Main** (Balanced) and **UVR_MDXNET_3_9662** (Light).
+- From [Ultimate Vocal Remover](https://github.com/Anjok07/ultimatevocalremovergui) by Anjok07 and
   aufr33. UVR is MIT-licensed; its README asks developers who use its models to "honor the MIT
   license by providing credit to UVR and its developers", which this notice, the download dialog
   and Settings → Karaoke do.

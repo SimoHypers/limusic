@@ -59,7 +59,9 @@ impl InstrumentalCache {
             dir,
             max_bytes: std::sync::atomic::AtomicU64::new(max_bytes),
             pins: std::sync::Mutex::new([None, None]),
-            model_key: std::sync::Mutex::new(crate::models::ModelId::DEFAULT.key().to_string()),
+            model_key: std::sync::Mutex::new(
+                crate::models::ModelId::DEFAULT.cache_tag().to_string(),
+            ),
         }
     }
 
@@ -542,12 +544,13 @@ mod tests {
 
         let cache = InstrumentalCache::new(tmp.clone(), 1024 * 1024);
         cache.prepare()?;
+        cache.set_model("model_a");
 
         let p_kara = cache.path_for("track1");
         fs::write(&p_kara, b"kara audio")?;
         assert!(cache.contains("track1"));
 
-        cache.set_model("inst_hq_3");
+        cache.set_model("model_b");
         assert!(!cache.contains("track1"));
         let p_inst = cache.path_for("track1");
         assert_ne!(p_kara, p_inst);
@@ -556,11 +559,11 @@ mod tests {
         fs::write(&p_inst, b"inst audio")?;
         assert!(cache.contains("track1"));
 
-        cache.set_model("kara");
+        cache.set_model("model_a");
         assert!(cache.contains("track1"));
         assert_eq!(fs::read_to_string(cache.path_for("track1"))?, "kara audio");
 
-        cache.set_model("inst_hq_3");
+        cache.set_model("model_b");
         assert_eq!(cache.total_size() as usize, "kara audio".len() + "inst audio".len());
 
         let _ = fs::remove_dir_all(&tmp);

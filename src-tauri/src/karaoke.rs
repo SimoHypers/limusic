@@ -167,7 +167,7 @@ impl KaraokeEngine {
             .unwrap_or_else(DevicePref::platform_default);
         // No I/O here: the directory is created on first enable (`spawn_worker`).
         let cache = Arc::new(InstrumentalCache::new(cache_dir, max_bytes));
-        cache.set_model(model_id.key());
+        cache.set_model(model_id.cache_tag());
         let (ready_tx, _) = tokio::sync::broadcast::channel(64);
         let ctx = Ctx {
             app,
@@ -233,7 +233,7 @@ impl KaraokeEngine {
             let mut m = self.ctx.model.lock().unwrap_or_else(PoisonError::into_inner);
             *m = id;
         }
-        self.ctx.cache.set_model(id.key());
+        self.ctx.cache.set_model(id.cache_tag());
         self.ctx.board.with(|s| {
             if let Some(r) = s.running.take() {
                 r.cancel.store(true, Ordering::SeqCst);
@@ -566,7 +566,7 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
             unload(&mut model, "model-switch", &ctx.loaded_model);
             loaded_model_id = None;
             loaded_device = None;
-            ctx.cache.set_model(selected.key());
+            ctx.cache.set_model(selected.cache_tag());
         }
 
         if !ctx.models.is_installed(selected) {
@@ -626,7 +626,7 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
         if model.is_none() {
             let start_load = std::time::Instant::now();
             let path = ctx.models.model_path(selected);
-            ctx.cache.set_model(selected.key());
+            ctx.cache.set_model(selected.cache_tag());
             match isolate(|| {
                 MdxModel::load_with_pref(
                     rt,
