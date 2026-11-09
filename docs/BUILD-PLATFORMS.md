@@ -229,10 +229,13 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
 
 ## Karaoke GPU support
 
-- **Windows:** uses DirectML.
+- **Windows:** uses DirectML. Auto picks a graphics card with enough dedicated memory (DXGI
+  reports it), the processor otherwise. Auto exists only here: nothing else says which card beats
+  the processor, so on macOS and Linux the card is opt-in.
 - **Apple Silicon Macs:** uses CoreML (ML Program, CPU+GPU), opt-in through Settings > Karaoke > Processor > Graphics card (default is CPU). CoreML requires the model's batch axis to stay dynamic (see `COREML_STATIC_SHAPES` in `crates/karaoke/src/mdx.rs`).
 - **Intel Macs:** no GPU support.
-- **Linux:** CPU only for now.
+- **Linux x86_64:** the ONNX Runtime WebGPU plugin over Vulkan, opt-in (see the Linux section).
+  A GTX 1060 ran the Light model 8x faster than an i5-8400 with the same output.
 
 ---
 
