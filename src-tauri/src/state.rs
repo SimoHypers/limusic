@@ -6388,16 +6388,11 @@ pub fn set_saved_karaoke_model(db: &Db, id: karaoke::models::ModelId) -> karaoke
 
 /// Karaoke separation device preference (Auto, Cpu, Gpu).
 pub fn saved_karaoke_device(db: &Db) -> karaoke::device::DevicePref {
-    let pref = db
-        .get_setting("karaoke_device")
+    db.get_setting("karaoke_device")
         .as_deref()
         .and_then(karaoke::device::DevicePref::from_key)
-        .unwrap_or_else(karaoke::device::DevicePref::platform_default);
-    if pref == karaoke::device::DevicePref::Gpu && !karaoke::device::DevicePref::gpu_supported() {
-        karaoke::device::DevicePref::platform_default()
-    } else {
-        pref
-    }
+        .filter(|p| p.supported())
+        .unwrap_or_else(karaoke::device::DevicePref::platform_default)
 }
 
 pub fn set_saved_karaoke_device(

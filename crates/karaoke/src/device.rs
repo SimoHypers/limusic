@@ -199,12 +199,28 @@ impl DevicePref {
         }
     }
 
-    /// Returns the default device preference for the current platform (CPU on macOS and Linux, Auto elsewhere).
+    /// Auto where it can choose, the processor elsewhere: a graphics card is always opt-in there.
     pub fn platform_default() -> DevicePref {
-        if cfg!(target_os = "macos") || cfg!(target_os = "linux") {
-            DevicePref::Cpu
-        } else {
+        if Self::auto_supported() {
             DevicePref::Auto
+        } else {
+            DevicePref::Cpu
+        }
+    }
+
+    /// Auto has to tell a graphics card that beats the processor from one that doesn't, and only
+    /// DXGI says that (dedicated memory, [`pick_gpu`]). CoreML and the WebGPU plugin don't, so on
+    /// macOS and Linux Auto would only ever mean the processor: Settings leaves it out there.
+    pub const fn auto_supported() -> bool {
+        cfg!(windows)
+    }
+
+    /// This preference can be honoured on this platform.
+    pub const fn supported(self) -> bool {
+        match self {
+            Self::Cpu => true,
+            Self::Auto => Self::auto_supported(),
+            Self::Gpu => Self::gpu_supported(),
         }
     }
 
@@ -493,10 +509,17 @@ mod tests {
     fn gpu_support_and_default_match_the_platform() {
         assert_eq!(
             DevicePref::gpu_supported(),
-            cfg!(windows) || cfg!(all(target_os = "linux", target_arch = "x86_64"))
+            cfg!(windows)
+                || cfg!(all(target_os = "macos", target_arch = "aarch64"))
+                || cfg!(all(target_os = "linux", target_arch = "x86_64"))
         );
-        if cfg!(target_os = "linux") {
-            assert_eq!(DevicePref::platform_default(), DevicePref::Cpu);
+        let default = DevicePref::platform_default();
+        assert!(default.supported());
+        if cfg!(windows) {
+            assert_eq!(default, DevicePref::Auto);
+        } else {
+            assert_eq!(default, DevicePref::Cpu);
+            assert!(!DevicePref::Auto.supported(), "Auto would only mean the processor here");
         }
     }
 }

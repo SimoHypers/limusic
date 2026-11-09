@@ -303,7 +303,9 @@
 	);
 
 	const karaokeDeviceOptions = $derived([
-		{ value: 'auto' as api.KaraokeDevice, label: t('karaoke.settings.device_auto') },
+		...(karaokeAvailability.autoSupported
+			? [{ value: 'auto' as api.KaraokeDevice, label: t('karaoke.settings.device_auto') }]
+			: []),
 		{ value: 'cpu' as api.KaraokeDevice, label: t('karaoke.settings.device_cpu') },
 		...(karaokeAvailability.gpuSupported
 			? [{ value: 'gpu' as api.KaraokeDevice, label: t('karaoke.settings.device_gpu') }]
@@ -908,11 +910,14 @@
 									desc: t('karaoke.settings.cache_used_desc'),
 									control: karaokeCacheUsedControl
 								})}
-								<!-- Linux and macOS have no GPU path: Auto and Processor would both mean the CPU. -->
+								<!-- Only where there is a graphics card path. Auto only where it can judge the card
+								     (Windows); elsewhere the card is opt-in and the text says so. -->
 								{#if karaokeAvailability.gpuSupported}
 									{@render row({
 										title: t('karaoke.settings.device'),
-										desc: t('karaoke.settings.device_desc'),
+										desc: karaokeAvailability.autoSupported
+											? t('karaoke.settings.device_desc')
+											: t('karaoke.settings.device_desc_opt_in'),
 										control: karaokeDeviceControl
 									})}
 								{/if}

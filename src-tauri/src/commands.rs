@@ -3073,6 +3073,7 @@ pub struct KaraokeEngineStatus {
     pub processor: Option<&'static str>,
     pub device: &'static str,
     pub gpu_supported: bool,
+    pub auto_supported: bool,
 }
 
 /// Get the status of the background karaoke engine. Availability reflects the last attempt to
@@ -3103,6 +3104,7 @@ pub async fn karaoke_engine_status(
             processor: engine.processor(),
             device: engine.device().key(),
             gpu_supported: karaoke::device::DevicePref::gpu_supported(),
+            auto_supported: karaoke::device::DevicePref::auto_supported(),
         }
     })
     .await
@@ -3156,8 +3158,8 @@ pub async fn karaoke_device_set(
 ) -> Result<String, String> {
     let pref = karaoke::device::DevicePref::from_key(&device)
         .ok_or_else(|| "unknown device".to_string())?;
-    if pref == karaoke::device::DevicePref::Gpu && !karaoke::device::DevicePref::gpu_supported() {
-        return Err("gpu not supported".to_string());
+    if !pref.supported() {
+        return Err(format!("{} not supported here", pref.key()));
     }
     crate::state::set_saved_karaoke_device(&state.db, pref);
     engine.inner().set_device(pref);

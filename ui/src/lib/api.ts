@@ -453,6 +453,8 @@ export interface KaraokeEngineStatus {
 	processor?: 'gpu' | 'cpu';
 	device: KaraokeDevice;
 	gpuSupported: boolean;
+	/** Windows only: elsewhere Auto could only ever mean the processor. */
+	autoSupported: boolean;
 	model?: KaraokeModelId;
 }
 export interface KaraokeStatusEvent {

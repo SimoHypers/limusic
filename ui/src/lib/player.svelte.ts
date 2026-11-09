@@ -171,7 +171,8 @@ export const karaokeAvailability = $state({
 	reason: undefined as api.KaraokeUnavailableReason | undefined,
 	processor: undefined as 'gpu' | 'cpu' | undefined,
 	device: 'auto' as api.KaraokeDevice,
-	gpuSupported: false
+	gpuSupported: false,
+	autoSupported: false
 });
 
 export function applyKaraokeStatus(s: api.KaraokeEngineStatus) {
@@ -179,6 +180,7 @@ export function applyKaraokeStatus(s: api.KaraokeEngineStatus) {
 	karaokeAvailability.processor = s.processor;
 	karaokeAvailability.device = s.device;
 	karaokeAvailability.gpuSupported = s.gpuSupported;
+	karaokeAvailability.autoSupported = s.autoSupported;
 }
 
 export async function refreshKaraokeAvailability(): Promise<void> {
