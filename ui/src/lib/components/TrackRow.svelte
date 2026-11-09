@@ -345,11 +345,14 @@
 		</div>
 	</div>
 
-	<!-- Album rows only. Wide rows are mostly empty between the title and the duration, so it takes a
-	     centred column of its own there; narrow ones sit it next to the duration at its natural width
-	     rather than dropping it, since it never needs more than "1,234 plays" worth of room. -->
+	<!-- Album and search rows. Wide rows are mostly empty between the title and the duration, so it
+	     takes a centred column of its own there; below `md` it goes. Not below `sm` but below `md`:
+	     `sm` is where the sidebar comes back, so at 640-767 the row is as tight as it is under 640
+	     and the play count costs more title than it is worth. -->
 	{#if song.play_count && showPlayCount && !compact && !columns}
-		<div class="flex shrink-0 items-center justify-center text-xs text-muted-foreground lg:flex-1">
+		<div
+			class="flex shrink-0 items-center justify-center text-xs text-muted-foreground max-md:hidden lg:flex-1"
+		>
 			<span class="truncate">{t('library.play_count', { count: song.play_count })}</span>
 		</div>
 	{/if}
@@ -439,7 +442,13 @@
 		{/snippet}
 		{#if !columns}{@render saved()}{/if}
 		{#if !hideRating && !columns}
-			<span class="flex h-3.5 w-3.5 shrink-0 items-center">
+			<!-- Below `lg` the thumbs go and their slot goes with them: two buttons that only appear
+			     under the pointer were taking 58px from the title on every row. Below `sm` the sidebar
+			     is off-canvas too, so the row is as wide as the window and every pixel of it is the
+			     title's — that is where the explicit tag goes as well; the ⋯ menu still says whether
+			     the track is explicit. The checkmark beside it stays either way: that is state you
+			     own, not a tag about the track. -->
+			<span class="flex h-3.5 w-3.5 shrink-0 items-center max-sm:hidden">
 				{#if song.explicit}
 					<ExplicitIcon class="h-3.5 w-3.5 text-muted-foreground" />
 				{/if}
@@ -452,11 +461,12 @@
 			     `focus-within`: a hidden element can't take focus, so the row (which is focusable) is
 			     what has to reveal it before Tab can reach it.
 
-			     Below sm there is no pointer hovering to reveal them and the title needs the width
-			     more (the sidebar is off-canvas there, so the row is as narrow as the window gets);
-			     the ⋯ menu carries like and dislike either way. -->
+			     Below `lg` they go: they are 58px an inch from the pointer's resting place, they only
+			     appear on hover anyway (so at rest they are an empty slot the title cannot use), and
+			     with the sidebar open at 640-1023 the title is the scarcest thing on the row. The ⋯
+			     menu carries like and dislike either way. -->
 			<div
-				class="flex items-center gap-0.5 max-sm:hidden {rated === 'indifferent'
+				class="flex items-center gap-0.5 max-lg:hidden {rated === 'indifferent'
 					? 'invisible group-focus-within:visible group-hover:visible'
 					: ''}"
 			>
