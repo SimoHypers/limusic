@@ -847,8 +847,9 @@ fn worker_loop(ctx: &Ctx, rt: RuntimeReady) {
                     tracing::info!(target: "app_lib::karaoke", model_key, pref_key, load_ms, device = ?dev, "karaoke model loaded");
                     let processor = match dev {
                         karaoke::mdx::Device::Cpu => 1,
-                        karaoke::mdx::Device::DirectMl { .. } => 2,
-                        karaoke::mdx::Device::CoreMl => 2,
+                        karaoke::mdx::Device::DirectMl { .. }
+                        | karaoke::mdx::Device::CoreMl
+                        | karaoke::mdx::Device::WebGpu => 2,
                     };
                     ctx.processor.store(processor, Ordering::SeqCst);
                     model = Some(m);

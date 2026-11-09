@@ -85,8 +85,8 @@ async fn coreml_matches_the_cpu() {
     let rt = rt.expect("runtime must be available on Apple Silicon");
 
     let model_path =
-        common::download_model(ModelId::Kara, &dest.parent().unwrap().join("models")).await;
-    let spec = ModelId::Kara.spec();
+        common::download_model(ModelId::Light, &dest.parent().unwrap().join("models")).await;
+    let spec = ModelId::Light.spec();
 
     let num_samples = 15 * 44100;
     let mut mix_l = vec![0.0f32; num_samples];

@@ -13,6 +13,7 @@ pub mod runtime;
 pub mod runtime_pkg;
 pub mod stft;
 pub mod stream;
+pub mod webgpu;
 
 /// Helper to sanitize error messages (removes URLs and absolute paths).
 pub fn sanitize_error(err: &str) -> String {

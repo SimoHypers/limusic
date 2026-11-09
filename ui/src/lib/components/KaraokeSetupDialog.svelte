@@ -33,6 +33,8 @@
 	const UVR_URL = 'https://github.com/Anjok07/ultimatevocalremovergui';
 	// DirectML (and its telemetry note) only exists on Windows.
 	const IS_WINDOWS = browser && navigator.userAgent.includes('Windows');
+	// Linux also fetches the WebGPU plugin, for the graphics card option.
+	const IS_LINUX = browser && navigator.userAgent.includes('Linux');
 	const LABEL = 'mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground';
 
 	const tier = $derived(KARAOKE_TIERS.find((x) => x.id === karaokeConsent.model) ?? KARAOKE_TIERS[0]);
@@ -143,7 +145,11 @@
 			<!-- Where everything comes from, and who made the models: small print, but all of it. -->
 			<p class="mt-5 text-[11px] leading-relaxed text-muted-foreground/80">
 				{t('karaoke.consent.source')}
-				{IS_WINDOWS ? t('karaoke.consent.runtime_windows') : t('karaoke.consent.runtime')}
+				{IS_WINDOWS
+					? t('karaoke.consent.runtime_windows')
+					: IS_LINUX
+						? t('karaoke.consent.runtime_linux')
+						: t('karaoke.consent.runtime')}
 				{#if IS_WINDOWS}{t('karaoke.consent.directml')}{/if}
 				{t('karaoke.consent.credit')}
 				<button

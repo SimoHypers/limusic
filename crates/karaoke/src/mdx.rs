@@ -38,6 +38,8 @@ pub enum Device {
     },
     /// CoreML (ML Program, CPU+GPU, non-static shapes)
     CoreMl,
+    /// WebGPU plugin execution provider over Vulkan (Linux).
+    WebGpu,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -96,6 +98,16 @@ impl LoadOptions {
             return LoadOptions { device: Device::CoreMl, intra_threads: None };
         }
         cpu
+    }
+
+    /// With the graphics card chosen and the WebGPU plugin available, use it when no other GPU backend was picked (Linux). `Auto` and `Cpu` never select it.
+    pub fn with_webgpu(self, pref: DevicePref, webgpu: bool) -> LoadOptions {
+        if webgpu && matches!(pref, DevicePref::Gpu) && matches!(self.device, Device::Cpu) {
+            tracing::info!("WebGPU (Vulkan)");
+            LoadOptions { device: Device::WebGpu, intra_threads: None }
+        } else {
+            self
+        }
     }
 }
 
@@ -183,6 +195,22 @@ impl MdxModel {
                         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 }
             }
+            Device::WebGpu => {
+                if !cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+                    anyhow::bail!("WebGPU is only available on Linux x86_64");
+                }
+                if !rt.webgpu() {
+                    anyhow::bail!("the WebGPU plugin is not available in this runtime");
+                }
+                let plugin = crate::runtime::webgpu_plugin_path()
+                    .ok_or_else(|| anyhow::anyhow!("the WebGPU plugin path is not set"))?;
+                builder = builder
+                    .with_memory_pattern(false)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?
+                    .with_parallel_execution(false)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                builder = crate::webgpu::attach(builder, plugin)?;
+            }
         }
         let session =
             builder.commit_from_file(model_path).map_err(|e| anyhow::anyhow!(e.to_string()))?;
@@ -213,30 +241,22 @@ impl MdxModel {
         } else {
             Vec::new()
         };
-        let opts = LoadOptions::choose(pref, percent, directml, coreml, &adapters);
+        let opts = LoadOptions::choose(pref, percent, directml, coreml, &adapters)
+            .with_webgpu(pref, rt.webgpu());
         let device = opts.device;
         match Self::load(rt, model_path, params, opts) {
             Ok(model) => Ok((model, device)),
             Err(e) => match device {
-                Device::DirectMl { .. } => {
-                    tracing::warn!(error = %crate::sanitize_error(&e.to_string()), "DirectML model load failed, falling back to CPU");
-                    let cpu_opts = LoadOptions {
-                        device: Device::Cpu,
-                        intra_threads: Some(crate::device::cpu_threads_for_percent(percent)),
-                    };
-                    let model = Self::load(rt, model_path, params, cpu_opts)?;
-                    Ok((model, Device::Cpu))
-                }
-                Device::CoreMl => {
-                    tracing::warn!(error = %crate::sanitize_error(&e.to_string()), "CoreML model load failed, falling back to CPU");
-                    let cpu_opts = LoadOptions {
-                        device: Device::Cpu,
-                        intra_threads: Some(crate::device::cpu_threads_for_percent(percent)),
-                    };
-                    let model = Self::load(rt, model_path, params, cpu_opts)?;
-                    Ok((model, Device::Cpu))
-                }
                 Device::Cpu => Err(e),
+                Device::DirectMl { .. } | Device::CoreMl | Device::WebGpu => {
+                    tracing::warn!(error = %crate::sanitize_error(&e.to_string()), device = ?device, "graphics card model load failed, falling back to CPU");
+                    let cpu_opts = LoadOptions {
+                        device: Device::Cpu,
+                        intra_threads: Some(crate::device::cpu_threads_for_percent(percent)),
+                    };
+                    let model = Self::load(rt, model_path, params, cpu_opts)?;
+                    Ok((model, Device::Cpu))
+                }
             },
         }
     }
@@ -755,5 +775,19 @@ mod tests {
         let l = 44100 * 60;
         assert_eq!(test_chunk_bookkeeping(l, 6144, 1024, 256, 0.25).0, 15);
         assert_eq!(test_chunk_bookkeeping(l, 6144, 1024, 256, light.uvr_overlap()).0, 12);
+    }
+
+    #[test]
+    fn webgpu_is_used_only_when_asked_for() {
+        let cpu = LoadOptions::default();
+        assert!(matches!(cpu.with_webgpu(DevicePref::Auto, true).device, Device::Cpu));
+        assert!(matches!(cpu.with_webgpu(DevicePref::Cpu, true).device, Device::Cpu));
+        assert!(matches!(cpu.with_webgpu(DevicePref::Gpu, false).device, Device::Cpu));
+        assert!(matches!(cpu.with_webgpu(DevicePref::Gpu, true).device, Device::WebGpu));
+        let dml = LoadOptions { device: Device::DirectMl { device_id: 1 }, intra_threads: None };
+        assert!(matches!(
+            dml.with_webgpu(DevicePref::Gpu, true).device,
+            Device::DirectMl { device_id: 1 }
+        ));
     }
 }

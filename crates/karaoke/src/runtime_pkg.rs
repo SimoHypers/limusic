@@ -5,6 +5,8 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 pub const VERSION: &str = "1.24.4";
+/// Linux plugin execution provider (WebGPU over Vulkan), downloaded next to the runtime.
+pub const WEBGPU_PLUGIN: &str = "libonnxruntime_providers_webgpu.so";
 
 pub const GITHUB_HOSTS: &[&str] =
     &["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"];
@@ -45,45 +47,79 @@ pub struct RuntimePackage {
 
 pub static LINUX_X86_64: RuntimePackage = RuntimePackage {
     platform: "linux-x86_64",
-    parts: &[Part {
-        name: "onnxruntime",
-        url: "https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-linux-x64-1.24.4.tgz",
-        archive_size: 8155822,
-        archive_sha256: "3a211fbea252c1e66290658f1b735b772056149f28321e71c308942cdb54b747",
-        fetch_size: 8155822,
-        kind: ArchiveKind::Tgz,
-        hosts: GITHUB_HOSTS,
-        files: &[
-            PartFile {
-                entry: "onnxruntime-linux-x64-1.24.4/lib/libonnxruntime.so.1.24.4",
-                dest: "libonnxruntime.so.1.24.4",
-                size: 22159232,
-                sha256: "d132535d051344ff5c64c9c200004150559049a81ed330eb4422c1962fb6b7e4",
-                optional: false,
-            },
-            PartFile {
-                entry: "onnxruntime-linux-x64-1.24.4/LICENSE",
-                dest: "LICENSE",
-                size: 0,
-                sha256: "",
-                optional: true,
-            },
-            PartFile {
-                entry: "onnxruntime-linux-x64-1.24.4/ThirdPartyNotices.txt",
-                dest: "ThirdPartyNotices.txt",
-                size: 0,
-                sha256: "",
-                optional: true,
-            },
-            PartFile {
-                entry: "onnxruntime-linux-x64-1.24.4/Privacy.md",
-                dest: "Privacy.md",
-                size: 0,
-                sha256: "",
-                optional: true,
-            },
-        ],
-    }],
+    parts: &[
+        Part {
+            name: "onnxruntime",
+            url: "https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-linux-x64-1.24.4.tgz",
+            archive_size: 8155822,
+            archive_sha256: "3a211fbea252c1e66290658f1b735b772056149f28321e71c308942cdb54b747",
+            fetch_size: 8155822,
+            kind: ArchiveKind::Tgz,
+            hosts: GITHUB_HOSTS,
+            files: &[
+                PartFile {
+                    entry: "onnxruntime-linux-x64-1.24.4/lib/libonnxruntime.so.1.24.4",
+                    dest: "libonnxruntime.so.1.24.4",
+                    size: 22159232,
+                    sha256: "d132535d051344ff5c64c9c200004150559049a81ed330eb4422c1962fb6b7e4",
+                    optional: false,
+                },
+                PartFile {
+                    entry: "onnxruntime-linux-x64-1.24.4/LICENSE",
+                    dest: "LICENSE",
+                    size: 0,
+                    sha256: "",
+                    optional: true,
+                },
+                PartFile {
+                    entry: "onnxruntime-linux-x64-1.24.4/ThirdPartyNotices.txt",
+                    dest: "ThirdPartyNotices.txt",
+                    size: 0,
+                    sha256: "",
+                    optional: true,
+                },
+                PartFile {
+                    entry: "onnxruntime-linux-x64-1.24.4/Privacy.md",
+                    dest: "Privacy.md",
+                    size: 0,
+                    sha256: "",
+                    optional: true,
+                },
+            ],
+        },
+        Part {
+            name: "webgpu-ep",
+            url: "https://files.pythonhosted.org/packages/e2/1d/ac0ccbe8bd6435b6e1946fea964790ffa3d73ee2513775e90958fd6b860e/onnxruntime_ep_webgpu-0.5.0-py3-none-manylinux_2_28_x86_64.whl",
+            archive_size: 6935993,
+            archive_sha256: "b6baa3e223d9a679023388b1179e5597b6bc0d282ba72f2afe38d46ef37deeb4",
+            fetch_size: 6935993,
+            kind: ArchiveKind::Zip,
+            hosts: PYPI_HOSTS,
+            files: &[
+                PartFile {
+                    entry: "onnxruntime_ep_webgpu/libonnxruntime_providers_webgpu.so",
+                    dest: "libonnxruntime_providers_webgpu.so",
+                    size: 16613128,
+                    sha256: "fc98b10c7d03537694ff4ea6ebca79ed3b41ca71e316dac3292257ee5f85c95d",
+                    optional: false,
+                },
+                PartFile {
+                    entry: "onnxruntime_ep_webgpu-0.5.0.dist-info/licenses/LICENSE",
+                    dest: "licenses/onnxruntime-ep-webgpu-LICENSE.txt",
+                    size: 0,
+                    sha256: "",
+                    optional: true,
+                },
+                PartFile {
+                    entry: "onnxruntime_ep_webgpu-0.5.0.dist-info/licenses/ThirdPartyNotices.txt",
+                    dest: "licenses/onnxruntime-ep-webgpu-ThirdPartyNotices.txt",
+                    size: 0,
+                    sha256: "",
+                    optional: true,
+                },
+            ],
+        },
+    ],
 };
 
 pub static MACOS_AARCH64: RuntimePackage = RuntimePackage {
@@ -130,6 +166,7 @@ pub static MACOS_AARCH64: RuntimePackage = RuntimePackage {
 };
 
 pub const NUGET_HOSTS: &[&str] = &["api.nuget.org"];
+pub const PYPI_HOSTS: &[&str] = &["files.pythonhosted.org"];
 
 /// Windows: onnxruntime.dll from the official DirectML NuGet package (whole package, 12.5 MB) and DirectML.dll from the 202 MB Microsoft.AI.DirectML package, of which only the one file is fetched with Range requests.
 pub static WINDOWS_X86_64: RuntimePackage = RuntimePackage {
@@ -1667,6 +1704,17 @@ mod tests {
                         assert!(part.archive_sha256.is_empty());
                         assert!(part.fetch_size < part.archive_size);
                     }
+                } else if part.name == "webgpu-ep" {
+                    assert_eq!(part.hosts, PYPI_HOSTS);
+                    assert!(part.url.starts_with("https://files.pythonhosted.org/"));
+                    assert!(part.url.ends_with(".whl"));
+                    assert_eq!(part.kind, ArchiveKind::Zip);
+                    assert_eq!(part.archive_sha256.len(), 64);
+                    assert!(part
+                        .archive_sha256
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
+                    assert_eq!(part.fetch_size, part.archive_size);
                 } else {
                     assert_eq!(part.archive_sha256.len(), 64);
                     assert!(part
@@ -1699,5 +1747,12 @@ mod tests {
                 }
             }
         }
+    }
+    #[test]
+    fn linux_package_has_the_webgpu_plugin() {
+        assert_eq!(LINUX_X86_64.parts.len(), 2);
+        assert_eq!(main_lib(&LINUX_X86_64).dest, format!("libonnxruntime.so.{VERSION}"));
+        assert!(pinned_files(&LINUX_X86_64).any(|f| f.dest == WEBGPU_PLUGIN));
+        assert_eq!(total_archive_size(&LINUX_X86_64), 8155822 + 6935993);
     }
 }

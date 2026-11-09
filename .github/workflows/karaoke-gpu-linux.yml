@@ -1,0 +1,53 @@
+name: Karaoke GPU (Linux)
+
+# The runner has no GPU, only the software Vulkan driver (lavapipe), so this checks correctness
+# and the download/registration path of the WebGPU plugin, not speed.
+
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+
+concurrency:
+  group: karaoke-gpu-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  linux-karaoke-gpu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Vulkan (software driver)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers vulkan-tools
+          vulkaninfo --summary || true
+      - name: Karaoke tests
+        run: cargo test -p karaoke
+      - name: Real runtime download (with the WebGPU plugin)
+        run: cargo test -p karaoke --test real_runtime_download -- --ignored --nocapture
+      - name: WebGPU against the CPU
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          cargo test -p karaoke --test webgpu_parity -- --ignored --nocapture 2>&1 | tee webgpu.log
+      - name: WebGPU node placement
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          cargo test -p karaoke --test webgpu_probe -- --ignored --nocapture 2>&1 | tee webgpu_probe.log
+      - name: WebGPU summary
+        if: always()
+        run: |
+          {
+            echo '### WebGPU'
+            echo '```'
+            grep -h '^WEBGPU_' webgpu.log webgpu_probe.log 2>/dev/null || echo 'no WEBGPU lines'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -59,8 +59,9 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
   which leaves the webview with `GDummyTlsBackend` and no HTTPS anywhere but this machine. CI runs
   the script automatically; run it by hand if you're testing a local AppImage elsewhere.
 - **Karaoke loads ONNX Runtime dynamically.** It is downloaded on first use together
-  with the model (only when the user agrees), so source builds need NO network access
+  with the WebGPU plugin (about 7 MB) and the model (only when the user agrees), so source builds need NO network access
   and the bundle ships nothing extra.
+- **Karaoke GPU on Linux x86_64:** uses the ONNX Runtime WebGPU plugin over Vulkan (Intel, AMD, NVIDIA), opt-in through Settings > Karaoke > Processor > Graphics card. It needs `libvulkan.so.1`, a Vulkan driver (Mesa or the NVIDIA proprietary one) and glibc 2.28 or newer; on any failure karaoke falls back to the CPU.
 
 ---
 

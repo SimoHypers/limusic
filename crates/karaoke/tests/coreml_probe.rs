@@ -31,8 +31,8 @@ async fn where_do_the_nodes_run() {
     let _guard = ScratchGuard(scratch_dir.clone());
     let _rt = rt.expect("runtime must be available on Apple Silicon");
 
-    let model_path = common::download_model(ModelId::Kara, &scratch_dir.join("models")).await;
-    let spec = ModelId::Kara.spec();
+    let model_path = common::download_model(ModelId::Light, &scratch_dir.join("models")).await;
+    let spec = ModelId::Light.spec();
 
     // Load a plain session just to print the inputs.
     let temp_session = ort::session::Session::builder()
