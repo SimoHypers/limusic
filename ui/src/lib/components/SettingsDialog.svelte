@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { tick, untrack, onDestroy, type Snippet } from 'svelte';
-	import { save } from '@tauri-apps/plugin-dialog';
+	import { open as openDialog, save } from '@tauri-apps/plugin-dialog';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		Settings02Icon,
@@ -18,7 +18,8 @@
 		ArrowDown01Icon,
 		Alert02Icon,
 		LinkSquare02Icon,
-		ComputerPhoneSyncIcon
+		ComputerPhoneSyncIcon,
+		Download01Icon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -55,6 +56,8 @@
 	import LyricsSourcesSettings from '$lib/components/LyricsSourcesSettings.svelte';
 	import EnhancedLyricsSettings from '$lib/components/EnhancedLyricsSettings.svelte';
 	import LanguagePicker from '$lib/components/LanguagePicker.svelte';
+	import { DOWNLOAD_FORMATS, DOWNLOAD_QUALITIES } from '$lib/download';
+	import type { DownloadFormat, DownloadQuality } from '$lib/api';
 
 	type TabId =
 		| 'general'
@@ -64,6 +67,7 @@
 		| 'discord'
 		| 'scrobbling'
 		| 'devices'
+		| 'downloads'
 		| 'data'
 		| 'about';
 	const TABS = $derived<{ id: TabId; label: string; hint: string; icon: typeof Settings02Icon }[]>([
@@ -74,6 +78,7 @@
 		{ id: 'discord', label: t('settings.tabs.discord'), hint: t('settings.tabs.discord_hint'), icon: DiscordIcon },
 		{ id: 'scrobbling', label: t('settings.tabs.scrobbling'), hint: t('settings.tabs.scrobbling_hint'), icon: LastFmIcon },
 		{ id: 'devices', label: t('settings.tabs.devices'), hint: t('settings.tabs.devices_hint'), icon: ComputerPhoneSyncIcon },
+		{ id: 'downloads', label: t('settings.tabs.downloads'), hint: t('settings.tabs.downloads_hint'), icon: Download01Icon },
 		{ id: 'data', label: t('settings.tabs.data'), hint: t('settings.tabs.data_hint'), icon: Database02Icon },
 		{ id: 'about', label: t('settings.tabs.about'), hint: t('settings.tabs.about_hint'), icon: InformationCircleIcon }
 	]);
@@ -342,12 +347,14 @@
 
 	async function load() {
 		try {
-			const [s, c] = await Promise.all([
+			const [s, c, dir] = await Promise.all([
 				api.getSettings(),
-				api.getStreamClients()
+				api.getStreamClients(),
+				api.downloadDirectory()
 			]);
 			settings = s;
 			clients = c;
+			downloadDir = dir;
 			proxyInput = s.proxy ?? '';
 		} catch (e) {
 			toast.error(String(e));
@@ -420,6 +427,51 @@
 		// Cached URLs are keyed by video only, so clear them to apply the new quality everywhere.
 		await api.clearCaches();
 		toast.success(t('toasts.quality_updated'));
+	}
+
+	// --- downloads ---------------------------------------------------------------------------
+	let downloadDir = $state<api.DownloadDir>({ path: '', custom: false });
+	const downloadFormat = $derived((settings.download_format ?? 'mp3') as DownloadFormat);
+	const downloadQuality = $derived((settings.download_quality ?? 'best') as DownloadQuality);
+
+	async function chooseDownloadFolder() {
+		try {
+			const picked = await openDialog({
+				directory: true,
+				multiple: false,
+				defaultPath: downloadDir.path
+			});
+			if (!picked || Array.isArray(picked)) return;
+			settings.download_dir = picked;
+			await api.setSetting('download_dir', picked);
+			downloadDir = await api.downloadDirectory();
+			toast.success(t('settings.downloads.folder_updated'));
+		} catch (e) {
+			toast.error(String(e));
+		}
+	}
+
+	async function resetDownloadFolder() {
+		try {
+			settings.download_dir = '';
+			await api.setSetting('download_dir', '');
+			downloadDir = await api.downloadDirectory();
+			toast.success(t('settings.downloads.folder_reset'));
+		} catch (e) {
+			toast.error(String(e));
+		}
+	}
+
+	async function setDownloadFormat(value: DownloadFormat) {
+		settings.download_format = value;
+		prefs.downloadFormat = value;
+		await api.setSetting('download_format', value).catch((e) => toast.error(String(e)));
+	}
+
+	async function setDownloadQuality(value: DownloadQuality) {
+		settings.download_quality = value;
+		prefs.downloadQuality = value;
+		await api.setSetting('download_quality', value).catch((e) => toast.error(String(e)));
 	}
 
 	async function setHistory(on: boolean) {
@@ -941,6 +993,36 @@
 						</section>
 					{:else if tab === 'hotkeys'}
 						<GlobalHotkeysSettings />
+					{:else if tab === 'downloads'}
+						<section class={GROUP}>
+							<h3 class={LABEL}>{t('settings.sections.download_location')}</h3>
+							<div data-settings-card class={CARD}>
+								{@render row({
+									title: t('settings.downloads.folder'),
+									desc: t('settings.downloads.folder_hint'),
+									control: downloadFolderControl,
+									below: downloadFolderPath
+								})}
+							</div>
+						</section>
+						<section class={GROUP}>
+							<h3 class={LABEL}>{t('settings.sections.download_defaults')}</h3>
+							<div data-settings-card class={CARD}>
+								{@render row({
+									title: t('settings.downloads.default_format'),
+									desc: t('settings.downloads.default_format_hint'),
+									control: downloadFormatPicker
+								})}
+								{@render row({
+									title: t('settings.downloads.default_quality'),
+									desc: t('settings.downloads.default_quality_hint'),
+									control: downloadQualityPicker
+								})}
+							</div>
+						</section>
+						<p class="px-1 text-xs leading-relaxed text-muted-foreground">
+							{t('settings.downloads.note')}
+						</p>
 					{:else if tab === 'data'}
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.network')}</h3>
@@ -1201,6 +1283,64 @@
 					: 'text-muted-foreground hover:text-foreground'}"
 			>
 				{t(q.key)}
+			</button>
+		{/each}
+	</div>
+{/snippet}
+
+{#snippet downloadFolderControl()}
+	<div class="flex items-center gap-1.5">
+		{#if downloadDir.custom}
+			<Button variant="ghost" size="sm" onclick={resetDownloadFolder}>
+				{t('settings.downloads.reset_folder')}
+			</Button>
+		{/if}
+		<Button variant="outline" size="sm" onclick={chooseDownloadFolder}>
+			{t('settings.downloads.change_folder')}
+		</Button>
+	</div>
+{/snippet}
+
+{#snippet downloadFolderPath()}
+	<p
+		class="rounded-lg bg-muted/50 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed break-all text-muted-foreground"
+		title={downloadDir.path}
+	>
+		{downloadDir.path}
+	</p>
+{/snippet}
+
+{#snippet downloadFormatPicker()}
+	<div class="flex flex-wrap justify-end gap-1">
+		{#each DOWNLOAD_FORMATS as value (value)}
+			<button
+				type="button"
+				class="cursor-pointer rounded-md px-2.5 py-1 text-xs font-medium transition-colors {downloadFormat ===
+				value
+					? 'bg-primary text-primary-foreground'
+					: 'bg-muted text-muted-foreground hover:text-foreground'}"
+				aria-pressed={downloadFormat === value}
+				onclick={() => setDownloadFormat(value)}
+			>
+				{value.toUpperCase()}
+			</button>
+		{/each}
+	</div>
+{/snippet}
+
+{#snippet downloadQualityPicker()}
+	<div class="flex flex-wrap justify-end gap-1">
+		{#each DOWNLOAD_QUALITIES as value (value)}
+			<button
+				type="button"
+				class="cursor-pointer rounded-md px-2.5 py-1 text-xs font-medium transition-colors {downloadQuality ===
+				value
+					? 'bg-primary text-primary-foreground'
+					: 'bg-muted text-muted-foreground hover:text-foreground'}"
+				aria-pressed={downloadQuality === value}
+				onclick={() => setDownloadQuality(value)}
+			>
+				{value === 'best' ? t('player.download_quality_best') : t(`player.download_quality_${value}`)}
 			</button>
 		{/each}
 	</div>

@@ -17,7 +17,7 @@ tauri-build = { version = "2", features = [] }
 serde = { workspace = true }
 notify = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["net", "io-util", "sync"] }
+tokio = { workspace = true, features = ["net", "io-util", "sync", "process"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = { workspace = true }
@@ -85,6 +85,8 @@ unicode-normalization = "0.1"
 [dev-dependencies]
 # Mock runtime for the IPC guard test (lib.rs `only_ui`).
 tauri = { version = "2", features = ["test"] }
+# Temporary download folders for the fake-yt-dlp runner tests (download.rs).
+tempfile = "3"
 
 # Letting a song notification show while Limusic is frontmost (notify.rs, #94). Same objc2 that
 # mac-notification-sys and tao already pull in.

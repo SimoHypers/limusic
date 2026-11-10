@@ -611,6 +611,79 @@ export const openExternal = (url: string) => invoke<void>('open_external', { url
 /** Real quit (not close-to-tray). Same path as the tray's Quit item. */
 export const quitApp = () => invoke<void>('quit_app');
 
+/** Download audio formats supported by the yt-dlp download command. */
+export type DownloadFormat = 'mp3' | 'm4a' | 'flac' | 'opus' | 'wav';
+/** Audio quality hints for yt-dlp (`best` lets it choose; the numbers are kbps). */
+export type DownloadQuality = 'best' | '320' | '192' | '128' | '64';
+
+/** Where yt-dlp left the file, and whether it skipped it because it was already there. */
+export interface DownloadOutcome {
+	path: string;
+	skipped: boolean;
+}
+
+/** One byte-level progress tick from the `download-progress` event, keyed by the job's `id`. */
+export interface DownloadProgress {
+	id: string;
+	downloaded: number;
+	/** Absent when YouTube does not report a size; the bar then stays indeterminate. */
+	total: number | null;
+	/** 0-100. 0 while `total` is unknown. */
+	percent: number;
+	speed: number | null;
+	eta: number | null;
+}
+
+/**
+ * Download one track via yt-dlp. The file is named `Artist - Title.<ext>`; `playlist` puts it
+ * under `~/Downloads/<Playlist>/`, and `dest` (a full path without extension from the save
+ * dialog) overrides the Downloads folder. `id` ties the job to its `download-progress` events.
+ * Tags and the cover are embedded by yt-dlp. Resolves once the file is on disk; rejects with
+ * yt-dlp's stderr on failure.
+ */
+export const downloadTrack = (
+	videoId: string,
+	artist: string,
+	title: string,
+	format: DownloadFormat,
+	quality: DownloadQuality,
+	opts: { id: string; playlist?: string; dest?: string }
+) =>
+	invoke<DownloadOutcome>('download_track', {
+		id: opts.id,
+		videoId,
+		artist,
+		title,
+		format,
+		quality,
+		playlist: opts.playlist ?? null,
+		dest: opts.dest ?? null
+	});
+
+/** The save dialog's default name for this track, already under `~/Downloads`. */
+export const suggestDownloadPath = (
+	artist: string,
+	title: string,
+	format: DownloadFormat,
+	playlist?: string
+) =>
+	invoke<string>('suggest_download_path', {
+		artist,
+		title,
+		format,
+		playlist: playlist ?? null
+	});
+
+/** The spawned `yt-dlp`'s version, or why it could not be started. */
+export const checkYtdlp = () => invoke<string>('check_ytdlp');
+
+/** Settings ▸ Downloads: the effective folder and whether the user chose it. */
+export interface DownloadDir {
+	path: string;
+	custom: boolean;
+}
+export const downloadDirectory = () => invoke<DownloadDir>('download_directory');
+
 /** Environment + the redacted tail of `limusic.log`, for pasting into a bug report. */
 export const diagnostics = () => invoke<string>('diagnostics');
 /** Just the environment block, for prefilling the GitHub bug form. */
@@ -1222,6 +1295,9 @@ export const onCoverError = (cb: (msg: string) => void): Promise<UnlistenFn> =>
 	listen<{ message: string }>('cover-error', (e) => cb(e.payload.message));
 export const onImportProgress = (cb: (s: ImportSnapshot) => void): Promise<UnlistenFn> =>
 	listen<ImportSnapshot>('import-progress', (e) => cb(e.payload));
+/** Byte-level progress of one yt-dlp job (`id` is the one `downloadTrack` was given). */
+export const onDownloadProgress = (cb: (p: DownloadProgress) => void): Promise<UnlistenFn> =>
+	listen<DownloadProgress>('download-progress', (e) => cb(e.payload));
 export const onAuthChanged = (cb: (a: Account) => void): Promise<UnlistenFn> =>
 	listen<Account>('auth-changed', (e) => cb(e.payload));
 export const onAccountSelectionRequired = (cb: () => void): Promise<UnlistenFn> =>

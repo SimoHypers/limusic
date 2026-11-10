@@ -14,6 +14,7 @@
         Share08Icon,
         BookmarkAdd02Icon,
         BookmarkCheck02Icon,
+        Download01Icon,
     } from "@hugeicons/core-free-icons";
     import TrackRow from "$lib/components/TrackRow.svelte";
     import TrackColumns, { chosen } from "$lib/components/TrackColumns.svelte";
@@ -49,6 +50,7 @@
     import { getCached, putCached } from "$lib/pagecache";
     import { thumb } from "$lib/thumb";
     import { anchorMenu, fitMenu, NO_ANCHOR, toBody } from "$lib/menu";
+    import { openPlaylistDownload } from "$lib/downloads.svelte";
     import { t } from "$lib/i18n.svelte";
 
     let album = $state<AlbumPage | null>(null);
@@ -210,6 +212,13 @@
         if (!album?.items.length) return;
         menuOpen = false;
         openAddManyToPlaylist(album.items);
+    }
+
+    // Same background queue as a playlist download; the album title names the folder.
+    function downloadAlbum() {
+        if (!album?.items.length) return;
+        menuOpen = false;
+        openPlaylistDownload(album.title ?? t("common.album_singular"), album.items);
     }
 
     // A shelf's "See all" opens the same grid route the artist page uses.
@@ -427,6 +436,19 @@
                                 class="h-4 w-4"
                             /> {t("player.add_to_queue")}
                         </button>
+                        <!-- A local album has no YouTube ids to fetch; the download engine would
+                             have nothing to do. -->
+                        {#if !isLocal}
+                            <button
+                                class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+                                onclick={downloadAlbum}
+                            >
+                                <HugeiconsIcon
+                                    icon={Download01Icon}
+                                    class="h-4 w-4"
+                                /> {t("player.download_album")}
+                            </button>
+                        {/if}
                         <!-- The album's audio playlist is what a radio seeds from; an album page
                              without one (rare) has nothing to ask YouTube for. -->
                         {#if !isLocal && album.playlistId}

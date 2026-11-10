@@ -272,7 +272,7 @@ pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
 /// `visitor_data`) and internal blobs (`queue_json`, `queue_index`, `queue_position`) never cross
 /// into the webview: they'd otherwise ship the login credential to the renderer on every open, and
 /// the webview can't overwrite them either.
-const UI_SETTINGS: [&str; 33] = [
+const UI_SETTINGS: [&str; 37] = [
     "volume",
     "proxy",
     "quality",
@@ -306,6 +306,10 @@ const UI_SETTINGS: [&str; 33] = [
     "crossfade",
     "crossfade_secs",
     "locale",
+    "download_format",
+    "download_quality",
+    "download_remember",
+    "download_dir",
 ];
 
 /// Resolve the music video for `video_id` and hand back a `limusicvideo://` URL the player view
@@ -2773,6 +2777,101 @@ pub async fn open_external(url: String) -> Result<(), String> {
 #[tauri::command]
 pub fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
+}
+
+// --- Download via yt-dlp --------------------------------------------------------------------
+
+/// Download one track with yt-dlp. `artist`/`title` name the file (`Artist - Title.<ext>`);
+/// `playlist` puts it under `~/Downloads/<Playlist>/`; `dest` is a full path without extension
+/// picked in the save dialog and overrides the Downloads folder. yt-dlp embeds the tags and the
+/// cover, so the UI gets back only where the file landed and whether it was already there.
+///
+/// `id` identifies this job in the `download-progress` events the UI draws its bars from. Several
+/// of these commands can run at once; each is its own yt-dlp process.
+///
+/// yt-dlp gets the account's session as a cookie jar, or YouTube answers a signed-in user's tracks
+/// with "Sign in to confirm you're not a bot". The jar is a private temp file removed after the run.
+#[tauri::command]
+pub async fn download_track(
+    app: tauri::AppHandle,
+    state: St<'_>,
+    id: String,
+    video_id: String,
+    artist: String,
+    title: String,
+    format: String,
+    quality: String,
+    playlist: Option<String>,
+    dest: Option<String>,
+) -> Result<crate::download::DownloadOutcome, String> {
+    let dir =
+        crate::download::effective_dir(&app, state.db.get_setting("download_dir").as_deref())?;
+    let cookies = match state.db.get_setting("session_cookie") {
+        Some(cookie) => crate::download::write_cookie_jar(&cookie)?,
+        None => None,
+    };
+    tracing::debug!(video_id = %video_id, cookies = cookies.is_some(), "yt-dlp download");
+    let req = crate::download::TrackDownload {
+        video_id: &video_id,
+        artist: &artist,
+        title: &title,
+        format: &format,
+        quality: &quality,
+        playlist: playlist.as_deref(),
+    };
+    let progress = |p: crate::download::Progress| {
+        let _ = app.emit("download-progress", p);
+    };
+    crate::download::run(
+        &req,
+        dest.as_deref().map(std::path::Path::new),
+        &dir,
+        cookies.as_ref().map(|jar| jar.path()),
+        &id,
+        Some(&progress),
+    )
+    .await
+}
+
+/// The save dialog's suggested name: where this track (or a playlist's track) lands by default.
+#[tauri::command]
+pub fn suggest_download_path(
+    app: tauri::AppHandle,
+    state: St<'_>,
+    artist: String,
+    title: String,
+    format: String,
+    playlist: Option<String>,
+) -> Result<String, String> {
+    crate::download::validate_format(&format)?;
+    let dir =
+        crate::download::effective_dir(&app, state.db.get_setting("download_dir").as_deref())?;
+    Ok(crate::download::suggested_path(&dir, &artist, &title, &format, playlist.as_deref()))
+}
+
+/// The folder new downloads land in, plus whether it is the user's choice or the platform default.
+#[derive(serde::Serialize)]
+pub struct DownloadDir {
+    pub path: String,
+    pub custom: bool,
+}
+
+/// What Settings ▸ Downloads shows. `custom` is false when the setting is unset, so the tab can
+/// offer "Use default" only when there is something to clear.
+#[tauri::command]
+pub fn download_directory(app: tauri::AppHandle, state: St<'_>) -> Result<DownloadDir, String> {
+    let configured = state.db.get_setting("download_dir");
+    let dir = crate::download::effective_dir(&app, configured.as_deref())?;
+    Ok(DownloadDir {
+        path: dir.to_string_lossy().into_owned(),
+        custom: crate::download::configured_dir(configured.as_deref()).is_some(),
+    })
+}
+
+/// Whether the `yt-dlp` binary the download command spawns is there, and its version.
+#[tauri::command]
+pub async fn check_ytdlp() -> Result<String, String> {
+    crate::download::version().await
 }
 
 // --- Diagnostics ----------------------------------------------------------------------------

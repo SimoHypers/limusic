@@ -9,6 +9,7 @@ mod db;
 mod devicelink;
 mod diagnostics;
 mod discord;
+mod download;
 mod hotkeys;
 mod http;
 mod import;
@@ -1363,6 +1364,10 @@ pub fn run() {
             commands::diagnostics_summary,
             commands::save_diagnostics,
             commands::log_ui,
+            commands::download_track,
+            commands::suggest_download_path,
+            commands::check_ytdlp,
+            commands::download_directory,
         ]))
         .on_window_event(|window, event| {
             // Close-to-tray: ✕ hides the main window and playback keeps running; real quit is

@@ -7,11 +7,14 @@ import type {
 	Account,
 	AccountIdentity,
 	BrowseItem,
+	DownloadFormat,
+	DownloadQuality,
 	NowPlaying,
 	QueueState,
 	Rating,
 	SongItem
 } from './api';
+import { parseDownloadPrefs } from './download';
 import { applyLtState, lt } from './lt.svelte';
 import { applyLinkState, link } from './link.svelte';
 import { clearCached, invalidateCached, LIBRARY_SONGS_KEY } from './pagecache';
@@ -311,7 +314,12 @@ export const prefs = $state({
 	autoplay: true,
 	/** The Scrobbling tab's on switch (`lastfm_config.enabled`). The track menu offers "Edit
 	 *  scrobble" only while it is on, so a user who paused scrobbling isn't shown it. */
-	scrobbling: true
+	scrobbling: true,
+	/** The remembered download choice (`download_format` / `download_quality`). Read by the
+	 *  download dialog; ticking "Remember this choice" writes all three settings. */
+	downloadFormat: 'mp3' as DownloadFormat,
+	downloadQuality: 'best' as DownloadQuality,
+	downloadRemember: false
 });
 
 /** Rust drops the upcoming autoplay tracks when this goes off, and tops a short queue up when it
@@ -2084,6 +2092,10 @@ export function initApp(mini = false): () => void {
 			prefs.discordRpc = s.discord_rpc === 'true';
 			prefs.autoplay = s.autoplay !== 'false';
 			prefs.scrobbling = parseScrobbleConfig(s.lastfm_config).enabled;
+			const remembered = parseDownloadPrefs(s);
+			prefs.downloadFormat = remembered.format;
+			prefs.downloadQuality = remembered.quality;
+			prefs.downloadRemember = remembered.remember;
 			// Half of what the app shows is YouTube's own text, and Rust asks for it in the language
 			// this setting holds (#274). It reads the setting at startup, before the SPA exists to
 			// tell it anything, so the two disagree on a fresh install, on a language taken from the

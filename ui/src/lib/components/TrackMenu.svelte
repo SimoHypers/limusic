@@ -25,7 +25,8 @@
 		DashboardSquare02Icon,
 		Share08Icon,
 		PreferenceVerticalIcon,
-		PencilEdit02Icon
+		PencilEdit02Icon,
+		Download01Icon
 	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import type { SongItem } from '$lib/api';
@@ -56,6 +57,7 @@
 	import { lastfm } from '$lib/lastfm.svelte';
 	import { listenbrainz } from '$lib/listenbrainz.svelte';
 	import { lt } from '$lib/lt.svelte';
+	import { openDownload, quickDownload } from '$lib/downloads.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import { invalidateCachedPrefix } from '$lib/pagecache';
 
@@ -253,14 +255,30 @@
 				<HugeiconsIcon icon={ArrowDownWideNarrowIcon} class="h-4 w-4" /> {t('player.add_to_queue')}
 			</button>
 		{/if}
-		<!-- Radio is the one action worth having in the player bar too (`linksOnly`): it's how you
-		     say "keep going with more like this" about the song that's playing. -->
+		<!-- Radio and download are the actions worth having in the player bar too (`linksOnly`):
+		     radio is "keep going with more like this", and download is about the song that's playing.
+		     A remembered format downloads straight away; the dialog is for picking or changing it. -->
 		{#if !isLocal}
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={(e) => run(e, () => startRadio('song', song.video_id, song.title))}
 			>
 				<HugeiconsIcon icon={Radio02Icon} class="h-4 w-4" /> {t('player.start_radio')}
+			</button>
+			<button
+				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+				onclick={(e) =>
+					run(e, () => {
+						const target = {
+							videoId: song.video_id,
+							title: song.title,
+							artists: song.artists ?? ''
+						};
+						if (prefs.downloadRemember) quickDownload(target);
+						else openDownload(target);
+					})}
+			>
+				<HugeiconsIcon icon={Download01Icon} class="h-4 w-4" /> {t('player.download_track')}
 			</button>
 		{/if}
 		<!-- In the player bar (`linksOnly`) like has its own button, which drops below lg to leave the

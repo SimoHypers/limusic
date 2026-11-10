@@ -3571,6 +3571,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-tungstenite",

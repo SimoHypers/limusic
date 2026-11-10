@@ -30,6 +30,7 @@
 	import LastFmIcon from './LastFmIcon.svelte';
 	import DiscordIcon from './DiscordIcon.svelte';
 	import AccountMenu from './AccountMenu.svelte';
+	import DownloadIndicator from './DownloadIndicator.svelte';
 	import { appIcon } from '$lib/appicon.svelte';
 	import * as api from '$lib/api';
 	import { openMiniPlayer, playback, prefs, refreshView, toast, ui } from '$lib/player.svelte';
@@ -189,6 +190,8 @@
 		     <header> only, so these children are ordinary buttons — don't add the attribute here. -->
 		<AccountMenu />
 		<div class="mx-1.5 h-4 w-px bg-border"></div>
+		<!-- Only renders while there is a download job; the popover holds progress and sizes. -->
+		<DownloadIndicator />
 
 		<!-- Paste a YouTube Music link and go to it: the only way into a playlist that is shared by
 		     link and never appears in search or the library (#63). -->

@@ -25,7 +25,8 @@
 		ArrowUpDownIcon,
 		ComputerIcon,
 		SpotifyIcon,
-		Search01Icon
+		Search01Icon,
+		Download01Icon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import * as RadioGroup from '$lib/components/ui/radio-group';
@@ -95,6 +96,7 @@
 		lastPlaylistRemove,
 		refreshLocalPlaylists
 	} from '$lib/player.svelte';
+	import { openPlaylistDownload } from '$lib/downloads.svelte';
 
 	// `$state.raw`, not `$state`: a deep proxy makes every read of a row go through a trap and
 	// create a signal, and this list runs to five figures. Measured at 5,000 rows, one filter pass
@@ -411,8 +413,14 @@
 	// Sorted, but a page never arrived. The queue is a snapshot, so the tracks that did not load
 	// are gone from it for good — play them anyway and say so, rather than refusing to play at all
 	// over one failed request. The list's own "Try again" sits at the bottom of the page.
-	function warnPartial(what: 'queued' | 'added') {
-		toast.error(t(what === 'queued' ? 'toasts.partial_playlist_queued' : 'toasts.partial_playlist_added'));
+	function warnPartial(what: 'queued' | 'added' | 'downloaded') {
+		const key =
+			what === 'queued'
+				? 'toasts.partial_playlist_queued'
+				: what === 'added'
+					? 'toasts.partial_playlist_added'
+					: 'toasts.partial_playlist_downloaded';
+		toast.error(t(key));
 	}
 
 	// One cache entry per order asked for. "No order asked for" keeps the bare key, because the
@@ -1004,6 +1012,24 @@
 		openAddManyToPlaylist(sortedItems);
 	}
 
+	// Same walk: a download is the whole playlist, not the pages loaded so far.
+	let downloading = $state(false);
+	async function downloadPlaylist() {
+		if (!pl?.items.length || downloading) return;
+		const pid = id;
+		downloading = true;
+		let whole: boolean;
+		try {
+			whole = await loadAll();
+		} finally {
+			downloading = false;
+		}
+		if (!pl || pid !== id) return;
+		if (!whole) warnPartial('downloaded');
+		menuOpen = false;
+		openPlaylistDownload(pl.title ?? t('common.playlist_singular'), pl.items);
+	}
+
 	// Untouched by the sort: the backend shuffles the whole playlist (continuation pages included),
 	// so what order it was handed is irrelevant.
 	function shufflePlay() {
@@ -1516,6 +1542,19 @@
 		>
 			<HugeiconsIcon icon={ArrowDownWideNarrowIcon} class="h-4 w-4" /> {t('player.add_to_queue')}
 		</button>
+		<!-- Downloads the whole playlist into ~/Downloads/<Playlist>/. On Repeat is built from local
+		     play counts, but its rows are real videos; a playlist on this machine can hold local
+		     files, which have no YouTube id to fetch. -->
+		{#if !isLocalList}
+			<button
+				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10 disabled:opacity-50"
+				onclick={() => run(downloadPlaylist)}
+				disabled={downloading || !pl?.items.length}
+			>
+				<HugeiconsIcon icon={Download01Icon} class="h-4 w-4" />
+				{t('player.download_playlist')}
+			</button>
+		{/if}
 		<!-- On Repeat is built from local play counts, and a playlist on this machine is no YouTube
 		     playlist either: neither has a radio to seed. -->
 		{#if !isOnRepeat && !isLocalList}

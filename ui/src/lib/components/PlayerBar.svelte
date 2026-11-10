@@ -52,6 +52,7 @@
 	import { link } from '$lib/link.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import LiveBadge from './LiveBadge.svelte';
+	import DownloadButton from './DownloadButton.svelte';
 
 	let {
 		onToggleQueue,
@@ -493,6 +494,8 @@
 				>
 					<HugeiconsIcon icon={Comment01Icon} class="h-5 w-5" />
 				</Button>
+				<!-- Download the current track via yt-dlp. Local files have no YouTube ID to pass. -->
+				<DownloadButton videoId={playback.now.videoId} />
 			{/if}
 			<Button
 				variant={queueOpen ? 'secondary' : 'ghost'}
