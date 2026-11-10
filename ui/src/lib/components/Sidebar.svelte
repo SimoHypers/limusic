@@ -25,6 +25,9 @@
 	import { ON_REPEAT_ID, isLocalPlaylist, type BrowseItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import PlaylistMenu from './PlaylistMenu.svelte';
+	import IntegrationButtons from './IntegrationButtons.svelte';
+	import AccountMenu from './AccountMenu.svelte';
+	import { appearance } from '$lib/theme.svelte';
 	import { library, personal, ui, openNewPlaylist, toggleSidebar } from '$lib/player.svelte';
 	import { mergeSaved, orderLibrary } from '$lib/personal';
 	import { t } from '$lib/i18n.svelte';
@@ -101,18 +104,43 @@
 		else imp.open = true;
 	}
 	const wide = (cls: string) => (collapsed ? '' : cls);
+	// Below `sm` the sidebar is a slide-over drawer instead of a rail: the window can be 400px
+	// wide there, a 64px rail plus a page does not fit, so the menu moves behind a button.
+	const drawer = (cls: string) => (ui.navOpen ? cls : '');
+	const closeDrawer = () => (ui.navOpen = false);
+	// The drawer renders the titlebar's account and integration buttons, and their visibility comes
+	// from Appearance ▸ Top bar. Rendered by width rather than merely hidden: IntegrationButtons
+	// watches the Last.fm and ListenBrainz sessions, and a second mounted copy would subscribe twice.
+	let vw = $state(typeof window === 'undefined' ? 1200 : window.innerWidth);
 </script>
+
+<svelte:window bind:innerWidth={vw} />
 
 <aside
 	data-nav-rail
 	class="flex h-full w-16 shrink-0 flex-col border-r bg-sidebar p-3 text-sidebar-foreground {wide(
 		'lg:w-60'
-	)}"
+	)} {ui.navOpen
+		? 'max-sm:absolute max-sm:inset-y-0 max-sm:left-0 max-sm:z-40 max-sm:w-60 max-sm:shadow-xl'
+		: 'max-sm:hidden'}"
 >
-	<div class="flex items-center justify-center px-2 py-2 {wide('lg:justify-between')}">
-		<span class="hidden font-heading text-lg font-bold tracking-tight {wide('lg:block')}">Limusic</span>
+	<div
+		class="flex items-center justify-center px-2 py-2 {wide('lg:justify-between')} {drawer(
+			'max-sm:justify-between'
+		)}"
+	>
+		<span
+			class="hidden font-heading text-lg font-bold tracking-tight {wide('lg:block')} {drawer(
+				'max-sm:block'
+			)}">Limusic</span
+		>
 		<!-- Column when collapsed: the two buttons don't fit side by side in the 64px rail. -->
 		<div class="flex items-center gap-1 {collapsed ? 'flex-col' : ''}">
+			<!-- Below sm the titlebar drops the account button, so the drawer keeps it here, left of
+			     the theme toggle. -->
+			{#if vw < 640 && !appearance.titlebarHidden.includes('account')}
+				<AccountMenu />
+			{/if}
 			<Button
 				variant="ghost"
 				size="icon-sm"
@@ -142,6 +170,16 @@
 		</div>
 	</div>
 
+	<!-- Below sm the titlebar hides the integration buttons (its window controls need the room), so
+	     the drawer carries them here, under the wordmark, from the same component. -->
+	{#if vw < 640}
+		<div class="flex flex-wrap items-center gap-1 px-1 pb-2">
+			<IntegrationButtons
+				itemClass="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/10 hover:text-foreground"
+			/>
+		</div>
+	{/if}
+
 	<nav class="mt-2 flex flex-col gap-1">
 		{#each nav as n (n.href)}
 			<a
@@ -154,13 +192,14 @@
 					const input = document.querySelector<HTMLInputElement>('#search-form input');
 					input?.focus();
 					input?.select();
-				} : undefined}
+					closeDrawer();
+				} : closeDrawer}
 				title={n.label}
 				data-nav-item
 				data-nav-active={isActive(n.href) ? '' : undefined}
 				class="group relative flex items-center justify-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors {wide(
 					'lg:justify-start'
-				)} {isActive(n.href)
+				)} {drawer('max-sm:justify-start')} {isActive(n.href)
 					? 'bg-primary/10 text-primary'
 					: 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'}"
 			>
@@ -175,21 +214,24 @@
 					icon={n.icon}
 					class="h-5 w-5 shrink-0"
 				/>
-				<span class="hidden {wide('lg:inline')}">{n.label}</span>
+				<span class="hidden {wide('lg:inline')} {drawer('max-sm:inline')}">{n.label}</span>
 			</a>
 		{/each}
 		<button
-			onclick={() => (ui.settingsOpen = true)}
+			onclick={() => {
+				closeDrawer();
+				ui.settingsOpen = true;
+			}}
 			title={t('nav.settings')}
 			class="group flex items-center justify-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground {wide(
 				'lg:justify-start'
-			)}"
+			)} {drawer('max-sm:justify-start')}"
 		>
 			<HugeiconsIcon
 				icon={Settings01Icon}
 				class="h-5 w-5 shrink-0"
 			/>
-			<span class="hidden {wide('lg:inline')}">{t('nav.settings')}</span>
+			<span class="hidden {wide('lg:inline')} {drawer('max-sm:inline')}">{t('nav.settings')}</span>
 		</button>
 	</nav>
 
@@ -214,10 +256,16 @@
 		</button>
 	{/if}
 
-	<!-- Playlists. Hidden on the icon rail (needs labels; matches YTM's collapsed rail). flex-1 lets
-	     the list fill the space and scroll. Always there, signed out included: a playlist can be
-	     made on this machine without an account (#251). -->
-	<div data-nav-playlists class="mt-3 hidden min-h-0 flex-1 flex-col border-t pt-3 {wide('lg:flex')}">
+	<!-- Playlists. Hidden on the icon rail (needs labels; matches YTM's collapsed rail), shown in
+	     the drawer where there is room for them. flex-1 lets the list fill the space and scroll.
+	     Always there, signed out included: a playlist can be made on this machine without an
+	     account (#251). -->
+	<div
+		data-nav-playlists
+		class="mt-3 hidden min-h-0 flex-1 flex-col border-t pt-3 {wide('lg:flex')} {drawer(
+			'max-sm:flex'
+		)}"
+	>
 		<Button variant="outline" size="sm" class="mb-2 w-full gap-2" onclick={() => openNewPlaylist()}>
 			<HugeiconsIcon icon={Add01Icon} class="h-4 w-4" /> {t('nav.new_playlist')}
 		</Button>

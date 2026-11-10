@@ -202,36 +202,42 @@
 			</div>
 		</div>
 		<div class="flex shrink-0 items-center gap-1">
+			<!-- Icon only below `lg`: two words and a label per button cost 181px of a 342px row,
+			     which left the heading and its hint 77px and cut both ("Sugge…", "Based on w…").
+			     The words come back once the header is wide enough to carry them. -->
 			{#if hidden}
 				<Button
 					variant="ghost"
 					size="sm"
-					class="gap-2 text-muted-foreground"
+					class="gap-2 text-muted-foreground max-lg:gap-0 max-lg:px-2"
+					aria-label={t('library.suggestions_show')}
 					onclick={() => setHidden(false)}
 				>
 					<HugeiconsIcon icon={ViewIcon} class="h-4 w-4" />
-					{t('library.suggestions_show')}
+					<span class="hidden lg:inline">{t('library.suggestions_show')}</span>
 				</Button>
 			{:else}
 				<Button
 					variant="ghost"
 					size="sm"
-					class="gap-2 text-muted-foreground"
+					class="gap-2 text-muted-foreground max-lg:gap-0 max-lg:px-2"
+					aria-label={t('common.refresh')}
 					onclick={load}
 					disabled={loading}
 				>
 					<!-- Spins only while a batch is in the air: nothing loops at rest. -->
 					<HugeiconsIcon icon={Refresh01Icon} class="h-4 w-4 {loading ? 'animate-spin' : ''}" />
-					{t('common.refresh')}
+					<span class="hidden lg:inline">{t('common.refresh')}</span>
 				</Button>
 				<Button
 					variant="ghost"
 					size="sm"
-					class="gap-2 text-muted-foreground"
+					class="gap-2 text-muted-foreground max-lg:gap-0 max-lg:px-2"
+					aria-label={t('library.suggestions_hide')}
 					onclick={() => setHidden(true, docked)}
 				>
 					<HugeiconsIcon icon={ViewOffSlashIcon} class="h-4 w-4" />
-					{t('library.suggestions_hide')}
+					<span class="hidden lg:inline">{t('library.suggestions_hide')}</span>
 				</Button>
 			{/if}
 			{#if docked}
@@ -271,9 +277,11 @@
 						>
 							{#snippet trailing()}
 								<!-- Always shown, unlike the row's other controls: adding is what the shelf
-								     is for. No transition, like everything else on a row (UI-PERFORMANCE). -->
+								     is for. No transition, like everything else on a row (UI-PERFORMANCE).
+								     Icon only below `lg`: the word alone was 68px of a row whose title was
+								     down to 76px. -->
 								<button
-									class="ml-1 flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-xs font-medium {added
+									class="ml-1 flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-xs font-medium max-lg:ml-0 max-lg:gap-0 max-lg:px-2 {added
 										? 'border-primary bg-primary text-primary-foreground'
 										: 'hover:border-primary hover:bg-primary hover:text-primary-foreground'}"
 									aria-label={t('library.suggestion_add', { title: song.title })}
@@ -293,7 +301,7 @@
 									<!-- Trimmed to cap height so it centres on the glyphs, not on a line box
 									     that carries descender space below them: untrimmed, the word sat ~1.5px
 									     above the plus. Fonts change per theme, so no fixed nudge. -->
-									<span class="[text-box:trim-both_cap_alphabetic]">
+									<span class="hidden lg:inline [text-box:trim-both_cap_alphabetic]">
 										{added ? t('library.suggestion_added') : t('common.add')}
 									</span>
 								</button>

@@ -84,6 +84,8 @@
 		}
 	};
 	afterNavigate((nav) => {
+		// The drawer covers the page it was opened over, and the page is about to be a different one.
+		ui.navOpen = false;
 		if (!scroller || !nav.to) return;
 		// Kit invokes snapshot.restore after afterNavigate on its own, so back/forward needs
 		// nothing here. Direct navigation (a link, the sidebar, a fresh history entry) starts at
@@ -105,14 +107,48 @@
 	let queueOpen = $state(false);
 	let lyricsOpen = $state(false);
 	let commentsOpen = $state(false);
+	/** Viewport width, so the now-playing view's tabs only own the bar's buttons while it has them. */
+	let vw = $state(typeof window === 'undefined' ? 1200 : window.innerWidth);
+	// One slot, one panel. The bar's three buttons read as toggles that never let go: the panel you
+	// opened sat beside the next one instead of behind it, and it was still there when you came back
+	// from the player. So opening any of them closes the others, and the now-playing view takes the
+	// slot too — opening it drops whatever was open rather than holding it for later.
+	function openPanel(panel: 'queue' | 'lyrics' | 'comments') {
+		const on = panel === 'queue' ? !queueOpen : panel === 'lyrics' ? !lyricsOpen : !commentsOpen;
+		queueOpen = on && panel === 'queue';
+		lyricsOpen = on && panel === 'lyrics';
+		commentsOpen = on && panel === 'comments';
+	}
+	$effect(() => {
+		if (!np.open) return;
+		queueOpen = false;
+		lyricsOpen = false;
+		commentsOpen = false;
+	});
+	/** One pull-down for everything that slides over the page: the view and the panels. */
+	function pullDown(): void {
+		np.open = false;
+		queueOpen = false;
+		lyricsOpen = false;
+		commentsOpen = false;
+	}
+	/** The opposite of a pull-down, for the track line: the view on top, whatever covered it gone. */
+	function showView(): void {
+		queueOpen = false;
+		lyricsOpen = false;
+		commentsOpen = false;
+		np.open = true;
+	}
 	// Two ways the now-playing view and these panels can divide the same two buttons, picked in
 	// settings (#62). Tabbed (the default): the view carries queue and lyrics itself, so the panels
 	// step aside for it and the bar's buttons switch its tabs. Off: these are the only owner, the
 	// buttons always mean the panels, and the panels float over that view like they float over a
-	// page, so opening it costs you nothing you had open.
-	const tabbed = $derived(np.open && appearance.tabbedPlayer);
-	// Stepping aside hides the panels without closing them, so closing the view brings back
-	// whatever was open before it (#365).
+	// page.
+	// Tabbed also needs the view's tab column, which it only shows at md and up: below that the
+	// view spends its whole width on the track, so there the buttons fall back to the panels —
+	// which cover that view just as well — instead of switching a tab nobody can see.
+	const tabbed = $derived(np.open && appearance.tabbedPlayer && vw >= 768);
+	// The panels step aside while the view owns the slot.
 	const showQueue = $derived(queueOpen && !tabbed);
 	const showLyrics = $derived(lyricsOpen && !tabbed);
 	const showComments = $derived(commentsOpen && !tabbed);
@@ -199,6 +235,7 @@
 <!-- A Spotify export, CSV or link dropped anywhere opens the import (#375); anything else foreign is
      refused as before. -->
 <svelte:window
+	bind:innerWidth={vw}
 	ondragover={blockForeignDrag}
 	ondrop={(e) => handleImportDrop(e) || blockForeignDrag(e)}
 	oncontextmenu={suppressNative}
@@ -242,6 +279,15 @@
 		<Titlebar />
 		<!-- relative: the queue and lyrics panels are absolute overlays inside it (see QueuePanel). -->
 		<div class="relative flex min-h-0 flex-1">
+			<!-- Below sm the sidebar is off-canvas (it would be a sixth of a 400px window), so it opens
+			     as a drawer over the page; this scrim catches the click that closes it. -->
+			{#if ui.navOpen}
+				<button
+					class="absolute inset-0 z-30 bg-black/40 sm:hidden"
+					aria-label={t('a11y.close_menu')}
+					onclick={() => (ui.navOpen = false)}
+				></button>
+			{/if}
 			<Sidebar />
 			<!-- dragScroll: dragging a card up to home's Shortcuts grid has to be possible from anywhere in
 			     the feed, so aiming at the top edge scrolls this container while the drag is in flight. -->
@@ -281,24 +327,14 @@
 			     earlier in the DOM, which is what puts it behind the bar as it slides in and out. -->
 			<div class="relative z-20" in:fly={{ y: 64, duration: 250, easing: cubicOut }}>
 				<PlayerBar
-					onToggleQueue={() => (tabbed ? (np.tab = 'queue') : (queueOpen = !queueOpen))}
+					onToggleQueue={() => (tabbed ? (np.tab = 'queue') : openPanel('queue'))}
 					queueOpen={tabbed ? np.tab === 'queue' : queueOpen}
-					onToggleLyrics={() => {
-						if (tabbed) np.tab = 'lyrics';
-						else {
-							lyricsOpen = !lyricsOpen;
-							if (lyricsOpen) commentsOpen = false;
-						}
-					}}
+					onToggleLyrics={() => (tabbed ? (np.tab = 'lyrics') : openPanel('lyrics'))}
 					lyricsOpen={tabbed ? np.tab === 'lyrics' : lyricsOpen}
-					onToggleComments={() => {
-						if (tabbed) np.tab = 'comments';
-						else {
-							commentsOpen = !commentsOpen;
-							if (commentsOpen) lyricsOpen = false;
-						}
-					}}
+					onToggleComments={() => (tabbed ? (np.tab = 'comments') : openPanel('comments'))}
 					commentsOpen={tabbed ? np.tab === 'comments' : commentsOpen}
+					onPullDown={pullDown}
+					onShowView={showView}
 				/>
 			</div>
 		{/if}

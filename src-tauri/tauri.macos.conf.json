@@ -13,7 +13,7 @@
         "title": "Limusic",
         "width": 1200,
         "height": 800,
-        "minWidth": 900,
+        "minWidth": 400,
         "minHeight": 620,
         "resizable": true,
         "fullscreen": false,

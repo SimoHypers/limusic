@@ -59,7 +59,9 @@
 		onToggleLyrics,
 		lyricsOpen,
 		onToggleComments,
-		commentsOpen
+		commentsOpen,
+		onPullDown,
+		onShowView
 	}: {
 		onToggleQueue: () => void;
 		queueOpen: boolean;
@@ -67,7 +69,19 @@
 		lyricsOpen: boolean;
 		onToggleComments: () => void;
 		commentsOpen: boolean;
+		/** Closes the now-playing view and every panel over it, in one gesture. */
+		onPullDown: () => void;
+		/** Puts the view on top again, dismissing any panel that was covering it. */
+		onShowView: () => void;
 	} = $props();
+
+	// The chevron is one control for every thing that slides down over the page: pointed down while
+	// any of them is open, and pointed up (the only thing it opens on its own) while none is.
+	const overlaysOpen = $derived(np.open || queueOpen || lyricsOpen || commentsOpen);
+
+	// The view counts as visible only while nothing is drawn over it: a panel in front hides the
+	// track, so pressing the track line there has to bring the view back, not put it away.
+	const viewVisible = $derived(np.open && !(queueOpen || lyricsOpen || commentsOpen));
 
 	// Pop the heart once when the user favourites (not when un-favouriting). Reset on animation end
 	// so the next like can replay it.
@@ -156,7 +170,8 @@
 	// Settings can switch it off for whoever keeps tripping it on a missed control.
 	function onBarClick(e: MouseEvent) {
 		if (!appearance.emptyClickTogglesPlayer || pressedControl || isControl(e.target)) return;
-		np.open = !np.open;
+		if (overlaysOpen) onPullDown();
+		else np.open = true;
 	}
 </script>
 
@@ -168,11 +183,112 @@
 	data-playing={playback.paused ? 'false' : 'true'}
 	onpointerdown={(e) => (pressedControl = isControl(e.target))}
 	onclick={onBarClick}
-	class="flex items-center gap-2 border-t bg-card px-2 py-2.5 sm:gap-4 sm:px-4 sm:py-3"
+	class="flex flex-wrap items-center gap-2 border-t bg-card px-2 py-2.5 sm:flex-nowrap sm:gap-4 sm:px-4 sm:py-3"
 >
+	<!-- The playing track's own actions: like, add to playlist, and the ⋮ menu. One snippet for both
+	     rows, so the two never drift apart. A local file has no YouTube identity (see api.isLocalId):
+	     nothing to like, but it can still go in a playlist on this machine, so + stays. -->
+	{#snippet trackActions(cls: string)}
+		{#if playback.now}
+			<div class="flex items-center {cls}">
+				{#if !api.isLocalId(playback.now.videoId)}
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						onclick={toggleLike}
+						aria-label={t('common.like')}
+					>
+						<span
+							class="inline-flex"
+							class:animate-heart-pop={justLiked}
+							onanimationend={() => (justLiked = false)}
+						>
+							<HugeiconsIcon
+								icon={FavouriteIcon}
+								class="h-4 w-4 {playback.rating === 'like' ? 'fill-current text-primary' : 'text-muted-foreground'}"
+							/>
+						</span>
+					</Button>
+				{/if}
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					onclick={() => {
+						// The queue's row when it is there: it carries the album and the artist links
+						// that a playlist on this machine keeps, and the now-playing event does not.
+						const now = playback.now!;
+						openAddToPlaylist(
+							currentSong ?? {
+								video_id: now.videoId,
+								title: now.title,
+								artists: now.artists,
+								artist_id: now.artistId,
+								thumbnail: now.thumbnail,
+								duration: now.duration
+							}
+						);
+					}}
+					aria-label={t('player.save_to_playlist')}
+				>
+					<HugeiconsIcon icon={Add01Icon} class="h-4 w-4 text-muted-foreground" />
+				</Button>
+				{#if currentSong}
+					<TrackMenu
+						song={currentSong}
+						linksOnly
+						playlistId={playback.queue.sourceId}
+						queueIndex={playback.queue.currentIndex}
+						onAdd={() => openAddToPlaylist(currentSong!)}
+						triggerClass="inline-flex size-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
+					/>
+				{/if}
+			</div>
+		{/if}
+	{/snippet}
+
+	<!-- Below sm the cover and the title get a row of their own above the transport: beside it
+	     there is no room (the transport and the queue need the whole bar at 400px), and dropping
+	     them left the playing track unnamed. The row leads into the now-playing view, where the
+	     cover is full size, and carries the track's own actions on its right — the block below is
+	     hidden at this width, and at 400px there is exactly room for a title beside them.
+	     `basis-full` is what pushes the row onto its own line. -->
+	<div class="hidden min-w-0 items-center gap-1 max-sm:flex max-sm:basis-full">
+		<!-- One control over everything that slides down: pressing the name puts the view away when
+		     it is what you can see, and brings it back when a panel is covering it. -->
+		<button
+			class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+			onclick={() => (viewVisible ? (np.open = false) : onShowView())}
+			aria-label={viewVisible ? t('player.minimize_player') : t('player.open_player')}
+			aria-expanded={viewVisible}
+		>
+			{#if playback.now?.thumbnail}
+				<img
+					src={thumb(playback.now.thumbnail, 60)}
+					alt=""
+					style="max-width:none"
+					class="h-5 w-5 shrink-0 rounded object-cover"
+				/>
+			{:else}
+				<div
+					class="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground/50"
+				>
+					<HugeiconsIcon icon={MusicNote01Icon} class="h-3 w-3" />
+				</div>
+			{/if}
+			<Marquee
+				text={playback.now
+					? `${playback.now.title} — ${playback.now.artists}`
+					: t('player.not_playing')}
+				class="min-w-0 text-xs"
+			/>
+		</button>
+		{@render trackActions('shrink-0')}
+	</div>
+
 	<!-- Now playing. data-ctx: right-clicking the cover or the title opens the ⋮ menu for the track
-	     that's playing (not the buttons beside them — those keep their own meaning). -->
-	<div class="flex min-w-0 flex-1 items-center gap-3" data-ctx>
+	     that's playing (not the buttons beside them — those keep their own meaning).
+	     Below sm it drops entirely and the row above takes over. -->
+	<div class="flex min-w-0 flex-1 items-center gap-3 max-sm:hidden" data-ctx>
 		{#key playback.now?.videoId}
 			{#if playback.now?.thumbnail}
 				<img
@@ -232,72 +348,13 @@
 				class="block max-w-full text-xs text-muted-foreground"
 			/>
 		</div>
-		{#if playback.now}
-			<div class="flex items-center">
-				<!-- A local file has no YouTube identity (see api.isLocalId): nothing to like. It can
-				     still go in a playlist on this machine, so + stays. Below lg both drop and the ⋮
-				     menu carries them instead: on a narrow window three buttons here leave the title
-				     almost no room. lg, not md: the window's minWidth is 900 (tauri.conf.json), so md
-				     never fires. -->
-				{#if !api.isLocalId(playback.now.videoId)}
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						class="hidden lg:inline-flex"
-						onclick={toggleLike}
-						aria-label={t('common.like')}
-					>
-						<span
-							class="inline-flex"
-							class:animate-heart-pop={justLiked}
-							onanimationend={() => (justLiked = false)}
-						>
-							<HugeiconsIcon
-								icon={FavouriteIcon}
-								class="h-4 w-4 {playback.rating === 'like' ? 'fill-current text-primary' : 'text-muted-foreground'}"
-							/>
-						</span>
-					</Button>
-				{/if}
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					class="hidden lg:inline-flex"
-					onclick={() => {
-						// The queue's row when it is there: it carries the album and the artist links
-						// that a playlist on this machine keeps, and the now-playing event does not.
-						const now = playback.now!;
-						openAddToPlaylist(
-							currentSong ?? {
-								video_id: now.videoId,
-								title: now.title,
-								artists: now.artists,
-								artist_id: now.artistId,
-								thumbnail: now.thumbnail,
-								duration: now.duration
-							}
-						);
-					}}
-					aria-label={t('player.save_to_playlist')}
-				>
-					<HugeiconsIcon icon={Add01Icon} class="h-4 w-4 text-muted-foreground" />
-				</Button>
-				{#if currentSong}
-					<TrackMenu
-						song={currentSong}
-						linksOnly
-						playlistId={playback.queue.sourceId}
-						queueIndex={playback.queue.currentIndex}
-						onAdd={() => openAddToPlaylist(currentSong!)}
-						triggerClass="inline-flex size-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
-					/>
-				{/if}
-			</div>
-		{/if}
+		{@render trackActions('')}
 	</div>
 
-	<!-- Transport -->
-	<div class="flex flex-[1.5] flex-col items-center gap-1">
+	<!-- Transport. Below sm it takes a row of its own (`flex-[1_1_100%]`), so the buttons and the
+	     seek bar centre in the window instead of centring in whatever the cluster on the right
+	     leaves over — at 400px that was a visible bias to the left. -->
+	<div class="flex flex-[1.5] flex-col items-center gap-1 max-sm:flex-[1_1_100%]">
 		<div class="flex items-center gap-1">
 			{#if episode}
 				<SpeedPicker
@@ -418,11 +475,12 @@
 		{/if}
 	</div>
 
-	<!-- Volume + queue -->
-	<div class="flex flex-1 items-center justify-end gap-2">
-		<!-- Volume is the first control to drop on a narrow window (OS volume still works). It is
-		     this desktop's, so it goes while the bar controls a linked device. -->
-		<div class="hidden items-center gap-1 {link.remote ? '' : 'md:flex'}">
+	<!-- Volume + queue. Below sm this cluster takes a row of its own too: the volume slider lives
+	     here at every width now (the tempo/pitch button is what narrow windows drop instead), so
+	     it needs the room that sharing a row with the transport used to deny it. It is this
+	     desktop's volume, so it still goes while the bar controls a linked device. -->
+	<div class="flex flex-1 items-center justify-end gap-2 max-sm:flex-[1_1_100%] max-sm:justify-between">
+		<div class="flex items-center gap-1 {link.remote ? 'hidden' : ''}">
 			<Button
 				variant="ghost"
 				size="icon-sm"
@@ -454,21 +512,26 @@
 		<!-- One cluster, so they sit tighter to each other than to the volume slider. -->
 		<div class="flex items-center gap-0.5">
 			{#if link.status !== 'off'}<DevicePicker />{/if}
-			<!-- Speed, pitch and reverb are this desktop's player's; hidden while it controls a linked device. -->
+			<!-- Speed, pitch and reverb are this desktop's player's; hidden while it controls a
+			     linked device. The effects menu is also the one the bar drops below sm: it is a
+			     set-and-forget panel, and the volume slider beside it is the control thumbs want. -->
 			{#if !link.remote}
-			<Button
-				variant={ui.tempoPitchOpen ? 'secondary' : 'ghost'}
-				size="icon-sm"
-				onclick={() => (ui.tempoPitchOpen = !ui.tempoPitchOpen)}
-				aria-label={t('dialogs.tempo_pitch.title')}
-				aria-expanded={ui.tempoPitchOpen}
-			>
-				<HugeiconsIcon
-					icon={PreferenceVerticalIcon}
-					class="h-5 w-5 {effectsOn ? 'text-primary' : ''}"
-				/>
-			</Button>
+				<Button
+					variant={ui.tempoPitchOpen ? 'secondary' : 'ghost'}
+					size="icon-sm"
+					class="max-sm:hidden"
+					onclick={() => (ui.tempoPitchOpen = !ui.tempoPitchOpen)}
+					aria-label={t('dialogs.tempo_pitch.title')}
+					aria-expanded={ui.tempoPitchOpen}
+				>
+					<HugeiconsIcon
+						icon={PreferenceVerticalIcon}
+						class="h-5 w-5 {effectsOn ? 'text-primary' : ''}"
+					/>
+				</Button>
 			{/if}
+			<!-- Lyrics and comments stay below sm as well: the now-playing view shows the track at
+			     that width, so these buttons are the only way into either panel there. -->
 			<Button
 				variant={lyricsOpen ? 'secondary' : 'ghost'}
 				size="icon-sm"
@@ -502,20 +565,20 @@
 			>
 				<HugeiconsIcon icon={Queue01Icon} class="h-5 w-5" />
 			</Button>
-			<!-- The keyboard (and discoverable) way in and out of the now-playing view; clicking the
-			     bar's empty space does the same thing. -->
+			<!-- The keyboard (and discoverable) way in and out of everything that slides down;
+			     clicking the bar's empty space does the same thing. -->
 			<Button
 				variant="ghost"
 				size="icon-sm"
-				onclick={() => (np.open = !np.open)}
-				aria-label={np.open ? t('player.minimize_player') : t('player.open_player')}
-				aria-expanded={np.open}
+				onclick={() => (overlaysOpen ? onPullDown() : (np.open = true))}
+				aria-label={overlaysOpen ? t('player.minimize_player') : t('player.open_player')}
+				aria-expanded={overlaysOpen}
 			>
 				<!-- icon swap via altIcon/showAlt — `icon` is frozen at mount (see play/pause above) -->
 				<HugeiconsIcon
 					icon={ArrowUp01Icon}
 					altIcon={ArrowDown01Icon}
-					showAlt={np.open}
+					showAlt={overlaysOpen}
 					class="h-5 w-5"
 				/>
 			</Button>

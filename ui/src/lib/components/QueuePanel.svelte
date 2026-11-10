@@ -17,10 +17,12 @@
 	aria-label={t('a11y.close_queue')}
 	transition:fade={{ duration: 150 }}
 ></button>
+<!-- Full width below sm: a 320px panel on a 400px window left a strip of page showing through the
+     scrim, which reads as a broken layout rather than as an overlay. -->
 <aside
 	data-side-panel
 	transition:fly={{ x: 32, duration: 220, easing: cubicOut }}
-	class="absolute inset-y-0 right-0 z-30 flex h-full w-80 max-w-[80vw] flex-col border-l bg-card/95 shadow-2xl"
+	class="absolute inset-y-0 right-0 z-30 flex h-full w-80 max-w-[80vw] flex-col border-l bg-card/95 shadow-2xl max-sm:w-full max-sm:max-w-none"
 >
 	<h2 data-side-panel-header class="border-b px-4 py-3 font-heading text-sm font-semibold"
 		>{t('queue.title')}</h2

@@ -155,7 +155,13 @@ export const appearance = $state({
 	/** Derive the whole palette from Matugen. Off by default. */
 	matugen: false,
 	enhancedLyrics: false,
-	...LYRICS_DEFAULTS
+	...LYRICS_DEFAULTS,
+	/**
+	 * Top-bar buttons the reader has switched off, by id (`account`, `refresh`, `link`,
+	 * `listen_together`, `discord`, `lastfm`, `theater`, `mini`). A list rather than a flag per
+	 * button: the bar only asks "does this render", and a button added later starts visible.
+	 */
+	titlebarHidden: [] as string[]
 });
 
 export type LyricsAnim = 'bounce' | 'float' | 'wave' | 'pop' | 'slide' | 'none';
@@ -592,6 +598,12 @@ export function initTheme(): void {
 			'enhancedLyricsLineSync'
 		] as const) {
 			if (typeof saved?.[k] === 'boolean') appearance[k] = saved[k];
+		}
+		// A list of ids, so it takes its own shape check: a stale blob can hold anything.
+		if (Array.isArray(saved?.titlebarHidden)) {
+			appearance.titlebarHidden = saved.titlebarHidden.filter(
+				(id: unknown): id is string => typeof id === 'string'
+			);
 		}
 		if (LYRICS_ANIMS.includes(saved?.lyricsAnim)) appearance.lyricsAnim = saved.lyricsAnim;
 		if (LYRICS_STYLES.includes(saved?.lyricsStyle)) appearance.lyricsStyle = saved.lyricsStyle;

@@ -70,11 +70,14 @@
 			<div class="absolute inset-0 bg-gradient-to-b from-card/30 via-card/75 to-card"></div>
 		</div>
 	{/if}
-	<div class="flex items-center gap-4 p-5">
+	<!-- Below sm the card becomes two lines: the cover and the two buttons share the top one, the
+	     name runs the full width under them. In a single line the buttons alone ate the space the
+	     name needed, and a top result that shows one letter of the song is not an answer. -->
+	<div class="relative flex items-center gap-4 p-5 max-sm:flex-col max-sm:items-stretch max-sm:gap-3">
 		<div
 			role="button"
 			tabindex="0"
-			class="flex min-w-0 flex-1 cursor-pointer items-center gap-5"
+			class="flex min-w-0 flex-1 cursor-pointer items-center gap-5 max-sm:flex-col max-sm:items-start max-sm:gap-3"
 			onclick={() => openItem(item)}
 			onkeydown={(e) => {
 				if (e.target !== e.currentTarget) return;
@@ -86,7 +89,7 @@
 			title={item.subtitle ? `${item.title} • ${item.subtitle}` : item.title}
 		>
 			<div
-				class="flex h-28 w-28 shrink-0 items-center justify-center overflow-hidden bg-muted text-muted-foreground/50 shadow-xl {round
+				class="flex h-28 w-28 shrink-0 items-center justify-center overflow-hidden bg-muted text-muted-foreground/50 shadow-xl max-sm:h-20 max-sm:w-20 {round
 					? 'rounded-full'
 					: 'rounded-xl'}"
 			>
@@ -107,7 +110,7 @@
 					class="line-clamp-2 font-heading font-bold leading-tight tracking-tight {item.title
 						.length > 28
 						? 'text-2xl'
-						: 'text-3xl'}"
+						: 'text-3xl'} max-sm:text-2xl"
 				>
 					{item.title}
 				</div>
@@ -119,20 +122,24 @@
 				{/if}
 			</div>
 		</div>
-		<button
-			class="flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 active:scale-95"
-			class:animate-pulse={busy}
-			disabled={busy}
-			aria-label={item.kind === 'artist' ? t('player.start_radio') : t('player.play')}
-			title={item.kind === 'artist' ? t('player.start_radio') : t('player.play')}
-			onclick={play}
-		>
-			<HugeiconsIcon icon={PlayIcon} class="h-5 w-5" />
-		</button>
-		<ItemMenu
-			{item}
-			triggerClass="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
-		/>
+		<!-- Below sm this block leaves the flow and pins itself to the card's top-right corner, so the
+		     cover and the name get the full width under it. -->
+		<div class="flex shrink-0 items-center gap-4 max-sm:absolute max-sm:right-5 max-sm:top-5 max-sm:gap-2">
+			<button
+				class="flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 active:scale-95 max-sm:h-10 max-sm:w-10"
+				class:animate-pulse={busy}
+				disabled={busy}
+				aria-label={item.kind === 'artist' ? t('player.start_radio') : t('player.play')}
+				title={item.kind === 'artist' ? t('player.start_radio') : t('player.play')}
+				onclick={play}
+			>
+				<HugeiconsIcon icon={PlayIcon} class="h-5 w-5" />
+			</button>
+			<ItemMenu
+				{item}
+				triggerClass="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+			/>
+		</div>
 	</div>
 	{#if rows.length}
 		<div class="border-t border-border/60 px-2 py-1.5">
