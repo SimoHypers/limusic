@@ -13,7 +13,7 @@ use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use tauri::Manager;
@@ -240,17 +240,16 @@ pub fn write_cookie_jar(header: &str) -> Result<Option<CookieJar>, String> {
     Ok(Some(CookieJar(path)))
 }
 
-/// How long a jar may linger before a startup considers it abandoned. Runs of another Limusic
-/// instance (`LIMUSIC_MULTI`) write their jar at the start of each download, so anything this old is
-/// not in use by a live download and is safe to remove.
-const STALE_JAR_AGE: Duration = Duration::from_secs(24 * 60 * 60);
-
-/// A crash or a force-quit skips `CookieJar::drop`, leaving a live session in the temp dir. Swept
-/// once at startup, never per download: removing every matching jar mid-run would delete the cookie
-/// file another concurrent download is about to hand to yt-dlp.
+/// A crash or a force-quit skips `CookieJar::drop`, leaving a live session in the temp dir. Jars
+/// are named after the process that wrote them, so a startup sweep asks the OS whether that process
+/// is still running: another instance's jar (LIMUSIC_MULTI) is kept no matter how old it is, and a
+/// freshly abandoned one is removed on the next launch.
 pub fn sweep_stale_jars() {
-    let now = SystemTime::now();
-    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+    sweep_jars_in(&std::env::temp_dir());
+}
+
+fn sweep_jars_in(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
@@ -259,18 +258,46 @@ pub fn sweep_stale_jars() {
         if !name.starts_with("limusic-ytdlp-") || !name.ends_with(".cookies") {
             continue;
         }
-        let modified = entry.metadata().ok().and_then(|meta| meta.modified().ok());
-        if is_stale_jar(modified, now) {
+        if !jar_pid(&name).is_some_and(owner_alive) {
             let _ = std::fs::remove_file(entry.path());
         }
     }
 }
 
-/// A jar is abandoned once it is older than `STALE_JAR_AGE`.
-fn is_stale_jar(modified: Option<SystemTime>, now: SystemTime) -> bool {
-    modified
-        .and_then(|modified| now.duration_since(modified).ok())
-        .is_some_and(|age| age > STALE_JAR_AGE)
+/// `limusic-ytdlp-<pid>-<nonce>.cookies` -> `<pid>`, or `None` for a name in another format.
+fn jar_pid(name: &str) -> Option<u32> {
+    name.strip_prefix("limusic-ytdlp-")?.split('-').next()?.parse().ok()
+}
+
+/// Whether `pid` is still running. A missing `kill`/`tasklist` is treated as alive: leaking a jar
+/// beats deleting one a live instance is about to hand to yt-dlp.
+fn owner_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(true)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+            .creation_flags(0x0800_0000)
+            .output()
+            .map(|output| String::from_utf8_lossy(&output.stdout).contains(&format!("\"{pid}\"")))
+            .unwrap_or(true)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = pid;
+        true
+    }
 }
 
 /// The yt-dlp argv. `-x` extracts audio and re-encodes to `format`; ffmpeg is already required for
@@ -465,6 +492,10 @@ async fn run_with(
         // Python block-buffers stdout when it is a pipe; unbuffered keeps the progress ticks
         // arriving while the file is still downloading instead of in one lump at the end.
         .env("PYTHONUNBUFFERED", "1")
+        // yt-dlp would otherwise encode the output with the platform code page, mangling a
+        // non-ASCII Artist - Title in the `after_move:filepath` line on Windows.
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUTF8", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -754,18 +785,28 @@ mod tests {
     }
 
     #[test]
-    fn cookie_jars_are_only_stale_after_a_day() {
-        let now = SystemTime::now();
-        assert!(!is_stale_jar(Some(now), now), "a jar written now belongs to a live download");
-        assert!(
-            !is_stale_jar(Some(now - Duration::from_secs(3600)), now),
-            "an hour old is still in use"
-        );
-        assert!(
-            is_stale_jar(Some(now - Duration::from_secs(25 * 3600)), now),
-            "a day old is abandoned"
-        );
-        assert!(!is_stale_jar(None, now), "an unknown mtime is not evidence of abandonment");
+    fn a_startup_sweep_keeps_live_jars_and_removes_abandoned_ones() {
+        let tmp = tempfile::tempdir().unwrap();
+        let live = tmp.path().join(format!("limusic-ytdlp-{}-1.cookies", std::process::id()));
+        // A pid above every real platform max: no process can own this jar.
+        let abandoned = tmp.path().join("limusic-ytdlp-4194303-2.cookies");
+        let foreign = tmp.path().join("unrelated.cookies");
+        std::fs::write(&live, "x").unwrap();
+        std::fs::write(&abandoned, "x").unwrap();
+        std::fs::write(&foreign, "x").unwrap();
+
+        sweep_jars_in(tmp.path());
+
+        assert!(live.exists(), "a running instance keeps its jar, however old");
+        assert!(!abandoned.exists(), "a crashed instance's jar is removed");
+        assert!(foreign.exists(), "files outside our namespace are untouched");
+    }
+
+    #[test]
+    fn jar_names_carry_the_owning_pid() {
+        assert_eq!(jar_pid("limusic-ytdlp-123-456.cookies"), Some(123));
+        assert_eq!(jar_pid("limusic-ytdlp-not-a-pid.cookies"), None);
+        assert_eq!(jar_pid("something-else.cookies"), None);
     }
 
     #[cfg(unix)]
@@ -841,6 +882,19 @@ mod tests {
         assert_eq!(seen[0].id, "job-1");
         assert_eq!(seen[0].percent, 50.0);
         assert_eq!(seen[1].percent, 100.0);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn non_ascii_paths_survive_the_pipe() {
+        let tmp = tempfile::tempdir().unwrap();
+        let printed = tmp.path().join("Café - 日本語.mp3");
+        let fake = fake_program(tmp.path(), &format!("echo '{}'", printed.display()));
+        let out =
+            run_with(fake.as_os_str(), &req("mp3", "best"), None, tmp.path(), None, "job-1", None)
+                .await
+                .unwrap();
+        assert_eq!(out.path, printed.to_string_lossy());
     }
 
     #[cfg(unix)]
