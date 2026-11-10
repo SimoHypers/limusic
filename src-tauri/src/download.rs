@@ -410,6 +410,7 @@ pub fn effective_dir(app: &tauri::AppHandle, configured: Option<&str>) -> Result
 /// (`windows_subsystem = "windows"`), so a console child would flash its own window on every
 /// download and version check unless CREATE_NO_WINDOW is set.
 fn ytdlp_command(binary: &OsStr) -> tokio::process::Command {
+    #[cfg_attr(not(windows), allow(unused_mut))] // `mut` is only needed for creation_flags
     let mut command = tokio::process::Command::new(binary);
     #[cfg(windows)]
     command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
