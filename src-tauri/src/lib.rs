@@ -1275,6 +1275,7 @@ pub fn run() {
             commands::get_playlist_suggestions,
             commands::playlist_index,
             commands::sync_playlist_index,
+            commands::read_only_playlists,
             commands::play_counts,
             commands::listening_stats,
             commands::top_artists,
