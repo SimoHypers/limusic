@@ -64,33 +64,39 @@ if (browser) {
 	}).catch(() => {});
 }
 
+/** Replaces one job's fields by id; a whole object so Svelte sees the change. */
 function patch(id: string, changes: Partial<DownloadJob>) {
 	const at = downloads.jobs.findIndex((job) => job.id === id);
 	if (at >= 0) downloads.jobs[at] = { ...downloads.jobs[at], ...changes };
 }
 
+/** Jobs waiting or running, in the order they were queued. */
 export function activeJobs(): DownloadJob[] {
 	return downloads.jobs.filter((job) => job.state === 'queued' || job.state === 'downloading');
 }
 
+/** Drops done/failed rows from the Downloads popover. */
 export function clearFinished() {
 	downloads.jobs = downloads.jobs.filter(
 		(job) => job.state === 'queued' || job.state === 'downloading'
 	);
 }
 
+/** Opens the setup dialog for one track. */
 export function openDownload(target: DownloadTarget) {
 	downloads.target = target;
 	downloads.playlist = null;
 	downloads.open = true;
 }
 
+/** Opens the setup dialog for an album or playlist. */
 export function openPlaylistDownload(name: string, songs: SongItem[]) {
 	downloads.target = null;
 	downloads.playlist = { name, songs: downloadableSongs(songs) };
 	downloads.open = true;
 }
 
+/** Closes the setup dialog without touching queued jobs. */
 export function closeDownloads() {
 	downloads.open = false;
 	downloads.target = null;
@@ -109,6 +115,7 @@ export async function checkYtdlp() {
 	}
 }
 
+/** The single target, or the playlist rows with local files and duplicates removed. */
 function itemsToDownload(): DownloadTarget[] {
 	if (downloads.playlist) {
 		return downloads.playlist.songs.map((s) => ({
@@ -121,6 +128,7 @@ function itemsToDownload(): DownloadTarget[] {
 	return target && isDownloadable(target.videoId) ? [target] : [];
 }
 
+/** Adds a batch of jobs and starts whatever the concurrency limit allows. */
 function enqueue(
 	items: DownloadTarget[],
 	opts: { format: DownloadFormat; quality: DownloadQuality },
@@ -150,6 +158,7 @@ function enqueue(
 	pump();
 }
 
+/** Keeps up to MAX_CONCURRENT jobs running and starts the next when one ends. */
 function pump() {
 	while (active < MAX_CONCURRENT && queue.length) {
 		const id = queue.shift();
@@ -162,6 +171,7 @@ function pump() {
 	}
 }
 
+/** Runs one job and records its outcome. */
 async function runJob(id: string) {
 	const job = downloads.jobs.find((candidate) => candidate.id === id);
 	if (!job) return;
@@ -220,6 +230,7 @@ function finishJob(batch: number, error: string | null, outcome: api.DownloadOut
 	}
 }
 
+/** Persists format and quality once "Remember this choice" is on. */
 function rememberChoice(opts: { format: DownloadFormat; quality: DownloadQuality }) {
 	prefs.downloadFormat = opts.format;
 	prefs.downloadQuality = opts.quality;

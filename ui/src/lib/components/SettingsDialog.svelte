@@ -434,6 +434,7 @@
 	const downloadFormat = $derived((settings.download_format ?? 'mp3') as DownloadFormat);
 	const downloadQuality = $derived((settings.download_quality ?? 'best') as DownloadQuality);
 
+	/** Picks a new download folder with the native directory dialog. */
 	async function chooseDownloadFolder() {
 		try {
 			const picked = await openDialog({
@@ -451,6 +452,7 @@
 		}
 	}
 
+	/** Clears the folder setting so the platform Downloads folder is used again. */
 	async function resetDownloadFolder() {
 		try {
 			settings.download_dir = '';
@@ -462,16 +464,32 @@
 		}
 	}
 
+	/** Default format for new downloads; reverted if the write fails. */
 	async function setDownloadFormat(value: DownloadFormat) {
+		const previous = downloadFormat;
 		settings.download_format = value;
 		prefs.downloadFormat = value;
-		await api.setSetting('download_format', value).catch((e) => toast.error(String(e)));
+		try {
+			await api.setSetting('download_format', value);
+		} catch (e) {
+			settings.download_format = previous;
+			prefs.downloadFormat = previous;
+			toast.error(String(e));
+		}
 	}
 
+	/** Default quality for new downloads; reverted if the write fails. */
 	async function setDownloadQuality(value: DownloadQuality) {
+		const previous = downloadQuality;
 		settings.download_quality = value;
 		prefs.downloadQuality = value;
-		await api.setSetting('download_quality', value).catch((e) => toast.error(String(e)));
+		try {
+			await api.setSetting('download_quality', value);
+		} catch (e) {
+			settings.download_quality = previous;
+			prefs.downloadQuality = previous;
+			toast.error(String(e));
+		}
 	}
 
 	async function setHistory(on: boolean) {

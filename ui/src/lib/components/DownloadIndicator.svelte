@@ -22,23 +22,27 @@
 		downloads.jobs.some((job) => job.state === 'done' || job.state === 'failed')
 	);
 	// Working jobs first, so the popover opens on what is happening; finished ones newest first.
-	const shown = $derived([
+	/** Active jobs first, then finished ones newest first. */
+const shown = $derived([
 		...downloads.jobs.filter((job) => job.state === 'downloading'),
 		...downloads.jobs.filter((job) => job.state === 'queued'),
 		...downloads.jobs
 			.filter((job) => job.state === 'done' || job.state === 'failed')
 			.reverse()
 	]);
-	const processing = (percent: number) => percent >= 100;
+	/** A downloading job at 100% is in yt-dlp's postprocessing phase. */
+const processing = (percent: number) => percent >= 100;
 
-	function openMenu(e: MouseEvent) {
+	/** Opens the popover at the button. */
+function openMenu(e: MouseEvent) {
 		e.preventDefault();
 		e.stopPropagation();
 		anchor = anchorMenu(e, { align: 'right' });
 		menuOpen = true;
 	}
 
-	function close() {
+	/** Closes the popover. */
+function close() {
 		menuOpen = false;
 	}
 </script>

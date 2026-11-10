@@ -747,6 +747,9 @@ pub fn run() {
             init_logging(&data_dir);
             let cache_dir = data_dir.join("audio-cache");
             std::fs::create_dir_all(&cache_dir).ok();
+            // Cookie jars a crash left behind. Startup only, and only old ones: another running
+            // instance's jar (LIMUSIC_MULTI) must survive.
+            download::sweep_stale_jars();
 
             // Shared: the PoToken generator persists its session token through the same file,
             // and it is built before AppState takes ownership of everything else.

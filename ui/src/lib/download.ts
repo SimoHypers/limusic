@@ -28,6 +28,7 @@ export function formatSpeed(bytesPerSecond: number | null | undefined): string {
 /** Mirrors `api.isLocalId` without importing it: a local file has no YouTube id to download. */
 const LOCAL_PREFIXES = ['LOCAL:', 'LOCALALBUM:', 'LOCALARTIST:', 'LOCALPLAYLIST:'];
 
+/** A YouTube id can be fetched; a local file/folder id cannot. */
 export function isDownloadable(id: string | undefined | null): boolean {
 	return !!id && !LOCAL_PREFIXES.some((prefix) => id.startsWith(prefix));
 }

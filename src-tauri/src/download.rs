@@ -13,7 +13,7 @@ use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use tauri::Manager;
@@ -54,6 +54,7 @@ pub struct DownloadOutcome {
     pub skipped: bool,
 }
 
+/// Containers yt-dlp is allowed to extract into.
 pub fn validate_format(format: &str) -> Result<(), String> {
     if FORMATS.contains(&format) {
         Ok(())
@@ -62,6 +63,7 @@ pub fn validate_format(format: &str) -> Result<(), String> {
     }
 }
 
+/// Bitrate hints accepted by the download command.
 pub fn validate_quality(quality: &str) -> Result<(), String> {
     if QUALITIES.contains(&quality) {
         Ok(())
@@ -136,10 +138,12 @@ pub fn escape_template(text: &str) -> String {
     text.replace('%', "%%")
 }
 
+/// The `-o` template yt-dlp expands with the real extension.
 pub fn output_template(dir: &Path, stem: &str) -> String {
     dir.join(format!("{}.%(ext)s", escape_template(stem))).to_string_lossy().into_owned()
 }
 
+/// Where a finished download should be, for skip detection and the stdout fallback.
 pub fn expected_path(dir: &Path, stem: &str, format: &str) -> String {
     dir.join(format!("{stem}.{format}")).to_string_lossy().into_owned()
 }
@@ -202,6 +206,7 @@ pub fn cookie_jar_contents(header: &str) -> Option<String> {
 pub struct CookieJar(PathBuf);
 
 impl CookieJar {
+    /// The jar's path, for yt-dlp's `--cookies`.
     pub fn path(&self) -> &Path {
         &self.0
     }
@@ -213,11 +218,11 @@ impl Drop for CookieJar {
     }
 }
 
+/// Writes a `0600` jar for one download; `None` when the session carries no cookies.
 pub fn write_cookie_jar(header: &str) -> Result<Option<CookieJar>, String> {
     let Some(contents) = cookie_jar_contents(header) else {
         return Ok(None);
     };
-    sweep_stale_jars();
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
     let path =
         std::env::temp_dir().join(format!("limusic-ytdlp-{}-{nonce}.cookies", std::process::id()));
@@ -235,20 +240,37 @@ pub fn write_cookie_jar(header: &str) -> Result<Option<CookieJar>, String> {
     Ok(Some(CookieJar(path)))
 }
 
-/// A crash or a force-quit skips `CookieJar::drop`, leaving a live session in the temp dir. One app
-/// instance exists (single-instance plugin), so any jar matching our name is stale by the time a
-/// download starts and is safe to remove.
-fn sweep_stale_jars() {
+/// How long a jar may linger before a startup considers it abandoned. Runs of another Limusic
+/// instance (`LIMUSIC_MULTI`) write their jar at the start of each download, so anything this old is
+/// not in use by a live download and is safe to remove.
+const STALE_JAR_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// A crash or a force-quit skips `CookieJar::drop`, leaving a live session in the temp dir. Swept
+/// once at startup, never per download: removing every matching jar mid-run would delete the cookie
+/// file another concurrent download is about to hand to yt-dlp.
+pub fn sweep_stale_jars() {
+    let now = SystemTime::now();
     let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
         return;
     };
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if name.starts_with("limusic-ytdlp-") && name.ends_with(".cookies") {
+        if !name.starts_with("limusic-ytdlp-") || !name.ends_with(".cookies") {
+            continue;
+        }
+        let modified = entry.metadata().ok().and_then(|meta| meta.modified().ok());
+        if is_stale_jar(modified, now) {
             let _ = std::fs::remove_file(entry.path());
         }
     }
+}
+
+/// A jar is abandoned once it is older than `STALE_JAR_AGE`.
+fn is_stale_jar(modified: Option<SystemTime>, now: SystemTime) -> bool {
+    modified
+        .and_then(|modified| now.duration_since(modified).ok())
+        .is_some_and(|age| age > STALE_JAR_AGE)
 }
 
 /// The yt-dlp argv. `-x` extracts audio and re-encodes to `format`; ffmpeg is already required for
@@ -275,6 +297,9 @@ pub fn args(req: &TrackDownload<'_>, template: &str, cookies: Option<&Path>) -> 
     }
     args.extend([
         // One machine-readable line per progress tick, instead of the redrawn `[download]` bar.
+        // `--print` implies `--quiet`, where yt-dlp suppresses progress unless `--progress` is
+        // given; without it the template lines never arrive.
+        "--progress".to_owned(),
         "--newline".to_owned(),
         "--progress-template".to_owned(),
         format!(
@@ -318,6 +343,7 @@ pub fn parse_progress(line: &str) -> Option<(u64, Option<u64>, Option<f64>, Opti
     Some((downloaded, total.or(estimate), speed, eta))
 }
 
+/// 0-100 for a progress tick; 0 when yt-dlp does not know the size yet.
 fn progress_percent(downloaded: u64, total: Option<u64>) -> f64 {
     match total {
         Some(total) if total > 0 => (downloaded as f64 / total as f64 * 100.0).clamp(0.0, 100.0),
@@ -353,8 +379,19 @@ pub fn effective_dir(app: &tauri::AppHandle, configured: Option<&str>) -> Result
     }
 }
 
+/// Every yt-dlp spawn goes through here. Limusic is a GUI process on Windows
+/// (`windows_subsystem = "windows"`), so a console child would flash its own window on every
+/// download and version check unless CREATE_NO_WINDOW is set.
+fn ytdlp_command(binary: &OsStr) -> tokio::process::Command {
+    let mut command = tokio::process::Command::new(binary);
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    command
+}
+
+/// The installed yt-dlp's version string, for the download dialog's install hint.
 pub async fn version() -> Result<String, String> {
-    let output = tokio::process::Command::new(program())
+    let output = ytdlp_command(&program())
         .arg("--version")
         .output()
         .await
@@ -365,6 +402,7 @@ pub async fn version() -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
+/// Runs one download and reports where the file landed.
 pub async fn run(
     req: &TrackDownload<'_>,
     dest: Option<&Path>,
@@ -422,7 +460,7 @@ async fn run_with(
 
     // Checked before the run: yt-dlp skips an existing file and prints nothing for it.
     let skipped = Path::new(&expected).exists();
-    let mut child = tokio::process::Command::new(binary)
+    let mut child = ytdlp_command(binary)
         .args(args(req, &template, cookies))
         // Python block-buffers stdout when it is a pipe; unbuffered keeps the progress ticks
         // arriving while the file is still downloading instead of in one lump at the end.
@@ -437,28 +475,41 @@ async fn run_with(
     // Drained in parallel: a filled stderr pipe would block the child while we are reading stdout.
     let stderr_task = tokio::spawn(async move {
         let mut text = String::new();
-        let mut lines = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            text.push_str(&line);
-            text.push('\n');
+        let mut reader = BufReader::new(stderr);
+        let mut buf = Vec::new();
+        loop {
+            buf.clear();
+            match reader.read_until(b'\n', &mut buf).await {
+                Ok(0) | Err(_) => break,
+                Ok(_) => text.push_str(&String::from_utf8_lossy(&buf)),
+            }
         }
         text
     });
 
     let mut printed = None;
     let mut stdout_text = String::new();
-    let mut lines = BufReader::new(stdout).lines();
+    let mut reader = BufReader::new(stdout);
+    let mut buf = Vec::new();
     loop {
-        let line = match lines.next_line().await {
-            Ok(Some(line)) => line,
-            Ok(None) => break,
+        buf.clear();
+        let read = match reader.read_until(b'\n', &mut buf).await {
+            Ok(read) => read,
             Err(e) => {
                 let _ = child.kill().await;
                 let _ = stderr_task.await;
                 return Err(e.to_string());
             }
         };
-        if let Some((downloaded, total, speed, eta)) = parse_progress(&line) {
+        if read == 0 {
+            break;
+        }
+        // yt-dlp writes its output with the platform's encoding (on Windows, the ANSI code page),
+        // so a non-ASCII title can be invalid UTF-8. Lossy decoding keeps the path line usable
+        // instead of aborting a download that already finished.
+        let text = String::from_utf8_lossy(&buf);
+        let line = text.trim_end_matches(['\r', '\n']);
+        if let Some((downloaded, total, speed, eta)) = parse_progress(line) {
             if let Some(sink) = progress {
                 sink(Progress {
                     id: id.to_owned(),
@@ -475,7 +526,7 @@ async fn run_with(
         if !trimmed.is_empty() && Path::new(trimmed).is_absolute() {
             printed = Some(trimmed.to_owned());
         }
-        stdout_text.push_str(&line);
+        stdout_text.push_str(line);
         stdout_text.push('\n');
     }
 
@@ -491,6 +542,7 @@ async fn run_with(
     Ok(DownloadOutcome { path: printed.unwrap_or(expected), skipped })
 }
 
+/// Caps a filename stem on a char boundary so the path stays valid UTF-8.
 fn truncate_bytes(text: String, max: usize) -> String {
     if text.len() <= max {
         return text;
@@ -557,6 +609,8 @@ mod tests {
     #[test]
     fn args_ask_for_machine_readable_progress_lines() {
         let args = args(&req("mp3", "best"), "/tmp/x.%(ext)s", None);
+        // `--print` implies --quiet; without --progress the template lines are suppressed.
+        assert!(args.contains(&"--progress".to_owned()));
         assert!(args.contains(&"--newline".to_owned()));
         let at = args
             .iter()
@@ -699,6 +753,21 @@ mod tests {
         assert_eq!(configured_dir(None), None);
     }
 
+    #[test]
+    fn cookie_jars_are_only_stale_after_a_day() {
+        let now = SystemTime::now();
+        assert!(!is_stale_jar(Some(now), now), "a jar written now belongs to a live download");
+        assert!(
+            !is_stale_jar(Some(now - Duration::from_secs(3600)), now),
+            "an hour old is still in use"
+        );
+        assert!(
+            is_stale_jar(Some(now - Duration::from_secs(25 * 3600)), now),
+            "a day old is abandoned"
+        );
+        assert!(!is_stale_jar(None, now), "an unknown mtime is not evidence of abandonment");
+    }
+
     #[cfg(unix)]
     fn fake_program(dir: &Path, body: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
@@ -772,5 +841,23 @@ mod tests {
         assert_eq!(seen[0].id, "job-1");
         assert_eq!(seen[0].percent, 50.0);
         assert_eq!(seen[1].percent, 100.0);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn non_utf8_output_does_not_fail_a_finished_download() {
+        let tmp = tempfile::tempdir().unwrap();
+        let printed = tmp.path().join("out.mp3");
+        // A Windows code page can emit invalid UTF-8 for a title; the path line after it must still
+        // be read and the download reported as a success.
+        let fake = fake_program(
+            tmp.path(),
+            &format!("printf '\\377\\376\\n'\necho '{}'", printed.display()),
+        );
+        let out =
+            run_with(fake.as_os_str(), &req("mp3", "best"), None, tmp.path(), None, "job-1", None)
+                .await
+                .unwrap();
+        assert_eq!(out.path, printed.to_string_lossy());
     }
 }

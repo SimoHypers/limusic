@@ -43,16 +43,22 @@
 		});
 	});
 
-	function setOpen(open: boolean) {
+	/** Closes the dialog through the shared engine so the pending target is cleared too. */
+function setOpen(open: boolean) {
 		if (open) downloads.open = true;
 		else closeDownloads();
 	}
 
-	async function remember(on: boolean) {
+	/** Persists the checkbox, restoring it if the write fails. */
+async function remember(on: boolean) {
+		const previous = prefs.downloadRemember;
 		prefs.downloadRemember = on;
-		await api
-			.setSetting('download_remember', on ? 'true' : 'false')
-			.catch((e) => (errorMsg = String(e)));
+		try {
+			await api.setSetting('download_remember', on ? 'true' : 'false');
+		} catch (e) {
+			prefs.downloadRemember = previous;
+			errorMsg = String(e);
+		}
 	}
 
 	/** yt-dlp appends its own extension, so hand the command the name without one. */
@@ -61,7 +67,8 @@
 		return path.toLowerCase().endsWith(suffix) ? path.slice(0, -suffix.length) : path;
 	}
 
-	async function run() {
+	/** Confirms the choice and hands the jobs to the background queue. */
+async function run() {
 		if (starting) return;
 		errorMsg = '';
 		const target = downloads.target;
