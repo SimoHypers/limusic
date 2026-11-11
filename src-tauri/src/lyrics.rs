@@ -41,7 +41,7 @@ const MISS_TTL_SECS: i64 = 24 * 3600;
 
 /// How far apart `fetch` starts the providers. A first answer takes ~0.4-0.7s (timed 2026-10-16),
 /// so a hit at the top of the list usually sends one or two requests below it, and a miss
-/// everywhere costs about the slowest provider plus 8 × this instead of all of them added up.
+/// everywhere costs about the slowest provider plus 7 × this instead of all of them added up.
 const STAGGER: Duration = Duration::from_millis(300);
 
 /// The most one provider may take in `fetch`, all of its requests together. Reading in order means
@@ -366,12 +366,10 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
     // in the user's order, and dropping `answers` on a hit cancels whatever is in flight or unsent.
     let started = std::time::Instant::now();
     let mut answers: FuturesOrdered<_> =
-        provider_order(state.db.get_setting("lyrics_providers").as_deref())
+        start_slots(provider_order(state.db.get_setting("lyrics_providers").as_deref()))
             .into_iter()
-            .filter(|(_, on)| *on)
-            .enumerate()
-            .map(|(i, (id, _))| async move {
-                tokio::time::sleep(STAGGER * i as u32).await;
+            .map(|(id, slot)| async move {
+                tokio::time::sleep(STAGGER * slot).await;
                 let answer = tokio::time::timeout(PROVIDER_BUDGET, ask(id, state, req, next))
                     .await
                     .unwrap_or_else(|_| Err("timed out".into()));
@@ -413,6 +411,24 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
         }
         None => (None, definitive),
     }
+}
+
+/// The switched-on providers with the `STAGGER` slot each starts in. Limusic takes none: the source
+/// after it starts alongside it, or every song Limusic doesn't hold yet would reach the others
+/// 300 ms later than it did before Limusic was first in the list.
+fn start_slots(order: Vec<(&'static str, bool)>) -> Vec<(&'static str, u32)> {
+    let mut slot = 0;
+    order
+        .into_iter()
+        .filter(|(_, on)| *on)
+        .map(|(id, _)| {
+            let at = slot;
+            if id != "limusic" {
+                slot += 1;
+            }
+            (id, at)
+        })
+        .collect()
 }
 
 /// An answer `fetch` stops at: nothing a source further down could beat. Synced beats plain, and with
@@ -898,7 +914,7 @@ fn send_hint(state: &AppState, req: &LyricsRequest, l: &Lyrics) {
         body["duration"] = d.into();
     }
     let url = format!("{}/v1/hints", limusic_root().trim_end_matches('/'));
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let sent = crate::http::client()
             .post(url)
             .header("User-Agent", LRCLIB_UA)
@@ -1884,6 +1900,18 @@ mod tests {
         assert_eq!(read("something-new").source, "Limusic");
         let empty = LimusicAnswer { origin: "community".into(), lines: vec![] };
         assert!(limusic_to_lyrics(empty).is_none());
+    }
+
+    #[test]
+    fn limusic_holds_no_source_back() {
+        let slots = |s| start_slots(provider_order(s));
+        assert_eq!(slots(None)[..3], [("limusic", 0), ("boidu", 0), ("unison", 1)]);
+        // Lower down it shares the slot of the source after it; switched off it isn't asked.
+        assert_eq!(
+            slots(Some("boidu,limusic,unison"))[..3],
+            [("boidu", 0), ("limusic", 1), ("unison", 1)]
+        );
+        assert_eq!(slots(Some("-limusic,boidu,unison"))[..2], [("boidu", 0), ("unison", 1)]);
     }
 
     #[test]
