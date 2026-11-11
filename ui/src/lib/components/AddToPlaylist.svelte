@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { windowCorners } from '$lib/win.svelte';
 	import { fade, fly, scale } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
@@ -13,14 +14,27 @@
 		Tick02Icon
 	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
-	import type { BrowseItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
-	import { ui, toast, addSongsToPlaylists, openNewPlaylist, savedIn } from '$lib/player.svelte';
+	import {
+		ui,
+		addSongsToPlaylists,
+		openNewPlaylist,
+		savedIn,
+		library,
+		loadLibrary
+	} from '$lib/player.svelte';
 	import { Button } from '$lib/components/ui/button';
 
-	let playlists = $state<BrowseItem[]>([]);
-	let loading = $state(false);
+	// The library the sidebar already holds, which every in-app create, rename, delete and add keeps
+	// current, so the picker opens filled (#654). On Repeat and Liked Music are dropped: On Repeat is
+	// built from local play counts, and Liked Music takes likes rather than playlist edits (YouTube
+	// 400s the add). The command boundary refuses both too, but a target you can tap and can't use is
+	// the bug.
+	const playlists = $derived(
+		library.items.filter((i) => i.id !== api.ON_REPEAT_ID && i.id !== api.LIKED_MUSIC_ID)
+	);
+	const loading = $derived(library.loading && !library.items.length);
 	let filter = $state('');
 	let selectedIds = $state<string[]>([]);
 	let box = $state<HTMLInputElement | null>(null);
@@ -65,31 +79,16 @@
 	const skipAdds = $derived(chosen.length * songs.length - dupeTotal);
 	const anywayAdds = $derived(chosen.length * songs.length - localDupes);
 
-	// Fetch the library playlists fresh each time the picker opens (cheap; picks up new playlists).
-	// On Repeat and Liked Music are dropped: On Repeat is built from local play counts, and Liked
-	// Music takes likes rather than playlist edits (YouTube 400s the add). The command boundary
-	// refuses both too, but a target you can tap and can't use is the bug. When the account's half
-	// can't be fetched, the playlists on this machine still can: they need no network.
+	// Refresh behind the open list, for playlists made on another device. Selection is by id, so a
+	// row the refresh moves keeps its tick. Offline, loadLibrary falls back to the playlists on this
+	// machine, which need no network. untrack: loadLibrary reads and writes `library`, and this
+	// effect must rerun only when the picker opens.
 	$effect(() => {
 		if (ui.addSongs) {
-			loading = true;
 			filter = '';
 			selectedIds = [];
 			step = 'pick';
-			api
-				.getLibrary()
-				.catch((e) => {
-					toast.error(String(e));
-					return api.getLocalPlaylists();
-				})
-				.then(
-					(p) =>
-						(playlists = p.filter(
-							(i) => i.id !== api.ON_REPEAT_ID && i.id !== api.LIKED_MUSIC_ID
-						))
-				)
-				.catch((e) => toast.error(String(e)))
-				.finally(() => (loading = false));
+			untrack(() => loadLibrary(true));
 		}
 	});
 
