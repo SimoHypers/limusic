@@ -1441,6 +1441,7 @@
 		"sort_failed": "Couldn't sort this playlist: {error}",
 		"already_in_all": "All {count} are already in {playlist}",
 		"already_in": "Already in {playlist}",
+		"playlist_not_editable": "Only the owner of {playlist} can add songs to it.",
 		"added_songs": "Added {count} songs to {playlist}",
 		"added_to_playlists": "Added to {count} playlists",
 		"added_to_playlists_dupes": "Added to {count} playlists. Duplicates skipped: {dupes}",

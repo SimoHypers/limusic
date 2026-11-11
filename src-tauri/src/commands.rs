@@ -1671,6 +1671,16 @@ fn editable_playlist<'a>(
 /// membership of this list is the only way a result can draw its heart filled. Not shown in the
 /// "saved in" chip, though: the thumbs-up already says it (the UI filters it out there).
 const LIKED_MUSIC_ID: &str = "VLLM";
+/// When the index was last crawled, as unix seconds. `_v2`: the key changed when Liked Music joined
+/// the index, so an install with a fresh stamp re-crawled once instead of showing hearts empty for
+/// another six hours.
+pub(crate) const PLAYLIST_INDEX_STAMP: &str = "playlist_index_synced_at_v2";
+/// The library playlists the last crawl found this account can't edit (saved from someone else),
+/// as a JSON array of ids. The add-to-playlist picker leaves them out (#651).
+pub(crate) const PLAYLIST_INDEX_READONLY: &str = "playlist_index_readonly";
+/// What `add_to_playlist` rejects with when YouTube refuses the add because the playlist belongs
+/// to someone else. A code, not a sentence: the UI words it in the user's language.
+const NOT_EDITABLE: &str = "not_editable";
 /// How long the membership index is trusted before a re-crawl. Adds and removes made in this app
 /// patch it as they happen, so this window only ever covers edits made somewhere else.
 const PLAYLIST_INDEX_TTL_SECS: i64 = 6 * 3600;
@@ -1704,9 +1714,9 @@ pub async fn sync_playlist_index(
     }
     let fresh_until = state
         .db
-        // `_v2`: the key changed when Liked Music joined the index, so an install with a fresh
-        // stamp re-crawls once instead of showing hearts empty for another six hours.
-        .get_setting("playlist_index_synced_at_v2")
+        .get_setting(PLAYLIST_INDEX_STAMP)
+        // A stamp from before the read-only list existed doesn't cover it: crawl once more.
+        .filter(|_| state.db.get_setting(PLAYLIST_INDEX_READONLY).is_some())
         .and_then(|at| at.parse::<i64>().ok())
         .map(|at| at + PLAYLIST_INDEX_TTL_SECS);
     if fresh_until.is_some_and(|until| now_secs() < until) {
@@ -1721,6 +1731,7 @@ pub async fn sync_playlist_index(
         return Ok(state.db.playlist_memberships());
     }
     let mut indexed: Vec<String> = Vec::new();
+    let mut readonly: Vec<String> = Vec::new();
     for item in library {
         if item.id == ON_REPEAT_ID {
             continue;
@@ -1737,6 +1748,7 @@ pub async fn sync_playlist_index(
         // Liked Music is exempt: YouTube sends it without the editable header, so it reads
         // `owned: false` even though it is yours.
         if item.id != LIKED_MUSIC_ID && !page.owned && !page.collaborative {
+            readonly.push(item.id);
             continue;
         }
         let mut video_ids: Vec<String> = page.items.into_iter().map(|song| song.video_id).collect();
@@ -1751,8 +1763,23 @@ pub async fn sync_playlist_index(
         indexed.push(item.id);
     }
     state.db.retain_playlists(&indexed);
-    state.db.set_setting("playlist_index_synced_at_v2", &now_secs().to_string());
+    state.db.set_setting(
+        PLAYLIST_INDEX_READONLY,
+        &serde_json::to_string(&readonly).unwrap_or_default(),
+    );
+    state.db.set_setting(PLAYLIST_INDEX_STAMP, &now_secs().to_string());
     Ok(state.db.playlist_memberships())
+}
+
+/// The library playlists the last index crawl found this account can't edit. Empty until the first
+/// crawl, and for a playlist saved since: that one is refused at the add instead.
+#[tauri::command]
+pub fn readonly_playlists(state: St<'_>) -> Vec<String> {
+    state
+        .db
+        .get_setting(PLAYLIST_INDEX_READONLY)
+        .and_then(|ids| serde_json::from_str(&ids).ok())
+        .unwrap_or_default()
 }
 
 /// `false` means the playlist already had the track and YouTube added nothing — not an error, but
@@ -1770,7 +1797,10 @@ pub async fn add_to_playlist(
         .it
         .playlist_add(client, &playlist_id, &video_id, allow_duplicates.unwrap_or(false))
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| match e {
+            innertube::Error::PlaylistNotEditable => NOT_EDITABLE.to_owned(),
+            e => e.to_string(),
+        })?;
     // Also on `false`: YouTube refusing a duplicate means the playlist holds the track, which is
     // exactly what the index should say. A stale index is how it got asked in the first place.
     state.db.add_playlist_track(&playlist_id, &video_id);

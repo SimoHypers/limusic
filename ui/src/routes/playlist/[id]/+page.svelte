@@ -655,7 +655,11 @@
 			return true;
 		} catch (e) {
 			drop();
-			toast.error(String(e));
+			toast.error(
+				e === api.PLAYLIST_NOT_EDITABLE
+					? t('toasts.playlist_not_editable', { playlist: pl?.title ?? '' })
+					: String(e)
+			);
 			return false;
 		}
 	}
