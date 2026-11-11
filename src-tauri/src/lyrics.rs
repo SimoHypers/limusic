@@ -3,6 +3,8 @@
 //! Every provider sits in one list the user orders and switches off in Settings (`lyrics_providers`,
 //! read by `provider_order`). A fresh install asks them in `PROVIDERS` order:
 //!
+//! 0. **Limusic** (`lyrics.limusic.app`, our own): word-timed lyrics filed by video id. It fills
+//!    itself from Boidu, Unison and LyricsPlus (`send_hint`), so it answers for those songs first.
 //! 1. **Boidu** (`lyrics-api.boidu.dev`, the Better Lyrics API): Apple's TTML with word timings,
 //!    only for songs its cache already holds.
 //! 2. **Unison** (Better Lyrics' crowdsourced database, #342): community syncs, mostly word-timed
@@ -39,7 +41,7 @@ const MISS_TTL_SECS: i64 = 24 * 3600;
 
 /// How far apart `fetch` starts the providers. A first answer takes ~0.4-0.7s (timed 2026-10-16),
 /// so a hit at the top of the list usually sends one or two requests below it, and a miss
-/// everywhere costs about the slowest provider plus 7 × this instead of all of them added up.
+/// everywhere costs about the slowest provider plus 8 × this instead of all of them added up.
 const STAGGER: Duration = Duration::from_millis(300);
 
 /// The most one provider may take in `fetch`, all of its requests together. Reading in order means
@@ -50,12 +52,13 @@ const LRCLIB_ROOT: &str = "https://lrclib.net/api";
 
 /// Every provider, in the order a fresh install asks them. The user's order lives in the
 /// `lyrics_providers` setting; this is the default and the list of what exists.
-pub const PROVIDERS: [&str; 8] =
-    ["boidu", "unison", "lyricsplus", "lrclib", "youtube", "netease", "qq", "kugou"];
+pub const PROVIDERS: [&str; 9] =
+    ["limusic", "boidu", "unison", "lyricsplus", "lrclib", "youtube", "netease", "qq", "kugou"];
 
 /// The attribution a provider's lyrics carry (`Lyrics::source`), also its name in Settings.
 pub fn provider_name(id: &str) -> &'static str {
     match id {
+        "limusic" => "Limusic",
         "boidu" => "Boidu",
         "unison" => "Unison",
         "lyricsplus" => "LyricsPlus",
@@ -71,7 +74,9 @@ pub fn provider_name(id: &str) -> &'static str {
 /// The `lyrics_providers` setting as `(id, on)` in the user's order: ids top to bottom, `-id` for
 /// one switched off. Whatever it doesn't name (all of them on a fresh install, or a provider a
 /// later release adds) follows in the default order, switched on, unless every source it names is
-/// off: someone who wanted no lyrics doesn't get a new provider asked behind their back.
+/// off: someone who wanted no lyrics doesn't get a new provider asked behind their back. Limusic
+/// is the exception to "follows": a saved order that doesn't name it gets it first, where it
+/// belongs, since it answers for the songs the sources below it would. Named, it stays put.
 pub fn provider_order(setting: Option<&str>) -> Vec<(&'static str, bool)> {
     let mut out: Vec<(&'static str, bool)> = Vec::new();
     for tok in setting.unwrap_or_default().split(',').map(str::trim) {
@@ -85,7 +90,8 @@ pub fn provider_order(setting: Option<&str>) -> Vec<(&'static str, bool)> {
     let all_off = !out.is_empty() && out.iter().all(|(_, on)| !on);
     for p in PROVIDERS {
         if !out.iter().any(|(q, _)| *q == p) {
-            out.push((p, !all_off));
+            let at = if p == "limusic" { 0 } else { out.len() };
+            out.insert(at, (p, !all_off));
         }
     }
     out
@@ -298,6 +304,7 @@ async fn ask(
 ) -> Result<Option<Lyrics>, String> {
     let e = |e: reqwest::Error| e.to_string();
     let hit = match id {
+        "limusic" => limusic_get(req).await.map_err(e),
         "boidu" => boidu_get(req).await.map_err(e),
         "unison" => unison_get(req).await.map_err(e),
         "lyricsplus" => lyricsplus_get(req).await.map_err(e),
@@ -350,7 +357,8 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
         tracing::debug!(error = %e, "lyrics: next() failed");
     }
     let (req, next) = (&req, &next);
-    let cacheable = |id: &str| req.duration.is_some() || matches!(id, "youtube" | "unison");
+    let cacheable =
+        |id: &str| req.duration.is_some() || matches!(id, "youtube" | "unison" | "limusic");
     let prefer_words = state.db.get_setting("lyrics_prefer_words").as_deref() == Some("true");
 
     // Provider i starts at i × STAGGER instead of after provider i-1 answers (#482): a song with no
@@ -382,7 +390,10 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
             "lyrics: answered"
         );
         match answer {
-            Ok(Some(l)) if settles(&l, prefer_words) => return (Some(l), cacheable(id)),
+            Ok(Some(l)) if settles(&l, prefer_words) => {
+                send_hint(state, req, &l);
+                return (Some(l), cacheable(id));
+            }
             Ok(Some(l)) if l.synced => {
                 definitive = true;
                 lines = lines.or(Some(l));
@@ -396,6 +407,7 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
     }
     match lines.or(plain) {
         Some(l) => {
+            send_hint(state, req, &l);
             let cache = cacheable(&l.provider);
             (Some(l), cache)
         }
@@ -406,8 +418,11 @@ async fn fetch(state: &AppState, mut req: LyricsRequest) -> (Option<Lyrics>, boo
 /// An answer `fetch` stops at: nothing a source further down could beat. Synced beats plain, and with
 /// `prefer_words` word-timed (the UI's `lyricsKind` "words") beats line-synced too.
 fn settles(l: &Lyrics, prefer_words: bool) -> bool {
-    let words = l.lines.iter().any(|l| l.words.as_ref().is_some_and(|w| !w.is_empty()));
-    l.instrumental || (l.synced && (words || !prefer_words))
+    l.instrumental || (l.synced && (word_timed(l) || !prefer_words))
+}
+
+fn word_timed(l: &Lyrics) -> bool {
+    l.lines.iter().any(|l| l.words.as_ref().is_some_and(|w| !w.is_empty()))
 }
 
 /// YouTube Music's own lyrics: the timed ones its mobile app shows, else the plain text under
@@ -799,6 +814,102 @@ async fn boidu_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Error
         None => tracing::debug!("lyrics: Boidu returned no lines"),
     }
     Ok(hit)
+}
+
+/// Limusic Lyrics (`lyrics.limusic.app`): our own word-timed lyrics, filed by video id. `origin`
+/// says where a lyric came from; the ones mirrored from another provider carry its name too, since
+/// Unison's licence (ODbL) asks for attribution. The server also sends fields this app doesn't
+/// draw yet (`agent`, `bg`); serde skips what `LyricLine` doesn't name.
+const LIMUSIC_URL: &str = "https://lyrics.limusic.app";
+
+/// `LIMUSIC_LYRICS_URL` points a dev build at a local or staging server.
+fn limusic_root() -> String {
+    std::env::var("LIMUSIC_LYRICS_URL").unwrap_or_else(|_| LIMUSIC_URL.into())
+}
+
+#[derive(Debug, Deserialize)]
+struct LimusicAnswer {
+    /// Kept a string: a value a newer server adds must not fail the parse.
+    #[serde(default)]
+    origin: String,
+    lines: Vec<LyricLine>,
+}
+
+/// By video id only: a typed search or a local file has none that the server knows.
+async fn limusic_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Error> {
+    let id = &req.video_id;
+    // The id goes into the path as is, so anything that isn't the shape of one is not asked.
+    let plausible =
+        !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || "-_".contains(c));
+    if req.searched || crate::local::is_local_song(id) || !plausible {
+        return Ok(None);
+    }
+    let resp = crate::http::client()
+        .get(format!("{}/v1/lyrics/{id}", limusic_root().trim_end_matches('/')))
+        .header("User-Agent", LRCLIB_UA)
+        .timeout(Duration::from_secs(8))
+        .send()
+        .await?;
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    let answer: LimusicAnswer = resp.error_for_status()?.json().await?;
+    Ok(limusic_to_lyrics(answer))
+}
+
+fn limusic_to_lyrics(a: LimusicAnswer) -> Option<Lyrics> {
+    // No English connective in the string: the footer wraps it ("Lyrics from {source}") in the UI's.
+    let source = match a.origin.as_str() {
+        o @ ("unison" | "boidu" | "lyricsplus") => format!("Limusic ({})", provider_name(o)),
+        _ => "Limusic".into(),
+    };
+    from_parsed(&source, a.lines)
+}
+
+/// Whether to tell Limusic about lyrics we just got from a provider it mirrors. Word-timed only,
+/// which is all it stores; never for a search (not the video's own lyrics) or a local file; and
+/// not when the user has switched the Limusic source off, which is the off switch.
+fn hint_due(l: &Lyrics, limusic_on: bool, req: &LyricsRequest) -> bool {
+    matches!(l.provider.as_str(), "boidu" | "unison" | "lyricsplus")
+        && word_timed(l)
+        && limusic_on
+        && !req.searched
+        && !crate::local::is_local_song(&req.video_id)
+}
+
+/// Fire and forget: one small POST per song per install (the hit is cached after), the answer is
+/// ignored and a failure is only logged. It never holds up the lyrics.
+fn send_hint(state: &AppState, req: &LyricsRequest, l: &Lyrics) {
+    let order = provider_order(state.db.get_setting("lyrics_providers").as_deref());
+    let limusic_on = order.iter().any(|(id, on)| *id == "limusic" && *on);
+    if !hint_due(l, limusic_on, req) {
+        return;
+    }
+    let mut body = serde_json::json!({
+        "video_id": req.video_id,
+        "provider": l.provider,
+        "title": req.title,
+        "artist": req.artists,
+    });
+    if let Some(album) = req.album.as_deref().filter(|a| !a.is_empty()) {
+        body["album"] = album.into();
+    }
+    if let Some(d) = req.duration.filter(|d| *d > 0.0) {
+        body["duration"] = d.into();
+    }
+    let url = format!("{}/v1/hints", limusic_root().trim_end_matches('/'));
+    tokio::spawn(async move {
+        let sent = crate::http::client()
+            .post(url)
+            .header("User-Agent", LRCLIB_UA)
+            .timeout(Duration::from_secs(8))
+            .json(&body)
+            .send()
+            .await;
+        if let Err(e) = sent {
+            tracing::debug!(error = %e, "lyrics: Limusic hint failed");
+        }
+    });
 }
 
 /// Unison, Better Lyrics' crowdsourced lyrics (#342). Read-only: a vote is a request signed with a
@@ -1726,13 +1837,85 @@ mod tests {
         // Unknown and repeated ids are dropped; the ones it doesn't name follow, switched on.
         assert_eq!(
             ids(provider_order(Some("lrclib, -boidu,gone,lrclib"))),
-            "lrclib,-boidu,unison,lyricsplus,youtube,netease,qq,kugou"
+            "limusic,lrclib,-boidu,unison,lyricsplus,youtube,netease,qq,kugou"
         );
-        // Every source off stays every source off when a release adds one.
+        // Named, Limusic stays where the user put it, on or off.
+        assert_eq!(
+            ids(provider_order(Some("lrclib,limusic,boidu"))),
+            "lrclib,limusic,boidu,unison,lyricsplus,youtube,netease,qq,kugou"
+        );
+        assert_eq!(
+            ids(provider_order(Some("boidu,-limusic"))),
+            "boidu,-limusic,unison,lyricsplus,lrclib,youtube,netease,qq,kugou"
+        );
+        // Every source off stays every source off when a release adds one, Limusic included.
         assert_eq!(
             ids(provider_order(Some("-boidu,-lyricsplus,-lrclib,-youtube,-netease,-qq,-kugou"))),
-            "-boidu,-lyricsplus,-lrclib,-youtube,-netease,-qq,-kugou,-unison"
+            "-limusic,-boidu,-lyricsplus,-lrclib,-youtube,-netease,-qq,-kugou,-unison"
         );
+    }
+
+    /// The server's answer with fields this app doesn't use yet (`agent`, `bg`) and an `origin` it
+    /// has never heard of: both must parse. Attribution names the mirrored provider.
+    #[test]
+    fn limusic_answer_ignores_what_it_does_not_know() {
+        let json = |origin: &str| {
+            format!(
+                r#"{{"video_id":"FkxEE7wZ83c","origin":"{origin}","revision":3,"lines":[
+                {{"time_ms":1000,"end_time_ms":2500,"text":"Baby love","agent":"v1","words":[
+                  {{"text":"Baby ","start_ms":1000,"end_ms":1500,"bg":false}},
+                  {{"text":"love","start_ms":1500,"end_ms":2500,"bg":true}}]}},
+                {{"time_ms":3000,"text":"(oh)","agent":"v2","romanized":"oh"}}]}}"#
+            )
+        };
+        let read = |origin: &str| {
+            let a = serde_json::from_str::<LimusicAnswer>(&json(origin)).unwrap();
+            limusic_to_lyrics(a).unwrap()
+        };
+        let l = read("community");
+        assert!(l.synced);
+        assert_eq!(l.source, "Limusic");
+        assert_eq!(l.lines.len(), 2);
+        assert_eq!(l.lines[0].words.as_ref().unwrap()[1].end_ms, 2500);
+        assert_eq!(l.lines[1].romanized.as_deref(), Some("oh"));
+        assert_eq!(read("unison").source, "Limusic (Unison)");
+        assert_eq!(read("boidu").source, "Limusic (Boidu)");
+        assert_eq!(read("lyricsplus").source, "Limusic (LyricsPlus)");
+        assert_eq!(read("something-new").source, "Limusic");
+        let empty = LimusicAnswer { origin: "community".into(), lines: vec![] };
+        assert!(limusic_to_lyrics(empty).is_none());
+    }
+
+    #[test]
+    fn hints_go_out_for_mirrored_word_timed_lyrics_only() {
+        let lyrics = |provider: &str, words: bool| Lyrics {
+            provider: provider.into(),
+            synced: true,
+            lines: vec![LyricLine {
+                words: words.then(|| vec![LyricWord { text: "a".into(), start_ms: 0, end_ms: 9 }]),
+                ..LyricLine::simple(Some(0), "a".into())
+            }],
+            ..Default::default()
+        };
+        let req = |video_id: &str, searched| LyricsRequest {
+            video_id: video_id.into(),
+            title: "t".into(),
+            artists: "a".into(),
+            album: None,
+            duration: None,
+            searched,
+        };
+        let plain = req("FkxEE7wZ83c", false);
+        for p in ["boidu", "unison", "lyricsplus"] {
+            assert!(hint_due(&lyrics(p, true), true, &plain), "{p}");
+        }
+        assert!(!hint_due(&lyrics("lrclib", true), true, &plain));
+        assert!(!hint_due(&lyrics("limusic", true), true, &plain), "its own answer");
+        assert!(!hint_due(&lyrics("unison", false), true, &plain), "no words");
+        assert!(!hint_due(&lyrics("unison", true), false, &plain), "Limusic switched off");
+        assert!(!hint_due(&lyrics("unison", true), true, &req("FkxEE7wZ83c", true)), "search");
+        let local = req(&format!("{}/music/a.flac", crate::local::SONG_PREFIX), false);
+        assert!(!hint_due(&lyrics("unison", true), true, &local), "local file");
     }
 
     #[test]
