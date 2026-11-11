@@ -233,13 +233,24 @@ pub async fn choose_source(
 pub struct EditorStart {
     /// The song's lyrics as their provider sent them, or `None` when nothing has any.
     pub lyrics: Option<Lyrics>,
+    /// The revision the service has live for the song, which a submission must name as its base.
+    /// `None` when it has none, or couldn't be asked.
+    pub base_revision: Option<i64>,
 }
 
-/// The song's lyrics for the lyric editor: the same ones the panel shows (cached, or down the
-/// provider list), without `romanize::fill`. A reading this app worked out is not the source's,
-/// and the editor's lines are what get submitted.
+/// The song's lyrics for the lyric editor, without `romanize::fill`: a reading this app worked
+/// out is not the source's, and the editor's lines are what get submitted. When the service has a
+/// live lyric for the song, those are its own lines (a cached copy from before singers and
+/// background vocals were kept lacks them) and its revision; otherwise the same lyrics the panel
+/// shows (cached, or down the provider list).
 pub async fn editor_start(state: &AppState, req: LyricsRequest) -> EditorStart {
-    EditorStart { lyrics: cached_or_fetched(state, req).await.filter(|l| !l.instrumental) }
+    let live = crate::limusic::live(&req.video_id).await;
+    let base_revision = live.as_ref().map(|l| l.revision);
+    let lyrics = match live.and_then(|l| l.lyrics) {
+        Some(l) => Some(l),
+        None => cached_or_fetched(state, req).await,
+    };
+    EditorStart { lyrics: lyrics.filter(|l| !l.instrumental), base_revision }
 }
 
 /// The most text `parse_file` reads. A long song word by word as TTML is about 100 KB.
@@ -533,7 +544,7 @@ impl LrclibTrack {
 }
 
 /// LRCLIB asks integrations to identify themselves via User-Agent.
-const LRCLIB_UA: &str =
+pub(crate) const LRCLIB_UA: &str =
     concat!("Limusic v", env!("CARGO_PKG_VERSION"), " (https://github.com/SimoHypers/limusic)");
 
 /// A GET to LRCLIB, carrying the two things this API wants from us: who we are, and a bound on how
@@ -877,16 +888,16 @@ const LIMUSIC_URL: &str = "https://lyrics.limusic.app";
 const LIMUSIC_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// `LIMUSIC_LYRICS_URL` points a dev build at a local or staging server.
-fn limusic_root() -> String {
+pub(crate) fn limusic_root() -> String {
     std::env::var("LIMUSIC_LYRICS_URL").unwrap_or_else(|_| LIMUSIC_URL.into())
 }
 
 #[derive(Debug, Deserialize)]
-struct LimusicAnswer {
+pub(crate) struct LimusicAnswer {
     /// Kept a string: a value a newer server adds must not fail the parse.
     #[serde(default)]
-    origin: String,
-    lines: Vec<LyricLine>,
+    pub origin: String,
+    pub lines: Vec<LyricLine>,
 }
 
 /// By video id only: a typed search or a local file has none that the server knows.
@@ -911,7 +922,7 @@ async fn limusic_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Err
     Ok(limusic_to_lyrics(answer))
 }
 
-fn limusic_to_lyrics(a: LimusicAnswer) -> Option<Lyrics> {
+pub(crate) fn limusic_to_lyrics(a: LimusicAnswer) -> Option<Lyrics> {
     // No English connective in the string: the footer wraps it ("Lyrics from {source}") in the UI's.
     let source = match a.origin.as_str() {
         o @ ("unison" | "boidu" | "lyricsplus") => format!("Limusic ({})", provider_name(o)),

@@ -2675,6 +2675,59 @@ pub async fn lyrics_editor_start(
     Ok(crate::lyrics::editor_start(state.inner(), req).await)
 }
 
+/// The sign-in providers Limusic Lyrics has configured: none means the service has no accounts
+/// (yet), and the app offers no contributing.
+#[tauri::command]
+pub async fn limusic_providers() -> Vec<String> {
+    crate::limusic::providers().await
+}
+
+/// The stored session: `{signed_in, handle}`. Doesn't ask the service.
+#[tauri::command]
+pub fn limusic_status(state: St<'_>) -> serde_json::Value {
+    crate::limusic::status(state.inner())
+}
+
+/// Opens the browser for `provider` and returns the code to compare with its confirm page. The
+/// outcome arrives as the `limusic-account` event.
+#[tauri::command]
+pub async fn limusic_sign_in(state: St<'_>, provider: String) -> Result<String, String> {
+    crate::limusic::sign_in(state.inner().clone(), provider).await
+}
+
+#[tauri::command]
+pub fn limusic_cancel() {
+    crate::limusic::cancel();
+}
+
+#[tauri::command]
+pub fn limusic_sign_out(state: St<'_>) {
+    crate::limusic::sign_out(state.inner());
+}
+
+/// The signed-in account, fresh from the service. `None` when signed out.
+#[tauri::command]
+pub async fn limusic_me(state: St<'_>) -> Result<Option<crate::limusic::Account>, String> {
+    crate::limusic::me(state.inner()).await
+}
+
+/// Rejects with the service's code: `taken`, `invalid`, `rate_limited`, `unauthorized`, ...
+#[tauri::command]
+pub async fn limusic_rename(
+    state: St<'_>,
+    handle: String,
+) -> Result<crate::limusic::Account, String> {
+    crate::limusic::rename(state.inner(), handle).await
+}
+
+#[tauri::command]
+pub async fn limusic_submit(
+    state: St<'_>,
+    submission: crate::limusic::Submission,
+) -> Result<crate::limusic::Submitted, String> {
+    Ok(crate::limusic::submit(state.inner(), submission).await)
+}
+
 /// A pasted or imported lyric file (TTML, eLRC, LRC, the JSON shapes) as lines. Empty for plain
 /// text, which the editor splits into lines itself.
 #[tauri::command]
