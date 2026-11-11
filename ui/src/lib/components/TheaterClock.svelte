@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { appearance } from '$lib/theme.svelte';
+	import { currentLocale } from '$lib/i18n.svelte';
+	import { tagOf } from '$lib/stats';
 
 	let {
 		height,
@@ -39,11 +41,15 @@
 	const hour12 = $derived(
 		appearance.theaterClockFormat === 'auto' ? undefined : appearance.theaterClockFormat === '12'
 	);
-	const text = $derived(now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12 }));
+	// The UI's language, like every other date in the app. `[]` would be the webview's, which is
+	// neither the OS clock format nor the language picked in Settings.
+	const text = $derived(
+		now.toLocaleTimeString(tagOf(currentLocale.id), { hour: 'numeric', minute: '2-digit', hour12 })
+	);
 
 	const positionClass = $derived.by(() => {
 		if (appearance.theaterClockSide === 'right') {
-			return !calm ? 'right-24 xl:right-28' : 'right-8 xl:right-14';
+			return !calm ? 'right-24 xl:right-30' : 'right-8 xl:right-14';
 		}
 		return '';
 	});
@@ -61,9 +67,7 @@
 	class="pointer-events-none absolute top-0 z-20 flex items-center text-2xl font-medium tabular-nums text-foreground/60 [--pad:2rem] xl:[--pad:3.5rem] {positionClass} {ready
 		? 'transition-[left,right] duration-500 ease-in-out'
 		: 'transition-none'}"
-	style="height:{height}; {sideStyle} {appearance.theaterClockFont
-		? `font-family:${appearance.theaterClockFont}`
-		: ''}"
+	style="height:{height}; {sideStyle}"
 >
 	{text}
 </div>

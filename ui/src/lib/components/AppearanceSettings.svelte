@@ -478,10 +478,6 @@
 						title: t('settings.themes.theater_clock_format'),
 						control: theaterClockFormatSelect
 					})}
-					{@render row({
-						title: t('settings.themes.theater_clock_font'),
-						control: theaterClockFontSelect
-					})}
 				{/if}
 			</div>
 			<div class="mt-3"><EnhancedLyricsSettings /></div>
@@ -757,34 +753,6 @@
 	</Select.Root>
 {/snippet}
 
-{#snippet theaterClockFontSelect()}
-	<Select.Root
-		type="single"
-		value={appearance.theaterClockFont || 'default'}
-		onValueChange={(v) => setAppearance({ theaterClockFont: v === 'default' ? '' : v })}
-	>
-		<Select.Trigger class="w-44 shrink-0" aria-label={t('settings.themes.theater_clock_font')}>
-			<span
-				class="min-w-0 flex-1 truncate text-left"
-				style={appearance.theaterClockFont ? `font-family:${appearance.theaterClockFont}` : ''}
-			>
-				{appearance.theaterClockFont
-					? familyName(appearance.theaterClockFont)
-					: t('settings.themes.theater_clock_font_default')}
-			</span>
-		</Select.Trigger>
-		<Select.Content class="max-w-64">
-			<Select.Item value="default" label={t('settings.themes.theater_clock_font_default')}>
-				{t('settings.themes.theater_clock_font_default')}
-			</Select.Item>
-			{#each fontOptions as f (f.value)}
-				<Select.Item value={f.value} label={f.label}>
-					<span class="block truncate" style="font-family:{f.value}">{f.label}</span>
-				</Select.Item>
-			{/each}
-		</Select.Content>
-	</Select.Root>
-{/snippet}
 {#snippet classicPlayerSwitch()}<Switch
 		checked={appearance.classicPlayer}
 		onCheckedChange={(on) => setAppearance({ classicPlayer: on })}
