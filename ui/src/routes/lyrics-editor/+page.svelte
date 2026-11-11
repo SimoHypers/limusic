@@ -72,6 +72,7 @@
 		fromText,
 		joinLines,
 		kindOf,
+		lineSpan,
 		lineText,
 		loopRange,
 		loopStep,
@@ -390,9 +391,9 @@
 	}
 
 	async function tap(e: Event) {
-		if (!active || !line || playback.paused) return;
 		// First thing, before anything can delay it: when the key actually went down.
 		const wall = eventWallMs(Date.now(), performance.now(), e.timeStamp);
+		if (!active || !line || playback.paused) return;
 		const id = line.id;
 		if (owesTime) {
 			const at = cur;
@@ -411,7 +412,8 @@
 		if (gen !== takeGen) return;
 		if (ms === null) return resetTake();
 		taps[slot] = ms;
-		const end = range ? range.end : undefined;
+		// Where the line itself ends, not the loop: the lead-out belongs to the next line.
+		const end = lineSpan(lines, cur, durationMs)?.end;
 		updateLine(id, (l) => {
 			const words = wordsFromTaps(l.words, taps, l.end ?? end);
 			return words ? withWords(l, words) : l;

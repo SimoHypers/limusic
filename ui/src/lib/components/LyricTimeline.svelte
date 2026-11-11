@@ -6,6 +6,7 @@
 	// docs/UI-PERFORMANCE.md: the only thing that moves per frame is the playhead, a transform set
 	// straight on the element. The blocks change `left`/`width` only while one is being dragged,
 	// and nothing here transitions.
+	import { untrack } from 'svelte';
 	import { t } from '$lib/i18n.svelte';
 	import { moveEdge, type EdWord, type Range } from '$lib/lyricsedit';
 
@@ -60,7 +61,8 @@
 			const w = words[i];
 			if (w.start !== undefined && w.end !== undefined && ms >= w.start && ms < w.end) k = i;
 		}
-		if (k !== sung) sung = k;
+		// Untracked: the effect below writes `sung` and must not also wait on it.
+		if (k !== untrack(() => sung)) sung = k;
 	}
 
 	$effect(() => {
