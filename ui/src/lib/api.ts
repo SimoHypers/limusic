@@ -1247,6 +1247,8 @@ export interface LyricWord {
 	text: string;
 	start_ms: number;
 	end_ms: number;
+	/** Background vocals. Only Limusic Lyrics sends it; only the lyric editor reads it so far. */
+	bg?: boolean;
 }
 export interface LyricLine {
 	/** Start cue in milliseconds; present ⇔ the line is synced. */
@@ -1258,6 +1260,9 @@ export interface LyricLine {
 	/** Latin-script reading of `text` (#202). Word-timed only when Apple Music wrote it. */
 	romanized?: string;
 	romanized_words?: LyricWord[];
+	/** Which singer: `v1`, `v2`, ... and `v1000` for everyone together. Not drawn outside the
+	 *  lyric editor yet. */
+	agent?: string;
 }
 export interface Lyrics {
 	/** Attribution for the panel footer ("LRCLIB", "Source: Musixmatch", …). */
