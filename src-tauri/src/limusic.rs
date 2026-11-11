@@ -243,7 +243,12 @@ pub async fn sign_in(state: std::sync::Arc<AppState>, provider: String) -> Resul
             if GEN.load(Ordering::SeqCst) != gen {
                 return; // cancelled, signed out, or superseded by a newer sign-in
             }
-            match poll(&verifier).await {
+            let polled = poll(&verifier).await;
+            // A cancel or a sign-out can land while the request is in flight.
+            if GEN.load(Ordering::SeqCst) != gen {
+                return;
+            }
+            match polled {
                 Polled::Waiting => continue,
                 Polled::Done(t, account) => {
                     store(&state, &t, &account.handle);
@@ -256,7 +261,9 @@ pub async fn sign_in(state: std::sync::Arc<AppState>, provider: String) -> Resul
             }
             return;
         }
-        emit(&state, None, Some("expired"));
+        if GEN.load(Ordering::SeqCst) == gen {
+            emit(&state, None, Some("expired"));
+        }
     });
     Ok(shown)
 }
@@ -387,6 +394,10 @@ async fn post_revision(token: &str, s: &Submission) -> Submitted {
 }
 
 pub async fn submit(state: &AppState, s: Submission) -> Submitted {
+    // The id goes into a path that carries the bearer token.
+    if !plausible_id(&s.video_id) {
+        return failed("invalid");
+    }
     let Some(t) = token(state) else { return failed("unauthorized") };
     let result = post_revision(&t, &s).await;
     match &result {
