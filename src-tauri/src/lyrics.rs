@@ -838,6 +838,11 @@ async fn boidu_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Error
 /// draw yet (`agent`, `bg`); serde skips what `LyricLine` doesn't name.
 const LIMUSIC_URL: &str = "https://lyrics.limusic.app";
 
+/// Answers are read in the user's order, so while Limusic is first a stalled request holds back
+/// lyrics another source already has. A hit or a miss comes off Cloudflare's edge in well under a
+/// second; past this the walk moves on, which costs nothing but this one answer.
+const LIMUSIC_TIMEOUT: Duration = Duration::from_secs(2);
+
 /// `LIMUSIC_LYRICS_URL` points a dev build at a local or staging server.
 fn limusic_root() -> String {
     std::env::var("LIMUSIC_LYRICS_URL").unwrap_or_else(|_| LIMUSIC_URL.into())
@@ -863,7 +868,7 @@ async fn limusic_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Err
     let resp = crate::http::client()
         .get(format!("{}/v1/lyrics/{id}", limusic_root().trim_end_matches('/')))
         .header("User-Agent", LRCLIB_UA)
-        .timeout(Duration::from_secs(8))
+        .timeout(LIMUSIC_TIMEOUT)
         .send()
         .await?;
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
