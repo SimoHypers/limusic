@@ -82,11 +82,14 @@
 	// scrollbar. It only shrinks the type and chrome; the sync/auto-scroll logic is identical.
 	// `missing` says the playing song has nothing to read (none found, or instrumental). It changes
 	// only when a fetch answers, never while the next one loads, so theater can lay out on it.
+	// `preview` shows these lyrics in place of the song's own, with no footer: the lyric editor's
+	// look at a draft, drawn by the same code that will draw it once it is published.
 	let {
 		expanded = false,
 		compact = false,
-		missing = $bindable(false)
-	}: { expanded?: boolean; compact?: boolean; missing?: boolean } = $props();
+		missing = $bindable(false),
+		preview
+	}: { expanded?: boolean; compact?: boolean; missing?: boolean; preview?: api.Lyrics } = $props();
 
 	/** "3:21" / "1:02:03" → seconds. */
 	function durationSecs(d?: string): number | undefined {
@@ -143,6 +146,12 @@
 	let requested = '';
 
 	$effect(() => {
+		if (preview) {
+			requested = '';
+			lyrics = preview;
+			loading = false;
+			return;
+		}
 		const now = playback.now;
 		if (!now) {
 			requested = '';
@@ -268,9 +277,12 @@
 		// the next tick corrected it.
 		const base = pos;
 		const baseAt = performance.now();
+		// The song moves `speed` seconds a second. Without it the sweep ran ahead at a slowed tempo
+		// and snapped back on every position tick (60 ms at 0.75x, 125 ms at 0.5x).
+		const speed = playback.speed;
 		interpolatedPosSecs = pos;
 		let frameId = requestAnimationFrame(function tick() {
-			interpolatedPosSecs = base + (performance.now() - baseAt) / 1000;
+			interpolatedPosSecs = base + ((performance.now() - baseAt) / 1000) * speed;
 			frameId = requestAnimationFrame(tick);
 		});
 		return () => cancelAnimationFrame(frameId);
@@ -550,7 +562,7 @@
 		</div>
 	{/if}
 </div>
-{#if track && !loading && !compact}
+{#if track && !loading && !compact && !preview}
 	<div class="mt-3 flex items-center gap-1 border-t border-border/60 px-4 pt-2 pb-1.5 text-xs text-muted-foreground">
 		<!-- The source is the switch (#23): a popover with every provider's answer for this song. -->
 		<div class="flex min-w-0 flex-1">
