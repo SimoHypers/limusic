@@ -473,7 +473,16 @@
 			"lyrics_anim_strength": "Intensidad de la animación",
 			"lyrics_anim_strength_hint": "Cuánto se mueven las palabras durante su animación al cantarse.",
 			"lyrics_glow": "Intensidad de brillo",
-			"lyrics_glow_hint": "Intensidad del brillo suave en palabras cantadas."
+			"lyrics_glow_hint": "Intensidad del brillo suave en palabras cantadas.",
+			"theater_clock": "Reloj del modo teatro",
+			"theater_clock_hint": "Muestra la hora en una esquina del modo teatro, para cuando ocupa toda la pantalla y el reloj del sistema queda fuera de la vista.",
+			"theater_clock_side": "Esquina del reloj",
+			"theater_clock_left": "Arriba a la izquierda",
+			"theater_clock_right": "Arriba a la derecha",
+			"theater_clock_format": "Formato del reloj",
+			"theater_clock_format_auto": "Automático",
+			"theater_clock_format_12": "12 horas",
+			"theater_clock_format_24": "24 horas"
 		},
 		"playback": {
 			"audio_quality": "Calidad de audio",
