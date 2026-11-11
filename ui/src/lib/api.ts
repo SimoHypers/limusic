@@ -1297,6 +1297,31 @@ export const chooseLyricsSource = (args: LyricsTrack & { source: string | null }
 	invoke<Lyrics | null>('choose_lyrics_source', args);
 export const setLyricsOffset = (videoId: string, offsetMs: number) =>
 	invoke<void>('set_lyrics_offset', { videoId, offsetMs });
+/** Where the lyric editor starts: the song's lyrics as their provider sent them (no romanization
+ *  this app worked out), or `null` when nothing has any. */
+export interface LyricsEditorStart {
+	lyrics: Lyrics | null;
+}
+export const lyricsEditorStart = (t: LyricsTrack) =>
+	invoke<LyricsEditorStart>('lyrics_editor_start', {
+		videoId: t.videoId,
+		title: t.title,
+		artists: t.artists,
+		album: t.album,
+		duration: t.duration
+	});
+/** A pasted or picked lyric file (TTML, eLRC, LRC) as lines, by the parsers the providers use.
+ *  Empty for plain text. Rejects with `too_large` over 1 MB. */
+export const lyricsParse = (text: string) => invoke<LyricLine[]>('lyrics_parse', { text });
+/** A position read from the player this instant and the wall-clock time (Unix ms) of the read:
+ *  what the lyric editor places a tap with (`stampTap`). `null` with nothing loaded. */
+export interface PlaybackClock {
+	position: number;
+	atMs: number;
+	speed: number;
+	paused: boolean;
+}
+export const playbackClock = () => invoke<PlaybackClock | null>('playback_clock');
 export interface LyricsProvider {
 	id: string;
 	name: string;

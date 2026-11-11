@@ -12,6 +12,7 @@
 		Loading03Icon,
 		MagicWand01Icon,
 		MinusSignIcon,
+		PencilEdit02Icon,
 		PinIcon,
 		PlusSignIcon,
 		Search01Icon,
@@ -24,9 +25,12 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import * as api from '$lib/api';
-	import { ui } from '$lib/player.svelte';
+	import { playback, ui } from '$lib/player.svelte';
 	import { t, currentLocale } from '$lib/i18n.svelte';
 	import { KIND_CLASS, KIND_LABEL, lyricsKind } from '$lib/lyricsSources';
+	import { goto } from '$app/navigation';
+	import { limusic } from '$lib/limusic.svelte';
+	import { link } from '$lib/link.svelte';
 
 	let {
 		lyrics,
@@ -187,6 +191,22 @@
 		query = null;
 		searchOpen = false;
 		refresh();
+	}
+
+	/** The lyric editor, for songs the service can file: not a local file or a broadcast, not while
+	 *  the bar controls another device, and not from a typed search, whose lyrics may be another
+	 *  song's. Navigating closes the player view and theater mode by themselves. */
+	const canEdit = $derived(
+		limusic.available &&
+			!query &&
+			!api.isLocalId(track.videoId) &&
+			!playback.now?.live &&
+			!link.remote
+	);
+	const improving = $derived(!!lyrics && lyricsKind(lyrics) === 'words');
+	function openEditor() {
+		open = false;
+		goto('/lyrics-editor');
 	}
 
 	function openSettings() {
@@ -424,6 +444,18 @@
 			>
 				<HugeiconsIcon icon={LinkSquare02Icon} class="h-3.5 w-3.5" />
 				{t('lyrics.unison_rate')}
+			</button>
+		{/if}
+
+		{#if canEdit}
+			<button
+				class="flex w-full cursor-pointer items-center gap-2 border-t px-4 py-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+				title={improving ? t('lyrics.improve_hint') : t('lyrics.sync_hint')}
+				onclick={openEditor}
+			>
+				<HugeiconsIcon icon={PencilEdit02Icon} class="h-3.5 w-3.5" />
+				{improving ? t('lyrics.improve') : t('lyrics.sync')}
+				<HugeiconsIcon icon={ArrowRight01Icon} class="ml-auto h-3.5 w-3.5" />
 			</button>
 		{/if}
 
