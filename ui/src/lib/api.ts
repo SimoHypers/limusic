@@ -861,6 +861,9 @@ export const playlistIndex = () => invoke<Record<string, string[]>>('playlist_in
  * is still inside its window, so calling this on every launch is cheap.
  */
 export const syncPlaylistIndex = () => invoke<Record<string, string[]>>('sync_playlist_index');
+/** The library playlists the last `syncPlaylistIndex` crawl found you can't edit: saved ones that
+ *  belong to someone else. Empty until that crawl has run. */
+export const readonlyPlaylists = () => invoke<string[]>('readonly_playlists');
 /**
  * videoId → times played, from the local listening history, over the trailing window On Repeat uses
  * (a month). A videoId that isn't in the map has not been played inside the window.
@@ -998,6 +1001,8 @@ export const unblockArtist = (key: string) => invoke<BlockedArtist[]>('unblock_a
 /** Like, dislike, or clear the rating. YouTube's three states are mutually exclusive, so a dislike
  *  un-likes in the same call. */
 export const rate = (videoId: string, rating: Rating) => invoke<void>('rate', { videoId, rating });
+/** What `addToPlaylist` rejects with when the playlist belongs to someone else. */
+export const PLAYLIST_NOT_EDITABLE = 'not_editable';
 /** `false` = the playlist already had this track, so YouTube added nothing. */
 export const addToPlaylist = (playlistId: string, videoId: string, allowDuplicates = false) =>
 	invoke<boolean>('add_to_playlist', { playlistId, videoId, allowDuplicates });

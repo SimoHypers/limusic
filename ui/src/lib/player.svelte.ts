@@ -425,6 +425,7 @@ function resetLibraryForAccount() {
 	libraryGeneration++;
 	library.items = [];
 	savedIn.map = {};
+	savedIn.readOnly = [];
 	library.loaded = false;
 	library.loading = false;
 	library.error = null;
@@ -602,7 +603,11 @@ export function bumpLibraryTrackCount(playlistId: string, delta: number) {
  * draw the "saved" checkmark, so every add and remove patches it in place: waiting for the next
  * crawl would leave the row lying about a playlist the user just put it in.
  */
-export const savedIn = $state({ map: {} as Record<string, string[]> });
+export const savedIn = $state({
+	map: {} as Record<string, string[]>,
+	/** Library playlists the crawl found you can't edit, which the add-to-playlist picker hides. */
+	readOnly: [] as string[]
+});
 
 /**
  * The playlists holding `videoId`, in library order. Resolved against `library.items` rather than
@@ -642,6 +647,12 @@ export async function loadSavedIndex() {
 	await api
 		.syncPlaylistIndex()
 		.then(apply)
+		.catch(() => {});
+	await api
+		.readonlyPlaylists()
+		.then((ids) => {
+			if (generation === libraryGeneration) savedIn.readOnly = ids;
+		})
 		.catch(() => {});
 }
 
@@ -1599,12 +1610,20 @@ async function addToOne(
 	target: BrowseItem,
 	songs: SongItem[],
 	allowDuplicates: boolean
-): Promise<{ added: SongItem[]; dupes: number; failure: string | null; aborted: boolean }> {
+): Promise<{
+	added: SongItem[];
+	dupes: number;
+	failure: string | null;
+	/** The playlist isn't this account's to edit; `failure` says so and nothing went in. */
+	refused?: boolean;
+	aborted: boolean;
+}> {
 	const local = api.isLocalPlaylist(target.id);
 	const epoch = auth.epoch;
 	let added: SongItem[] = [];
 	let confirmed: SongItem[] = [];
 	let failure: string | null = null;
+	let refused = false;
 	if (local) {
 		const went = await api.addToLocalPlaylist(target.id, songs);
 		if (epoch !== auth.epoch) {
@@ -1622,7 +1641,11 @@ async function addToOne(
 				if (await api.addToPlaylist(target.id, song.video_id, allowDuplicates)) added.push(song);
 				confirmed.push(song);
 			} catch (e) {
-				failure = String(e);
+				// Someone else's playlist refuses the first song, so nothing went in before it.
+				refused = e === api.PLAYLIST_NOT_EDITABLE;
+				failure = refused
+					? t('toasts.playlist_not_editable', { playlist: target.title })
+					: String(e);
 				break;
 			}
 		}
@@ -1642,7 +1665,7 @@ async function addToOne(
 		bumpLibraryTrackCount(target.id, added.length);
 		notePlaylistAdd(target.id, added);
 	}
-	return { added, dupes, failure, aborted: false };
+	return { added, dupes, failure, refused, aborted: false };
 }
 
 /**
@@ -1669,7 +1692,9 @@ export async function addSongsToPlaylist(target: BrowseItem, songs: SongItem[]):
 		}
 		const playlist = target.title;
 		const { added, dupes, failure } = res;
-		if (failure !== null) {
+		if (res.refused && failure !== null) {
+			toast.error(failure);
+		} else if (failure !== null) {
 			toast.error(
 				t('selection.playlist_partial', {
 					added: added.length,

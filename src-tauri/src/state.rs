@@ -985,7 +985,8 @@ impl AppState {
     /// empties it. Its timestamp goes too, or the next sync would think it was still fresh.
     fn forget_playlist_index(&self) {
         self.db.clear_playlist_index();
-        self.db.delete_setting("playlist_index_synced_at");
+        self.db.delete_setting(crate::commands::PLAYLIST_INDEX_STAMP);
+        self.db.delete_setting(crate::commands::PLAYLIST_INDEX_READONLY);
     }
 
     fn restore_auth_transport(&self, cookie: Option<String>, data_sync_id: Option<String>) {
