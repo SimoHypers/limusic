@@ -228,6 +228,32 @@ pub async fn choose_source(
     Some(lyrics)
 }
 
+/// What the lyric editor opens with.
+#[derive(Debug, Default, Serialize)]
+pub struct EditorStart {
+    /// The song's lyrics as their provider sent them, or `None` when nothing has any.
+    pub lyrics: Option<Lyrics>,
+}
+
+/// The song's lyrics for the lyric editor: the same ones the panel shows (cached, or down the
+/// provider list), without `romanize::fill`. A reading this app worked out is not the source's,
+/// and the editor's lines are what get submitted.
+pub async fn editor_start(state: &AppState, req: LyricsRequest) -> EditorStart {
+    EditorStart { lyrics: cached_or_fetched(state, req).await.filter(|l| !l.instrumental) }
+}
+
+/// The most text `parse_file` reads. A long song word by word as TTML is about 100 KB.
+const FILE_MAX_BYTES: usize = 1024 * 1024;
+
+/// A lyric file's lines for the editor, by the same parsers the providers go through. Empty for
+/// plain text, which has nothing to parse: the editor takes it line by line as it is.
+pub fn parse_file(text: &str) -> Result<Vec<LyricLine>, String> {
+    if text.len() > FILE_MAX_BYTES {
+        return Err("too_large".into());
+    }
+    Ok(parse_lrc_or_ttml(text))
+}
+
 /// Nudge a song's timing. Pins what it applies to, so the nudge isn't lost to a reorder that would
 /// fetch lyrics timed differently. Only a cached song can keep one; the view still applies it.
 pub fn set_offset(state: &AppState, video_id: &str, offset_ms: i64) {
@@ -1939,6 +1965,16 @@ mod tests {
         assert_eq!(line.agent.as_deref(), Some("v2"));
         assert!(line.words.as_ref().unwrap()[0].bg);
         assert_eq!(serde_json::to_string(&line).unwrap(), new);
+    }
+
+    #[test]
+    fn parse_file_reads_lyric_files_and_leaves_plain_text_alone() {
+        let elrc = parse_file("[00:10.00]<00:10.00>Hello <00:11.00>world<00:12.00>").unwrap();
+        assert_eq!(elrc[0].words.as_ref().unwrap().len(), 2);
+        let lrc = parse_file("[00:01.00]one\n[00:02.00]two").unwrap();
+        assert_eq!(lrc.iter().map(|l| l.time_ms).collect::<Vec<_>>(), [Some(1000), Some(2000)]);
+        assert!(parse_file("Just a line\nand another").unwrap().is_empty());
+        assert_eq!(parse_file(&"a".repeat(FILE_MAX_BYTES + 1)).unwrap_err(), "too_large");
     }
 
     #[test]

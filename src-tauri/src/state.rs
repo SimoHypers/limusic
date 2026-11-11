@@ -3631,6 +3631,28 @@ impl AppState {
         }
     }
 
+    /// The position of the audio being heard, read from mpv this instant, with the wall-clock time
+    /// of the read (Unix ms): what the lyric editor stamps a tap with. The UI holds a position
+    /// that is up to 250 ms old and arrived an unknown time ago; with this pair it works out where
+    /// the song was at the keypress, `position - (atMs - keypress) × speed`, however long the
+    /// command took to get here. `None` with nothing loaded, or while the bar shows another device.
+    pub fn playback_clock(&self) -> Option<serde_json::Value> {
+        if self.showing_remote() {
+            return None;
+        }
+        let before = std::time::SystemTime::now();
+        let position = self.player.clock()?;
+        // The middle of the read, which takes microseconds unless mpv's core is busy.
+        let at = before + before.elapsed().unwrap_or_default() / 2;
+        let at_ms = at.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs_f64() * 1000.0;
+        Some(serde_json::json!({
+            "position": position,
+            "atMs": at_ms,
+            "speed": self.player.speed(),
+            "paused": !self.is_playing.load(Ordering::Relaxed),
+        }))
+    }
+
     /// Latest mpv position (secs) — for OS scrubber updates + relative media-key seeks.
     pub fn current_position(&self) -> f64 {
         f64::from_bits(self.latest_position.load(Ordering::SeqCst))

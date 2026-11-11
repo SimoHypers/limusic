@@ -221,6 +221,13 @@ pub async fn set_volume(state: St<'_>, volume: i64) -> Result<(), String> {
     Ok(())
 }
 
+/// A fresh position and when it was read (`AppState::playback_clock`). Async, so the read of mpv
+/// happens off the main thread.
+#[tauri::command]
+pub async fn playback_clock(state: St<'_>) -> Result<Option<serde_json::Value>, String> {
+    Ok(state.playback_clock())
+}
+
 /// Session-only tempo (0.5–2.0), pitch (−12..=12 semitones), and reverb controls.
 #[tauri::command]
 pub async fn set_playback_params(
@@ -2650,6 +2657,29 @@ pub fn set_lyrics_offset(state: St<'_>, video_id: String, offset_ms: i64) {
 #[tauri::command]
 pub fn lyrics_providers(state: St<'_>) -> Vec<crate::lyrics::ProviderInfo> {
     crate::lyrics::providers(state.inner())
+}
+
+/// Where the lyric editor starts for a song: the lyrics the app has for it, as the provider sent
+/// them (no romanization filled in, since what the editor holds is what gets submitted).
+#[tauri::command]
+pub async fn lyrics_editor_start(
+    state: St<'_>,
+    video_id: String,
+    title: String,
+    artists: String,
+    album: Option<String>,
+    duration: Option<f64>,
+) -> Result<crate::lyrics::EditorStart, String> {
+    let req =
+        crate::lyrics::LyricsRequest { video_id, title, artists, album, duration, searched: false };
+    Ok(crate::lyrics::editor_start(state.inner(), req).await)
+}
+
+/// A pasted or imported lyric file (TTML, eLRC, LRC, the JSON shapes) as lines. Empty for plain
+/// text, which the editor splits into lines itself.
+#[tauri::command]
+pub async fn lyrics_parse(text: String) -> Result<Vec<crate::lyrics::LyricLine>, String> {
+    crate::lyrics::parse_file(&text)
 }
 
 // --- Changelog ------------------------------------------------------------------------------

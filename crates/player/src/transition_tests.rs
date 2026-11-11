@@ -360,3 +360,39 @@ fn automatic_crossfade_runs_both_effected_decks_in_real_time() {
         p.stop().unwrap();
     }
 }
+
+/// The lyric editor stamps a tap with `clock()`, so a read has to be the position at that instant
+/// at any tempo: read at uneven intervals, it must stay on one straight line against the wall
+/// clock. 20 ms is the editor's whole budget; a fresh read strays well under one.
+#[test]
+fn clock_reads_follow_the_wall_clock_at_any_tempo() {
+    let dir = std::env::temp_dir().join("limusic-clock-test");
+    std::fs::create_dir_all(&dir).unwrap();
+    let track = dir.join("tone.wav");
+    wav(&track, 30.0, |t| tone(440.0, t));
+    let p = Player::new(dir.to_str().unwrap()).unwrap();
+    p.mpv().set_property("ao", "null").unwrap();
+    p.mpv().set_property("ao-null-untimed", false).unwrap();
+    assert_eq!(p.clock(), None, "nothing loaded has no position");
+    p.load(track.to_str().unwrap(), &HashMap::new(), None, None, false).unwrap();
+    p.play().unwrap();
+    wait_for("playback", 5.0, || p.clock().is_some_and(|c| c > 0.1));
+    let t0 = Instant::now();
+    for speed in [1.0, 0.75] {
+        p.set_speed(speed).unwrap();
+        p.seek(5.0).unwrap();
+        std::thread::sleep(Duration::from_millis(1000)); // the output buffer settles after a seek
+        let (mut lo, mut hi) = (f64::MAX, f64::MIN);
+        for i in 0..60 {
+            std::thread::sleep(Duration::from_millis(13 + (i * 7 % 11)));
+            let before = Instant::now();
+            let pos = p.clock().unwrap();
+            let at = (before.duration_since(t0) + before.elapsed() / 2).as_secs_f64();
+            let off = pos - speed * at;
+            (lo, hi) = (lo.min(off), hi.max(off));
+        }
+        let spread = (hi - lo) * 1000.0;
+        assert!(spread < 20.0, "clock reads at {speed}x spread over {spread:.1} ms");
+    }
+    p.stop().unwrap();
+}
