@@ -250,24 +250,24 @@
 				<div class="mt-3 pt-2">
 					<Button
 						class="relative w-full"
-						disabled={selectedIds.length === 0 || ui.addPending}
+						disabled={chosen.length === 0 || ui.addPending}
 						onclick={confirm}
 					>
-						{selectedIds.length === 1 ? t('add_playlist.confirm_one') : t('add_playlist.confirm')}
-						{#if selectedIds.length}
+						{chosen.length === 1 ? t('add_playlist.confirm_one') : t('add_playlist.confirm')}
+						{#if chosen.length}
 							<!-- Pinned to the edge so the label never shifts. An odometer: one small element, so
 							     its transforms cost nothing (docs/UI-PERFORMANCE.md). -->
 							<span
 								transition:scale={{ duration: 150, start: 0.4, easing: cubicOut }}
 								class="absolute top-1/2 right-2 grid h-5 -translate-y-1/2 min-w-5 place-items-center overflow-hidden rounded-full bg-primary-foreground px-1.5 text-xs font-semibold tabular-nums text-primary"
 							>
-								{#key selectedIds.length}
+								{#key chosen.length}
 									<span
 										class="[grid-area:1/1]"
 										in:fly={{ y: 12 * dir, duration: 180, easing: cubicOut }}
 										out:fly={{ y: -12 * dir, duration: 180, easing: cubicOut }}
 									>
-										{selectedIds.length}
+										{chosen.length}
 									</span>
 								{/key}
 							</span>

@@ -640,6 +640,16 @@ export async function loadSavedIndex() {
 	const apply = (map: Record<string, string[]>) => {
 		if (generation === libraryGeneration) savedIn.map = map;
 	};
+	// Before the crawl as well as after: a stale index can take a while to re-walk, and the stored
+	// list is right for every playlist that hasn't changed hands since.
+	const applyReadOnly = () =>
+		api
+			.readonlyPlaylists()
+			.then((ids) => {
+				if (generation === libraryGeneration) savedIn.readOnly = ids;
+			})
+			.catch(() => {});
+	await applyReadOnly();
 	await api
 		.playlistIndex()
 		.then(apply)
@@ -648,12 +658,7 @@ export async function loadSavedIndex() {
 		.syncPlaylistIndex()
 		.then(apply)
 		.catch(() => {});
-	await api
-		.readonlyPlaylists()
-		.then((ids) => {
-			if (generation === libraryGeneration) savedIn.readOnly = ids;
-		})
-		.catch(() => {});
+	await applyReadOnly();
 }
 
 /** Every one of `videoIds` is now in `playlistId`, refused duplicates included: YouTube saying the
@@ -1614,7 +1619,7 @@ async function addToOne(
 	added: SongItem[];
 	dupes: number;
 	failure: string | null;
-	/** The playlist isn't this account's to edit; `failure` says so and nothing went in. */
+	/** The playlist isn't this account's to edit, and `failure` says so. */
 	refused?: boolean;
 	aborted: boolean;
 }> {
@@ -1641,7 +1646,6 @@ async function addToOne(
 				if (await api.addToPlaylist(target.id, song.video_id, allowDuplicates)) added.push(song);
 				confirmed.push(song);
 			} catch (e) {
-				// Someone else's playlist refuses the first song, so nothing went in before it.
 				refused = e === api.PLAYLIST_NOT_EDITABLE;
 				failure = refused
 					? t('toasts.playlist_not_editable', { playlist: target.title })
@@ -1692,7 +1696,7 @@ export async function addSongsToPlaylist(target: BrowseItem, songs: SongItem[]):
 		}
 		const playlist = target.title;
 		const { added, dupes, failure } = res;
-		if (res.refused && failure !== null) {
+		if (res.refused && failure !== null && !added.length && !dupes) {
 			toast.error(failure);
 		} else if (failure !== null) {
 			toast.error(

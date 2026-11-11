@@ -1715,6 +1715,8 @@ pub async fn sync_playlist_index(
     let fresh_until = state
         .db
         .get_setting(PLAYLIST_INDEX_STAMP)
+        // A stamp from before the read-only list existed doesn't cover it: crawl once more.
+        .filter(|_| state.db.get_setting(PLAYLIST_INDEX_READONLY).is_some())
         .and_then(|at| at.parse::<i64>().ok())
         .map(|at| at + PLAYLIST_INDEX_TTL_SECS);
     if fresh_until.is_some_and(|until| now_secs() < until) {
