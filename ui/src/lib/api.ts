@@ -1301,6 +1301,8 @@ export const setLyricsOffset = (videoId: string, offsetMs: number) =>
  *  this app worked out), or `null` when nothing has any. */
 export interface LyricsEditorStart {
 	lyrics: Lyrics | null;
+	/** The revision the service has live for the song: what a submission is based on. */
+	base_revision: number | null;
 }
 export const lyricsEditorStart = (t: LyricsTrack) =>
 	invoke<LyricsEditorStart>('lyrics_editor_start', {
@@ -1310,6 +1312,50 @@ export const lyricsEditorStart = (t: LyricsTrack) =>
 		album: t.album,
 		duration: t.duration
 	});
+// --- Limusic Lyrics account (`limusic.rs`) ---
+export interface LimusicAccount {
+	handle: string;
+	avatar_url: string | null;
+	score: number;
+	joined_at: number;
+	role: 'user' | 'reviewer' | 'admin' | '';
+	trusted: boolean;
+	can_review: boolean;
+}
+export interface LimusicAccountState {
+	signed_in: boolean;
+	handle: string | null;
+	/** A code (`expired`, `banned`, `failed`, `session_ended`) when a sign-in or a session ended badly. */
+	error?: string | null;
+}
+/** The providers the service has configured. Empty: it has no accounts (yet) or isn't reachable. */
+export const limusicProviders = () => invoke<string[]>('limusic_providers');
+export const limusicStatus = () => invoke<LimusicAccountState>('limusic_status');
+/** Opens the browser; resolves with the code to compare with the confirm page. The outcome arrives
+ *  through `onLimusicAccount`. */
+export const limusicSignIn = (provider: string) => invoke<string>('limusic_sign_in', { provider });
+export const limusicCancel = () => invoke<void>('limusic_cancel');
+export const limusicSignOut = () => invoke<void>('limusic_sign_out');
+export const limusicMe = () => invoke<LimusicAccount | null>('limusic_me');
+/** Rejects with the service's code: `taken`, `invalid`, `rate_limited`, `unauthorized`. */
+export const limusicRename = (handle: string) => invoke<LimusicAccount>('limusic_rename', { handle });
+export const onLimusicAccount = (cb: (s: LimusicAccountState) => void): Promise<UnlistenFn> =>
+	listen<LimusicAccountState>('limusic-account', (e) => cb(e.payload));
+export interface LimusicSubmission {
+	video_id: string;
+	lines: LyricLine[];
+	title: string;
+	artist: string;
+	album?: string;
+	duration?: number;
+	base_revision: number | null;
+}
+export type LimusicSubmitted =
+	| { kind: 'published'; revision: number }
+	| { kind: 'pending'; revision: number }
+	| { kind: 'failed'; code: string; detail: string | null };
+export const limusicSubmit = (submission: LimusicSubmission) =>
+	invoke<LimusicSubmitted>('limusic_submit', { submission });
 /** A pasted or picked lyric file (TTML, eLRC, LRC) as lines, by the parsers the providers use.
  *  Empty for plain text. Rejects with `too_large` over 1 MB. */
 export const lyricsParse = (text: string) => invoke<LyricLine[]>('lyrics_parse', { text });

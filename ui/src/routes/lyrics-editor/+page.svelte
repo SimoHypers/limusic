@@ -58,7 +58,8 @@
 	import { np, playAt, playback, seekTo, toast, ui } from '$lib/player.svelte';
 	import { inRoom } from '$lib/lt.svelte';
 	import { link } from '$lib/link.svelte';
-	import { submitLyrics } from '$lib/limusic.svelte';
+	import { limusic, submitLyrics } from '$lib/limusic.svelte';
+	import { submitMessage } from '$lib/limusic';
 	import { t } from '$lib/i18n.svelte';
 	import { keyOf, typing } from '$lib/shortcuts';
 	import { KIND_CLASS, KIND_LABEL } from '$lib/lyricsSources';
@@ -215,9 +216,9 @@
 		if (!track) return;
 		try {
 			start = await api.lyricsEditorStart(track);
-			baseRevision = null;
+			baseRevision = start.base_revision;
 		} catch {
-			start = { lyrics: null };
+			start = { lyrics: null, base_revision: null };
 		}
 	}
 
@@ -512,11 +513,19 @@
 
 	// --- Submitting -----------------------------------------------------------------------------
 	let submitting = $state(false);
+	/** What the service said to a submission that didn't go through, until the next try. */
+	let notice = $state('');
+	function openAccountSettings() {
+		ui.settingsFocus = 'limusic';
+		ui.settingsOpen = true;
+	}
 	async function submit() {
 		if (!track || !ready(miss) || submitting) return;
 		commitField();
 		flush();
+		if (!limusic.signedIn) return openAccountSettings();
 		submitting = true;
+		notice = '';
 		try {
 			const outcome = await submitLyrics({
 				videoId: track.videoId,
@@ -527,7 +536,20 @@
 				duration: track.duration,
 				baseRevision
 			});
-			if (outcome.kind === 'unavailable') toast(t('lyrics_editor.submit_unavailable'));
+			const m = submitMessage(outcome);
+			const text = t(m.key, m.params);
+			if (m.sent) {
+				// It is on the service now: the draft has done its job.
+				clearTimeout(saveTimer);
+				saveTimer = undefined;
+				store(draftKey(track.videoId), null);
+				lines = [];
+				toast.success(text);
+				history.back();
+				return;
+			}
+			notice = text;
+			if (m.needsAccount) openAccountSettings();
 		} finally {
 			submitting = false;
 		}
@@ -758,6 +780,13 @@
 			</div>
 		</section>
 	{:else}
+		{#if notice}
+			<div class="{CARD} flex items-center gap-3 px-4 py-3 text-sm" role="status">
+				<HugeiconsIcon icon={Alert02Icon} class="h-4 w-4 shrink-0 text-muted-foreground" />
+				<p class="min-w-0 flex-1 leading-relaxed">{notice}</p>
+				<Button size="sm" variant="ghost" onclick={() => (notice = '')}>{t('common.close')}</Button>
+			</div>
+		{/if}
 		{#if blocked || !onTrack || saveFailed}
 			<div class="{CARD} flex items-center gap-3 px-4 py-3 text-sm" role="status">
 				<HugeiconsIcon icon={Alert02Icon} class="h-4 w-4 shrink-0 text-muted-foreground" />

@@ -52,6 +52,8 @@
 	import { getVersion } from '@tauri-apps/api/app';
 	import { t, setLocale, currentLocale, LOCALES } from '$lib/i18n.svelte';
 	import GlobalHotkeysSettings from '$lib/components/GlobalHotkeysSettings.svelte';
+	import LimusicAccountSettings from './LimusicAccountSettings.svelte';
+	import { limusic } from '$lib/limusic.svelte';
 	import LyricsSourcesSettings from '$lib/components/LyricsSourcesSettings.svelte';
 	import EnhancedLyricsSettings from '$lib/components/EnhancedLyricsSettings.svelte';
 	import LanguagePicker from '$lib/components/LanguagePicker.svelte';
@@ -887,6 +889,12 @@
 								})}
 							</div>
 						</section>
+						{#if limusic.available}
+							<section class={GROUP} id="settings-limusic">
+								<h3 class={LABEL}>{t('limusic.title')}</h3>
+								<LimusicAccountSettings />
+							</section>
+						{/if}
 						<section class={GROUP} id="settings-karaoke">
 							<h3 class="{LABEL} flex items-center gap-2">
 								{t('karaoke.settings.title')}
