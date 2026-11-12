@@ -29,6 +29,7 @@
 		Add01Icon,
 		Alert02Icon,
 		ArrowDown01Icon,
+		ArrowDown02Icon,
 		ArrowLeft01Icon,
 		ArrowTurnBackwardIcon,
 		ArrowUp01Icon,
@@ -262,6 +263,7 @@
 
 	let discardOpen = $state(false);
 	function discard() {
+		discardOpen = false;
 		clearTimeout(saveTimer);
 		if (track) store(draftKey(track.videoId), null);
 		lines = [];
@@ -744,10 +746,13 @@
 	let lineMenu = $state(false);
 	let headMenu = $state(false);
 
+	// A fixed corner: `rounded-md` follows the theme's radius, which rounds a cap this small into a
+	// circle in the rounder themes, and then it no longer reads as a key.
 	const KEY =
-		'inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-md border border-b-[2.5px] bg-muted px-1.5 text-[11px] font-semibold text-foreground';
+		'inline-flex h-[22px] min-w-[24px] items-center justify-center rounded-[6px] border border-b-[3px] bg-muted px-1.5 text-[11px] font-semibold text-foreground';
 	/** A key cap on the primary colour. */
-	const KEY_ON = 'inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-md border border-b-[2.5px] border-current/35 bg-current/15 px-1.5 text-[11px] font-semibold';
+	const KEY_ON =
+		'inline-flex h-[22px] min-w-[24px] items-center justify-center rounded-[6px] border border-b-[3px] border-primary-foreground/50 bg-primary-foreground/20 px-1.5 text-[11px] font-semibold text-primary-foreground';
 	const MENU_ITEM =
 		'flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-40';
 	const GHOST = buttonVariants({ variant: 'ghost', size: 'sm' });
@@ -756,13 +761,13 @@
 {#snippet stop(n: number, label: string, state: 'idle' | 'on' | 'done' | 'go')}
 	<span class="flex shrink-0 items-center gap-1.5 font-medium {state === 'idle' ? 'text-muted-foreground' : 'text-foreground'}">
 		<span
-			class="flex size-5 items-center justify-center rounded-full border-[1.5px] text-[11px] font-bold {state === 'done'
-				? 'border-foreground bg-foreground text-background'
+			class="flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold {state === 'done'
+				? 'bg-foreground text-background'
 				: state === 'go'
-					? 'border-primary bg-primary text-primary-foreground'
+					? 'bg-primary text-primary-foreground'
 					: state === 'on'
-						? 'border-foreground'
-						: 'border-border'}"
+						? 'border-2 border-foreground'
+						: 'border-2 border-border'}"
 		>
 			{#if state === 'done'}<HugeiconsIcon icon={Tick02Icon} class="size-3" />{:else}{n}{/if}
 		</span>
@@ -778,10 +783,10 @@
 			<HugeiconsIcon icon={Tick02Icon} class="size-[11px]" />
 		</span>
 	{:else if needsLineTime(l)}
-		<span class="size-4 shrink-0 rounded-full border-[1.5px] border-dashed border-muted-foreground" title={t('lyrics_editor.line_no_time')}></span>
+		<span class="size-4 shrink-0 rounded-full border-2 border-muted-foreground/50" title={t('lyrics_editor.line_no_time')}></span>
 	{:else}
 		<span
-			class="size-4 shrink-0 rounded-full border-[1.5px] border-muted-foreground bg-[linear-gradient(to_right,var(--muted-foreground)_50%,transparent_50%)]"
+			class="size-4 shrink-0 rounded-full border-2 border-muted-foreground bg-[linear-gradient(to_right,var(--muted-foreground)_50%,transparent_50%)]"
 			title={t('lyrics_editor.line_todo')}
 		></span>
 	{/if}
@@ -1257,7 +1262,9 @@
 								{/if}
 							</p>
 							<Button variant={lineDone ? 'default' : 'outline'} disabled={cur >= lines.length - 1} onclick={() => select(cur + 1)}>
-								{t('lyrics_editor.next_line')} <kbd class={lineDone ? KEY_ON : KEY}>↓</kbd>
+								{t('lyrics_editor.next_line')}
+								<!-- An icon, not the font's arrow: Oxanium draws that one a few pixels tall. -->
+								<kbd class={lineDone ? KEY_ON : KEY}><HugeiconsIcon icon={ArrowDown02Icon} strokeWidth={2.25} class="size-3.5" /></kbd>
 							</Button>
 						</div>
 
@@ -1339,9 +1346,9 @@
 					{/each}
 				</div>
 				<div class="flex flex-wrap gap-x-3 gap-y-1 border-t px-3.5 py-2 text-[11.5px] text-muted-foreground">
-					<span class="flex items-center gap-1.5"><span class="size-3 rounded-full bg-foreground"></span>{t('lyrics_editor.line_timed')}</span>
-					<span class="flex items-center gap-1.5"><span class="size-3 rounded-full border-[1.5px] border-muted-foreground bg-[linear-gradient(to_right,var(--muted-foreground)_50%,transparent_50%)]"></span>{t('lyrics_editor.line_todo')}</span>
-					<span class="flex items-center gap-1.5"><span class="size-3 rounded-full border-[1.5px] border-dashed border-muted-foreground"></span>{t('lyrics_editor.line_no_time')}</span>
+					<span class="flex items-center gap-1.5"><span class="size-3.5 rounded-full bg-foreground"></span>{t('lyrics_editor.line_timed')}</span>
+					<span class="flex items-center gap-1.5"><span class="size-3.5 rounded-full border-2 border-muted-foreground bg-[linear-gradient(to_right,var(--muted-foreground)_50%,transparent_50%)]"></span>{t('lyrics_editor.line_todo')}</span>
+					<span class="flex items-center gap-1.5"><span class="size-3.5 rounded-full border-2 border-muted-foreground/50"></span>{t('lyrics_editor.line_no_time')}</span>
 				</div>
 			</aside>
 		</div>

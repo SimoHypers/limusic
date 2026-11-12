@@ -63,7 +63,7 @@
 	{#if limusic.signingIn}
 		<!-- Waiting for the browser: the code is the card. -->
 		<div class="flex items-center gap-3.5 px-4 py-4">
-			<div class="flex size-[52px] shrink-0 items-center justify-center rounded-full border-[1.5px] border-dashed border-muted-foreground text-muted-foreground">
+			<div class="flex size-[52px] shrink-0 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground text-muted-foreground">
 				{@render brand(limusic.signingIn.provider, 'size-6')}
 			</div>
 			<div class="min-w-0 flex-1">
@@ -77,7 +77,7 @@
 					{#if /[\s-]/.test(ch)}
 						<span class="w-2.5"></span>
 					{:else}
-						<kbd class="flex h-[42px] w-[34px] items-center justify-center rounded-[9px] border border-b-[2.5px] bg-muted text-xl font-semibold" aria-hidden="true">{ch}</kbd>
+						<kbd class="flex h-[42px] w-[34px] items-center justify-center rounded-[9px] border border-b-[3px] bg-muted text-xl font-semibold" aria-hidden="true">{ch}</kbd>
 					{/if}
 				{/each}
 			</div>
@@ -92,7 +92,7 @@
 			<div
 				class="flex size-[52px] shrink-0 items-center justify-center overflow-hidden rounded-full {linked
 					? 'bg-muted ring-1 ring-border'
-					: 'border-[1.5px] border-dashed border-muted-foreground text-muted-foreground'}"
+					: 'border-2 border-dashed border-muted-foreground text-muted-foreground'}"
 			>
 				{#if linked && a?.avatar_url}
 					<img src={a.avatar_url} alt="" class="size-full object-cover" draggable="false" />
@@ -186,9 +186,6 @@
 		{/if}
 
 		{#if !linked}
-			{#if !limusic.signedIn}
-				<p class="{SEC} text-[13px] text-muted-foreground">{t('limusic.none_start')}</p>
-			{/if}
 			{#if limusic.providers.length}
 				<!-- Linking: what it gives, the one thing it reads, and that it is optional. -->
 				<div class={SEC}>

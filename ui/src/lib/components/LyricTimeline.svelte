@@ -8,6 +8,8 @@
 	// straight on the element. The blocks change `left`/`width` only while one is being dragged. The
 	// one animation is a colour fade on the single word a tap just landed on.
 	import { untrack, type Snippet } from 'svelte';
+	import { HugeiconsIcon } from '@hugeicons/svelte';
+	import { ArrowLeft02Icon, ArrowRight02Icon } from '@hugeicons/core-free-icons';
 	import { t } from '$lib/i18n.svelte';
 	import { LEAD_IN_MS, LEAD_OUT_MS, moveEdge, type EdWord, type Range } from '$lib/lyricsedit';
 
@@ -186,7 +188,7 @@
 	});
 
 	const KEY =
-		'inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-md border border-b-[2.5px] bg-muted px-1.5 text-[11px] font-semibold text-foreground';
+		'inline-flex h-[22px] min-w-[24px] items-center justify-center rounded-[6px] border border-b-[3px] bg-muted px-1.5 text-[11px] font-semibold text-foreground';
 </script>
 
 {#if editor}
@@ -336,7 +338,7 @@
 				})}
 			</span>
 			{#if edge.keys}
-				<span class="flex items-center gap-1"><kbd class={KEY}>←</kbd><kbd class={KEY}>→</kbd> {t('lyrics_editor.ms', { value: 10 })}</span>
+				<span class="flex items-center gap-1"><kbd class={KEY}><HugeiconsIcon icon={ArrowLeft02Icon} strokeWidth={2.25} class="size-3.5" /></kbd><kbd class={KEY}><HugeiconsIcon icon={ArrowRight02Icon} strokeWidth={2.25} class="size-3.5" /></kbd> {t('lyrics_editor.ms', { value: 10 })}</span>
 				<span class="flex items-center gap-1"><kbd class={KEY}>Shift</kbd> {t('lyrics_editor.ms', { value: 50 })}</span>
 			{/if}
 		{:else if timed}
