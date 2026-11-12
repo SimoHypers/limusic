@@ -72,7 +72,7 @@
 			</div>
 		</div>
 		<div class="{SEC} text-center">
-			<div class="flex justify-center gap-1.5" aria-label={limusic.signingIn.code}>
+			<div class="flex justify-center gap-1.5" role="group" aria-label={limusic.signingIn.code}>
 				{#each limusic.signingIn.code as ch, i (i)}
 					{#if /[\s-]/.test(ch)}
 						<span class="w-2.5"></span>
@@ -197,7 +197,7 @@
 					</ul>
 					<div class="flex flex-wrap items-center gap-2">
 						{#each limusic.providers as p (p)}
-							<Button variant="outline" onclick={() => signIn(p)}>
+							<Button variant="outline" disabled={limusic.launching} onclick={() => signIn(p)}>
 								{@render brand(p, 'size-4')}
 								{t('limusic.link_with', { provider: providerName(p) })}
 							</Button>

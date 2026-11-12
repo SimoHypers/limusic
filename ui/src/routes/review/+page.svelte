@@ -68,15 +68,25 @@
 	/** The card in Settings shows the same number. */
 	const count = () => (limusic.waiting = { count: items.length, more: next !== null });
 
-	onMount(async () => {
+	/** Who this is, then the queue. Also the retry. */
+	async function start() {
+		loadError = '';
+		loading = true;
 		if (!limusic.account) await refreshAccount();
+		if (!limusic.account && limusic.signedIn) {
+			// The service couldn't say who this is, which is not the same as not being a reviewer.
+			loadError = t(reviewErrorKey('unavailable'));
+			loading = false;
+			return;
+		}
 		if (!limusic.account?.can_review) {
 			allowed = false;
 			loading = false;
 			return;
 		}
 		await load();
-	});
+	}
+	onMount(start);
 
 	// --- One submission ---------------------------------------------------------------------------
 	type Side = 'proposed' | 'current' | 'changes';
@@ -276,7 +286,7 @@
 			{/each}
 		</div>
 	{:else if loadError}
-		<div class="border-t px-6"><ErrorState message={loadError} onRetry={() => load()} /></div>
+		<div class="border-t px-6"><ErrorState message={loadError} onRetry={start} /></div>
 	{:else if !items.length && !open}
 		<div class="flex flex-1 flex-col items-center justify-center gap-1.5 border-t px-6 text-center">
 			<span class="mb-1 flex size-12 items-center justify-center rounded-[13px] bg-muted"><HugeiconsIcon icon={TaskDone01Icon} class="size-[22px]" /></span>

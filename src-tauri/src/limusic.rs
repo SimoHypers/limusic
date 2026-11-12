@@ -310,7 +310,7 @@ pub async fn sign_in(state: std::sync::Arc<AppState>, provider: String) -> Resul
         match post_link(&t, &challenge).await {
             Some((204, _)) => {}
             // The service has forgotten this anonymous account: sign in plainly instead.
-            Some((401, _)) => lost(&state),
+            Some((401, _)) => lost(&state, &t),
             other => return Err(failure(other)),
         }
     }
@@ -366,8 +366,12 @@ pub fn sign_out(state: &AppState) {
 }
 
 /// A 401 means the session is gone (expired, signed out elsewhere, banned): forget it too. An
-/// anonymous one is forgotten without a word: the next submit makes another.
-fn lost(state: &AppState) {
+/// anonymous one is forgotten without a word: the next submit makes another. `was` is the token
+/// the 401 answered: a session signed out or replaced while the request was away is left alone.
+fn lost(state: &AppState, was: &str) {
+    if token(state).as_deref() != Some(was) {
+        return;
+    }
     let anonymous = is_anonymous(state);
     clear(state);
     emit(state, (!anonymous).then_some("session_ended"));
@@ -378,12 +382,14 @@ fn lost(state: &AppState) {
 pub async fn me(state: &AppState) -> Result<Option<Account>, String> {
     let Some(t) = token(state) else { return Ok(None) };
     match fetch_me(&t).await {
+        // Signed out while the answer was on its way: storing it would bring the session back.
+        Ok(_) if token(state).as_deref() != Some(t.as_str()) => Ok(None),
         Ok(a) => {
             store(state, &t, a.handle.as_deref(), a.anonymous);
             Ok(Some(a))
         }
         Err(c) if c == "unauthorized" => {
-            lost(state);
+            lost(state, &t);
             Ok(None)
         }
         Err(c) => Err(c),
@@ -408,7 +414,7 @@ pub async fn rename(state: &AppState, handle: String) -> Result<Account, String>
         }
         Err(code) => {
             if code == "unauthorized" {
-                lost(state);
+                lost(state, &t);
             }
             Err(code)
         }
@@ -493,7 +499,7 @@ pub async fn submit(state: &AppState, s: Submission) -> Submitted {
         // The service doesn't know the session any more. An anonymous account is replaced once and
         // the submit retried; a linked one is the user's to sign in to again.
         let anonymous = is_anonymous(state);
-        lost(state);
+        lost(state, &t);
         if anonymous && !fresh {
             if let Ok(t) = new_anonymous(state).await {
                 result = post_revision(&t, &s).await;
@@ -625,10 +631,10 @@ fn expect(answer: Option<(u16, Value)>, ok: u16) -> Result<Value, String> {
     }
 }
 
-/// A 401 means the session is gone: forget it, and pass the result on.
-fn checked<T>(state: &AppState, r: Result<T, String>) -> Result<T, String> {
+/// A 401 means the session `token` is gone: forget it, and pass the result on.
+fn checked<T>(state: &AppState, token: &str, r: Result<T, String>) -> Result<T, String> {
     if matches!(&r, Err(c) if c == "unauthorized") {
-        lost(state);
+        lost(state, token);
     }
     r
 }
@@ -684,11 +690,13 @@ async fn post_revert(
 
 /// A page of the review queue, oldest first, 50 at a time from `after`.
 pub async fn review_queue(state: &AppState, after: Option<i64>) -> Result<Queue, String> {
-    checked(state, get_queue(&session(state)?, after).await)
+    let t = session(state)?;
+    checked(state, &t, get_queue(&t, after).await)
 }
 
 pub async fn review_revision(state: &AppState, revision: i64) -> Result<Revision, String> {
-    checked(state, get_revision(&session(state)?, revision).await)
+    let t = session(state)?;
+    checked(state, &t, get_revision(&t, revision).await)
 }
 
 /// The song's live lyric on the service, for the "current" side of an edit.
@@ -710,9 +718,11 @@ pub async fn review_verdict(
         return Err("invalid".into());
     }
     let t = session(state)?;
-    let status = checked(state, post_verdict(&t, revision, verdict, reason.as_deref()).await)?;
+    let status = checked(state, &t, post_verdict(&t, revision, verdict, reason.as_deref()).await)?;
     if verdict == "approve" {
-        // The lyric just went live: the next look at this song shows it, not the cached one.
+        // The lyric just went live: the next look at this song shows it, not the cached one. The
+        // old one goes first, so a failed read of the revision leaves nothing stale behind.
+        state.db.delete_lyrics(video_id);
         if let Some(mut l) = get_revision(&t, revision).await.ok().and_then(|r| r.lyrics) {
             l.provider = "limusic".into();
             if let Ok(json) = serde_json::to_string(&l) {
@@ -737,7 +747,7 @@ pub async fn revert(
         return Err("invalid".into());
     }
     let t = session(state)?;
-    let live = checked(state, post_revert(&t, video_id, to_revision, reason.as_deref()).await)?;
+    let live = checked(state, &t, post_revert(&t, video_id, to_revision, reason.as_deref()).await)?;
     state.db.delete_lyrics(video_id);
     Ok(live)
 }

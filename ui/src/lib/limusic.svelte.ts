@@ -21,7 +21,9 @@ export const limusic = $state({
 	 *  others. Null until asked, and for everyone else. */
 	waiting: null as { count: number; more: boolean } | null,
 	/** The provider a sign-in is waiting on, and the code its confirm page should show. */
-	signingIn: null as { provider: string; code: string } | null
+	signingIn: null as { provider: string; code: string } | null,
+	/** A sign-in is being started: a second one now would cancel the first one's poll. */
+	launching: false
 });
 
 function apply(s: api.LimusicAccountState) {
@@ -82,10 +84,14 @@ export async function refreshAccount() {
 }
 
 export async function signIn(provider: string) {
+	if (limusic.launching) return;
+	limusic.launching = true;
 	try {
 		limusic.signingIn = { provider, code: await api.limusicSignIn(provider) };
 	} catch (e) {
 		toast.error(t(signInErrorKey(String(e))));
+	} finally {
+		limusic.launching = false;
 	}
 }
 
