@@ -18,7 +18,7 @@ const ordinal = (n: number) => {
   return `${n}${suffix[new Intl.PluralRules('en', { type: 'ordinal' }).select(n) as keyof typeof suffix]}`
 }
 const month = (unix: number) =>
-  new Date(unix * 1000).toLocaleDateString('en', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+  new Date(unix * 1000).toLocaleDateString('en', { month: 'long', year: 'numeric' })
 const day = (unix: number) => new Date(unix * 1000).toLocaleDateString('en', { month: 'short', day: 'numeric' })
 
 /* A headline word. `glue` sits it against the word before (punctuation), `href` makes it a link. */
@@ -232,7 +232,7 @@ function Board() {
 
         {/* Column names, unless there are no rows to name. */}
         <div
-          hidden={load.state === 'error' || (load.state === 'ok' && load.data.entries.length === 0)}
+          hidden={load.state === 'error' || load.state === 'missing' || (load.state === 'ok' && !load.data.entries.length)}
           className="mt-8 grid grid-cols-[2.25rem_1fr_auto] items-end gap-x-3 px-2 pb-2 text-xs text-muted-foreground sm:grid-cols-[2.25rem_1fr_4.5rem_4.5rem_5rem]">
           <span className="text-right">Rank</span>
           <span className="pl-[52px]">Contributor</span>
@@ -241,9 +241,9 @@ function Board() {
           <span className="text-right">Points</span>
         </div>
 
-        {load.state === 'error' ? (
+        {load.state === 'error' || load.state === 'missing' ? (
           <Retry onRetry={() => setAttempt(a => a + 1)} />
-        ) : load.state !== 'ok' ? (
+        ) : load.state === 'loading' ? (
           <ol aria-busy className="border-t border-border">
             {Array.from({ length: 8 }, (_, i) => (
               <li key={i} className="flex h-16 items-center gap-3 border-b border-border px-2">
