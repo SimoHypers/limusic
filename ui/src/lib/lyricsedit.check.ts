@@ -104,6 +104,7 @@ ok(new Set(ed.map((l) => l.id)).size === 3, 'ids are unique');
 // Instrumental breaks.
 ok(ed[1].gap === true && !ed[0].gap && !ed[2].gap, 'a timed line with no text is an instrumental break');
 ok(lineEnd(ed[0]) === 2500 && lineEnd(ed[2]) === undefined, 'a line ends where its last word does, once timed');
+ok(lineEnd({ id: 1, words: [w('long ', 0, 5000), w('short', 100, 4000)] }) === 5000, 'whichever word ends last');
 const brk = gapLine(9, lineEnd(ed[0]));
 ok(brk.gap === true && brk.time === 2500 && !brk.words.length && brk.dirty === true, 'a break starts where the singing stops');
 ok(!needsLineTime(brk) && needsLineTime(gapLine(9)), 'a break with no start waits for a tap');

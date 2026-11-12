@@ -243,7 +243,8 @@
 	/** The votes, mine among them. Null while they load, and when there is nothing to vote on. */
 	let rating = $state<api.LimusicLyricState | null>(null);
 	let ratingLoading = $state(false);
-	/** The song and revision `rating` belongs to. A late answer for another one is dropped. */
+	/** The song, revision and account `rating` belongs to. A late answer for another is dropped,
+	 *  and '' asks again on the next open. */
 	let ratingFor = '';
 	let voting = false;
 	let reportOpen = $state(false);
@@ -254,11 +255,19 @@
 	$effect(() => {
 		if (!open || !rateable) return;
 		const videoId = track.videoId;
-		const key = `${videoId} ${lyrics?.revision ?? ''}`;
-		untrack(() => loadRating(key, videoId));
+		const shown = lyrics?.revision;
+		// A link or a rename changes the handle; a sign-out is caught below.
+		const key = `${videoId} ${shown ?? ''} ${limusic.handle ?? ''}`;
+		untrack(() => loadRating(key, videoId, shown));
 	});
 
-	async function loadRating(key: string, videoId: string) {
+	// `my_vote` and `own` are the account's: after a sign-out they are someone else's. An
+	// anonymous account made by a first vote is no change, it has nothing yet.
+	$effect(() => {
+		if (!limusic.signedIn) untrack(() => (ratingFor = ''));
+	});
+
+	async function loadRating(key: string, videoId: string, shown: number | undefined) {
 		if (key === ratingFor) return;
 		ratingFor = key;
 		rating = null;
@@ -269,11 +278,18 @@
 		ratingLoading = true;
 		try {
 			const s = await api.limusicLyricState(videoId);
-			if (ratingFor === key) rating = s;
+			if (ratingFor !== key) return;
+			// Votes and reports go to the live revision. When the lyric on screen is an older one (a
+			// pick kept by hand, or a cached copy the daily check hasn't caught up with), they would
+			// land on words this user hasn't seen, so none are offered until the screen has the live
+			// one. A copy cached before revisions were kept can't be compared, and counts as live.
+			rating = s && (shown === undefined || s.revision === shown) ? s : null;
+			ratingLoading = false;
 		} catch {
-			// The service is away: nothing to vote on, and nothing to say about it here.
-		} finally {
-			if (ratingFor === key) ratingLoading = false;
+			// The service is away: nothing to offer now, and the next open asks again.
+			if (ratingFor !== key) return;
+			ratingFor = '';
+			ratingLoading = false;
 		}
 	}
 

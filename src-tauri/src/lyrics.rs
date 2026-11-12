@@ -2317,18 +2317,21 @@ mod tests {
         std::fs::remove_file(&path).ok();
     }
 
-    /// Against a local copy of the service, after `limusic::tests::local_service` has published
-    /// a lyric for AAAAAAAAAAA there (same command, same environment):
+    /// Against a local copy of the service, on a song of its own (the environment of
+    /// `limusic::tests::local_service`).
     #[tokio::test]
     #[ignore = "needs a local lyrics server"]
     async fn local_service_recheck() {
-        let Fresh::New(l) = limusic_fetch("AAAAAAAAAAA", None).await.unwrap() else {
+        let admin = std::env::var("LIMUSIC_TEST_ADMIN").unwrap();
+        let published = crate::limusic::publish_for_test(&admin, "DDDDDDDDDDD").await;
+        let Fresh::New(l) = limusic_fetch("DDDDDDDDDDD", None).await.unwrap() else {
             panic!("the song has a lyric");
         };
         let revision = l.revision.expect("the answer names its revision");
-        assert!(matches!(limusic_fetch("AAAAAAAAAAA", Some(revision)).await, Ok(Fresh::Same)));
+        assert_eq!(revision, published);
+        assert!(matches!(limusic_fetch("DDDDDDDDDDD", Some(revision)).await, Ok(Fresh::Same)));
         assert!(matches!(
-            limusic_fetch("AAAAAAAAAAA", Some(revision - 1)).await,
+            limusic_fetch("DDDDDDDDDDD", Some(revision - 1)).await,
             Ok(Fresh::New(_))
         ));
         assert!(matches!(limusic_fetch("ZZZZZZZZZZZ", None).await, Ok(Fresh::Gone)));

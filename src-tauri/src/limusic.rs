@@ -274,6 +274,28 @@ async fn post_anonymous() -> Result<String, String> {
     }
 }
 
+/// Held while an anonymous account is being made, so a vote and a report sent together make one
+/// account between them, not one each with the later one's session kept.
+static MAKING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// The session there is, else a new anonymous one. The second value is true when it was just made.
+/// `replacing` is a session the service has refused: one made meanwhile by another call is used,
+/// but not that one again.
+async fn session_or_new(
+    state: &AppState,
+    replacing: Option<&str>,
+) -> Result<(String, bool), String> {
+    let usable = |t: &String| Some(t.as_str()) != replacing;
+    if let Some(t) = token(state).filter(usable) {
+        return Ok((t, false));
+    }
+    let _making = MAKING.lock().await;
+    if let Some(t) = token(state).filter(usable) {
+        return Ok((t, false));
+    }
+    Ok((new_anonymous(state).await?, true))
+}
+
 /// A new anonymous account and its session, kept. `Err` is the service's code or `unavailable`.
 async fn new_anonymous(state: &AppState) -> Result<String, String> {
     let token = post_anonymous().await?;
@@ -487,12 +509,9 @@ pub async fn submit(state: &AppState, s: Submission) -> Submitted {
         return failed("invalid");
     }
     // No session yet: the first submit makes an anonymous account, silently.
-    let (t, fresh) = match token(state) {
-        Some(t) => (t, false),
-        None => match new_anonymous(state).await {
-            Ok(t) => (t, true),
-            Err(code) => return failed(&code),
-        },
+    let (t, fresh) = match session_or_new(state, None).await {
+        Ok(s) => s,
+        Err(code) => return failed(&code),
     };
     let mut result = post_revision(&t, &s).await;
     if result == failed("unauthorized") {
@@ -501,7 +520,7 @@ pub async fn submit(state: &AppState, s: Submission) -> Submitted {
         let anonymous = is_anonymous(state);
         lost(state, &t);
         if anonymous && !fresh {
-            if let Ok(t) = new_anonymous(state).await {
+            if let Ok((t, _)) = session_or_new(state, Some(&t)).await {
                 result = post_revision(&t, &s).await;
             }
         }
@@ -604,10 +623,7 @@ where
     F: Fn(String) -> Fut,
     Fut: std::future::Future<Output = Result<T, String>>,
 {
-    let (t, fresh) = match token(state) {
-        Some(t) => (t, false),
-        None => (new_anonymous(state).await?, true),
-    };
+    let (t, fresh) = session_or_new(state, None).await?;
     let result = call(t.clone()).await;
     if !matches!(&result, Err(c) if c == "unauthorized") {
         return result;
@@ -615,7 +631,7 @@ where
     let anonymous = is_anonymous(state);
     lost(state, &t);
     if anonymous && !fresh {
-        return call(new_anonymous(state).await?).await;
+        return call(session_or_new(state, Some(&t)).await?.0).await;
     }
     result
 }
@@ -679,6 +695,46 @@ pub async fn report(
     }
     let note = note.as_deref();
     as_contributor(state, |t| async move { post_report(&t, video_id, reason, note).await }).await
+}
+
+/// For the ignored `local_service*` tests: publish a lyric for `video_id` on the local service as a
+/// trusted account and return its revision. A word changes every run, so a second run publishes
+/// too, on top of the first.
+#[cfg(test)]
+pub(crate) async fn publish_for_test(admin: &str, video_id: &str) -> i64 {
+    let nonce = format!("run{}", std::time::SystemTime::UNIX_EPOCH.elapsed().unwrap().as_millis());
+    let words = ["paper", "lanterns", nonce.as_str()];
+    let line = LyricLine {
+        time_ms: Some(1000),
+        end_time_ms: Some(2300),
+        text: words.join(" "),
+        words: Some(
+            words
+                .iter()
+                .enumerate()
+                .map(|(i, w)| crate::lyrics::LyricWord {
+                    text: if i < 2 { format!("{w} ") } else { (*w).into() },
+                    start_ms: 1000 + i as u64 * 400,
+                    end_ms: 1380 + i as u64 * 400,
+                    bg: false,
+                })
+                .collect(),
+        ),
+        ..Default::default()
+    };
+    let s = Submission {
+        video_id: video_id.into(),
+        lines: vec![line],
+        title: "A test song".into(),
+        artist: "A test artist".into(),
+        album: None,
+        duration: Some(200.0),
+        base_revision: live_revision(video_id).await.unwrap(),
+    };
+    match post_revision(admin, &s).await {
+        Submitted::Published { revision } => revision,
+        other => panic!("could not publish {video_id}: {other:?}"),
+    }
 }
 
 // --- Review -------------------------------------------------------------------------------------
@@ -976,10 +1032,12 @@ mod tests {
         assert_eq!(outcome(None), failed("unavailable"));
     }
 
-    /// Against a local copy of the service with hand-inserted sessions, never the live one:
+    /// Against a fresh local copy of the service with hand-inserted sessions, never the live one:
     ///   LIMUSIC_LYRICS_URL=http://127.0.0.1:8099 LIMUSIC_TEST_USER=<token of a user>
     ///   LIMUSIC_TEST_ADMIN=<token of an admin> cargo test -p limusic-app --lib \
-    ///   local_service -- --ignored --nocapture
+    ///   local_service -- --ignored --test-threads=1
+    /// One at a time: each test has its own tokio runtime but they share the app's HTTP client, and
+    /// a connection pooled by a test that has finished fails the next one ("unavailable").
     #[tokio::test]
     #[ignore = "needs a local lyrics server"]
     async fn local_service() {
@@ -1218,13 +1276,16 @@ mod tests {
         assert!(!is_own(false, Some("carla"), &None), "no answer: let the service refuse");
     }
 
-    /// Same local service, after `local_service` has published AAAAAAAAAAA as the admin.
+    /// Same local service: votes and reports, on a song of its own.
     #[tokio::test]
     #[ignore = "needs a local lyrics server"]
     async fn local_service_votes() {
         let user = std::env::var("LIMUSIC_TEST_USER").unwrap();
         let admin = std::env::var("LIMUSIC_TEST_ADMIN").unwrap();
-        let id = "AAAAAAAAAAA";
+        let id = "EEEEEEEEEEE";
+        publish_for_test(&admin, id).await;
+        let admin_handle = fetch_me(&admin).await.unwrap().handle;
+        let user_handle = fetch_me(&user).await.unwrap().handle;
         let anon = post_anonymous().await.unwrap();
         // A vote shows in the counts, changes sides, and is taken back.
         let before = put_vote(&anon, id, 0).await.unwrap();
@@ -1249,8 +1310,8 @@ mod tests {
             let t = t.to_owned();
             async move { send(rb, Some(&t)).await }
         };
-        assert!(is_own(false, Some("tester_admin"), &shown(&admin).await));
-        assert!(!is_own(false, Some("Renamed_1"), &shown(&user).await));
+        assert!(is_own(false, admin_handle.as_deref(), &shown(&admin).await));
+        assert!(!is_own(false, user_handle.as_deref(), &shown(&user).await));
         assert!(!is_own(true, None, &shown(&anon).await));
         // Reports: accepted once, a repeat changes nothing, a note is optional.
         assert_eq!(post_report(&anon, id, "timing", Some("  the chorus is late ")).await, Ok(()));

@@ -252,7 +252,8 @@ export function joinLines(a: EdLine, b: EdLine): EdLine {
 /** Where a line's singing ends, once every word of it is timed. */
 export function lineEnd(line: EdLine): number | undefined {
 	if (!wordsTimed(line)) return undefined;
-	return Math.max(line.end ?? 0, line.words[line.words.length - 1].end!);
+	// Every word, not the last one: imported words can overlap, and the last need not end last.
+	return Math.max(line.end ?? 0, ...line.words.map((w) => w.end!));
 }
 
 /** A new instrumental break. With no `time` it waits for a tap, like any line with no start. */
