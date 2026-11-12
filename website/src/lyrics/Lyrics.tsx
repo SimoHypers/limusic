@@ -234,7 +234,7 @@ function Board() {
         <div
           hidden={load.state === 'error' || load.state === 'missing' || (load.state === 'ok' && !load.data.entries.length)}
           className="mt-8 grid grid-cols-[2.25rem_1fr_auto] items-end gap-x-3 px-2 pb-2 text-xs text-muted-foreground sm:grid-cols-[2.25rem_1fr_4.5rem_4.5rem_5rem]">
-          <span className="text-right">Rank</span>
+          <span className="text-center">Rank</span>
           <span className="pl-[52px]">Contributor</span>
           <span className="hidden text-right sm:block">Songs</span>
           <span className="hidden text-right sm:block">Edits</span>
@@ -269,7 +269,7 @@ function Board() {
                   className="grid min-h-16 grid-cols-[2.25rem_1fr_auto] items-center gap-x-3 rounded-lg px-2 py-2.5 hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-primary-bright sm:grid-cols-[2.25rem_1fr_4.5rem_4.5rem_5rem]"
                 >
                   <span
-                    className={`text-right font-heading tabular-nums ${
+                    className={`text-center font-heading tabular-nums ${
                       e.rank <= 3 ? 'text-lg font-bold text-primary-bright' : 'text-muted-foreground'
                     }`}
                   >
