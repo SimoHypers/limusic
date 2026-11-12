@@ -130,7 +130,7 @@ pub struct LyricWord {
     pub text: String,
     pub start_ms: u64,
     pub end_ms: u64,
-    /// Background vocals. Only Limusic Lyrics sends it, and only the lyric editor reads it so far.
+    /// Background vocals. Only Limusic Lyrics sends it; the lyrics view draws them smaller.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bg: bool,
 }
@@ -155,7 +155,7 @@ pub struct LyricLine {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub romanized_words: Option<Vec<LyricWord>>,
     /// Which singer the line belongs to: `v1`, `v2`, ... and `v1000` for everyone together. Only
-    /// Limusic Lyrics sends it, and only the lyric editor reads it so far.
+    /// Limusic Lyrics sends it; the lyrics view puts a second singer on the opposite side.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
 }
@@ -1009,7 +1009,7 @@ async fn boidu_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Error
 /// Limusic Lyrics (`lyrics.limusic.app`): our own word-timed lyrics, filed by video id. `origin`
 /// says where a lyric came from; the ones mirrored from another provider carry its name too, since
 /// Unison's licence (ODbL) asks for attribution. Its lines carry the singer (`agent`) and
-/// background vocals (`bg`), which are kept with the lyric but not drawn yet.
+/// background vocals (`bg`), which the lyrics view draws (`lyricvoices.ts`).
 const LIMUSIC_URL: &str = "https://lyrics.limusic.app";
 
 /// Answers are read in the user's order, so while Limusic is first a stalled request holds back

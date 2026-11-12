@@ -74,6 +74,7 @@
 	import LyricsSourcePicker from './LyricsSourcePicker.svelte';
 	import KaraokeButton from './KaraokeButton.svelte';
 	import { link } from '$lib/link.svelte';
+	import { voices } from '$lib/lyricvoices';
 
 	// `expanded` only sizes the type and centres the column. The owner of the extra room (the side
 	// panel, or the now-playing view) decides how much there is. Toggling it must not remount this
@@ -107,6 +108,13 @@
 	const showRomanized = $derived(canRomanize && prefs.romanized);
 	const canTranslate = $derived(!!lyrics?.lines.some((l) => l.translation));
 	const showTranslation = $derived(canTranslate && prefs.translated);
+	/** Where each line sits and which of its words are background vocals. Null for a lyric with
+	 *  neither (every source but Limusic, and most of Limusic's): its lines are drawn by the same
+	 *  markup as before, with nothing added. Worked out once per lyric, never per frame. */
+	const voice = $derived(lyrics?.synced ? voices(lyrics.lines) : null);
+	/** Two singers: where there is room (the enlarged views), each also keeps off the other's
+	 *  edge, so the turns read at a glance. A side panel is too narrow to give any width away. */
+	const duet = $derived(!!voice?.some((v) => v.far));
 	const enhanced = $derived(appearance.enhancedLyrics);
 	const animateSynced = $derived(enhanced && appearance.enhancedLyricsLineSync);
 	const reducedMotion = new MediaQuery('prefers-reduced-motion: reduce');
@@ -490,6 +498,7 @@
 				{@const words = getLineWords(line, i)}
 				{@const romWords =
 					showRomanized && line.romanized ? getLineWords(line, i, line.romanized) : []}
+				{@const v = voice?.[i]}
 				<!-- Dimming is `opacity` on the line, never a translucent text colour. A colour with
 				     alpha is composited glyph by glyph, so wherever two glyphs overlap the coverage
 				     adds up and the overlap comes out brighter than the rest of the line: very
@@ -500,7 +509,9 @@
 				<button
 					data-line={i}
 					onclick={() => seekTo(line)}
-					class="block w-full origin-left cursor-pointer text-left font-heading font-bold leading-snug transition-[color,opacity,transform] duration-300 ease-out hover:text-foreground hover:opacity-100 dark:hover:opacity-100
+					class="block w-full cursor-pointer font-heading font-bold leading-snug transition-[color,opacity,transform] duration-300 ease-out hover:text-foreground hover:opacity-100 dark:hover:opacity-100
+						{v?.far ? 'origin-right text-right' : 'origin-left text-left'}
+						{duet && expanded ? (v?.far ? 'pl-[14%]' : 'pr-[14%]') : ''}
 						{expanded ? 'py-3 text-[1.875em]' : compact ? 'py-1 text-[0.875em]' : 'py-2 text-[1.25em]'}
 						{isActive
 						? enhanced && (words.length > 0 || romWords.length > 0)
@@ -510,8 +521,21 @@
 							? 'text-muted-foreground opacity-55 dark:opacity-40'
 							: 'text-muted-foreground opacity-90 dark:opacity-70'}"
 				>
-					{#if words.length > 0}
-						{@render sweep(words, isActive)}
+					{#if v?.runs && words === line.words}
+						<!-- Background vocals are a quieter line of their own, under or over the lead
+						     they answer: smaller, and dimmed as a group (see the note on `opacity`
+						     above). They sweep on their own timings like any other word. -->
+						{#each v.runs as run, r (r)}
+							{#if run.bg}
+								<span class="block py-[0.1em] text-[0.72em] font-semibold opacity-65">
+									{@render sweep(run.words, isActive, v.far)}
+								</span>
+							{:else}
+								{@render sweep(run.words, isActive, v.far)}
+							{/if}
+						{/each}
+					{:else if words.length > 0}
+						{@render sweep(words, isActive, v?.far)}
 					{:else}
 						<span>{line.text || '♪'}</span>
 					{/if}
@@ -521,7 +545,7 @@
 						     Apple's reading is timed to the same syllables and sweeps with the line. -->
 						<span class="mt-0.5 block text-[length:max(0.62em,11px)] font-semibold">
 							{#if romWords.length > 0}
-								{@render sweep(romWords, isActive)}
+								{@render sweep(romWords, isActive, v?.far)}
 							{:else}
 								{line.romanized}
 							{/if}
@@ -685,10 +709,11 @@
 
 <!-- Word-by-word karaoke sweep (Better Lyrics style), for the line and for Apple's timed
      romanization under it. -->
-{#snippet sweep(words: api.LyricWord[], active: boolean)}
-	<span class="inline-flex flex-wrap items-baseline">
+{#snippet sweep(words: api.LyricWord[], active: boolean, far = false)}
+	<span class="inline-flex flex-wrap items-baseline {far ? 'justify-end' : ''}">
 		{#each words as word, wIdx (wIdx)}
-			{@const isWordEnd = word.text.endsWith(' ')}
+			<!-- No gap after the last word: on a far-side line it would hold the text off the edge. -->
+			{@const isWordEnd = word.text.endsWith(' ') && wIdx < words.length - 1}
 			{@const cleanText = word.text.trimEnd()}
 			{#if active}
 				{@const progress = getWordProgress(word, posMs)}
