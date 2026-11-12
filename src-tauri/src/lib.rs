@@ -18,6 +18,7 @@ mod karaoke;
 mod karaoke_model;
 mod karaoke_runtime;
 mod lastfm;
+mod limusic;
 mod listenbrainz;
 mod listentogether;
 mod local;
@@ -1205,6 +1206,7 @@ pub fn run() {
             commands::set_repeat,
             commands::toggle_pause,
             commands::seek,
+            commands::playback_clock,
             commands::set_volume,
             commands::set_playback_params,
             commands::set_karaoke,
@@ -1345,6 +1347,22 @@ pub fn run() {
             commands::choose_lyrics_source,
             commands::set_lyrics_offset,
             commands::lyrics_providers,
+            commands::lyrics_editor_start,
+            commands::limusic_providers,
+            commands::limusic_status,
+            commands::limusic_sign_in,
+            commands::limusic_cancel,
+            commands::limusic_sign_out,
+            commands::limusic_me,
+            commands::limusic_rename,
+            commands::limusic_submit,
+            commands::limusic_live_revision,
+            commands::limusic_review_queue,
+            commands::limusic_review_revision,
+            commands::limusic_live_lyrics,
+            commands::limusic_review,
+            commands::limusic_revert,
+            commands::lyrics_parse,
             commands::lastfm_connect,
             commands::lastfm_disconnect,
             commands::lastfm_status,

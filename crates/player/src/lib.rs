@@ -891,6 +891,19 @@ impl Player {
         self.decks.speed()
     }
 
+    /// Where the audio being heard is right now, in seconds, for a caller that has to stamp an
+    /// instant (the lyric editor's taps). `None` with nothing loaded.
+    ///
+    /// `audio-pts`, not `time-pos`: mpv works `audio-pts` out from the output's buffer on every
+    /// read, while `time-pos` is whatever the last pass of its play loop left, up to a buffer
+    /// behind. Read every ~17 ms against the wall clock over a local tone (mpv 0.41, PipeWire and
+    /// the null output alike), `audio-pts` strayed 0.1-0.2 ms from a straight line at 1x, 0.75x
+    /// and 0.5x, and `time-pos` 85-98 ms at 1x. A read costs about 20 microseconds.
+    pub fn clock(&self) -> Option<f64> {
+        let mpv = self.mpv();
+        mpv.get_property::<f64>("audio-pts").or_else(|_| mpv.get_property::<f64>("time-pos")).ok()
+    }
+
     pub fn playback_params(&self) -> (f64, i32, Reverb) {
         let af = self.decks.af.lock().unwrap();
         (af.speed, af.semitones, af.reverb)

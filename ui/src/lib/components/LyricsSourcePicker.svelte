@@ -12,10 +12,12 @@
 		Loading03Icon,
 		MagicWand01Icon,
 		MinusSignIcon,
+		PencilEdit02Icon,
 		PinIcon,
 		PlusSignIcon,
 		Search01Icon,
 		Settings02Icon,
+		Tap01Icon,
 		Tick02Icon,
 		Timer01Icon,
 		TranslateIcon
@@ -24,9 +26,13 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import * as api from '$lib/api';
-	import { ui } from '$lib/player.svelte';
+	import { playback, ui } from '$lib/player.svelte';
 	import { t, currentLocale } from '$lib/i18n.svelte';
 	import { KIND_CLASS, KIND_LABEL, lyricsKind } from '$lib/lyricsSources';
+	import { goto } from '$app/navigation';
+	import { limusic } from '$lib/limusic.svelte';
+	import { link } from '$lib/link.svelte';
+	import { draftKey, unpackDraft, wordsTimed } from '$lib/lyricsedit';
 
 	let {
 		lyrics,
@@ -102,6 +108,7 @@
 		if (!open) return;
 		untrack(() => {
 			refresh();
+			readDraft();
 			if (!lyrics && !query) openSearch();
 		});
 	});
@@ -187,6 +194,34 @@
 		query = null;
 		searchOpen = false;
 		refresh();
+	}
+
+	/** The lyric editor, for songs the service can file: not a local file or a broadcast, not while
+	 *  the bar controls another device, and not from a typed search, whose lyrics may be another
+	 *  song's. Navigating closes the player view and theater mode by themselves. */
+	const canEdit = $derived(
+		limusic.available &&
+			!query &&
+			!api.isLocalId(track.videoId) &&
+			!playback.now?.live &&
+			!link.remote
+	);
+	const improving = $derived(!!lyrics && lyricsKind(lyrics) === 'words');
+	/** A draft of this song left in the editor: how far it got. Read when the picker opens. */
+	let draft = $state<{ done: number; total: number } | null>(null);
+	function readDraft() {
+		let d = null;
+		try {
+			d = unpackDraft(localStorage.getItem(draftKey(track.videoId)), track.videoId);
+		} catch {
+			// No storage: no draft to offer.
+		}
+		const sung = d?.lines.filter((l) => l.words.length) ?? [];
+		draft = d ? { done: sung.filter(wordsTimed).length, total: sung.length } : null;
+	}
+	function openEditor() {
+		open = false;
+		goto('/lyrics-editor');
 	}
 
 	function openSettings() {
@@ -424,6 +459,29 @@
 			>
 				<HugeiconsIcon icon={LinkSquare02Icon} class="h-3.5 w-3.5" />
 				{t('lyrics.unison_rate')}
+			</button>
+		{/if}
+
+		{#if canEdit}
+			<!-- The way into the lyric editor: the one row here with a filled icon and a second line,
+			     so it does not pass for another setting. It knows about a draft. -->
+			<button
+				class="flex w-full cursor-pointer items-center gap-3 border-t px-3.5 py-3 text-left transition-colors hover:bg-muted/50"
+				onclick={openEditor}
+			>
+				<span class="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground">
+					<!-- icon swap via altIcon/showAlt: `icon` is frozen at mount -->
+					<HugeiconsIcon icon={Tap01Icon} altIcon={PencilEdit02Icon} showAlt={!!draft || improving} class="size-[18px]" />
+				</span>
+				<span class="min-w-0 flex-1">
+					<span class="block text-sm font-semibold">
+						{draft ? t('lyrics.draft') : improving ? t('lyrics.improve') : t('lyrics.sync')}
+					</span>
+					<span class="block text-[12.5px] leading-snug text-muted-foreground">
+						{draft ? t('lyrics.draft_hint', draft) : improving ? t('lyrics.improve_hint') : t('lyrics.sync_hint')}
+					</span>
+				</span>
+				<HugeiconsIcon icon={ArrowRight01Icon} class="size-3.5 shrink-0 text-muted-foreground" />
 			</button>
 		{/if}
 

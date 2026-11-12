@@ -117,6 +117,9 @@ pub struct LyricWord {
     pub text: String,
     pub start_ms: u64,
     pub end_ms: u64,
+    /// Background vocals. Only Limusic Lyrics sends it, and only the lyric editor reads it so far.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bg: bool,
 }
 
 /// One display line. `time_ms` present ⇔ the line is synced (a plain-lyrics response has none).
@@ -138,6 +141,10 @@ pub struct LyricLine {
     /// Apple's reading is word-timed like the line, so it can sweep with it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub romanized_words: Option<Vec<LyricWord>>,
+    /// Which singer the line belongs to: `v1`, `v2`, ... and `v1000` for everyone together. Only
+    /// Limusic Lyrics sends it, and only the lyric editor reads it so far.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
 }
 
 impl LyricLine {
@@ -219,6 +226,43 @@ pub async fn choose_source(
     };
     crate::romanize::fill(&mut lyrics);
     Some(lyrics)
+}
+
+/// What the lyric editor opens with.
+#[derive(Debug, Default, Serialize)]
+pub struct EditorStart {
+    /// The song's lyrics as their provider sent them, or `None` when nothing has any.
+    pub lyrics: Option<Lyrics>,
+    /// The revision the service has live for the song, which a submission must name as its base.
+    /// `None` when it has none, or couldn't be asked.
+    pub base_revision: Option<i64>,
+}
+
+/// The song's lyrics for the lyric editor, without `romanize::fill`: a reading this app worked
+/// out is not the source's, and the editor's lines are what get submitted. When the service has a
+/// live lyric for the song, those are its own lines (a cached copy from before singers and
+/// background vocals were kept lacks them) and its revision; otherwise the same lyrics the panel
+/// shows (cached, or down the provider list).
+pub async fn editor_start(state: &AppState, req: LyricsRequest) -> EditorStart {
+    let live = crate::limusic::live(&req.video_id).await;
+    let base_revision = live.as_ref().map(|l| l.revision);
+    let lyrics = match live.and_then(|l| l.lyrics) {
+        Some(l) => Some(l),
+        None => cached_or_fetched(state, req).await,
+    };
+    EditorStart { lyrics: lyrics.filter(|l| !l.instrumental), base_revision }
+}
+
+/// The most text `parse_file` reads. A long song word by word as TTML is about 100 KB.
+const FILE_MAX_BYTES: usize = 1024 * 1024;
+
+/// A lyric file's lines for the editor, by the same parsers the providers go through. Empty for
+/// plain text, which has nothing to parse: the editor takes it line by line as it is.
+pub fn parse_file(text: &str) -> Result<Vec<LyricLine>, String> {
+    if text.len() > FILE_MAX_BYTES {
+        return Err("too_large".into());
+    }
+    Ok(parse_lrc_or_ttml(text))
 }
 
 /// Nudge a song's timing. Pins what it applies to, so the nudge isn't lost to a reorder that would
@@ -500,7 +544,7 @@ impl LrclibTrack {
 }
 
 /// LRCLIB asks integrations to identify themselves via User-Agent.
-const LRCLIB_UA: &str =
+pub(crate) const LRCLIB_UA: &str =
     concat!("Limusic v", env!("CARGO_PKG_VERSION"), " (https://github.com/SimoHypers/limusic)");
 
 /// A GET to LRCLIB, carrying the two things this API wants from us: who we are, and a bound on how
@@ -834,8 +878,8 @@ async fn boidu_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Error
 
 /// Limusic Lyrics (`lyrics.limusic.app`): our own word-timed lyrics, filed by video id. `origin`
 /// says where a lyric came from; the ones mirrored from another provider carry its name too, since
-/// Unison's licence (ODbL) asks for attribution. The server also sends fields this app doesn't
-/// draw yet (`agent`, `bg`); serde skips what `LyricLine` doesn't name.
+/// Unison's licence (ODbL) asks for attribution. Its lines carry the singer (`agent`) and
+/// background vocals (`bg`), which are kept with the lyric but not drawn yet.
 const LIMUSIC_URL: &str = "https://lyrics.limusic.app";
 
 /// Answers are read in the user's order, so while Limusic is first a stalled request holds back
@@ -844,16 +888,16 @@ const LIMUSIC_URL: &str = "https://lyrics.limusic.app";
 const LIMUSIC_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// `LIMUSIC_LYRICS_URL` points a dev build at a local or staging server.
-fn limusic_root() -> String {
+pub(crate) fn limusic_root() -> String {
     std::env::var("LIMUSIC_LYRICS_URL").unwrap_or_else(|_| LIMUSIC_URL.into())
 }
 
 #[derive(Debug, Deserialize)]
-struct LimusicAnswer {
+pub(crate) struct LimusicAnswer {
     /// Kept a string: a value a newer server adds must not fail the parse.
     #[serde(default)]
-    origin: String,
-    lines: Vec<LyricLine>,
+    pub origin: String,
+    pub lines: Vec<LyricLine>,
 }
 
 /// By video id only: a typed search or a local file has none that the server knows.
@@ -878,7 +922,7 @@ async fn limusic_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Err
     Ok(limusic_to_lyrics(answer))
 }
 
-fn limusic_to_lyrics(a: LimusicAnswer) -> Option<Lyrics> {
+pub(crate) fn limusic_to_lyrics(a: LimusicAnswer) -> Option<Lyrics> {
     // No English connective in the string: the footer wraps it ("Lyrics from {source}") in the UI's.
     let source = match a.origin.as_str() {
         o @ ("unison" | "boidu" | "lyricsplus") => format!("Limusic ({})", provider_name(o)),
@@ -1080,6 +1124,7 @@ fn kpoe_to_lyrics(k: Kpoe, ours: Option<f64>) -> Option<Lyrics> {
                     text: w.text.clone(),
                     start_ms: w.time as u64,
                     end_ms: (w.time + w.duration) as u64,
+                    bg: false,
                 })
                 .collect()
         })
@@ -1394,7 +1439,12 @@ fn parse_lrc_or_ttml(text: &str) -> Vec<LyricLine> {
                                 .and_then(parse_time_val)
                                 .or_else(|| w_start.map(|s| s + 500));
                             if let (Some(b), Some(e)) = (w_start, w_end) {
-                                words.push(LyricWord { text: w_text, start_ms: b, end_ms: e });
+                                words.push(LyricWord {
+                                    text: w_text,
+                                    start_ms: b,
+                                    end_ms: e,
+                                    bg: false,
+                                });
                             }
                         }
                     }
@@ -1513,7 +1563,7 @@ fn parse_ttml_spans(
 
         if let (Some(b), Some(e)) = (w_begin, w_end) {
             if !w_text.is_empty() {
-                words.push(LyricWord { text: w_text.clone(), start_ms: b, end_ms: e });
+                words.push(LyricWord { text: w_text.clone(), start_ms: b, end_ms: e, bg: false });
             }
         }
         plain_text_buf.push_str(&w_text);
@@ -1597,6 +1647,7 @@ fn parse_elrc(lrc: &str) -> Vec<LyricLine> {
                 text: text.clone(),
                 start_ms: *ms,
                 end_ms: runs.get(i + 1).map_or(u64::MAX, |r| r.0),
+                bg: false,
             })
             .collect();
         line.text = words.iter().map(|w| w.text.as_str()).collect::<String>().trim().to_owned();
@@ -1876,10 +1927,10 @@ mod tests {
         );
     }
 
-    /// The server's answer with fields this app doesn't use yet (`agent`, `bg`) and an `origin` it
-    /// has never heard of: both must parse. Attribution names the mirrored provider.
+    /// The server's answer with singers (`agent`), background vocals (`bg`) and an `origin` this
+    /// app has never heard of: all must parse. Attribution names the mirrored provider.
     #[test]
-    fn limusic_answer_ignores_what_it_does_not_know() {
+    fn limusic_answer_keeps_singers_and_ignores_what_it_does_not_know() {
         let json = |origin: &str| {
             format!(
                 r#"{{"video_id":"FkxEE7wZ83c","origin":"{origin}","revision":3,"lines":[
@@ -1899,12 +1950,42 @@ mod tests {
         assert_eq!(l.lines.len(), 2);
         assert_eq!(l.lines[0].words.as_ref().unwrap()[1].end_ms, 2500);
         assert_eq!(l.lines[1].romanized.as_deref(), Some("oh"));
+        assert_eq!(l.lines[0].agent.as_deref(), Some("v1"));
+        let words = l.lines[0].words.as_ref().unwrap();
+        assert!(!words[0].bg && words[1].bg);
         assert_eq!(read("unison").source, "Limusic (Unison)");
         assert_eq!(read("boidu").source, "Limusic (Boidu)");
         assert_eq!(read("lyricsplus").source, "Limusic (LyricsPlus)");
         assert_eq!(read("something-new").source, "Limusic");
         let empty = LimusicAnswer { origin: "community".into(), lines: vec![] };
         assert!(limusic_to_lyrics(empty).is_none());
+    }
+
+    /// `agent` and `bg` came later than the lyrics cache: what is stored without them still reads,
+    /// and a lyric that has neither is written exactly as it was before they existed.
+    #[test]
+    fn agent_and_bg_default_when_missing_and_are_skipped_when_empty() {
+        let old = r#"{"time_ms":1000,"text":"Baby love","words":[{"text":"Baby ","start_ms":1000,"end_ms":1500}]}"#;
+        let line: LyricLine = serde_json::from_str(old).unwrap();
+        assert_eq!(line.agent, None);
+        assert!(!line.words.as_ref().unwrap()[0].bg);
+        assert_eq!(serde_json::to_string(&line).unwrap(), old);
+
+        let new = r#"{"time_ms":1000,"text":"oh","words":[{"text":"oh","start_ms":1000,"end_ms":1500,"bg":true}],"agent":"v2"}"#;
+        let line: LyricLine = serde_json::from_str(new).unwrap();
+        assert_eq!(line.agent.as_deref(), Some("v2"));
+        assert!(line.words.as_ref().unwrap()[0].bg);
+        assert_eq!(serde_json::to_string(&line).unwrap(), new);
+    }
+
+    #[test]
+    fn parse_file_reads_lyric_files_and_leaves_plain_text_alone() {
+        let elrc = parse_file("[00:10.00]<00:10.00>Hello <00:11.00>world<00:12.00>").unwrap();
+        assert_eq!(elrc[0].words.as_ref().unwrap().len(), 2);
+        let lrc = parse_file("[00:01.00]one\n[00:02.00]two").unwrap();
+        assert_eq!(lrc.iter().map(|l| l.time_ms).collect::<Vec<_>>(), [Some(1000), Some(2000)]);
+        assert!(parse_file("Just a line\nand another").unwrap().is_empty());
+        assert_eq!(parse_file(&"a".repeat(FILE_MAX_BYTES + 1)).unwrap_err(), "too_large");
     }
 
     #[test]
@@ -1925,7 +2006,9 @@ mod tests {
             provider: provider.into(),
             synced: true,
             lines: vec![LyricLine {
-                words: words.then(|| vec![LyricWord { text: "a".into(), start_ms: 0, end_ms: 9 }]),
+                words: words.then(|| {
+                    vec![LyricWord { text: "a".into(), start_ms: 0, end_ms: 9, bg: false }]
+                }),
                 ..LyricLine::simple(Some(0), "a".into())
             }],
             ..Default::default()
@@ -1954,7 +2037,8 @@ mod tests {
     #[test]
     fn word_timed_lyrics_settle_the_walk_when_preferred() {
         let line = |words: bool| LyricLine {
-            words: words.then(|| vec![LyricWord { text: "a".into(), start_ms: 0, end_ms: 9 }]),
+            words: words
+                .then(|| vec![LyricWord { text: "a".into(), start_ms: 0, end_ms: 9, bg: false }]),
             ..LyricLine::simple(Some(0), "a".into())
         };
         let lyrics =
@@ -2076,7 +2160,12 @@ mod tests {
             time_ms: Some(10100),
             end_time_ms: Some(14000),
             text: "Hello world".into(),
-            words: Some(vec![LyricWord { text: "Hello ".into(), start_ms: 10100, end_ms: 12000 }]),
+            words: Some(vec![LyricWord {
+                text: "Hello ".into(),
+                start_ms: 10100,
+                end_ms: 12000,
+                bg: false,
+            }]),
             translation: Some("Halo dunia".into()),
             ..Default::default()
         }];

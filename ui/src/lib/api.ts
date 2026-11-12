@@ -1247,6 +1247,8 @@ export interface LyricWord {
 	text: string;
 	start_ms: number;
 	end_ms: number;
+	/** Background vocals. Only Limusic Lyrics sends it; only the lyric editor reads it so far. */
+	bg?: boolean;
 }
 export interface LyricLine {
 	/** Start cue in milliseconds; present ⇔ the line is synced. */
@@ -1258,6 +1260,9 @@ export interface LyricLine {
 	/** Latin-script reading of `text` (#202). Word-timed only when Apple Music wrote it. */
 	romanized?: string;
 	romanized_words?: LyricWord[];
+	/** Which singer: `v1`, `v2`, ... and `v1000` for everyone together. Not drawn outside the
+	 *  lyric editor yet. */
+	agent?: string;
 }
 export interface Lyrics {
 	/** Attribution for the panel footer ("LRCLIB", "Source: Musixmatch", …). */
@@ -1292,6 +1297,144 @@ export const chooseLyricsSource = (args: LyricsTrack & { source: string | null }
 	invoke<Lyrics | null>('choose_lyrics_source', args);
 export const setLyricsOffset = (videoId: string, offsetMs: number) =>
 	invoke<void>('set_lyrics_offset', { videoId, offsetMs });
+/** Where the lyric editor starts: the song's lyrics as their provider sent them (no romanization
+ *  this app worked out), or `null` when nothing has any. */
+export interface LyricsEditorStart {
+	lyrics: Lyrics | null;
+	/** The revision the service has live for the song: what a submission is based on. */
+	base_revision: number | null;
+}
+export const lyricsEditorStart = (t: LyricsTrack) =>
+	invoke<LyricsEditorStart>('lyrics_editor_start', {
+		videoId: t.videoId,
+		title: t.title,
+		artists: t.artists,
+		album: t.album,
+		duration: t.duration
+	});
+// --- Limusic Lyrics account (`limusic.rs`) ---
+export interface LimusicAccount {
+	/** Null while the account is anonymous: it has no public name. */
+	handle: string | null;
+	anonymous: boolean;
+	avatar_url: string | null;
+	score: number;
+	joined_at: number;
+	role: 'user' | 'reviewer' | 'admin' | '';
+	trusted: boolean;
+	can_review: boolean;
+}
+export interface LimusicAccountState {
+	/** There is a session: an anonymous one counts. */
+	signed_in: boolean;
+	handle: string | null;
+	/** The session is an anonymous account (no handle). */
+	anonymous: boolean;
+	/** A code (`expired`, `banned`, `failed`, `session_ended`) when a sign-in or a session ended badly. */
+	error?: string | null;
+}
+export interface LimusicProviders {
+	/** The identities that can be linked. May be empty. */
+	providers: string[];
+	/** The service has anonymous accounts: the gate for contributing at all. False for an older
+	 *  service, a 404 or no connection. */
+	anonymous: boolean;
+}
+export const limusicProviders = () => invoke<LimusicProviders>('limusic_providers');
+export const limusicStatus = () => invoke<LimusicAccountState>('limusic_status');
+/** Opens the browser; resolves with the code to compare with the confirm page. With an anonymous
+ *  session the identity is linked to it, with none a linked account is made. The outcome arrives
+ *  through `onLimusicAccount`. Rejects with a code (`rate_limited`, `unavailable`, ...). */
+export const limusicSignIn = (provider: string) => invoke<string>('limusic_sign_in', { provider });
+export const limusicCancel = () => invoke<void>('limusic_cancel');
+export const limusicSignOut = () => invoke<void>('limusic_sign_out');
+export const limusicMe = () => invoke<LimusicAccount | null>('limusic_me');
+/** Rejects with the service's code: `taken`, `invalid`, `rate_limited`, `unauthorized`. */
+export const limusicRename = (handle: string) => invoke<LimusicAccount>('limusic_rename', { handle });
+export const onLimusicAccount = (cb: (s: LimusicAccountState) => void): Promise<UnlistenFn> =>
+	listen<LimusicAccountState>('limusic-account', (e) => cb(e.payload));
+export interface LimusicSubmission {
+	video_id: string;
+	lines: LyricLine[];
+	title: string;
+	artist: string;
+	album?: string;
+	duration?: number;
+	base_revision: number | null;
+}
+export type LimusicSubmitted =
+	| { kind: 'published'; revision: number }
+	| { kind: 'pending'; revision: number }
+	| { kind: 'failed'; code: string; detail: string | null };
+export const limusicSubmit = (submission: LimusicSubmission) =>
+	invoke<LimusicSubmitted>('limusic_submit', { submission });
+/** The song's live revision on the service now, null when it has no live lyric. Rejects when the
+ *  service can't be asked. */
+export const limusicLiveRevision = (videoId: string) =>
+	invoke<number | null>('limusic_live_revision', { videoId });
+// Review (reviewers only). Every call rejects with the service's code: `forbidden`,
+// `unauthorized`, `not_found`, `not_reviewable`, `stale`, `rate_limited`, `unavailable`.
+export interface LimusicQueueItem {
+	revision: number;
+	video_id: string;
+	title: string;
+	artist: string;
+	duration: number | null;
+	/** Null when the sender is anonymous. */
+	author: string | null;
+	/** `new`, `edit`, or `reported` (a live lyric with enough open reports). */
+	kind: string;
+	created_at: number;
+	reports: number;
+}
+export interface LimusicQueue {
+	items: LimusicQueueItem[];
+	/** Pass as `after` for the next page, null on the last. */
+	next: number | null;
+}
+export interface LimusicRevision {
+	revision: number;
+	video_id: string;
+	status: string;
+	kind: string;
+	author: string | null;
+	title: string;
+	artist: string;
+	album: string | null;
+	duration: number | null;
+	base_revision: number | null;
+	note: string | null;
+	created_at: number;
+	/** The submitted lines, ready for `LyricsView`'s `preview`. */
+	lyrics: Lyrics | null;
+}
+/** Oldest first, 50 a page. */
+export const limusicReviewQueue = (after?: number) =>
+	invoke<LimusicQueue>('limusic_review_queue', { after: after ?? null });
+export const limusicReviewRevision = (revision: number) =>
+	invoke<LimusicRevision>('limusic_review_revision', { revision });
+/** The song's live community lyric from the service itself (never a lyrics provider), or null. */
+export const limusicLiveLyrics = (videoId: string) =>
+	invoke<Lyrics | null>('limusic_live_lyrics', { videoId });
+/** Resolves with the service's status: `published`, `rejected`, or `reverted` (a live lyric taken
+ *  down). An approval also replaces the song's cached lyric here. */
+export const limusicReview = (revision: number, videoId: string, verdict: 'approve' | 'reject', reason?: string) =>
+	invoke<string>('limusic_review', { revision, videoId, verdict, reason: reason ?? null });
+/** Puts an earlier revision of the song back, or `null` for no lyric. Resolves with the live one. */
+export const limusicRevert = (videoId: string, toRevision: number | null, reason?: string) =>
+	invoke<number | null>('limusic_revert', { videoId, toRevision, reason: reason ?? null });
+/** A pasted or picked lyric file (TTML, eLRC, LRC) as lines, by the parsers the providers use.
+ *  Empty for plain text. Rejects with `too_large` over 1 MB. */
+export const lyricsParse = (text: string) => invoke<LyricLine[]>('lyrics_parse', { text });
+/** A position read from the player this instant and the wall-clock time (Unix ms) of the read:
+ *  what the lyric editor places a tap with (`stampTap`). `null` with nothing loaded. */
+export interface PlaybackClock {
+	position: number;
+	atMs: number;
+	speed: number;
+	paused: boolean;
+}
+export const playbackClock = () => invoke<PlaybackClock | null>('playback_clock');
 export interface LyricsProvider {
 	id: string;
 	name: string;

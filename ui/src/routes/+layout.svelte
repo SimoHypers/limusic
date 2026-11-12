@@ -24,6 +24,7 @@
 		initTheme
 	} from '$lib/theme.svelte';
 	import { loadAppIcon } from '$lib/appicon.svelte';
+	import { watchLimusic } from '$lib/limusic.svelte';
 	import { thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
 	import { blockForeignDrag, dragScroll } from '$lib/dnd';
@@ -180,12 +181,14 @@
 		// mounted for days and a mount-only check would never see a release published in between.
 		const updateTimer = setInterval(checkForUpdatesQuiet, QUIET_INTERVAL_MS);
 		const teardownApp = initApp();
+		const teardownLimusic = watchLimusic();
 		const teardownZoom = initZoom();
 		const teardownShortcuts = initShortcuts();
 		initImport();
 		return () => {
 			clearInterval(updateTimer);
 			teardownApp();
+			teardownLimusic();
 			teardownWin();
 			teardownZoom();
 			teardownShortcuts();

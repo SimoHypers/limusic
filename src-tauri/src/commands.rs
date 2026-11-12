@@ -221,6 +221,13 @@ pub async fn set_volume(state: St<'_>, volume: i64) -> Result<(), String> {
     Ok(())
 }
 
+/// A fresh position and when it was read (`AppState::playback_clock`). Async, so the read of mpv
+/// happens off the main thread.
+#[tauri::command]
+pub async fn playback_clock(state: St<'_>) -> Result<Option<serde_json::Value>, String> {
+    Ok(state.playback_clock())
+}
+
 /// Session-only tempo (0.5–2.0), pitch (−12..=12 semitones), and reverb controls.
 #[tauri::command]
 pub async fn set_playback_params(
@@ -2650,6 +2657,137 @@ pub fn set_lyrics_offset(state: St<'_>, video_id: String, offset_ms: i64) {
 #[tauri::command]
 pub fn lyrics_providers(state: St<'_>) -> Vec<crate::lyrics::ProviderInfo> {
     crate::lyrics::providers(state.inner())
+}
+
+/// Where the lyric editor starts for a song: the lyrics the app has for it, as the provider sent
+/// them (no romanization filled in, since what the editor holds is what gets submitted).
+#[tauri::command]
+pub async fn lyrics_editor_start(
+    state: St<'_>,
+    video_id: String,
+    title: String,
+    artists: String,
+    album: Option<String>,
+    duration: Option<f64>,
+) -> Result<crate::lyrics::EditorStart, String> {
+    let req =
+        crate::lyrics::LyricsRequest { video_id, title, artists, album, duration, searched: false };
+    Ok(crate::lyrics::editor_start(state.inner(), req).await)
+}
+
+/// What Limusic Lyrics offers: `anonymous` gates contributing, `providers` are the identities that
+/// can be linked.
+#[tauri::command]
+pub async fn limusic_providers() -> crate::limusic::Providers {
+    crate::limusic::providers().await
+}
+
+/// The stored session: `{signed_in, handle, anonymous}`. Doesn't ask the service.
+#[tauri::command]
+pub fn limusic_status(state: St<'_>) -> serde_json::Value {
+    crate::limusic::status(state.inner())
+}
+
+/// Opens the browser for `provider` and returns the code to compare with its confirm page. The
+/// outcome arrives as the `limusic-account` event.
+#[tauri::command]
+pub async fn limusic_sign_in(state: St<'_>, provider: String) -> Result<String, String> {
+    crate::limusic::sign_in(state.inner().clone(), provider).await
+}
+
+#[tauri::command]
+pub fn limusic_cancel() {
+    crate::limusic::cancel();
+}
+
+#[tauri::command]
+pub fn limusic_sign_out(state: St<'_>) {
+    crate::limusic::sign_out(state.inner());
+}
+
+/// The signed-in account, fresh from the service. `None` when signed out.
+#[tauri::command]
+pub async fn limusic_me(state: St<'_>) -> Result<Option<crate::limusic::Account>, String> {
+    crate::limusic::me(state.inner()).await
+}
+
+/// Rejects with the service's code: `taken`, `invalid`, `rate_limited`, `unauthorized`, ...
+#[tauri::command]
+pub async fn limusic_rename(
+    state: St<'_>,
+    handle: String,
+) -> Result<crate::limusic::Account, String> {
+    crate::limusic::rename(state.inner(), handle).await
+}
+
+/// The song's live revision on the service now (`None`: no live lyric), for keeping a draft on top
+/// of a newer version.
+#[tauri::command]
+pub async fn limusic_live_revision(video_id: String) -> Result<Option<i64>, String> {
+    crate::limusic::live_revision(&video_id).await
+}
+
+/// A page of the review queue (reviewers only), oldest first.
+#[tauri::command]
+pub async fn limusic_review_queue(
+    state: St<'_>,
+    after: Option<i64>,
+) -> Result<crate::limusic::Queue, String> {
+    crate::limusic::review_queue(state.inner(), after).await
+}
+
+/// One revision with its lines.
+#[tauri::command]
+pub async fn limusic_review_revision(
+    state: St<'_>,
+    revision: i64,
+) -> Result<crate::limusic::Revision, String> {
+    crate::limusic::review_revision(state.inner(), revision).await
+}
+
+/// The song's live community lyric, for comparing an edit with what it replaces. Asks the
+/// service only, never a lyrics provider.
+#[tauri::command]
+pub async fn limusic_live_lyrics(video_id: String) -> Option<crate::lyrics::Lyrics> {
+    crate::limusic::live_lyrics(&video_id).await
+}
+
+/// `verdict` is `approve` or `reject`. Resolves with the service's status for the revision.
+#[tauri::command]
+pub async fn limusic_review(
+    state: St<'_>,
+    revision: i64,
+    video_id: String,
+    verdict: String,
+    reason: Option<String>,
+) -> Result<String, String> {
+    crate::limusic::review_verdict(state.inner(), revision, &video_id, &verdict, reason).await
+}
+
+/// Put an earlier revision back, or `null` for no lyric. Resolves with the live revision.
+#[tauri::command]
+pub async fn limusic_revert(
+    state: St<'_>,
+    video_id: String,
+    to_revision: Option<i64>,
+    reason: Option<String>,
+) -> Result<Option<i64>, String> {
+    crate::limusic::revert(state.inner(), &video_id, to_revision, reason).await
+}
+
+#[tauri::command]
+pub async fn limusic_submit(
+    state: St<'_>,
+    submission: crate::limusic::Submission,
+) -> Result<crate::limusic::Submitted, String> {
+    Ok(crate::limusic::submit(state.inner(), submission).await)
+}
+
+/// A pasted or imported lyric file (TTML, eLRC, LRC, the JSON shapes) as lines. Empty for plain
+/// text, which the editor splits into lines itself.
+#[tauri::command]
+pub async fn lyrics_parse(text: String) -> Result<Vec<crate::lyrics::LyricLine>, String> {
+    crate::lyrics::parse_file(&text)
 }
 
 // --- Changelog ------------------------------------------------------------------------------
