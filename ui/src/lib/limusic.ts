@@ -8,7 +8,8 @@ export const PROVIDER_NAMES: Record<string, string> = { discord: 'Discord', gith
 export const providerName = (id: string) => PROVIDER_NAMES[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
 
 export interface Message {
-	/** A key in `en.json`. */
+	/** Keys in `en.json`: a short title, and the sentence under it. */
+	title: TranslationKey;
 	key: TranslationKey;
 	params?: Record<string, string>;
 	kind: 'success' | 'info' | 'error';
@@ -20,25 +21,26 @@ export interface Message {
 
 /** Every answer the service documents for a submission, in words. */
 export function submitMessage(o: LimusicSubmitted): Message {
-	if (o.kind === 'published') return { key: 'lyrics_editor.sent_published', kind: 'success', sent: true };
-	if (o.kind === 'pending') return { key: 'lyrics_editor.sent_pending', kind: 'success', sent: true };
+	const E = 'lyrics_editor';
+	if (o.kind === 'published') return { title: `${E}.sent_published_title`, key: `${E}.sent_published`, kind: 'success', sent: true };
+	if (o.kind === 'pending') return { title: `${E}.sent_pending_title`, key: `${E}.sent_pending`, kind: 'success', sent: true };
 	switch (o.code) {
 		case 'unauthorized':
-			return { key: 'lyrics_editor.err_signed_out', kind: 'error' };
+			return { title: `${E}.err_signed_out_title`, key: `${E}.err_signed_out`, kind: 'info' };
 		case 'banned':
-			return { key: 'lyrics_editor.err_banned', kind: 'error' };
+			return { title: `${E}.err_banned_title`, key: `${E}.err_banned`, kind: 'error' };
 		case 'invalid':
 			return o.detail
-				? { key: 'lyrics_editor.err_invalid_detail', params: { detail: o.detail }, kind: 'error' }
-				: { key: 'lyrics_editor.err_invalid', kind: 'error' };
+				? { title: `${E}.err_invalid_title`, key: `${E}.err_invalid_detail`, params: { detail: o.detail }, kind: 'error' }
+				: { title: `${E}.err_invalid_title`, key: `${E}.err_invalid`, kind: 'error' };
 		case 'stale':
-			return { key: 'lyrics_editor.err_stale', kind: 'error', stale: true };
+			return { title: `${E}.err_stale_title`, key: `${E}.err_stale`, kind: 'error', stale: true };
 		case 'unchanged':
-			return { key: 'lyrics_editor.err_unchanged', kind: 'info' };
+			return { title: `${E}.err_unchanged_title`, key: `${E}.err_unchanged`, kind: 'info' };
 		case 'rate_limited':
-			return { key: 'lyrics_editor.err_rate_limited', kind: 'error' };
+			return { title: `${E}.err_rate_limited_title`, key: `${E}.err_rate_limited`, kind: 'error' };
 		default:
-			return { key: 'lyrics_editor.err_unavailable', kind: 'error' };
+			return { title: `${E}.err_unavailable_title`, key: `${E}.err_unavailable`, kind: 'error' };
 	}
 }
 

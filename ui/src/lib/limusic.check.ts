@@ -12,6 +12,7 @@ for (const code of ['unauthorized', 'banned', 'invalid', 'stale', 'unchanged', '
 	const m = f(code);
 	ok(!m.sent, `${code} keeps the draft`);
 	ok(m.key.startsWith('lyrics_editor.'), `${code} has a message`);
+	ok(m.title.startsWith('lyrics_editor.') && m.title.endsWith('_title'), `${code} has a title`);
 }
 ok(f('stale').stale === true && !f('stale').sent, 'stale keeps the draft and asks which version');
 ok(['unauthorized', 'banned', 'invalid', 'unchanged', 'rate_limited', 'unavailable'].every((c) => !f(c).stale), 'only stale asks');
