@@ -1366,5 +1366,11 @@
 			"not_found": "Na YouTube Music se to nepodařilo najít.",
 			"cooldown": "YouTube Music požádal aplikaci Limusic o zpomalení, importy jsou proto pozastaveny do {time}. Vše dosud nalezené je uloženo."
 		}
+	},
+	"karaoke": {
+		"consent": {
+			"source": "Staženo z GitHubu (TRvlvr/model_repo), oficiální zdroj modelů.",
+			"runtime": "The ONNX Runtime (Microsoft, MIT License) bylo staženo také z oficiálního GitHub vydání."
+		}
 	}
 }
