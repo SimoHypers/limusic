@@ -601,6 +601,8 @@
 				store(draftKey(track.videoId), null);
 			}
 			result = m;
+			// Closed while it was on its way: the answer is still owed.
+			sendOpen = true;
 		} finally {
 			submitting = false;
 		}
@@ -620,9 +622,13 @@
 		await submit();
 	}
 
-	/** The dialog closing after a lyric went out is the way off the page. */
+	/** The dialog closing after a lyric went out is the way off the page. Once: the button and the
+	 *  dialog's own close can both get here. */
+	let left = false;
 	function sendClosed() {
-		if (result?.sent) history.back();
+		if (!result?.sent || left) return;
+		left = true;
+		history.back();
 	}
 
 	const previewLyrics = $derived<api.Lyrics>({
@@ -1193,6 +1199,8 @@
 							</p>
 						{/snippet}
 						{#if line}
+							<!-- Keyed on the line: a new line starts with no edge held and its track unscrolled. -->
+							{#key line.id}
 							<LyricTimeline
 								words={line.words}
 								range={owesTime ? null : range}
@@ -1210,6 +1218,7 @@
 								onbg={(k: number) => updateLine(line.id, (l) => toggleBg(l, k))}
 								onseek={(ms: number) => active && jump(ms)}
 							/>
+							{/key}
 						{/if}
 
 						<!-- The tap. Positions never change, so a hand on the mouse never lands on the wrong
@@ -1370,7 +1379,14 @@
 			</Dialog.Header>
 			<Dialog.Footer>
 				{#if result.sent}
-					<Button onclick={() => (sendOpen = false)}>{t('lyrics_editor.done')}</Button>
+					<Button
+						onclick={() => {
+							sendOpen = false;
+							sendClosed();
+						}}
+					>
+						{t('lyrics_editor.done')}
+					</Button>
 				{:else if result.stale}
 					<Button
 						variant="outline"
