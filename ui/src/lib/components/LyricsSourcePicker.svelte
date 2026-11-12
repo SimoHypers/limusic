@@ -8,6 +8,7 @@
 		ArrowRight01Icon,
 		ArrowTurnBackwardIcon,
 		ArrowUp01Icon,
+		Flag02Icon,
 		LinkSquare02Icon,
 		Loading03Icon,
 		MagicWand01Icon,
@@ -17,7 +18,10 @@
 		PlusSignIcon,
 		Search01Icon,
 		Settings02Icon,
+		StarIcon,
 		Tap01Icon,
+		ThumbsDownIcon,
+		ThumbsUpIcon,
 		Tick02Icon,
 		Timer01Icon,
 		TranslateIcon
@@ -26,11 +30,12 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import * as api from '$lib/api';
-	import { playback, ui } from '$lib/player.svelte';
+	import { playback, toast, ui } from '$lib/player.svelte';
 	import { t, currentLocale } from '$lib/i18n.svelte';
 	import { KIND_CLASS, KIND_LABEL, lyricsKind } from '$lib/lyricsSources';
 	import { goto } from '$app/navigation';
 	import { limusic } from '$lib/limusic.svelte';
+	import { REPORT_REASONS, creditNames, feedbackErrorKey, nextVote, withVote } from '$lib/limusic';
 	import { link } from '$lib/link.svelte';
 	import { draftKey, unpackDraft, wordsTimed } from '$lib/lyricsedit';
 
@@ -73,12 +78,15 @@
 	// A typed title is a different song as far as the providers know, so the album goes; the length
 	// stays, it's still the recording that's playing.
 	const request = $derived(query ? { ...track, ...query, album: undefined, searched: true } : track);
+	/** A community lyric is credited to the people who synced it; anything else to its source. */
 	const attribution = $derived(
-		lyrics
-			? lyrics.source.startsWith('Source:')
-				? lyrics.source
-				: t('lyrics.source', { source: lyrics.source })
-			: t('lyrics.find')
+		!lyrics
+			? t('lyrics.find')
+			: lyrics.authors?.length
+				? t('lyrics.synced_by', { names: creditNames(lyrics.authors, currentLocale.id) })
+				: lyrics.source.startsWith('Source:')
+					? lyrics.source
+					: t('lyrics.source', { source: lyrics.source })
 	);
 	const offsetLabel = $derived(
 		t('lyrics.timing_value', {
@@ -100,6 +108,8 @@
 		query = null;
 		searchOpen = false;
 		resultsFor = '';
+		ratingFor = '';
+		rating = null;
 	});
 
 	// Opened on a song nothing was found for, every provider has already said no: the title
@@ -224,6 +234,104 @@
 		goto('/lyrics-editor');
 	}
 
+	// --- Votes and reports ------------------------------------------------------------------------
+	// For the lyric Limusic has live, when that is the one on screen. No sign-in: the first vote or
+	// report makes an anonymous account, silently, as the first submit does.
+	const rateable = $derived(
+		lyrics?.provider === 'limusic' && (limusic.available || limusic.signedIn) && !api.isLocalId(track.videoId)
+	);
+	/** The votes, mine among them. Null while they load, and when there is nothing to vote on. */
+	let rating = $state<api.LimusicLyricState | null>(null);
+	let ratingLoading = $state(false);
+	/** The song, revision and account `rating` belongs to. A late answer for another is dropped,
+	 *  and '' asks again on the next open. */
+	let ratingFor = '';
+	let voting = false;
+	let reportOpen = $state(false);
+	let reportReason = $state<api.LimusicReportReason | null>(null);
+	let reportNote = $state('');
+	let reported = $state(false);
+
+	$effect(() => {
+		if (!open || !rateable) return;
+		const videoId = track.videoId;
+		const shown = lyrics?.revision;
+		// A link or a rename changes the handle; a sign-out is caught below.
+		const key = `${videoId} ${shown ?? ''} ${limusic.handle ?? ''}`;
+		untrack(() => loadRating(key, videoId, shown));
+	});
+
+	// `my_vote` and `own` are the account's: after a sign-out they are someone else's. An
+	// anonymous account made by a first vote is no change, it has nothing yet.
+	$effect(() => {
+		if (!limusic.signedIn) untrack(() => (ratingFor = ''));
+	});
+
+	async function loadRating(key: string, videoId: string, shown: number | undefined) {
+		if (key === ratingFor) return;
+		ratingFor = key;
+		rating = null;
+		reportOpen = false;
+		reported = false;
+		reportReason = null;
+		reportNote = '';
+		ratingLoading = true;
+		try {
+			const s = await api.limusicLyricState(videoId);
+			if (ratingFor !== key) return;
+			// Votes and reports go to the live revision. When the lyric on screen is an older one (a
+			// pick kept by hand, or a cached copy the daily check hasn't caught up with), they would
+			// land on words this user hasn't seen, so none are offered until the screen has the live
+			// one. A copy cached before revisions were kept can't be compared, and counts as live.
+			rating = s && (shown === undefined || s.revision === shown) ? s : null;
+			ratingLoading = false;
+		} catch {
+			// The service is away: nothing to offer now, and the next open asks again.
+			if (ratingFor !== key) return;
+			ratingFor = '';
+			ratingLoading = false;
+		}
+	}
+
+	/** The thumb shows pressed and the count moves at once; a refusal puts both back and says why. */
+	async function vote(clicked: -1 | 1) {
+		if (!rating || voting) return;
+		const before = rating;
+		const key = ratingFor;
+		const value = nextVote(before.my_vote, clicked);
+		rating = withVote(before, value);
+		voting = true;
+		try {
+			const r = await api.limusicVote(track.videoId, value);
+			if (ratingFor === key) rating = { ...before, ...r };
+		} catch (e) {
+			// The service knows better than the picker whose lyric this is: then the row goes.
+			if (ratingFor === key) rating = String(e) === 'own' ? { ...before, own: true } : before;
+			toast.error(t(feedbackErrorKey(String(e))));
+		} finally {
+			voting = false;
+		}
+	}
+
+	// ponytail: "reported" lasts as long as the picker has this lyric. The service keeps one report
+	// per account and revision and accepts a repeat silently, so nothing needs remembering here.
+	async function sendReport(e: SubmitEvent) {
+		e.preventDefault();
+		if (!reportReason) return;
+		const key = ratingFor;
+		reported = true;
+		reportOpen = false;
+		try {
+			await api.limusicReport(track.videoId, reportReason, reportNote.trim());
+		} catch (err) {
+			if (ratingFor === key) {
+				reported = false;
+				reportOpen = true;
+			}
+			toast.error(t(feedbackErrorKey(String(err))));
+		}
+	}
+
 	function openSettings() {
 		open = false;
 		ui.settingsFocus = 'lyrics';
@@ -234,7 +342,7 @@
 <Popover.Root bind:open>
 	<Popover.Trigger
 		class="group -ml-2 flex min-w-0 cursor-pointer items-center gap-1.5 rounded-full py-0.5 pl-2 pr-1.5 transition-colors hover:bg-foreground/10 hover:text-foreground data-[state=open]:bg-foreground/10 data-[state=open]:text-foreground"
-		title={lyrics?.pinned ? t('lyrics.chosen') : undefined}
+		title={lyrics?.pinned ? t('lyrics.chosen') : lyrics?.authors?.length ? attribution : undefined}
 	>
 		{#if !lyrics}
 			<HugeiconsIcon icon={Search01Icon} class="h-3.5 w-3.5 shrink-0" />
@@ -447,6 +555,99 @@
 				>
 					<HugeiconsIcon icon={ArrowTurnBackwardIcon} class="h-3.5 w-3.5" />
 				</button>
+			</div>
+		{/if}
+
+		{#if rateable && (ratingLoading || (rating && !rating.own))}
+			<!-- Votes and reports on Limusic's lyric. The same row and pill as Timing above it. -->
+			<div class="border-t">
+				<div class="flex items-center gap-3 px-4 py-3">
+					<HugeiconsIcon icon={StarIcon} class="h-4 w-4 shrink-0 text-muted-foreground" />
+					<div class="min-w-0 flex-1">
+						<p class="text-sm font-medium">{t('lyrics.rate')}</p>
+						<p class="text-xs leading-snug text-muted-foreground">{t('lyrics.rate_hint')}</p>
+					</div>
+					{#if rating}
+						<div class="flex shrink-0 items-center rounded-full border bg-muted/40">
+							{#each [{ v: 1, icon: ThumbsUpIcon, n: rating.up, label: 'lyrics.vote_up' }, { v: -1, icon: ThumbsDownIcon, n: rating.down, label: 'lyrics.vote_down' }] as const as b (b.v)}
+								{@const mine = rating.my_vote === b.v}
+								<button
+									class="flex h-7 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-full px-2.5 text-xs font-medium tabular-nums transition-colors {mine
+										? 'bg-primary/12 text-primary'
+										: 'text-muted-foreground hover:bg-foreground/10 hover:text-foreground'}"
+									aria-pressed={mine}
+									aria-label={t(b.label)}
+									title={t(b.label)}
+									onclick={() => vote(b.v)}
+								>
+									<HugeiconsIcon icon={b.icon} class="h-3.5 w-3.5 {mine ? 'fill-current' : ''}" />
+									{b.n}
+								</button>
+							{/each}
+						</div>
+					{:else}
+						<span class="h-7 w-[5.75rem] shrink-0 animate-pulse rounded-full bg-muted"></span>
+					{/if}
+				</div>
+				{#if rating}
+					{#if reportOpen}
+						<form class="space-y-2.5 px-4 pb-3.5" onsubmit={sendReport}>
+							<p class="text-xs font-medium" id="report-title">{t('lyrics.report_title')}</p>
+							<div class="grid grid-cols-2 gap-1.5" role="radiogroup" aria-labelledby="report-title">
+								{#each REPORT_REASONS as r (r.id)}
+									{@const on = reportReason === r.id}
+									<button
+										type="button"
+										role="radio"
+										aria-checked={on}
+										onclick={() => (reportReason = r.id)}
+										class="flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-xs transition-colors {on
+											? 'border-primary/60 bg-primary/8 font-medium'
+											: 'hover:bg-muted/60'}"
+									>
+										<span
+											class="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border-2 {on
+												? 'border-primary'
+												: 'border-muted-foreground/40'}"
+										>
+											{#if on}<span class="h-1.5 w-1.5 rounded-full bg-primary"></span>{/if}
+										</span>
+										{t(r.label)}
+									</button>
+								{/each}
+							</div>
+							<Input
+								bind:value={reportNote}
+								maxlength={300}
+								placeholder={t('lyrics.report_note')}
+								aria-label={t('lyrics.report_note')}
+								class="h-8"
+							/>
+							<div class="flex justify-end gap-2">
+								<Button type="button" variant="ghost" size="sm" onclick={() => (reportOpen = false)}>
+									{t('common.cancel')}
+								</Button>
+								<Button type="submit" size="sm" disabled={!reportReason}>
+									<HugeiconsIcon icon={Flag02Icon} class="h-3.5 w-3.5" />
+									{t('lyrics.report_send')}
+								</Button>
+							</div>
+						</form>
+					{:else if reported}
+						<p class="flex items-center gap-2 px-4 pb-3 pl-11 text-xs text-muted-foreground" role="status">
+							<HugeiconsIcon icon={Tick02Icon} class="h-3.5 w-3.5 shrink-0 text-primary" />
+							{t('lyrics.reported')}
+						</p>
+					{:else}
+						<button
+							class="-mt-1 mb-2 ml-9 flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+							onclick={() => (reportOpen = true)}
+						>
+							<HugeiconsIcon icon={Flag02Icon} class="h-3.5 w-3.5" />
+							{t('lyrics.report')}
+						</button>
+					{/if}
+				{/if}
 			</div>
 		{/if}
 

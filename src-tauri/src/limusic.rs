@@ -1,5 +1,5 @@
-//! Limusic Lyrics accounts: the anonymous session, linking Discord or GitHub, renaming, and
-//! submitting a lyric.
+//! Limusic Lyrics accounts: the anonymous session, linking Discord or GitHub, renaming,
+//! submitting a lyric, and voting on or reporting the one that is live.
 //!
 //! The wire contract is the service's README ("Accounts and community lyrics"). Contributing is
 //! anonymous by default: the first submit asks the service for an anonymous account and keeps its
@@ -274,6 +274,28 @@ async fn post_anonymous() -> Result<String, String> {
     }
 }
 
+/// Held while an anonymous account is being made, so a vote and a report sent together make one
+/// account between them, not one each with the later one's session kept.
+static MAKING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// The session there is, else a new anonymous one. The second value is true when it was just made.
+/// `replacing` is a session the service has refused: one made meanwhile by another call is used,
+/// but not that one again.
+async fn session_or_new(
+    state: &AppState,
+    replacing: Option<&str>,
+) -> Result<(String, bool), String> {
+    let usable = |t: &String| Some(t.as_str()) != replacing;
+    if let Some(t) = token(state).filter(usable) {
+        return Ok((t, false));
+    }
+    let _making = MAKING.lock().await;
+    if let Some(t) = token(state).filter(usable) {
+        return Ok((t, false));
+    }
+    Ok((new_anonymous(state).await?, true))
+}
+
 /// A new anonymous account and its session, kept. `Err` is the service's code or `unavailable`.
 async fn new_anonymous(state: &AppState) -> Result<String, String> {
     let token = post_anonymous().await?;
@@ -487,12 +509,9 @@ pub async fn submit(state: &AppState, s: Submission) -> Submitted {
         return failed("invalid");
     }
     // No session yet: the first submit makes an anonymous account, silently.
-    let (t, fresh) = match token(state) {
-        Some(t) => (t, false),
-        None => match new_anonymous(state).await {
-            Ok(t) => (t, true),
-            Err(code) => return failed(&code),
-        },
+    let (t, fresh) = match session_or_new(state, None).await {
+        Ok(s) => s,
+        Err(code) => return failed(&code),
     };
     let mut result = post_revision(&t, &s).await;
     if result == failed("unauthorized") {
@@ -501,14 +520,19 @@ pub async fn submit(state: &AppState, s: Submission) -> Submitted {
         let anonymous = is_anonymous(state);
         lost(state, &t);
         if anonymous && !fresh {
-            if let Ok(t) = new_anonymous(state).await {
+            if let Ok((t, _)) = session_or_new(state, Some(&t)).await {
                 result = post_revision(&t, &s).await;
             }
         }
     }
-    if matches!(result, Submitted::Published { .. }) {
+    if let Submitted::Published { revision } = &result {
         // The lyric is live: the next look at this song shows it, not the old cached one.
-        let answer = crate::lyrics::LimusicAnswer { origin: "community".into(), lines: s.lines };
+        let answer = crate::lyrics::LimusicAnswer {
+            origin: "community".into(),
+            revision: Some(*revision),
+            lines: s.lines,
+            ..Default::default()
+        };
         if let Some(mut l) = crate::lyrics::limusic_to_lyrics(answer) {
             l.provider = "limusic".into();
             if let Ok(json) = serde_json::to_string(&l) {
@@ -517,6 +541,200 @@ pub async fn submit(state: &AppState, s: Submission) -> Submitted {
         }
     }
     result
+}
+
+// --- Votes and reports --------------------------------------------------------------------------
+// On the song's live revision, mirrored ones included. Like a submit, the first one makes an
+// anonymous account silently.
+
+/// What the source picker shows for the lyric Limusic has live.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct LyricState {
+    pub revision: i64,
+    pub up: i64,
+    pub down: i64,
+    /// -1, 0 or 1.
+    pub my_vote: i64,
+    /// The live revision is this account's work: the service refuses a vote on it, so none is
+    /// offered.
+    pub own: bool,
+}
+
+/// `/state`'s answer. `None` when the song has no live lyric (only something of ours pending).
+fn parse_state(body: &Value) -> Option<LyricState> {
+    Some(LyricState {
+        revision: body["revision"].as_i64()?,
+        up: body["votes"]["up"].as_i64().unwrap_or(0).max(0),
+        down: body["votes"]["down"].as_i64().unwrap_or(0).max(0),
+        my_vote: body["my_vote"].as_i64().unwrap_or(0).clamp(-1, 1),
+        own: false,
+    })
+}
+
+/// Whether the live revision is the caller's, from `GET /v1/revisions/{id}` with their session.
+/// The service shows a revision in full to its author and to reviewers only. An anonymous
+/// account can never review, so being shown it at all means having written it; a linked one may
+/// be a reviewer, so it is theirs when it carries their name.
+fn is_own(anonymous: bool, handle: Option<&str>, answer: &Option<(u16, Value)>) -> bool {
+    let Some((200, body)) = answer else { return false };
+    anonymous
+        || matches!((handle, body["author"].as_str()), (Some(h), Some(a)) if h.eq_ignore_ascii_case(a))
+}
+
+/// The live lyric's votes, this account's own vote, and whether the lyric is its own work.
+/// `Ok(None)` when the song has no live lyric. Works with no session: the counts need none.
+pub async fn lyric_state(state: &AppState, video_id: &str) -> Result<Option<LyricState>, String> {
+    if !plausible_id(video_id) {
+        return Err("invalid".into());
+    }
+    let ask = |t: Option<String>| async move {
+        let rb = crate::http::client().get(url(&format!("/v1/lyrics/{video_id}/state")));
+        send(rb, t.as_deref()).await
+    };
+    let mut session = token(state);
+    let mut answer = ask(session.clone()).await;
+    if let (Some((401, _)), Some(t)) = (&answer, &session) {
+        // The service refuses a dead token even where one is optional: ask again as nobody.
+        lost(state, t);
+        session = None;
+        answer = ask(None).await;
+    }
+    let mut found = match answer {
+        Some((200, body)) => match parse_state(&body) {
+            Some(s) => s,
+            None => return Ok(None),
+        },
+        Some((404, _)) => return Ok(None),
+        other => return Err(failure(other)),
+    };
+    if let Some(t) = session {
+        let rb = crate::http::client().get(url(&format!("/v1/revisions/{}", found.revision)));
+        let handle = state.db.get_setting("limusic_handle").filter(|h| !h.is_empty());
+        found.own = is_own(is_anonymous(state), handle.as_deref(), &send(rb, Some(&t)).await);
+    }
+    Ok(Some(found))
+}
+
+/// A write as a contributor: with the session there is, else with an anonymous account made for
+/// it. When the service no longer knows an anonymous session, another is made and the write is
+/// tried once more; a linked one that is gone is the user's to sign in to again.
+async fn as_contributor<T, F, Fut>(state: &AppState, call: F) -> Result<T, String>
+where
+    F: Fn(String) -> Fut,
+    Fut: std::future::Future<Output = Result<T, String>>,
+{
+    let (t, fresh) = session_or_new(state, None).await?;
+    let result = call(t.clone()).await;
+    if !matches!(&result, Err(c) if c == "unauthorized") {
+        return result;
+    }
+    let anonymous = is_anonymous(state);
+    lost(state, &t);
+    if anonymous && !fresh {
+        return call(session_or_new(state, Some(&t)).await?.0).await;
+    }
+    result
+}
+
+/// What a vote left behind, for the two counts and the pressed thumb.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct Votes {
+    pub up: i64,
+    pub down: i64,
+    pub my_vote: i64,
+}
+
+async fn put_vote(token: &str, video_id: &str, value: i64) -> Result<Votes, String> {
+    let rb = crate::http::client()
+        .put(url(&format!("/v1/lyrics/{video_id}/vote")))
+        .json(&json!({ "value": value }));
+    let body = expect(send(rb, Some(token)).await, 200)?;
+    Ok(Votes {
+        up: body["up"].as_i64().unwrap_or(0).max(0),
+        down: body["down"].as_i64().unwrap_or(0).max(0),
+        my_vote: body["my_vote"].as_i64().unwrap_or(value).clamp(-1, 1),
+    })
+}
+
+/// 1 up, -1 down, 0 takes the vote back. `Err` is the service's code: `own`, `not_found` (no
+/// live lyric), `rate_limited`, `banned`, or `unavailable`.
+pub async fn vote(state: &AppState, video_id: &str, value: i64) -> Result<Votes, String> {
+    if !(-1..=1).contains(&value) || !plausible_id(video_id) {
+        return Err("invalid".into());
+    }
+    as_contributor(state, |t| async move { put_vote(&t, video_id, value).await }).await
+}
+
+/// The reasons the service takes.
+const REPORT_REASONS: [&str; 4] = ["wrong_song", "timing", "text", "abuse"];
+
+async fn post_report(
+    token: &str,
+    video_id: &str,
+    reason: &str,
+    note: Option<&str>,
+) -> Result<(), String> {
+    let mut body = json!({ "reason": reason });
+    if let Some(n) = clip_reason(note) {
+        body["note"] = n.into();
+    }
+    let rb = crate::http::client().post(url(&format!("/v1/lyrics/{video_id}/reports"))).json(&body);
+    expect(send(rb, Some(token)).await, 202).map(|_| ())
+}
+
+/// Report the live lyric. One per account and revision: a repeat is accepted and changes
+/// nothing. `Err` is the service's code, as for a vote.
+pub async fn report(
+    state: &AppState,
+    video_id: &str,
+    reason: &str,
+    note: Option<String>,
+) -> Result<(), String> {
+    if !REPORT_REASONS.contains(&reason) || !plausible_id(video_id) {
+        return Err("invalid".into());
+    }
+    let note = note.as_deref();
+    as_contributor(state, |t| async move { post_report(&t, video_id, reason, note).await }).await
+}
+
+/// For the ignored `local_service*` tests: publish a lyric for `video_id` on the local service as a
+/// trusted account and return its revision. A word changes every run, so a second run publishes
+/// too, on top of the first.
+#[cfg(test)]
+pub(crate) async fn publish_for_test(admin: &str, video_id: &str) -> i64 {
+    let nonce = format!("run{}", std::time::SystemTime::UNIX_EPOCH.elapsed().unwrap().as_millis());
+    let words = ["paper", "lanterns", nonce.as_str()];
+    let line = LyricLine {
+        time_ms: Some(1000),
+        end_time_ms: Some(2300),
+        text: words.join(" "),
+        words: Some(
+            words
+                .iter()
+                .enumerate()
+                .map(|(i, w)| crate::lyrics::LyricWord {
+                    text: if i < 2 { format!("{w} ") } else { (*w).into() },
+                    start_ms: 1000 + i as u64 * 400,
+                    end_ms: 1380 + i as u64 * 400,
+                    bg: false,
+                })
+                .collect(),
+        ),
+        ..Default::default()
+    };
+    let s = Submission {
+        video_id: video_id.into(),
+        lines: vec![line],
+        title: "A test song".into(),
+        artist: "A test artist".into(),
+        album: None,
+        duration: Some(200.0),
+        base_revision: live_revision(video_id).await.unwrap(),
+    };
+    match post_revision(admin, &s).await {
+        Submitted::Published { revision } => revision,
+        other => panic!("could not publish {video_id}: {other:?}"),
+    }
 }
 
 // --- Review -------------------------------------------------------------------------------------
@@ -590,7 +808,12 @@ struct RawRevision {
 
 fn parse_revision(body: Value) -> Option<Revision> {
     let r: RawRevision = serde_json::from_value(body).ok()?;
-    let answer = crate::lyrics::LimusicAnswer { origin: "community".into(), lines: r.lines };
+    let answer = crate::lyrics::LimusicAnswer {
+        origin: "community".into(),
+        revision: Some(r.revision),
+        lines: r.lines,
+        ..Default::default()
+    };
     Some(Revision {
         revision: r.revision,
         video_id: r.video_id,
@@ -809,10 +1032,12 @@ mod tests {
         assert_eq!(outcome(None), failed("unavailable"));
     }
 
-    /// Against a local copy of the service with hand-inserted sessions, never the live one:
+    /// Against a fresh local copy of the service with hand-inserted sessions, never the live one:
     ///   LIMUSIC_LYRICS_URL=http://127.0.0.1:8099 LIMUSIC_TEST_USER=<token of a user>
     ///   LIMUSIC_TEST_ADMIN=<token of an admin> cargo test -p limusic-app --lib \
-    ///   local_service -- --ignored --nocapture
+    ///   local_service -- --ignored --test-threads=1
+    /// One at a time: each test has its own tokio runtime but they share the app's HTTP client, and
+    /// a connection pooled by a test that has finished fails the next one ("unavailable").
     #[tokio::test]
     #[ignore = "needs a local lyrics server"]
     async fn local_service() {
@@ -927,9 +1152,11 @@ mod tests {
             ]),
             ..Default::default()
         };
+        // An instrumental break, as the editor sends one: a start, no text, no words.
+        let gap = LyricLine { time_ms: Some(2100), words: Some(vec![]), ..Default::default() };
         let sub = Submission {
             video_id: "BBBBBBBBBBB".into(),
-            lines: vec![line],
+            lines: vec![line, gap],
             title: "A song".into(),
             artist: "An artist".into(),
             album: None,
@@ -1018,6 +1245,80 @@ mod tests {
         assert_eq!(post_revert(&admin, "CCCCCCCCCCC", None, Some("test")).await.unwrap(), None);
         assert_eq!(live_revision("CCCCCCCCCCC").await.unwrap(), None);
         assert_eq!(post_revert(&user, "CCCCCCCCCCC", None, None).await.unwrap_err(), "forbidden");
+    }
+
+    #[test]
+    fn the_state_reads_as_the_service_writes_it() {
+        let s = parse_state(&json!({"revision": 12, "origin": "community", "authors": ["carla"],
+            "votes": {"up": 14, "down": 1}, "my_vote": -1, "my_pending": null}))
+        .unwrap();
+        assert_eq!((s.revision, s.up, s.down, s.my_vote, s.own), (12, 14, 1, -1, false));
+        // Nothing live, only something of ours waiting: no lyric to vote on.
+        assert!(parse_state(&json!({"revision": null, "origin": null, "authors": [],
+            "votes": {"up": 0, "down": 0}, "my_vote": 0, "my_pending": 9}))
+        .is_none());
+        // Missing or odd numbers never reach the UI as such.
+        let odd = parse_state(&json!({"revision": 3, "votes": {"up": -2}, "my_vote": 7})).unwrap();
+        assert_eq!((odd.up, odd.down, odd.my_vote), (0, 0, 1));
+    }
+
+    #[test]
+    fn a_lyric_is_ones_own_when_the_service_shows_it_as_such() {
+        let shown = |author: Value| Some((200, json!({"revision": 12, "author": author})));
+        // Anonymous: only the author is shown a revision in full.
+        assert!(is_own(true, None, &shown(Value::Null)));
+        assert!(!is_own(true, None, &Some((403, json!({"error": "forbidden"})))));
+        // Linked: a reviewer is shown every revision, so the name decides.
+        assert!(is_own(false, Some("Carla"), &shown("carla".into())));
+        assert!(!is_own(false, Some("carla"), &shown("moss_fern".into())));
+        assert!(!is_own(false, Some("carla"), &shown(Value::Null)), "a mirrored lyric");
+        assert!(!is_own(false, None, &shown("carla".into())));
+        assert!(!is_own(false, Some("carla"), &None), "no answer: let the service refuse");
+    }
+
+    /// Same local service: votes and reports, on a song of its own.
+    #[tokio::test]
+    #[ignore = "needs a local lyrics server"]
+    async fn local_service_votes() {
+        let user = std::env::var("LIMUSIC_TEST_USER").unwrap();
+        let admin = std::env::var("LIMUSIC_TEST_ADMIN").unwrap();
+        let id = "EEEEEEEEEEE";
+        publish_for_test(&admin, id).await;
+        let admin_handle = fetch_me(&admin).await.unwrap().handle;
+        let user_handle = fetch_me(&user).await.unwrap().handle;
+        let anon = post_anonymous().await.unwrap();
+        // A vote shows in the counts, changes sides, and is taken back.
+        let before = put_vote(&anon, id, 0).await.unwrap();
+        let up = put_vote(&anon, id, 1).await.unwrap();
+        assert_eq!((up.up, up.down, up.my_vote), (before.up + 1, before.down, 1));
+        let down = put_vote(&user, id, -1).await.unwrap();
+        assert_eq!((down.up, down.down, down.my_vote), (before.up + 1, before.down + 1, -1));
+        let flipped = put_vote(&anon, id, -1).await.unwrap();
+        assert_eq!((flipped.up, flipped.down), (before.up, before.down + 2));
+        let cleared = put_vote(&anon, id, 0).await.unwrap();
+        assert_eq!((cleared.down, cleared.my_vote), (before.down + 1, 0));
+        // Not on one's own work, not without a lyric, not without a session.
+        assert_eq!(put_vote(&admin, id, 1).await.unwrap_err(), "own");
+        assert_eq!(put_vote(&anon, "ZZZZZZZZZZZ", 1).await.unwrap_err(), "not_found");
+        assert_eq!(put_vote("nope", id, 1).await.unwrap_err(), "unauthorized");
+        // The state says the same, and whose lyric it is.
+        let rb = crate::http::client().get(url(&format!("/v1/lyrics/{id}/state")));
+        let seen = parse_state(&send(rb, Some(&user)).await.unwrap().1).unwrap();
+        assert_eq!((seen.my_vote, seen.down), (-1, before.down + 1));
+        let shown = |t: &str| {
+            let rb = crate::http::client().get(url(&format!("/v1/revisions/{}", seen.revision)));
+            let t = t.to_owned();
+            async move { send(rb, Some(&t)).await }
+        };
+        assert!(is_own(false, admin_handle.as_deref(), &shown(&admin).await));
+        assert!(!is_own(false, user_handle.as_deref(), &shown(&user).await));
+        assert!(!is_own(true, None, &shown(&anon).await));
+        // Reports: accepted once, a repeat changes nothing, a note is optional.
+        assert_eq!(post_report(&anon, id, "timing", Some("  the chorus is late ")).await, Ok(()));
+        assert_eq!(post_report(&anon, id, "timing", None).await, Ok(()));
+        assert_eq!(post_report(&user, id, "wrong_song", None).await, Ok(()));
+        assert_eq!(post_report(&anon, "ZZZZZZZZZZZ", "text", None).await.unwrap_err(), "not_found");
+        assert_eq!(post_report("nope", id, "abuse", None).await.unwrap_err(), "unauthorized");
     }
 
     #[test]

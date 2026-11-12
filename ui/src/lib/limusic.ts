@@ -1,6 +1,6 @@
 // What Limusic Lyrics' answers mean in the UI. Pure, so `limusic.check.ts` can run it. The state
 // and the calls are in `limusic.svelte.ts`.
-import type { LimusicSubmitted } from './api';
+import type { LimusicLyricState, LimusicReportReason, LimusicSubmitted } from './api';
 import type { TranslationKey } from './i18n.svelte';
 
 /** Where a sign-in provider's name is spelled. The service's ids are lower case. */
@@ -41,6 +41,44 @@ export function submitMessage(o: LimusicSubmitted): Message {
 			return { title: `${E}.err_rate_limited_title`, key: `${E}.err_rate_limited`, kind: 'error' };
 		default:
 			return { title: `${E}.err_unavailable_title`, key: `${E}.err_unavailable`, kind: 'error' };
+	}
+}
+
+/** The contributors of a community lyric as the locale lists names: "carla", "carla and moss". */
+export const creditNames = (authors: string[], locale: string) =>
+	new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' }).format(authors);
+
+/** What a click on a thumb asks for: the same thumb again takes the vote back. */
+export const nextVote = (mine: -1 | 0 | 1, clicked: -1 | 1): -1 | 0 | 1 => (mine === clicked ? 0 : clicked);
+
+/** The counts as they will read once the service has the vote, shown before it answers. */
+export function withVote(s: LimusicLyricState, value: -1 | 0 | 1): LimusicLyricState {
+	const up = s.up - (s.my_vote === 1 ? 1 : 0) + (value === 1 ? 1 : 0);
+	const down = s.down - (s.my_vote === -1 ? 1 : 0) + (value === -1 ? 1 : 0);
+	return { ...s, up: Math.max(0, up), down: Math.max(0, down), my_vote: value };
+}
+
+/** The reasons a lyric can be reported for, in the order the form lists them. */
+export const REPORT_REASONS: { id: LimusicReportReason; label: TranslationKey }[] = [
+	{ id: 'timing', label: 'lyrics.report_timing' },
+	{ id: 'text', label: 'lyrics.report_text' },
+	{ id: 'wrong_song', label: 'lyrics.report_wrong_song' },
+	{ id: 'abuse', label: 'lyrics.report_abuse' }
+];
+
+/** Why a vote or a report was refused, as a key. */
+export function feedbackErrorKey(code: string): TranslationKey {
+	switch (code) {
+		case 'own':
+			return 'lyrics.feedback_own';
+		case 'not_found':
+			return 'lyrics.feedback_gone';
+		case 'rate_limited':
+			return 'lyrics.feedback_rate_limited';
+		case 'banned':
+			return 'lyrics.feedback_banned';
+		default:
+			return 'lyrics.feedback_failed';
 	}
 }
 

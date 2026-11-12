@@ -84,8 +84,10 @@
 		fieldText,
 		fromLyrics,
 		fromText,
+		gapLine,
 		joinLines,
 		kindOf,
+		lineEnd,
 		lineSpan,
 		lineText,
 		loopRange,
@@ -425,10 +427,11 @@
 		const wall = eventWallMs(Date.now(), performance.now(), e.timeStamp);
 		if (!active || !line || playback.paused) return;
 		const id = line.id;
-		if (owesTime) {
+		// An instrumental break has nothing but a start: a tap sets it, and another moves it.
+		if (owesTime || line.gap) {
 			const at = cur;
 			// Through an untimed lyric the cursor walks on with the song.
-			if (lines[at + 1] && needsLineTime(lines[at + 1])) cur = at + 1;
+			if (owesTime && lines[at + 1] && needsLineTime(lines[at + 1])) cur = at + 1;
 			const ms = await clockAt(wall);
 			if (ms === null) cur = at;
 			else updateLine(id, (l) => setLineTime(l, ms));
@@ -512,6 +515,18 @@
 		resetTake();
 		await tick();
 		fieldEl?.focus();
+	}
+
+	/** An instrumental break after this line: a music note in the lyrics until the next line
+	 *  begins. It starts where this line's singing ends when that is known, and otherwise waits
+	 *  for a tap. */
+	function addGap() {
+		if (!line) return;
+		commitField();
+		const copy = lines.slice();
+		copy.splice(cur + 1, 0, gapLine(nextId++, lineEnd(lines[cur])));
+		setLines(copy);
+		select(cur + 1);
 	}
 
 	function removeLine() {
@@ -737,8 +752,13 @@
 	let body = $state<HTMLElement | null>(null);
 	const cover = opened?.thumbnail;
 	const sung = $derived(lines.filter((l) => l.words.length));
-	const timedCount = $derived(sung.length - miss.untimed.length);
-	const lineDone = $derived(!!line && wordsTimed(line) && (tapCount === 0 || tapCount > line.words.length));
+	const timedCount = $derived(sung.filter(wordsTimed).length);
+	const lineDone = $derived(
+		!!line &&
+			(line.gap ? line.time !== undefined : wordsTimed(line) && (tapCount === 0 || tapCount > line.words.length))
+	);
+	/** What stands for a line in a list: its text, or a note for an instrumental break. */
+	const lineLabel = (l: EdLine | undefined) => (l ? lineText(l) || (l.gap ? '♪' : '') : '');
 	/** One segment per line while they fit, else one bar. */
 	const SEGMENTS_MAX = 100;
 	const lineNo = (id: number) => lines.findIndex((l) => l.id === id) + 1;
@@ -776,9 +796,9 @@
 {/snippet}
 
 {#snippet glyph(l: EdLine)}
-	{#if !l.words.length}
+	{#if !l.words.length && !l.gap}
 		<span class="size-4 shrink-0"></span>
-	{:else if wordsTimed(l)}
+	{:else if l.gap ? l.time !== undefined : wordsTimed(l)}
 		<span class="flex size-4 shrink-0 items-center justify-center rounded-full bg-foreground text-background" title={t('lyrics_editor.line_timed')}>
 			<HugeiconsIcon icon={Tick02Icon} class="size-[11px]" />
 		</span>
@@ -1085,7 +1105,7 @@
 								<HugeiconsIcon icon={ArrowDown01Icon} class="size-4" />
 							</Button>
 							<span class="mx-1.5 text-sm font-semibold tabular-nums">{t('lyrics_editor.line_of', { n: cur + 1, total: lines.length })}</span>
-							{#if line && wordsTimed(line)}
+							{#if line && (line.gap ? line.time !== undefined : wordsTimed(line))}
 								<span class="flex h-5 items-center gap-1 rounded-full bg-primary/16 px-2 text-[11px] font-semibold">
 									<HugeiconsIcon icon={Tick02Icon} class="size-3" />
 									{t('lyrics_editor.line_timed')}
@@ -1148,6 +1168,10 @@
 									<button type="button" class={MENU_ITEM} onclick={() => ((lineMenu = false), addBelow())}>
 										<HugeiconsIcon icon={Add01Icon} class="size-4" />{t('lyrics_editor.add_line')}
 									</button>
+									<!-- Not after a break, or before one: two in a row are one. -->
+									<button type="button" class={MENU_ITEM} disabled={!line || !!line.gap || !!lines[cur + 1]?.gap} onclick={() => ((lineMenu = false), addGap())}>
+										<HugeiconsIcon icon={MusicNote01Icon} class="size-4" />{t('lyrics_editor.add_gap')}
+									</button>
 									<button type="button" class={MENU_ITEM} onclick={() => ((lineMenu = false), resplit())}>
 										<HugeiconsIcon icon={MagicWand01Icon} class="size-4" />{t('lyrics_editor.resplit')}
 									</button>
@@ -1161,7 +1185,7 @@
 
 						<!-- The line before, the line, the line after: the song around what is being timed. -->
 						<p class="mt-3.5 mb-2 min-h-[1.3em] truncate font-heading text-base leading-snug font-semibold text-muted-foreground/60">
-							{lines[cur - 1] ? lineText(lines[cur - 1]) : ''}
+							{lineLabel(lines[cur - 1])}
 						</p>
 						{#snippet textEditor()}
 							<div class="max-w-[760px]">
@@ -1200,8 +1224,21 @@
 						{/snippet}
 						{#snippet nextLine()}
 							<p class="mt-2 min-h-[1.3em] truncate font-heading text-base leading-snug font-semibold text-muted-foreground/60">
-								{lines[cur + 1] ? lineText(lines[cur + 1]) : ''}
+								{lineLabel(lines[cur + 1])}
 							</p>
+						{/snippet}
+						<!-- An instrumental break has no words to show: it says what it is, and what listeners
+						     get. "Edit text" still opens the field, and text makes it a line. -->
+						{#snippet gapStage()}
+							<div class="flex max-w-[760px] items-center gap-3.5">
+								<span class="flex size-12 shrink-0 items-center justify-center rounded-[13px] bg-muted">
+									<HugeiconsIcon icon={MusicNote01Icon} class="size-6" />
+								</span>
+								<div class="min-w-0">
+									<p class="font-heading leading-snug font-bold {wide ? 'text-3xl' : 'text-2xl'}">{t('lyrics_editor.gap')}</p>
+									<p class="text-[13px] text-muted-foreground">{t('lyrics_editor.gap_hint')}</p>
+								</div>
+							</div>
 						{/snippet}
 						{#if line}
 							<!-- Keyed on the line: a new line starts with no edge held and its track unscrolled. -->
@@ -1217,7 +1254,8 @@
 								{marks}
 								{bgMode}
 								compact={!wide}
-								editor={textOpen || !line.words.length ? textEditor : undefined}
+								editor={textOpen ? textEditor : line.gap ? gapStage : !line.words.length ? textEditor : undefined}
+								gap={!!line.gap}
 								between={nextLine}
 								onwords={(words: EdWord[]) => updateLine(line.id, (l) => withWords(l, words))}
 								onbg={(k: number) => updateLine(line.id, (l) => toggleBg(l, k))}
@@ -1234,7 +1272,7 @@
 							<Button
 								variant={lineDone ? 'outline' : 'default'}
 								class="h-[52px] gap-2.5 px-5 font-heading text-[17px] font-bold {wide ? 'min-w-48' : 'flex-1'}"
-								disabled={!active || !line?.words.length}
+								disabled={!active || !(line?.words.length || line?.gap)}
 								onpointerdown={(e) => e.button === 0 && tap(e)}
 								onclick={(e) => e.detail === 0 && tap(e)}
 							>
@@ -1249,6 +1287,12 @@
 							<p class="min-w-44 flex-1 text-sm">
 								{#if active && playback.paused}
 									{t('lyrics_editor.say_paused')}<span class="block text-[13px] text-muted-foreground">{t('lyrics_editor.say_paused_sub')}</span>
+								{:else if line?.gap}
+									{#if owesTime}
+										{t('lyrics_editor.say_gap_todo')}
+									{:else}
+										{t('lyrics_editor.say_gap')}<span class="block text-[13px] text-muted-foreground">{t('lyrics_editor.say_gap_sub')}</span>
+									{/if}
 								{:else if !line?.words.length}
 									{t('lyrics_editor.empty_line')}
 								{:else if owesTime}
@@ -1335,9 +1379,16 @@
 								: 'hover:bg-muted/60'}"
 						>
 							<span class="w-5 shrink-0 text-right text-[11.5px] font-normal text-muted-foreground tabular-nums">{i + 1}</span>
-							<span class="min-w-0 flex-1 truncate {i === cur || wordsTimed(l) ? '' : 'text-muted-foreground'}">
-								{lineText(l) || '♪'}
-							</span>
+							{#if l.gap}
+								<span class="flex min-w-0 flex-1 items-center gap-1.5 text-muted-foreground">
+									<HugeiconsIcon icon={MusicNote01Icon} class="size-3.5 shrink-0" />
+									<span class="truncate">{t('lyrics_editor.gap')}</span>
+								</span>
+							{:else}
+								<span class="min-w-0 flex-1 truncate {i === cur || wordsTimed(l) ? '' : 'text-muted-foreground'}">
+									{lineText(l) || '♪'}
+								</span>
+							{/if}
 							{#if l.agent}
 								<span class="shrink-0 rounded-full border px-1.5 text-[10.5px] font-semibold text-muted-foreground">{agentLabel(l.agent)}</span>
 							{/if}

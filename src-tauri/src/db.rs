@@ -810,6 +810,17 @@ impl Db {
     /// Cached lyrics JSON for a track. `Some(None)` = a cached "no lyrics" verdict (NULL row),
     /// still valid; misses expire after `miss_ttl` secs while hits live forever.
     pub fn get_lyrics(&self, video_id: &str, now: i64, miss_ttl: i64) -> Option<Option<String>> {
+        self.get_lyrics_row(video_id, now, miss_ttl).map(|(lyrics, _)| lyrics)
+    }
+
+    /// `get_lyrics` with the row's stamp: when it was written, or last checked against its source
+    /// (`touch_lyrics`).
+    pub fn get_lyrics_row(
+        &self,
+        video_id: &str,
+        now: i64,
+        miss_ttl: i64,
+    ) -> Option<(Option<String>, i64)> {
         let conn = self.0.lock().unwrap();
         let (lyrics, fetched_at): (Option<String>, i64) = conn
             .query_row(
@@ -821,7 +832,16 @@ impl Db {
         if lyrics.is_none() && now - fetched_at > miss_ttl {
             return None; // stale negative result → refetch
         }
-        Some(lyrics)
+        Some((lyrics, fetched_at))
+    }
+
+    /// Restamp a cached lyric without rewriting it. A "no lyrics" verdict keeps its own clock.
+    pub fn touch_lyrics(&self, video_id: &str, at: i64) {
+        let conn = self.0.lock().unwrap();
+        let _ = conn.execute(
+            "UPDATE lyrics_cache SET fetched_at = ?2 WHERE video_id = ?1 AND lyrics IS NOT NULL",
+            rusqlite::params![video_id, at],
+        );
     }
 
     /// `lyrics = None` records a "no lyrics found" verdict.
