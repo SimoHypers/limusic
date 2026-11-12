@@ -1359,6 +1359,25 @@ export const limusicRename = (handle: string) => invoke<LimusicAccount>('limusic
  *  the song now, or its lyric was taken down). The payload is the video id: ask again. */
 export const onLyricsUpdated = (cb: (videoId: string) => void): Promise<UnlistenFn> =>
 	listen<string>('lyrics-updated', (e) => cb(e.payload));
+/** The lyric Limusic has live for a song: its votes, mine, and whether it is my own work. */
+export interface LimusicLyricState {
+	revision: number;
+	up: number;
+	down: number;
+	my_vote: -1 | 0 | 1;
+	own: boolean;
+}
+/** `null` when the song has no live lyric. Rejects with a code when the service can't say. */
+export const limusicLyricState = (videoId: string) =>
+	invoke<LimusicLyricState | null>('limusic_lyric_state', { videoId });
+/** 1, -1, or 0 to take the vote back. The first one makes an anonymous account, silently.
+ *  Rejects with the service's code: `own`, `not_found`, `rate_limited`, `banned`, `unavailable`. */
+export const limusicVote = (videoId: string, value: -1 | 0 | 1) =>
+	invoke<Pick<LimusicLyricState, 'up' | 'down' | 'my_vote'>>('limusic_vote', { videoId, value });
+export type LimusicReportReason = 'wrong_song' | 'timing' | 'text' | 'abuse';
+/** Rejects with the service's code, as a vote does. */
+export const limusicReport = (videoId: string, reason: LimusicReportReason, note?: string) =>
+	invoke<void>('limusic_report', { videoId, reason, note: note || null });
 export const onLimusicAccount = (cb: (s: LimusicAccountState) => void): Promise<UnlistenFn> =>
 	listen<LimusicAccountState>('limusic-account', (e) => cb(e.payload));
 export interface LimusicSubmission {

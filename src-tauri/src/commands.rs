@@ -2727,6 +2727,37 @@ pub async fn limusic_live_revision(video_id: String) -> Result<Option<i64>, Stri
     crate::limusic::live_revision(&video_id).await
 }
 
+/// The votes on the lyric Limusic has live for the song, this account's own, and whether the lyric
+/// is its own work. `None` when there is no live lyric.
+#[tauri::command]
+pub async fn limusic_lyric_state(
+    state: St<'_>,
+    video_id: String,
+) -> Result<Option<crate::limusic::LyricState>, String> {
+    crate::limusic::lyric_state(state.inner(), &video_id).await
+}
+
+/// Vote on the live lyric: 1, -1, or 0 to take it back. The first one makes an anonymous account.
+#[tauri::command]
+pub async fn limusic_vote(
+    state: St<'_>,
+    video_id: String,
+    value: i64,
+) -> Result<crate::limusic::Votes, String> {
+    crate::limusic::vote(state.inner(), &video_id, value).await
+}
+
+/// Report the live lyric: `wrong_song`, `timing`, `text` or `abuse`, with an optional note.
+#[tauri::command]
+pub async fn limusic_report(
+    state: St<'_>,
+    video_id: String,
+    reason: String,
+    note: Option<String>,
+) -> Result<(), String> {
+    crate::limusic::report(state.inner(), &video_id, &reason, note).await
+}
+
 /// A page of the review queue (reviewers only), oldest first.
 #[tauri::command]
 pub async fn limusic_review_queue(
