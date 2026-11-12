@@ -1,6 +1,6 @@
 // Self-check for `review.ts`: `node --experimental-strip-types ui/src/lib/review.check.ts`
-import { ago, isGone, kindKey, restored, reviewErrorKey, waitingLabel, without } from './review.ts';
-import type { LimusicQueueItem } from './api';
+import { ago, coverOf, diffLyrics, isGone, kindKey, restored, reviewErrorKey, waitingLabel, without } from './review.ts';
+import type { LimusicQueueItem, LyricLine } from './api';
 
 function ok(cond: boolean, what: string) {
 	if (!cond) throw new Error(`broken: ${what}`);
@@ -42,4 +42,28 @@ ok(ago(0, 3 * 3600, 'en') === '3 hours ago', 'hours');
 ok(ago(0, 86400, 'en') === 'yesterday', 'a day');
 ok(ago(0, 5 * 86400, 'en') === '5 days ago', 'days');
 ok(ago(100, 50, 'en') === 'now', 'a clock that is behind never says the future');
+ok(coverOf('AAAAAAAAAAA') === 'https://i.ytimg.com/vi/AAAAAAAAAAA/mqdefault.jpg', 'a cover from a video id');
+ok(coverOf('not an id') === undefined && coverOf('') === undefined, 'nothing else makes a URL');
+
+// Placeholder lines, not a real lyric.
+const L = (text: string, at: number, shift = 0): LyricLine => ({
+	text,
+	time_ms: at + shift,
+	end_time_ms: at + shift + 900,
+	words: text.split(' ').map((t, i) => ({ text: t, start_ms: at + shift + i * 100, end_ms: at + shift + i * 100 + 90 }))
+});
+const live = [L('one two', 1000), L('three four', 2000), L('five six', 3000), L('seven eight', 4000)];
+const kinds = (a: LyricLine[], b: LyricLine[]) => diffLyrics(a, b).map((c) => `${c.n}:${c.kind}`).join(' ');
+ok(kinds(live, live) === '', 'the same lyric has no changes');
+ok(kinds(live, [live[0], L('three for', 2000), live[2], live[3]]) === '2:reworded', 'one line reworded');
+ok(diffLyrics(live, [live[0], L('three for', 2000), live[2], live[3]])[0].old === 'three four', 'a reworded line keeps what it was');
+ok(kinds(live, [live[0], live[1], L('new line', 2500), live[2], live[3]]) === '3:added', 'an added line moves nothing after it');
+ok(kinds(live, [live[0], live[2], live[3]]) === '2:removed', 'a removed line');
+const later = diffLyrics(live, [live[0], L('three four', 2000, 180), live[2], live[3]]);
+ok(later.length === 1 && later[0].kind === 'retimed' && later[0].shiftMs === 180, 'a line that starts later');
+const inner = { ...live[2], words: live[2].words!.map((w, i) => (i ? { ...w, start_ms: w.start_ms + 60 } : w)) };
+const moved = diffLyrics(live, [live[0], live[1], inner, live[3]]);
+ok(moved.length === 1 && moved[0].kind === 'retimed' && moved[0].shiftMs === undefined, 'only the words moved');
+ok(kinds(live, [live[0], L('three four', 2000, 20), live[2], live[3]]) === '', 'a few ms is not a change');
+ok(kinds([], live) === '1:added 2:added 3:added 4:added' && kinds(live, []).split(' ').length === 4, 'against nothing');
 console.log('ok');
