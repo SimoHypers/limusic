@@ -1094,9 +1094,11 @@ mod tests {
             ]),
             ..Default::default()
         };
+        // An instrumental break, as the editor sends one: a start, no text, no words.
+        let gap = LyricLine { time_ms: Some(2100), words: Some(vec![]), ..Default::default() };
         let sub = Submission {
             video_id: "BBBBBBBBBBB".into(),
-            lines: vec![line],
+            lines: vec![line, gap],
             title: "A song".into(),
             artist: "An artist".into(),
             album: None,

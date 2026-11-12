@@ -61,6 +61,7 @@
 	import {
 		CharacterPhoneticIcon,
 		MinusSignIcon,
+		MusicNote01Icon,
 		PlusSignIcon,
 		Search01Icon,
 		TextFontIcon,
@@ -536,8 +537,13 @@
 						{/each}
 					{:else if words.length > 0}
 						{@render sweep(words, isActive, v?.far)}
+					{:else if line.text}
+						<span>{line.text}</span>
 					{:else}
-						<span>{line.text || '♪'}</span>
+						<!-- An instrumental break: a timed line with no text. An icon, not the font's
+						     ♪, which the heading face lacks and a fallback draws thin and small. -->
+						<HugeiconsIcon icon={MusicNote01Icon} class="inline-block size-[1.1em]" />
+						<span class="sr-only">{t('lyrics.instrumental')}</span>
 					{/if}
 
 					{#if showRomanized && line.romanized}

@@ -23,6 +23,9 @@ export interface EdLine {
 	end?: number;
 	/** `v1`, `v2`, ... or `v1000` for everyone. */
 	agent?: string;
+	/** An instrumental break: no words, only a start. The lyrics view draws a music note from
+	 *  then until the next line begins. */
+	gap?: boolean;
 	/** The line as it was loaded. Submitted exactly as it came while `dirty` is unset. */
 	orig?: LyricLine;
 	dirty?: boolean;
@@ -145,6 +148,7 @@ export function fromLyrics(lines: LyricLine[]): EdLine[] {
 			words: timedWords ? wordsOf(l) : autoSplit(l.text).map((text) => ({ text })),
 			orig: l
 		};
+		if (!timedWords && !l.text.trim()) line.gap = true;
 		if (l.time_ms !== undefined) line.time = l.time_ms;
 		else if (timedWords) line.time = l.words![0].start_ms;
 		if (l.end_time_ms !== undefined) line.end = l.end_time_ms;
@@ -191,7 +195,10 @@ export function setLineText(line: EdLine, field: string): EdLine {
 	if (texts.length === line.words.length && texts.every((t, i) => t === line.words[i].text)) {
 		return line;
 	}
-	return { ...line, words: reword(line, texts), dirty: true };
+	const out: EdLine = { ...line, words: reword(line, texts), dirty: true };
+	// Text typed into an instrumental break makes it a line like any other.
+	if (out.words.length) delete out.gap;
+	return out;
 }
 
 /** The line split into words again by `autoSplit`, dropping any hand-made parts. */
@@ -236,7 +243,23 @@ export function joinLines(a: EdLine, b: EdLine): EdLine {
 	if (end !== undefined) out.end = end;
 	const agent = a.agent ?? b.agent;
 	if (agent) out.agent = agent;
+	if (!out.words.length && (a.gap || b.gap)) out.gap = true;
 	return out;
+}
+
+// --- Instrumental breaks ----------------------------------------------------------------------
+
+/** Where a line's singing ends, once every word of it is timed. */
+export function lineEnd(line: EdLine): number | undefined {
+	if (!wordsTimed(line)) return undefined;
+	return Math.max(line.end ?? 0, line.words[line.words.length - 1].end!);
+}
+
+/** A new instrumental break. With no `time` it waits for a tap, like any line with no start. */
+export function gapLine(id: number, time?: number): EdLine {
+	const line: EdLine = { id, words: [], gap: true, dirty: true };
+	if (time !== undefined) line.time = Math.round(time);
+	return line;
 }
 
 /** Singer ids the server takes: `v` and 1 to 4 digits. */
@@ -354,9 +377,9 @@ export function setLineTime(line: EdLine, t: number): EdLine {
 	return out;
 }
 
-/** The line pass is owed while a line with words has no start. */
+/** The line pass is owed while a line with words, or an instrumental break, has no start. */
 export const needsLineTime = (line: EdLine): boolean =>
-	line.words.length > 0 && line.time === undefined;
+	(line.words.length > 0 || !!line.gap) && line.time === undefined;
 
 // --- The loop ---------------------------------------------------------------------------------
 
@@ -461,7 +484,8 @@ const MAX_WORD_BYTES = 100;
 export interface Missing {
 	/** No line has any text. */
 	empty: boolean;
-	/** Ids of lines whose words are not all timed, in order. */
+	/** Ids of lines whose words are not all timed, and of instrumental breaks with no start, in
+	 *  order. */
 	untimed: number[];
 	/** Ids of lines the service would refuse for their size (text over 500 bytes, over 100 words,
 	 *  a word over 100 bytes). */
@@ -476,7 +500,9 @@ export function missing(lines: EdLine[]): Missing {
 	const sung = lines.filter((l) => l.words.length);
 	return {
 		empty: sung.length === 0,
-		untimed: sung.filter((l) => !wordsTimed(l)).map((l) => l.id),
+		untimed: lines
+			.filter((l) => (l.words.length ? !wordsTimed(l) : !!l.gap && l.time === undefined))
+			.map((l) => l.id),
 		tooLong: sung
 			.filter(
 				(l) =>
@@ -513,7 +539,8 @@ function canon(l: LyricLine): LyricLine {
 /** The lines to submit, sorted by start. An untouched line goes out exactly as it was loaded. An
  *  edited one is rebuilt from its words: the line spans them, the singer and background flags are
  *  carried, and the source's romanization stays only while the text is the text it was written
- *  for. Lines with nothing in them are left out. Call it once `ready(missing(lines))`. */
+ *  for. An instrumental break goes out as a timed line with no text. Lines with nothing in them
+ *  are left out. Call it once `ready(missing(lines))`. */
 export function buildLines(lines: EdLine[]): LyricLine[] {
 	const out: LyricLine[] = [];
 	for (const l of lines) {
@@ -523,7 +550,10 @@ export function buildLines(lines: EdLine[]): LyricLine[] {
 			if (c.time_ms !== undefined) out.push(c);
 			continue;
 		}
-		if (!l.words.length) continue;
+		if (!l.words.length) {
+			if (l.gap && l.time !== undefined) out.push({ time_ms: Math.round(l.time), text: '', words: [] });
+			continue;
+		}
 		const words: LyricWord[] = [];
 		let floor = 0;
 		for (const w of l.words) {
@@ -584,6 +614,7 @@ export function unpackDraft(json: string | null, videoId: string): Draft | null 
 		ids.add(l.id);
 		if (!isMs(l.time) || !isMs(l.end)) return null;
 		if (l.agent !== undefined && typeof l.agent !== 'string') return null;
+		if (l.gap !== undefined && typeof l.gap !== 'boolean') return null;
 		for (const w of l.words) {
 			if (!w || typeof w.text !== 'string' || !isMs(w.start) || !isMs(w.end)) return null;
 		}

@@ -15,8 +15,10 @@ import {
 	fieldText,
 	fromLyrics,
 	fromText,
+	gapLine,
 	joinLines,
 	kindOf,
+	lineEnd,
 	lineSpan,
 	lineText,
 	loopRange,
@@ -98,6 +100,30 @@ ok(ed[0].agent === 'v1' && ed[0].time === 1000 && ed[0].end === 2500, 'the line 
 ok(same(ed[2].words, [w('Line '), w('two '), w('here')]), 'a line without words is split, untimed');
 ok(ed[2].time === 4000 && !wordsTimed(ed[2]) && wordsTimed(ed[0]), 'and keeps its line time');
 ok(new Set(ed.map((l) => l.id)).size === 3, 'ids are unique');
+
+// Instrumental breaks.
+ok(ed[1].gap === true && !ed[0].gap && !ed[2].gap, 'a timed line with no text is an instrumental break');
+ok(lineEnd(ed[0]) === 2500 && lineEnd(ed[2]) === undefined, 'a line ends where its last word does, once timed');
+const brk = gapLine(9, lineEnd(ed[0]));
+ok(brk.gap === true && brk.time === 2500 && !brk.words.length && brk.dirty === true, 'a break starts where the singing stops');
+ok(!needsLineTime(brk) && needsLineTime(gapLine(9)), 'a break with no start waits for a tap');
+ok(needsLineTime({ id: 1, words: [] }) === false, 'an empty line that is not a break owes nothing');
+const withBreak = [ed[0], gapLine(9), ed[2]];
+ok(same(missing(withBreak).untimed, [9, ed[2].id]) && !ready(missing(withBreak)), 'an untimed break holds the send back');
+ok(!missing([ed[0], brk]).untimed.length && ready(missing([ed[0], brk])), 'a timed one does not');
+ok(missing([brk]).empty, 'a break alone is not a lyric');
+const sentBreak = buildLines([ed[0], setLineTime(gapLine(9), 2600.4)]);
+ok(same(sentBreak[1], { time_ms: 2600, text: '', words: [] }), 'a break goes out as a timed line with no text');
+ok(buildLines([ed[0], gapLine(9)]).length === 1, 'one with no start is left out');
+const loadedBreak = buildLines([ed[0], ed[1]])[1];
+ok(loadedBreak.time_ms === 3000 && loadedBreak.text === '' && !loadedBreak.words?.length, 'a loaded break goes out as it came');
+const typed = setLineText(brk, 'la la');
+ok(!typed.gap && typed.words.length === 2 && typed.time === 2500, 'text typed into a break makes it a line');
+ok(setLineText(brk, '  ') === brk, 'no text leaves it a break');
+ok(joinLines(brk, gapLine(10)).gap === true && !joinLines(ed[0], brk).gap, 'joined with words it is no break');
+const kept = unpackDraft(packDraft({ v: 1, videoId: 'x', lines: [ed[0], brk], nextId: 10, baseRevision: null, improving: false }), 'x');
+ok(kept?.lines[1].gap === true, 'a draft keeps its breaks');
+ok(unpackDraft(JSON.stringify({ v: 1, videoId: 'x', lines: [{ id: 1, words: [], gap: 'yes' }] }), 'x') === null, 'a broken one is refused');
 
 const bare = fromLyrics([
 	{

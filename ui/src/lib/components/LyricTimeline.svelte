@@ -24,6 +24,7 @@
 		marks,
 		bgMode,
 		compact = false,
+		gap = false,
 		editor,
 		between,
 		onwords,
@@ -48,6 +49,8 @@
 		bgMode: boolean;
 		/** A narrow page: the big line is set smaller. */
 		compact?: boolean;
+		/** An instrumental break: a start and no words, so the track never fills. */
+		gap?: boolean;
 		/** Drawn in place of the big line: the text field, while the line's text is edited. */
 		editor?: Snippet;
 		/** Drawn between the big line and the track: the line that follows. */
@@ -324,7 +327,7 @@
 		</div>
 	{:else}
 		<div class="mt-[18px] flex h-[52px] items-center justify-center rounded-[10px] border border-dashed px-3 text-center text-[13px] text-muted-foreground">
-			{t('lyrics_editor.strip_no_start')}
+			{t(gap ? 'lyrics_editor.strip_gap_no_start' : 'lyrics_editor.strip_no_start')}
 		</div>
 	{/if}
 	<div class="mt-2 flex min-h-[26px] flex-wrap items-center gap-x-3.5 gap-y-1.5 text-[13px] text-muted-foreground">
@@ -344,7 +347,7 @@
 		{:else if timed}
 			<span>{t('lyrics_editor.drag_hint')}</span>
 		{:else if view}
-			<span>{t('lyrics_editor.strip_empty')}</span>
+			<span>{t(gap ? 'lyrics_editor.strip_gap' : 'lyrics_editor.strip_empty')}</span>
 		{/if}
 	</div>
 </div>
