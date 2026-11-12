@@ -2727,6 +2727,54 @@ pub async fn limusic_live_revision(video_id: String) -> Result<Option<i64>, Stri
     crate::limusic::live_revision(&video_id).await
 }
 
+/// A page of the review queue (reviewers only), oldest first.
+#[tauri::command]
+pub async fn limusic_review_queue(
+    state: St<'_>,
+    after: Option<i64>,
+) -> Result<crate::limusic::Queue, String> {
+    crate::limusic::review_queue(state.inner(), after).await
+}
+
+/// One revision with its lines.
+#[tauri::command]
+pub async fn limusic_review_revision(
+    state: St<'_>,
+    revision: i64,
+) -> Result<crate::limusic::Revision, String> {
+    crate::limusic::review_revision(state.inner(), revision).await
+}
+
+/// The song's live community lyric, for comparing an edit with what it replaces. Asks the
+/// service only, never a lyrics provider.
+#[tauri::command]
+pub async fn limusic_live_lyrics(video_id: String) -> Option<crate::lyrics::Lyrics> {
+    crate::limusic::live_lyrics(&video_id).await
+}
+
+/// `verdict` is `approve` or `reject`. Resolves with the service's status for the revision.
+#[tauri::command]
+pub async fn limusic_review(
+    state: St<'_>,
+    revision: i64,
+    video_id: String,
+    verdict: String,
+    reason: Option<String>,
+) -> Result<String, String> {
+    crate::limusic::review_verdict(state.inner(), revision, &video_id, &verdict, reason).await
+}
+
+/// Put an earlier revision back, or `null` for no lyric. Resolves with the live revision.
+#[tauri::command]
+pub async fn limusic_revert(
+    state: St<'_>,
+    video_id: String,
+    to_revision: Option<i64>,
+    reason: Option<String>,
+) -> Result<Option<i64>, String> {
+    crate::limusic::revert(state.inner(), &video_id, to_revision, reason).await
+}
+
 #[tauri::command]
 pub async fn limusic_submit(
     state: St<'_>,

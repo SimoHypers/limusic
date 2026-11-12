@@ -3,9 +3,11 @@
 	// and offers to link Discord or GitHub, which is optional. A linked account shows its name; the
 	// code the confirm page in the browser shows appears while a link is waiting.
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { Loading03Icon, UserIcon } from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
+	import { ui } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import {
 		cancelSignIn,
@@ -16,6 +18,7 @@
 		signOut
 	} from '$lib/limusic.svelte';
 	import { providerName } from '$lib/limusic';
+	import { waitingLabel } from '$lib/review';
 	import type { TranslationKey } from '$lib/i18n.svelte';
 
 	onMount(refreshAccount);
@@ -127,6 +130,25 @@
 		<p class="border-t border-border/60 px-4 py-3 text-xs text-muted-foreground">
 			{a.can_review ? t('limusic.reviewer') : a.trusted ? t('limusic.trusted') : t('limusic.untrusted')}
 		</p>
+		{#if a.can_review}
+			<div class="flex items-center gap-3 border-t border-border/60 px-4 py-3">
+				<p class="min-w-0 flex-1 text-sm">
+					{limusic.waiting && limusic.waiting.count > 0
+						? t('review.settings_waiting', { count: waitingLabel(limusic.waiting.count, limusic.waiting.more) })
+						: t('review.settings_none')}
+				</p>
+				<Button
+					size="sm"
+					variant="outline"
+					onclick={() => {
+						ui.settingsOpen = false;
+						goto('/review');
+					}}
+				>
+					{t('review.settings_open')}
+				</Button>
+			</div>
+		{/if}
 	{:else if unlinked}
 		<div class="space-y-2 border-t border-border/60 px-4 py-3 text-xs text-muted-foreground">
 			<p>{t('limusic.intro')}</p>

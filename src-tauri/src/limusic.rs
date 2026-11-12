@@ -513,6 +513,235 @@ pub async fn submit(state: &AppState, s: Submission) -> Submitted {
     result
 }
 
+// --- Review -------------------------------------------------------------------------------------
+// For an account `/v1/me` says `can_review`. Every call carries the session; a 401 forgets it.
+
+/// One waiting revision, as the queue lists it. `kind` is `new`, `edit` or `reported` (a live
+/// lyric with enough open reports). `author` is absent for an anonymous sender.
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct QueueItem {
+    pub revision: i64,
+    pub video_id: String,
+    pub title: String,
+    pub artist: String,
+    #[serde(default)]
+    pub duration: Option<f64>,
+    #[serde(default)]
+    pub author: Option<String>,
+    pub kind: String,
+    pub created_at: i64,
+    #[serde(default)]
+    pub reports: i64,
+}
+
+/// Oldest first. `next` is the `after` of the following page, `None` on the last.
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct Queue {
+    pub items: Vec<QueueItem>,
+    #[serde(default)]
+    pub next: Option<i64>,
+}
+
+/// One revision with its lines, ready for the lyrics view.
+#[derive(Debug, Serialize)]
+pub struct Revision {
+    pub revision: i64,
+    pub video_id: String,
+    pub status: String,
+    pub kind: String,
+    pub author: Option<String>,
+    pub title: String,
+    pub artist: String,
+    pub album: Option<String>,
+    pub duration: Option<f64>,
+    pub base_revision: Option<i64>,
+    pub note: Option<String>,
+    pub created_at: i64,
+    pub lyrics: Option<Lyrics>,
+}
+
+#[derive(Deserialize)]
+struct RawRevision {
+    revision: i64,
+    video_id: String,
+    status: String,
+    kind: String,
+    #[serde(default)]
+    author: Option<String>,
+    lines: Vec<LyricLine>,
+    title: String,
+    artist: String,
+    #[serde(default)]
+    album: Option<String>,
+    #[serde(default)]
+    duration: Option<f64>,
+    #[serde(default)]
+    base_revision: Option<i64>,
+    #[serde(default)]
+    note: Option<String>,
+    created_at: i64,
+}
+
+fn parse_revision(body: Value) -> Option<Revision> {
+    let r: RawRevision = serde_json::from_value(body).ok()?;
+    let answer = crate::lyrics::LimusicAnswer { origin: "community".into(), lines: r.lines };
+    Some(Revision {
+        revision: r.revision,
+        video_id: r.video_id,
+        status: r.status,
+        kind: r.kind,
+        author: r.author,
+        title: r.title,
+        artist: r.artist,
+        album: r.album,
+        duration: r.duration,
+        base_revision: r.base_revision,
+        note: r.note,
+        created_at: r.created_at,
+        lyrics: crate::lyrics::limusic_to_lyrics(answer),
+    })
+}
+
+/// The service's reason, at most 300 bytes (its limit), cut on a character boundary. `None` when
+/// there is nothing but space.
+fn clip_reason(reason: Option<&str>) -> Option<String> {
+    let r = reason?.trim();
+    let mut end = r.len().min(300);
+    while !r.is_char_boundary(end) {
+        end -= 1;
+    }
+    (end > 0).then(|| r[..end].trim_end().to_owned())
+}
+
+fn session(state: &AppState) -> Result<String, String> {
+    token(state).ok_or_else(|| "unauthorized".into())
+}
+
+/// The body of an answer that was the `ok` status, else its code.
+fn expect(answer: Option<(u16, Value)>, ok: u16) -> Result<Value, String> {
+    match answer {
+        Some((status, body)) if status == ok => Ok(body),
+        other => Err(failure(other)),
+    }
+}
+
+/// A 401 means the session is gone: forget it, and pass the result on.
+fn checked<T>(state: &AppState, r: Result<T, String>) -> Result<T, String> {
+    if matches!(&r, Err(c) if c == "unauthorized") {
+        lost(state);
+    }
+    r
+}
+
+async fn get_queue(token: &str, after: Option<i64>) -> Result<Queue, String> {
+    let mut path = "/v1/review/queue?limit=50".to_owned();
+    if let Some(a) = after.filter(|a| *a > 0) {
+        path.push_str(&format!("&after={a}"));
+    }
+    let body = expect(send(crate::http::client().get(url(&path)), Some(token)).await, 200)?;
+    serde_json::from_value(body).map_err(|_| "unavailable".into())
+}
+
+async fn get_revision(token: &str, revision: i64) -> Result<Revision, String> {
+    let rb = crate::http::client().get(url(&format!("/v1/revisions/{revision}")));
+    let body = expect(send(rb, Some(token)).await, 200)?;
+    parse_revision(body).ok_or_else(|| "unavailable".into())
+}
+
+/// `POST /v1/revisions/{id}/review`: the status the service reports.
+async fn post_verdict(
+    token: &str,
+    revision: i64,
+    verdict: &str,
+    reason: Option<&str>,
+) -> Result<String, String> {
+    let mut body = json!({ "verdict": verdict });
+    if let Some(r) = clip_reason(reason) {
+        body["reason"] = r.into();
+    }
+    let rb =
+        crate::http::client().post(url(&format!("/v1/revisions/{revision}/review"))).json(&body);
+    let answer = expect(send(rb, Some(token)).await, 200)?;
+    Ok(answer["status"].as_str().unwrap_or_default().to_owned())
+}
+
+/// `POST /v1/lyrics/{id}/revert`: the live revision afterwards. The key is always sent: a missing
+/// `to_revision` is a 400, never a silent takedown.
+async fn post_revert(
+    token: &str,
+    video_id: &str,
+    to_revision: Option<i64>,
+    reason: Option<&str>,
+) -> Result<Option<i64>, String> {
+    let mut body = json!({ "to_revision": to_revision });
+    if let Some(r) = clip_reason(reason) {
+        body["reason"] = r.into();
+    }
+    let rb = crate::http::client().post(url(&format!("/v1/lyrics/{video_id}/revert"))).json(&body);
+    let answer = expect(send(rb, Some(token)).await, 200)?;
+    Ok(answer["revision"].as_i64())
+}
+
+/// A page of the review queue, oldest first, 50 at a time from `after`.
+pub async fn review_queue(state: &AppState, after: Option<i64>) -> Result<Queue, String> {
+    checked(state, get_queue(&session(state)?, after).await)
+}
+
+pub async fn review_revision(state: &AppState, revision: i64) -> Result<Revision, String> {
+    checked(state, get_revision(&session(state)?, revision).await)
+}
+
+/// The song's live lyric on the service, for the "current" side of an edit.
+pub async fn live_lyrics(video_id: &str) -> Option<Lyrics> {
+    live(video_id).await?.lyrics
+}
+
+/// Approve or reject. `Ok` is the status the service reports: `published` for an approval,
+/// `rejected`, or `reverted` for a live lyric that was taken down. An approval puts the lyric in
+/// this device's cache in place of the old one, and a takedown forgets the cached one.
+pub async fn review_verdict(
+    state: &AppState,
+    revision: i64,
+    video_id: &str,
+    verdict: &str,
+    reason: Option<String>,
+) -> Result<String, String> {
+    if !matches!(verdict, "approve" | "reject") || !plausible_id(video_id) {
+        return Err("invalid".into());
+    }
+    let t = session(state)?;
+    let status = checked(state, post_verdict(&t, revision, verdict, reason.as_deref()).await)?;
+    if verdict == "approve" {
+        // The lyric just went live: the next look at this song shows it, not the cached one.
+        if let Some(mut l) = get_revision(&t, revision).await.ok().and_then(|r| r.lyrics) {
+            l.provider = "limusic".into();
+            if let Ok(json) = serde_json::to_string(&l) {
+                state.db.put_lyrics(video_id, Some(&json), crate::db::now_secs());
+            }
+        }
+    } else if status == "reverted" {
+        state.db.delete_lyrics(video_id);
+    }
+    Ok(status)
+}
+
+/// Make an earlier revision of the song live again, or `None` to leave it with no lyric. `Ok` is
+/// the live revision afterwards.
+pub async fn revert(
+    state: &AppState,
+    video_id: &str,
+    to_revision: Option<i64>,
+    reason: Option<String>,
+) -> Result<Option<i64>, String> {
+    if !plausible_id(video_id) {
+        return Err("invalid".into());
+    }
+    let t = session(state)?;
+    let live = checked(state, post_revert(&t, video_id, to_revision, reason.as_deref()).await)?;
+    state.db.delete_lyrics(video_id);
+    Ok(live)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -706,6 +935,81 @@ mod tests {
         assert_eq!(post_link("nope", &new_verifier()).await.map(|a| a.0), Some(401));
     }
 
+    /// Same local service: the reviewer's side. Needs LIMUSIC_TEST_USER (not a reviewer) and
+    /// LIMUSIC_TEST_ADMIN (can review), and the anonymous test to have run first on a fresh DB.
+    #[tokio::test]
+    #[ignore = "needs a local lyrics server"]
+    async fn local_service_review() {
+        let user = std::env::var("LIMUSIC_TEST_USER").unwrap();
+        let admin = std::env::var("LIMUSIC_TEST_ADMIN").unwrap();
+        assert_eq!(get_queue(&user, None).await.unwrap_err(), "forbidden");
+        assert_eq!(get_queue("nope", None).await.unwrap_err(), "unauthorized");
+        let anon = post_anonymous().await.unwrap();
+        let line = |t: u64, w: &[&str]| LyricLine {
+            time_ms: Some(t),
+            end_time_ms: Some(t + 900),
+            text: w.join(" "),
+            words: Some(
+                w.iter()
+                    .enumerate()
+                    .map(|(i, x)| crate::lyrics::LyricWord {
+                        text: (*x).into(),
+                        start_ms: t + i as u64 * 400,
+                        end_ms: t + i as u64 * 400 + 380,
+                        bg: false,
+                    })
+                    .collect(),
+            ),
+            ..Default::default()
+        };
+        let sub = |lines, base| Submission {
+            video_id: "CCCCCCCCCCC".into(),
+            lines,
+            title: "Review me".into(),
+            artist: "An artist".into(),
+            album: None,
+            duration: Some(120.0),
+            base_revision: base,
+        };
+        let first = vec![line(1000, &["one", "two"]), line(3000, &["three", "four"])];
+        let Submitted::Pending { revision } = post_revision(&anon, &sub(first.clone(), None)).await
+        else {
+            panic!("an anonymous submit waits");
+        };
+        let q = get_queue(&admin, None).await.unwrap();
+        let item = q.items.iter().find(|i| i.revision == revision).expect("it is waiting");
+        assert_eq!((item.kind.as_str(), item.author.as_deref()), ("new", None));
+        let r = get_revision(&admin, revision).await.unwrap();
+        assert_eq!(r.lyrics.unwrap().lines.len(), 2);
+        assert_eq!(get_revision(&user, revision).await.unwrap_err(), "forbidden");
+        assert_eq!(post_verdict(&admin, revision, "approve", None).await.unwrap(), "published");
+        assert!(get_queue(&admin, None)
+            .await
+            .unwrap()
+            .items
+            .iter()
+            .all(|i| i.revision != revision));
+        // Approving the live revision again keeps it (it is how a reported one is cleared).
+        assert_eq!(post_verdict(&admin, revision, "approve", None).await.unwrap(), "published");
+        assert_eq!(post_verdict(&admin, 99999, "approve", None).await.unwrap_err(), "not_found");
+        // An edit from the same anonymous account waits, and a reject carries a reason.
+        let mut edited = first.clone();
+        edited[1] = line(3000, &["three", "five"]);
+        let Submitted::Pending { revision: edit } =
+            post_revision(&anon, &sub(edited, Some(revision))).await
+        else {
+            panic!();
+        };
+        let q = get_queue(&admin, None).await.unwrap();
+        assert_eq!(q.items.iter().find(|i| i.revision == edit).unwrap().kind, "edit");
+        let said = post_verdict(&admin, edit, "reject", Some("  the timing is wrong ")).await;
+        assert_eq!(said.unwrap(), "rejected");
+        // Revert to no lyric, then the live revision is gone.
+        assert_eq!(post_revert(&admin, "CCCCCCCCCCC", None, Some("test")).await.unwrap(), None);
+        assert_eq!(live_revision("CCCCCCCCCCC").await.unwrap(), None);
+        assert_eq!(post_revert(&user, "CCCCCCCCCCC", None, None).await.unwrap_err(), "forbidden");
+    }
+
     #[test]
     fn the_service_is_offered_only_when_it_says_it_has_anonymous_accounts() {
         let both = parse_providers(&json!({"providers": ["discord", "github"], "anonymous": true}));
@@ -740,6 +1044,61 @@ mod tests {
         // An answer without the flag (an older service) reads as linked.
         let c: Account = serde_json::from_value(json!({"handle": "x"})).unwrap();
         assert!(!c.anonymous);
+    }
+
+    #[test]
+    fn the_queue_reads_as_the_service_writes_it() {
+        let q: Queue = serde_json::from_value(json!({
+            "items": [
+                {"revision": 4, "video_id": "AAAAAAAAAAA", "title": "T", "artist": "A",
+                 "duration": 200.0, "kind": "new", "created_at": 10, "reports": 0},
+                {"revision": 9, "video_id": "BBBBBBBBBBB", "title": "U", "artist": "B",
+                 "duration": null, "author": "carla", "kind": "reported", "created_at": 20,
+                 "reports": 3}
+            ],
+            "next": 9
+        }))
+        .unwrap();
+        assert_eq!(q.items.len(), 2);
+        assert_eq!(q.items[0].author, None, "an anonymous sender has no author");
+        assert_eq!(q.items[1].author.as_deref(), Some("carla"));
+        assert_eq!((q.items[1].reports, q.next), (3, Some(9)));
+        let last: Queue = serde_json::from_value(json!({"items": [], "next": null})).unwrap();
+        assert_eq!((last.items.len(), last.next), (0, None));
+    }
+
+    #[test]
+    fn a_revision_comes_with_its_lyric_ready_to_show() {
+        let body = json!({
+            "revision": 7, "video_id": "AAAAAAAAAAA", "status": "pending", "origin": "community",
+            "kind": "edit", "lines": [{"time_ms": 1000, "text": "hi there", "words": [
+                {"text": "hi", "start_ms": 1000, "end_ms": 1300},
+                {"text": "there", "start_ms": 1300, "end_ms": 1900}], "agent": "v1"}],
+            "title": "T", "artist": "A", "album": null, "duration": 200.0, "base_revision": 3,
+            "note": "fixed the second verse", "created_at": 55, "review": null
+        });
+        let r = parse_revision(body).unwrap();
+        assert_eq!((r.revision, r.base_revision, r.author.as_deref()), (7, Some(3), None));
+        assert_eq!(r.note.as_deref(), Some("fixed the second verse"));
+        let l = r.lyrics.unwrap();
+        assert!(l.synced && l.lines[0].words.as_ref().unwrap().len() == 2);
+        assert_eq!(l.source, "Limusic");
+        assert!(parse_revision(json!({"revision": 1})).is_none());
+        // A revision whose lines are empty has no lyric to show, but still reads.
+        let empty = json!({"revision": 1, "video_id": "AAAAAAAAAAA", "status": "pending",
+            "kind": "new", "lines": [], "title": "T", "artist": "A", "created_at": 1});
+        assert!(parse_revision(empty).unwrap().lyrics.is_none());
+    }
+
+    #[test]
+    fn a_reason_is_trimmed_and_cut_to_the_services_limit_on_a_character() {
+        assert_eq!(clip_reason(None), None);
+        assert_eq!(clip_reason(Some("   ")), None);
+        assert_eq!(clip_reason(Some("  timing is off ")).as_deref(), Some("timing is off"));
+        let long = "é".repeat(200); // 400 bytes
+        let cut = clip_reason(Some(&long)).unwrap();
+        assert!(cut.len() <= 300 && cut.chars().all(|c| c == 'é'), "{}", cut.len());
+        assert_eq!(clip_reason(Some(&"a".repeat(500))).unwrap().len(), 300);
     }
 
     #[test]

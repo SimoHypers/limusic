@@ -1372,6 +1372,57 @@ export const limusicSubmit = (submission: LimusicSubmission) =>
  *  service can't be asked. */
 export const limusicLiveRevision = (videoId: string) =>
 	invoke<number | null>('limusic_live_revision', { videoId });
+// Review (reviewers only). Every call rejects with the service's code: `forbidden`,
+// `unauthorized`, `not_found`, `not_reviewable`, `stale`, `rate_limited`, `unavailable`.
+export interface LimusicQueueItem {
+	revision: number;
+	video_id: string;
+	title: string;
+	artist: string;
+	duration: number | null;
+	/** Null when the sender is anonymous. */
+	author: string | null;
+	/** `new`, `edit`, or `reported` (a live lyric with enough open reports). */
+	kind: string;
+	created_at: number;
+	reports: number;
+}
+export interface LimusicQueue {
+	items: LimusicQueueItem[];
+	/** Pass as `after` for the next page, null on the last. */
+	next: number | null;
+}
+export interface LimusicRevision {
+	revision: number;
+	video_id: string;
+	status: string;
+	kind: string;
+	author: string | null;
+	title: string;
+	artist: string;
+	album: string | null;
+	duration: number | null;
+	base_revision: number | null;
+	note: string | null;
+	created_at: number;
+	/** The submitted lines, ready for `LyricsView`'s `preview`. */
+	lyrics: Lyrics | null;
+}
+/** Oldest first, 50 a page. */
+export const limusicReviewQueue = (after?: number) =>
+	invoke<LimusicQueue>('limusic_review_queue', { after: after ?? null });
+export const limusicReviewRevision = (revision: number) =>
+	invoke<LimusicRevision>('limusic_review_revision', { revision });
+/** The song's live community lyric from the service itself (never a lyrics provider), or null. */
+export const limusicLiveLyrics = (videoId: string) =>
+	invoke<Lyrics | null>('limusic_live_lyrics', { videoId });
+/** Resolves with the service's status: `published`, `rejected`, or `reverted` (a live lyric taken
+ *  down). An approval also replaces the song's cached lyric here. */
+export const limusicReview = (revision: number, videoId: string, verdict: 'approve' | 'reject', reason?: string) =>
+	invoke<string>('limusic_review', { revision, videoId, verdict, reason: reason ?? null });
+/** Puts an earlier revision of the song back, or `null` for no lyric. Resolves with the live one. */
+export const limusicRevert = (videoId: string, toRevision: number | null, reason?: string) =>
+	invoke<number | null>('limusic_revert', { videoId, toRevision, reason: reason ?? null });
 /** A pasted or picked lyric file (TTML, eLRC, LRC) as lines, by the parsers the providers use.
  *  Empty for plain text. Rejects with `too_large` over 1 MB. */
 export const lyricsParse = (text: string) => invoke<LyricLine[]>('lyrics_parse', { text });

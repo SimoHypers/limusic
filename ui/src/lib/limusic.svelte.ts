@@ -17,6 +17,9 @@ export const limusic = $state({
 	handle: null as string | null,
 	anonymous: false,
 	account: null as api.LimusicAccount | null,
+	/** Submissions waiting for review, for a reviewer: the first page only, so `more` says there are
+	 *  others. Null until asked, and for everyone else. */
+	waiting: null as { count: number; more: boolean } | null,
 	/** The provider a sign-in is waiting on, and the code its confirm page should show. */
 	signingIn: null as { provider: string; code: string } | null
 });
@@ -25,7 +28,10 @@ function apply(s: api.LimusicAccountState) {
 	limusic.signedIn = s.signed_in;
 	limusic.handle = s.handle ?? null;
 	limusic.anonymous = s.anonymous;
-	if (!s.signed_in) limusic.account = null;
+	if (!s.signed_in) {
+		limusic.account = null;
+		limusic.waiting = null;
+	}
 }
 
 /** Once per start, from the root layout: asks the service whether it has accounts, in the
@@ -49,6 +55,16 @@ export function watchLimusic(): () => void {
 	return () => void sub.then((u) => u());
 }
 
+/** How many are waiting for review, from the first page of the queue. Not for non-reviewers. */
+export async function refreshWaiting() {
+	try {
+		const q = await api.limusicReviewQueue();
+		limusic.waiting = { count: q.items.length, more: q.next !== null };
+	} catch {
+		limusic.waiting = null;
+	}
+}
+
 /** The account's score and role, fresh. A session the service has dropped signs out here. */
 export async function refreshAccount() {
 	try {
@@ -57,6 +73,8 @@ export async function refreshAccount() {
 			limusic.account = a;
 			limusic.handle = a.handle;
 			limusic.anonymous = a.anonymous;
+			if (a.can_review) refreshWaiting();
+			else limusic.waiting = null;
 		}
 	} catch {
 		// Unreachable: the stored name is shown as it is.
