@@ -66,12 +66,12 @@
 
 	const shown = $derived(side === 'current' ? (current ?? null) : (detail?.lyrics ?? null));
 
-	/** The song plays from the start; one already playing is taken back to it. */
+	/** The song plays from the start; one already playing is taken back to it. It starts as a song
+	 *  radio, like a timecode link does, because that is what fetches its cover and album: a bare
+	 *  id has neither. The player view is not opened, this page stays in front. */
 	function play(item: api.LimusicQueueItem) {
 		if (playback.now?.videoId === item.video_id) return seekTo(0);
-		api.play({ video_id: item.video_id, title: item.title, artists: item.artist }).catch((e) =>
-			toast.error(String(e))
-		);
+		api.startRadio('song', item.video_id, item.title, 0).catch((e) => toast.error(String(e)));
 	}
 
 	async function openItem(item: api.LimusicQueueItem) {
