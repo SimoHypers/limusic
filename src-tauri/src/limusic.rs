@@ -512,6 +512,7 @@ pub async fn submit(state: &AppState, s: Submission) -> Submitted {
             origin: "community".into(),
             revision: Some(*revision),
             lines: s.lines,
+            ..Default::default()
         };
         if let Some(mut l) = crate::lyrics::limusic_to_lyrics(answer) {
             l.provider = "limusic".into();
@@ -598,6 +599,7 @@ fn parse_revision(body: Value) -> Option<Revision> {
         origin: "community".into(),
         revision: Some(r.revision),
         lines: r.lines,
+        ..Default::default()
     };
     Some(Revision {
         revision: r.revision,

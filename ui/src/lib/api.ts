@@ -1278,6 +1278,8 @@ export interface Lyrics {
 	offset_ms: number;
 	/** Limusic's revision of the lyric. Absent from every other source. */
 	revision?: number;
+	/** Who synced a community lyric on Limusic, oldest first. Absent everywhere else. */
+	authors?: string[];
 }
 // A type, not an interface: `invoke` takes a record, and only a type alias is assignable to one.
 export type LyricsTrack = {

@@ -188,6 +188,10 @@ pub struct Lyrics {
     /// other source, and in a row cached before it was kept.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revision: Option<i64>,
+    /// Who synced a community lyric on Limusic, oldest first, for the footer's credit. Empty for
+    /// everything else, an anonymous contributor's lyric included.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub authors: Vec<String>,
 }
 
 pub struct LyricsRequest {
@@ -413,7 +417,9 @@ fn apply_recheck(
         Ok(Fresh::Gone) => false,
         Ok(Fresh::New(new)) => {
             let new = Lyrics { provider: "limusic".into(), ..unsync_flat(new) };
-            let changed = new.lines != old.lines || new.source != old.source;
+            // A rename shows too: the credit is read when the service answers.
+            let changed =
+                new.lines != old.lines || new.source != old.source || new.authors != old.authors;
             if let Ok(json) = serde_json::to_string(&new) {
                 db.put_lyrics(video_id, Some(&json), now);
             }
@@ -1023,6 +1029,9 @@ pub(crate) struct LimusicAnswer {
     pub origin: String,
     #[serde(default)]
     pub revision: Option<i64>,
+    /// Handles, for `origin: "community"` only.
+    #[serde(default)]
+    pub authors: Vec<String>,
     pub lines: Vec<LyricLine>,
 }
 
@@ -1081,7 +1090,9 @@ pub(crate) fn limusic_to_lyrics(a: LimusicAnswer) -> Option<Lyrics> {
         o @ ("unison" | "boidu" | "lyricsplus") => format!("Limusic ({})", provider_name(o)),
         _ => "Limusic".into(),
     };
-    Some(Lyrics { revision: a.revision, ..from_parsed(&source, a.lines)? })
+    // The service sends five at most; no more than that is ever kept or shown.
+    let authors = a.authors.into_iter().filter(|h| !h.trim().is_empty()).take(5).collect();
+    Some(Lyrics { revision: a.revision, authors, ..from_parsed(&source, a.lines)? })
 }
 
 /// Whether to tell Limusic about lyrics we just got from a provider it mirrors. Word-timed only,
@@ -2111,6 +2122,16 @@ mod tests {
         assert_eq!(read("lyricsplus").source, "Limusic (LyricsPlus)");
         assert_eq!(read("something-new").source, "Limusic");
         assert_eq!(l.revision, Some(3));
+        assert!(l.authors.is_empty(), "no authors in the answer, none kept");
+        let credited: LimusicAnswer = serde_json::from_str(
+            r#"{"origin":"community","revision":4,"authors":["carla","","moss_fern","a","b","c","d"],
+            "lines":[{"time_ms":1,"text":"x","words":[{"text":"x","start_ms":1,"end_ms":9}]}]}"#,
+        )
+        .unwrap();
+        let l = limusic_to_lyrics(credited).unwrap();
+        assert_eq!(l.authors, ["carla", "moss_fern", "a", "b", "c"], "five at most, no blanks");
+        let json = serde_json::to_string(&l).unwrap();
+        assert_eq!(serde_json::from_str::<Lyrics>(&json).unwrap().authors, l.authors, "cached");
         let empty = LimusicAnswer { origin: "community".into(), ..Default::default() };
         assert!(limusic_to_lyrics(empty).is_none());
     }
@@ -2227,6 +2248,12 @@ mod tests {
             (l.revision, l.provider.as_str(), l.lines[0].text.as_str(), at),
             (Some(4), "limusic", "b", NOW)
         );
+
+        // The same lines, credited to a new name: the footer is redrawn.
+        let renamed = Lyrics { authors: vec!["carla".into()], ..row("same").unwrap().0 };
+        let was = row("same").unwrap().0;
+        assert!(apply_recheck(&db, "same", Recheck::Revision, &was, Ok(Fresh::New(renamed)), NOW));
+        assert_eq!(row("same").unwrap().0.authors, ["carla"]);
 
         // The same lines under a revision the old row didn't know: kept, nothing to redraw.
         let unnumbered = Lyrics { revision: None, ..ours.clone() };

@@ -44,6 +44,10 @@ export function submitMessage(o: LimusicSubmitted): Message {
 	}
 }
 
+/** The contributors of a community lyric as the locale lists names: "carla", "carla and moss". */
+export const creditNames = (authors: string[], locale: string) =>
+	new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' }).format(authors);
+
 /** Why starting a link or a sign-in failed, as a key. */
 export function signInErrorKey(code: string): TranslationKey {
 	if (code === 'rate_limited') return 'limusic.signin_rate_limited';

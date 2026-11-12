@@ -1266,6 +1266,7 @@
 		"instrumental": "Instrumental",
 		"none_found": "No lyrics found for this track.",
 		"source": "Lyrics from {source}",
+		"synced_by": "Synced by {names}",
 		"romanize": "Romanized",
 		"romanize_hint": "Show how each line is pronounced, in Latin letters",
 		"find": "Find lyrics",

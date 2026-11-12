@@ -1,5 +1,5 @@
 // Self-check for `limusic.ts`: `node --experimental-strip-types ui/src/lib/limusic.check.ts`
-import { accountErrorKey, providerName, signInErrorKey, submitMessage } from './limusic.ts';
+import { accountErrorKey, creditNames, providerName, signInErrorKey, submitMessage } from './limusic.ts';
 
 function ok(cond: boolean, what: string) {
 	if (!cond) throw new Error(`broken: ${what}`);
@@ -26,4 +26,8 @@ ok(new Set(['stale', 'banned', 'rate_limited', 'unavailable'].map((c) => f(c).ke
 ok(accountErrorKey('taken') === 'limusic.name_taken' && accountErrorKey('?') === 'limusic.unreachable', 'account codes');
 ok(providerName('github') === 'GitHub' && providerName('gitlab') === 'Gitlab', 'provider names');
 ok(providerName('google') === 'Google', 'an unknown id is capitalised, Google is no longer a provider');
+ok(creditNames(['carla'], 'en') === 'carla', 'one contributor');
+ok(creditNames(['carla', 'moss_fern'], 'en') === 'carla and moss_fern', 'two contributors');
+ok(creditNames(['a', 'b', 'c'], 'en') === 'a, b, and c', 'the locale lists them');
+ok(creditNames(['a', 'b'], 'de') === 'a und b', 'in its own words');
 console.log('ok');

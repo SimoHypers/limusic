@@ -31,6 +31,7 @@
 	import { KIND_CLASS, KIND_LABEL, lyricsKind } from '$lib/lyricsSources';
 	import { goto } from '$app/navigation';
 	import { limusic } from '$lib/limusic.svelte';
+	import { creditNames } from '$lib/limusic';
 	import { link } from '$lib/link.svelte';
 	import { draftKey, unpackDraft, wordsTimed } from '$lib/lyricsedit';
 
@@ -73,12 +74,15 @@
 	// A typed title is a different song as far as the providers know, so the album goes; the length
 	// stays, it's still the recording that's playing.
 	const request = $derived(query ? { ...track, ...query, album: undefined, searched: true } : track);
+	/** A community lyric is credited to the people who synced it; anything else to its source. */
 	const attribution = $derived(
-		lyrics
-			? lyrics.source.startsWith('Source:')
-				? lyrics.source
-				: t('lyrics.source', { source: lyrics.source })
-			: t('lyrics.find')
+		!lyrics
+			? t('lyrics.find')
+			: lyrics.authors?.length
+				? t('lyrics.synced_by', { names: creditNames(lyrics.authors, currentLocale.id) })
+				: lyrics.source.startsWith('Source:')
+					? lyrics.source
+					: t('lyrics.source', { source: lyrics.source })
 	);
 	const offsetLabel = $derived(
 		t('lyrics.timing_value', {
@@ -234,7 +238,7 @@
 <Popover.Root bind:open>
 	<Popover.Trigger
 		class="group -ml-2 flex min-w-0 cursor-pointer items-center gap-1.5 rounded-full py-0.5 pl-2 pr-1.5 transition-colors hover:bg-foreground/10 hover:text-foreground data-[state=open]:bg-foreground/10 data-[state=open]:text-foreground"
-		title={lyrics?.pinned ? t('lyrics.chosen') : undefined}
+		title={lyrics?.pinned ? t('lyrics.chosen') : lyrics?.authors?.length ? attribution : undefined}
 	>
 		{#if !lyrics}
 			<HugeiconsIcon icon={Search01Icon} class="h-3.5 w-3.5 shrink-0" />
