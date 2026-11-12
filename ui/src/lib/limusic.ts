@@ -4,7 +4,7 @@ import type { LimusicSubmitted } from './api';
 import type { TranslationKey } from './i18n.svelte';
 
 /** Where a sign-in provider's name is spelled. The service's ids are lower case. */
-export const PROVIDER_NAMES: Record<string, string> = { discord: 'Discord', github: 'GitHub', google: 'Google' };
+export const PROVIDER_NAMES: Record<string, string> = { discord: 'Discord', github: 'GitHub' };
 export const providerName = (id: string) => PROVIDER_NAMES[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
 
 export interface Message {
@@ -14,8 +14,8 @@ export interface Message {
 	kind: 'success' | 'info' | 'error';
 	/** Done with the draft: it is on the service now. */
 	sent?: boolean;
-	/** The fix is in Settings ▸ Limusic account. */
-	needsAccount?: boolean;
+	/** The song changed under the draft: the user picks the new version or keeps theirs. */
+	stale?: boolean;
 }
 
 /** Every answer the service documents for a submission, in words. */
@@ -24,7 +24,7 @@ export function submitMessage(o: LimusicSubmitted): Message {
 	if (o.kind === 'pending') return { key: 'lyrics_editor.sent_pending', kind: 'success', sent: true };
 	switch (o.code) {
 		case 'unauthorized':
-			return { key: 'lyrics_editor.err_signed_out', kind: 'error', needsAccount: true };
+			return { key: 'lyrics_editor.err_signed_out', kind: 'error' };
 		case 'banned':
 			return { key: 'lyrics_editor.err_banned', kind: 'error' };
 		case 'invalid':
@@ -32,7 +32,7 @@ export function submitMessage(o: LimusicSubmitted): Message {
 				? { key: 'lyrics_editor.err_invalid_detail', params: { detail: o.detail }, kind: 'error' }
 				: { key: 'lyrics_editor.err_invalid', kind: 'error' };
 		case 'stale':
-			return { key: 'lyrics_editor.err_stale', kind: 'error' };
+			return { key: 'lyrics_editor.err_stale', kind: 'error', stale: true };
 		case 'unchanged':
 			return { key: 'lyrics_editor.err_unchanged', kind: 'info' };
 		case 'rate_limited':
@@ -40,6 +40,13 @@ export function submitMessage(o: LimusicSubmitted): Message {
 		default:
 			return { key: 'lyrics_editor.err_unavailable', kind: 'error' };
 	}
+}
+
+/** Why starting a link or a sign-in failed, as a key. */
+export function signInErrorKey(code: string): TranslationKey {
+	if (code === 'rate_limited') return 'limusic.signin_rate_limited';
+	if (code === 'unavailable') return 'limusic.unreachable';
+	return 'limusic.signin_failed';
 }
 
 /** A rename's or a sign-in's error code, as a key. */

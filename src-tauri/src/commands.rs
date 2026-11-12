@@ -2675,14 +2675,14 @@ pub async fn lyrics_editor_start(
     Ok(crate::lyrics::editor_start(state.inner(), req).await)
 }
 
-/// The sign-in providers Limusic Lyrics has configured: none means the service has no accounts
-/// (yet), and the app offers no contributing.
+/// What Limusic Lyrics offers: `anonymous` gates contributing, `providers` are the identities that
+/// can be linked.
 #[tauri::command]
-pub async fn limusic_providers() -> Vec<String> {
+pub async fn limusic_providers() -> crate::limusic::Providers {
     crate::limusic::providers().await
 }
 
-/// The stored session: `{signed_in, handle}`. Doesn't ask the service.
+/// The stored session: `{signed_in, handle, anonymous}`. Doesn't ask the service.
 #[tauri::command]
 pub fn limusic_status(state: St<'_>) -> serde_json::Value {
     crate::limusic::status(state.inner())
@@ -2718,6 +2718,13 @@ pub async fn limusic_rename(
     handle: String,
 ) -> Result<crate::limusic::Account, String> {
     crate::limusic::rename(state.inner(), handle).await
+}
+
+/// The song's live revision on the service now (`None`: no live lyric), for keeping a draft on top
+/// of a newer version.
+#[tauri::command]
+pub async fn limusic_live_revision(video_id: String) -> Result<Option<i64>, String> {
+    crate::limusic::live_revision(&video_id).await
 }
 
 #[tauri::command]

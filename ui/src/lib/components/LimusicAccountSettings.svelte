@@ -1,6 +1,7 @@
 <script lang="ts">
-	// The Limusic Lyrics account (sign-in is the service's handoff, see `limusic.rs`): who is signed
-	// in, or the providers to sign in with, and the code the confirm page in the browser shows.
+	// Contributing to Limusic Lyrics (see `limusic.rs`): anonymous by default, so this card says so
+	// and offers to link Discord or GitHub, which is optional. A linked account shows its name; the
+	// code the confirm page in the browser shows appears while a link is waiting.
 	import { onMount } from 'svelte';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { Loading03Icon, UserIcon } from '@hugeicons/core-free-icons';
@@ -43,6 +44,9 @@
 	}
 
 	const a = $derived(limusic.account);
+	/** A session with a public name: a linked account. */
+	const linked = $derived(limusic.signedIn && !limusic.anonymous);
+	const unlinked = $derived(!linked);
 </script>
 
 <div data-settings-card class="overflow-hidden rounded-xl border bg-card">
@@ -50,16 +54,16 @@
 		<div
 			class="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted ring-1 ring-border"
 		>
-			{#if limusic.signedIn && a?.avatar_url}
+			{#if linked && a?.avatar_url}
 				<img src={a.avatar_url} alt="" class="size-full object-cover" draggable="false" />
-			{:else if limusic.signedIn && limusic.handle}
+			{:else if linked && limusic.handle}
 				<span class="text-base font-semibold text-muted-foreground uppercase">{limusic.handle[0]}</span>
 			{:else}
 				<HugeiconsIcon icon={UserIcon} size={20} class="text-muted-foreground" />
 			{/if}
 		</div>
 		<div class="min-w-0 flex-1">
-			{#if limusic.signedIn && renaming}
+			{#if linked && renaming}
 				<form
 					class="flex items-center gap-2"
 					onsubmit={(e) => {
@@ -81,20 +85,29 @@
 				<p class="mt-1 text-xs {error ? 'text-destructive' : 'text-muted-foreground'}">
 					{error ? t(error) : t('limusic.rename_hint')}
 				</p>
-			{:else if limusic.signedIn}
-				<p class="truncate text-sm font-semibold">{limusic.handle}</p>
-				<p class="truncate text-xs text-muted-foreground">
-					{a ? t('limusic.points', { count: String(a.score) }) : t('limusic.signed_in_as', { handle: limusic.handle ?? '' })}
-				</p>
 			{:else if limusic.signingIn}
 				<p class="text-sm font-semibold">{t('limusic.waiting')}</p>
 				<p class="text-xs text-muted-foreground">{t('limusic.code_hint')}</p>
+			{:else if linked}
+				<p class="truncate text-sm font-semibold">{limusic.handle}</p>
+				{#if a}
+					<p class="truncate text-xs text-muted-foreground">
+						{t('limusic.linked_points', { count: String(a.score) })}
+					</p>
+				{/if}
+			{:else if limusic.signedIn}
+				<p class="text-sm font-semibold">{t('limusic.anonymous_title')}</p>
+				{#if a}
+					<p class="truncate text-xs text-muted-foreground">
+						{t('limusic.anonymous_points', { count: String(a.score) })}
+					</p>
+				{/if}
 			{:else}
-				<p class="text-sm font-semibold">{t('limusic.signed_out')}</p>
-				<p class="text-xs text-muted-foreground">{t('limusic.hint')}</p>
+				<p class="text-sm font-semibold">{t('limusic.anonymous_none')}</p>
+				<p class="text-xs text-muted-foreground">{t('limusic.anonymous_none_hint')}</p>
 			{/if}
 		</div>
-		{#if limusic.signedIn && !renaming}
+		{#if linked && !renaming && !limusic.signingIn}
 			<Button variant="ghost" size="sm" onclick={startRename}>{t('limusic.rename')}</Button>
 			<Button variant="ghost" size="sm" class="text-destructive hover:text-destructive" onclick={signOut}>
 				{t('limusic.sign_out')}
@@ -110,17 +123,26 @@
 		<div class="border-t border-border/60 px-4 py-4 text-center">
 			<p class="font-mono text-2xl font-semibold tracking-widest">{limusic.signingIn.code}</p>
 		</div>
-	{:else if limusic.signedIn && a}
+	{:else if linked && a}
 		<p class="border-t border-border/60 px-4 py-3 text-xs text-muted-foreground">
 			{a.can_review ? t('limusic.reviewer') : a.trusted ? t('limusic.trusted') : t('limusic.untrusted')}
 		</p>
-	{:else if !limusic.signedIn}
-		<div class="flex flex-wrap gap-2 border-t border-border/60 px-4 py-3">
-			{#each limusic.providers as p (p)}
-				<Button size="sm" variant="outline" onclick={() => signIn(p)}>
-					{t('limusic.sign_in_with', { provider: providerName(p) })}
-				</Button>
-			{/each}
+	{:else if unlinked}
+		<div class="space-y-2 border-t border-border/60 px-4 py-3 text-xs text-muted-foreground">
+			<p>{t('limusic.intro')}</p>
+			{#if limusic.providers.length}
+				<p>{t('limusic.link_benefits')}</p>
+				<p>{t('limusic.link_shares')}</p>
+			{/if}
 		</div>
+		{#if limusic.providers.length}
+			<div class="flex flex-wrap gap-2 border-t border-border/60 px-4 py-3">
+				{#each limusic.providers as p (p)}
+					<Button size="sm" variant="outline" onclick={() => signIn(p)}>
+						{t('limusic.link_with', { provider: providerName(p) })}
+					</Button>
+				{/each}
+			</div>
+		{/if}
 	{/if}
 </div>

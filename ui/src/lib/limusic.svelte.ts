@@ -3,16 +3,19 @@
 import * as api from '$lib/api';
 import { toast } from '$lib/player.svelte';
 import { t, type TranslationKey } from '$lib/i18n.svelte';
-import { accountErrorKey } from './limusic';
+import { accountErrorKey, signInErrorKey } from './limusic';
 
 export const limusic = $state({
 	/** Whether "Sync lyrics" / "Improve these lyrics" and the account card are offered at all: the
-	 *  service lists at least one sign-in provider. False until it has said so, which is also what
-	 *  it stays while the service has no accounts yet or can't be reached. */
+	 *  service says it has anonymous accounts. False until it has said so, which is also what it
+	 *  stays for an older service or one that can't be reached. */
 	available: false,
+	/** The identities that can be linked. */
 	providers: [] as string[],
+	/** There is a session. An anonymous one counts, and has no handle. */
 	signedIn: false,
 	handle: null as string | null,
+	anonymous: false,
 	account: null as api.LimusicAccount | null,
 	/** The provider a sign-in is waiting on, and the code its confirm page should show. */
 	signingIn: null as { provider: string; code: string } | null
@@ -21,6 +24,7 @@ export const limusic = $state({
 function apply(s: api.LimusicAccountState) {
 	limusic.signedIn = s.signed_in;
 	limusic.handle = s.handle ?? null;
+	limusic.anonymous = s.anonymous;
 	if (!s.signed_in) limusic.account = null;
 }
 
@@ -29,8 +33,8 @@ function apply(s: api.LimusicAccountState) {
 export function watchLimusic(): () => void {
 	api.limusicProviders()
 		.then((p) => {
-			limusic.providers = p;
-			limusic.available = p.length > 0;
+			limusic.providers = p.providers;
+			limusic.available = p.anonymous;
 		})
 		.catch(() => {});
 	api.limusicStatus().then(apply).catch(() => {});
@@ -39,7 +43,7 @@ export function watchLimusic(): () => void {
 		limusic.signingIn = null;
 		apply(s);
 		if (s.error) toast.error(t(accountErrorKey(s.error)));
-		else if (s.signed_in && waiting) toast.success(t('limusic.signed_in_toast', { handle: s.handle ?? '' }));
+		else if (s.signed_in && s.handle && waiting) toast.success(t('limusic.signed_in_toast', { handle: s.handle }));
 		if (s.signed_in) refreshAccount();
 	});
 	return () => void sub.then((u) => u());
@@ -52,6 +56,7 @@ export async function refreshAccount() {
 		if (a) {
 			limusic.account = a;
 			limusic.handle = a.handle;
+			limusic.anonymous = a.anonymous;
 		}
 	} catch {
 		// Unreachable: the stored name is shown as it is.
@@ -62,7 +67,7 @@ export async function signIn(provider: string) {
 	try {
 		limusic.signingIn = { provider, code: await api.limusicSignIn(provider) };
 	} catch (e) {
-		toast.error(String(e));
+		toast.error(t(signInErrorKey(String(e))));
 	}
 }
 
@@ -81,11 +86,16 @@ export async function rename(handle: string): Promise<TranslationKey | null> {
 		const a = await api.limusicRename(handle);
 		limusic.account = a;
 		limusic.handle = a.handle;
+		limusic.anonymous = a.anonymous;
 		return null;
 	} catch (e) {
 		return accountErrorKey(String(e));
 	}
 }
+
+/** The song's live revision now, for keeping a draft on top of a newer version. Throws when the
+ *  service can't be asked. */
+export const liveRevision = (videoId: string) => api.limusicLiveRevision(videoId);
 
 /** A finished lyric on its way to `POST /v1/lyrics/{video_id}/revisions`. */
 export interface LyricsSubmission {

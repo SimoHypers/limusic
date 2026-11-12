@@ -1314,7 +1314,9 @@ export const lyricsEditorStart = (t: LyricsTrack) =>
 	});
 // --- Limusic Lyrics account (`limusic.rs`) ---
 export interface LimusicAccount {
-	handle: string;
+	/** Null while the account is anonymous: it has no public name. */
+	handle: string | null;
+	anonymous: boolean;
 	avatar_url: string | null;
 	score: number;
 	joined_at: number;
@@ -1323,16 +1325,26 @@ export interface LimusicAccount {
 	can_review: boolean;
 }
 export interface LimusicAccountState {
+	/** There is a session: an anonymous one counts. */
 	signed_in: boolean;
 	handle: string | null;
+	/** The session is an anonymous account (no handle). */
+	anonymous: boolean;
 	/** A code (`expired`, `banned`, `failed`, `session_ended`) when a sign-in or a session ended badly. */
 	error?: string | null;
 }
-/** The providers the service has configured. Empty: it has no accounts (yet) or isn't reachable. */
-export const limusicProviders = () => invoke<string[]>('limusic_providers');
+export interface LimusicProviders {
+	/** The identities that can be linked. May be empty. */
+	providers: string[];
+	/** The service has anonymous accounts: the gate for contributing at all. False for an older
+	 *  service, a 404 or no connection. */
+	anonymous: boolean;
+}
+export const limusicProviders = () => invoke<LimusicProviders>('limusic_providers');
 export const limusicStatus = () => invoke<LimusicAccountState>('limusic_status');
-/** Opens the browser; resolves with the code to compare with the confirm page. The outcome arrives
- *  through `onLimusicAccount`. */
+/** Opens the browser; resolves with the code to compare with the confirm page. With an anonymous
+ *  session the identity is linked to it, with none a linked account is made. The outcome arrives
+ *  through `onLimusicAccount`. Rejects with a code (`rate_limited`, `unavailable`, ...). */
 export const limusicSignIn = (provider: string) => invoke<string>('limusic_sign_in', { provider });
 export const limusicCancel = () => invoke<void>('limusic_cancel');
 export const limusicSignOut = () => invoke<void>('limusic_sign_out');
@@ -1356,6 +1368,10 @@ export type LimusicSubmitted =
 	| { kind: 'failed'; code: string; detail: string | null };
 export const limusicSubmit = (submission: LimusicSubmission) =>
 	invoke<LimusicSubmitted>('limusic_submit', { submission });
+/** The song's live revision on the service now, null when it has no live lyric. Rejects when the
+ *  service can't be asked. */
+export const limusicLiveRevision = (videoId: string) =>
+	invoke<number | null>('limusic_live_revision', { videoId });
 /** A pasted or picked lyric file (TTML, eLRC, LRC) as lines, by the parsers the providers use.
  *  Empty for plain text. Rejects with `too_large` over 1 MB. */
 export const lyricsParse = (text: string) => invoke<LyricLine[]>('lyrics_parse', { text });

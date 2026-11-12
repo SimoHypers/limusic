@@ -1356,6 +1356,7 @@ pub fn run() {
             commands::limusic_me,
             commands::limusic_rename,
             commands::limusic_submit,
+            commands::limusic_live_revision,
             commands::lyrics_parse,
             commands::lastfm_connect,
             commands::lastfm_disconnect,

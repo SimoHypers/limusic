@@ -58,7 +58,7 @@
 	import { np, playAt, playback, seekTo, toast, ui } from '$lib/player.svelte';
 	import { inRoom } from '$lib/lt.svelte';
 	import { link } from '$lib/link.svelte';
-	import { limusic, submitLyrics } from '$lib/limusic.svelte';
+	import { liveRevision, submitLyrics } from '$lib/limusic.svelte';
 	import { submitMessage } from '$lib/limusic';
 	import { t } from '$lib/i18n.svelte';
 	import { keyOf, typing } from '$lib/shortcuts';
@@ -515,17 +515,15 @@
 	let submitting = $state(false);
 	/** What the service said to a submission that didn't go through, until the next try. */
 	let notice = $state('');
-	function openAccountSettings() {
-		ui.settingsFocus = 'limusic';
-		ui.settingsOpen = true;
-	}
+	/** The song's lyrics changed under the draft: the notice offers the new version or keeping this one. */
+	let stale = $state(false);
 	async function submit() {
 		if (!track || !ready(miss) || submitting) return;
 		commitField();
 		flush();
-		if (!limusic.signedIn) return openAccountSettings();
 		submitting = true;
 		notice = '';
+		stale = false;
 		try {
 			const outcome = await submitLyrics({
 				videoId: track.videoId,
@@ -549,10 +547,25 @@
 				return;
 			}
 			notice = text;
-			if (m.needsAccount) openAccountSettings();
+			stale = m.stale === true;
 		} finally {
 			submitting = false;
 		}
+	}
+
+	/** "Keep mine" after a stale answer: the draft stays as it is and is sent on top of what is
+	 *  live now. The new version is replaced by it, which is what the user asked for. */
+	async function keepMine() {
+		if (!track || submitting) return;
+		try {
+			baseRevision = await liveRevision(track.videoId);
+		} catch {
+			notice = t('lyrics_editor.err_unavailable');
+			stale = false;
+			return;
+		}
+		flush();
+		await submit();
 	}
 
 	const previewLyrics = $derived<api.Lyrics>({
@@ -784,7 +797,15 @@
 			<div class="{CARD} flex items-center gap-3 px-4 py-3 text-sm" role="status">
 				<HugeiconsIcon icon={Alert02Icon} class="h-4 w-4 shrink-0 text-muted-foreground" />
 				<p class="min-w-0 flex-1 leading-relaxed">{notice}</p>
-				<Button size="sm" variant="ghost" onclick={() => (notice = '')}>{t('common.close')}</Button>
+				{#if stale}
+					<Button size="sm" variant="outline" onclick={() => (discardOpen = true)}>
+						{t('lyrics_editor.stale_load')}
+					</Button>
+					<Button size="sm" disabled={submitting} onclick={keepMine}>{t('lyrics_editor.stale_keep')}</Button>
+				{/if}
+				<Button size="sm" variant="ghost" onclick={() => ((notice = ''), (stale = false))}>
+					{t('common.close')}
+				</Button>
 			</div>
 		{/if}
 		{#if blocked || !onTrack || saveFailed}
