@@ -506,9 +506,13 @@ pub async fn submit(state: &AppState, s: Submission) -> Submitted {
             }
         }
     }
-    if matches!(result, Submitted::Published { .. }) {
+    if let Submitted::Published { revision } = &result {
         // The lyric is live: the next look at this song shows it, not the old cached one.
-        let answer = crate::lyrics::LimusicAnswer { origin: "community".into(), lines: s.lines };
+        let answer = crate::lyrics::LimusicAnswer {
+            origin: "community".into(),
+            revision: Some(*revision),
+            lines: s.lines,
+        };
         if let Some(mut l) = crate::lyrics::limusic_to_lyrics(answer) {
             l.provider = "limusic".into();
             if let Ok(json) = serde_json::to_string(&l) {
@@ -590,7 +594,11 @@ struct RawRevision {
 
 fn parse_revision(body: Value) -> Option<Revision> {
     let r: RawRevision = serde_json::from_value(body).ok()?;
-    let answer = crate::lyrics::LimusicAnswer { origin: "community".into(), lines: r.lines };
+    let answer = crate::lyrics::LimusicAnswer {
+        origin: "community".into(),
+        revision: Some(r.revision),
+        lines: r.lines,
+    };
     Some(Revision {
         revision: r.revision,
         video_id: r.video_id,

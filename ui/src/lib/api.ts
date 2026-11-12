@@ -1276,6 +1276,8 @@ export interface Lyrics {
 	pinned: boolean;
 	/** Timing nudge in ms, positive = lyrics later. */
 	offset_ms: number;
+	/** Limusic's revision of the lyric. Absent from every other source. */
+	revision?: number;
 }
 // A type, not an interface: `invoke` takes a record, and only a type alias is assignable to one.
 export type LyricsTrack = {
@@ -1351,6 +1353,10 @@ export const limusicSignOut = () => invoke<void>('limusic_sign_out');
 export const limusicMe = () => invoke<LimusicAccount | null>('limusic_me');
 /** Rejects with the service's code: `taken`, `invalid`, `rate_limited`, `unauthorized`. */
 export const limusicRename = (handle: string) => invoke<LimusicAccount>('limusic_rename', { handle });
+/** A cached lyric was replaced behind the one on screen (a newer Limusic revision, or Limusic has
+ *  the song now, or its lyric was taken down). The payload is the video id: ask again. */
+export const onLyricsUpdated = (cb: (videoId: string) => void): Promise<UnlistenFn> =>
+	listen<string>('lyrics-updated', (e) => cb(e.payload));
 export const onLimusicAccount = (cb: (s: LimusicAccountState) => void): Promise<UnlistenFn> =>
 	listen<LimusicAccountState>('limusic-account', (e) => cb(e.payload));
 export interface LimusicSubmission {

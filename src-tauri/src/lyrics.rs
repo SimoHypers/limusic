@@ -23,21 +23,34 @@
 //! the same way, at the cost of waiting on every provider for a song nobody has word-timed.
 //!
 //! Results are cached in SQLite (`lyrics_cache`): hits forever, "no lyrics" verdicts for 24h.
+//! A cached hit is shown as it is and brought up to date behind it (`refresh_stale`): Limusic's
+//! own lyric is checked for a newer revision once a day, any other one asks Limusic once a week
+//! whether it has the song by now.
 //! A run where every provider merely *errored* (offline) caches nothing, so lyrics come back
 //! when the network does. A song's source picked by hand in the lyrics footer (`choose_source`),
 //! or its timing nudged (`set_offset`), is `pinned` and outlives a change to the order.
 //! Everything is best-effort: a lyrics failure is never a user error.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::stream::{FuturesOrdered, StreamExt};
 use innertube::NextResult;
 use serde::{Deserialize, Serialize};
+use tauri::{Emitter, Manager};
 
+use crate::db::Db;
 use crate::state::AppState;
 
 /// How long a cached "no lyrics found" verdict suppresses refetching.
 const MISS_TTL_SECS: i64 = 24 * 3600;
+
+/// How old a cached Limusic lyric gets before its revision is looked at again: an edit approved
+/// since should reach the people who already have the song.
+const RECHECK_LIMUSIC_SECS: i64 = 24 * 3600;
+
+/// How old any other cached lyric gets before Limusic is asked whether it has the song by now.
+const RECHECK_OTHER_SECS: i64 = 7 * 24 * 3600;
 
 /// How far apart `fetch` starts the providers. A first answer takes ~0.4-0.7s (timed 2026-10-16),
 /// so a hit at the top of the list usually sends one or two requests below it, and a miss
@@ -112,7 +125,7 @@ pub fn providers(state: &AppState) -> Vec<ProviderInfo> {
         .collect()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LyricWord {
     pub text: String,
     pub start_ms: u64,
@@ -123,7 +136,7 @@ pub struct LyricWord {
 }
 
 /// One display line. `time_ms` present ⇔ the line is synced (a plain-lyrics response has none).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct LyricLine {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub time_ms: Option<u64>,
@@ -171,6 +184,10 @@ pub struct Lyrics {
     /// Timing nudge for this song in ms, positive = lyrics later.
     #[serde(default)]
     pub offset_ms: i64,
+    /// Limusic's revision of the lyric, which is what `refresh_stale` asks about. `None` from any
+    /// other source, and in a row cached before it was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<i64>,
 }
 
 pub struct LyricsRequest {
@@ -282,11 +299,14 @@ pub fn set_offset(state: &AppState, video_id: &str, offset_ms: i64) {
 async fn cached_or_fetched(state: &AppState, req: LyricsRequest) -> Option<Lyrics> {
     let now = now_secs();
     let video_id = req.video_id.clone();
-    if let Some(cached) = state.db.get_lyrics(&video_id, now, MISS_TTL_SECS) {
+    if let Some((cached, at)) = state.db.get_lyrics_row(&video_id, now, MISS_TTL_SECS) {
         let cached = cached.and_then(|json| serde_json::from_str::<Lyrics>(&json).ok());
         // Cached before `ask` caught one-cue lyrics (#539): ask the chain again, unless the
         // source was picked by hand, which stays and reads as plain.
         if !cached.as_ref().is_some_and(|l| is_flat(l) && !l.pinned) {
+            if let Some(l) = &cached {
+                refresh_stale(state, &req, l, now - at);
+            }
             return cached.map(unsync_flat);
         }
     }
@@ -296,6 +316,110 @@ async fn cached_or_fetched(state: &AppState, req: LyricsRequest) -> Option<Lyric
         state.db.put_lyrics(&video_id, json.as_deref(), now);
     }
     lyrics
+}
+
+/// What a cached lyric is due.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Recheck {
+    /// Limusic's own lyric: has its revision moved?
+    Revision,
+    /// Another source's lyric: does Limusic have the song by now?
+    Ask,
+}
+
+/// Whether a cached lyric of this age is due a look at Limusic. Never a pinned one (picked by
+/// hand or nudged: the user's, not a cache), and never with the Limusic source switched off.
+/// Another source's lyric asks only where a fresh walk down the list would pick Limusic's
+/// word-timed answer over it: Limusic sits above that source, or the lyric is one `fetch` would
+/// not have stopped at.
+fn recheck_due(
+    l: &Lyrics,
+    age_secs: i64,
+    order: &[(&'static str, bool)],
+    prefer_words: bool,
+) -> Option<Recheck> {
+    let at = |id: &str| order.iter().position(|(p, on)| *p == id && *on);
+    let limusic = at("limusic")?;
+    if l.pinned {
+        return None;
+    }
+    if l.provider == "limusic" {
+        return (age_secs > RECHECK_LIMUSIC_SECS).then_some(Recheck::Revision);
+    }
+    let wins = !settles(l, prefer_words) || at(&l.provider).map_or(true, |p| limusic < p);
+    (wins && age_secs > RECHECK_OTHER_SECS).then_some(Recheck::Ask)
+}
+
+/// Bring a cached lyric up to date behind the answer that just went to the screen: one request
+/// to Limusic, in the background, and `lyrics-updated` when what it holds differs.
+fn refresh_stale(state: &AppState, req: &LyricsRequest, cached: &Lyrics, age_secs: i64) {
+    if req.searched || !limusic_has_ids_like(&req.video_id) {
+        return;
+    }
+    let order = provider_order(state.db.get_setting("lyrics_providers").as_deref());
+    let prefer_words = state.db.get_setting("lyrics_prefer_words").as_deref() == Some("true");
+    let Some(kind) = recheck_due(cached, age_secs, &order, prefer_words) else { return };
+    // Stamped before the request leaves, not when it answers: every lyrics view asks for the song
+    // on its own, and the second one must find nothing due. It also makes this one request per
+    // song per day at most, whatever the answer.
+    state.db.touch_lyrics(&req.video_id, now_secs());
+    let (app, id, old) = (state.app.clone(), req.video_id.clone(), cached.clone());
+    tauri::async_runtime::spawn(async move {
+        let known = old.revision.filter(|_| kind == Recheck::Revision);
+        let answer = limusic_fetch(&id, known).await.map_err(|e| e.to_string());
+        if let Err(e) = &answer {
+            tracing::debug!(error = %e, "lyrics: Limusic recheck failed");
+        }
+        let state = app.state::<Arc<AppState>>();
+        if apply_recheck(&state.db, &id, kind, &old, answer, now_secs()) {
+            tracing::debug!(video_id = %id, "lyrics: cached lyric replaced");
+            let _ = app.emit("lyrics-updated", &id);
+        }
+    });
+}
+
+/// What `refresh_stale`'s request means for the cache. True when the lyrics on screen are no
+/// longer what the cache holds, so the views should ask again.
+fn apply_recheck(
+    db: &Db,
+    video_id: &str,
+    kind: Recheck,
+    old: &Lyrics,
+    answer: Result<Fresh, String>,
+    now: i64,
+) -> bool {
+    // Pinned, nudged, replaced or cleared while the request was away: not the row that was due.
+    let row = db
+        .get_lyrics(video_id, now, MISS_TTL_SECS)
+        .flatten()
+        .and_then(|json| serde_json::from_str::<Lyrics>(&json).ok());
+    if !row.is_some_and(|r| !r.pinned && r.provider == old.provider && r.revision == old.revision) {
+        return false;
+    }
+    match answer {
+        Err(_) => {
+            // Offline is not "Limusic doesn't have it": a week is too long to wait on that.
+            if kind == Recheck::Ask {
+                db.touch_lyrics(video_id, now - RECHECK_OTHER_SECS + RECHECK_LIMUSIC_SECS);
+            }
+            false
+        }
+        Ok(Fresh::Same) => false,
+        // A reviewer took Limusic's lyric down: the next look walks the list again.
+        Ok(Fresh::Gone) if kind == Recheck::Revision => {
+            db.delete_lyrics(video_id);
+            true
+        }
+        Ok(Fresh::Gone) => false,
+        Ok(Fresh::New(new)) => {
+            let new = Lyrics { provider: "limusic".into(), ..unsync_flat(new) };
+            let changed = new.lines != old.lines || new.source != old.source;
+            if let Ok(json) = serde_json::to_string(&new) {
+                db.put_lyrics(video_id, Some(&json), now);
+            }
+            changed
+        }
+    }
 }
 
 /// One provider on its own, uncached. `next()` only when that provider needs it (YouTube's browseId)
@@ -892,34 +1016,63 @@ pub(crate) fn limusic_root() -> String {
     std::env::var("LIMUSIC_LYRICS_URL").unwrap_or_else(|_| LIMUSIC_URL.into())
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub(crate) struct LimusicAnswer {
     /// Kept a string: a value a newer server adds must not fail the parse.
     #[serde(default)]
     pub origin: String,
+    #[serde(default)]
+    pub revision: Option<i64>,
     pub lines: Vec<LyricLine>,
+}
+
+/// What Limusic says about a song.
+#[derive(Debug)]
+enum Fresh {
+    /// Still the revision that was named (a 304).
+    Same,
+    /// No lyric for the song.
+    Gone,
+    New(Lyrics),
+}
+
+/// A song the server can know: not a local file, and an id that can go into the path as it is.
+fn limusic_has_ids_like(id: &str) -> bool {
+    !id.is_empty()
+        && id.chars().all(|c| c.is_ascii_alphanumeric() || "-_".contains(c))
+        && !crate::local::is_local_song(id)
 }
 
 /// By video id only: a typed search or a local file has none that the server knows.
 async fn limusic_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Error> {
-    let id = &req.video_id;
-    // The id goes into the path as is, so anything that isn't the shape of one is not asked.
-    let plausible =
-        !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || "-_".contains(c));
-    if req.searched || crate::local::is_local_song(id) || !plausible {
+    if req.searched || !limusic_has_ids_like(&req.video_id) {
         return Ok(None);
     }
-    let resp = crate::http::client()
+    Ok(match limusic_fetch(&req.video_id, None).await? {
+        Fresh::New(l) => Some(l),
+        Fresh::Same | Fresh::Gone => None,
+    })
+}
+
+/// The song's lyric, or with `known` (the revision the cache holds) only whether it moved: the
+/// revision is the answer's ETag, so an unchanged lyric costs a 304 off Cloudflare's edge.
+async fn limusic_fetch(id: &str, known: Option<i64>) -> Result<Fresh, reqwest::Error> {
+    let mut rb = crate::http::client()
         .get(format!("{}/v1/lyrics/{id}", limusic_root().trim_end_matches('/')))
         .header("User-Agent", LRCLIB_UA)
-        .timeout(LIMUSIC_TIMEOUT)
-        .send()
-        .await?;
-    if resp.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(None);
+        .timeout(LIMUSIC_TIMEOUT);
+    if let Some(revision) = known {
+        rb = rb.header("If-None-Match", format!("\"{revision}\""));
     }
-    let answer: LimusicAnswer = resp.error_for_status()?.json().await?;
-    Ok(limusic_to_lyrics(answer))
+    let resp = rb.send().await?;
+    match resp.status() {
+        reqwest::StatusCode::NOT_FOUND => Ok(Fresh::Gone),
+        reqwest::StatusCode::NOT_MODIFIED => Ok(Fresh::Same),
+        _ => {
+            let answer: LimusicAnswer = resp.error_for_status()?.json().await?;
+            Ok(limusic_to_lyrics(answer).map_or(Fresh::Gone, Fresh::New))
+        }
+    }
 }
 
 pub(crate) fn limusic_to_lyrics(a: LimusicAnswer) -> Option<Lyrics> {
@@ -928,7 +1081,7 @@ pub(crate) fn limusic_to_lyrics(a: LimusicAnswer) -> Option<Lyrics> {
         o @ ("unison" | "boidu" | "lyricsplus") => format!("Limusic ({})", provider_name(o)),
         _ => "Limusic".into(),
     };
-    from_parsed(&source, a.lines)
+    Some(Lyrics { revision: a.revision, ..from_parsed(&source, a.lines)? })
 }
 
 /// Whether to tell Limusic about lyrics we just got from a provider it mirrors. Word-timed only,
@@ -1957,7 +2110,8 @@ mod tests {
         assert_eq!(read("boidu").source, "Limusic (Boidu)");
         assert_eq!(read("lyricsplus").source, "Limusic (LyricsPlus)");
         assert_eq!(read("something-new").source, "Limusic");
-        let empty = LimusicAnswer { origin: "community".into(), lines: vec![] };
+        assert_eq!(l.revision, Some(3));
+        let empty = LimusicAnswer { origin: "community".into(), ..Default::default() };
         assert!(limusic_to_lyrics(empty).is_none());
     }
 
@@ -1986,6 +2140,172 @@ mod tests {
         assert_eq!(lrc.iter().map(|l| l.time_ms).collect::<Vec<_>>(), [Some(1000), Some(2000)]);
         assert!(parse_file("Just a line\nand another").unwrap().is_empty());
         assert_eq!(parse_file(&"a".repeat(FILE_MAX_BYTES + 1)).unwrap_err(), "too_large");
+    }
+
+    fn cached(provider: &str, words: bool) -> Lyrics {
+        Lyrics {
+            source: provider.into(),
+            provider: provider.into(),
+            synced: true,
+            lines: vec![LyricLine {
+                words: words.then(|| {
+                    vec![LyricWord { text: "a".into(), start_ms: 5, end_ms: 9, bg: false }]
+                }),
+                ..LyricLine::simple(Some(0), "a".into())
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_cached_lyric_is_rechecked_when_it_is_old_enough_and_limusic_could_win() {
+        const DAY: i64 = 24 * 3600;
+        let order = provider_order(None);
+        let due = |l: &Lyrics, age| recheck_due(l, age, &order, false);
+        // Limusic's own: by revision, after a day.
+        let ours = cached("limusic", true);
+        assert_eq!(due(&ours, DAY - 1), None);
+        assert_eq!(due(&ours, DAY + 1), Some(Recheck::Revision));
+        // Anything else: after a week.
+        let theirs = cached("lrclib", false);
+        assert_eq!(due(&theirs, 6 * DAY), None);
+        assert_eq!(due(&theirs, 7 * DAY + 1), Some(Recheck::Ask));
+        // Pinned (picked by hand, or nudged) is never touched, whatever its age or source.
+        for provider in ["limusic", "lrclib"] {
+            let pinned = Lyrics { pinned: true, ..cached(provider, true) };
+            assert_eq!(due(&pinned, 400 * DAY), None, "{provider}");
+        }
+        // The Limusic source switched off is the off switch for this too.
+        let off = provider_order(Some("-limusic"));
+        assert_eq!(recheck_due(&ours, 9 * DAY, &off, false), None);
+        assert_eq!(recheck_due(&theirs, 9 * DAY, &off, false), None);
+        // Below a source whose synced lyric a fresh walk would stop at, Limusic can't win.
+        let below = provider_order(Some("lrclib,limusic"));
+        assert_eq!(recheck_due(&theirs, 9 * DAY, &below, false), None);
+        // Unless that lyric is one the walk would not have stopped at: line-synced with word
+        // timing preferred, or plain.
+        assert_eq!(recheck_due(&theirs, 9 * DAY, &below, true), Some(Recheck::Ask));
+        let plain = Lyrics { synced: false, ..cached("lrclib", false) };
+        assert_eq!(recheck_due(&plain, 9 * DAY, &below, false), Some(Recheck::Ask));
+        // A row from before the provider was kept.
+        assert_eq!(due(&cached("", false), 9 * DAY), Some(Recheck::Ask));
+    }
+
+    #[test]
+    fn a_recheck_replaces_the_cache_only_for_a_newer_or_new_answer() {
+        const NOW: i64 = 1_000_000;
+        let path = std::env::temp_dir().join("limusic-lyrics-recheck-test.sqlite");
+        std::fs::remove_file(&path).ok();
+        let db = Db::open(&path).unwrap();
+        let put = |id: &str, l: &Lyrics| {
+            db.put_lyrics(id, Some(&serde_json::to_string(l).unwrap()), 5);
+        };
+        let row = |id: &str| {
+            db.get_lyrics_row(id, NOW, MISS_TTL_SECS)
+                .map(|(json, at)| (serde_json::from_str::<Lyrics>(&json.unwrap()).unwrap(), at))
+        };
+        let ours = Lyrics { revision: Some(3), ..cached("limusic", true) };
+        let newer = || Lyrics {
+            revision: Some(4),
+            lines: vec![
+                LyricLine::simple(Some(7), "b".into()),
+                LyricLine::simple(Some(9), "c".into()),
+            ],
+            ..cached("Limusic", true)
+        };
+
+        // Unchanged (a 304), or no answer: the row stays as it is.
+        put("same", &ours);
+        assert!(!apply_recheck(&db, "same", Recheck::Revision, &ours, Ok(Fresh::Same), NOW));
+        assert!(!apply_recheck(&db, "same", Recheck::Revision, &ours, Err("x".into()), NOW));
+        assert_eq!(row("same").unwrap().0.revision, Some(3));
+
+        // A newer revision replaces it, and the views are told.
+        assert!(apply_recheck(&db, "same", Recheck::Revision, &ours, Ok(Fresh::New(newer())), NOW));
+        let (l, at) = row("same").unwrap();
+        assert_eq!(
+            (l.revision, l.provider.as_str(), l.lines[0].text.as_str(), at),
+            (Some(4), "limusic", "b", NOW)
+        );
+
+        // The same lines under a revision the old row didn't know: kept, nothing to redraw.
+        let unnumbered = Lyrics { revision: None, ..ours.clone() };
+        put("old-row", &unnumbered);
+        let again = Lyrics { source: "limusic".into(), ..ours.clone() };
+        assert!(!apply_recheck(
+            &db,
+            "old-row",
+            Recheck::Revision,
+            &unnumbered,
+            Ok(Fresh::New(again)),
+            NOW
+        ));
+        assert_eq!(row("old-row").unwrap().0.revision, Some(3));
+
+        // Taken down: forgotten, so the next look walks the list.
+        put("gone", &ours);
+        assert!(apply_recheck(&db, "gone", Recheck::Revision, &ours, Ok(Fresh::Gone), NOW));
+        assert!(row("gone").is_none());
+
+        // Another source's lyric: a miss leaves it, a hit replaces it, no answer asks again in a day.
+        let theirs = cached("lrclib", false);
+        put("other", &theirs);
+        assert!(!apply_recheck(&db, "other", Recheck::Ask, &theirs, Ok(Fresh::Gone), NOW));
+        assert_eq!(row("other").unwrap().0.provider, "lrclib");
+        assert!(!apply_recheck(&db, "other", Recheck::Ask, &theirs, Err("offline".into()), NOW));
+        assert_eq!(row("other").unwrap().1, NOW - RECHECK_OTHER_SECS + RECHECK_LIMUSIC_SECS);
+        assert!(apply_recheck(&db, "other", Recheck::Ask, &theirs, Ok(Fresh::New(newer())), NOW));
+        assert_eq!(row("other").unwrap().0.provider, "limusic");
+
+        // Pinned or nudged while the request was away: the answer is dropped.
+        put("pinned", &Lyrics { pinned: true, offset_ms: 120, ..ours.clone() });
+        assert!(!apply_recheck(
+            &db,
+            "pinned",
+            Recheck::Revision,
+            &ours,
+            Ok(Fresh::New(newer())),
+            NOW
+        ));
+        assert!(!apply_recheck(&db, "pinned", Recheck::Revision, &ours, Ok(Fresh::Gone), NOW));
+        let (l, _) = row("pinned").unwrap();
+        assert_eq!((l.revision, l.offset_ms), (Some(3), 120));
+        // Cleared meanwhile: nothing comes back.
+        assert!(!apply_recheck(
+            &db,
+            "cleared",
+            Recheck::Ask,
+            &theirs,
+            Ok(Fresh::New(newer())),
+            NOW
+        ));
+        assert!(row("cleared").is_none());
+
+        // The stamp moves without the lyric, and a "no lyrics" verdict keeps its own.
+        db.put_lyrics("miss", None, 5);
+        db.touch_lyrics("miss", 99);
+        db.touch_lyrics("same", 99);
+        assert_eq!(db.get_lyrics_row("miss", 6, MISS_TTL_SECS), Some((None, 5)));
+        assert_eq!(row("same").unwrap().1, 99);
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// Against a local copy of the service, after `limusic::tests::local_service` has published
+    /// a lyric for AAAAAAAAAAA there (same command, same environment):
+    #[tokio::test]
+    #[ignore = "needs a local lyrics server"]
+    async fn local_service_recheck() {
+        let Fresh::New(l) = limusic_fetch("AAAAAAAAAAA", None).await.unwrap() else {
+            panic!("the song has a lyric");
+        };
+        let revision = l.revision.expect("the answer names its revision");
+        assert!(matches!(limusic_fetch("AAAAAAAAAAA", Some(revision)).await, Ok(Fresh::Same)));
+        assert!(matches!(
+            limusic_fetch("AAAAAAAAAAA", Some(revision - 1)).await,
+            Ok(Fresh::New(_))
+        ));
+        assert!(matches!(limusic_fetch("ZZZZZZZZZZZ", None).await, Ok(Fresh::Gone)));
+        assert!(matches!(limusic_fetch("ZZZZZZZZZZZ", Some(1)).await, Ok(Fresh::Gone)));
     }
 
     #[test]

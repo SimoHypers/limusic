@@ -145,6 +145,37 @@
 	// videoId of the fetch whose result is (or will be) shown — guards stale responses.
 	let requested = '';
 
+	const ask = (now: NonNullable<typeof playback.now>) =>
+		api.getLyrics({
+			videoId: now.videoId,
+			title: now.title,
+			artists: now.artists,
+			// From now-playing, not the queue row: on a gapless advance the queue event lands after
+			// this one, and the previous song's album makes Boidu and LRCLIB miss.
+			album: now.album ?? undefined,
+			// The track's own length — NOT playback.duration, which still holds the previous
+			// track's value for a moment after a track change.
+			duration: durationSecs(now.duration)
+		});
+
+	// The cache brought this song's lyrics up to date behind the ones on screen (`refresh_stale`):
+	// swap them in where they are, with no loading state and no jump.
+	$effect(() => {
+		if (preview) return;
+		const sub = api.onLyricsUpdated((id) => {
+			const now = playback.now;
+			if (!now || now.videoId !== id || requested !== id) return;
+			ask(now)
+				.then((l) => {
+					if (requested !== id) return;
+					lyrics = l;
+					missing = !l || l.instrumental;
+				})
+				.catch(() => {});
+		});
+		return () => void sub.then((u) => u());
+	});
+
 	$effect(() => {
 		if (preview) {
 			requested = '';
@@ -163,17 +194,7 @@
 		const id = (requested = now.videoId);
 		loading = true;
 		lyrics = null;
-		api.getLyrics({
-			videoId: id,
-			title: now.title,
-			artists: now.artists,
-			// From now-playing, not the queue row: on a gapless advance the queue event lands after
-			// this one, and the previous song's album makes Boidu and LRCLIB miss.
-			album: now.album ?? undefined,
-			// The track's own length — NOT playback.duration, which still holds the previous
-			// track's value for a moment after a track change.
-			duration: durationSecs(now.duration)
-		})
+		ask(now)
 			.then((l) => {
 				if (requested !== id) return;
 				lyrics = l;
