@@ -224,6 +224,7 @@ function Nav({ stars }: { stars: number | null }) {
           <a href="#screens" className="transition-colors hover:text-foreground">Screens</a>
           <a href="#android" className="transition-colors hover:text-foreground">Android</a>
           <a href="#download" className="transition-colors hover:text-foreground">Download</a>
+          <a href="lyrics/" className="transition-colors hover:text-foreground">Lyrics</a>
         </div>
         <a
           href={REPO_URL}
@@ -617,6 +618,9 @@ function Footer() {
           </a>
           <a href={ANDROID_REPO_URL} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 transition-colors hover:text-foreground">
             <HugeiconsIcon icon={AndroidIcon} size={15} strokeWidth={2} /> Android source
+          </a>
+          <a href="lyrics/" className="flex items-center gap-1.5 transition-colors hover:text-foreground">
+            <HugeiconsIcon icon={QuoteDownIcon} size={15} strokeWidth={2} /> Lyrics leaderboard
           </a>
           <a href={WEBLATE_URL} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 transition-colors hover:text-foreground">
             <HugeiconsIcon icon={TranslateIcon} size={15} strokeWidth={2} /> Translate
