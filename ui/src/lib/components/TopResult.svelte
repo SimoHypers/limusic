@@ -3,7 +3,9 @@
 	// artwork large, the title at display size, a play button that does the right thing for the
 	// kind, and the few rows YouTube pairs with it (an artist's hits, a song's other takes).
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { MusicNote01Icon, PlayIcon, UserIcon } from '@hugeicons/core-free-icons';
+	import { PlayIcon } from '@hugeicons/core-free-icons';
+	import LogoMark from './LogoMark.svelte';
+	import LimusicLoader from './LimusicLoader.svelte';
 	import type { BrowseItem } from '$lib/api';
 	import { asSong, openItem, playItem } from '$lib/browse';
 	import { openAddToPlaylist, playSong, playback, startRadio } from '$lib/player.svelte';
@@ -86,7 +88,7 @@
 			title={item.subtitle ? `${item.title} • ${item.subtitle}` : item.title}
 		>
 			<div
-				class="flex h-28 w-28 shrink-0 items-center justify-center overflow-hidden bg-muted text-muted-foreground/50 shadow-xl {round
+				class="flex h-28 w-28 shrink-0 items-center justify-center overflow-hidden bg-muted text-muted-foreground/20 shadow-xl {round
 					? 'rounded-full'
 					: 'rounded-xl'}"
 			>
@@ -99,7 +101,7 @@
 						onerror={() => (attempt = attempt === 0 && sized !== item.thumbnail ? 1 : 2)}
 					/>
 				{:else}
-					<HugeiconsIcon icon={round ? UserIcon : MusicNote01Icon} class="h-9 w-9" />
+					<LogoMark class="size-3/4" />
 				{/if}
 			</div>
 			<div class="min-w-0">
@@ -121,13 +123,16 @@
 		</div>
 		<button
 			class="flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 active:scale-95"
-			class:animate-pulse={busy}
 			disabled={busy}
 			aria-label={item.kind === 'artist' ? t('player.start_radio') : t('player.play')}
 			title={item.kind === 'artist' ? t('player.start_radio') : t('player.play')}
 			onclick={play}
 		>
-			<HugeiconsIcon icon={PlayIcon} class="h-5 w-5" />
+			{#if busy}
+				<LimusicLoader class="size-8 text-primary-foreground" />
+			{:else}
+				<HugeiconsIcon icon={PlayIcon} class="h-5 w-5" />
+			{/if}
 		</button>
 		<ItemMenu
 			{item}

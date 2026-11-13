@@ -11,7 +11,6 @@
 		Minimize01Icon,
 		FullScreenIcon,
 		Mic01Icon,
-		MusicNote01Icon,
 		PlayIcon,
 		PauseIcon,
 		Queue01Icon,
@@ -20,6 +19,7 @@
 		VolumeHighIcon,
 		VolumeMute02Icon
 	} from '@hugeicons/core-free-icons';
+	import LogoMark from './LogoMark.svelte';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import * as api from '$lib/api';
 	import {
@@ -370,9 +370,9 @@
 		/>
 	{:else}
 		<div
-			class="flex aspect-square w-full items-center justify-center rounded-2xl bg-muted text-muted-foreground/40"
+			class="flex aspect-square w-full items-center justify-center rounded-2xl bg-muted text-muted-foreground/20"
 		>
-			<HugeiconsIcon icon={MusicNote01Icon} class="h-16 w-16" />
+			<LogoMark class="size-3/4" />
 		</div>
 	{/if}
 {/snippet}

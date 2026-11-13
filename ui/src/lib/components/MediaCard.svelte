@@ -1,11 +1,8 @@
 <script lang="ts">
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import {
-		PlayIcon,
-		MusicNote01Icon,
-		UserIcon,
-		ListRestartIcon
-	} from '@hugeicons/core-free-icons';
+	import { PlayIcon, ListRestartIcon } from '@hugeicons/core-free-icons';
+	import LogoMark from './LogoMark.svelte';
+	import LimusicLoader from './LimusicLoader.svelte';
 	import { ON_REPEAT_ID } from '$lib/api';
 	import type { BrowseItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
@@ -104,42 +101,31 @@
 					? 'rounded-full'
 					: 'rounded-lg'}"
 			>
-				{#if item.thumbnail && attempt < 2 && !onRepeat}
-					<!-- No hover zoom (#341). On Chromium (WebView2) a transform transition is a
-					     composited animation, and each one starting or ending re-layerizes the whole
-					     page, so sweeping the pointer across a shelf did it on every card. Home top,
-					     perf/scroll.mjs at 4x CPU, hovering: 46-52% of frames over 20 ms in 1.0.0, 7-9%
-					     without this, StackCard's lift and the art-wash promotion. Fades are cheap
-					     enough to keep. -->
-					<img
-						{src}
-						{srcset}
-						alt=""
-						class="h-full w-full object-cover"
-						loading="lazy"
-						draggable="false"
-						onerror={imgFailed}
-					/>
-				{:else}
-					<div
-						class="flex h-full w-full items-center justify-center {onRepeat
-							? 'bg-primary/10 text-primary'
-							: 'text-muted-foreground/50'}"
-					>
-						<!-- altIcon/showAlt, not a third ternary: `icon` is read once at mount. -->
-						<HugeiconsIcon
-							icon={round ? UserIcon : MusicNote01Icon}
-							altIcon={ListRestartIcon}
-							showAlt={onRepeat}
-							class={onRepeat
-								? compact
-									? 'h-7 w-7'
-									: 'h-10 w-10'
-								: compact
-									? 'h-5 w-5'
-									: 'h-7 w-7'}
-						/>
+				{#if onRepeat}
+					<div class="flex h-full w-full items-center justify-center bg-primary/10 text-primary">
+						<HugeiconsIcon icon={ListRestartIcon} class={compact ? 'h-7 w-7' : 'h-10 w-10'} />
 					</div>
+				{:else}
+					<!-- The logo sits under the cover: it shows while the cover loads, and stays when
+					     there is none. ponytail: a cover with transparency shows it through. -->
+					<LogoMark class="absolute inset-0 m-auto size-3/4 text-muted-foreground/20" />
+					{#if item.thumbnail && attempt < 2}
+						<!-- No hover zoom (#341). On Chromium (WebView2) a transform transition is a
+						     composited animation, and each one starting or ending re-layerizes the whole
+						     page, so sweeping the pointer across a shelf did it on every card. Home top,
+						     perf/scroll.mjs at 4x CPU, hovering: 46-52% of frames over 20 ms in 1.0.0, 7-9%
+						     without this, StackCard's lift and the art-wash promotion. Fades are cheap
+						     enough to keep. -->
+						<img
+							{src}
+							{srcset}
+							alt=""
+							class="relative h-full w-full object-cover"
+							loading="lazy"
+							draggable="false"
+							onerror={imgFailed}
+						/>
+					{/if}
 				{/if}
 				{#if item.live}
 					<div class="absolute left-2 top-2"><LiveBadge onArt /></div>
@@ -151,7 +137,7 @@
 						class="absolute flex cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-lg transition-opacity duration-200 ease-out group-hover:opacity-100 focus-visible:opacity-100 {compact
 							? 'bottom-1.5 right-1.5 h-7 w-7'
 							: 'bottom-2 right-2 h-9 w-9'}"
-						class:animate-pulse={playing}
+						class:opacity-100={playing}
 						disabled={playing}
 						aria-label={t('player.play')}
 						onclick={(e) => {
@@ -159,7 +145,11 @@
 							playNow();
 						}}
 					>
-						<HugeiconsIcon icon={PlayIcon} class={compact ? 'h-3 w-3' : 'h-4 w-4'} />
+						{#if playing}
+							<LimusicLoader class="{compact ? 'size-5' : 'size-6'} text-primary-foreground" />
+						{:else}
+							<HugeiconsIcon icon={PlayIcon} class={compact ? 'h-3 w-3' : 'h-4 w-4'} />
+						{/if}
 					</button>
 				{/if}
 			</div>

@@ -16,13 +16,13 @@
 		FavouriteIcon,
 		Add01Icon,
 		InfinityIcon,
-		MusicNote01Icon,
 		ArrowUp01Icon,
 		ArrowDown01Icon,
 		PreferenceVerticalIcon,
 		GoBackward15SecIcon,
 		GoForward15SecIcon
 	} from '@hugeicons/core-free-icons';
+	import LogoMark from './LogoMark.svelte';
 	import { fade } from 'svelte/transition';
 	import { goto } from '$app/navigation';
 	import { Button } from '$lib/components/ui/button';
@@ -186,9 +186,9 @@
 			{:else}
 				<div
 					data-player-art
-					class="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground/50"
+					class="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground/20"
 				>
-					<HugeiconsIcon icon={MusicNote01Icon} class="h-5 w-5" />
+					<LogoMark class="size-3/4" />
 				</div>
 			{/if}
 		{/key}

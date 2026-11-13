@@ -21,12 +21,12 @@
 		MinimizeScreenIcon,
 		CameraVideoIcon,
 		CheckmarkCircle01Icon,
-		Loading03Icon,
 		HotspotOfflineIcon,
 		UserGroup02Icon,
 		Link04Icon,
 		Settings02Icon
 	} from '@hugeicons/core-free-icons';
+	import LimusicLoader from './LimusicLoader.svelte';
 	import LastFmIcon from './LastFmIcon.svelte';
 	import DiscordIcon from './DiscordIcon.svelte';
 	import AccountMenu from './AccountMenu.svelte';
@@ -256,11 +256,7 @@
 			<span class="relative">
 				<LastFmIcon class="h-4 w-4 {connecting ? 'animate-pulse opacity-60' : ''}" />
 				{#if connecting}
-					<HugeiconsIcon
-						icon={Loading03Icon}
-						strokeWidth={2.5}
-						class="absolute -bottom-1.5 -right-2 h-3.5 w-3.5 animate-spin text-primary"
-					/>
+					<LimusicLoader class="absolute -bottom-1.5 -right-2 size-4" />
 				{:else if connected}
 					<!-- bg-background ring so the badge reads over the icon's stroke. -->
 					<HugeiconsIcon

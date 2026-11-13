@@ -10,7 +10,6 @@
 		ArrowUp01Icon,
 		Flag02Icon,
 		LinkSquare02Icon,
-		Loading03Icon,
 		MagicWand01Icon,
 		MinusSignIcon,
 		PencilEdit02Icon,
@@ -26,6 +25,7 @@
 		Timer01Icon,
 		TranslateIcon
 	} from '@hugeicons/core-free-icons';
+	import LimusicLoader from './LimusicLoader.svelte';
 	import * as Popover from '$lib/components/ui/popover';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -427,7 +427,7 @@
 						</span>
 					</span>
 					{#if busy === 'auto'}
-						<HugeiconsIcon icon={Loading03Icon} class="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+						<LimusicLoader class="size-4" />
 					{:else if !pinned}
 						<HugeiconsIcon icon={Tick02Icon} class="h-4 w-4 shrink-0 text-primary" />
 					{/if}
@@ -473,7 +473,7 @@
 							{p.name}
 						</span>
 						{#if busy === p.id}
-							<HugeiconsIcon icon={Loading03Icon} class="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+							<LimusicLoader class="size-4" />
 						{/if}
 						{#if r.status === 'loading'}
 							<span class="flex shrink-0 items-center gap-1.5">

@@ -7,7 +7,9 @@
 	// The sheets are full-size siblings behind an opaque cover, scaled narrower and lifted, so only
 	// their top strips are ever visible. Transform-only, so the fan composites.
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { PlayIcon, MusicNote01Icon, ListRestartIcon } from '@hugeicons/core-free-icons';
+	import { PlayIcon, ListRestartIcon } from '@hugeicons/core-free-icons';
+	import LogoMark from './LogoMark.svelte';
+	import LimusicLoader from './LimusicLoader.svelte';
 	import { ON_REPEAT_ID } from '$lib/api';
 	import type { BrowseItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
@@ -86,21 +88,19 @@
 					<div
 						class="flex h-full w-full items-center justify-center {onRepeat
 							? 'bg-primary/10 text-primary'
-							: 'text-muted-foreground/50'}"
+							: 'text-muted-foreground/20'}"
 					>
-						<!-- altIcon/showAlt, not a ternary: `icon` is read once at mount. -->
-						<HugeiconsIcon
-							icon={MusicNote01Icon}
-							altIcon={ListRestartIcon}
-							showAlt={onRepeat}
-							class={onRepeat ? 'h-10 w-10' : 'h-7 w-7'}
-						/>
+						{#if onRepeat}
+							<HugeiconsIcon icon={ListRestartIcon} class="h-10 w-10" />
+						{:else}
+							<LogoMark class="size-3/4" />
+						{/if}
 					</div>
 				{/if}
 				<button
 					data-card-play
 					class="absolute bottom-2 right-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-lg transition-opacity duration-200 ease-out focus-visible:opacity-100 group-hover:opacity-100"
-					class:animate-pulse={busy}
+					class:opacity-100={busy}
 					disabled={busy}
 					aria-label={t('a11y.play_item', { title: item.title })}
 					onclick={(e) => {
@@ -108,7 +108,11 @@
 						play();
 					}}
 				>
-					<HugeiconsIcon icon={PlayIcon} class="h-4 w-4" />
+					{#if busy}
+						<LimusicLoader class="size-6 text-primary-foreground" />
+					{:else}
+						<HugeiconsIcon icon={PlayIcon} class="h-4 w-4" />
+					{/if}
 				</button>
 			</div>
 		</div>

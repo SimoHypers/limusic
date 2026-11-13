@@ -33,7 +33,6 @@
 		GoForward15SecIcon,
 		Mic01Icon,
 		MinimizeScreenIcon,
-		MusicNote01Icon,
 		NextIcon,
 		PauseIcon,
 		PlayIcon,
@@ -45,6 +44,7 @@
 		VolumeHighIcon,
 		VolumeMute02Icon
 	} from '@hugeicons/core-free-icons';
+	import LogoMark from './LogoMark.svelte';
 	import * as api from '$lib/api';
 	import {
 		commitVolume,
@@ -613,9 +613,9 @@
 											/>
 										{:else}
 											<div
-												class="flex aspect-square w-full items-center justify-center rounded-2xl bg-muted text-muted-foreground/40"
+												class="flex aspect-square w-full items-center justify-center rounded-2xl bg-muted text-muted-foreground/20"
 											>
-												<HugeiconsIcon icon={MusicNote01Icon} class="h-20 w-20" />
+												<LogoMark class="size-3/4" />
 											</div>
 										{/if}
 										<!-- A hairline round the edge, so a cover that is mostly the background's
