@@ -38,7 +38,6 @@
 		Delete02Icon,
 		FileImportIcon,
 		InformationCircleIcon,
-		Loading03Icon,
 		MagicWand01Icon,
 		MergeIcon,
 		Mic01Icon,
@@ -54,6 +53,7 @@
 		UserMultiple02Icon,
 		ViewIcon
 	} from '@hugeicons/core-free-icons';
+	import LimusicLoader from '$lib/components/LimusicLoader.svelte';
 	import { Button, buttonVariants } from '$lib/components/ui/button';
 	import { Slider } from '$lib/components/ui/slider';
 	import { Switch } from '$lib/components/ui/switch';
@@ -1511,7 +1511,11 @@
 			<Dialog.Footer>
 				<Button variant="ghost" disabled={submitting} onclick={() => (sendOpen = false)}>{t('common.cancel')}</Button>
 				<Button disabled={submitting} onclick={submit}>
-					<HugeiconsIcon icon={SentIcon} altIcon={Loading03Icon} showAlt={submitting} class="size-4 {submitting ? 'animate-spin' : ''}" />
+					{#if submitting}
+						<LimusicLoader class="size-4 text-current" />
+					{:else}
+						<HugeiconsIcon icon={SentIcon} class="size-4" />
+					{/if}
 					{submitting ? t('lyrics_editor.sending') : t('lyrics_editor.submit')}
 				</Button>
 			</Dialog.Footer>

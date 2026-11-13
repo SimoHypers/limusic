@@ -7,12 +7,8 @@
 	// through to that form's onsubmit, which is where each caller decides what a full search means
 	// (run it in place, or navigate to /search).
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import {
-		Search01Icon,
-		HistoryIcon,
-		MusicNote01Icon,
-		UserIcon
-	} from '@hugeicons/core-free-icons';
+	import { Search01Icon, HistoryIcon } from '@hugeicons/core-free-icons';
+	import LogoMark from './LogoMark.svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import ExplicitIcon from './ExplicitIcon.svelte';
@@ -221,15 +217,12 @@
 							/>
 						{:else}
 							<div
-								class="flex h-10 w-10 shrink-0 items-center justify-center bg-muted text-muted-foreground/50 {item.kind ===
+								class="flex h-10 w-10 shrink-0 items-center justify-center bg-muted text-muted-foreground/20 {item.kind ===
 								'artist'
 									? 'rounded-full'
 									: 'rounded-md'}"
 							>
-								<HugeiconsIcon
-									icon={item.kind === 'artist' ? UserIcon : MusicNote01Icon}
-									class="h-5 w-5"
-								/>
+								<LogoMark class="size-3/4" />
 							</div>
 						{/if}
 						<div class="min-w-0 flex-1">

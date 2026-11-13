@@ -13,12 +13,12 @@
 		Flag02Icon,
 		InformationCircleIcon,
 		LockIcon,
-		MusicNote01Icon,
 		PencilEdit02Icon,
 		TaskDone01Icon,
 		Tick02Icon,
 		UserIcon
 	} from '@hugeicons/core-free-icons';
+	import LogoMark from '$lib/components/LogoMark.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import * as Tabs from '$lib/components/ui/tabs';
@@ -207,11 +207,11 @@
 
 {#snippet cover(item: api.LimusicQueueItem, size: string, radius = 'rounded-lg')}
 	{@const src = coverOf(item.video_id)}
-	<span class="flex shrink-0 items-center justify-center overflow-hidden bg-muted text-muted-foreground {radius}" style="width:{size};height:{size}">
+	<span class="flex shrink-0 items-center justify-center overflow-hidden bg-muted text-muted-foreground/20 {radius}" style="width:{size};height:{size}">
 		{#if src && !noCover[item.video_id]}
 			<img {src} alt="" class="size-full object-cover" draggable="false" loading="lazy" onerror={() => (noCover[item.video_id] = true)} />
 		{:else}
-			<HugeiconsIcon icon={MusicNote01Icon} class="size-5" />
+			<LogoMark class="size-3/4" />
 		{/if}
 	</span>
 {/snippet}

@@ -30,7 +30,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as RadioGroup from '$lib/components/ui/radio-group';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
-	import { Skeleton } from '$lib/components/ui/skeleton';
+	import LimusicLoader from '$lib/components/LimusicLoader.svelte';
 	import TrackRow from '$lib/components/TrackRow.svelte';
 	import TrackColumns, { chosen, loadMyPlays, myPlays } from '$lib/components/TrackColumns.svelte';
 	import { availableColumns, fitColumns } from '$lib/trackcolumns';
@@ -40,7 +40,6 @@
 	import { subtitleCount, withSubtitleCount } from '$lib/trackcount';
 	import EditPlaylistDialog from '$lib/components/EditPlaylistDialog.svelte';
 	import TrackFilter, { filterTracks } from '$lib/components/TrackFilter.svelte';
-	import TrackRowSkeleton from '$lib/components/TrackRowSkeleton.svelte';
 	import PlaylistSuggestions from '$lib/components/PlaylistSuggestions.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import NowPlayingPill from '$lib/components/NowPlayingPill.svelte';
@@ -1159,20 +1158,7 @@
 <!-- relative: the Now playing pill floats over the bottom of the scroller. -->
 <div class="relative flex h-full flex-col">
 	{#if loading}
-		<div class="flex items-end gap-6 p-6">
-			<Skeleton class="h-40 w-40 shrink-0 rounded-xl" />
-			<div class="flex-1 space-y-3">
-				<Skeleton class="h-3 w-16 rounded" />
-				<Skeleton class="h-10 w-2/3 rounded-lg" />
-				<Skeleton class="h-4 w-40 rounded" />
-				<Skeleton class="h-9 w-24 rounded-4xl" />
-			</div>
-		</div>
-		<div class="p-4">
-			{#each Array(8) as _, i (i)}
-				<TrackRowSkeleton />
-			{/each}
-		</div>
+		<div class="flex flex-1 items-center justify-center"><LimusicLoader /></div>
 	{:else if error}
 		<div class="p-6"><ErrorState message={error} onRetry={() => load(id)} /></div>
 	{:else if pl}
@@ -1419,14 +1405,12 @@
 							</Button>
 						</div>
 					{:else}
-						<!-- The sentinel sits above the skeletons: it triggers the next page as it scrolls
+						<!-- The sentinel sits above the loader: it triggers the next page as it scrolls
 						     into range, so the rest of a long playlist arrives without a button. -->
 						<div aria-busy={loadingMore}>
 							<div {@attach sentinel}></div>
 							{#if loadingMore}
-								{#each Array(4) as _, i (i)}
-									<TrackRowSkeleton />
-								{/each}
+								<div class="flex justify-center py-6"><LimusicLoader class="size-10" /></div>
 							{/if}
 						</div>
 					{/if}

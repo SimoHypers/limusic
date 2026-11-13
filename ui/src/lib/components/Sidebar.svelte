@@ -12,7 +12,6 @@
 		Moon02Icon,
 		Add01Icon,
 		PinIcon,
-		MusicNote01Icon,
 		ListRestartIcon,
 		ComputerIcon,
 		SquareArrowLeft01Icon,
@@ -20,6 +19,7 @@
 		SpotifyIcon,
 		Chart02Icon
 	} from '@hugeicons/core-free-icons';
+	import LogoMark from './LogoMark.svelte';
 	import { toggleMode } from 'mode-watcher';
 	import { Button } from '$lib/components/ui/button';
 	import { ON_REPEAT_ID, isLocalPlaylist, type BrowseItem } from '$lib/api';
@@ -252,15 +252,13 @@
 								<div
 									class="flex h-full w-full items-center justify-center {pl.id === ON_REPEAT_ID
 										? 'bg-primary/10 text-primary'
-										: 'text-muted-foreground/50'}"
+										: 'text-muted-foreground/20'}"
 								>
-									<!-- altIcon/showAlt, not a ternary: `icon` is read once at mount. -->
-									<HugeiconsIcon
-										icon={MusicNote01Icon}
-										altIcon={ListRestartIcon}
-										showAlt={pl.id === ON_REPEAT_ID}
-										class={pl.id === ON_REPEAT_ID ? 'h-5 w-5' : 'h-4 w-4'}
-									/>
+									{#if pl.id === ON_REPEAT_ID}
+										<HugeiconsIcon icon={ListRestartIcon} class="h-5 w-5" />
+									{:else}
+										<LogoMark class="size-3/4" />
+									{/if}
 								</div>
 							{/if}
 						</div>

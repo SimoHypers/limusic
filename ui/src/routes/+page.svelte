@@ -10,6 +10,7 @@
 		ViewOffSlashIcon
 	} from '@hugeicons/core-free-icons';
 	import { Skeleton } from '$lib/components/ui/skeleton';
+	import LimusicLoader from '$lib/components/LimusicLoader.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import MediaCardSkeleton from '$lib/components/MediaCardSkeleton.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
@@ -525,13 +526,13 @@
 						</Button>
 					</div>
 				{:else}
-					<!-- Skeletons only while a page is actually in flight; the sentinel above them is what
+					<!-- The loader only while a page is actually in flight; the sentinel above it is what
 					     triggers the fetch when it scrolls into range. -->
 					<div class="flex flex-col gap-12" aria-busy={loadingMore}>
 						<!-- Remounted per page: a page whose shelves home doesn't show leaves the sentinel
 						     in view, and the observer only fires on entering it. -->
 						{#key home.sections.length}<div {@attach sentinel}></div>{/key}
-						{#if loadingMore}{@render shelfSkeletons(2)}{/if}
+						{#if loadingMore}<div class="flex justify-center py-10"><LimusicLoader /></div>{/if}
 					</div>
 				{/if}
 			{/if}

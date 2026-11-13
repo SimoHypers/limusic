@@ -16,10 +16,11 @@
 		Delete02Icon,
 		FileImportIcon,
 		LinkSquare02Icon,
-		Loading03Icon,
 		MusicNote01Icon,
 		PencilEdit02Icon
 	} from '@hugeicons/core-free-icons';
+	import LimusicLoader from './LimusicLoader.svelte';
+	import LogoMark from './LogoMark.svelte';
 	import { untrack, type Snippet } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -519,7 +520,7 @@
 								onclick={connectLb}
 							>
 								{#if listenbrainz.connecting}
-									<HugeiconsIcon icon={Loading03Icon} size={15} class="animate-spin" />
+									<LimusicLoader class="size-4 text-current" />
 								{:else}
 									{t('settings.scrobbling.connect')}
 								{/if}
@@ -869,7 +870,7 @@
 						{#if track.thumbnail}
 							<img src={thumb(track.thumbnail, 96)} alt="" class="size-full object-cover" draggable="false" />
 						{:else}
-							<HugeiconsIcon icon={MusicNote01Icon} size={20} class="text-muted-foreground" />
+							<LogoMark class="size-3/4 text-muted-foreground/20" />
 						{/if}
 					</div>
 					<div class="min-w-0 flex-1">
@@ -885,7 +886,7 @@
 								<div class="truncate text-xs text-muted-foreground">{preview.album}</div>
 							{/if}
 						{:else}
-							<HugeiconsIcon icon={Loading03Icon} size={16} class="animate-spin text-muted-foreground" />
+							<LimusicLoader class="size-5" />
 						{/if}
 					</div>
 				</div>
@@ -924,7 +925,7 @@
 	{:else if lastfm.connecting}
 		<!-- Cancels the browser authorization, same as a second click on the titlebar button. -->
 		<Button variant="ghost" size="sm" class="gap-1.5" onclick={disconnectLastfm}>
-			<HugeiconsIcon icon={Loading03Icon} size={15} class="animate-spin" />
+			<LimusicLoader class="size-4" />
 			{t('common.cancel')}
 		</Button>
 	{:else}

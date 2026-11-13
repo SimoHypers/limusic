@@ -23,10 +23,10 @@
 		Add01Icon,
 		DashboardSquare02Icon,
 		PlayIcon,
-		MusicNote01Icon,
-		UserIcon,
 		ListRestartIcon
 	} from '@hugeicons/core-free-icons';
+	import LogoMark from './LogoMark.svelte';
+	import LimusicLoader from './LimusicLoader.svelte';
 	import SectionHeading from './SectionHeading.svelte';
 	import ShortcutPicker from './ShortcutPicker.svelte';
 	import { ON_REPEAT_ID } from '$lib/api';
@@ -199,21 +199,19 @@
 									<div
 										class="flex h-full w-full items-center justify-center {onRepeat
 											? 'bg-primary/10 text-primary'
-											: 'text-muted-foreground/50'}"
+											: 'text-muted-foreground/20'}"
 									>
-										<!-- altIcon/showAlt, not a third ternary: `icon` is read once at mount. -->
-										<HugeiconsIcon
-											icon={round ? UserIcon : MusicNote01Icon}
-											altIcon={ListRestartIcon}
-											showAlt={onRepeat}
-											class={onRepeat ? 'h-7 w-7' : 'h-5 w-5'}
-										/>
+										{#if onRepeat}
+											<HugeiconsIcon icon={ListRestartIcon} class="h-7 w-7" />
+										{:else}
+											<LogoMark class="size-3/4" />
+										{/if}
 									</div>
 								{/if}
 								{#if !round}
 									<button
 										class="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/50 text-white opacity-0 transition-opacity hover:bg-black/60 focus-visible:opacity-100 group-hover/pick:opacity-100"
-										class:animate-pulse={busy === item.id}
+										class:opacity-100={busy === item.id}
 										disabled={busy === item.id}
 										aria-label={t('a11y.play_item', { title: item.title })}
 										onclick={(e) => {
@@ -221,7 +219,11 @@
 											play(item);
 										}}
 									>
-										<HugeiconsIcon icon={PlayIcon} class="h-5 w-5" />
+										{#if busy === item.id}
+											<LimusicLoader class="size-7 text-white" />
+										{:else}
+											<HugeiconsIcon icon={PlayIcon} class="h-5 w-5" />
+										{/if}
 									</button>
 								{/if}
 							</div>

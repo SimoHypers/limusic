@@ -10,11 +10,11 @@
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		PlayIcon,
-		MusicNote01Icon,
-		UserIcon,
 		ListRestartIcon,
 		ArrowTurnBackwardIcon
 	} from '@hugeicons/core-free-icons';
+	import LogoMark from './LogoMark.svelte';
+	import LimusicLoader from './LimusicLoader.svelte';
 	import SectionHeading from './SectionHeading.svelte';
 	import { ON_REPEAT_ID } from '$lib/api';
 	import type { BrowseItem } from '$lib/api';
@@ -91,15 +91,13 @@
 						<div
 							class="flex h-full w-full items-center justify-center {onRepeat
 								? 'bg-primary/10 text-primary'
-								: 'text-muted-foreground/50'}"
+								: 'text-muted-foreground/20'}"
 						>
-							<!-- altIcon/showAlt, not a third ternary: `icon` is read once at mount. -->
-							<HugeiconsIcon
-								icon={round ? UserIcon : MusicNote01Icon}
-								altIcon={ListRestartIcon}
-								showAlt={onRepeat}
-								class="h-4 w-4"
-							/>
+							{#if onRepeat}
+								<HugeiconsIcon icon={ListRestartIcon} class="h-4 w-4" />
+							{:else}
+								<LogoMark class="size-3/4" />
+							{/if}
 						</div>
 					{/if}
 				</div>
@@ -123,7 +121,7 @@
 				{#if !round}
 					<button
 						class="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-md transition-opacity hover:brightness-110 focus-visible:opacity-100 group-hover/row:opacity-100"
-						class:animate-pulse={busy === item.id}
+						class:opacity-100={busy === item.id}
 						disabled={busy === item.id}
 						aria-label={t('a11y.play_item', { title: item.title })}
 						onclick={(e) => {
@@ -131,7 +129,11 @@
 							play(item);
 						}}
 					>
-						<HugeiconsIcon icon={PlayIcon} class="h-3.5 w-3.5" />
+						{#if busy === item.id}
+							<LimusicLoader class="size-5 text-primary-foreground" />
+						{:else}
+							<HugeiconsIcon icon={PlayIcon} class="h-3.5 w-3.5" />
+						{/if}
 					</button>
 				{/if}
 			</div>
