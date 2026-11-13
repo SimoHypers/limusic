@@ -107,6 +107,35 @@ blinked several times a second: missing in 10 of 30 screen captures, 0 of 30 wit
 the queue's column (#343, `TheaterMode.svelte`). `will-change: transform` fixes it too, but costs a
 layer the stacking context doesn't.
 
+## Linux: presenting a frame has its own price
+
+On Windows and macOS a frame goes from the engine to the screen on the GPU. On Linux it goes
+through GTK3 first, on the UI process's main thread, and what that costs depends on the window, not
+on the page. A 60px animation that costs the web process 0.4 ms a frame, WebKitGTK 2.52.1, CPU per
+frame:
+
+| path | UI process | web compositor | Xwayland |
+|---|---|---|---|
+| Wayland, webview with an alpha channel, 1300x720 | 3.2 ms | 0.4 ms | |
+| the same at 1900x1000 | 5.4 ms | 0.4 ms | |
+| Wayland, opaque webview, 1300x720 | 1.1 ms | 0.4 ms | |
+| the same at 1900x1000 | 1.4 ms | 0.4 ms | |
+| X11 with the NVIDIA SHM path (the AppImage), 1300x720 | 1.7 ms | 2.0 ms | 2.8 ms |
+| the same at 1900x1000 | 2.4 ms | 3.4 ms | 4.4 ms |
+
+The alpha channel is the Wayland cost: with it, GTK uploads its own drawing of the whole window as
+a second texture to blend the webview over, every frame. The window is transparent so the page can
+round its corners and leave a hole for mpv's picture, so the layout asks for an opaque webview
+whenever neither is up (maximized, theater mode, a system frame: `set_webview_opaque`,
+`routes/+layout.svelte`). A window that is not maximized still pays. Rounding it in GTK instead
+(clip the toplevel's `draw` to a region of pixel rows, which keeps the texture on its direct path)
+measured 1.8 ms at 1900x1000, but the edge is stepped unless GTK also paints an anti-aliased fringe
+in the theme's colour; not built.
+
+So on Linux an animation is never free, however small: anything that presents sixty frames a
+second costs the UI process 7-20% of a core by itself. Prefer an effect that ends over one that
+loops, and see the rule about `requestAnimationFrame` loops above.
+
 ## Engine-specific CSS
 
 `app.html` puts a `chromium` class on `<html>` under WebView2. Use it only for a difference you have
