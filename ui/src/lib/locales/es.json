@@ -1755,7 +1755,10 @@
 		"strip_gap": "La pista muestra la pausa hasta la siguiente línea.",
 		"strip_gap_no_start": "Toca una vez la pausa inicie.",
 		"done": "Listo",
-		"more": "Más"
+		"more": "Más",
+		"map": "Mapa de la canción",
+		"map_unplaced": "{count} líneas no tienen inicio aún",
+		"map_unplaced_one": "1 línea no tiene inicio aún"
 	},
 	"limusic": {
 		"none_title": "No requiere cuenta",
