@@ -1399,5 +1399,88 @@
 			"not_found": "Impossible de le trouver sur YouTube Music.",
 			"cooldown": "YouTube Music a demandé à Limusic de ralentir, donc les importations seront mises en pause jusqu'à {time}. Tout le progrès a été sauvegardé."
 		}
+	},
+	"karaoke": {
+		"consent": {
+			"source": "Téléchargé depuis GitHub (TRvlvr/model_repo), la source officielle du modèle.",
+			"runtime": "L'ONNX Runtime (Microsoft, licence MIT) est également téléchargé, depuis sa version officielle sur GitHub.",
+			"runtime_windows": "ONNX Runtime et DirectML (tous deux de Microsoft) sont également téléchargés, depuis les paquets NuGet officiels de Microsoft.",
+			"runtime_linux": "ONNX Runtime (depuis sa version officielle sur GitHub) et le plugin ONNX Runtime WebGPU (depuis files.pythonhosted.org) sont également téléchargés.",
+			"credit": "UVR-MDX-NET-Inst_HQ_3, UVR-MDX-NET-Inst_Main et UVR_MDXNET_3_9662, d'Ultimate Vocal Remover par Anjok07 et aufr33, licence MIT.",
+			"credit_link": "Ultimate Vocal Remover",
+			"redownload": "Pour préparer un titre, Limusic télécharge son audio une fois de plus.",
+			"directml": "Sur une carte graphique, le karaoké s'exécute via Microsoft DirectML, qui peut envoyer des données d'utilisation à Microsoft."
+		},
+		"experimental_tooltip": "Encore en cours d'ajustement. Léger peut laisser un peu de voix, et Meilleur est lent sans carte graphique. Si un titre ne rend pas bien, veuillez le signaler.",
+		"button": {
+			"options": "Options du karaoké",
+			"ready": "Karaoké activé : voix supprimée",
+			"preparing": "Karaoké activé : préparation de ce titre en cours",
+			"failed": "Le karaoké n'a pas pu préparer ce titre",
+			"too_long": "Karaoké activé : ce titre est trop long"
+		},
+		"panel": {
+			"title": "Karaoké",
+			"hint": "Retire la voix pour que vous puissiez chanter.",
+			"off": "Activez-le pour retirer la voix de ce titre et des deux suivants.",
+			"now_ready": "Voix supprimée",
+			"now_starting": "Préparation de ce titre en cours",
+			"now_progress": "{pct} % effectué",
+			"now_progress_eta": "{pct} % effectué, il reste environ {min} min",
+			"now_progress_soon": "{pct} % effectué, presque prêt",
+			"now_swap": "La voix disparaît dès que le titre est prêt, à l'endroit exact où vous en êtes.",
+			"now_too_long": "Plus de 15 minutes : ce titre garde donc sa voix.",
+			"try_again": "Réessayer",
+			"up_next": "À suivre",
+			"up_next_empty": "Rien d'autre n'est en file d'attente.",
+			"slot_ready": "Prêt",
+			"slot_waiting": "En attente",
+			"slot_failed": "Préparation impossible",
+			"quality": "Qualité",
+			"settings": "Paramètres du karaoké"
+		},
+		"setup": {
+			"title": "Configurer le karaoké",
+			"desc": "Limusic retire la voix des titres directement sur cet ordinateur. Choisissez une qualité à télécharger une seule fois, vous pourrez la changer plus tard.",
+			"local": "Les titres sont préparés sur cet ordinateur et rien n'est envoyé.",
+			"cache": "Les titres préparés sont conservés sur le disque, ce qui permet de les lire immédiatement la prochaine fois.",
+			"download": "Télécharger {size}",
+			"use": "Utiliser {name}",
+			"downloaded": "Téléchargé",
+			"progress": "{done} sur {total} MB"
+		},
+		"unavailable": {
+			"not_installed": "Le karaoké n'est pas inclus dans cette version de Limusic.",
+			"corrupt": "Les fichiers du karaoké sont endommagés. Essayez de réactiver le karaoké ; si cela ne suffit pas, réinstallez Limusic.",
+			"vc_runtime": "Le karaoké nécessite une version plus récente de Microsoft Visual C++ Redistributable (14.44 ou ultérieure).",
+			"load_failed": "Le karaoké n'a pas pu démarrer sur cet ordinateur.",
+			"proxy": "Le karaoké n'est pas disponible lorsqu'un proxy est configuré.",
+			"stopped": "Le karaoké s'est arrêté de façon inattendue. Redémarrez Limusic pour l'utiliser à nouveau."
+		},
+		"error": {
+			"incomplete_download": "L'audio du titre n'a pas fini de se télécharger. Nouvelle tentative dans un instant.",
+			"failed": "Impossible de retirer la voix de ce titre."
+		},
+		"download_error": {
+			"network": "Le téléchargement a échoué. Vérifiez votre connexion et réessayez.",
+			"verify": "Le fichier téléchargé ne correspond pas à ce qui était attendu. Réessayez.",
+			"disk": "Impossible d'enregistrer le fichier. Vérifiez l'espace disque disponible et réessayez.",
+			"failed": "Le téléchargement a échoué. Réessayez."
+		},
+		"download": "Télécharger",
+		"cancel": "Annuler",
+		"retry": "Réessayer",
+		"not_now": "Pas maintenant",
+		"settings": {
+			"title": "Karaoké",
+			"title_hint": "Paramètres de suppression de la voix",
+			"model": "Modèle d'IA",
+			"model_desc": "Choisissez le niveau du modèle de suppression de la voix. Téléchargé une seule fois, fonctionne hors ligne.",
+			"model_light": "Léger",
+			"model_light_desc": "Le plus rapide, mais peut laisser un peu de voix. Suit la lecture en temps réel sur un processeur.",
+			"model_balanced": "Équilibré",
+			"model_balanced_desc": "Presque aussi net que Meilleur, et plus rapide. Suit la lecture en temps réel sur un processeur rapide.",
+			"model_best": "Meilleur"
+		}
 	}
 }
