@@ -116,12 +116,11 @@
 				</div>
 				<ItemMenu
 					{item}
-					triggerClass="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100"
+					triggerClass="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground focus-visible:shown group-hover/row:shown"
 				/>
 				{#if !round}
 					<button
-						class="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-md transition-opacity hover:brightness-110 focus-visible:opacity-100 group-hover/row:opacity-100"
-						class:opacity-100={busy === item.id}
+						class="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-md transition-opacity hover:brightness-110 focus-visible:shown group-hover/row:shown {busy === item.id ? 'shown!' : ''}"
 						disabled={busy === item.id}
 						aria-label={t('a11y.play_item', { title: item.title })}
 						onclick={(e) => {

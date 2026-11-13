@@ -99,8 +99,7 @@
 				{/if}
 				<button
 					data-card-play
-					class="absolute bottom-2 right-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-lg transition-opacity duration-200 ease-out focus-visible:opacity-100 group-hover:opacity-100"
-					class:opacity-100={busy}
+					class="absolute bottom-2 right-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-lg transition-opacity duration-200 ease-out focus-visible:shown group-hover:shown {busy ? 'shown!' : ''}"
 					disabled={busy}
 					aria-label={t('a11y.play_item', { title: item.title })}
 					onclick={(e) => {
@@ -125,6 +124,6 @@
 	</div>
 	<PlaylistMenu
 		{item}
-		triggerClass="absolute right-2 top-6 flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-0 shadow-md transition hover:bg-background focus-visible:opacity-100 group-hover:opacity-100 cursor-pointer z-10"
+		triggerClass="absolute right-2 top-6 flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-0 shadow-md transition hover:bg-background focus-visible:shown group-hover:shown cursor-pointer z-10"
 	/>
 </div>

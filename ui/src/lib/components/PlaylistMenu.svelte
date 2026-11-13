@@ -53,7 +53,7 @@
 		iconClass = 'h-4 w-4',
 		// Visibility lives here too: most triggers only appear on hover, but a row that has nothing
 		// else to reveal on hover shows its ⋯ all the time.
-		triggerClass = 'absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 transition hover:bg-sidebar-accent hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover/row:opacity-100'
+		triggerClass = 'absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 transition hover:bg-sidebar-accent hover:text-foreground focus-visible:shown focus-visible:ring-2 focus-visible:ring-ring group-hover/row:shown'
 	}: {
 		item: BrowseItem;
 		showPin?: boolean;
@@ -186,7 +186,7 @@
      submit button there is what Enter clicks, opening this menu at the top left (#334). -->
 <button
 	type="button"
-	class="{triggerClass} {menuOpen ? 'opacity-100' : ''}"
+	class="{triggerClass} {menuOpen ? 'shown!' : ''}"
 	onclick={openMenu}
 	aria-label={t('a11y.playlist_options')}
 	{@attach ctxHost(openMenu)}

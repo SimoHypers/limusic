@@ -394,14 +394,14 @@
 									{#if isHost && u.user_id !== lt.myId}
 										<!-- Revealed on hover, but always in the tab order and always named. -->
 										<button
-											class="shrink-0 cursor-pointer rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+											class="shrink-0 cursor-pointer rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground focus-visible:shown group-hover:shown"
 											onclick={() => api.ltTransferHost(u.user_id)}
 										>
 											<HugeiconsIcon icon={Exchange01Icon} class="h-4 w-4" />
 											<span class="sr-only">{t('dialogs.listen_together.make_host')}</span>
 										</button>
 										<button
-											class="shrink-0 cursor-pointer rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-muted hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+											class="shrink-0 cursor-pointer rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-muted hover:text-destructive focus-visible:shown group-hover:shown"
 											onclick={() => api.ltKick(u.user_id)}
 										>
 											<HugeiconsIcon icon={UserRemove01Icon} class="h-4 w-4" />

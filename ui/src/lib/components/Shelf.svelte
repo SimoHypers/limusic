@@ -1,3 +1,10 @@
+<script lang="ts" module>
+	const rails = new WeakMap<Element, () => void>();
+	const railSizes = new ResizeObserver((entries) => {
+		for (const e of entries) rails.get(e.target)?.();
+	});
+</script>
+
 <script lang="ts">
 	// A horizontal shelf, drawn according to what it actually holds.
 	//
@@ -37,6 +44,7 @@
 	import { asSong } from '$lib/browse';
 	import { openAddToPlaylist, openPlayer, playSong, playback } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
+	import { untrack } from 'svelte';
 
 	let {
 		title,
@@ -129,42 +137,74 @@
 	let canLeft = $state(false);
 	let canRight = $state(false);
 
+	// A shelf mounts the cards the rail can show, not the twenty it holds. Every slot keeps its box,
+	// so the rail's width, its snap points and the arrows don't change; a slot past the right edge
+	// gets its card once the rail has scrolled to within a page of it, and keeps it. Every pass the
+	// engine makes over the page (style, layout, layers) is priced per mounted element, and a home
+	// feed was 160 cards with about fifteen of them on screen. perf/framecost.py, Home, WebKitGTK
+	// 2.52: a wheel scroll held the main thread at 65% with 40% of frames over 20 ms and hitches to
+	// 220 ms; with seven cards a shelf, 40%, 18% and 74 ms.
+	//
+	// The first count is an estimate, because reading the rail's width at mount is the forced
+	// layout that made Home take 870 ms to come back (see `measured`). The window is never
+	// narrower than the rail, so this over-counts by about the sidebar's worth of cards.
+	const REM = 16;
+	function firstScreen() {
+		if (mode === 'song') return others.length + 4; // at most three columns show, plus one
+		if (community) return 5; // at most four show
+		const pitch = (WIDTH[size] + (mode === 'playlist' ? 1 : 0) + 0.5) * REM;
+		return Math.ceil(window.innerWidth / pitch) + 1;
+	}
+	// ponytail: grow-only. A rail someone scrolled to the end keeps all its cards until the page is
+	// left; window both edges if a shelf ever holds hundreds.
+	let shown = $state(untrack(firstScreen));
+
 	function update() {
 		if (!row) return;
 		canLeft = row.scrollLeft > 4;
 		canRight = row.scrollLeft + row.clientWidth < row.scrollWidth - 4;
+		// What the rail shows plus a little past its right edge (two cards, or one column of songs),
+		// so a card is there before it scrolls in. The arrow's glide and a wheel both come through
+		// here a frame at a time, which spreads the mounting out.
+		const last = row.lastElementChild as HTMLElement | null;
+		const prev = last?.previousElementSibling as HTMLElement | null;
+		const pitch = last && prev ? last.offsetLeft - prev.offsetLeft : 0;
+		if (pitch > 0) {
+			const need = Math.ceil((row.scrollLeft + row.clientWidth + Math.max(pitch, 320)) / pitch);
+			if (need > shown) shown = need;
+		}
 	}
-
-	let hovered = false;
-	const measureOnEnter = (el: HTMLElement) => {
-		const enter = () => {
-			hovered = true;
-			update();
-		};
-		const leave = () => (hovered = false);
-		el.addEventListener('pointerenter', enter);
-		el.addEventListener('pointerleave', leave);
-		return () => {
-			el.removeEventListener('pointerenter', enter);
-			el.removeEventListener('pointerleave', leave);
-		};
-	};
 
 	function page(dir: 1 | -1) {
 		row?.scrollBy({ left: dir * Math.round(row.clientWidth * 0.9), behavior: 'smooth' });
 	}
 
-	// Re-measure when the content changes under the pointer, and only then. Measuring at mount reads
-	// scrollWidth before content-visibility has skipped anything, which makes WebKitGTK lay out every
-	// shelf on the page synchronously: going back to Home spent ~640 of its ~870 ms there with 8
-	// shelves (perf/navprobe.py). The arrows only show on hover, and pointerenter measures then.
+	// The rail is measured when its size changes, which is also when it is first laid out and when
+	// content-visibility brings a skipped shelf back, and never at mount: a mount-time read of
+	// scrollWidth runs before content-visibility has skipped anything and makes WebKitGTK lay out
+	// every shelf on the page synchronously (going back to Home spent ~640 of its ~870 ms there with
+	// 8 shelves, perf/navprobe.py). A ResizeObserver reports after layout, so its reads are free, and
+	// one observer serves every shelf on the page.
+	let laidOut = false;
+	const measured = (el: HTMLElement) => {
+		rails.set(el, () => {
+			laidOut = true;
+			update();
+		});
+		railSizes.observe(el);
+		return () => {
+			railSizes.unobserve(el);
+			rails.delete(el);
+		};
+	};
+	// Content or card size changed under a rail that is already laid out: its own size did not, so
+	// nothing above fires.
 	$effect(() => {
 		items;
-		if (hovered) update();
+		size;
+		if (laidOut) update();
 	});
 </script>
-
-<svelte:window onresize={update} />
 
 <!-- content-visibility: a home feed grows to hundreds of cards and WebKit keeps every one of them in
      style, layout and paint. Because it rasterizes in tiles, one card's hover repaint re-rasterizes
@@ -188,11 +228,7 @@
 			{/if}
 		</SectionHeading>
 	{/if}
-	<!-- Measure on pointer enter, because a shelf skipped by content-visibility has no layout at
-	     mount: scrollWidth reads 0 and the arrows never appear. They only show on hover, so measuring
-	     as the pointer arrives is both correct and later than the mount-time forced layout.
-	     An attachment rather than onpointerenter: the handler doesn't make this div interactive. -->
-	<div class="group/shelf relative" {@attach measureOnEnter}>
+	<div class="group/shelf relative">
 		<div
 			class="rail flex snap-x overflow-x-auto pb-2 {mode === 'song'
 				? 'gap-0'
@@ -201,16 +237,19 @@
 					: 'gap-2'}"
 			bind:this={row}
 			onscroll={update}
+			{@attach measured}
 		>
 			{#if mode === 'song'}
-				{#each others as item (item.id)}
-					<div class="min-w-0 shrink-0 snap-start pr-4" style={cardWidth()}><MediaCard {item} /></div>
+				{#each others as item, i (item.id)}
+					<div class="min-w-0 shrink-0 snap-start pr-4" style={cardWidth()}>
+						{#if i < shown}<MediaCard {item} />{/if}
+					</div>
 				{/each}
 				<!-- A gutter between columns, not a rule down each one: the rows' own hover fill already
 				     shows where a column ends, and the rules were four more lines per shelf (#319). -->
 				{#each columns as col, c (c)}
 					<div class="min-w-0 shrink-0 snap-start {SONG_SLOT} pr-6">
-						{#each col as song, r (song.video_id + ':' + r)}
+						{#each others.length + c < shown ? col : [] as song, r (song.video_id + ':' + r)}
 							<TrackRow
 								{song}
 								compact
@@ -235,7 +274,9 @@
 							: ''}"
 						style={own && community ? undefined : cardWidth(own && mode === 'playlist')}
 					>
-						{#if !own}
+						{#if i >= shown}
+							<!-- an empty slot: see `shown` -->
+						{:else if !own}
 							<MediaCard {item} />
 						{:else if community}
 							<CommunityCard {item} />
@@ -253,29 +294,36 @@
 		<!-- Fades, not just arrows: a card sliced by the edge should read as "the row continues", which
 		     is also what makes the arrow legible sitting on top of artwork. Both are pointer-transparent
 		     so they never eat a click meant for the card underneath. -->
-		{#if canLeft}
-			<div
-				class="pointer-events-none absolute inset-y-0 left-0 w-16 bg-gradient-to-r from-background to-transparent"
-			></div>
-			<button
-				aria-label={t('a11y.scroll_left')}
-				onclick={() => page(-1)}
-				class="absolute left-1 top-1/2 flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border bg-background text-foreground opacity-0 shadow-lg transition hover:scale-105 focus-visible:opacity-100 group-hover/shelf:opacity-100"
-			>
-				<HugeiconsIcon icon={ArrowLeft01Icon} class="h-4 w-4" />
-			</button>
-		{/if}
-		{#if canRight}
-			<div
-				class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-background to-transparent"
-			></div>
-			<button
-				aria-label={t('a11y.scroll_right')}
-				onclick={() => page(1)}
-				class="absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border bg-background text-foreground opacity-0 shadow-lg transition hover:scale-105 focus-visible:opacity-100 group-hover/shelf:opacity-100"
-			>
-				<HugeiconsIcon icon={ArrowRight01Icon} class="h-4 w-4" />
-			</button>
-		{/if}
+		<!-- Always mounted and shown by `visibility`, not inserted when the rail can scroll: an
+		     insert dirties layout from the document root, and it used to happen under the pointer,
+		     the first time each shelf was hovered or scrolled past. -->
+		<div
+			class="pointer-events-none absolute inset-y-0 left-0 w-16 bg-gradient-to-r from-background to-transparent {canLeft
+				? ''
+				: 'invisible'}"
+		></div>
+		<button
+			aria-label={t('a11y.scroll_left')}
+			onclick={() => page(-1)}
+			class="absolute left-1 top-1/2 flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border bg-background text-foreground opacity-0 shadow-lg transition hover:scale-105 focus-visible:shown group-hover/shelf:shown {canLeft
+				? ''
+				: 'invisible'}"
+		>
+			<HugeiconsIcon icon={ArrowLeft01Icon} class="h-4 w-4" />
+		</button>
+		<div
+			class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-background to-transparent {canRight
+				? ''
+				: 'invisible'}"
+		></div>
+		<button
+			aria-label={t('a11y.scroll_right')}
+			onclick={() => page(1)}
+			class="absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border bg-background text-foreground opacity-0 shadow-lg transition hover:scale-105 focus-visible:shown group-hover/shelf:shown {canRight
+				? ''
+				: 'invisible'}"
+		>
+			<HugeiconsIcon icon={ArrowRight01Icon} class="h-4 w-4" />
+		</button>
 	</div>
 </section>

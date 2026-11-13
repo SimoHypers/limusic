@@ -204,7 +204,7 @@
      submit button there is what Enter clicks, opening this menu at the top left (#334). -->
 <button
 	type="button"
-	class="{triggerClass} {menuOpen ? 'opacity-100' : ''}"
+	class="{triggerClass} {menuOpen ? 'shown!' : ''}"
 	onclick={openMenu}
 	aria-label={t('a11y.track_options')}
 	{@attach ctxHost(openMenu)}

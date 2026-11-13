@@ -75,6 +75,6 @@
 	<PlaylistMenu
 		{item}
 		showPin={false}
-		triggerClass="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white opacity-0 transition hover:bg-black/70 focus-visible:opacity-100 group-hover:opacity-100 cursor-pointer"
+		triggerClass="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white opacity-0 transition hover:bg-black/70 focus-visible:shown group-hover:shown cursor-pointer"
 	/>
 </div>

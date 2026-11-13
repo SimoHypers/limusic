@@ -1421,6 +1421,19 @@ html.art-tint.theme-amoled {
 }
 .animate-heart-pop { animation: heart-pop 0.3s ease-out; }
 
+/* Fully shown, for something that rests at `opacity-0` and appears on hover or focus: write
+   `opacity-0 group-hover:shown`, not `group-hover:opacity-100`. WebKit gives an element below full
+   opacity a layer of its own, and the style change that creates or destroys that layer asks for a
+   layout. Nothing above a card is a layout boundary, so that layout ran from the document root:
+   twice per card the pointer crossed, more with the play button and the menu button fading too.
+   At 0.999 the element never leaves its layer and the pixels are the same. perf/framecost.py,
+   WebKitGTK 2.52, Home: main thread while hovering along a shelf 7.8-11.6% -> 6.5%, worst frame
+   27-87 ms -> 20 ms; while scrolling under a resting pointer 40-43% -> 35%. Not for an element
+   that is on screen at rest: below 1 it paints through an offscreen group every time. */
+@utility shown {
+	opacity: 0.999;
+}
+
 /* The note under the now-playing cover while the song is between sung lines (CoverLyric). Transform
    and opacity only, so it stays off the main thread. A utility, not a class, so `motion-safe:`
    applies to it. */
