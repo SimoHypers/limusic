@@ -227,7 +227,7 @@ mod imp {
 #[cfg(not(target_os = "linux"))]
 mod imp {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-    use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
     use tauri::{AppHandle, Manager, Wry};
 
     use super::{handle_menu, show_main};
@@ -266,6 +266,17 @@ mod imp {
             .tooltip("Limusic")
             .on_menu_event(|app, event| handle_menu(app, event.id.as_ref()))
             .on_tray_icon_event(|tray, event| {
+                #[cfg(target_os = "macos")]
+                if let TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                } = event
+                {
+                    show_main(tray.app_handle());
+                }
+
+                #[cfg(not(target_os = "macos"))]
                 if let TrayIconEvent::DoubleClick { button: MouseButton::Left, .. } = event {
                     show_main(tray.app_handle());
                 }
@@ -273,7 +284,14 @@ mod imp {
         if let Some(icon) = crate::appicon::current(app) {
             builder = builder.icon(sized(&icon));
         }
-        builder.build(app)?;
+        let tray = builder.build(app)?;
+        #[cfg(target_os = "macos")]
+        {
+            let _ = tray.set_tooltip(Some("Limusic"));
+            patch_macos_tray();
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = tray;
 
         app.manage(TrayState { play_pause });
         Ok(())
@@ -305,6 +323,121 @@ mod imp {
     #[cfg(not(target_os = "windows"))]
     fn sized(icon: &tauri::image::Image<'_>) -> tauri::image::Image<'static> {
         icon.clone().to_owned()
+    }
+
+    /// Detaches the tray menu until right-click so AppKit won't swallow left-clicks
+    /// (backport of upstream tauri-apps/tray-icon#365 for tray-icon 0.24).
+    #[cfg(target_os = "macos")]
+    fn patch_macos_tray() {
+        use std::sync::{Once, OnceLock};
+
+        use objc2::ffi::{
+            class_addMethod, objc_getAssociatedObject, objc_setAssociatedObject,
+            OBJC_ASSOCIATION_RETAIN_NONATOMIC,
+        };
+        use objc2::runtime::{AnyClass, AnyObject, Bool, Imp, Sel};
+        use objc2::{msg_send, sel, Encode};
+
+        static MENU_KEY: u8 = 0;
+        static ORIG_RIGHT_DOWN: OnceLock<Imp> = OnceLock::new();
+        static ONCE: Once = Once::new();
+
+        unsafe fn window_status_item(win: *mut AnyObject) -> *mut AnyObject {
+            if win.is_null() {
+                return std::ptr::null_mut();
+            }
+            let has_item: Bool = msg_send![win, respondsToSelector: sel!(statusItem)];
+            if has_item.as_bool() {
+                msg_send![win, statusItem]
+            } else {
+                std::ptr::null_mut()
+            }
+        }
+
+        extern "C-unwind" fn accepts_first_mouse(
+            _: *mut AnyObject,
+            _: Sel,
+            _: *mut AnyObject,
+        ) -> Bool {
+            Bool::YES
+        }
+
+        extern "C-unwind" fn hook_right_mouse_down(
+            this: *mut AnyObject,
+            cmd: Sel,
+            event: *mut AnyObject,
+        ) {
+            unsafe {
+                let win: *mut AnyObject = msg_send![this, window];
+                let status_item = window_status_item(win);
+                let menu = if !status_item.is_null() {
+                    objc_getAssociatedObject(status_item, (&raw const MENU_KEY).cast())
+                } else {
+                    std::ptr::null()
+                };
+                if !status_item.is_null() && !menu.is_null() {
+                    let _: () = msg_send![status_item, setMenu: menu];
+                }
+
+                if let Some(&orig_imp) = ORIG_RIGHT_DOWN.get() {
+                    let orig: extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject) =
+                        std::mem::transmute(orig_imp);
+                    orig(this, cmd, event);
+                }
+
+                if !status_item.is_null() && !menu.is_null() {
+                    let _: () = msg_send![status_item, setMenu: std::ptr::null::<AnyObject>()];
+                }
+            }
+        }
+
+        unsafe {
+            let Some(ns_app_cls) = AnyClass::get(c"NSApplication") else {
+                return;
+            };
+            let ns_app: *mut AnyObject = msg_send![ns_app_cls, sharedApplication];
+            let windows: *mut AnyObject = msg_send![ns_app, windows];
+            let count: usize = msg_send![windows, count];
+            for i in 0..count {
+                let win: *mut AnyObject = msg_send![windows, objectAtIndex: i];
+                let status_item = window_status_item(win);
+                if status_item.is_null() {
+                    continue;
+                }
+                let menu: *mut AnyObject = msg_send![status_item, menu];
+                if menu.is_null() {
+                    continue;
+                }
+                objc_setAssociatedObject(
+                    status_item,
+                    (&raw const MENU_KEY).cast(),
+                    menu,
+                    OBJC_ASSOCIATION_RETAIN_NONATOMIC,
+                );
+                let _: () = msg_send![status_item, setMenu: std::ptr::null::<AnyObject>()];
+            }
+
+            ONCE.call_once(|| {
+                let Some(cls) = AnyClass::get(c"TaoTrayTarget") else {
+                    return;
+                };
+                let cls_mut = cls as *const AnyClass as *mut AnyClass;
+                if let Some(method) = cls.instance_method(sel!(rightMouseDown:)) {
+                    let imp: Imp = std::mem::transmute(
+                        hook_right_mouse_down
+                            as extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject),
+                    );
+                    let orig = method.set_implementation(imp);
+                    let _ = ORIG_RIGHT_DOWN.set(orig);
+                }
+                let types = std::ffi::CString::new(format!("{}@:@", Bool::ENCODING)).unwrap();
+                let accepts_imp: Imp = std::mem::transmute(
+                    accepts_first_mouse
+                        as extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject) -> Bool,
+                );
+                class_addMethod(cls_mut, sel!(acceptsFirstMouse:), accepts_imp, types.as_ptr());
+            });
+        }
     }
 }
 
