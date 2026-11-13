@@ -20,7 +20,42 @@ use tauri::Emitter;
 use crate::lastfm::Resolved;
 use crate::state::AppState;
 
-const API_ROOT: &str = "https://api.listenbrainz.org";
+const DEFAULT_ROOT: &str = "https://api.listenbrainz.org";
+/// Custom instance root (`listenbrainz_url` setting); empty = official server. Process-wide so the
+/// scrobbler task, which only holds the token, reaches the same server as connect/profile.
+static ROOT: std::sync::RwLock<String> = std::sync::RwLock::new(String::new());
+
+/// Trimmed, no trailing slash, http(s) with a host and no query or fragment (endpoints are
+/// appended as `{root}/1/...`). Empty = official server.
+fn clean_root(url: &str) -> Result<String, String> {
+    let url = url.trim().trim_end_matches('/');
+    if url.is_empty() {
+        return Ok(String::new());
+    }
+    let ok = reqwest::Url::parse(url).is_ok_and(|u| {
+        matches!(u.scheme(), "http" | "https")
+            && u.host_str().is_some()
+            && u.query().is_none()
+            && u.fragment().is_none()
+    });
+    if !ok {
+        return Err("ListenBrainz: server URL must be http(s)://host[/path], without ? or #".into());
+    }
+    Ok(url.to_owned())
+}
+
+pub fn set_root(url: &str) {
+    *ROOT.write().unwrap() = url.to_owned();
+}
+
+fn root_or_default(root: &str) -> String {
+    if root.is_empty() { DEFAULT_ROOT } else { root }.to_owned()
+}
+
+fn api_root() -> String {
+    root_or_default(&ROOT.read().unwrap())
+}
+
 const USER_AGENT: &str =
     concat!("Limusic/", env!("CARGO_PKG_VERSION"), " (https://github.com/SimoHypers/limusic)");
 
@@ -75,7 +110,7 @@ pub(crate) async fn submit(
 ) -> Result<(), SubmitError> {
     let body = serde_json::json!({ "listen_type": listen_type, "payload": payload });
     let resp = crate::http::client()
-        .post(format!("{API_ROOT}/1/submit-listens"))
+        .post(format!("{}/1/submit-listens", api_root()))
         .header("Authorization", format!("Token {token}"))
         .header("User-Agent", USER_AGENT)
         .json(&body)
@@ -116,16 +151,30 @@ pub(crate) fn emit_problem(app: &tauri::AppHandle, problem: Option<&str>) {
     let _ = app.emit("listenbrainz-problem", problem);
 }
 
-async fn validate(token: &str) -> Result<String, String> {
+async fn validate(token: &str, root: &str) -> Result<String, String> {
     let resp = crate::http::client()
-        .get(format!("{API_ROOT}/1/validate-token"))
+        .get(format!("{}/1/validate-token", root_or_default(root)))
         .header("Authorization", format!("Token {token}"))
         .header("User-Agent", USER_AGENT)
         .timeout(Duration::from_secs(15))
         .send()
         .await
         .map_err(|e| e.to_string())?;
-    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let status = resp.status();
+    // A bad token is a 200 with `valid:false` (some proxies answer 401); anything else is not
+    // this API talking.
+    if !status.is_success() && status != reqwest::StatusCode::UNAUTHORIZED {
+        return Err(format!(
+            "{status}: ListenBrainz at {} did not accept the request",
+            root_or_default(root)
+        ));
+    }
+    let body: serde_json::Value = resp.json().await.map_err(|_| {
+        format!(
+            "{status}: no ListenBrainz API answered at {} (is this the API address?)",
+            root_or_default(root)
+        )
+    })?;
     if body.get("valid").and_then(|v| v.as_bool()) != Some(true) {
         let msg = body
             .get("message")
@@ -154,9 +203,14 @@ fn emit_state(
 
 /// Connect with a user token pasted from ListenBrainz settings. Validates it first, so a typo
 /// is an error rather than a stored token that silently scrobbles nothing.
-pub async fn connect(state: Arc<AppState>, token: String) -> Result<(), String> {
+pub async fn connect(state: Arc<AppState>, token: String, url: String) -> Result<(), String> {
     let token = token.trim().to_owned();
-    let username = validate(&token).await.map_err(|e| format!("ListenBrainz: {e}"))?;
+    let url = clean_root(&url)?;
+    // Validate against the typed URL, but only switch the shared root once it passes: the
+    // scrobbler must not send an existing token to a server that was never accepted.
+    let username = validate(&token, &url).await.map_err(|e| format!("ListenBrainz: {e}"))?;
+    set_root(&url);
+    state.db.set_setting("listenbrainz_url", &url);
     state.db.set_setting("listenbrainz_token", &token);
     state.db.set_setting("listenbrainz_username", &username);
     // Same task, same clock: the Last.fm scrobbler holds this token next to its session key.
@@ -169,6 +223,8 @@ pub async fn connect(state: Arc<AppState>, token: String) -> Result<(), String> 
 pub fn disconnect(state: &AppState) {
     state.db.set_setting("listenbrainz_token", "");
     state.db.set_setting("listenbrainz_username", "");
+    state.db.set_setting("listenbrainz_url", "");
+    set_root("");
     state.lastfm.set_token(None);
     emit_state(&state.app, false, None, None);
 }
@@ -185,7 +241,7 @@ pub async fn profile(state: &AppState) -> Option<Profile> {
     let username = state.db.get_setting("listenbrainz_username").filter(|s| !s.is_empty())?;
     // Listen counts are public: no token needed.
     let body: serde_json::Value = crate::http::client()
-        .get(format!("{API_ROOT}/1/user/{username}/listen-count"))
+        .get(format!("{}/1/user/{username}/listen-count", api_root()))
         .header("User-Agent", USER_AGENT)
         .timeout(Duration::from_secs(15))
         .send()
@@ -197,7 +253,11 @@ pub async fn profile(state: &AppState) -> Option<Profile> {
     let count = body.pointer("/payload/count").and_then(|v| v.as_u64()).unwrap_or(0);
     Some(Profile {
         username: username.clone(),
-        url: format!("https://listenbrainz.org/user/{username}/"),
+        // Custom instances serve the web UI from the same root as the API.
+        url: match api_root() {
+            r if r == DEFAULT_ROOT => format!("https://listenbrainz.org/user/{username}/"),
+            r => format!("{r}/user/{username}/"),
+        },
         listens: count,
     })
 }
@@ -243,6 +303,16 @@ mod tests {
         // Local files carry no URL.
         let m = track_metadata(&r, "LOCAL:/music/song.mp3", 10.0);
         assert!(m["additional_info"].get("origin_url").is_none());
+    }
+
+    #[test]
+    fn custom_root_is_normalized_and_validated() {
+        assert_eq!(clean_root(" https://lb.example.com/ ").unwrap(), "https://lb.example.com");
+        assert_eq!(clean_root("").unwrap(), "");
+        assert_eq!(clean_root("http://10.0.0.2:8080/lb/").unwrap(), "http://10.0.0.2:8080/lb");
+        for bad in ["lb.example.com", "https://", "https://h/p?x=1", "https://h/#f", "ftp://h"] {
+            assert!(clean_root(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

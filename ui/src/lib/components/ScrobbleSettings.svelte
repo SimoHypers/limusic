@@ -104,6 +104,8 @@
 	// (same as Last.fm's `watchLastfm`): a second subscription here would double the toasts.
 	let lbProfile = $state<api.ListenBrainzProfile | null>(null);
 	let lbToken = $state('');
+	let lbCustom = $state(false); // the URL field only exists while this is on
+	let lbUrl = $state('');
 	$effect(() => {
 		const name = listenbrainz.connected ? listenbrainz.username : null;
 		lbProfile = null;
@@ -112,11 +114,14 @@
 			.then((p) => listenbrainz.username === name && (lbProfile = p))
 			.catch(() => {});
 	});
+	// Keep the token while connecting so a wrong address doesn't mean pasting it again.
+	$effect(() => {
+		if (listenbrainz.connected) lbToken = '';
+	});
 	function connectLb() {
 		const token = lbToken.trim();
 		if (!token) return;
-		lbToken = '';
-		connectListenBrainz(token);
+		connectListenBrainz(token, lbCustom ? lbUrl.trim() : '');
 	}
 	const num = (n: number) => n.toLocaleString(currentLocale.id);
 	const since = $derived(
@@ -504,6 +509,19 @@
 							<HugeiconsIcon icon={LinkSquare02Icon} size={15} />
 							{t('settings.scrobbling.lb_open_settings')}
 						</Button>
+						<label class="mb-2 flex items-center justify-between gap-3 text-xs">
+							{t('settings.scrobbling.lb_custom_instance')}
+							<Switch bind:checked={lbCustom} />
+						</label>
+						{#if lbCustom}
+							<Input
+								class="mb-2 h-8 font-mono text-xs"
+								bind:value={lbUrl}
+								placeholder="https://listenbrainz.example.com"
+								aria-label={t('settings.scrobbling.lb_url_label')}
+								spellcheck={false}
+							/>
+						{/if}
 						<div class="flex gap-2">
 							<Input
 								class="h-8 font-mono text-xs"
@@ -516,7 +534,7 @@
 							/>
 							<Button
 								size="sm"
-								disabled={!lbToken.trim() || listenbrainz.connecting}
+								disabled={!lbToken.trim() || (lbCustom && !lbUrl.trim()) || listenbrainz.connecting}
 								onclick={connectLb}
 							>
 								{#if listenbrainz.connecting}

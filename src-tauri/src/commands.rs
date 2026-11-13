@@ -3057,8 +3057,12 @@ pub async fn lastfm_preview(
 /// Validate `token` against ListenBrainz and store it. Returns the error rather than emitting
 /// it: a pasted token is validated synchronously, unlike Last.fm's browser round-trip.
 #[tauri::command]
-pub async fn listenbrainz_connect(state: St<'_>, token: String) -> Result<(), String> {
-    crate::listenbrainz::connect(state.inner().clone(), token).await
+pub async fn listenbrainz_connect(
+    state: St<'_>,
+    token: String,
+    url: Option<String>,
+) -> Result<(), String> {
+    crate::listenbrainz::connect(state.inner().clone(), token, url.unwrap_or_default()).await
 }
 
 #[tauri::command]
