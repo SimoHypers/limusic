@@ -1300,5 +1300,39 @@
 		"plays": "Lượt phát",
 		"mine": "Lượt phát của tôi",
 		"duration": "Thời lượng"
+	},
+	"karaoke": {
+		"consent": {
+			"source": "Đã tải xuống từ GitHub (TRvlvr/model_repo), nguồn chính thức của app.",
+			"runtime": "ONNX Runtime (Microsoft, MIT License) cũng được tải xuống, từ bản phát hành chính thức trên GitHub.",
+			"runtime_windows": "ONNX Runtime và DirectML (cả hai đều của Microsoft) cũng được tải xuống, từ các gói NuGet chính thức của Microsoft.",
+			"runtime_linux": "ONNX Runtime (từ bản phát hành trính thức trên GitHub) và ONNX Runtime WebGPU (từ files.pythonhosted.org) cũng được tải xuống.",
+			"credit": "UVR-MDX-NET-Inst_HQ_3, UVR-MDX-NET-Inst_Main và UVR_MDXNET_3_9662, từ Ultimate Vocal Remover của Anjok07 và aufr33, MIT License.",
+			"credit_link": "Ultimate Vocal Remover",
+			"redownload": "Để chuẩn bị một bài hát, Limusic sẽ tải xuống tệp âm thanh đó một lần nữa.",
+			"directml": "Trên card đồ họa, ứng dụng karaoke hoạt động thông qua Microsoft DirectML, và ứng dụng này có thể gửi dữ liệu sử dụng đến Microsoft."
+		},
+		"experimental_tooltip": "Vẫn đang trong giai đoạn thử nghiệm. Chế độ 'Light' có thể giữ lại một phần nhỏ giọng hát, và chế độ 'Best' chạy chậm nếu không có card đồ họa. Nếu bài hát ra sai, hãy report lại.",
+		"button": {
+			"options": "Tùy chọn karaoke",
+			"ready": "Karaoke: Đã tách giọng hát",
+			"preparing": "Karaoke: Đang chuẩn bị bài hát",
+			"failed": "Karaoke không thể chuẩn bị bài hát này",
+			"too_long": "Karaoke: Bài hát này quá dài"
+		},
+		"panel": {
+			"title": "Karaoke",
+			"hint": "Loại bỏ giọng hát để bạn có thể hát theo.",
+			"off": "Bật tính năng này để tách giọng hát trong bài này và hai bài tiếp theo.",
+			"now_ready": "Đã tách giọng hát",
+			"now_starting": "Chuẩn bị bài hát này",
+			"now_progress": "Đã hoàn thành {pct}%",
+			"now_progress_eta": "Đã hoàn thành {pct}%, còn khoảng {min} phút nữa",
+			"now_progress_soon": "Đã hoàn thành {pct}% done, sắp xong rồi",
+			"now_swap": "Giọng hát sẽ ngừng ngay khi bài hát sẵn sàng, chính xác tại đoạn bạn đang nghe.",
+			"now_too_long": "Bài hát quá 15 phút, giọng hát sẽ được giữ lại.",
+			"try_again": "Hãy thử lại",
+			"up_next": "Tiếp theo"
+		}
 	}
 }
