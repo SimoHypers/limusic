@@ -52,6 +52,7 @@
 	import TrackMenu from './TrackMenu.svelte';
 	import CommentsView from './CommentsView.svelte';
 	import Ambient from './Ambient.svelte';
+	import CoverLyric from './CoverLyric.svelte';
 
 	// Off in settings, this view drops its tabs and the queue/lyrics panels stay in charge of both
 	// (see +layout): they paint above this (z-30 over z-20), so all this needs is to hand back the
@@ -133,11 +134,11 @@
 	// height the title block leaves; a video spends that height at 16:9 instead, which a square's
 	// width would leave half empty. The caps stop a 720px cover being stretched across a 4K
 	// window, and a video drifting into an empty half.
-	// ponytail: 9.5rem is the block under the picture at its largest (two lines of title, the
-	// artist and album lines, the gap above them) measured, not computed. Raise it if that grows.
-	// `wantedVideoHeight` in player.svelte.ts mirrors the video budget.
-	const ART_SIDE = 'min(100cqw, 100cqh - 9.5rem, 44rem)';
-	const VIDEO_SIDE = 'min(100cqw, (100cqh - 9.5rem) * 16 / 9, 80rem)';
+	// ponytail: 11.25rem is the block under the picture at its largest (the lyric line's two lines
+	// and its gaps, two lines of title, the artist line) added up, not measured. Raise it if that
+	// grows. `wantedVideoHeight` in player.svelte.ts mirrors the video budget.
+	const ART_SIDE = 'min(100cqw, 100cqh - 11.25rem, 44rem)';
+	const VIDEO_SIDE = 'min(100cqw, (100cqh - 11.25rem) * 16 / 9, 80rem)';
 
 	// Clicking the artwork toggles playback, and flashes the action just taken over it so the click
 	// visibly did something. Read `paused` before the toggle: the backend event that flips it is a
@@ -162,15 +163,14 @@
 		volTimer = setTimeout(() => (volFlash = false), 1000);
 	}
 
-	// The queue row for what's playing: it carries the album link and what the ⋮ menu needs, which
-	// the now-playing event does not. Matched on videoId so a mid-advance mismatch can't point
-	// either at the previous song.
+	// The queue row for what's playing: it carries the album link (the title's) and what the ⋮ menu
+	// needs, which the now-playing event does not. Matched on videoId so a mid-advance mismatch can't
+	// point either at the previous song.
 	const currentSong = $derived.by(() => {
 		const cur = playback.queue.items[playback.queue.currentIndex];
 		return cur?.video_id === playback.now?.videoId ? cur : null;
 	});
 	const local = $derived(!!playback.now && api.isLocalId(playback.now.videoId));
-	const album = $derived(playback.now?.album ?? currentSong?.album);
 	const albumId = $derived(!local ? currentSong?.album_id : undefined);
 
 	// Pop the heart once on a like (not an unlike); the animation's end re-arms it.
@@ -561,38 +561,41 @@
 							{@render picture()}
 						</div>
 
-						<!-- What's playing. Title, artists, album: three steps of size and colour, so
-						     the eye lands on the title and the album never competes with it. The title
-						     scales with the picture, so it reads as part of it rather than a caption. -->
-						<div class="mt-6 flex items-start gap-3">
+						<CoverLyric />
+
+						<!-- What's playing. Title, then artists a step smaller and dimmer, close under
+						     it. The title scales with the picture, so it reads as part of it rather
+						     than a caption. -->
+						<div class="mt-3.5 flex items-start gap-3">
 							<div class="min-w-0 flex-1">
 								<h1
-									class="line-clamp-2 font-heading leading-[1.15] font-bold tracking-tight [overflow-wrap:anywhere]"
+									class="font-heading leading-[1.15] font-bold tracking-tight [overflow-wrap:anywhere]"
 									style="font-size:clamp(1.25rem, var(--side) * 0.06, 2rem)"
 									title={playback.now?.title}
 								>
-									{playback.now?.title ?? t('player.not_playing')}
+									{#if albumId}
+										<!-- There is no page per song, so the title goes to its album. Local
+										     files have none to go to. The clamp is on the span: a button
+										     inside a clamped h1 would count as one line however many it
+										     wraps to. -->
+										<button
+											type="button"
+											onclick={() => goto(`/album/${encodeURIComponent(albumId)}`)}
+											class="group block max-w-full cursor-pointer text-left"
+										>
+											<span class="line-clamp-2 decoration-2 underline-offset-4 group-hover:underline">
+												{playback.now?.title}
+											</span>
+										</button>
+									{:else}
+										<span class="line-clamp-2">{playback.now?.title ?? t('player.not_playing')}</span>
+									{/if}
 								</h1>
 								<ArtistLine
 									runs={playback.now?.artistRuns}
 									text={playback.now?.artists ?? ''}
-									class="mt-1.5 block text-base text-foreground/75"
+									class="mt-0.5 block text-base text-foreground/75"
 								/>
-								{#if album}
-									<!-- There is no page per song, so the album is where "more about
-									     this" goes. Local files have none to go to. -->
-									{#if albumId}
-										<button
-											type="button"
-											onclick={() => goto(`/album/${encodeURIComponent(albumId)}`)}
-											class="mt-0.5 block max-w-full cursor-pointer truncate text-left text-sm text-muted-foreground transition-colors hover:text-foreground hover:underline"
-										>
-											{album}
-										</button>
-									{:else}
-										<p class="mt-0.5 truncate text-sm text-muted-foreground">{album}</p>
-									{/if}
-								{/if}
 							</div>
 							<!-- Like, and the same ⋮ menu as the player bar's (save to playlist, radio,
 							     go to, tempo). Right-clicking the picture or the title opens it too. -->
