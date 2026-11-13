@@ -38,10 +38,15 @@ YouTube Music client, and grew from there.
 - **Your library**: playlists, liked songs, saved albums and artists, your uploads, and write actions (like, add to playlist, create/edit/delete playlists including cover art, subscribe, save to library)
 - **History**: everything you have played, in YouTube Music's own day buckets
 - **Gapless playback** with loudness normalization, powered by libmpv
-- **Tempo, pitch and reverb**: adjust playback speed and pitch, add reverb with independent dry/wet controls, and save custom presets on this device.
+- **Tempo, pitch and reverb**: adjust playback speed and pitch, add reverb with independent dry/wet controls, and save custom presets on this device
+- **Podcasts**: a speed picker and 15-second skips in the player bar while an episode plays
 - **Queue** with radio/automix continuation, drag to reorder, restored across restarts
-- **Synced lyrics**: side panel with auto-scroll and click-to-jump, word by word where the source has the timings, with translations under each line
+- **Synced lyrics**: side panel with auto-scroll and click-to-jump, word by word where the source has the timings, duets and background vocals on their own lines, translations under each line
+- **Limusic Lyrics**: our own word-by-word lyrics service, written by the people who use the app. Open the lyric editor from any song, tap along as each word is sung, and everyone who plays the song after you gets the result. No account needed
+- **Karaoke** (experimental): takes the vocals out of a song right on your computer, so you can sing over the lyrics. Nothing is uploaded, and it can run on a graphics card
 - **Music videos**: optional, the video plays where the artwork sits, with the same gapless audio behind it
+- **Live streams**: official live radio plays like any other track, with a Live now shelf on Home
+- **Listening stats**: top songs, artists and albums, streaks, and when you listen most, counted on your device and never sent anywhere
 - **Mini Player and theater mode**: shrink to a strip that keeps playing, or go fullscreen with cover and lyrics side by side
 - **Local Music**: play your own files, with all metadata still intact
 - **Last.fm scrobbling**: connect once from the title bar, every play is scrobbled
@@ -49,11 +54,12 @@ YouTube Music client, and grew from there.
 - **Discord Rich Presence**: artwork, live progress bar, one click to toggle
 - **OS media keys** and now-playing integration (MPRIS on Linux, SMTC on Windows, plus playback buttons on the Windows taskbar preview)
 - **System tray**: close the window, keep the music; play/pause and skip from the tray, optional start-on-login
-- **Listen Together**: synced listening rooms over a small self-hosted relay
+- **Listen Together**: synced listening rooms with friends, on our server or one you host yourself
+- **Play anywhere**: link [Limusic for Android](https://github.com/SimoHypers/limusic-android) and each one controls the other, with the music moving to whichever you pick
 - **Keyboard and mouse**: `Ctrl+K` searches from anywhere, `Ctrl+H` lists every shortcut, right-click menus throughout, `Ctrl` and the wheel zooms the interface
 - **Eighteen languages**: English, German, Spanish, French, Indonesian, Italian, Japanese, Korean, Polish, Brazilian Portuguese, Romanian, Russian, Tamil, Turkish, Ukrainian, Vietnamese, and Simplified and Traditional Chinese, with more in progress on [Weblate](https://hosted.weblate.org/projects/limusic/)
 - **Self-updating builds** (AppImage on Linux, setup.exe on Windows, .app on macOS)
-- **Make it yours**: accent palettes, custom colors, your own fonts, corner roundness, a custom app icon, and an adaptive theme that recolors the app from the playing cover
+- **Make it yours**: accent palettes, custom colors, your own fonts, corner roundness, a custom app icon, an adaptive theme that recolors the app from the playing cover, a Material You theme, and colors from your wallpaper through Matugen, wallust or pywal
 
 ---
 
@@ -139,30 +145,77 @@ Open the panel with the microphone button in the player bar, next to the queue
 button. It takes the same side of the window as the queue, so opening one closes
 the other.
 
-Lyrics come from [Boidu](https://boidu.dev) first, then
-[LRCLIB](https://lrclib.net), then YouTube Music's own timed lyrics, then
-Netease, QQ Music and Kugou, falling back to plain un-timed text when nobody has
-a synced version. Matching is keyed on the track's exact length, because popular
+Nine sources are asked in order: Limusic Lyrics, [Boidu](https://boidu.dev),
+Unison, LyricsPlus, [LRCLIB](https://lrclib.net), YouTube Music's own lyrics,
+then Netease, QQ Music and Kugou. Synced lyrics from any of them beat plain
+text from one higher up, and plain text is the fallback when nobody has a
+synced version. Matching is keyed on the track's exact length, because popular
 songs exist as several cuts and the wrong one drifts a few seconds out. Results
 are cached locally, so replaying a track is instant.
 
-Boidu is the only source with per-word timings, which is what lets a line
-highlight word by word as it's sung. It goes first for that reason, which also
-means it is asked about every track you play. Turn it off in **Settings ->
-Playback -> Word-by-word lyrics** and the other sources still provide
-line-by-line lyrics. Netease additionally supplies translations, shown under
-each line where it has them.
+The first four have per-word timings, which is what lets a line highlight word
+by word as it's sung. Reorder the sources or switch any of them off in
+**Settings ▸ Playback ▸ Lyrics sources**, and turn on **Prefer word-by-word
+lyrics** there to have word timings win over line timings from a source above.
+To pick another source for one song, click the source name under the lyrics.
+Netease additionally supplies translations, shown under each line where it has
+them.
 
 Note that YouTube Music's lyrics are licensed per region and are missing
-entirely in some countries. Where that's the case, LRCLIB does all the work.
+entirely in some countries. Where that's the case, the other sources do all the
+work.
+
+### Limusic Lyrics and the lyric editor
+
+Limusic Lyrics is the project's own lyrics service, filed by video, so a lyric
+is timed to the exact upload you're playing. It is filled by the people who use
+the app.
+
+To add a song, click the source name under its lyrics and pick **Sync these
+lyrics**, or use **Settings ▸ Contributing ▸ Open the lyric editor**. Start from
+the lyrics another source already found, paste the text (pasted LRC or TTML
+keeps its timings), or open a TTML or LRC file. Then the song plays one line at
+a time, on a loop and slowed down if you like, and you tap a key as each word
+starts. Duets get a singer per line and background vocals can be marked word by
+word. A preview shows the result at full speed before you send it.
+
+No account is needed: your first lyric makes an anonymous one. Link Discord or
+GitHub in **Settings ▸ Contributing** to put your name on your lyrics. Depending
+on the account, a lyric goes live at once or after a reviewer approves it.
+Everyone can vote on a lyric or report it from the source picker, and the
+lyrics credit their authors under the last line. Contributors earn points on
+the [leaderboard](https://limusic.app/lyrics/).
+
+---
+
+## Karaoke
+
+Karaoke takes the vocals out of a song right on your computer, using AI models
+from [Ultimate Vocal Remover](https://github.com/Anjok07/ultimatevocalremovergui).
+Nothing is uploaded. It is still marked experimental while it's being tuned.
+
+Turn it on with the switch under the lyrics. The first time, Limusic asks
+before downloading a model (Light, Balanced or Best, swappable later in
+**Settings ▸ Playback ▸ Karaoke**) and the runtime that runs it. After that the
+playing song and the next two are prepared in the background, and the vocals
+drop out the moment a song is ready, right where you are in it. Prepared songs
+are kept on disk up to a size you choose, so they play straight away next time.
+
+Light and Balanced keep up with playback on a processor; Best is meant for a
+graphics card. The **Processor** setting picks one: on Windows Auto uses the
+graphics card through DirectML, on Linux it's an opt-in through Vulkan (Intel,
+AMD and NVIDIA), and on Apple Silicon an opt-in through CoreML. Songs over 15
+minutes keep their vocals, and karaoke is off while a proxy is set.
 
 ---
 
 ## Listen Together
 
 Synced listening with friends. Everyone streams their own audio from YouTube;
-the room only relays play/pause, seeks, track changes and the queue. One person
-hosts the relay:
+the room only relays play/pause, seeks, track changes and the queue. Rooms have
+join codes and the host approves every join and every track suggestion.
+
+Rooms run on the project's server by default. To host your own relay:
 
 ```bash
 cargo run -p sync-server        # plain WebSocket on 0.0.0.0:8080
@@ -170,8 +223,6 @@ cargo run -p sync-server        # plain WebSocket on 0.0.0.0:8080
 
 Front it with something that terminates TLS (Tailscale Funnel, Cloudflare
 Tunnel), then paste the `wss://` URL into the Listen Together panel in the app.
-Rooms have join codes and the host approves every join and every track
-suggestion.
 
 ---
 
@@ -184,9 +235,8 @@ who host it free for libre projects.
   <img src="https://hosted.weblate.org/widget/limusic/ui/multi-auto.svg" alt="Translation status">
 </a>
 
-English, Spanish, French, Turkish, Brazilian Portuguese and Indonesian ship in
-the app today.
-The badge above shows everything else in flight.
+Eighteen languages ship in the app today (listed under Features). The badge
+above shows everything else in flight.
 
 **Translate on Weblate, not in a pull request.** Weblate keeps its own copy of
 the catalogs, so a hand-edited `fr.json` merged here puts the two out of sync
