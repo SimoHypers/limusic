@@ -163,16 +163,16 @@
 		if (!row) return;
 		canLeft = row.scrollLeft > 4;
 		canRight = row.scrollLeft + row.clientWidth < row.scrollWidth - 4;
-		// What the rail shows plus a little past its right edge (two cards, or one column of songs),
-		// so a card is there before it scrolls in. The arrow's glide and a wheel both come through
-		// here a frame at a time, which spreads the mounting out.
-		const last = row.lastElementChild as HTMLElement | null;
-		const prev = last?.previousElementSibling as HTMLElement | null;
-		const pitch = last && prev ? last.offsetLeft - prev.offsetLeft : 0;
-		if (pitch > 0) {
-			const need = Math.ceil((row.scrollLeft + row.clientWidth + Math.max(pitch, 320)) / pitch);
-			if (need > shown) shown = need;
-		}
+		// Every slot that starts before the rail's right edge plus 320px (two cards, or a column of
+		// songs), so a card is there before it scrolls in. From the slots' own positions: a song
+		// shelf leads with cards narrower than its columns, so no single pitch counts them. The
+		// arrow's glide and a wheel both come through here a frame at a time, which spreads the
+		// mounting out.
+		const edge = row.scrollLeft + row.clientWidth + 320;
+		const slots = row.children;
+		let need = shown;
+		while (need < slots.length && (slots[need] as HTMLElement).offsetLeft < edge) need++;
+		if (need > shown) shown = need;
 	}
 
 	function page(dir: 1 | -1) {
