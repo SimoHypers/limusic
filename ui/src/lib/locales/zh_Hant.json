@@ -183,7 +183,19 @@
 		"scroll_to_end": "捲動到底部",
 		"skip_back": "倒退 {seconds} 秒",
 		"skip_forward": "快轉 {seconds} 秒",
-		"speed": "播放速度"
+		"speed": "播放速度",
+		"link_playing_on": "正在播放 {name}",
+		"link_paused_on": "上次播放 {name}",
+		"link_continue_here": "從此處繼續",
+		"devices": "裝置",
+		"devices_title": "播放",
+		"devices_hint": "選擇在哪裡播放。",
+		"devices_settings": "裝置設定",
+		"this_computer": "此裝置",
+		"devices_this_computer_hint": "在此裝置上播放",
+		"devices_playing_here": "正在此裝置播放",
+		"devices_paused": "已暫停",
+		"live": "Live"
 	},
 	"home": {
 		"good_morning": "讓今天從旋律開始",
@@ -234,7 +246,8 @@
 			"mixed_for_you": "為您精選",
 			"daily_discover": "每日發現",
 			"music_videos": "為您推薦的 MV"
-		}
+		},
+		"live_now": "正在此裝置播放"
 	},
 	"history": {
 		"title": "歷史記錄",
@@ -353,7 +366,9 @@
 			"hotkeys": "全域快捷鍵",
 			"hotkeys_hint": "在系統任何角落均可控制播放的鍵盤快捷鍵。",
 			"scrobbling": "紀錄",
-			"scrobbling_hint": "Last.fm 紀錄的資訊，以及何時紀錄播放。"
+			"scrobbling_hint": "Last.fm 紀錄的資訊，以及何時紀錄播放。",
+			"devices": "裝置",
+			"devices_hint": "透過手機控制 Limusic Desktop。"
 		},
 		"sections": {
 			"language": "語言",
@@ -453,8 +468,8 @@
 			"classic_player_hint": "還原原始播放器介面：封面圖片置於模糊的封面背景上，歌曲資訊則保留在播放器控制列中。關閉此選項後，將改用新版版面：在封面下方顯示歌曲名稱、演出者與專輯，並以封面的色彩營造整體視覺效果。",
 			"blur_playlist_header": "模糊播放清單標題背景",
 			"blur_playlist_header_hint": "在播放清單標題後方顯示模糊的封面圖片，讓延展至全寬時出現像素化的封面看起來更加平滑。",
-			"matugen": "Matugen 動態配色",
-			"matugen_hint": "使用 Matugen 從桌布產生的完整色盤，包含強調色。請先設定 Limusic 的主題模板。",
+			"matugen": "動態配色",
+			"matugen_hint": "從 Matugen、Wallust 或 Pywal 提供的調色板中選擇顏色，包含強調色。需要先設定 Limusic 的主題模板。",
 			"mode": "亮色或暗色",
 			"mode_hint": "該系統會根據您的電腦設置自動調整。",
 			"mode_light": "亮色",
@@ -468,7 +483,29 @@
 			"now_playing_pill": "現正播放",
 			"now_playing_pill_hint": "在播放清單或待播清單中，當歌曲被滾動到屏幕外時，顯示一個返回按鈕，以便輕鬆返回到之前的歌曲。",
 			"empty_click_player": "點擊空白區域以切換播放器展開",
-			"empty_click_player_hint": "啟用時：點擊播放器界面上的空白區域，可以展開或關閉播放器；停用時：只能使用方向鍵、Esc 鍵和鍵盤快捷鍵控制。"
+			"empty_click_player_hint": "啟用時：點擊播放器界面上的空白區域，可以展開或關閉播放器；停用時：只能使用方向鍵、Esc 鍵和鍵盤快捷鍵控制。",
+			"enhanced_lyrics": "強化歌詞",
+			"enhanced_lyrics_hint": "歌詞會隨著演唱逐字呈現動態與發光效果。",
+			"enhanced_lyrics_line_sync": "同時顯示同步歌詞",
+			"enhanced_lyrics_line_sync_hint": "估算歌詞的播放時間，僅對有單行同步的歌詞生效。關閉時，歌詞將逐行播放。",
+			"lyrics_anim": "字詞動畫",
+			"lyrics_anim_hint": "調整歌詞逐字動畫的呈現方式。",
+			"lyrics_anim_bounce": "彈跳",
+			"lyrics_anim_float": "漂浮",
+			"lyrics_anim_wave": "波浪",
+			"lyrics_anim_pop": "跳動",
+			"lyrics_anim_slide": "滑動",
+			"lyrics_anim_none": "無",
+			"lyrics_style": "高亮特效",
+			"lyrics_style_hint": "調整歌詞沿著文字逐步填滿與高亮的方式。",
+			"lyrics_style_feather": "平滑掃描",
+			"lyrics_style_accent": "強調色填充",
+			"lyrics_style_crisp": "卡拉 OK",
+			"lyrics_style_word": "整詞高亮",
+			"lyrics_anim_strength": "動畫強度",
+			"lyrics_anim_strength_hint": "調整歌詞逐字動畫的移動幅度。",
+			"lyrics_glow": "高亮特效強度",
+			"lyrics_glow_hint": "調整演唱中字詞的柔和發光強度。"
 		},
 		"playback": {
 			"audio_quality": "音訊品質",
@@ -485,8 +522,8 @@
 			"play_history_hint": "記錄您最近播放過的曲目，以便產生個人化音樂推薦。",
 			"music_videos": "啟用 MV 影片播放",
 			"music_videos_hint": "若有可用的 MV 影片串流，將優先播放影片而非純音訊。",
-			"hide_videos": "在搜尋結果中隱藏影片",
-			"hide_videos_hint": "搜尋結果僅顯示純音訊曲目與官方發行的專輯內容。",
+			"hide_videos": "在搜尋結果中隱藏影片與電台",
+			"hide_videos_hint": "搜尋結果、首頁、電台與演出者頁面以及自動播放僅顯示純音訊曲目與官方發行的專輯內容。播放清單與專輯不受此影響，電台也仍會播放影片。",
 			"blocked_artists": "已封鎖的演出者",
 			"blocked_artists_hint": "被封鎖的演出者不會出現在電台、自動播放及推薦探索中。但您主動打開的專輯或播放清單仍會正常播放其中的曲目。",
 			"blocked_artists_empty": "目前尚未封鎖任何演出者。您可以在曲目的 ⋯ 選單中選擇「封鎖演出者」。",
@@ -521,7 +558,9 @@
 			"shuffle_whole_queue": "隨機播放整個待播清單",
 			"shuffle_whole_queue_hint": "隨機播放時，將透過「加入待播清單」手動加入的歌曲與播放清單混合；關閉時則會排在播放清單之後播放。「接著播放」一律享有最高優先級。",
 			"videos_first": "優先播放影片",
-			"videos_first_hint": "專輯中的歌曲如果帶有 MV，則默認以影片形式播放。如果要以歌曲形式播放，請使用播放器的「歌曲/影片」功能切換。"
+			"videos_first_hint": "專輯或播放清單中的歌曲如果帶有 MV，則默認以影片形式播放。如果要以歌曲形式播放，請使用播放器的「歌曲/影片」功能切換。",
+			"lyrics_prefer_words": "優先使用逐字歌詞",
+			"lyrics_prefer_words_hint": "無論歌詞來源為何，逐字歌詞的優先順序都高於較高順位來源提供的逐行歌詞。歌曲首次播放時，歌詞可能需要多花幾秒才會顯示。"
 		},
 		"data": {
 			"clear_cache": "清除圖片與串流快取",
@@ -731,6 +770,37 @@
 			"lb_problem_email": "檢查您的 MetaBrainz 電子郵件，讓 ListenBrainz 能夠接收您的收聽紀錄。",
 			"lb_problem_rejected": "ListenBrainz 不再接受此授權碼。請提供新的授權碼並重新連接。",
 			"lb_verify_email": "驗證電子郵件"
+		},
+		"devices": {
+			"title": "音樂不中斷",
+			"subtitle": "您的裝置可以互相控制，並且音樂可以在它們之間流動。",
+			"intro": "將您的 Limusic 連接到手機：每個裝置都能顯示和控制其他裝置的播放內容，並且音樂會依照您選擇的裝置播放。",
+			"link_phone": "連接到手機",
+			"link_another": "連接另一台手機",
+			"step_open": "在您的手機上打開 Limusic：設置 > 整合功能 > 裝置",
+			"step_type": "輸入此代碼",
+			"custom_server": "在此伺服器上輸入 {invite}",
+			"expires_in": "將在 {time} 過期",
+			"expired": "此代碼已經過期。",
+			"new_code": "創建代碼",
+			"unsupported": "此伺服器目前不支援連接功能。",
+			"try_again": "請重試",
+			"connecting": "連接中…",
+			"this_computer": "此裝置",
+			"linked": "已連接",
+			"online": "線上",
+			"offline": "離線",
+			"playing": "播放中",
+			"paused": "已暫停",
+			"playing_here": "在此處播放",
+			"ready": "已就緒",
+			"remote_for": "正在控制 {name}",
+			"play_here": "在此處播放",
+			"play_on_phone": "在手機上播放",
+			"more": "更多",
+			"unlink": "中斷連接",
+			"unlink_title": "中斷 {name} 的連接？",
+			"unlink_desc": "您已經無法再控制此桌面應用程式。您可以使用創建新代碼並重新連接。"
 		}
 	},
 	"dialogs": {
@@ -757,7 +827,10 @@
 			"copy_link": "複製連結",
 			"public_link_on": "任何擁有此連結的人皆可直接開啟。",
 			"public_link_off": "開啟後即可讓獲得此連結的所有人正常檢視。",
-			"private_note": "此播放清單為私人清單。其他人開啟此連結將會顯示錯誤頁面。"
+			"private_note": "此播放清單為私人清單。其他人開啟此連結將會顯示錯誤頁面。",
+			"start_at": "開始於",
+			"start_invalid": "輸入時間，例如「1:23」。",
+			"start_too_long": "這已經過了歌曲的結尾（{length}）。連結不會包含開始時間。"
 		},
 		"shortcuts": {
 			"title": "鍵盤快速鍵",
@@ -973,7 +1046,8 @@
 		"collapse_sidebar": "收合側邊欄",
 		"show_artwork": "顯示專輯封面",
 		"show_video": "顯示影片畫面",
-		"close_comments": "關閉留言"
+		"close_comments": "關閉留言",
+		"share_start_time": "開始時間"
 	},
 	"lyrics": {
 		"title": "歌詞",
@@ -1022,12 +1096,14 @@
 			"youtube": "YouTube Music 官方授權的歌詞來源。",
 			"netease": "網易雲音樂曲庫，擁有極為豐富的華語音樂目錄與優質中文翻譯。",
 			"qq": "QQ 音樂曲庫，在華語流行樂 (Mandopop) 與粵語流行樂 (Cantopop) 上極為強大。",
-			"kugou": "酷狗音樂曲庫，適合尋找各類小眾與稀有冷門歌曲。"
+			"kugou": "酷狗音樂曲庫，適合尋找各類小眾與稀有冷門歌曲。",
+			"unison": "Better Lyrics 社區的歌詞，大部分是逐字匹配，與影片同步。"
 		},
 		"text_size": "字體大小",
 		"text_size_hint": "讓歌詞文字放大或縮小",
 		"text_size_larger": "放大",
-		"text_size_smaller": "縮小"
+		"text_size_smaller": "縮小",
+		"unison_rate": "對 Unison 的歌詞進行評分"
 	},
 	"queue": {
 		"title": "待播清單"
@@ -1354,7 +1430,8 @@
 		"delete_title": "刪除這則留言？",
 		"delete_desc": "此操作無法復原，該留言底下的所有回覆也會一併刪除。",
 		"held": "針對 {title} 留言",
-		"follow_current": "顯示當前曲目"
+		"follow_current": "顯示當前曲目",
+		"jump_to": "跳到 {time}"
 	},
 	"columns": {
 		"label": "欄位",

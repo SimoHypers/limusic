@@ -435,7 +435,29 @@
 			"empty_click_player": "Clique no espaço vazio para abrir ou fechar o player",
 			"empty_click_player_hint": "Ativado: clicar em uma parte vazia da barra do player abre ou fecha a tela do player, e clicar ao redor da capa também a fecha. Desativado: apenas os botões de seta, Esc e o atalho de teclado fazem isso.",
 			"now_playing_pill": "Botão Tocando agora",
-			"now_playing_pill_hint": "Mostra um botão para voltar à música em reprodução quando ela sair da tela, em uma playlist ou na fila."
+			"now_playing_pill_hint": "Mostra um botão para voltar à música em reprodução quando ela sair da tela, em uma playlist ou na fila.",
+			"enhanced_lyrics_hint": "As palavras ganham animação e brilho conforme são cantadas.",
+			"enhanced_lyrics": "Letras aprimoradas",
+			"enhanced_lyrics_line_sync": "Animar também as letras sincronizadas",
+			"enhanced_lyrics_line_sync_hint": "Estimar o tempo de cada palavra para letras que só têm o tempo da linha. Se desativado, mantém a sincronização linha por linha.",
+			"lyrics_anim": "Animação das palavras",
+			"lyrics_anim_hint": "Como cada palavra se move ao ser cantada.",
+			"lyrics_anim_bounce": "Saltar",
+			"lyrics_anim_float": "Flutuar",
+			"lyrics_anim_wave": "Onda",
+			"lyrics_anim_pop": "Surgir",
+			"lyrics_anim_slide": "Deslizar",
+			"lyrics_anim_none": "Nenhuma",
+			"lyrics_style": "Estilo de destaque",
+			"lyrics_style_hint": "Como as palavras cantadas preenchem e são destacadas ao longo da linha.",
+			"lyrics_style_feather": "Varredura suave",
+			"lyrics_style_accent": "Cor de destaque",
+			"lyrics_style_crisp": "Karaokê nítido",
+			"lyrics_style_word": "Palavra inteira",
+			"lyrics_anim_strength": "Intensidade da animação",
+			"lyrics_anim_strength_hint": "O quanto as palavras se movem durante a animação.",
+			"lyrics_glow": "Intensidade do brilho",
+			"lyrics_glow_hint": "Força do brilho suave nas palavras cantadas."
 		},
 		"playback": {
 			"audio_quality": "Qualidade de áudio",
@@ -452,8 +474,8 @@
 			"play_history_hint": "Lembrar faixas tocadas recentemente para recomendações personalizadas.",
 			"music_videos": "Ativar videoclipes",
 			"music_videos_hint": "Mostrar stream de vídeo quando disponível em vez de apenas áudio.",
-			"hide_videos": "Ocultar vídeos na busca",
-			"hide_videos_hint": "Mostrar apenas faixas de áudio e lançamentos oficiais nos resultados da busca.",
+			"hide_videos": "Ocultar vídeos na busca e nas rádios",
+			"hide_videos_hint": "A busca, a tela inicial, as páginas de artistas, as rádios e a reprodução automática mostram apenas faixas de áudio. Playlists e álbuns que você abre continuam mostrando tudo, e uma rádio iniciada a partir de um videoclipe reproduz seus vídeos.",
 			"blocked_artists": "Artistas bloqueados",
 			"blocked_artists_hint": "Artistas bloqueados não aparecem no rádio, na reprodução automática nem nas recomendações. As playlists e os álbuns que você abre continuam reproduzindo todo o conteúdo presente neles.",
 			"blocked_artists_empty": "Ainda não há ninguém bloqueado. Use \"Bloquear artista\" no menu ⋯ de uma faixa.",
@@ -488,7 +510,9 @@
 			"shuffle_whole_queue": "Embaralhar toda a fila",
 			"shuffle_whole_queue_hint": "Embaralhar mistura as músicas adicionadas com \"Adicionar à fila\" às da playlist. Deixe desativado e elas tocarão depois da playlist, na ordem em que você as adicionou. \"Tocar em seguida\" sempre toca em seguida.",
 			"videos_first": "Reproduzir o vídeo primeiro",
-			"videos_first_hint": "Faixas de álbuns que possuem videoclipe começam pela versão em vídeo. Desative para iniciar pelo áudio. O seletor de Música/Vídeo na tela do player permite alternar entre eles de qualquer forma."
+			"videos_first_hint": "Faixas de álbuns que possuem videoclipe começam pela versão em vídeo. Desative para iniciar pelo áudio. O seletor de Música/Vídeo na tela do player permite alternar entre eles de qualquer forma.",
+			"lyrics_prefer_words": "Preferir letras palavra por palavra",
+			"lyrics_prefer_words_hint": "Letras palavra por palavra de qualquer fonte têm prioridade sobre as linha por linha de uma fonte acima. Na primeira vez que uma música toca, a letra pode demorar alguns segundos a mais para aparecer."
 		},
 		"data": {
 			"clear_cache": "Limpar cache de imagens e streams",
@@ -724,7 +748,10 @@
 			"copy_link": "Copiar link",
 			"public_link_on": "Qualquer pessoa com o link pode abrir.",
 			"public_link_off": "Ative para o link funcionar para todos.",
-			"private_note": "Esta playlist é privada. Quem receber o link verá um erro."
+			"private_note": "Esta playlist é privada. Quem receber o link verá um erro.",
+			"start_at": "Começar em",
+			"start_invalid": "Insira um tempo como 1:23.",
+			"start_too_long": "Isso ultrapassa o fim da música ({length}). O link não incluirá um tempo de início."
 		},
 		"shortcuts": {
 			"title": "Atalhos de teclado",
@@ -940,7 +967,8 @@
 		"show_artwork": "Mostrar capa",
 		"show_video": "Mostrar vídeo",
 		"zoom": "Escala da interface",
-		"close_comments": "Fechar comentários"
+		"close_comments": "Fechar comentários",
+		"share_start_time": "Tempo de início"
 	},
 	"lyrics": {
 		"title": "Letra",
@@ -989,12 +1017,14 @@
 			"youtube": "Letras próprias do YouTube Music, quando licenciadas.",
 			"netease": "Grande catálogo chinês. Adiciona traduções em chinês abaixo de muitas músicas.",
 			"qq": "Catálogo chinês, forte em Mandopop e Cantopop.",
-			"kugou": "Catálogo chinês, para faixas mais raras."
+			"kugou": "Catálogo chinês, para faixas mais raras.",
+			"unison": "Letras da comunidade Better Lyrics, na maioria palavra por palavra, sincronizadas com o vídeo exato."
 		},
 		"text_size": "Tamanho do texto",
 		"text_size_hint": "Aumente ou diminua o tamanho do texto",
 		"text_size_larger": "Texto maior",
-		"text_size_smaller": "Texto menor"
+		"text_size_smaller": "Texto menor",
+		"unison_rate": "Avalie estas letras no Unison"
 	},
 	"queue": {
 		"title": "Fila"
@@ -1294,7 +1324,8 @@
 		"delete_title": "Excluir este comentário?",
 		"delete_desc": "Isso não pode ser desfeito. Qualquer resposta a ele também será excluída.",
 		"held": "Comentários em {title}",
-		"follow_current": "Mostrar faixa atual"
+		"follow_current": "Mostrar faixa atual",
+		"jump_to": "Pular para {time}"
 	},
 	"stats": {
 		"title": "Estatísticas de reprodução",

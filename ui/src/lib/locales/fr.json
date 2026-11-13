@@ -159,7 +159,8 @@
 		"scroll_to_end": "Aller en bas",
 		"skip_back": "Reculer de {seconds} secondes",
 		"skip_forward": "Avancer de {seconds} secondes",
-		"speed": "Vitesse de lecture"
+		"speed": "Vitesse de lecture",
+		"live": "En direct"
 	},
 	"home": {
 		"good_morning": "Bonjour",
@@ -210,7 +211,8 @@
 			"mixed_for_you": "Mix pour vous",
 			"daily_discover": "Votre découverte du jour",
 			"music_videos": "Clips vidéo pour vous"
-		}
+		},
+		"live_now": "En direct maintenant"
 	},
 	"artist": {
 		"subscribe": "S'abonner",
@@ -420,8 +422,8 @@
 			"classic_player_hint": "La vue d'origine du lecteur : l'illustration seule sur une copie floutée de la pochette, avec les détails du titre laissés à la barre du lecteur. Désactivé, le réglage utilise la nouvelle disposition, avec le titre, l'artiste et l'album sous l'illustration et la vue éclairée par les couleurs de la pochette.",
 			"blur_playlist_header": "Flouter les en-têtes de playlist",
 			"blur_playlist_header_hint": "Affiche la pochette d'une playlist floutée derrière son en-tête. Atténue l'aspect pixellisé des pochettes étirées sur toute la largeur.",
-			"matugen": "Matugen",
-			"matugen_hint": "Prend toutes les couleurs, y compris la couleur d'accentuation, de la palette que Matugen génère à partir de votre fond d'écran. Configurez d'abord le modèle Limusic dans Matugen.",
+			"matugen": "Palette du fond d'écran",
+			"matugen_hint": "Prend toutes les couleurs, y compris la couleur d'accent, de la palette que Matugen, wallust ou pywal génère à partir de votre fond d'écran. Configurez d'abord le modèle Limusic dans cet outil.",
 			"mode": "Clair ou sombre",
 			"mode_hint": "Système suit le réglage de votre ordinateur et change avec lui.",
 			"mode_light": "Clair",
@@ -435,7 +437,29 @@
 			"now_playing_pill": "Bouton En cours de lecture",
 			"now_playing_pill_hint": "Affiche un bouton pour revenir au titre en cours de lecture lorsqu'il n'est plus visible à cause du défilement, dans une playlist ou la file d'attente.",
 			"empty_click_player": "Cliquez dans un espace vide pour ouvrir ou fermer le lecteur",
-			"empty_click_player_hint": "Activé, un clic sur une zone vide de la barre du lecteur ouvre ou ferme la vue du lecteur, et un clic autour de la pochette la ferme. Désactivé, seuls les boutons fléchés, Échap et le raccourci clavier le font."
+			"empty_click_player_hint": "Activé, un clic sur une zone vide de la barre du lecteur ouvre ou ferme la vue du lecteur, et un clic autour de la pochette la ferme. Désactivé, seuls les boutons fléchés, Échap et le raccourci clavier le font.",
+			"enhanced_lyrics": "Paroles enrichies",
+			"enhanced_lyrics_hint": "Les mots s'animent et brillent au fil du chant.",
+			"enhanced_lyrics_line_sync": "Animer aussi les paroles synchronisées",
+			"enhanced_lyrics_line_sync_hint": "Estimer le minutage mot à mot pour les paroles qui n'ont qu'un minutage par ligne. Désactivé, elles restent synchronisées ligne par ligne.",
+			"lyrics_anim": "Animation des mots",
+			"lyrics_anim_hint": "La façon dont chaque mot bouge lorsqu'il est chanté.",
+			"lyrics_anim_bounce": "Rebond",
+			"lyrics_anim_float": "Flottement",
+			"lyrics_anim_wave": "Vague",
+			"lyrics_anim_pop": "Pop",
+			"lyrics_anim_slide": "Glissement",
+			"lyrics_anim_none": "Aucune",
+			"lyrics_style": "Style de surbrillance",
+			"lyrics_style_hint": "La façon dont les mots chantés se remplissent et se mettent en surbrillance sur la ligne.",
+			"lyrics_style_feather": "Balayage fluide",
+			"lyrics_style_accent": "Teinte d'accent",
+			"lyrics_style_crisp": "Karaoké net",
+			"lyrics_style_word": "Mot entier",
+			"lyrics_anim_strength": "Intensité de l'animation",
+			"lyrics_anim_strength_hint": "La distance parcourue par les mots pendant leur animation de chant.",
+			"lyrics_glow": "Intensité de la lueur",
+			"lyrics_glow_hint": "Intensité de la lueur douce sur les mots chantés."
 		},
 		"playback": {
 			"audio_quality": "Qualité audio",
@@ -726,7 +750,10 @@
 			"copy_link": "Copier le lien",
 			"public_link_on": "Toute personne disposant du lien peut l'ouvrir.",
 			"public_link_off": "Activez cette option pour rendre le lien accessible à tous.",
-			"private_note": "Cette playlist est privée. Quiconque recevra ce lien rencontrera une erreur."
+			"private_note": "Cette playlist est privée. Quiconque recevra ce lien rencontrera une erreur.",
+			"start_at": "Commencer à",
+			"start_invalid": "Saisissez une heure comme 1:23.",
+			"start_too_long": "Cela dépasse la fin du titre ({length}). Le lien n'inclura pas de point de départ."
 		},
 		"shortcuts": {
 			"title": "Raccourcis clavier",
@@ -942,7 +969,8 @@
 		"show_artwork": "Afficher la pochette",
 		"show_video": "Afficher la vidéo",
 		"zoom": "Échelle de l'interface",
-		"close_comments": "Fermer les commentaires"
+		"close_comments": "Fermer les commentaires",
+		"share_start_time": "Point de départ"
 	},
 	"lyrics": {
 		"title": "Paroles",
@@ -1254,7 +1282,8 @@
 		"delete_title": "Supprimer ce commentaire ?",
 		"delete_desc": "Ceci est irréversible. Toutes les réponses seront supprimées aussi.",
 		"held": "Commentaires pour {title}",
-		"follow_current": "Afficher le titre actuel"
+		"follow_current": "Afficher le titre actuel",
+		"jump_to": "Aller à {time}"
 	},
 	"columns": {
 		"label": "Colonnes",
