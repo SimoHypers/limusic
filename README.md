@@ -32,34 +32,81 @@ YouTube Music client, and grew from there.
 
 ## Features
 
-- **Ad-free playback**: streams come straight from YouTube's API, ads never do
-- **Search & browse**: songs, albums, artists, playlists and the YTM home feed, with results previewing as you type
-- **Sign in** with your YouTube Music account: in-app Google login or cookie-paste, several accounts at once with switching between them
-- **Your library**: playlists, liked songs, saved albums and artists, your uploads, and write actions (like, add to playlist, create/edit/delete playlists including cover art, subscribe, save to library)
-- **History**: everything you have played, in YouTube Music's own day buckets
-- **Gapless playback** with loudness normalization, powered by libmpv
-- **Tempo, pitch and reverb**: adjust playback speed and pitch, add reverb with independent dry/wet controls, and save custom presets on this device
-- **Podcasts**: a speed picker and 15-second skips in the player bar while an episode plays
-- **Queue** with radio/automix continuation, drag to reorder, restored across restarts
-- **Synced lyrics**: side panel with auto-scroll and click-to-jump, word by word where the source has the timings, duets and background vocals on their own lines, translations under each line
-- **[Limusic Lyrics](https://limusic.app/lyrics/)**: our own word-by-word lyrics service, written by the people who use the app. Open the lyric editor from any song, tap along as each word is sung, and everyone who plays the song after you gets the result. No account needed
-- **Karaoke** (experimental): takes the vocals out of a song right on your computer, so you can sing over the lyrics. Nothing is uploaded, and it can run on a graphics card
-- **Music videos**: optional, the video plays where the artwork sits, with the same gapless audio behind it
-- **Live streams**: official live radio plays like any other track, with a Live now shelf on Home
-- **Listening stats**: top songs, artists and albums, streaks, and when you listen most, counted on your device and never sent anywhere
-- **Mini Player and theater mode**: shrink to a strip that keeps playing, or go fullscreen with cover and lyrics side by side
-- **Local Music**: play your own files, with all metadata still intact
-- **Last.fm scrobbling**: connect once from the title bar, every play is scrobbled
-- **ListenBrainz scrobbling**: paste a user token in the Scrobbling settings, same plays go there too
-- **Discord Rich Presence**: artwork, live progress bar, one click to toggle
-- **OS media keys** and now-playing integration (MPRIS on Linux, SMTC on Windows, plus playback buttons on the Windows taskbar preview)
-- **System tray**: close the window, keep the music; play/pause and skip from the tray, optional start-on-login
-- **Listen Together**: synced listening rooms with friends, on our server or one you host yourself
-- **Play anywhere**: link [Limusic for Android](https://github.com/SimoHypers/limusic-android) and each one controls the other, with the music moving to whichever you pick
-- **Keyboard and mouse**: `Ctrl+K` searches from anywhere, `Ctrl+H` lists every shortcut, right-click menus throughout, `Ctrl` and the wheel zooms the interface
-- **Eighteen languages**: English, German, Spanish, French, Indonesian, Italian, Japanese, Korean, Polish, Brazilian Portuguese, Romanian, Russian, Tamil, Turkish, Ukrainian, Vietnamese, and Simplified and Traditional Chinese, with more in progress on [Weblate](https://hosted.weblate.org/projects/limusic/)
-- **Self-updating builds** (AppImage on Linux, setup.exe on Windows, .app on macOS)
-- **Make it yours**: accent palettes, custom colors, your own fonts, corner roundness, a custom app icon, an adaptive theme that recolors the app from the playing cover, a Material You theme, and colors from your wallpaper through Matugen, wallust or pywal
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**Listening**
+
+- Ad-free, straight from YouTube's API
+- Gapless, with loudness normalization
+- Radio and automix keep the queue going
+- Music videos, live radio and podcasts
+- Tempo, pitch and reverb, with presets
+- Your own local files too
+
+</td>
+<td width="50%" valign="top">
+
+**Lyrics**
+
+- Synced, word by word where the source has it
+- Duets, background vocals and translations
+- Nine sources, in the order you choose
+- [Limusic Lyrics](https://limusic.app/lyrics/): sync a song yourself in the editor
+- Karaoke takes the vocals out, on your computer
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**Your library**
+
+- Sign in, with several accounts at once
+- Playlists, likes, saved albums and artists, uploads
+- Create, edit and reorder playlists
+- History in YouTube Music's own day buckets
+- Listening stats, counted on your device
+- Search that previews as you type
+
+</td>
+<td valign="top">
+
+**Together**
+
+- Listen Together rooms with friends
+- Link [Limusic for Android](https://github.com/SimoHypers/limusic-android) and move the music between them
+- Last.fm and ListenBrainz scrobbling
+- Discord Rich Presence
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**On your desktop**
+
+- Mini player and fullscreen theater mode
+- Tray icon, optional start on login
+- Media keys and now playing on every OS
+- `Ctrl+K` to search, `Ctrl+H` for every shortcut
+- Self-updating builds
+
+</td>
+<td valign="top">
+
+**Make it yours**
+
+- Accent palettes, custom colors and fonts
+- Adaptive colors from the playing cover
+- Material You, or your wallpaper's colors through Matugen, wallust or pywal
+- A custom app icon
+- Eighteen languages, more on [Weblate](https://hosted.weblate.org/projects/limusic/)
+
+</td>
+</tr>
+</table>
 
 ---
 
@@ -235,8 +282,8 @@ who host it free for libre projects.
   <img src="https://hosted.weblate.org/widget/limusic/ui/multi-auto.svg" alt="Translation status">
 </a>
 
-Eighteen languages ship in the app today (listed under Features). The badge
-above shows everything else in flight.
+Eighteen languages ship in the app today, and the badge above shows everything
+else in flight.
 
 **Translate on Weblate, not in a pull request.** Weblate keeps its own copy of
 the catalogs, so a hand-edited `fr.json` merged here puts the two out of sync
