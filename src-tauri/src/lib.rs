@@ -655,9 +655,15 @@ pub fn run() {
         //
         // GDK picks its backend from GDK_BACKEND when set, else Wayland when WAYLAND_DISPLAY is,
         // else X11.
+        // A list ("wayland,x11") is tried in order, so with no Wayland display to connect to it
+        // lands on x11 as well.
+        let no_wayland = std::env::var_os("WAYLAND_DISPLAY").is_none();
         let on_x11 = match std::env::var("GDK_BACKEND") {
-            Ok(b) => b.split(',').next() == Some("x11"),
-            Err(_) => std::env::var_os("WAYLAND_DISPLAY").is_none(),
+            Ok(b) => {
+                b.split(',').next() == Some("x11")
+                    || (no_wayland && b.split(',').any(|x| x == "x11"))
+            }
+            Err(_) => no_wayland,
         };
         if on_x11
             && std::path::Path::new("/dev/nvidiactl").exists()
