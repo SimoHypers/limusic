@@ -76,6 +76,7 @@
 	import KaraokeButton from './KaraokeButton.svelte';
 	import { link } from '$lib/link.svelte';
 	import { voices } from '$lib/lyricvoices';
+	import { durationSecs, lyricsFor, setNowLyrics } from '$lib/nowlyrics.svelte';
 
 	// `expanded` only sizes the type and centres the column. The owner of the extra room (the side
 	// panel, or the now-playing view) decides how much there is. Toggling it must not remount this
@@ -92,14 +93,6 @@
 		missing = $bindable(false),
 		preview
 	}: { expanded?: boolean; compact?: boolean; missing?: boolean; preview?: api.Lyrics } = $props();
-
-	/** "3:21" / "1:02:03" → seconds. */
-	function durationSecs(d?: string): number | undefined {
-		if (!d) return undefined;
-		const parts = d.split(':').map(Number);
-		if (!parts.length || parts.some(Number.isNaN)) return undefined;
-		return parts.reduce((a, b) => a * 60 + b, 0);
-	}
 
 	let lyrics = $state<api.Lyrics | null>(null);
 	let loading = $state(true);
@@ -149,23 +142,15 @@
 		lyrics = l;
 		missing = !l || l.instrumental;
 		hasScrolled = false;
+		setNowLyrics(videoId, l);
 	}
 
 	// videoId of the fetch whose result is (or will be) shown — guards stale responses.
 	let requested = '';
 
+	// Shared with the line under the now-playing cover, which writes and reads the same answer.
 	const ask = (now: NonNullable<typeof playback.now>) =>
-		api.getLyrics({
-			videoId: now.videoId,
-			title: now.title,
-			artists: now.artists,
-			// From now-playing, not the queue row: on a gapless advance the queue event lands after
-			// this one, and the previous song's album makes Boidu and LRCLIB miss.
-			album: now.album ?? undefined,
-			// The track's own length — NOT playback.duration, which still holds the previous
-			// track's value for a moment after a track change.
-			duration: durationSecs(now.duration)
-		});
+		lyricsFor(now).then((l) => (setNowLyrics(now.videoId, l), l));
 
 	// The cache brought this song's lyrics up to date behind the ones on screen (`refresh_stale`):
 	// swap them in where they are, with no loading state and no jump.

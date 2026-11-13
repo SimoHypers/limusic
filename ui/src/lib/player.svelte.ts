@@ -344,13 +344,13 @@ const videoUrls = new Map<string, Promise<string | null>>();
  *  because that is already more than the player view's box gets on a 1080p screen. What the window
  *  keeps from the box's height, at the default root font size, mirrors NowPlaying.svelte's two
  *  layouts. Original: `176` is `11rem`, the chrome above and below the box (the `--vid` calc).
- *  New layout: `344` is the titlebar and the player bar (~110), the view's top row and padding
- *  (80), and the title block under the picture (9.5rem, `VIDEO_SIDE`). If any of those changes
- *  height, this does. */
+ *  New layout: `368` is the titlebar and the player bar (~110), the view's top row and padding
+ *  (80), and the lyric line and title block under the picture (11rem, `VIDEO_SIDE`). If any of
+ *  those changes height, this does. */
 export function wantedVideoHeight() {
 	const px = appearance.classicPlayer
 		? (window.innerHeight - 176) * 0.85
-		: window.innerHeight - 344;
+		: window.innerHeight - 368;
 	return [360, 480, 720].find((h) => h >= px) ?? 720;
 }
 

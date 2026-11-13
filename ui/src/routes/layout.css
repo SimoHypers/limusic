@@ -1421,6 +1421,17 @@ html.art-tint.theme-amoled {
 }
 .animate-heart-pop { animation: heart-pop 0.3s ease-out; }
 
+/* The note under the now-playing cover while the song is between sung lines (CoverLyric). Transform
+   and opacity only, so it stays off the main thread. A utility, not a class, so `motion-safe:`
+   applies to it. */
+@keyframes note-pulse {
+	0%, 100% { transform: scale(1); opacity: 0.55; }
+	50% { transform: scale(1.18); opacity: 1; }
+}
+@utility animate-note-pulse {
+	animation: note-pulse 1.6s ease-in-out infinite;
+}
+
 /* Range inputs (seek + volume): filled progress driven by --pct, with a thumb that
    only appears on hover/focus. Every Tauri target is WebKit/Chromium, so the
    -webkit- pseudo-elements cover Fedora (WebKitGTK), macOS (WebKit) and Windows (WebView2). */
