@@ -601,6 +601,22 @@ pub fn run() {
     // the other, which is the mistake ee48c55 made.
     #[cfg(target_os = "linux")]
     {
+        // The AppImage's AppRun hook (linuxdeploy-plugin-gtk, shipped by Tauri's bundler) exports
+        // GDK_BACKEND=x11 over whatever the user set, so on a Wayland session every AppImage runs
+        // through XWayland, where a frame costs more to present: NVIDIA needs the SHM path below
+        // (the web process reads every frame back, Xwayland copies it again), and nobody gets the
+        // direct path. `ui/perf/framecost.py` with system libraries, one small animation at
+        // 1300x720, CPU per frame across the UI process, the web compositor and Xwayland: 6.5 ms
+        // on X11 with SHM, 3.6 ms on Wayland. `LIMUSIC_GDK_BACKEND=wayland` is the way to try it:
+        // it wins over the hook because it is read here, after the hook has run. An extracted
+        // 1.4.0-rc.7 AppImage with the hook edited paints on native Wayland with its bundled GTK
+        // and WebKit (GTX 1060, KDE); Mesa and GNOME are untested, which is why this is opt-in.
+        //
+        // ponytail: an escape hatch, not a setting. Make Wayland the AppImage's default once an RC
+        // round has covered Mesa, then keep this for forcing x11.
+        if let Some(backend) = std::env::var_os("LIMUSIC_GDK_BACKEND") {
+            std::env::set_var("GDK_BACKEND", backend);
+        }
         // Without this the window dies at startup with "Gdk-Message: Error 71 (Protocol error)
         // dispatching to Wayland display". Harmless no-op on non-NVIDIA drivers.
         if std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {

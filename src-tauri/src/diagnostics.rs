@@ -40,6 +40,7 @@ const ENV_KEYS: &[&str] = &[
     "WEBKIT_USE_SKIA_FOR_COMPOSITION",
     "__NV_DISABLE_EXPLICIT_SYNC",
     "GDK_BACKEND",
+    "LIMUSIC_GDK_BACKEND",
     "APPIMAGE",
 ];
 
