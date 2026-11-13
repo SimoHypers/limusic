@@ -443,6 +443,19 @@ pub async fn get_settings(state: St<'_>) -> Result<serde_json::Value, String> {
     Ok(serde_json::Value::Object(map))
 }
 
+/// Whether the page fills the window's whole rectangle right now: no rounded corners, no video
+/// hole. Linux turns the main webview's alpha channel off while it does ([`crate::set_webview_opaque`]);
+/// nothing to do anywhere else. The mini player always rounds its corners, so it never asks.
+#[tauri::command]
+pub fn set_webview_opaque(window: tauri::WebviewWindow, opaque: bool) {
+    #[cfg(target_os = "linux")]
+    if window.label() == "main" {
+        crate::set_webview_opaque(&window, opaque);
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (window, opaque);
+}
+
 #[tauri::command]
 pub async fn set_setting(
     app: tauri::AppHandle,

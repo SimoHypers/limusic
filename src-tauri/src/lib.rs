@@ -350,6 +350,38 @@ pub(crate) fn set_webgl(app: &tauri::AppHandle, on: bool) {
     }
 }
 
+/// The main webview's background: see-through, which is how wry builds it for a transparent
+/// window, or opaque.
+///
+/// The page only needs see-through pixels where it leaves some empty: the corners it rounds on a
+/// window that is not maximized, and the box mpv draws a music video under. Everywhere else the
+/// transparency buys nothing and costs a frame of work per frame: WebKit hands GTK a texture with
+/// an alpha channel, and GTK3 then uploads its own drawing of the whole window as a second texture
+/// to blend the first one over (`gdk_cairo_draw_from_gl` -> `gdk_gl_texture_from_surface`), on the
+/// main thread, for every frame the page presents. `ui/perf/framecost.py`, WebKitGTK 2.52.1 on
+/// Wayland, a 60px animation that costs the web process 0.4 ms a frame: the UI process spends
+/// 3.2 ms a frame at 1300x720 and 5.4 ms at 1900x1000 with the alpha, 1.1 and 1.4 ms without. On
+/// the real page, scrolling Home, 20% of a core against 8%.
+///
+/// Wayland only. On X11 GTK paints the buffer with cairo either way and it measured the same
+/// (1.7 ms a frame both ways), so that path is left exactly as it was.
+#[cfg(target_os = "linux")]
+pub(crate) fn set_webview_opaque(win: &tauri::WebviewWindow, opaque: bool) {
+    use gtk::prelude::*;
+    use webkit2gtk::WebViewExt;
+
+    let _ = win.with_webview(move |wv| {
+        let view = wv.inner();
+        if view.display().type_().name() != "GdkWaylandDisplay" {
+            return;
+        }
+        // Black, not a theme colour: the page paints over all of it, and the one place it shows is
+        // the video box for the frame or two before the page's hole and this call line up.
+        let alpha = if opaque { 1.0 } else { 0.0 };
+        view.set_background_color(&gtk::gdk::RGBA::new(0.0, 0.0, 0.0, alpha));
+    });
+}
+
 /// [`tune_webview`] for a window looked up by label. No-op if it isn't up.
 #[cfg(target_os = "linux")]
 pub(crate) fn tune_webview_labelled(app: &tauri::AppHandle, label: &str, media: bool) {
@@ -1202,6 +1234,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(only_ui(tauri::generate_handler![
+            commands::set_webview_opaque,
             commands::search,
             commands::search_all,
             commands::search_suggestions,

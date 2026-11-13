@@ -55,7 +55,7 @@
 	import KeyboardShortcuts from '$lib/components/KeyboardShortcuts.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { auth, initApp, np, playback, prefs, ui } from '$lib/player.svelte';
-	import { isLocalId } from '$lib/api';
+	import { isLocalId, setWebviewOpaque } from '$lib/api';
 	import { video } from '$lib/video.svelte';
 	import { initWin, windowCorners } from '$lib/win.svelte';
 	import { initZoom } from '$lib/zoom.svelte';
@@ -154,6 +154,17 @@
 	// what tells the two apart: `mini` gets the widget instead of the app chrome, and none of the
 	// routes below it are ever rendered. Constant for the window's lifetime.
 	const isMini = browser && getCurrentWindow().label === 'mini';
+
+	// Linux: the webview keeps an alpha channel so the desktop shows where the page paints nothing,
+	// and GTK pays for that channel on every frame (lib.rs `set_webview_opaque`, 3.2 ms a frame
+	// against 1.1). The page only leaves pixels empty at the corners it rounds and in the box mpv
+	// draws a music video under, so the channel goes while neither is up: maximized, theater mode,
+	// a system frame. Going back is not awaited: when the window un-maximizes, its corners are
+	// black for the frame or two the call takes to land.
+	$effect(() => {
+		if (isMini) return;
+		setWebviewOpaque(windowCorners() === '' && !video.hole).catch(() => {});
+	});
 
 	// Apply the saved accent color before the first paint (ssr=false → nothing renders until now).
 	if (browser) initTheme();
