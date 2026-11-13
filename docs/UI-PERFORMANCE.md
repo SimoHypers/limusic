@@ -22,7 +22,56 @@ The app also ships on three engines that price the same CSS differently:
 Something cheap on one can be the lag report on another. Lag reports come from laptops with
 integrated graphics, not from the machine the effect was written on.
 
+## A pass is priced per mounted element, and WebKitGTK charges the most
+
+A change the size of one card still walks what is mounted: style from the invalidated ancestor
+down, layout from the document root (nothing in the app is a layout boundary), layers for the
+whole page. So what a frame costs follows how much is mounted, not how much changed, and each
+engine has its own rate. Rebuilding style and layout for the same Home feed, 3795 nodes, on one
+desktop (i5-8400):
+
+| | shelves skipped by `content-visibility` | every shelf forced visible |
+|---|---|---|
+| Chromium 158 | 10-13 ms | 35-47 ms |
+| WebKitGTK 2.52.1 | 76 ms | 219 ms |
+
+Six times, before any effect is involved. Where that time goes on WebKitGTK, by sampled stack
+(the shares overlap): resolving `::before` and `::after` styles 19%, because Tailwind's
+`*, ::before, ::after` reset matches every element and WebKit then resolves both for each one;
+collecting matching rules 18%; cascade and apply 23%; building renderers 12%; layout 43%, of which
+updating layer positions 18% and inline SVG icons 9%. Chromium scrolls and animates off
+the main thread, so the same pass shows up there as CPU, not as dropped frames, until the CPU is
+weak: at 6x throttle it drops them too.
+
+Most of the lag fixed in this file was one trigger of a page-sized pass removed at a time. The
+rules below that reduce what is mounted, or stop a small event asking for a pass, are the ones
+that move every surface at once.
+
 ## Rules
+
+**Mount what the screen shows.** A shelf renders the cards its rail can show plus two; the slots
+past the right edge keep their box, so the rail's width, snap points and arrows don't change, and
+get their card as the rail scrolls toward them (`Shelf.svelte`). Home went from 3795 nodes to
+2275, and on WebKitGTK a wheel scroll went from 62-67% of the main thread with 32-41% of frames
+over 20 ms to 42% and 23%; going back to Home, worst frame 204-220 ms to 130-148 ms. On Chromium
+at 6x CPU, with the `shown` rule below as well, the same scroll produced 40% more frames (p95 84
+ms to 50 ms) and going back to Home went from 600-700 ms to about 400. Lists do the same with
+`rows.svelte.ts`. The queue is the exception still standing: up to 200 songs it mounts every row
+so an edit can slide them, and with 150 that makes opening the player view one 281-291 ms block
+on WebKitGTK (98-104 ms windowed) and about 800 ms on Chromium at 6x.
+
+**Something that appears on hover goes to `shown`, never `opacity-100`.** Write
+`opacity-0 group-hover:shown`. WebKit gives an element below full opacity a layer of its own, and
+the style change that creates or destroys that layer asks for a layout, which runs from the
+document root: twice per card the pointer crosses, more with a play button and a menu button
+fading too. `shown` is opacity 0.999 (`layout.css`), so the element never leaves its layer and the
+pixels are the same. WebKitGTK, hovering along a shelf: 8.0% of the main thread to 6.4%; scrolling
+under a resting pointer: 42% to 34%, frames over 20 ms 23% to 13%. Not for an element that is on
+screen at rest, which would paint through an offscreen group every time.
+
+**Nothing is inserted under the pointer.** A control that shows on hover is mounted from the start
+and shown with `invisible`/`visible` or opacity. An insert dirties layout from the root, and a
+shelf's arrows used to be inserted the first time each shelf was hovered or scrolled past.
 
 **Hover animates colour.** `transition-colors` on hover is always fine. A transform animation
 (`scale`, `translate`, `rotate`) on hover belongs only on a single element the pointer is directly
@@ -77,9 +126,14 @@ way `LyricsView.svelte` gates the karaoke clock (`needsFrameClock`), so the app 
 **Layout is read on demand, never at mount.** Reading `scrollWidth`, `clientWidth`,
 `getBoundingClientRect()` and friends right after content is inserted forces the engine to lay out
 everything just mounted, synchronously, before `content-visibility: auto` has skipped anything
-off-screen. Measure when the value is needed: on pointer enter, on scroll, on resize. `Shelf`'s
-arrow check ran in a mount `$effect` and made going back to Home take ~870 ms on WebKitGTK instead
-of ~250 ms, 640 ms of it in that one read (`Shelf.svelte`).
+off-screen. `Shelf`'s arrow check ran in a mount `$effect` and made going back to Home take ~870 ms
+on WebKitGTK instead of ~250 ms, 640 ms of it in that one read. Measure from a `ResizeObserver` or
+an `IntersectionObserver`: their callbacks run after layout, so the reads are free, and a
+`ResizeObserver` also fires when `content-visibility` brings a skipped box back (`Shelf.svelte`,
+one observer for every shelf). A scroll listener is the wrong place too: it runs before the
+frame's layout, so a `scrollTop` read there forces one whenever anything is pending, which while
+Home scrolled was a fifth of the main thread's samples. "Has this scrolled past 400px" is an
+`IntersectionObserver` on a 400px strip (`routes/+page.svelte`).
 
 **Long lists are windowed.** Use `rows.svelte.ts` for anything that can reach hundreds of rows.
 `content-visibility: auto` pays off only on lists that genuinely mount thousands of rows
@@ -117,6 +171,21 @@ does.
 
 Switch one effect off, re-measure, and compare. Every rule here came from that, and several
 plausible culprits (scrollbar styling, border radius, cover images, SVG icons) measured as nothing.
+So did, on WebKitGTK 2.52 with Home scrolling: `decoding="async"` and `loading="eager"` on covers,
+`contain: strict` on the cover box, the sticky header, container queries, containing the seek bar
+against its four layouts a second, and hiding the page under the open player view.
+`content-visibility: auto` on shelves is worth keeping: without it the same scroll costs half
+again as much.
+
+When frames drop and no effect explains it, find out which pass is running and who asked for it.
+Sample the web process's main thread (`eu-stack -1 -p <pid>` in a loop, with `DEBUGINFOD_URLS`
+unset or every sample waits on a download; Fedora's WebKitGTK carries enough symbols to name
+WebCore's functions) and bucket the stacks into style, layout, compositing, paint and script. A
+scroll that is mostly layout is not a scroll problem. Then break on
+`WebCore::RenderObject::markContainingBlocksForLayout` in `gdb` and read who dirtied it: that is
+how the opacity rule and the inserted arrows were found, after three ablations had missed them.
+Count CPU per thread from `/proc/<pid>/task/*/stat`, not per process: the web main thread, the
+compositor thread and the UI process answer three different questions.
 Measure in the engine the report comes from, with the CPU throttled to 4x or more, and with a song
 playing. Put the before/after numbers in the comment next to the effect, so the next person can see
 what removing it would cost.
