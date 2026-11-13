@@ -8,7 +8,8 @@
 
 	// The line being sung, under the now-playing cover (the Android app's CoverLyricLine). Always two
 	// lines tall, sung or not, so the title under it never moves when a line ends or a song has no
-	// synced lyrics. Word-synced lines light as they are sung; line-synced ones show whole. The sizes
+	// synced lyrics. A one-line lyric sits in the middle of it, so its gaps to the cover and to the
+	// title match. Word-synced lines light as they are sung; line-synced ones show whole. The sizes
 	// are in `em` off the font size set here, which NowPlaying's title budget (`ART_SIDE`) counts.
 
 	// Asked only when nothing in this window has the song's lyrics yet. The lyrics tab asks too when
@@ -82,7 +83,7 @@
 </script>
 
 <div
-	class="mt-4 grid h-[2.7em] font-heading leading-[1.35] font-semibold"
+	class="mt-3 grid h-[2.7em] font-heading leading-[1.35] font-semibold"
 	style="font-size:clamp(0.9375rem, var(--side) * 0.032, 1.125rem)"
 >
 	<!-- The old line and the new share the one cell while they cross: the new one rises in from a
@@ -91,7 +92,7 @@
 		<div
 			in:fly={{ y: '35%', duration: dur, easing: cubicOut }}
 			out:fly={{ y: '-35%', duration: dur, easing: cubicOut }}
-			class="[grid-area:1/1] min-w-0"
+			class="[grid-area:1/1] min-w-0 self-center"
 			dir="auto"
 		>
 			{#if key === 'wait'}

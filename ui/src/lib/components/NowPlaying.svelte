@@ -134,11 +134,11 @@
 	// height the title block leaves; a video spends that height at 16:9 instead, which a square's
 	// width would leave half empty. The caps stop a 720px cover being stretched across a 4K
 	// window, and a video drifting into an empty half.
-	// ponytail: 11.25rem is the block under the picture at its largest (the lyric line's two lines
+	// ponytail: 11rem is the block under the picture at its largest (the lyric line's two lines
 	// and its gaps, two lines of title, the artist line) added up, not measured. Raise it if that
 	// grows. `wantedVideoHeight` in player.svelte.ts mirrors the video budget.
-	const ART_SIDE = 'min(100cqw, 100cqh - 11.25rem, 44rem)';
-	const VIDEO_SIDE = 'min(100cqw, (100cqh - 11.25rem) * 16 / 9, 80rem)';
+	const ART_SIDE = 'min(100cqw, 100cqh - 11rem, 44rem)';
+	const VIDEO_SIDE = 'min(100cqw, (100cqh - 11rem) * 16 / 9, 80rem)';
 
 	// Clicking the artwork toggles playback, and flashes the action just taken over it so the click
 	// visibly did something. Read `paused` before the toggle: the backend event that flips it is a
@@ -566,7 +566,7 @@
 						<!-- What's playing. Title, then artists a step smaller and dimmer, close under
 						     it. The title scales with the picture, so it reads as part of it rather
 						     than a caption. -->
-						<div class="mt-3.5 flex items-start gap-3">
+						<div class="mt-3 flex items-start gap-3">
 							<div class="min-w-0 flex-1">
 								<h1
 									class="font-heading leading-[1.15] font-bold tracking-tight [overflow-wrap:anywhere]"
