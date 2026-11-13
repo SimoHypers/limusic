@@ -119,7 +119,7 @@
 >
 	<ItemMenu
 		{item}
-		triggerClass="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-0 shadow-md transition hover:bg-background focus-visible:opacity-100 group-hover:opacity-100 cursor-pointer"
+		triggerClass="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-0 shadow-md transition hover:bg-background focus-visible:shown group-hover:shown cursor-pointer"
 	/>
 	<!-- A div, not a button: `ctxHost` treats a nested <button> as its own thing and would leave the
 	     card's whole cover-and-title block without a right-click menu. -->

@@ -86,7 +86,7 @@
 		     A wrapper, because the shadow has to paint outside a box that the cover below clips. -->
 		<div class="relative">
 			<div
-				class="pointer-events-none absolute inset-0 opacity-0 shadow-xl transition-opacity duration-300 group-hover:opacity-100 {round
+				class="pointer-events-none absolute inset-0 opacity-0 shadow-xl transition-opacity duration-300 group-hover:shown {round
 					? 'rounded-full'
 					: 'rounded-lg'}"
 			></div>
@@ -134,10 +134,9 @@
 					<!-- A fade only: the slide it used to have is a transform transition (see above). -->
 					<button
 						data-card-play
-						class="absolute flex cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-lg transition-opacity duration-200 ease-out group-hover:opacity-100 focus-visible:opacity-100 {compact
+						class="absolute flex cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-lg transition-opacity duration-200 ease-out group-hover:shown focus-visible:shown {compact
 							? 'bottom-1.5 right-1.5 h-7 w-7'
-							: 'bottom-2 right-2 h-9 w-9'}"
-						class:opacity-100={playing}
+							: 'bottom-2 right-2 h-9 w-9'} {playing ? 'shown!' : ''}"
 						disabled={playing}
 						aria-label={t('player.play')}
 						onclick={(e) => {
@@ -175,6 +174,6 @@
 	     hovered. At 90% over artwork there is nothing left to blur that you can see. -->
 	<ItemMenu
 		{item}
-		triggerClass="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-0 shadow-md transition hover:bg-background focus-visible:opacity-100 group-hover:opacity-100 cursor-pointer"
+		triggerClass="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-0 shadow-md transition hover:bg-background focus-visible:shown group-hover:shown cursor-pointer"
 	/>
 </div>

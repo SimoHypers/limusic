@@ -150,6 +150,15 @@ fn tune_webview(win: &tauri::WebviewWindow, media: bool) {
             // WKWebView's allowsBackForwardNavigationGestures, which wry does not expose.
             settings.set_enable_back_forward_navigation_gestures(true);
 
+            // Speculative loading (2.52+): after every batch of DOM writes WebKit walks all the
+            // document's links to see whether a speculation rule now matches one. The app has no
+            // such rules and nothing to prefetch, and a page that writes the DOM every frame (the
+            // lyric sweep, the seek bar) pays the walk every frame. `ui/perf/framecost.py`, player
+            // view open with a song playing, 2.52.1: `Document::considerSpeculationRules` in 31%
+            // of the web main thread's samples, and 19% of a core with it on against 16% off. Read
+            // live, so unlike the compositor switches below it needs no restart.
+            features_off(&settings, &[b"SpeculationRulesPrefetch"]);
+
             if compositor_features_off(&settings) {
                 restart_web_process(&webview);
             }
@@ -176,13 +185,30 @@ fn tune_webview(win: &tauri::WebviewWindow, media: bool) {
 /// `ui/perf/flashprobe.py` on 2.54.1: 7-8 one-frame flashes per 6.5 s of fades, 0 with these off,
 /// 0 on 2.52.1.
 ///
-/// WebKit's feature list (2.42+) has no binding in webkit2gtk 2.0, so its six functions come from
-/// the already-loaded library by name. A WebKit without one of them, or without a feature, is left
-/// alone.
-///
 /// ponytail: drop this once a WebKitGTK release fixes both; run flashprobe.py on it first.
 #[cfg(target_os = "linux")]
 fn compositor_features_off(settings: &webkit2gtk::Settings) -> bool {
+    // SAFETY: takes nothing.
+    if unsafe { webkit2gtk::ffi::webkit_get_minor_version() } < 54 {
+        return false;
+    }
+    features_off(
+        settings,
+        &[
+            b"UseSkiaForComposition",
+            b"UseDamagingInformationForCompositing",
+            b"PropagateDamagingInformation",
+        ],
+    )
+}
+
+/// Turns WebKit runtime features off by identifier. Returns whether any was on.
+///
+/// WebKit's feature list (2.42+) has no binding in webkit2gtk 2.0, so its seven functions come from
+/// the already-loaded library by name. A WebKit without one of them, or without a feature, is left
+/// alone.
+#[cfg(target_os = "linux")]
+fn features_off(settings: &webkit2gtk::Settings, off: &[&[u8]]) -> bool {
     use gtk::glib::translate::ToGlibPtr;
     use std::ffi::{c_char, c_int, c_void, CStr};
     type AllFeatures = unsafe extern "C" fn() -> *mut c_void;
@@ -192,19 +218,11 @@ fn compositor_features_off(settings: &webkit2gtk::Settings) -> bool {
     type Enabled = unsafe extern "C" fn(*mut c_void, *mut c_void) -> c_int;
     type SetEnabled = unsafe extern "C" fn(*mut c_void, *mut c_void, c_int);
     type Unref = unsafe extern "C" fn(*mut c_void);
-    const OFF: [&[u8]; 3] = [
-        b"UseSkiaForComposition",
-        b"UseDamagingInformationForCompositing",
-        b"PropagateDamagingInformation",
-    ];
 
-    // SAFETY: the version calls take nothing. The rest are dlsym'd from the WebKitGTK this process
-    // already links, each cast to its signature in webkit/WebKitSettings.h and WebKitFeature.h.
-    // The list is ours to unref; the features in it are borrowed from the list.
+    // SAFETY: all dlsym'd from the WebKitGTK this process already links, each cast to its signature
+    // in webkit/WebKitSettings.h and WebKitFeature.h. The list is ours to unref; the features in
+    // it are borrowed from the list.
     unsafe {
-        if webkit2gtk::ffi::webkit_get_minor_version() < 54 {
-            return false;
-        }
         let sym = |name: &CStr| libc::dlsym(libc::RTLD_DEFAULT, name.as_ptr());
         let syms = [
             sym(c"webkit_settings_get_all_features"),
@@ -236,7 +254,7 @@ fn compositor_features_off(settings: &webkit2gtk::Settings) -> bool {
             let feature = get(list, i);
             let id = identifier(feature);
             if !id.is_null()
-                && OFF.contains(&CStr::from_ptr(id).to_bytes())
+                && off.contains(&CStr::from_ptr(id).to_bytes())
                 && enabled(raw.cast(), feature) != 0
             {
                 set_enabled(raw.cast(), feature, 0);

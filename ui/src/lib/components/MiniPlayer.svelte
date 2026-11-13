@@ -255,7 +255,7 @@
 		     window, so its reply lands nowhere — the rejection is swallowed rather than left dangling.
 		     Compact has no shade over its cover, so the button brings its own. -->
 		<button
-			class="absolute left-2 top-2 z-10 flex size-6 cursor-pointer items-center justify-center rounded-md text-white/60 opacity-0 transition hover:bg-white/15 hover:text-white focus-visible:opacity-100 group-hover:opacity-100 {compact
+			class="absolute left-2 top-2 z-10 flex size-6 cursor-pointer items-center justify-center rounded-md text-white/60 opacity-0 transition hover:bg-white/15 hover:text-white focus-visible:shown group-hover:shown {compact
 				? 'bg-black/40'
 				: ''}"
 			onclick={() => api.closeMini().catch(() => {})}

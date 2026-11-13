@@ -211,7 +211,7 @@
 						<!-- On hover or focus only: six posters each carrying two buttons at rest is a
 						     dozen dark discs over the faces. -->
 						<div
-							class="absolute right-2 top-2 flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100"
+							class="absolute right-2 top-2 flex items-center gap-1 opacity-0 transition-opacity focus-within:shown group-hover:shown"
 						>
 							{@render subButton(a)}
 							<PlaylistMenu

@@ -149,9 +149,9 @@
 						     two utilities of the same specificity are settled by stylesheet order, so
 						     the prompt could stay invisible on the playlist that most needs it. -->
 						<span
-							class="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/60 text-xs font-medium text-white transition group-hover:opacity-100 group-focus-visible:opacity-100 {preview
+							class="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/60 text-xs font-medium text-white transition group-hover:shown group-focus-visible:shown {preview
 								? 'opacity-0'
-								: 'opacity-100'}"
+								: 'shown'}"
 						>
 							<HugeiconsIcon icon={ImageAdd02Icon} class="h-6 w-6" />
 							{t('dialogs.edit_playlist.change_cover')}
