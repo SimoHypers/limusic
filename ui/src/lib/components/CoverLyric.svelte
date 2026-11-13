@@ -2,10 +2,13 @@
 	import { fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { MediaQuery } from 'svelte/reactivity';
+	import { HugeiconsIcon } from '@hugeicons/svelte';
+	import { MusicNote01Icon } from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import { playback, ui } from '$lib/player.svelte';
 	import { showVideo } from '$lib/video.svelte';
 	import { lyricsFor, nowLyrics, setNowLyrics } from '$lib/nowlyrics.svelte';
+	import { t } from '$lib/i18n.svelte';
 
 	// The line being sung, under the now-playing cover (the Android app's CoverLyricLine). Two lines
 	// tall whatever line it holds, so the title under it never moves when a line ends. A one-line
@@ -76,8 +79,18 @@
 	// Background vocals stay in the lyrics tab: here they'd read as part of the lead line.
 	const words = $derived(line?.words?.filter((w) => !w.bg) ?? []);
 	// A change of key is a new line rising in. Before the first line and in an instrumental break the
-	// slot holds three dots, so an intro doesn't read as a song without lyrics.
+	// slot holds a note and how much of the break is left, so an intro doesn't read as a song without
+	// lyrics, or as lyrics still loading.
 	const key = $derived(!lines ? '' : text ? `${nowLyrics.id}:${at}` : 'wait');
+	/** The break being waited through: from its cue (the song's start, for an intro) to the next
+	 *  sung line's. None after the last line. */
+	const gap = $derived.by(() => {
+		if (key !== 'wait' || !lines) return null;
+		const from = (at < 0 ? 0 : lines[at].time_ms) ?? 0;
+		const to = lines.slice(at + 1).find((l) => l.time_ms !== undefined && l.text.trim())?.time_ms;
+		return to !== undefined && to > from ? { from, to } : null;
+	});
+	const fill = $derived(gap ? Math.min(1, Math.max(0, (ms - gap.from) / (gap.to - gap.from))) : 0);
 
 	const still = new MediaQuery('prefers-reduced-motion: reduce');
 	// Long enough to read as travel, short enough that fast lines don't queue (Android's 340 ms).
@@ -120,15 +133,23 @@
 				dir="auto"
 			>
 				{#if key === 'wait'}
-					<span class="flex h-[1.35em] items-center gap-[0.3em]" aria-hidden="true">
-						{#each [0, 1, 2] as i (i)}
-							<span
-								class="size-[0.32em] rounded-full bg-muted-foreground motion-safe:animate-pulse {playback.paused
-									? '[animation-play-state:paused]'
-									: ''}"
-								style="animation-delay:{i * 0.25}s"
-							></span>
-						{/each}
+					<!-- The note the lyrics tab draws for a break, and a bar that fills until the
+					     singing comes back. Without the frame clock (line-synced lyrics) the bar gets a
+					     position four times a second, and a linear glide of the same length joins them
+					     up; with it, every frame, and no glide. Transform only. -->
+					<span class="flex h-[1.35em] items-center gap-[0.5em] text-muted-foreground">
+						<HugeiconsIcon icon={MusicNote01Icon} class="size-[1.05em] shrink-0" />
+						<span class="sr-only">{t('lyrics.instrumental')}</span>
+						{#if gap}
+							<span class="h-[0.2em] w-[4.5em] overflow-hidden rounded-full bg-muted-foreground/30">
+								<span
+									class="block h-full origin-left rounded-full bg-foreground {worded
+										? ''
+										: 'transition-transform duration-[250ms] ease-linear'}"
+									style="transform:scaleX({fill})"
+								></span>
+							</span>
+						{/if}
 					</span>
 				{:else if key}
 					<span class="line-clamp-2 text-start [overflow-wrap:anywhere]">
