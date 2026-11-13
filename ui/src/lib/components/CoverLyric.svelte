@@ -76,8 +76,13 @@
 		return wasOpen;
 	});
 	const text = $derived(line?.text.trim().replace(/^♪$/, ''));
-	// Background vocals stay in the lyrics tab: here they'd read as part of the lead line.
-	const words = $derived(line?.words?.filter((w) => !w.bg) ?? []);
+	// Background vocals stay in the lyrics tab: here they'd read as part of the lead line. A line
+	// that is nothing but them (an "Oh, oh" answering the lead) sweeps them, or it would show flat.
+	const words = $derived.by(() => {
+		const all = line?.words ?? [];
+		const lead = all.filter((w) => !w.bg);
+		return lead.length ? lead : all;
+	});
 	// A change of key is a new line rising in. Before the first line and in an instrumental break the
 	// slot holds a pulsing note, so an intro doesn't read as a song without lyrics, or as lyrics
 	// still loading.
