@@ -479,21 +479,23 @@ function Board() {
   const [period, setPeriod] = useState<Period>('all')
   const [attempt, setAttempt] = useState(0)
   const load = useApi<{ entries: Entry[] }>(`/v1/leaderboard?period=${period}&limit=100`, attempt)
-  // The headline credits the all-time top three, so it is fixed by the first all-time answer and
-  // doesn't follow the period switch.
-  // So is the wall: the songs of the all-time top five, each cover crediting who synced it.
-  const [line, setLine] = useState<Word[]>(() => words('Synced by'))
-  const [top, setTop] = useState<string[] | null>(null)
-  if (!top && (period !== 'all' || load.state !== 'loading')) {
-    const entries = period === 'all' && load.state === 'ok' ? load.data.entries : []
-    setTop(entries.slice(0, 5).map(e => e.handle))
-    setLine(entries.length ? credit(entries) : words(SLOGAN))
-  }
+  // The headline credits the all-time top three and the wall shows the songs of the all-time top
+  // five, each cover crediting who synced it. Both are fixed by the first good all-time answer, so
+  // they don't follow the period switch, and a failed first answer doesn't stop a retry filling
+  // them. Until then the headline waits on "Synced by" while the all-time board loads, and says the
+  // slogan otherwise (server down, or "This month" picked first), as it does for an empty board.
+  const [top, setTop] = useState<Entry[] | null>(null)
+  if (!top && period === 'all' && load.state === 'ok') setTop(load.data.entries)
+  const waiting = !top && period === 'all' && load.state === 'loading'
+  const line = useMemo(
+    () => (top?.length ? credit(top) : words(waiting ? 'Synced by' : SLOGAN)),
+    [top, waiting],
+  )
   const [tiles, setTiles] = useState<Tile[] | null>(null)
   useEffect(() => {
     if (!top) return
     const ctl = new AbortController()
-    songsOf(top, ctl.signal).then(songs => {
+    songsOf(top.slice(0, 5).map(e => e.handle), ctl.signal).then(songs => {
       if (ctl.signal.aborted) return
       const out: Tile[] = []
       for (const s of songs) {
@@ -507,7 +509,7 @@ function Board() {
 
   return (
     <>
-      <Hero tiles={tiles}>
+      <Hero tiles={top ? tiles : waiting ? null : []}>
         <h1 className="min-h-[2.1em] font-heading text-[clamp(2.25rem,5.2vw,3.5rem)] leading-[1.05] font-bold tracking-tight text-balance [overflow-wrap:anywhere]">
           <SweepLine line={line} />
         </h1>

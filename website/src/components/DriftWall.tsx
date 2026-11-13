@@ -8,6 +8,8 @@ import './DriftWall.css'
 
 export type Tile = { image: string; href: string; label: string }
 
+const REDUCED = '(prefers-reduced-motion: reduce)'
+
 // Golden-ratio spread, so neighbouring columns drift at visibly different speeds.
 const factor = (c: number, variance: number) => 1 + variance * ((((c * 0.618034 + 0.35) % 1) * 2) - 1)
 
@@ -59,6 +61,14 @@ export default function DriftWall({
     hoveredCol.current = t ? Number(t.dataset.col) : -1
   }
   const [height, setHeight] = useState(600)
+  // Followed live, so turning reduced motion on stops a wall already drifting.
+  const [still, setStill] = useState(() => matchMedia(REDUCED).matches)
+  useEffect(() => {
+    const mq = matchMedia(REDUCED)
+    const on = () => setStill(mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
 
   // Each column cycles through at least six covers, so a short list doesn't stack one cover on
   // itself: with few covers every column gets the whole list, starting at a different place.
@@ -93,7 +103,7 @@ export default function DriftWall({
       tracks.current.forEach((t, c) => t && (t.style.transform = `translate3d(0, ${-offsets[c]}px, 0)`))
     }
     place()
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    if (still) return
 
     let raf = 0
     let last: number | null = null
@@ -123,7 +133,7 @@ export default function DriftWall({
       io.disconnect()
       cancelAnimationFrame(raf)
     }
-  }, [cols, span, tilt, turn, depth, speed, variance, parallax])
+  }, [cols, span, tilt, turn, depth, speed, variance, parallax, still])
 
   return (
     <div
