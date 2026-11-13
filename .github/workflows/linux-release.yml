@@ -399,6 +399,23 @@ jobs:
         if: ${{ inputs.dry_run }}
         run: echo "dry_run - every build step and guard passed; release assets left untouched."
 
+      # The guards above prove the AppImage starts on other distros, not how it feels to use. Hand
+      # it over as a workflow artifact, as the Windows workflow does with its installer: a branch
+      # can then be run for a day as the build users would get (this runner's WebKitGTK, not the
+      # developer's) before it is tagged. Artifacts are not release assets, so no user sees this
+      # and latest.json is untouched. One day, because it is an unreleased build and an artifact on
+      # a public repository can be downloaded by anyone.
+      - name: Dry run, keep the AppImage as an artifact
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: limusic-dry-run-${{ steps.rel.outputs.tag }}
+          path: target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+          retention-days: 1
+          # Already squashfs: zipping it again buys nothing and costs a minute.
+          compression-level: 0
+
       - name: Attach the AppImage + deb, teach latest.json about Linux
         if: ${{ !inputs.dry_run }}
         env:
