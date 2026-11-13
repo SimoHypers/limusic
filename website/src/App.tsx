@@ -122,7 +122,7 @@ const SCREENS = [
   {
     eyebrow: 'Lyrics',
     title: 'Sing every word',
-    body: 'Synced lyrics stay locked to the music, word by word where the source has the timings. Six providers are tried in order, so coming up empty is rare, and matching goes by the track’s exact length rather than its title.',
+    body: 'Synced lyrics stay locked to the music, word by word where the source has the timings. Nine sources are tried in order, starting with Limusic Lyrics, which listeners sync themselves, so coming up empty is rare, and matching goes by the track’s exact length rather than its title.',
     img: screenLyrics,
     alt: 'Limusic showing word-by-word synced lyrics beside the album cover',
   },
