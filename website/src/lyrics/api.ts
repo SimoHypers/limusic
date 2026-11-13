@@ -40,6 +40,29 @@ export type Load<T> = { state: 'loading' } | { state: 'ok'; data: T } | { state:
 /* The handle rule from PATCH /v1/me; provider-made handles fit it too. */
 export const HANDLE = /^[A-Za-z0-9_]{3,20}$/
 
+/* The songs behind the board's cover wall: the latest lyrics of each handle, taken in turn so the
+   wall mixes contributors, one entry per song. The server has no feed of recent lyrics, so this
+   is one profile read per handle; a profile that fails is left out.
+   ponytail: a read per top contributor per visit, add a /v1/recent feed if the board gets busy. */
+export async function songsOf(handles: string[], signal: AbortSignal): Promise<(Work & { handle: string })[]> {
+  const lists = await Promise.all(
+    handles.map(h =>
+      fetch(`${BASE}/v1/users/${encodeURIComponent(h)}`, { signal })
+        .then(r => (r.ok ? (r.json() as Promise<Profile>) : null))
+        .catch(() => null),
+    ),
+  )
+  const seen = new Set<string>()
+  const out: (Work & { handle: string })[] = []
+  for (let i = 0; lists.some(p => p && i < p.recent.length); i++)
+    for (const p of lists)
+      if (p && i < p.recent.length && !seen.has(p.recent[i].video_id)) {
+        seen.add(p.recent[i].video_id)
+        out.push({ ...p.recent[i], handle: p.handle })
+      }
+  return out
+}
+
 /* One GET, again whenever `attempt` changes (the Try again button). */
 export function useApi<T>(path: string, attempt: number): Load<T> {
   const [load, setLoad] = useState<Load<T>>({ state: 'loading' })

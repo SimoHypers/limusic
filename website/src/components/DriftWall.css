@@ -1,0 +1,113 @@
+/* DriftWall.tsx. Only the tracks and the plane carry a layer: resting tiles have no transform, so
+   they paint into their column, and a tile gets its own layer only while it is lifted. */
+.drift-wall {
+  --dw-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  perspective: 1200px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 76% at 54% 50%, #000 36%, transparent 100%);
+  mask-image: radial-gradient(ellipse 70% 76% at 54% 50%, #000 36%, transparent 100%);
+}
+
+.drift-wall__plane {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.drift-wall__col {
+  width: calc(var(--dw-tile) + var(--dw-gap));
+  transform-style: preserve-3d;
+}
+
+.drift-wall__track {
+  display: flex;
+  flex-direction: column;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.drift-wall__tile {
+  position: relative;
+  display: block;
+  height: calc(var(--dw-tile) + var(--dw-gap));
+  flex: none;
+  transform-style: preserve-3d;
+  -webkit-user-drag: none;
+}
+
+.drift-wall__inner {
+  position: absolute;
+  inset: calc(var(--dw-gap) / 2);
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--muted);
+  opacity: 0.72;
+  pointer-events: none;
+  transition:
+    transform 0.42s var(--dw-ease),
+    opacity 0.42s var(--dw-ease),
+    box-shadow 0.42s var(--dw-ease);
+}
+
+.drift-wall__inner img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
+}
+
+/* Resting covers sink into the page colour, light or dark; hover clears it. */
+.drift-wall__inner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--background);
+  opacity: 0.32;
+  transition: opacity 0.42s var(--dw-ease);
+}
+
+.drift-wall__label {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  z-index: 1;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--background) 82%, transparent);
+  color: var(--foreground);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transition: opacity 0.3s var(--dw-ease);
+}
+
+.drift-wall__tile.is-active .drift-wall__inner {
+  opacity: 1;
+  transform: translateZ(64px);
+  box-shadow: 0 24px 60px -18px rgb(0 0 0 / 0.6);
+}
+
+.drift-wall__tile.is-active .drift-wall__inner::after {
+  opacity: 0;
+}
+
+.drift-wall__tile.is-active .drift-wall__label {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drift-wall__plane,
+  .drift-wall__track {
+    will-change: auto;
+  }
+}
