@@ -65,6 +65,7 @@
 	import LimusicNotice from '$lib/components/LimusicNotice.svelte';
 	import LyricTimeline from '$lib/components/LyricTimeline.svelte';
 	import LyricsView from '$lib/components/LyricsView.svelte';
+	import SongMap from '$lib/components/SongMap.svelte';
 	import * as api from '$lib/api';
 	import { isLocalId } from '$lib/api';
 	import { np, playAt, playback, seekTo, toast, ui } from '$lib/player.svelte';
@@ -749,6 +750,9 @@
 	 *  side panels, which a viewport breakpoint cannot see. Narrow, the sheet goes under the stage. */
 	let pageW = $state(0);
 	const wide = $derived(pageW === 0 || pageW >= 860);
+	/** The stage's spare height, and how much of it the song map needs: below that it stays out. */
+	let spare = $state(0);
+	const MAP_MIN_H = 150;
 	let body = $state<HTMLElement | null>(null);
 	const cover = opened?.thumbnail;
 	const sung = $derived(lines.filter((l) => l.words.length));
@@ -1312,8 +1316,25 @@
 							</Button>
 						</div>
 
+						<!-- The height left over, on a tall page: the whole song. Absolute inside the spacer, so
+						     drawing it never changes the height it was given. -->
+						<div class="relative min-h-4 flex-1" bind:clientHeight={spare}>
+							{#if spare >= MAP_MIN_H && durationMs > 0}
+								<div class="absolute inset-x-0 top-6 bottom-4">
+									<SongMap
+										{lines}
+										{cur}
+										{durationMs}
+										{position}
+										running={active && !playback.paused}
+										head={onTrack}
+										label={agentLabel}
+										onselect={(i: number) => select(i)}
+									/>
+								</div>
+							{/if}
+						</div>
 						<!-- How the song plays while timing: quiet, at the bottom, set once. -->
-						<div class="min-h-4 flex-1"></div>
 						<div class="-mx-6 flex flex-wrap items-center gap-x-6 gap-y-2 border-t px-6 pt-2.5 pb-3 text-[13px] text-muted-foreground">
 							<div class="flex items-center gap-2.5">
 								<span>{t('lyrics_editor.speed')}</span>
