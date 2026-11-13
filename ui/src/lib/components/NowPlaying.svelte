@@ -60,7 +60,12 @@
 	// a scrimmed overlay and there's nothing to shrink into. In tabbed mode both are always closed.
 	// `lyricsOpen` is the lyrics/comments slot: the comments panel takes the lyrics' place, so either
 	// one open counts as that one panel.
-	let { queueOpen, lyricsOpen }: { queueOpen: boolean; lyricsOpen: boolean } = $props();
+	// `onLyrics` opens the lyrics panel, which +layout owns: the lyric line's click when untabbed.
+	let {
+		queueOpen,
+		lyricsOpen,
+		onLyrics
+	}: { queueOpen: boolean; lyricsOpen: boolean; onLyrics: () => void } = $props();
 	const tabbed = $derived(appearance.tabbedPlayer);
 	// The two layouts (Settings > Appearance > Classic player layout). One component, so both
 	// share every behaviour below: the video hole, the backdrop click, the wheel volume, Esc. Only
@@ -99,6 +104,13 @@
 	$effect(() => {
 		if (np.tab !== 'lyrics') big = false; // nothing to enlarge on the queue tab
 	});
+	// The lyric line under the cover opens the lyrics page: tabbed, the enlarged lyrics tab (Esc
+	// steps back to the cover); otherwise the lyrics panel, like the player bar's button.
+	function openLyrics() {
+		if (!tabbed) return onLyrics();
+		np.tab = 'lyrics';
+		big = true;
+	}
 
 	// Esc steps back one level: out of the enlarged lyrics, then out of the view. A dialog or menu
 	// over this one already took the key (bits-ui preventDefaults it), and theater mode, which
@@ -220,6 +232,10 @@
 		ro.observe(document.documentElement);
 		const view = el.closest('[data-np-view]');
 		if (view) ro.observe(view);
+		// The picture and what sits under it: the lyric line opening or closing under a video
+		// changes this group's height, and the group, centred, moves the box without resizing it.
+		const group = el.closest('[data-np-keep]');
+		if (group) ro.observe(group);
 		document.addEventListener('visibilitychange', measure);
 		return () => {
 			ro.disconnect();
@@ -561,7 +577,7 @@
 							{@render picture()}
 						</div>
 
-						<CoverLyric />
+						<CoverLyric onopen={openLyrics} />
 
 						<!-- What's playing. Title, then artists a step smaller and dimmer, close under
 						     it. The title scales with the picture, so it reads as part of it rather

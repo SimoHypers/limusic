@@ -4,13 +4,15 @@
 	import { MediaQuery } from 'svelte/reactivity';
 	import * as api from '$lib/api';
 	import { playback, ui } from '$lib/player.svelte';
+	import { showVideo } from '$lib/video.svelte';
 	import { lyricsFor, nowLyrics, setNowLyrics } from '$lib/nowlyrics.svelte';
 
-	// The line being sung, under the now-playing cover (the Android app's CoverLyricLine). Always two
-	// lines tall, sung or not, so the title under it never moves when a line ends or a song has no
-	// synced lyrics. A one-line lyric sits in the middle of it, so its gaps to the cover and to the
-	// title match. Word-synced lines light as they are sung; line-synced ones show whole. The sizes
-	// are in `em` off the font size set here, which NowPlaying's title budget (`ART_SIDE`) counts.
+	// The line being sung, under the now-playing cover (the Android app's CoverLyricLine). Two lines
+	// tall whatever line it holds, so the title under it never moves when a line ends. A one-line
+	// lyric sits in the middle of it, so its gaps to the cover and to the title match. Word-synced
+	// lines light as they are sung; line-synced ones show whole. The sizes are in `em` off the font
+	// size set here, which NowPlaying's title budget (`ART_SIDE`) counts. Clicking it opens the lyrics.
+	let { onopen }: { onopen: () => void } = $props();
 
 	// Asked only when nothing in this window has the song's lyrics yet. The lyrics tab asks too when
 	// it is open, and `lyricsFor` makes the two one request.
@@ -62,6 +64,14 @@
 		return i;
 	});
 	const line = $derived(lines?.[at]);
+	// A song without synced lyrics closes the slot, leaving the cover and the title their old gap.
+	// Only an answer moves it: while the next song's lyrics load it stays as it was, or every change
+	// between two songs with lyrics would close and reopen it.
+	let wasOpen = false;
+	const open = $derived.by(() => {
+		if (nowLyrics.id === playback.now?.videoId) wasOpen = !!lines;
+		return wasOpen;
+	});
 	const text = $derived(line?.text.trim().replace(/^♪$/, ''));
 	// Background vocals stay in the lyrics tab: here they'd read as part of the lead line.
 	const words = $derived(line?.words?.filter((w) => !w.bg) ?? []);
@@ -82,46 +92,61 @@
 	}
 </script>
 
+<!-- Open, the padding plus the two lines; closed, the padding alone, which with the title's own
+     margin is the gap the two had before this line existed. It glides between them, except under a
+     video: mpv's picture on Linux cannot follow a box that moves every frame (see `holeFor`). -->
 <div
-	class="mt-3 grid h-[2.7em] font-heading leading-[1.35] font-semibold"
-	style="font-size:clamp(0.9375rem, var(--side) * 0.032, 1.125rem)"
+	class="overflow-hidden pt-3 font-heading leading-[1.35] font-semibold {showVideo() || still.current
+		? ''
+		: 'transition-[height] duration-300 ease-out'}"
+	style="font-size:clamp(0.9375rem, var(--side) * 0.032, 1.125rem);height:{open
+		? 'calc(2.7em + 0.75rem)'
+		: '0.75rem'}"
 >
-	<!-- The old line and the new share the one cell while they cross: the new one rises in from a
-	     third of the slot below as the old one rises away, the way the lyrics tab scrolls. -->
-	{#key key}
-		<div
-			in:fly={{ y: '35%', duration: dur, easing: cubicOut }}
-			out:fly={{ y: '-35%', duration: dur, easing: cubicOut }}
-			class="[grid-area:1/1] min-w-0 self-center"
-			dir="auto"
-		>
-			{#if key === 'wait'}
-				<span class="flex h-[1.35em] items-center gap-[0.3em]" aria-hidden="true">
-					{#each [0, 1, 2] as i (i)}
-						<span
-							class="size-[0.32em] rounded-full bg-muted-foreground motion-safe:animate-pulse {playback.paused
-								? '[animation-play-state:paused]'
-								: ''}"
-							style="animation-delay:{i * 0.25}s"
-						></span>
-					{/each}
-				</span>
-			{:else if key}
-				<p class="line-clamp-2 text-start [overflow-wrap:anywhere]">
-					{#if words.length}
-						<!-- Each word is its own gradient, lit to where the singer has got to. Theme
-						     tokens both, opaque: a translucent colour composites glyph by glyph. -->
-						{#each words as w, i (i)}<span
-								class="bg-clip-text text-transparent [-webkit-text-fill-color:transparent]"
-								style="background-image:linear-gradient(90deg,var(--foreground) {stop(
-									w
-								)}%,var(--muted-foreground) {stop(w) + 12}%)">{w.text.trimEnd()}</span
-							>{w.text.endsWith(' ') ? ' ' : ''}{/each}
-					{:else}
-						<span class="text-foreground">{text}</span>
-					{/if}
-				</p>
-			{/if}
-		</div>
-	{/key}
+	<button
+		type="button"
+		onclick={onopen}
+		disabled={!lines}
+		class="grid h-[2.7em] w-full cursor-pointer text-left disabled:cursor-default"
+	>
+		<!-- The old line and the new share the one cell while they cross: the new one rises in from a
+		     third of the slot below as the old one rises away, the way the lyrics tab scrolls. Spans, not
+		     divs: a button holds phrasing content only. -->
+		{#key key}
+			<span
+				in:fly={{ y: '35%', duration: dur, easing: cubicOut }}
+				out:fly={{ y: '-35%', duration: dur, easing: cubicOut }}
+				class="[grid-area:1/1] min-w-0 self-center"
+				dir="auto"
+			>
+				{#if key === 'wait'}
+					<span class="flex h-[1.35em] items-center gap-[0.3em]" aria-hidden="true">
+						{#each [0, 1, 2] as i (i)}
+							<span
+								class="size-[0.32em] rounded-full bg-muted-foreground motion-safe:animate-pulse {playback.paused
+									? '[animation-play-state:paused]'
+									: ''}"
+								style="animation-delay:{i * 0.25}s"
+							></span>
+						{/each}
+					</span>
+				{:else if key}
+					<span class="line-clamp-2 text-start [overflow-wrap:anywhere]">
+						{#if words.length}
+							<!-- Each word is its own gradient, lit to where the singer has got to. Theme
+							     tokens both, opaque: a translucent colour composites glyph by glyph. -->
+							{#each words as w, i (i)}<span
+									class="bg-clip-text text-transparent [-webkit-text-fill-color:transparent]"
+									style="background-image:linear-gradient(90deg,var(--foreground) {stop(
+										w
+									)}%,var(--muted-foreground) {stop(w) + 12}%)">{w.text.trimEnd()}</span
+								>{w.text.endsWith(' ') ? ' ' : ''}{/each}
+						{:else}
+							<span class="text-foreground">{text}</span>
+						{/if}
+					</span>
+				{/if}
+			</span>
+		{/key}
+	</button>
 </div>
