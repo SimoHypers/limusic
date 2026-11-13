@@ -44,6 +44,7 @@ mod taskbar;
 mod tray;
 mod videoproxy;
 mod webview;
+mod windowtitle;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
