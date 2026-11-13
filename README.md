@@ -42,7 +42,7 @@ YouTube Music client, and grew from there.
 - **Podcasts**: a speed picker and 15-second skips in the player bar while an episode plays
 - **Queue** with radio/automix continuation, drag to reorder, restored across restarts
 - **Synced lyrics**: side panel with auto-scroll and click-to-jump, word by word where the source has the timings, duets and background vocals on their own lines, translations under each line
-- **Limusic Lyrics**: our own word-by-word lyrics service, written by the people who use the app. Open the lyric editor from any song, tap along as each word is sung, and everyone who plays the song after you gets the result. No account needed
+- **[Limusic Lyrics](https://limusic.app/lyrics/)**: our own word-by-word lyrics service, written by the people who use the app. Open the lyric editor from any song, tap along as each word is sung, and everyone who plays the song after you gets the result. No account needed
 - **Karaoke** (experimental): takes the vocals out of a song right on your computer, so you can sing over the lyrics. Nothing is uploaded, and it can run on a graphics card
 - **Music videos**: optional, the video plays where the artwork sits, with the same gapless audio behind it
 - **Live streams**: official live radio plays like any other track, with a Live now shelf on Home
@@ -145,7 +145,7 @@ Open the panel with the microphone button in the player bar, next to the queue
 button. It takes the same side of the window as the queue, so opening one closes
 the other.
 
-Nine sources are asked in order: Limusic Lyrics, [Boidu](https://boidu.dev),
+Nine sources are asked in order: [Limusic Lyrics](https://limusic.app/lyrics/), [Boidu](https://boidu.dev),
 Unison, LyricsPlus, [LRCLIB](https://lrclib.net), YouTube Music's own lyrics,
 then Netease, QQ Music and Kugou. Synced lyrics from any of them beat plain
 text from one higher up, and plain text is the fallback when nobody has a
@@ -167,7 +167,7 @@ work.
 
 ### Limusic Lyrics and the lyric editor
 
-Limusic Lyrics is the project's own lyrics service, filed by video, so a lyric
+[Limusic Lyrics](https://limusic.app/lyrics/) is the project's own lyrics service, filed by video, so a lyric
 is timed to the exact upload you're playing. It is filled by the people who use
 the app.
 
