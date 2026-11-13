@@ -3483,6 +3483,7 @@ impl AppState {
         // showing a linked device's song while the windows do.
         if !self.showing_remote() {
             self.media_show(item);
+            crate::windowtitle::apply(&self.app, Some(item));
         }
         if let Some(d) = &self.discord {
             d.set_track(item);
@@ -5492,6 +5493,7 @@ impl AppState {
             }
             let now = Self::now_playing_json(&song, "remote", false);
             let _ = self.app.emit("now-playing", now);
+            crate::windowtitle::apply(&self.app, Some(&song));
             let duration = duration_ms as f64 / 1000.0;
             let _ = self.app.emit("duration", serde_json::json!({ "duration": duration }));
             // The OS widget too: its keys already reach the other device (`link_route`).
@@ -5526,8 +5528,10 @@ impl AppState {
         self.last_queue_fingerprint.store(0, Ordering::Relaxed);
         self.emit_queue().await;
         // And the OS widget its own track back.
-        if let Some(item) = self.current_item().await {
-            self.media_show(&item);
+        let current = self.current_item().await;
+        crate::windowtitle::apply(&self.app, current.as_ref());
+        if let Some(item) = &current {
+            self.media_show(item);
         }
         if let Some(m) = &self.media {
             let speed = self.player.speed();
