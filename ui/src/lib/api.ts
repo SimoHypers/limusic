@@ -1252,7 +1252,7 @@ export interface LyricWord {
 	text: string;
 	start_ms: number;
 	end_ms: number;
-	/** Background vocals. Only Limusic Lyrics sends it; drawn smaller (`lyricvoices.ts`). */
+	/** Background vocals, with timings of their own; drawn smaller, under the lead (`lyricvoices.ts`). */
 	bg?: boolean;
 }
 export interface LyricLine {

@@ -21,9 +21,10 @@ ok(far(['v1', 'singer', 'v2'])!.join() === 'false,false,true', 'an id that is no
 
 const mixed = voices([line(undefined, [w('one '), w('two '), w('(oh) ', true), w('(oh)', true), w('three')])])!;
 ok(mixed[0].far === false, 'background words alone move nothing');
-ok(mixed[0].runs!.map((r) => `${r.bg}:${r.words.length}`).join() === 'false:2,true:2,false:1', 'runs split where the voices meet');
+ok(mixed[0].runs!.map((r) => `${r.bg}:${r.words.length}`).join() === 'false:3,true:2', 'the lead whole, the background under it');
+ok(mixed[0].until === 1, 'lit until the last background word ends');
 const whole = voices([line('v1', [w('(ah)', true)]), line('v1')])!;
 ok(whole[0].runs!.length === 1 && whole[0].runs![0].bg, 'a line that is all background is one run');
-ok(whole[1].runs === null, 'a line without background words is drawn whole');
+ok(whole[1].runs === null && whole[1].until === 0, 'a line without background words is drawn whole');
 ok(voices([{ text: 'no words', time_ms: 0 }]) === null, 'a line with no words has none');
 console.log('ok');

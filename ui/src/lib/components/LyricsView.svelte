@@ -104,8 +104,8 @@
 	const canTranslate = $derived(!!lyrics?.lines.some((l) => l.translation));
 	const showTranslation = $derived(canTranslate && prefs.translated);
 	/** Where each line sits and which of its words are background vocals. Null for a lyric with
-	 *  neither (every source but Limusic, and most of Limusic's): its lines are drawn by the same
-	 *  markup as before, with nothing added. Worked out once per lyric, never per frame. */
+	 *  neither (most of them): its lines are drawn by the same markup as before, with nothing
+	 *  added. Worked out once per lyric, never per frame. */
 	const voice = $derived(lyrics?.synced ? voices(lyrics.lines) : null);
 	/** Two singers: where there is room (the enlarged views), each also keeps off the other's
 	 *  edge, so the turns read at a glance. A side panel is too narrow to give any width away. */
@@ -217,6 +217,17 @@
 		return i;
 	}
 	const activeIndex = $derived.by(() => lineAt(posMs));
+	/** A line before the one being sung whose background vocals are still going, -1 for none. It
+	 *  stays lit, so an answer sung over the next line's start keeps sweeping instead of going dim
+	 *  halfway. A lyric without background vocals never reads the clock here.
+	 *  ponytail: the nearest such line only; two at once would need a set. */
+	const lingering = $derived.by(() => {
+		if (!voice) return -1;
+		for (let j = activeIndex - 1; j >= Math.max(0, activeIndex - 3); j--) {
+			if (posMs < voice[j].until) return j;
+		}
+		return -1;
+	});
 	// The view moves to a line before it is sung, so the line lands as the singer reaches it rather
 	// than sliding in under the first word. Its highlight still waits for its cue.
 	const scrollIndex = $derived.by(() => lineAt(posMs + 500));
@@ -532,7 +543,7 @@
 		     behaves. -->
 		<div class="pb-[55vh] {expanded ? 'mx-auto max-w-3xl' : ''}">
 			{#each lyrics.lines as line, i (i)}
-				{@const isActive = i === activeIndex}
+				{@const isActive = i === activeIndex || i === lingering}
 				{@const isPast = i < activeIndex}
 				<!-- A held note's halo stays a line longer than the sweep, so the note it ends a
 				     line on lets go of its glow after the next line has started. -->
@@ -566,9 +577,9 @@
 							: 'text-muted-foreground opacity-90 motion-safe:scale-[0.96] dark:opacity-70'}"
 				>
 					{#if v?.runs && words === line.words}
-						<!-- Background vocals are a quieter line of their own, under or over the lead
-						     they answer: smaller, and dimmed as a group (see the note on `opacity`
-						     above). They sweep on their own timings like any other word. -->
+						<!-- Background vocals are a quieter line of their own, under the lead they
+						     answer: smaller, and dimmed as a group (see the note on `opacity` above).
+						     They sweep on their own timings, which overlap the lead's. -->
 						{#each v.runs as run, r (r)}
 							{#if run.bg}
 								<span class="block py-[0.1em] text-[0.72em] font-semibold opacity-65">
