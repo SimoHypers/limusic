@@ -4,6 +4,9 @@ Rules for any visual effect in `ui/`: blur, shadow, transition, animation, `will
 `backdrop-filter`, a `requestAnimationFrame` loop, or a long list. Each one below was measured after
 a lag report, and each cost real users frames before it was written down.
 
+What following these rules has cost, and why they are hard to follow, is in
+`UI-PERF-COMPLAINTS.md`. Add to it when an effect fights you.
+
 ## Price every effect against a page that is always repainting
 
 A screenshot of the app is static; the running app never is. While a song plays the player bar
