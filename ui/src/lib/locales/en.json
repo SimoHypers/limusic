@@ -1462,7 +1462,7 @@
 		"edge_end": "End of {word}",
 		"edge_at_start": "{word} starts at {time}",
 		"edge_at_end": "{word} ends at {time}",
-		"drag_hint": "Drag a grip to move where a word starts or ends. Click a word to play from it.",
+		"drag_hint": "Drag a grip to move where a word starts or ends. Drag the track to see the song around it. Click a word to play from it.",
 		"lines": "Lines",
 		"to_go": "{count} to go",
 		"all_timed": "All {count} timed",

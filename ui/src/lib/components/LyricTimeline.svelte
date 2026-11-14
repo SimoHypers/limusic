@@ -78,7 +78,13 @@
 	// A drag on the first or last word moves the line's own extent, and with it `range`. Rescaling
 	// the track under the pointer would move the edge away from it, so the scale holds for the drag.
 	let held = $state<Range | null>(null);
-	const view = $derived(held ?? range);
+	/** How far the track is slid off the loop, in ms, to see song around it: a long line's word can
+	 *  then be dragged past where the loop ends. Kept per loop: an edge drag or a tap that changes the
+	 *  loop brings the track back over it. */
+	let panned = $state<{ at: string; ms: number } | null>(null);
+	const loopAt = $derived(range ? `${range.start}:${range.end}` : '');
+	const pan = $derived(panned?.at === loopAt ? panned.ms : 0);
+	const view = $derived(held ?? (range && pan ? { start: range.start + pan, end: range.end + pan } : range));
 	const pct = (ms: number) => (view ? ((ms - view.start) / (view.end - view.start)) * 100 : 0);
 
 	/** A long line gets a track wider than the page, scrolled sideways, so a word stays grabbable.
@@ -99,8 +105,13 @@
 	let upBg = $state(-1);
 
 	function place(ms: number) {
-		const x = Math.min(100, Math.max(0, pct(ms)));
-		if (head) head.style.transform = `translateX(${x}%)`;
+		const raw = pct(ms);
+		const x = Math.min(100, Math.max(0, raw));
+		if (head) {
+			head.style.transform = `translateX(${x}%)`;
+			// Slid away from the loop, the song can be off the track: no playhead pinned to an end.
+			head.style.visibility = raw === x ? '' : 'hidden';
+		}
 		// A track wider than its window follows the playhead, a windowful at a time, unless the
 		// pointer is on it: it must not move under a hand reaching for a grip.
 		if (scroller && stripW > scrollerW + 1 && !drag && !hovering) {
@@ -164,6 +175,33 @@
 	function drop() {
 		drag = null;
 		held = null;
+	}
+
+	// Sliding the track: a drag anywhere on it but a grip, with any button (a grip takes the left
+	// one first). Read off the drag's start, so the song under the pointer stays under it.
+	let sliding: { x: number; ms: number } | null = null;
+	let grabbing = $state(false);
+
+	function slideFrom(e: PointerEvent) {
+		if (!range || e.defaultPrevented || stripW <= 0) return;
+		sliding = { x: e.clientX, ms: pan };
+		grabbing = true;
+		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		e.preventDefault();
+	}
+
+	function slide(e: PointerEvent) {
+		if (!sliding || !range) return;
+		const ms = sliding.ms - ((e.clientX - sliding.x) / stripW) * (range.end - range.start);
+		// Not before the song starts, nor past its end.
+		const lo = Math.min(0, -range.start);
+		const hi = durationMs > 0 ? Math.max(0, durationMs - range.end) : Infinity;
+		panned = { at: loopAt, ms: Math.min(hi, Math.max(lo, ms)) };
+	}
+
+	function slideEnd() {
+		sliding = null;
+		grabbing = false;
 	}
 
 	/** Arrow keys on a focused edge: 10 ms a press, 50 with Shift. */
@@ -263,7 +301,17 @@
 			onpointerenter={() => (hovering = true)}
 			onpointerleave={() => (hovering = false)}
 		>
-			<div bind:this={strip} bind:clientWidth={stripW} style="min-width:{minWidth}px">
+			<div
+				bind:this={strip}
+				bind:clientWidth={stripW}
+				role="presentation"
+				class={grabbing ? 'cursor-grabbing' : 'cursor-grab'}
+				style="min-width:{minWidth}px"
+				onpointerdown={slideFrom}
+				onpointermove={slide}
+				onpointerup={slideEnd}
+				onpointercancel={slideEnd}
+			>
 				<div class="relative h-[18px] text-[10.5px] text-muted-foreground tabular-nums" aria-hidden="true">
 					{#each ticks as tk (tk.x)}
 						<i
