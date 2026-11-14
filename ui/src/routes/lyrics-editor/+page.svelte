@@ -246,13 +246,18 @@
 		} catch {
 			start = { lyrics: null, base_revision: null };
 		}
+		// A new start may carry a newer live revision: Limusic's old answer would undo it.
+		found = {};
+		load++;
 	}
 
 	// The card's other sources: each provider's lyrics for the song, asked when the list opens and
-	// kept for the page (its song never changes). Off ones wait for a click, as in the source picker.
+	// kept until the next `loadStart`. Off ones wait for a click, as in the source picker.
 	type Found = { status: 'loading' | 'error' } | { status: 'done'; lyrics: api.Lyrics | null };
 	let sources = $state<api.LyricsProvider[]>([]);
 	let found = $state.raw<Record<string, Found>>({});
+	/** Which `loadStart` the list belongs to. An answer asked under an earlier one is dropped. */
+	let load = 0;
 	let sourcesOpen = $state(false);
 	$effect(() => {
 		if (sourcesOpen) untrack(askSources);
@@ -267,7 +272,10 @@
 
 	function ask(id: string) {
 		if (!track) return;
-		const set = (r: Found) => (found = { ...found, [id]: r });
+		const asked = load;
+		const set = (r: Found) => {
+			if (asked === load) found = { ...found, [id]: r };
+		};
 		set({ status: 'loading' });
 		api.lyricsEditorSource(track, id).then(
 			(lyrics) => set({ status: 'done', lyrics }),
