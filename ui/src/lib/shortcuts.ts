@@ -4,7 +4,16 @@
 // it also owns the ctrl+wheel gesture.
 import { browser } from '$app/environment';
 import * as api from './api';
-import { cycleRepeat, np, nudgeVolume, playback, refreshView, toggleMute, ui } from './player.svelte';
+import {
+	cycleRepeat,
+	np,
+	nudgeVolume,
+	playback,
+	refreshView,
+	toggleMute,
+	toggleNowPlayingRating,
+	ui
+} from './player.svelte';
 
 export const IS_MAC = browser && navigator.platform.startsWith('Mac');
 
@@ -125,6 +134,11 @@ export function initShortcuts(mini = false) {
 				break;
 			case 'r':
 				cycleRepeat();
+				break;
+			// #621. A local file has no YouTube identity to rate, as in the player bar.
+			case 'l':
+				if (!playback.now || api.isLocalId(playback.now.videoId)) return;
+				toggleNowPlayingRating();
 				break;
 			// Shift+. and Shift+, on a US layout. The unshifted keys are accepted too, so the
 			// shortcut still works on layouts that put > and < somewhere else.

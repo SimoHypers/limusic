@@ -17,6 +17,7 @@
 				[t('dialogs.shortcuts.previous_song'), `${MOD}D`],
 				[t('dialogs.shortcuts.shuffle_queue'), `${MOD}S`],
 				[t('dialogs.shortcuts.toggle_repeat'), `${MOD}R`],
+				[t('dialogs.shortcuts.like_song'), `${MOD}L`],
 				[t('dialogs.shortcuts.mute_unmute'), MUTE_COMBO],
 				[t('dialogs.shortcuts.volume_up'), `${MOD}>`],
 				[t('dialogs.shortcuts.volume_down'), `${MOD}<`]
