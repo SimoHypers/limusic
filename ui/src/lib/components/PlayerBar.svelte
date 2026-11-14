@@ -50,7 +50,7 @@
 	import TrackMenu from './TrackMenu.svelte';
 	import DevicePicker from './DevicePicker.svelte';
 	import { link } from '$lib/link.svelte';
-	import { t } from '$lib/i18n.svelte';
+	import { currentLocale, t } from '$lib/i18n.svelte';
 	import LiveBadge from './LiveBadge.svelte';
 
 	let {
@@ -141,6 +141,10 @@
 
 	const onVolume = (e: Event) => dragVolume(Number((e.target as HTMLInputElement).value));
 	const onVolumeCommit = (e: Event) => commitVolume(Number((e.target as HTMLInputElement).value));
+	// "80 %" in French: the locale writes the sign, not us (#609).
+	const volumePct = $derived(
+		new Intl.NumberFormat(currentLocale.id, { style: 'percent' }).format(playback.volume / 100)
+	);
 
 	const isControl = (t: EventTarget | null) =>
 		!!(t as HTMLElement | null)?.closest?.('button, a, input, [role="button"]');
@@ -422,7 +426,7 @@
 	<div class="flex flex-1 items-center justify-end gap-2">
 		<!-- Volume is the first control to drop on a narrow window (OS volume still works). It is
 		     this desktop's, so it goes while the bar controls a linked device. -->
-		<div class="hidden items-center gap-1 {link.remote ? '' : 'md:flex'}">
+		<div class="group/vol hidden items-center gap-1 {link.remote ? '' : 'md:flex'}">
 			<Button
 				variant="ghost"
 				size="icon-sm"
@@ -449,7 +453,14 @@
 				onchange={onVolumeCommit}
 				onwheel={wheelVolume}
 				aria-label={t('player.volume')}
+				aria-valuetext={volumePct}
 			/>
+			<!-- The level as a number while the slider is in use (#609), hidden the rest of the time so
+			     the bar stays quiet. Width kept either way, so nothing shifts when it shows. -->
+			<span
+				class="invisible w-9 text-xs text-muted-foreground tabular-nums group-hover/vol:visible group-focus-within/vol:visible"
+				aria-hidden="true">{volumePct}</span
+			>
 		</div>
 		<!-- One cluster, so they sit tighter to each other than to the volume slider. -->
 		<div class="flex items-center gap-0.5">
