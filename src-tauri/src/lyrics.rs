@@ -1715,6 +1715,8 @@ fn parse_ttml_spans(
     let mut plain_text_buf = String::new();
     // Inside an `x-bg` span: its `</span>` turns up between two words, where it ends.
     let mut in_bg = false;
+    // Text on the wrapper before its first word, a `(`, opens the next word, not the lead's.
+    let mut prefix = String::new();
 
     while let Some(s_start) = inner_str[span_pos..].find("<span") {
         let abs_s_start = span_pos + s_start;
@@ -1729,8 +1731,9 @@ fn parse_ttml_spans(
         let before = strip_xml_tags(between);
         if !before.is_empty() {
             plain_text_buf.push_str(&before);
-            if let Some(last_w) = words.last_mut() {
-                last_w.text.push_str(&before);
+            match words.last_mut() {
+                Some(last_w) if !in_bg || last_w.bg => last_w.text.push_str(&before),
+                _ => prefix.push_str(&before),
             }
         }
 
@@ -1754,7 +1757,8 @@ fn parse_ttml_spans(
 
         if let (Some(b), Some(e)) = (w_begin, w_end) {
             if !w_text.is_empty() {
-                words.push(LyricWord { text: w_text.clone(), start_ms: b, end_ms: e, bg });
+                let text = std::mem::take(&mut prefix).trim_start().to_owned() + &w_text;
+                words.push(LyricWord { text, start_ms: b, end_ms: e, bg });
             }
         }
         plain_text_buf.push_str(&w_text);
@@ -1762,7 +1766,12 @@ fn parse_ttml_spans(
     }
 
     if span_pos < inner_str.len() {
-        plain_text_buf.push_str(&strip_xml_tags(&inner_str[span_pos..]));
+        let rest = strip_xml_tags(&inner_str[span_pos..]);
+        plain_text_buf.push_str(&rest);
+        // A `)` closing the line's last wrapper.
+        if let Some(last_w) = words.last_mut() {
+            last_w.text.push_str(rest.trim_end());
+        }
     }
 
     (plain_text_buf.trim().to_string(), (!words.is_empty()).then_some(words))
@@ -2034,6 +2043,27 @@ mod tests {
                 ("now", 14500, 15000, false)
             ]
         );
+    }
+
+    /// Parentheses written on the `x-bg` wrapper, outside its timed spans, belong to the
+    /// background words: not the lead word before them, and not lost at the end of the line.
+    #[test]
+    fn ttml_background_wrapper_keeps_its_parentheses() {
+        let xml = r#"<tt><p begin="10.000" end="12.000"><span begin="10.000" end="10.500">Blue</span> <span begin="10.500" end="11.000">lamp</span> <span ttm:role="x-bg">(<span begin="11.000" end="12.000">echo</span>)</span></p><p begin="13.000" end="15.000"><span begin="13.000" end="13.500">Glass</span> <span ttm:role="x-bg">(<span begin="13.500" end="14.000">far</span>)</span> <span begin="14.000" end="15.000">tide</span></p></tt>"#;
+        let lines = parse_ttml_aaml(xml);
+        assert_eq!(lines[0].text, "Blue lamp (echo)");
+        let words = |i: usize| {
+            lines[i]
+                .words
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|w| (w.text.as_str(), w.bg))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(words(0), [("Blue ", false), ("lamp ", false), ("(echo)", true)]);
+        // In the middle of the line, the lead goes on after it.
+        assert_eq!(words(1), [("Glass ", false), ("(far) ", true), ("tide", false)]);
     }
 
     #[test]
