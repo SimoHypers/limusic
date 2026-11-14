@@ -188,7 +188,7 @@ frame:
 | the same at 1900x1000 | 5.4 ms | 0.4 ms | |
 | Wayland, opaque webview, 1300x720 | 1.1 ms | 0.4 ms | |
 | the same at 1900x1000 | 1.4 ms | 0.4 ms | |
-| X11 with the NVIDIA SHM path (the AppImage), 1300x720 | 1.7 ms | 2.0 ms | 2.8 ms |
+| X11 with the NVIDIA SHM path, 1300x720 | 1.7 ms | 2.0 ms | 2.8 ms |
 | the same at 1900x1000 | 2.4 ms | 3.4 ms | 4.4 ms |
 
 The alpha channel is the Wayland cost: with it, GTK uploads its own drawing of the whole window as
@@ -203,6 +203,21 @@ in the theme's colour; not built.
 So on Linux an animation is never free, however small: anything that presents sixty frames a
 second costs the UI process 7-20% of a core by itself. Prefer an effect that ends over one that
 loops, and see the rule about `requestAnimationFrame` loops above.
+
+**Check which renderer a Linux build is on before you measure or tune for it.** Open
+`webkit://gpu` in that stack. Debian, Ubuntu, openSUSE and Gentoo patch WebKitGTK to switch
+hardware acceleration off when the GPU is NVIDIA (`Policy: never`, WebKit bug 262607), and the
+AppImage bundles Ubuntu's. So on NVIDIA the AppImage, and the .deb on those distros, paint every
+frame on the web process's main thread, on X11 or Wayland alike, and the NVIDIA renderer defaults
+in `run()` did not apply there. Fedora and Arch don't carry the patch, so dev and the .rpm are
+accelerated. Software painting is cheaper on a steady animation and much worse on a transition:
+WebKitGTK 2.52, GTX 1060, `framecost.py`, the shipped AppImage against dev: navigating between
+Home and Library p95 40 ms against 21-34 ms, opening the player 14% of frames over 20 ms against
+4-6%, while hovering a shelf costs 31% of a core against 42%. A transition tuned in dev is untested
+for NVIDIA AppImage users until it has run in the bundled stack. `WEBKIT_FORCE_DMABUF_RENDERER=1`
+turns acceleration back on in a patched build and means nothing to an unpatched one; `run()` sets it
+under NVIDIA on Wayland, which is also where the AppImage now runs on a Wayland session. On an X11
+session it still paints in software.
 
 ## Engine-specific CSS
 
@@ -229,6 +244,10 @@ scroll that is mostly layout is not a scroll problem. Then break on
 how the opacity rule and the inserted arrows were found, after three ablations had missed them.
 Count CPU per thread from `/proc/<pid>/task/*/stat`, not per process: the web main thread, the
 compositor thread and the UI process answer three different questions.
+For the AppImage's own WebKitGTK, `framecost.py` runs on the extracted bundle's libraries: source
+its AppRun hook with `APPDIR` set, put the AppDir's library directories first on
+`LD_LIBRARY_PATH` as `AppRun.wrapped` does, and run from its `usr/`, where the bundled WebKit looks
+for its helper processes. No build of the app is needed.
 Measure in the engine the report comes from, with the CPU throttled to 4x or more, and with a song
 playing. Put the before/after numbers in the comment next to the effect, so the next person can see
 what removing it would cost.
