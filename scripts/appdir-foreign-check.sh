@@ -33,6 +33,7 @@
 #      on Wayland wherever the session is Wayland, so a library we bundle that breaks the host's
 #      Wayland stack (libwayland-client did, KI-9) has to fail here, not on users. With no X server,
 #      a quiet fallback to X11 has nothing to land on, so passing means GTK really drew on Wayland.
+#      Skipped, and said so, only where weston itself will not install (openSUSE, best effort).
 set -uo pipefail
 
 APPDIR=/app
@@ -68,10 +69,15 @@ elif command -v zypper >/dev/null; then
   # openSUSE spells half of these differently: xvfb-run is its own package, dbus-run-session comes
   # from dbus-1-daemon, and there is no dbus-1-x11 at all.
   zypper -q --non-interactive in -y \
-    xvfb-run xauth dbus-1-daemon python3 weston \
+    xvfb-run xauth dbus-1-daemon python3 \
     Mesa-libEGL1 Mesa-libGL1 Mesa-libGLESv2-2 libglvnd harfbuzz-tools libharfbuzz0 krb5 \
     libpango-1_0-0 alsa-lib libfribidi0 libusb-1_0-0 libcom_err2 libgpg-error0 libexpat1 \
     fontconfig dejavu-fonts ca-certificates gvfs libgnutls30
+  # weston on its own and best effort: on Tumbleweed it drags in some 130 packages (ffmpeg, pipewire,
+  # freerdp, fuse3), and on GitHub's runner that transaction once ended "with error" and took
+  # xvfb-run down with it. Not quiet, so the next failure says which package it was. Debian and Arch
+  # still have to install it.
+  zypper --non-interactive in -y weston || WAYLAND_OPTIONAL=1
 else
   echo "   unknown package manager"; exit 1
 fi
@@ -81,7 +87,9 @@ fi
 # Arch and openSUSE have to be told.
 # A half-installed container makes every check below meaningless, and the missing symbols it
 # produces look exactly like a real defect (KI-8). Stop here instead.
-for tool in xvfb-run dbus-run-session ldd python3 weston; do
+[ "${WAYLAND_OPTIONAL:-0}" = 1 ] || command -v weston >/dev/null || {
+  echo "   package install failed: no weston"; exit 1; }
+for tool in xvfb-run dbus-run-session ldd python3; do
   command -v "$tool" >/dev/null || { echo "   package install failed: no $tool"; exit 1; }
 done
 
@@ -212,38 +220,42 @@ fi
 grep -qE "$WEBVIEW_OK" /tmp/run.log || bad "no webview ever became usable"
 
 step "launching the app on Wayland (headless weston, no X server)"
-export XDG_RUNTIME_DIR=/tmp/xdg-runtime
-mkdir -p -m 0700 "$XDG_RUNTIME_DIR"
-weston --backend=headless --socket=limusic-check --idle-time=0 > /tmp/weston.log 2>&1 &
-WESTONPID=$!
-for _ in $(seq 20); do
-  [ -S "$XDG_RUNTIME_DIR/limusic-check" ] && break
-  sleep 0.5
-done
-if [ ! -S "$XDG_RUNTIME_DIR/limusic-check" ]; then
-  sed 's/^/   weston: /' /tmp/weston.log | head -20
-  bad "weston never opened its socket, so the Wayland launch could not run"
+if ! command -v weston >/dev/null; then
+  echo "   skipped: weston would not install on this image (see the package step)"
 else
-  : > /tmp/run-wl.log
-  # env -u DISPLAY: xvfb-run above leaves none behind, but a stray one would let GTK fall back to
-  # X11 and pass this step without ever touching Wayland.
-  env -u DISPLAY WAYLAND_DISPLAY=limusic-check timeout 90 dbus-run-session -- "$APPDIR/AppRun" \
-    > /tmp/run-wl.log 2>&1 &
-  RUNPID=$!
-  for _ in $(seq 90); do
-    grep -qE "$WEBVIEW_OK" /tmp/run-wl.log && break
-    kill -0 "$RUNPID" 2>/dev/null || break
-    sleep 1
+  export XDG_RUNTIME_DIR=/tmp/xdg-runtime
+  mkdir -p -m 0700 "$XDG_RUNTIME_DIR"
+  weston --backend=headless --socket=limusic-check --idle-time=0 > /tmp/weston.log 2>&1 &
+  WESTONPID=$!
+  for _ in $(seq 20); do
+    [ -S "$XDG_RUNTIME_DIR/limusic-check" ] && break
+    sleep 0.5
   done
-  kill "$RUNPID" 2>/dev/null
-  wait "$RUNPID" 2>/dev/null
-  grep -viE 'dbind|StatusNotifier|libEGL warning|DRI3' /tmp/run-wl.log | head -40 | sed 's/^/   /'
-  if grep -qE 'Could not create .*EGL display|undefined symbol|cannot open shared object file|Failed to load module|webview never became ready|symbol lookup error|core dumped|cannot open display' /tmp/run-wl.log; then
-    bad "the Wayland startup log contains a loader or webview failure (see above)"
+  if [ ! -S "$XDG_RUNTIME_DIR/limusic-check" ]; then
+    sed 's/^/   weston: /' /tmp/weston.log | head -20
+    bad "weston never opened its socket, so the Wayland launch could not run"
+  else
+    : > /tmp/run-wl.log
+    # env -u DISPLAY: xvfb-run above leaves none behind, but a stray one would let GTK fall back to
+    # X11 and pass this step without ever touching Wayland.
+    env -u DISPLAY WAYLAND_DISPLAY=limusic-check timeout 90 dbus-run-session -- "$APPDIR/AppRun" \
+      > /tmp/run-wl.log 2>&1 &
+    RUNPID=$!
+    for _ in $(seq 90); do
+      grep -qE "$WEBVIEW_OK" /tmp/run-wl.log && break
+      kill -0 "$RUNPID" 2>/dev/null || break
+      sleep 1
+    done
+    kill "$RUNPID" 2>/dev/null
+    wait "$RUNPID" 2>/dev/null
+    grep -viE 'dbind|StatusNotifier|libEGL warning|DRI3' /tmp/run-wl.log | head -40 | sed 's/^/   /'
+    if grep -qE 'Could not create .*EGL display|undefined symbol|cannot open shared object file|Failed to load module|webview never became ready|symbol lookup error|core dumped|cannot open display' /tmp/run-wl.log; then
+      bad "the Wayland startup log contains a loader or webview failure (see above)"
+    fi
+    grep -qE "$WEBVIEW_OK" /tmp/run-wl.log || bad "no webview ever became usable on Wayland"
   fi
-  grep -qE "$WEBVIEW_OK" /tmp/run-wl.log || bad "no webview ever became usable on Wayland"
+  kill "$WESTONPID" 2>/dev/null
 fi
-kill "$WESTONPID" 2>/dev/null
 
 printf '\n'
 [ "$FAIL" = 0 ] && { echo "PASS: $(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-unknown}")"; exit 0; }
