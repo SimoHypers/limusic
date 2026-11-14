@@ -193,6 +193,10 @@ pub struct Lyrics {
     /// everything else, an anonymous contributor's lyric included.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub authors: Vec<String>,
+    /// The provider Limusic mirrored the lyric from ("Boidu"), named in the source picker while
+    /// the footer says Limusic alone. `None` from every other source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
 }
 
 pub struct LyricsRequest {
@@ -1018,9 +1022,9 @@ async fn boidu_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Error
 }
 
 /// Limusic Lyrics (`lyrics.limusic.app`): our own word-timed lyrics, filed by video id. `origin`
-/// says where a lyric came from; the ones mirrored from another provider carry its name too, since
-/// Unison's licence (ODbL) asks for attribution. Its lines carry the singer (`agent`) and
-/// background vocals (`bg`), which the lyrics view draws (`lyricvoices.ts`).
+/// says where a lyric came from; the ones mirrored from another provider keep its name in `via`,
+/// shown in the source picker, since Unison's licence (ODbL) asks for attribution. Its lines carry
+/// the singer (`agent`) and background vocals (`bg`), which the lyrics view draws (`lyricvoices.ts`).
 const LIMUSIC_URL: &str = "https://lyrics.limusic.app";
 
 /// Answers are read in the user's order, so while Limusic is first a stalled request holds back
@@ -1096,14 +1100,11 @@ async fn limusic_fetch(id: &str, known: Option<i64>) -> Result<Fresh, reqwest::E
 }
 
 pub(crate) fn limusic_to_lyrics(a: LimusicAnswer) -> Option<Lyrics> {
-    // No English connective in the string: the footer wraps it ("Lyrics from {source}") in the UI's.
-    let source = match a.origin.as_str() {
-        o @ ("unison" | "boidu" | "lyricsplus") => format!("Limusic ({})", provider_name(o)),
-        _ => "Limusic".into(),
-    };
+    let via = matches!(a.origin.as_str(), "unison" | "boidu" | "lyricsplus")
+        .then(|| provider_name(&a.origin).to_string());
     // The service sends five at most; no more than that is ever kept or shown.
     let authors = a.authors.into_iter().filter(|h| !h.trim().is_empty()).take(5).collect();
-    Some(Lyrics { revision: a.revision, authors, ..from_parsed(&source, a.lines)? })
+    Some(Lyrics { revision: a.revision, authors, via, ..from_parsed("Limusic", a.lines)? })
 }
 
 /// Whether to tell Limusic about lyrics we just got from a provider it mirrors. Word-timed only,
@@ -2188,10 +2189,12 @@ mod tests {
         assert_eq!(l.lines[0].agent.as_deref(), Some("v1"));
         let words = l.lines[0].words.as_ref().unwrap();
         assert!(!words[0].bg && words[1].bg);
-        assert_eq!(read("unison").source, "Limusic (Unison)");
-        assert_eq!(read("boidu").source, "Limusic (Boidu)");
-        assert_eq!(read("lyricsplus").source, "Limusic (LyricsPlus)");
-        assert_eq!(read("something-new").source, "Limusic");
+        assert_eq!(l.via, None);
+        let boidu = read("boidu");
+        assert_eq!((boidu.source.as_str(), boidu.via.as_deref()), ("Limusic", Some("Boidu")));
+        assert_eq!(read("unison").via.as_deref(), Some("Unison"));
+        assert_eq!(read("lyricsplus").via.as_deref(), Some("LyricsPlus"));
+        assert_eq!(read("something-new").via, None);
         assert_eq!(l.revision, Some(3));
         assert!(l.authors.is_empty(), "no authors in the answer, none kept");
         let credited: LimusicAnswer = serde_json::from_str(

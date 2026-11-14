@@ -442,6 +442,7 @@
 					{@const showing = lyrics?.provider === p.id}
 					{@const chosen = showing && pinned}
 					{@const dead = r.status === 'done' && !hit}
+					{@const via = hit?.via ?? (showing ? lyrics?.via : undefined)}
 					<button
 						role="radio"
 						aria-checked={chosen}
@@ -470,7 +471,9 @@
 								? 'text-muted-foreground'
 								: ''} {showing ? 'font-medium' : ''}"
 						>
-							{p.name}
+							{p.name}{#if via}<span class="ml-1.5 text-xs font-normal text-muted-foreground"
+									>· {t('lyrics.via', { source: via })}</span
+								>{/if}
 						</span>
 						{#if busy === p.id}
 							<LimusicLoader class="size-4" />
