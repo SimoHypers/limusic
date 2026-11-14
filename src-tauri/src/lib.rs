@@ -715,13 +715,35 @@ pub fn run() {
             }
             Err(_) => no_wayland,
         };
+        let nvidia_draws = std::path::Path::new("/dev/nvidiactl").exists()
+            && (!on_x11 || x11_egl_vendor().map_or(true, |v| v.contains("NVIDIA")));
         if on_x11
-            && std::path::Path::new("/dev/nvidiactl").exists()
+            && nvidia_draws
             && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
             && std::env::var_os("WEBKIT_DMABUF_RENDERER_FORCE_SHM").is_none()
-            && x11_egl_vendor().map_or(true, |v| v.contains("NVIDIA"))
         {
             std::env::set_var("WEBKIT_DMABUF_RENDERER_FORCE_SHM", "1");
+        }
+
+        // The web process deadlocks inside the NVIDIA driver when two of its threads free GL
+        // textures at the same moment: the main thread, whose texture pool exists only for GPU
+        // painting, and the compositor. Each pool sweeps out what it no longer uses on a timer;
+        // when the two sweeps meet, one thread spins in libnvidia-eglcore and the other waits on
+        // a libnvidia-glsi mutex, forever. The window keeps its last frame, takes no input, and
+        // only the tray can quit. Six coredumps on 580.178.04 with WebKitGTK 2.52.1, all that
+        // stack, most of them in the lyrics editor. CPU painting takes the main thread off GL
+        // entirely: `ui/perf/texhang.py` churn under gdb, 45 s, main thread frees 7108 textures
+        // with GPU painting and 0 with this, the compositor 46k and 55k. Price, `framecost.py`
+        // on native Wayland: idle, hover, scroll and playing lyrics unchanged, navigation 33 ->
+        // 36% web CPU (p95 frame 23 -> 32-37 ms), opening the player 45 -> 50%. The lock that
+        // hangs is NVIDIA's, so Mesa keeps GPU painting (untested there).
+        //
+        // ponytail: a hybrid laptop on Wayland with the driver loaded but Intel drawing gets CPU
+        // painting too (the X11 vendor check would start Xwayland on GNOME just to ask). Drop
+        // this once a driver or WebKitGTK release survives texhang.py under gdb with both threads
+        // freeing.
+        if nvidia_draws && std::env::var_os("WEBKIT_SKIA_ENABLE_CPU_RENDERING").is_none() {
+            std::env::set_var("WEBKIT_SKIA_ENABLE_CPU_RENDERING", "1");
         }
     }
 
