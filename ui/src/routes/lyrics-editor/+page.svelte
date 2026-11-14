@@ -1420,7 +1420,12 @@
 								onclick={(e) => e.detail === 0 && tap(e)}
 							>
 								<HugeiconsIcon icon={Tap01Icon} class="size-5" />
-								{lineDone ? t('lyrics_editor.tap_again') : t('lyrics_editor.tap')}
+								<!-- Both labels share one cell, the unused one hidden, so the button keeps the
+								     longer one's width in every language and never moves under the mouse. -->
+								<span class="grid justify-items-center">
+									<span class="col-start-1 row-start-1 {lineDone ? 'invisible' : ''}">{t('lyrics_editor.tap')}</span>
+									<span class="col-start-1 row-start-1 {lineDone ? '' : 'invisible'}">{t('lyrics_editor.tap_again')}</span>
+								</span>
 								<span class="flex gap-1"><kbd class={lineDone ? KEY : KEY_ON}>F</kbd><kbd class={lineDone ? KEY : KEY_ON}>J</kbd></span>
 							</Button>
 							<Button variant="outline" disabled={!active || !range} onclick={restart} title={t('lyrics_editor.restart')}>
