@@ -159,7 +159,11 @@
 							<!-- Each word lights the way it does in the lyrics tab (`lyricmotion.ts`), a
 							     held note letter by letter, cresting and glowing. -->
 							{#each words as w, i (i)}{@const held = letters(w)}{#if held}<span
-										class="lyric-glow inline-block whitespace-nowrap {glowing(w, ms) ? 'lit' : ''}"
+										class="relative isolate inline-block whitespace-nowrap"
+										><span class="lyric-halo" aria-hidden="true"
+											>{#each held as l, k (k)}<span class={glowing(l, w, ms) ? 'lit' : ''}
+													>{l.text}</span
+												>{/each}</span
 										>{#each held as l, k (k)}{@render glyph(l, 'lyric-held')}{/each}</span
 									>{:else}{@render glyph(w, '')}{/if}{w.text.endsWith(' ') ? ' ' : ''}{/each}
 						{:else}

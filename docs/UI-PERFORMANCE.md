@@ -159,9 +159,11 @@ word being sung every frame. A `drop-shadow` glow on each sung word made WebKitG
 again on every one of those repaints: the lyrics tab went from 56% to 70% of a core, and frames
 over 20 ms from 3% to 11% (WebKitGTK 2.52.1, a song playing). Raising each word two pixels as it
 was sung cost 40% to 49% as a CSS transition and 46% to 57% written per frame. Both went; only a
-held note, at most a word a line, crests and glows (`lyricmotion.ts`), which costs 37% to 44% on a
+held note, at most a word a line, crests and glows (`lyricmotion.ts`), which costs 37% to 49% on a
 lyric where every line ends on one. Moving whole lines is cheap: the lyrics' cascading scroll, a
-`translate` animation on every line on screen, measured within noise.
+`translate` animation on every line on screen, measured within noise. The glow is a clear copy of
+the letters under a fixed `text-shadow`, faded by opacity: a `drop-shadow` filter over the swept
+letters glowed as a box.
 
 **A scroller next to animated content gets its own stacking context.** On WebKitGTK, a transform
 transition blanks the scrollbar of a scroller painted after it in the same stacking context, for as

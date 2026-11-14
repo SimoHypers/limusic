@@ -534,6 +534,9 @@
 			{#each lyrics.lines as line, i (i)}
 				{@const isActive = i === activeIndex}
 				{@const isPast = i < activeIndex}
+				<!-- A held note's halo stays a line longer than the sweep, so the note it ends a
+				     line on lets go of its glow after the next line has started. -->
+				{@const halo = isActive || i === activeIndex - 1}
 				{@const words = getLineWords(line, i)}
 				{@const romWords =
 					showRomanized && line.romanized ? getLineWords(line, i, line.romanized) : []}
@@ -569,14 +572,14 @@
 						{#each v.runs as run, r (r)}
 							{#if run.bg}
 								<span class="block py-[0.1em] text-[0.72em] font-semibold opacity-65">
-									{@render sweep(run.words, isActive, v.far)}
+									{@render sweep(run.words, isActive, halo, v.far)}
 								</span>
 							{:else}
-								{@render sweep(run.words, isActive, v.far)}
+								{@render sweep(run.words, isActive, halo, v.far)}
 							{/if}
 						{/each}
 					{:else if words.length > 0}
-						{@render sweep(words, isActive, v?.far)}
+						{@render sweep(words, isActive, halo, v?.far)}
 					{:else if line.text}
 						<span>{line.text}</span>
 					{:else}
@@ -597,7 +600,7 @@
 						     Apple's reading is timed to the same syllables and sweeps with the line. -->
 						<span class="mt-0.5 block text-[length:max(0.62em,11px)] font-semibold">
 							{#if romWords.length > 0}
-								{@render sweep(romWords, isActive, v?.far)}
+								{@render sweep(romWords, isActive, halo, v?.far)}
 							{:else}
 								{line.romanized}
 							{/if}
@@ -765,17 +768,19 @@
      dimming come from the line; on it the sweep paints it, and a held note lights, crests and
      glows letter by letter (`lyricmotion.ts`). Enhanced lyrics draw their own style and motion
      per frame instead. -->
-{#snippet sweep(words: api.LyricWord[], active: boolean, far = false)}
+{#snippet sweep(words: api.LyricWord[], active: boolean, halo: boolean, far = false)}
 	<span class="inline-flex flex-wrap items-baseline {far ? 'justify-end' : ''}">
 		{#each words as word, wIdx (wIdx)}
 			<!-- No gap after the last word: on a far-side line it would hold the text off the edge. -->
 			{@const gap = word.text.endsWith(' ') && wIdx < words.length - 1 ? 'mr-[0.26em]' : ''}
 			{@const held = enhanced ? null : letters(word)}
 			{#if held}
-				<span
-					class="lyric-glow inline-block whitespace-nowrap {gap} {active && glowing(word, posMs)
-						? 'lit'
-						: ''}">{#each held as l, k (k)}{@render glyph(l, active, 'lyric-held')}{/each}</span
+				<span class="relative isolate inline-block whitespace-nowrap {gap}"
+					>{#if halo}{@render glow(held, word, posMs)}{/if}{#each held as l, k (k)}{@render glyph(
+							l,
+							active,
+							'lyric-held'
+						)}{/each}</span
 				>
 			{:else}
 				{@render glyph(word, active, gap)}
@@ -783,6 +788,14 @@
 		{/each}
 	</span>
 {/snippet}
+
+<!-- A held note's halo (`.lyric-halo`): the same letters, clear, under a text shadow. -->
+{#snippet glow(held: api.LyricWord[], note: api.LyricWord, ms: number)}<span
+		class="lyric-halo"
+		aria-hidden="true"
+		>{#each held as l, k (k)}<span class={glowing(l, note, ms) ? 'lit' : ''}>{l.text}</span
+			>{/each}</span
+	>{/snippet}
 
 <!-- The clip and the fill are classes, so per frame only the gradient's stops are re-serialised.
      Both colours are theme tokens: the sung half was hardcoded white once, invisible on every

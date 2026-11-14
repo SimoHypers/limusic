@@ -1,7 +1,7 @@
 // How a synced lyric moves, shared by the lyrics view and the line under the now-playing cover.
 // The numbers are Better Lyrics' defaults (@braccato/core, MIT), which is the feel this aims at.
-// Only the word being sung is rewritten per frame, and only its sweep. A held note's glow and crest
-// are classes it takes once (`.lyric-glow`, `.lyric-held` in layout.css).
+// Only the word being sung is rewritten per frame, and only its sweep. A held note's halo and crest
+// are classes its letters take once (`.lyric-halo`, `.lyric-held` in layout.css).
 import type { LyricWord } from './api';
 
 type Timed = Pick<LyricWord, 'start_ms' | 'end_ms'>;
@@ -37,9 +37,10 @@ export function sweep(w: Timed, ms: number): string {
 	return `background-image:linear-gradient(90deg,${LIT} calc(${at}% - ${lit}em),${DIM} calc(${at}% + ${dim}em))`;
 }
 
-/** A held note glows from when it is reached until a moment after it ends. */
-export function glowing(w: Timed, ms: number): boolean {
-	return ms >= w.start_ms && ms < w.end_ms + 150;
+/** A held note's letter glows from when it is reached until a moment after the whole note ends,
+ *  so the glow builds across the note and lets go of it at once. */
+export function glowing(letter: Timed, note: Timed, ms: number): boolean {
+	return ms >= letter.start_ms && ms < note.end_ms + 150;
 }
 
 /** A held note: long enough that its letters can light and lift one by one. */

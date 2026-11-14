@@ -13,9 +13,12 @@ ok(sweep(w, 1200).includes('calc(50.00% - 0.250em)'), 'half way, the edge stradd
 ok(sweep(w, 1200).includes('calc(50.00% + 0.250em)'), 'and is half an em wide');
 ok(sweep({ ...w, end_ms: 1000 }, 1000) === sweep(w, 9000), 'a word with no length is lit once reached');
 
-ok(!glowing(w, 999), 'not reached, no glow');
-ok(glowing(w, 1000) && glowing(w, 1549), 'glows while sung and a moment past the end');
-ok(!glowing(w, 1550), 'then lets go');
+const note = { text: 'night', start_ms: 0, end_ms: 1500 };
+const last = { text: 't', start_ms: 1200, end_ms: 1500 };
+ok(!glowing(last, note, 1199), 'a letter not reached has no glow');
+ok(glowing(last, note, 1200) && glowing(last, note, 1649), 'glows once reached, a moment past the note');
+ok(glowing({ ...last, start_ms: 0, end_ms: 300 }, note, 1400), 'a first letter holds its glow to the end');
+ok(!glowing(last, note, 1650), 'then the whole note lets go');
 
 ok(letters(w) === null, 'a short word lights whole');
 const held = letters({ text: 'night ', start_ms: 0, end_ms: 1500 })!;
