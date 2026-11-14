@@ -68,7 +68,8 @@
 #      Wayland. The reason the hook gives, tauri#8541, was an abort in Ubuntu 20.04's GTK 3.24.20
 #      reading an xsettings key GNOME has since removed; the 3.24.41 we bundle reads the new key.
 #      Fixed by deleting the line, so GTK picks its backend itself and a user's own GDK_BACKEND
-#      counts again. `LIMUSIC_GDK_BACKEND=x11` forces X11 when a desktop needs it.
+#      counts again. `LIMUSIC_GDK_BACKEND=x11` forces X11 when a desktop needs it. On Wayland GTK
+#      reads the desktop's settings through GSettings, which is why 1b2 bundles the dconf module.
 #
 # ON PRUNING. v0.2.11 pruned eight libraries and broke worse than what it fixed, so the bar is high,
 # but "never prune" is the wrong rule — defect 3 above is only fixable by pruning. What made v0.2.11
@@ -169,9 +170,9 @@ for m in "$APPDIR"/usr/lib/gio/modules/*.so "$APPDIR"/usr/lib64/gio/modules/*.so
 done
 
 # 1b. The gio TLS module. linuxdeploy's GTK plugin bundles it on Fedora but not on Ubuntu, so copy
-#     it in ourselves rather than depend on that. Only this one module: gvfs and libproxy are built
-#     against the host's GLib and blow up against the older one we bundle, which is exactly what
-#     v0.2.11 shipped.
+#     it in ourselves rather than depend on that. Only this one and the dconf module (1b2): gvfs and
+#     libproxy are built against the host's GLib and blow up against the older one we bundle, which
+#     is exactly what v0.2.11 shipped.
 if ls "$APPDIR"/usr/lib/gio/modules/libgiognutls.so >/dev/null 2>&1; then
   echo "==> gio TLS module already bundled"
 else
@@ -185,6 +186,29 @@ else
   cp -L "$TLSMOD" "$APPDIR/usr/lib/gio/modules/libgiognutls.so"
   echo "==> bundled the gio TLS module from $TLSMOD"
   bundle_deps_of "$TLSMOD"
+fi
+
+# 1b2. The dconf GSettings module, built against the GLib we bundle. Without it GSettings falls back
+#      to its in-memory backend and reads nothing but schema defaults. On X11 nobody noticed, because
+#      the desktop hands GTK its settings over XSETTINGS; on Wayland (defect 7) GTK reads them through
+#      GSettings, and a KDE window came up with a close button only, Adwaita cursors, Cantarell and
+#      Adwaita icons. With it, the user's button layout, cursor, fonts and icon theme, exactly as
+#      `cargo tauri dev` reads them. The database format and the dconf service it writes through are
+#      the host's, and both have been stable for a decade.
+if [ -e "$APPDIR/usr/lib/gio/modules/libdconfsettings.so" ]; then
+  echo "==> dconf GSettings module already bundled"
+else
+  DCONFMOD=""
+  for dir in "$(pkg-config --variable=giomoduledir gio-2.0 2>/dev/null || true)" \
+             /usr/lib/x86_64-linux-gnu/gio/modules /usr/lib64/gio/modules /usr/lib/gio/modules; do
+    [ -n "$dir" ] && [ -e "$dir/libdconfsettings.so" ] && { DCONFMOD="$dir/libdconfsettings.so"; break; }
+  done
+  [ -n "$DCONFMOD" ] || {
+    echo "libdconfsettings.so not found: install dconf-gsettings-backend on the build host"; exit 1; }
+  mkdir -p "$APPDIR/usr/lib/gio/modules"
+  cp -L "$DCONFMOD" "$APPDIR/usr/lib/gio/modules/libdconfsettings.so"
+  echo "==> bundled the dconf GSettings module from $DCONFMOD"
+  bundle_deps_of "$DCONFMOD"
 fi
 
 # 1c. Drop libwayland-client. It has to be the host's copy, because the host's Mesa is linked
