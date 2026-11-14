@@ -301,11 +301,12 @@
 			onpointerenter={() => (hovering = true)}
 			onpointerleave={() => (hovering = false)}
 		>
+			<!-- `touch-none` so a drag on a touch screen is not taken for a scroll. -->
 			<div
 				bind:this={strip}
 				bind:clientWidth={stripW}
 				role="presentation"
-				class={grabbing ? 'cursor-grabbing' : 'cursor-grab'}
+				class="touch-none {grabbing ? 'cursor-grabbing' : 'cursor-grab'}"
 				style="min-width:{minWidth}px"
 				onpointerdown={slideFrom}
 				onpointermove={slide}
@@ -321,8 +322,7 @@
 						{#if tk.label}<span class="absolute -top-0.5 translate-x-1" style="left:{tk.x}%">{tk.label}</span>{/if}
 					{/each}
 				</div>
-				<!-- `touch-none` so a drag on a touch screen is not taken for a scroll. -->
-				<div class="relative {lanes ? 'h-[76px]' : 'h-[52px]'} touch-none overflow-hidden rounded-[10px] border bg-muted/45 select-none">
+								<div class="relative {lanes ? 'h-[76px]' : 'h-[52px]'} overflow-hidden rounded-[10px] border bg-muted/45 select-none">
 					{#if pads}
 						<div class="lead-pad absolute inset-y-0 left-0" style="width:{pads.left}%"></div>
 						<div class="lead-pad absolute inset-y-0 right-0" style="width:{pads.right}%"></div>
