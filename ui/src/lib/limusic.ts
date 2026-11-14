@@ -36,7 +36,9 @@ export function submitMessage(o: LimusicSubmitted): Message {
 		case 'stale':
 			return { title: `${E}.err_stale_title`, key: `${E}.err_stale`, kind: 'error', stale: true };
 		case 'unchanged':
-			return { title: `${E}.err_unchanged_title`, key: `${E}.err_unchanged`, kind: 'info' };
+			return o.detail
+				? { title: `${E}.err_unchanged_title`, key: `${E}.err_copied`, params: { source: o.detail }, kind: 'info' }
+				: { title: `${E}.err_unchanged_title`, key: `${E}.err_unchanged`, kind: 'info' };
 		case 'rate_limited':
 			return { title: `${E}.err_rate_limited_title`, key: `${E}.err_rate_limited`, kind: 'error' };
 		default:
