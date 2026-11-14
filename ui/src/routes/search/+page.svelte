@@ -146,6 +146,16 @@
 		input?.focus();
 	}
 
+	// Emptying the field by hand is the same as the X (#647): back to the browse page, not the old
+	// results under an empty box.
+	$effect(() => {
+		if (query || !(res || searching || error)) return;
+		untrack(() => {
+			clearSearch();
+			goto('/search', { keepFocus: true });
+		});
+	});
+
 	function setCat(c: Cat) {
 		cat = lastCat = c;
 	}
