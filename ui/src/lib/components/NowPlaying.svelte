@@ -470,6 +470,8 @@
 <!-- The player bar's chevron, E, Esc (and the new layout's collapse button) are the keyboard
      equivalents of clicking the backdrop, so this stays a plain region rather than a control
      wrapping the whole view. -->
+<!-- -bottom-px: at a fractional zoom (110%) the view rounded a pixel short of the player bar and
+     the page behind showed through as a line (#661). The bar paints over the extra pixel. -->
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div
 	transition:fly={{ y: '100%', duration: 320, easing: cubicOut }}
@@ -480,7 +482,7 @@
 	onpointerup={(e) => (releasedKeep = keeps(e.target))}
 	onclick={onBackdropClick}
 	data-np-view
-	class="absolute inset-y-0 left-16 right-0 z-20 flex overflow-hidden inert:bg-background {video.hole
+	class="absolute top-0 -bottom-px left-16 right-0 z-20 flex overflow-hidden inert:bg-background {video.hole
 		? ''
 		: 'bg-background'} {stage ? '' : 'justify-center px-4 py-4 sm:px-6 sm:py-6 lg:px-10'} {ui.sidebarCollapsed
 		? ''
