@@ -1321,6 +1321,17 @@ export const lyricsEditorStart = (t: LyricsTrack) =>
 		album: t.album,
 		duration: t.duration
 	});
+/** One provider's lyrics for the editor to start from, as it sent them. `null`: it has none (an
+ *  instrumental counts as none); rejects when it couldn't be reached. */
+export const lyricsEditorSource = (t: LyricsTrack, source: string) =>
+	invoke<Lyrics | null>('lyrics_editor_source', {
+		videoId: t.videoId,
+		title: t.title,
+		artists: t.artists,
+		album: t.album,
+		duration: t.duration,
+		source
+	});
 // --- Limusic Lyrics account (`limusic.rs`) ---
 export interface LimusicAccount {
 	/** Null while the account is anonymous: it has no public name. */

@@ -275,6 +275,16 @@ pub async fn editor_start(state: &AppState, req: LyricsRequest) -> EditorStart {
     EditorStart { lyrics: lyrics.filter(|l| !l.instrumental), base_revision }
 }
 
+/// One provider's lyrics for the lyric editor's source chooser: the source picker's preview minus
+/// `romanize::fill`, for the reason `editor_start` gives. An instrumental answer is no lyrics here.
+pub async fn editor_source(
+    state: &AppState,
+    req: LyricsRequest,
+    id: &str,
+) -> Result<Option<Lyrics>, String> {
+    Ok(preview(state, req, id).await?.filter(|l| !l.instrumental))
+}
+
 /// The most text `parse_file` reads. A long song word by word as TTML is about 100 KB.
 const FILE_MAX_BYTES: usize = 1024 * 1024;
 
