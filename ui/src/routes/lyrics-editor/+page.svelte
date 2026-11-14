@@ -246,6 +246,46 @@
 		} catch {
 			start = { lyrics: null, base_revision: null };
 		}
+		// A new start may carry a newer live revision: Limusic's old answer would undo it.
+		found = {};
+		load++;
+	}
+
+	// The card's other sources: each provider's lyrics for the song, asked when the list opens and
+	// kept until the next `loadStart`. Off ones wait for a click, as in the source picker.
+	type Found = { status: 'loading' | 'error' } | { status: 'done'; lyrics: api.Lyrics | null };
+	let sources = $state<api.LyricsProvider[]>([]);
+	let found = $state.raw<Record<string, Found>>({});
+	/** Which `loadStart` the list belongs to. An answer asked under an earlier one is dropped. */
+	let load = 0;
+	let sourcesOpen = $state(false);
+	$effect(() => {
+		if (sourcesOpen) untrack(askSources);
+	});
+
+	async function askSources() {
+		if (!sources.length) sources = await api.lyricsProviders().catch(() => []);
+		const shown = start?.lyrics;
+		if (shown && !found[shown.provider]) found = { ...found, [shown.provider]: { status: 'done', lyrics: shown } };
+		for (const p of sources) if (p.on && !found[p.id]) ask(p.id);
+	}
+
+	function ask(id: string) {
+		if (!track) return;
+		const asked = load;
+		const set = (r: Found) => {
+			if (asked === load) found = { ...found, [id]: r };
+		};
+		set({ status: 'loading' });
+		api.lyricsEditorSource(track, id).then(
+			(lyrics) => set({ status: 'done', lyrics }),
+			() => set({ status: 'error' })
+		);
+	}
+
+	function pick(lyrics: api.Lyrics) {
+		start = { lyrics, base_revision: start?.base_revision ?? null };
+		sourcesOpen = false;
 	}
 
 	/** Pasted or picked text: a lyric file if Rust's parsers read one out of it, else plain lines. */
@@ -1008,9 +1048,69 @@
 							<p class="mt-0.5 text-[13px] text-muted-foreground">{t('lyrics_editor.start_none_hint')}</p>
 						{/if}
 					</div>
-					{#if startLines.length}
-						<Button onclick={() => begin(startLines, startKind === 'words')}>{t('lyrics_editor.start_use')}</Button>
-					{/if}
+					<div class="flex items-center gap-2">
+						{#if track}
+							<Popover.Root bind:open={sourcesOpen}>
+								<Popover.Trigger class="group {buttonVariants({ variant: 'outline' })}">
+									{t('lyrics_editor.start_sources')}
+									<HugeiconsIcon icon={ArrowDown01Icon} class="size-3.5 transition-transform group-data-[state=open]:rotate-180" />
+								</Popover.Trigger>
+								<Popover.Content align="end" class="w-80 gap-0 p-1.5">
+									<p class="px-2.5 pt-1 pb-2 text-xs text-muted-foreground">{t('lyrics_editor.start_sources_hint')}</p>
+									<div role="radiogroup" aria-label={t('lyrics_editor.start_sources')}>
+										{#each sources as p (p.id)}
+											{@const r = found[p.id]}
+											{@const hit = r?.status === 'done' ? r.lyrics : null}
+											{@const ls = hit ? fromLyrics(hit.lines) : []}
+											{@const on = start?.lyrics?.provider === p.id}
+											{@const dead = r?.status === 'done' && !ls.length}
+											<button
+												type="button"
+												role="radio"
+												aria-checked={on}
+												aria-disabled={dead || r?.status === 'loading'}
+												title={r ? undefined : t('lyrics.off_hint')}
+												class="{MENU_ITEM} {on ? 'bg-muted font-semibold' : ''} {dead ? 'cursor-default hover:bg-transparent' : ''}"
+												onclick={() => {
+													if (!r || r.status === 'error') ask(p.id);
+													else if (hit && ls.length) pick(hit);
+												}}
+											>
+												<span class="flex size-4 shrink-0 items-center justify-center">
+													{#if on}<HugeiconsIcon icon={Tick02Icon} class="size-3.5" />{/if}
+												</span>
+												<span class="min-w-0 flex-1 truncate {dead || !p.on ? 'text-muted-foreground' : ''}">{p.name}</span>
+												{#if !r}
+													<span class="shrink-0 text-[11px] text-muted-foreground">
+														{t('lyrics.off')} · <span class="font-medium text-primary">{t('lyrics.check')}</span>
+													</span>
+												{:else if r.status === 'loading'}
+													<span class="h-4 w-14 shrink-0 animate-pulse rounded-full bg-muted"></span>
+												{:else if r.status === 'error'}
+													<span class="shrink-0 text-[11px] text-muted-foreground">
+														{t('lyrics.unreachable')} · <span class="font-medium text-primary">{t('lyrics.retry')}</span>
+													</span>
+												{:else if ls.length}
+													{@const kind = kindOf(ls)}
+													<span class="shrink-0 text-[11px] font-normal text-muted-foreground tabular-nums">
+														{t('lyrics_editor.start_lines', { count: ls.length })}
+													</span>
+													<span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase {KIND_CLASS[kind]}">
+														{t(KIND_LABEL[kind])}
+													</span>
+												{:else}
+													<span class="shrink-0 text-[11px] font-normal text-muted-foreground/70">{t('lyrics.not_found')}</span>
+												{/if}
+											</button>
+										{/each}
+									</div>
+								</Popover.Content>
+							</Popover.Root>
+						{/if}
+						{#if startLines.length}
+							<Button onclick={() => begin(startLines, startKind === 'words')}>{t('lyrics_editor.start_use')}</Button>
+						{/if}
+					</div>
 				</div>
 
 				<div class="mt-3 grid gap-3 {wide ? 'grid-cols-[1.4fr_1fr]' : ''}">

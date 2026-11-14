@@ -1443,6 +1443,7 @@ pub fn run() {
             commands::set_lyrics_offset,
             commands::lyrics_providers,
             commands::lyrics_editor_start,
+            commands::lyrics_editor_source,
             commands::limusic_providers,
             commands::limusic_status,
             commands::limusic_sign_in,

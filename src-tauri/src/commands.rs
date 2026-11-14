@@ -2688,6 +2688,23 @@ pub async fn lyrics_editor_start(
     Ok(crate::lyrics::editor_start(state.inner(), req).await)
 }
 
+/// One provider's lyrics for the lyric editor to start from, as it sent them. Rejects when the
+/// provider couldn't be reached.
+#[tauri::command]
+pub async fn lyrics_editor_source(
+    state: St<'_>,
+    video_id: String,
+    title: String,
+    artists: String,
+    album: Option<String>,
+    duration: Option<f64>,
+    source: String,
+) -> Result<Option<crate::lyrics::Lyrics>, String> {
+    let req =
+        crate::lyrics::LyricsRequest { video_id, title, artists, album, duration, searched: false };
+    crate::lyrics::editor_source(state.inner(), req, &source).await
+}
+
 /// What Limusic Lyrics offers: `anonymous` gates contributing, `providers` are the identities that
 /// can be linked.
 #[tauri::command]
