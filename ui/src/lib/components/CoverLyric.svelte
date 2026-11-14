@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { fly } from 'svelte/transition';
-	import { cubicOut } from 'svelte/easing';
+	import { cubicOut, quintOut } from 'svelte/easing';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { MusicNote01Icon } from '@hugeicons/core-free-icons';
@@ -9,6 +8,7 @@
 	import { showVideo } from '$lib/video.svelte';
 	import { lyricsFor, nowLyrics, setNowLyrics } from '$lib/nowlyrics.svelte';
 	import { t } from '$lib/i18n.svelte';
+	import { glowing, letters, sweep } from '$lib/lyricmotion';
 
 	// The line being sung, under the now-playing cover (the Android app's CoverLyricLine). Two lines
 	// tall whatever line it holds, so the title under it never moves when a line ends. A one-line
@@ -89,15 +89,28 @@
 	const key = $derived(!lines ? '' : text ? `${nowLyrics.id}:${at}` : 'wait');
 
 	const still = new MediaQuery('prefers-reduced-motion: reduce');
-	// Long enough to read as travel, short enough that fast lines don't queue (Android's 340 ms).
-	const dur = $derived(still.current ? 0 : 340);
+	// Long enough to read as travel, short enough that fast lines don't queue.
+	const dur = $derived(still.current ? 0 : 420);
 
-	/** How far the light has got across a word, as the gradient's stop. Feathered: the stops run
-	 *  from -12% to 112%, so a word not yet reached is fully dim and a sung one fully lit. */
-	function stop(w: api.LyricWord): number {
-		const span = w.end_ms - w.start_ms;
-		const p = span > 0 ? (ms - w.start_ms) / span : ms >= w.start_ms ? 1 : 0;
-		return Math.min(1, Math.max(0, p)) * 124 - 12;
+	/** The handoff between two lines (Better Lyrics' one-line stage): the old line rises away and is
+	 *  gone in 220 ms, out of the way, while the new one rises in from a third of the slot below,
+	 *  a beat later, and sharpens out of a slight blur as it settles. The two share the cell, so the
+	 *  quick fade out is what keeps them from reading as one smear. */
+	function handoff(_: Element, { out }: { out: boolean }) {
+		return {
+			duration: dur,
+			// `t` runs 0 to 1 coming in and 1 to 0 going out; `gone` is the time spent, either way.
+			css: (t: number) => {
+				const gone = (out ? 1 - t : t) * dur;
+				const move = quintOut(gone / dur);
+				const fade = out
+					? Math.min(1, gone / 220)
+					: cubicOut(Math.min(1, Math.max(0, (gone - 70) / 300)));
+				const shown = out ? 1 - fade : fade;
+				const y = out ? -35 * move : 35 * (1 - move);
+				return `translate:0 ${y}%;opacity:${shown};filter:blur(${(3 * (1 - shown)).toFixed(2)}px)`;
+			}
+		};
 	}
 </script>
 
@@ -123,8 +136,8 @@
 		     divs: a button holds phrasing content only. -->
 		{#key key}
 			<span
-				in:fly={{ y: '35%', duration: dur, easing: cubicOut }}
-				out:fly={{ y: '-35%', duration: dur, easing: cubicOut }}
+				in:handoff={{ out: false }}
+				out:handoff={{ out: true }}
 				class="[grid-area:1/1] min-w-0 self-center"
 				dir="auto"
 			>
@@ -143,14 +156,16 @@
 				{:else if key}
 					<span class="line-clamp-2 text-start [overflow-wrap:anywhere]">
 						{#if words.length}
-							<!-- Each word is its own gradient, lit to where the singer has got to. Theme
-							     tokens both, opaque: a translucent colour composites glyph by glyph. -->
-							{#each words as w, i (i)}<span
-									class="bg-clip-text text-transparent [-webkit-text-fill-color:transparent]"
-									style="background-image:linear-gradient(90deg,var(--foreground) {stop(
-										w
-									)}%,var(--muted-foreground) {stop(w) + 12}%)">{w.text.trimEnd()}</span
-								>{w.text.endsWith(' ') ? ' ' : ''}{/each}
+							<!-- Each word lights the way it does in the lyrics tab (`lyricmotion.ts`), a
+							     held note letter by letter, cresting and glowing. -->
+							{#each words as w, i (i)}{@const held = letters(w)}{#if held}<span
+										class="relative isolate inline-block whitespace-nowrap"
+										><span class="lyric-halo" aria-hidden="true"
+											>{#each held as l, k (k)}<span class={glowing(l, w, ms) ? 'lit' : ''}
+													>{l.text}</span
+												>{/each}</span
+										>{#each held as l, k (k)}{@render glyph(l, 'lyric-held')}{/each}</span
+									>{:else}{@render glyph(w, '')}{/if}{w.text.endsWith(' ') ? ' ' : ''}{/each}
 						{:else}
 							<span class="text-foreground">{text}</span>
 						{/if}
@@ -160,3 +175,12 @@
 		{/key}
 	</button>
 </div>
+
+<!-- Theme tokens both, opaque: a translucent colour composites glyph by glyph. -->
+{#snippet glyph(w: api.LyricWord, extra: string)}<span
+		class="inline-block bg-clip-text text-transparent [-webkit-text-fill-color:transparent] {extra} {extra &&
+		ms >= w.start_ms
+			? 'sung'
+			: ''}"
+		style={sweep(w, ms)}>{w.text.trimEnd()}</span
+	>{/snippet}

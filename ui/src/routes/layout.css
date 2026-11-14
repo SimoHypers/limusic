@@ -1445,6 +1445,59 @@ html.art-tint.theme-amoled {
 	animation: note-pulse 1.6s ease-in-out infinite;
 }
 
+/* A held note in a synced lyric (`lyricmotion.ts`): its letters crest one by one as they light and
+   settle back on the line (`lyric-held`), and a halo builds behind them letter by letter, then lets
+   go slowly once the note ends (`lyric-halo`). The halo is a copy of the letters with clear glyphs
+   under a text shadow that never changes, so it is drawn once and only its opacity moves. A
+   `drop-shadow` filter over the swept letters glowed as a box on WebKitGTK, around the whole
+   background the sweep is clipped from. Dark themes only: on a light one a glow is a dark smudge.
+   Only held notes glow: a glow on every word cost the lyrics tab 56% to 70% of a core on WebKitGTK
+   2.52 and 3% to 11% of frames over 20 ms (docs/UI-PERFORMANCE.md). */
+.lyric-halo {
+	display: none;
+}
+.dark .lyric-halo {
+	display: block;
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	pointer-events: none;
+	user-select: none;
+	color: transparent;
+	-webkit-text-fill-color: transparent;
+	text-shadow:
+		0 0 0.18em color-mix(in oklab, var(--foreground) 55%, transparent),
+		0 0 0.55em color-mix(in oklab, var(--foreground) 30%, transparent);
+}
+.lyric-halo > span {
+	display: inline-block;
+	opacity: 0;
+	transition: opacity 1.2s ease-out;
+}
+/* 0.999, never 1: the letter keeps its layer, so lighting it asks for no layout. */
+.lyric-halo > span.lit {
+	opacity: 0.999;
+	transition: opacity 0.3s ease-out;
+}
+.lyric-held.sung {
+	animation: lyric-held 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) both;
+}
+@keyframes lyric-held {
+	40% {
+		translate: 0 -0.12em;
+		scale: 1.12;
+	}
+	to {
+		translate: 0 0;
+		scale: 1;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.lyric-held.sung {
+		animation: none;
+	}
+}
+
 /* Range inputs (seek + volume): filled progress driven by --pct, with a thumb that
    only appears on hover/focus. Every Tauri target is WebKit/Chromium, so the
    -webkit- pseudo-elements cover Fedora (WebKitGTK), macOS (WebKit) and Windows (WebView2). */
