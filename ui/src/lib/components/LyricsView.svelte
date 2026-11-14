@@ -287,9 +287,14 @@
 		const step = near.length ? Math.min(...near) : line.offsetHeight;
 		const stagger = reducedMotion.current ? 0 : Math.min(1, step / Math.abs(delta));
 		const base = scrollMs(0, false);
+		// A row still gliding may be on screen only by its glide, so it takes the next one whatever
+		// its layout position says, or it would jump by the scroll.
+		const moving = new Set(gliding.map((a) => (a.effect as KeyframeEffect | null)?.target));
 		rows.forEach((row, j) => {
 			const top = row.offsetTop - to;
-			if (Math.max(top, top + shift) + row.offsetHeight < 0 || Math.min(top, top + shift) > h) return;
+			const off =
+				Math.max(top, top + shift) + row.offsetHeight < 0 || Math.min(top, top + shift) > h;
+			if (off && !moving.has(row)) return;
 			const rel = j - i;
 			const ahead = delta > 0 ? rel < 0 : rel > 0;
 			gliding.push(
