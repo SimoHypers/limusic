@@ -526,6 +526,32 @@ fn raise_fd_limit() {
     }
 }
 
+/// Whether GDK's Wayland backend will get a display, asked the way `wl_display_connect` does:
+/// WAYLAND_SOCKET is an already-open fd, WAYLAND_DISPLAY a socket name under XDG_RUNTIME_DIR or an
+/// absolute path. A set but stale WAYLAND_DISPLAY (left over from a Wayland login, forwarded over
+/// ssh) makes GDK fall back to X11 without a word, so its mere presence is not an answer: with it,
+/// the NVIDIA gates below took the window for Wayland and it never painted (two GBM failures,
+/// reproduced with `WAYLAND_DISPLAY=wayland-stale` on an X server).
+#[cfg(target_os = "linux")]
+fn wayland_reachable() -> bool {
+    if std::env::var_os("WAYLAND_SOCKET").is_some() {
+        return true;
+    }
+    let Some(name) = std::env::var_os("WAYLAND_DISPLAY") else {
+        return false;
+    };
+    let name = std::path::PathBuf::from(name);
+    let path = if name.is_absolute() {
+        name
+    } else {
+        match std::env::var_os("XDG_RUNTIME_DIR") {
+            Some(dir) => std::path::PathBuf::from(dir).join(name),
+            None => return false,
+        }
+    };
+    std::os::unix::net::UnixStream::connect(path).is_ok()
+}
+
 /// The vendor of the EGL that serves the X11 display: "NVIDIA" when the proprietary driver draws
 /// the screen, "Mesa Project" when Intel or AMD does, which is a hybrid laptop's default even with
 /// the NVIDIA driver loaded (#458). WebKit's UI process opens its EGL display the same way, and
@@ -700,11 +726,11 @@ pub fn run() {
         //
         // ponytail: delete this the day the driver learns GBM on XWayland.
         //
-        // GDK picks its backend from GDK_BACKEND when set, else Wayland when WAYLAND_DISPLAY is,
-        // else X11.
+        // GDK picks its backend from GDK_BACKEND when set, else Wayland when it can connect to
+        // one, else X11.
         // A list ("wayland,x11") is tried in order, so with no Wayland display to connect to it
         // lands on x11 as well.
-        let no_wayland = std::env::var_os("WAYLAND_DISPLAY").is_none();
+        let no_wayland = !wayland_reachable();
         let on_x11 = match std::env::var("GDK_BACKEND") {
             Ok(b) => {
                 b.split(',').next() == Some("x11")
