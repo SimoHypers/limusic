@@ -831,7 +831,8 @@
 			"reset_zoom": "Restablecer zoom",
 			"show_this_list": "Mostrar esta lista",
 			"refresh_page": "Actualizar pagina",
-			"quit_app": "Salir de Limusic"
+			"quit_app": "Salir de Limusic",
+			"like_song": "Dar me gusta o no me gusta a la canción"
 		},
 		"tempo_pitch": {
 			"title": "Tempo, tono y reverberación",
@@ -1108,7 +1109,8 @@
 		"feedback_gone": "Estas letras ya no están en Limusic.",
 		"feedback_rate_limited": "Esto es mucho a la vez. Intenta otra vez después.",
 		"feedback_banned": "Esta cuenta no puede votar o reportar.",
-		"feedback_failed": "No se pudo conectar con Limusic Lyrics, entonces no se guardó."
+		"feedback_failed": "No se pudo conectar con Limusic Lyrics, entonces no se guardó.",
+		"via": "via {source}"
 	},
 	"queue": {
 		"title": "Cola"
@@ -1698,7 +1700,7 @@
 		"edge_end": "Fin de {word}",
 		"edge_at_start": "{word} inicia al {time}",
 		"edge_at_end": "{word} terminal al {time}",
-		"drag_hint": "Arrastra un borde para ajustar el inicio o final de una palabra. Cliquea una palabra para reproducir desde ella.",
+		"drag_hint": "Arrastra un borde para ajustar el inicio o final de una palabra. Arrastra la pista para ver la canción alrededor. Cliquea una palabra para reproducir desde ella.",
 		"lines": "Líneas",
 		"to_go": "{count} restantes",
 		"all_timed": "Todas las {count} sincronizadas",
@@ -1758,7 +1760,16 @@
 		"more": "Más",
 		"map": "Mapa de la canción",
 		"map_unplaced": "{count} líneas no tienen inicio aún",
-		"map_unplaced_one": "1 línea no tiene inicio aún"
+		"map_unplaced_one": "1 línea no tiene inicio aún",
+		"start_sources": "Otras fuentes",
+		"start_sources_hint": "Lo que tiene cada fuente para esta canción. Inicia desde la más cercana a lo que se canta.",
+		"start_lines": "{count} líneas",
+		"voice": "Voz por sincronizar",
+		"voice_lead": "Voz principal",
+		"voice_hint": "La voz principal y las voces de fondo sincronizan por separado, por lo que pueden superponerse. V las cambia.",
+		"say_bg_words": "Ahora las voces de fondo. Toca cuando empiece cada palabra.",
+		"say_bg_words_sub": "Pueden empezar por debajo de la voz principal, y el bucle continúa sobre la siguiente línea.",
+		"err_copied": "{source} ya tiene la letra sincronizada palabra por palabra, entonces no hay nada nuevo que mandar."
 	},
 	"limusic": {
 		"none_title": "No requiere cuenta",
