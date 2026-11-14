@@ -18,5 +18,17 @@ fn main() {
     // leaves `generate_context!` emitting the old `default_window_icon` (window, tray, taskbar).
     println!("cargo:rerun-if-changed=icons");
 
-    tauri_build::build()
+    tauri_build::build();
+
+    // `tauri-build` embeds a manifest in the app binary, but the lib test target is linked into
+    // OUT_DIR with no resource section. Windows then binds comctl32 v5, which does not export
+    // `TaskDialogIndirect`, and the test process dies at load with STATUS_ENTRYPOINT_NOT_FOUND
+    // before the harness prints anything. Test targets need the v6 manifest here.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        println!("cargo:rerun-if-changed=windows-test.manifest");
+        let manifest =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("windows-test.manifest");
+        println!("cargo:rustc-link-arg-tests=/MANIFEST:EMBED");
+        println!("cargo:rustc-link-arg-tests=/MANIFESTINPUT:{}", manifest.display());
+    }
 }
