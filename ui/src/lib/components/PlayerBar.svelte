@@ -141,9 +141,9 @@
 
 	const onVolume = (e: Event) => dragVolume(Number((e.target as HTMLInputElement).value));
 	const onVolumeCommit = (e: Event) => commitVolume(Number((e.target as HTMLInputElement).value));
-	// "80 %" in French: the locale writes the sign, not us (#609).
+	// "60 %": the number in the locale's digits, then a space the line can't break at (#609).
 	const volumePct = $derived(
-		new Intl.NumberFormat(currentLocale.id, { style: 'percent' }).format(playback.volume / 100)
+		`${new Intl.NumberFormat(currentLocale.id).format(Math.round(playback.volume))}\u00a0%`
 	);
 
 	const isControl = (t: EventTarget | null) =>
@@ -426,7 +426,7 @@
 	<div class="flex flex-1 items-center justify-end gap-2">
 		<!-- Volume is the first control to drop on a narrow window (OS volume still works). It is
 		     this desktop's, so it goes while the bar controls a linked device. -->
-		<div class="group/vol hidden items-center gap-1 {link.remote ? '' : 'md:flex'}">
+		<div class="group/vol relative hidden items-center gap-1 {link.remote ? '' : 'md:flex'}">
 			<Button
 				variant="ghost"
 				size="icon-sm"
@@ -456,9 +456,11 @@
 				aria-valuetext={volumePct}
 			/>
 			<!-- The level as a number while the slider is in use (#609), hidden the rest of the time so
-			     the bar stays quiet. Width kept either way, so nothing shifts when it shows. -->
+			     the bar stays quiet. Out of the flow, left of the speaker where the bar is empty: a
+			     reserved width left a gap before the buttons, and one that opens on hover would slide
+			     the slider out from under the pointer. -->
 			<span
-				class="invisible w-9 text-xs text-muted-foreground tabular-nums group-hover/vol:visible group-focus-within/vol:visible"
+				class="pointer-events-none invisible absolute end-full me-1 whitespace-nowrap text-xs text-muted-foreground tabular-nums group-hover/vol:visible group-focus-within/vol:visible"
 				aria-hidden="true">{volumePct}</span
 			>
 		</div>
