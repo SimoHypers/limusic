@@ -1,5 +1,6 @@
-// Singers and background vocals as the lyrics view lays them out. Only Limusic's lyrics carry
-// either (`agent` on a line, `bg` on a word). Pure, so `lyricvoices.check.ts` can run it.
+// Singers and background vocals as the lyrics view lays them out: `agent` on a line (Limusic's
+// lyrics only), `bg` on a word (Limusic's, and Apple's through Boidu, LyricsPlus and Unison). Pure,
+// so `lyricvoices.check.ts` can run it.
 import type { LyricLine, LyricWord } from './api';
 
 /** A stretch of a line's words that are all lead vocals, or all background ones. */
@@ -11,9 +12,12 @@ export interface VoiceRun {
 export interface Voice {
 	/** The line sits on the opposite side: it belongs to the other singer of a duet. */
 	far: boolean;
-	/** The line's words split where lead and background vocals meet. Null when it has no
-	 *  background words, so the line is drawn whole. */
+	/** The lead's words, then the background's, which go under them. Null when the line has no
+	 *  background words, so it is drawn whole. */
 	runs: VoiceRun[] | null;
+	/** When its last background word ends, 0 without any. They are often sung over the start of
+	 *  the next line, and the line stays lit until then. */
+	until: number;
 }
 
 /** `v2` -> 2. Anything that isn't a singer's id (the group's `v1000` included) is null. */
@@ -22,15 +26,14 @@ function singer(agent: string | undefined): number | null {
 	return Number.isNaN(n) || n === 1000 ? null : n;
 }
 
+/** Background vocals have their own timings, sung over the lead rather than between its words, so
+ *  they are one line under it wherever they were written in the lyric (Apple's layout): a "(Yeah)"
+ *  in the middle no longer cuts the lead in two. */
 function runsOf(words: LyricWord[] | undefined): VoiceRun[] | null {
 	if (!words?.some((w) => w.bg)) return null;
-	const runs: VoiceRun[] = [];
-	for (const w of words) {
-		const last = runs[runs.length - 1];
-		if (last && last.bg === !!w.bg) last.words.push(w);
-		else runs.push({ bg: !!w.bg, words: [w] });
-	}
-	return runs;
+	const lead = words.filter((w) => !w.bg);
+	const bg = { bg: true, words: words.filter((w) => w.bg) };
+	return lead.length ? [{ bg: false, words: lead }, bg] : [bg];
 }
 
 /** One entry per line, or null when the lyric has no second singer and no background word: the
@@ -48,7 +51,8 @@ export function voices(lines: LyricLine[]): Voice[] | null {
 	let any = false;
 	const out = lines.map((l) => {
 		const n = singer(l.agent);
-		const v = { far: duet && n !== null && singers.indexOf(n) % 2 === 1, runs: runsOf(l.words) };
+		const until = Math.max(0, ...(l.words ?? []).filter((w) => w.bg).map((w) => w.end_ms));
+		const v = { far: duet && n !== null && singers.indexOf(n) % 2 === 1, runs: runsOf(l.words), until };
 		any ||= v.far || v.runs !== null;
 		return v;
 	});

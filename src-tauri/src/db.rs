@@ -329,6 +329,16 @@ impl Db {
             let _ = conn.execute("DELETE FROM lyrics_cache", []);
             let _ = conn.execute_batch("PRAGMA user_version = 2");
         }
+        // Apple's background vocals were read as lead words, timed out of order. Drop the cached
+        // lyrics of the sources that send them so they are read again; a hand-picked one stays.
+        if version < 3 {
+            let _ = conn.execute(
+                "DELETE FROM lyrics_cache WHERE json_extract(lyrics, '$.source')
+                    IN ('Boidu', 'LyricsPlus', 'Unison') AND json_extract(lyrics, '$.pinned') IS NOT 1",
+                [],
+            );
+            let _ = conn.execute_batch("PRAGMA user_version = 3");
+        }
         // #396: On Repeat's `plays` (a trailing month, a full `SongItem` per row) becomes
         // `listens` + `listen_songs`, kept for good. Its rows carry over so the stats page opens on
         // up to a month of history instead of nothing. Checked on every open rather than once per

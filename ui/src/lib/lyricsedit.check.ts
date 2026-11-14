@@ -28,16 +28,21 @@ import {
 	needsLineTime,
 	packDraft,
 	parseField,
+	passOf,
 	ready,
 	resplitLine,
 	setAgent,
 	setLineText,
 	setLineTime,
 	splitLine,
+	startVoice,
 	stampTap,
 	toggleBg,
+	twoVoices,
 	unpackDraft,
+	voiceTimed,
 	withWords,
+	wordsFromPass,
 	wordsFromTaps,
 	wordsTimed,
 	type Draft,
@@ -291,6 +296,50 @@ ok(same(loopStep(range, 9000, 1, 150), { wake: 250 }), 'right after a seek the o
 	ok(seeks === 3, `one seek per pass, got ${seeks}`);
 }
 
+// --- Voices: background vocals sung over the lead ---------------------------------------------
+{
+	const bg = (text: string, start?: number, end?: number): EdWord => ({ ...w(text, start, end), bg: true });
+	// "Will give you (yeah, yeah)": the background starts under "give".
+	const words = [w('Will '), w('give '), w('you '), bg('(yeah, '), bg('yeah)')];
+	ok(twoVoices(words) && !twoVoices([w('a'), w('b')]) && !twoVoices([bg('a')]), 'two voices need both');
+	ok(same(passOf(words, false), [0, 1, 2]) && same(passOf(words, true), [3, 4]), 'a pass taps one voice');
+	ok(same(passOf([bg('a'), bg('b')], false), [0, 1]), 'a line of one voice is one pass');
+	ok(startVoice(words) === false, 'the lead is tapped first');
+	const lead = wordsFromPass(words, passOf(words, false), [1000, 1400, 1800, 2200], 9000)!;
+	ok(same(lead.map((x) => x.start), [1000, 1400, 1800, undefined, undefined]), 'a lead pass leaves the background alone');
+	ok(voiceTimed(lead, false) && !voiceTimed(lead, true) && startVoice(lead), 'then the background is owed');
+	ok(wordsFromPass(lead, passOf(lead, true), [1300], 9000) === null, 'a background pass that stops halfway is nothing');
+	const both = wordsFromPass(lead, passOf(lead, true), [1300, 1900, 2600], 9000)!;
+	ok(same(both.map((x) => [x.start, x.end]), [[1000, 1400], [1400, 1800], [1800, 2200], [1300, 1900], [1900, 2600]]), 'the background overlaps the lead, each in order');
+	ok(startVoice(both) === false, 'all timed: back to the lead');
+	const line = withWords({ id: 1, words }, both);
+	ok(line.time === 1000 && line.end === 2600, 'the line spans both voices');
+	const early = withWords({ id: 1, words }, [w('a ', 500, 900), bg('(oh)', 200, 3000)]);
+	ok(early.time === 200 && early.end === 3000, 'a background that starts first and ends last');
+	// Dragging stops at neighbours in the same voice only.
+	ok(moveEdge(both, 3, 'start', 1050, 9999)[3].start === 1050, 'a background start crosses lead words');
+	ok(moveEdge(both, 4, 'start', 1200, 9999)[4].start === 1300 + MIN_WORD_MS, 'but not the background word before it');
+	const pulled = moveEdge(both, 4, 'start', 1700, 9999);
+	ok(pulled[3].end === 1700 && pulled[2].end === 2200, 'the background word before follows, the lead does not');
+	ok(moveEdge(both, 2, 'end', 5000, 9999)[2].end === 5000, 'the last lead word ends past the background');
+	ok(moveEdge(both, 1, 'start', 1100, 9999)[0].end === 1100, 'lead neighbours still share their boundary');
+	// What goes out: in order per voice, the line from its earliest start.
+	const sent = buildLines([{ ...line, words: both }])[0];
+	ok(sent.time_ms === 1000 && sent.end_time_ms === 2600, 'sent with the span of both voices');
+	ok(same(sent.words!.map((x) => [x.start_ms, !!x.bg]), [[1000, false], [1400, false], [1800, false], [1300, true], [1900, true]]), 'a background start is not pushed past the lead');
+	// The loop for the background reaches over the next line, where an answer often runs on.
+	const song2: EdLine[] = [
+		{ id: 1, time: 10_000, end: 12_000, words: [w('a ', 10_000, 12_000), bg('(b)')] },
+		{ id: 2, time: 12_500, end: 16_000, words: [w('c', 12_500, 16_000)] }
+	];
+	ok(lineSpan(song2, 0, 0)!.end === 12_000, 'the lead loops on its own words');
+	ok(lineSpan(song2, 0, 0, true)!.end === 16_000, 'the background on to the end of the next line');
+	ok(lineSpan(song2, 1, 0, true)!.end === 12_500 + 5000, 'or a few seconds on from the last line');
+	const untimedNext: EdLine[] = [song2[0], { id: 2, time: 12_500, words: [w('c')] }, { id: 3, time: 16_000, words: [w('d')] }];
+	ok(lineSpan(untimedNext, 0, 0, true)!.end === 16_000, 'a next line with only a start runs to the one after');
+	ok(lineSpan([{ id: 1, time: 0, words: [bg('x')] }, { id: 2, time: 1000, end: 60_000, words: [w('y')] }], 0, 0, true)!.end === 15_000, 'never past the longest line');
+}
+
 // --- Dragging a word's edge -------------------------------------------------------------------
 const row = [w('a ', 100, 200), w('b ', 200, 400), w('c', 500, 700)];
 const d1 = moveEdge(row, 1, 'start', 150, 9999);
@@ -360,7 +409,8 @@ ok(same(built[1], { text: '', words: [], time_ms: 3000 }), 'a gap keeps its plac
 const re = withWords(ed[0], moveEdge(ed[0].words, 1, 'start', 1400, 9999));
 const rb = buildLines([re])[0];
 ok(rb.time_ms === 1000 && rb.end_time_ms === 2500 && rb.agent === 'v1', 'a retimed line keeps singer and extent');
-ok(same(rb.words, [{ text: 'Baby ', start_ms: 1000, end_ms: 1400 }, { text: 'love', start_ms: 1400, end_ms: 2500, bg: true }]), 'its words carry the new times and bg');
+// "love" is a background word: its start moves under the lead, which keeps its own end.
+ok(same(rb.words, [{ text: 'Baby ', start_ms: 1000, end_ms: 1500 }, { text: 'love', start_ms: 1400, end_ms: 2500, bg: true }]), 'its words carry the new times and bg');
 ok(rb.romanized === 'beibi' && same(rb.romanized_words, wordLine.romanized_words), 'romanization stays with unchanged text');
 ok(!('translation' in rb), 'no translation');
 // A reworded line loses the romanization written for the old text.

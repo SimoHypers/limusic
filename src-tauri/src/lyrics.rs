@@ -130,7 +130,8 @@ pub struct LyricWord {
     pub text: String,
     pub start_ms: u64,
     pub end_ms: u64,
-    /// Background vocals. Only Limusic Lyrics sends it; the lyrics view draws them smaller.
+    /// Background vocals: Limusic's `bg`, Apple's `x-bg` (TTML) and `isBackground` (KPOE). The
+    /// lyrics view draws them smaller, under the lead.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bg: bool,
 }
@@ -1243,6 +1244,8 @@ struct KpoeSyllable {
     duration: f64,
     #[serde(default)]
     text: String,
+    #[serde(rename = "isBackground", default)]
+    is_background: bool,
 }
 
 async fn lyricsplus_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Error> {
@@ -1288,7 +1291,7 @@ fn kpoe_to_lyrics(k: Kpoe, ours: Option<f64>) -> Option<Lyrics> {
                     text: w.text.clone(),
                     start_ms: w.time as u64,
                     end_ms: (w.time + w.duration) as u64,
-                    bg: false,
+                    bg: w.is_background,
                 })
                 .collect()
         })
@@ -1689,7 +1692,8 @@ fn parse_ttml_aaml(xml: &str) -> Vec<LyricLine> {
 }
 
 /// The text of one `<p>` (or `<text>`) and its timed `<span>`s. Text between spans, the spaces
-/// that separate words, is appended to the word before it.
+/// that separate words, is appended to the word before it. Apple wraps background vocals in a
+/// `<span ttm:role="x-bg">` around timed spans of their own, which overlap the lead's.
 fn parse_ttml_spans(
     inner_str: &str,
     line_begin: Option<u64>,
@@ -1698,6 +1702,8 @@ fn parse_ttml_spans(
     let mut words: Vec<LyricWord> = Vec::new();
     let mut span_pos = 0;
     let mut plain_text_buf = String::new();
+    // Inside an `x-bg` span: its `</span>` turns up between two words, where it ends.
+    let mut in_bg = false;
 
     while let Some(s_start) = inner_str[span_pos..].find("<span") {
         let abs_s_start = span_pos + s_start;
@@ -1707,7 +1713,9 @@ fn parse_ttml_spans(
         let abs_s_tag_end = abs_s_start + s_tag_end;
         let s_tag_str = &inner_str[abs_s_start..abs_s_tag_end + 1];
 
-        let before = strip_xml_tags(&inner_str[span_pos..abs_s_start]);
+        let between = &inner_str[span_pos..abs_s_start];
+        in_bg &= !between.contains("</span>");
+        let before = strip_xml_tags(between);
         if !before.is_empty() {
             plain_text_buf.push_str(&before);
             if let Some(last_w) = words.last_mut() {
@@ -1719,7 +1727,15 @@ fn parse_ttml_spans(
             break;
         };
         let abs_s_close = abs_s_tag_end + s_close;
-        let w_text = strip_xml_tags(&inner_str[abs_s_tag_end + 1..abs_s_close]);
+        let content = &inner_str[abs_s_tag_end + 1..abs_s_close];
+        let bg = in_bg || parse_xml_attr(s_tag_str, "role").as_deref() == Some("x-bg");
+        if bg && !in_bg && content.contains("<span") {
+            // The wrapper: its words are the spans inside it.
+            in_bg = true;
+            span_pos = abs_s_tag_end + 1;
+            continue;
+        }
+        let w_text = strip_xml_tags(content);
 
         let w_begin =
             parse_xml_attr(s_tag_str, "begin").and_then(|s| parse_ttml_time(&s)).or(line_begin);
@@ -1727,7 +1743,7 @@ fn parse_ttml_spans(
 
         if let (Some(b), Some(e)) = (w_begin, w_end) {
             if !w_text.is_empty() {
-                words.push(LyricWord { text: w_text.clone(), start_ms: b, end_ms: e, bg: false });
+                words.push(LyricWord { text: w_text.clone(), start_ms: b, end_ms: e, bg });
             }
         }
         plain_text_buf.push_str(&w_text);
@@ -1971,6 +1987,51 @@ mod tests {
         assert_eq!(words[0].text, "Hello ");
         assert_eq!(words[0].start_ms, 10500);
         assert_eq!(words[0].end_ms, 11200);
+    }
+
+    /// Apple's background vocals: an `x-bg` span around timed spans of their own, sung over the
+    /// lead. Each word keeps its own time and the flag; the wrapper is no word.
+    #[test]
+    fn ttml_keeps_background_vocals() {
+        let xml = r#"<tt><p begin="10.000" end="13.500"><span begin="10.000" end="10.400">Hold</span> <span begin="10.400" end="12.600">on</span> <span ttm:role="x-bg" begin="11.200" end="13.500"><span begin="11.200" end="12.000">(hold</span> <span begin="12.000" end="13.500">on)</span></span></p><p begin="14.000" end="15.000"><span begin="14.000" end="14.500">Go</span> <span ttm:role="x-bg" begin="14.200" end="15.000">(go)</span> <span begin="14.500" end="15.000">now</span></p></tt>"#;
+        let lines = parse_ttml_aaml(xml);
+        assert_eq!(lines[0].text, "Hold on (hold on)");
+        let words = |i: usize| {
+            lines[i]
+                .words
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|w| (w.text.as_str(), w.start_ms, w.end_ms, w.bg))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            words(0),
+            [
+                ("Hold ", 10000, 10400, false),
+                ("on ", 10400, 12600, false),
+                ("(hold ", 11200, 12000, true),
+                ("on)", 12000, 13500, true)
+            ]
+        );
+        // A background span with no words inside is one word, and the lead goes on after it.
+        assert_eq!(
+            words(1),
+            [
+                ("Go ", 14000, 14500, false),
+                ("(go) ", 14200, 15000, true),
+                ("now", 14500, 15000, false)
+            ]
+        );
+    }
+
+    #[test]
+    fn kpoe_keeps_background_vocals() {
+        let json = r#"{"type":"Word","lyrics":[{"time":0,"duration":2000,"text":"Hey (hey)","syllabus":[
+            {"time":0,"duration":800,"text":"Hey "},{"time":500,"duration":1500,"text":"(hey)","isBackground":true}]}]}"#;
+        let l = kpoe_to_lyrics(serde_json::from_str(json).unwrap(), None).unwrap();
+        let bg: Vec<bool> = l.lines[0].words.as_ref().unwrap().iter().map(|w| w.bg).collect();
+        assert_eq!(bg, [false, true]);
     }
 
     /// Apple's TTML as Boidu serves it (trimmed from "Lemon"): the reading sits in the head,
