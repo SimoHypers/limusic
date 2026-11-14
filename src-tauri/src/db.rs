@@ -339,6 +339,18 @@ impl Db {
             );
             let _ = conn.execute_batch("PRAGMA user_version = 3");
         }
+        // A mirrored lyric was cached as "Limusic (Boidu)". The footer says Limusic alone now and
+        // the provider moved to `via`; rewritten rather than dropped, so a pin stays.
+        if version < 4 {
+            let _ = conn.execute(
+                "UPDATE lyrics_cache SET lyrics = json_set(lyrics, '$.source', 'Limusic', '$.via',
+                    substr(json_extract(lyrics, '$.source'), 10,
+                        length(json_extract(lyrics, '$.source')) - 10))
+                 WHERE json_extract(lyrics, '$.source') LIKE 'Limusic (%)'",
+                [],
+            );
+            let _ = conn.execute_batch("PRAGMA user_version = 4");
+        }
         // #396: On Repeat's `plays` (a trailing month, a full `SongItem` per row) becomes
         // `listens` + `listen_songs`, kept for good. Its rows carry over so the stats page opens on
         // up to a month of history instead of nothing. Checked on every open rather than once per
@@ -1772,6 +1784,31 @@ mod tests {
         assert_eq!(d.get_lyrics("auto", 2, 10), None);
         assert_eq!(d.get_lyrics("miss", 2, 10), None);
         assert!(d.get_lyrics("picked", 2, 10).is_some(), "a hand-picked source is not a cache");
+        drop(d);
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// A mirrored lyric cached as "Limusic (Boidu)" reads Limusic, via Boidu, and keeps its pin.
+    #[test]
+    fn opening_the_db_moves_a_mirrored_source_to_via() {
+        let path = std::env::temp_dir().join("limusic-lyrics-via-test.sqlite");
+        std::fs::remove_file(&path).ok();
+        {
+            let d = Db::open(&path).unwrap();
+            let conn = d.0.lock().unwrap();
+            conn.execute_batch("PRAGMA user_version = 3").unwrap();
+            conn.execute(
+                "INSERT INTO lyrics_cache VALUES('m', '{\"source\":\"Limusic (Boidu)\",\"pinned\":true}', 1)",
+                [],
+            )
+            .unwrap();
+        }
+        let d = Db::open(&path).unwrap();
+        let row: serde_json::Value =
+            serde_json::from_str(&d.get_lyrics("m", 2, 10).unwrap().unwrap()).unwrap();
+        assert_eq!(row["source"], "Limusic");
+        assert_eq!(row["via"], "Boidu");
+        assert_eq!(row["pinned"], true);
         drop(d);
         std::fs::remove_file(&path).ok();
     }

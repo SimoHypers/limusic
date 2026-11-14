@@ -1285,6 +1285,8 @@ export interface Lyrics {
 	revision?: number;
 	/** Who synced a community lyric on Limusic, oldest first. Absent everywhere else. */
 	authors?: string[];
+	/** The provider Limusic mirrored the lyric from ("Boidu"). Absent everywhere else. */
+	via?: string;
 }
 // A type, not an interface: `invoke` takes a record, and only a type alias is assignable to one.
 export type LyricsTrack = {
