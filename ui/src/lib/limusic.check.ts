@@ -32,6 +32,7 @@ ok(signInErrorKey('already_linked') === 'limusic.signin_failed', 'any other link
 ok(f('invalid', 'line 3 is empty').params?.detail === 'line 3 is empty', 'invalid carries the reason');
 ok(f('invalid').key === 'lyrics_editor.err_invalid', 'invalid without a reason');
 ok(f('unchanged').kind === 'info', 'unchanged is not an error');
+ok(f('unchanged', 'Boidu').key === 'lyrics_editor.err_copied' && f('unchanged', 'Boidu').params?.source === 'Boidu', 'a copy names its source');
 ok(new Set(['stale', 'banned', 'rate_limited', 'unavailable'].map((c) => f(c).key)).size === 4, 'distinct words');
 ok(accountErrorKey('taken') === 'limusic.name_taken' && accountErrorKey('?') === 'limusic.unreachable', 'account codes');
 ok(providerName('github') === 'GitHub' && providerName('gitlab') === 'Gitlab', 'provider names');

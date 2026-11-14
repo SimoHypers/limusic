@@ -1511,6 +1511,7 @@
 		"stale_keep": "Send mine",
 		"err_unchanged_title": "Nothing to send",
 		"err_unchanged": "These lyrics are the same as the ones already live.",
+		"err_copied": "{source} already has these lyrics word by word, so there's nothing new to send.",
 		"err_rate_limited_title": "That's a lot for one hour",
 		"err_rate_limited": "Try again later. Your draft is saved.",
 		"err_unavailable_title": "Limusic Lyrics couldn't be reached",

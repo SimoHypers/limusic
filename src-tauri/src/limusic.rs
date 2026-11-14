@@ -480,8 +480,16 @@ fn outcome(answer: Option<(u16, Value)>) -> Submitted {
             };
         }
     }
-    let detail = answer.as_ref().and_then(|(_, b)| b["detail"].as_str()).map(str::to_owned);
-    Submitted::Failed { code: failure(answer), detail }
+    let mut detail = answer.as_ref().and_then(|(_, b)| b["detail"].as_str()).map(str::to_owned);
+    let code = failure(answer);
+    // A copy of a provider's word-synced lyric is `unchanged` with the provider's id.
+    if code == "unchanged" {
+        detail = detail.map(|d| match crate::lyrics::provider_name(&d) {
+            "" => d,
+            name => name.to_owned(),
+        });
+    }
+    Submitted::Failed { code, detail }
 }
 
 async fn post_revision(token: &str, s: &Submission) -> Submitted {
@@ -1030,6 +1038,12 @@ mod tests {
         assert_eq!(outcome(Some((401, json!({"error": "unauthorized"})))), failed("unauthorized"));
         assert_eq!(outcome(Some((201, json!({"nope": 1})))), failed("unavailable"));
         assert_eq!(outcome(None), failed("unavailable"));
+        // A copy of a provider's lyric names it.
+        let copy = outcome(Some((409, json!({"error": "unchanged", "detail": "boidu"}))));
+        assert_eq!(
+            copy,
+            Submitted::Failed { code: "unchanged".into(), detail: Some("Boidu".into()) }
+        );
     }
 
     /// Against a fresh local copy of the service with hand-inserted sessions, never the live one:
