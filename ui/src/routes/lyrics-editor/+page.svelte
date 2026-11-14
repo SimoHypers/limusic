@@ -1330,12 +1330,13 @@
 							<!-- Only on a line with both: which voice the taps time. After the Tap and Again
 							     buttons, so neither moves when it comes and goes. -->
 							{#if line && !line.gap && twoVoices(line.words)}
-								<div role="radiogroup" aria-label={t('lyrics_editor.voice')} title={t('lyrics_editor.voice_hint')} class="flex h-9 items-center gap-0.5 rounded-lg border p-0.5">
+								<!-- Toggle buttons, not radios: a radio group owns the arrow keys, which here move
+								     between lines. -->
+								<div role="group" aria-label={t('lyrics_editor.voice')} title={t('lyrics_editor.voice_hint')} class="flex h-9 items-center gap-0.5 rounded-lg border p-0.5">
 									{#each [false, true] as bg (bg)}
 										<button
 											type="button"
-											role="radio"
-											aria-checked={tapBg === bg}
+											aria-pressed={tapBg === bg}
 											class="h-full cursor-pointer rounded-md px-2.5 text-sm font-medium transition-colors {tapBg === bg
 												? 'bg-foreground text-background'
 												: 'text-muted-foreground hover:text-foreground'}"

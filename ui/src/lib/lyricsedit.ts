@@ -447,12 +447,14 @@ export function lineSpan(lines: EdLine[], i: number, durationMs: number, spill =
 	const start = line?.time ?? (starts.length ? Math.min(...starts) : undefined);
 	if (start === undefined) return null;
 	let end = Math.max(line.end ?? 0, ...line.words.map((w) => w.end ?? 0));
-	const next = lines.slice(i + 1).find((l) => l.time !== undefined && l.time > start);
+	const j = lines.findIndex((l, k) => k > i && l.time !== undefined && l.time > start);
+	const next = lines[j];
 	if (end <= start) {
 		end = next?.time === undefined ? start + OPEN_LINE_MS : Math.min(next.time, start + LONGEST_LINE_MS);
 	}
 	if (spill) {
-		const over = next ? Math.max(next.end ?? 0, next.time!) : start + OPEN_LINE_MS;
+		// The next line's own extent, which reaches on to the line after it while it is untimed.
+		const over = next ? lineSpan(lines, j, 0)!.end : start + OPEN_LINE_MS;
 		end = Math.max(end, Math.min(over, start + LONGEST_LINE_MS));
 	}
 	if (durationMs > 0) end = Math.min(end, durationMs);

@@ -335,6 +335,8 @@ ok(same(loopStep(range, 9000, 1, 150), { wake: 250 }), 'right after a seek the o
 	ok(lineSpan(song2, 0, 0)!.end === 12_000, 'the lead loops on its own words');
 	ok(lineSpan(song2, 0, 0, true)!.end === 16_000, 'the background on to the end of the next line');
 	ok(lineSpan(song2, 1, 0, true)!.end === 12_500 + 5000, 'or a few seconds on from the last line');
+	const untimedNext: EdLine[] = [song2[0], { id: 2, time: 12_500, words: [w('c')] }, { id: 3, time: 16_000, words: [w('d')] }];
+	ok(lineSpan(untimedNext, 0, 0, true)!.end === 16_000, 'a next line with only a start runs to the one after');
 	ok(lineSpan([{ id: 1, time: 0, words: [bg('x')] }, { id: 2, time: 1000, end: 60_000, words: [w('y')] }], 0, 0, true)!.end === 15_000, 'never past the longest line');
 }
 
