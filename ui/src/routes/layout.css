@@ -1445,6 +1445,39 @@ html.art-tint.theme-amoled {
 	animation: note-pulse 1.6s ease-in-out infinite;
 }
 
+/* A held note in a synced lyric (`lyricmotion.ts`): its letters crest one by one as they light and
+   settle back on the line (`lyric-held`), and the word glows while it is sung, then lets
+   the glow go slowly (`lyric-glow`). Each takes its class once, so the engine runs it. The glow is
+   for dark themes, on a light one it is a dark smudge. Only held notes glow: a glow on every word
+   cost the lyrics tab 56% to 70% of a core on WebKitGTK 2.52 and 3% to 11% of frames over 20 ms,
+   since each word repaints under its filter every frame of the sweep. The crest and the glow cost
+   37% to 44% on a lyric where every line ends on a held note (docs/UI-PERFORMANCE.md). */
+.lyric-glow {
+	transition: filter 1.2s ease-out;
+}
+.dark .lyric-glow.lit {
+	filter: drop-shadow(0 0 0.3em color-mix(in oklab, var(--foreground) 50%, transparent));
+	transition: filter 0.3s ease-out;
+}
+.lyric-held.sung {
+	animation: lyric-held 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) both;
+}
+@keyframes lyric-held {
+	40% {
+		translate: 0 -0.12em;
+		scale: 1.12;
+	}
+	to {
+		translate: 0 0;
+		scale: 1;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.lyric-held.sung {
+		animation: none;
+	}
+}
+
 /* Range inputs (seek + volume): filled progress driven by --pct, with a thumb that
    only appears on hover/focus. Every Tauri target is WebKit/Chromium, so the
    -webkit- pseudo-elements cover Fedora (WebKitGTK), macOS (WebKit) and Windows (WebView2). */
