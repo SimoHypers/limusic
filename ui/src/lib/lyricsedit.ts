@@ -361,13 +361,55 @@ export function wordsFromTaps(
 	return words.map((w, k) => ({ ...w, start: starts[k], end: k < n - 1 ? starts[k + 1] : end }));
 }
 
-/** The line with new word timings: its own start and end follow its words. */
+/** The line with new word timings: its own start and end follow its words. Its earliest start and
+ *  latest end, not its first and last word: background vocals can begin before the lead and run on
+ *  after it. */
 export function withWords(line: EdLine, words: EdWord[]): EdLine {
 	const out: EdLine = { ...line, words, dirty: true };
-	const first = words[0]?.start;
-	const last = words[words.length - 1]?.end;
-	if (first !== undefined) out.time = first;
-	if (last !== undefined) out.end = last;
+	const starts = words.flatMap((w) => (w.start === undefined ? [] : [w.start]));
+	const ends = words.flatMap((w) => (w.end === undefined ? [] : [w.end]));
+	if (starts.length) out.time = Math.min(...starts);
+	if (ends.length) out.end = Math.max(...ends);
+	return out;
+}
+
+// --- Voices: the lead and the background ------------------------------------------------------
+
+/** The words one pass of taps times, as indices into `words`: the lead's, or the background's when
+ *  `bg`. Background vocals are sung over the lead, so each voice is a pass of its own, in its own
+ *  order, and neither waits for the other. A line with one voice is one pass whichever is asked. */
+export function passOf(words: EdWord[], bg: boolean): number[] {
+	const idx = words.flatMap((w, i) => (!!w.bg === bg ? [i] : []));
+	return idx.length && idx.length < words.length ? idx : words.map((_, i) => i);
+}
+
+/** The line has both a lead and background vocals: the taps can go to either. */
+export const twoVoices = (words: EdWord[]): boolean => words.some((w) => w.bg) && words.some((w) => !w.bg);
+
+/** Every word of the voice has a start and an end. */
+export const voiceTimed = (words: EdWord[], bg: boolean): boolean =>
+	passOf(words, bg).every((i) => words[i].start !== undefined && words[i].end !== undefined);
+
+/** The voice the taps go to when a line is picked: the lead until it is timed, then the
+ *  background until it is, then the lead again. */
+export const startVoice = (words: EdWord[]): boolean =>
+	twoVoices(words) && voiceTimed(words, false) && !voiceTimed(words, true);
+
+/** `wordsFromTaps` over one voice (`passOf`), the other voice's words left as they are. */
+export function wordsFromPass(
+	words: EdWord[],
+	pass: number[],
+	taps: (number | undefined)[],
+	lineEnd: number | undefined
+): EdWord[] | null {
+	const timed = wordsFromTaps(
+		pass.map((i) => words[i]),
+		taps,
+		lineEnd
+	);
+	if (!timed) return null;
+	const out = words.slice();
+	pass.forEach((i, k) => (out[i] = timed[k]));
 	return out;
 }
 
@@ -396,24 +438,30 @@ export interface Range {
 	end: number;
 }
 
-/** The line's own extent in song ms, or `null` before the line pass has given it a start. */
-export function lineSpan(lines: EdLine[], i: number, durationMs: number): Range | null {
+/** The line's own extent in song ms, or `null` before the line pass has given it a start.
+ *  `spill` is for timing background vocals, which often run on over the start of the next line:
+ *  the span then reaches the end of that line too. */
+export function lineSpan(lines: EdLine[], i: number, durationMs: number, spill = false): Range | null {
 	const line = lines[i];
-	const start = line?.time ?? line?.words[0]?.start;
+	const starts = line?.words.flatMap((w) => (w.start === undefined ? [] : [w.start])) ?? [];
+	const start = line?.time ?? (starts.length ? Math.min(...starts) : undefined);
 	if (start === undefined) return null;
-	const lastWord = line.words[line.words.length - 1]?.end ?? 0;
-	let end = Math.max(line.end ?? 0, lastWord);
+	let end = Math.max(line.end ?? 0, ...line.words.map((w) => w.end ?? 0));
+	const next = lines.slice(i + 1).find((l) => l.time !== undefined && l.time > start);
 	if (end <= start) {
-		const next = lines.slice(i + 1).find((l) => l.time !== undefined && l.time > start)?.time;
-		end = next === undefined ? start + OPEN_LINE_MS : Math.min(next, start + LONGEST_LINE_MS);
+		end = next?.time === undefined ? start + OPEN_LINE_MS : Math.min(next.time, start + LONGEST_LINE_MS);
+	}
+	if (spill) {
+		const over = next ? Math.max(next.end ?? 0, next.time!) : start + OPEN_LINE_MS;
+		end = Math.max(end, Math.min(over, start + LONGEST_LINE_MS));
 	}
 	if (durationMs > 0) end = Math.min(end, durationMs);
 	return { start, end: Math.max(end, start + 1) };
 }
 
 /** What plays, over and over, while a line is being tapped. */
-export function loopRange(lines: EdLine[], i: number, durationMs: number): Range | null {
-	const span = lineSpan(lines, i, durationMs);
+export function loopRange(lines: EdLine[], i: number, durationMs: number, spill = false): Range | null {
+	const span = lineSpan(lines, i, durationMs, spill);
 	if (!span) return null;
 	const end = span.end + LEAD_OUT_MS;
 	return { start: Math.max(0, span.start - LEAD_IN_MS), end: durationMs > 0 ? Math.min(end, durationMs) : end };
@@ -444,7 +492,8 @@ export function loopStep(
 /** The shortest a word may be dragged to. */
 export const MIN_WORD_MS = 30;
 
-/** Move one edge of word `k` to `t`. Words keep their order and never overlap:
+/** Move one edge of word `k` to `t`. Words keep their order and never overlap within their voice
+ *  (the lead, or the background, which is free to overlap the lead):
  *  - a word's start moves between the start of the word before it and its own end, and the word
  *    before ends there if it was touching or would now overlap;
  *  - a word's end moves between its own start and the start of the word after it, which opens or
@@ -452,8 +501,11 @@ export const MIN_WORD_MS = 30;
 export function moveEdge(words: EdWord[], k: number, side: 'start' | 'end', t: number, max: number): EdWord[] {
 	const w = words[k];
 	if (!w || w.start === undefined || w.end === undefined) return words;
-	const prev = words[k - 1];
-	const next = words[k + 1];
+	const voice = passOf(words, !!w.bg);
+	const at = voice.indexOf(k);
+	const p = voice[at - 1];
+	const prev = words[p];
+	const next = words[voice[at + 1]];
 	const out = words.slice();
 	if (side === 'start') {
 		const lo = prev?.start !== undefined ? prev.start + MIN_WORD_MS : 0;
@@ -463,7 +515,7 @@ export function moveEdge(words: EdWord[], k: number, side: 'start' | 'end', t: n
 		out[k] = { ...w, start: v };
 		if (prev?.end !== undefined) {
 			const touching = prev.end === w.start;
-			out[k - 1] = { ...prev, end: touching ? v : Math.min(prev.end, v) };
+			out[p] = { ...prev, end: touching ? v : Math.min(prev.end, v) };
 		}
 	} else {
 		const lo = w.start + MIN_WORD_MS;
@@ -556,16 +608,19 @@ export function buildLines(lines: EdLine[]): LyricLine[] {
 			continue;
 		}
 		const words: LyricWord[] = [];
-		let floor = 0;
+		// In order within each voice, which is what the service checks: the background is sung
+		// over the lead, so it may start before a lead word written ahead of it.
+		const floor = [0, 0];
 		for (const w of l.words) {
 			if (w.start === undefined || w.end === undefined) continue;
-			const start = Math.max(Math.round(w.start), floor);
-			floor = start;
+			const v = w.bg ? 1 : 0;
+			const start = Math.max(Math.round(w.start), floor[v]);
+			floor[v] = start;
 			const word: LyricWord = { text: w.text, start_ms: start, end_ms: Math.max(Math.round(w.end), start) };
 			if (w.bg) word.bg = true;
 			words.push(word);
 		}
-		const first = words[0]?.start_ms;
+		const first = words.length ? Math.min(...words.map((w) => w.start_ms)) : undefined;
 		const time = Math.round(Math.min(l.time ?? first ?? 0, first ?? l.time ?? 0));
 		const lastEnd = words.length ? Math.max(...words.map((w) => w.end_ms)) : time;
 		const text = lineText(l);

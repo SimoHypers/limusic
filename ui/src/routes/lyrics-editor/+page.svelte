@@ -96,6 +96,7 @@
 		missing,
 		needsLineTime,
 		packDraft,
+		passOf,
 		ready,
 		resplitLine,
 		setAgent,
@@ -103,10 +104,13 @@
 		setLineTime,
 		splitLine,
 		stampTap,
+		startVoice,
 		toggleBg,
+		twoVoices,
 		unpackDraft,
+		voiceTimed,
 		withWords,
-		wordsFromTaps,
+		wordsFromPass,
 		wordsTimed,
 		type EdLine,
 		type EdWord
@@ -350,7 +354,14 @@
 	// --- The current line, its loop and its taps ------------------------------------------------
 	const line = $derived<EdLine | undefined>(lines[cur]);
 	const owesTime = $derived(!!line && needsLineTime(line));
-	const range = $derived(line && !owesTime ? loopRange(lines, cur, durationMs) : null);
+	/** Which voice the taps time: the lead, or the background vocals. A line with both is two passes,
+	 *  each in its own order, so an answer sung over the lead is timed as it is sung. */
+	let tapBg = $state(false);
+	const pass = $derived(line ? passOf(line.words, tapBg) : []);
+	/** Timing the background of a line that has a lead too: the loop runs on over the next line,
+	 *  where such an answer often ends. */
+	const spill = $derived(!!line && tapBg && twoVoices(line.words));
+	const range = $derived(line && !owesTime ? loopRange(lines, cur, durationMs, spill) : null);
 
 	/** One pass of taps over the current line. `tapCount` moves at the keypress so the next word
 	 *  lights at once; each tap's time arrives a few ms later, into the slot it claimed. A new
@@ -383,6 +394,7 @@
 		const look = () => {
 			const step = loopStep(r, position(), speed, performance.now() - lastSeekAt);
 			if ('seek' in step) {
+				untrack(passDone);
 				resetTake();
 				jump(step.seek);
 				return; // the seek moves `playback.position`, which runs this effect again
@@ -393,11 +405,26 @@
 		return () => clearTimeout(timer);
 	});
 
+	/** At the loop's wrap: a pass that reached every word of one voice hands the next time round to
+	 *  the other voice, while that one is still owed. The lead, then the background. */
+	function passDone() {
+		const l = lines[cur];
+		if (l && twoVoices(l.words) && tapCount >= pass.length && !voiceTimed(l.words, !tapBg)) tapBg = !tapBg;
+	}
+
+	/** The voice picked by hand (the switch, or V): its pass starts from the top of the loop. */
+	function chooseVoice(bg: boolean) {
+		if (!line || !twoVoices(line.words)) return;
+		tapBg = bg;
+		restart();
+	}
+
 	function select(i: number, seek = true) {
 		if (i < 0 || i >= lines.length) return;
 		commitField();
 		cur = i;
 		resetTake();
+		tapBg = startVoice(lines[i].words);
 		// Picking a line is how the "every line is timed" panel is left.
 		celebrate = false;
 		// Narrow, the sheet is under the stage: a line picked there is brought back into view.
@@ -438,7 +465,10 @@
 			else updateLine(id, (l) => setLineTime(l, ms));
 			return;
 		}
-		const n = line.words.length;
+		// One voice's words: the pass and what it may spill into are fixed at its first tap's press.
+		const p = pass;
+		const over = spill;
+		const n = p.length;
 		if (!n || tapCount > n) return;
 		const gen = takeGen;
 		const slot = tapCount++;
@@ -447,10 +477,11 @@
 		if (ms === null) return resetTake();
 		taps[slot] = ms;
 		marks = slot >= n - 1 ? [] : taps.filter((x): x is number => x !== undefined);
-		// Where the line itself ends, not the loop: the lead-out belongs to the next line.
-		const end = lineSpan(lines, cur, durationMs)?.end;
+		// Where the line itself ends, not the loop: the lead-out belongs to the next line. The
+		// background's last word may run on past the lead, so it goes by the span, not the line end.
+		const end = lineSpan(lines, cur, durationMs, over)?.end;
 		updateLine(id, (l) => {
-			const words = wordsFromTaps(l.words, taps, l.end ?? end);
+			const words = wordsFromPass(l.words, p, taps, over ? end : (l.end ?? end));
 			return words ? withWords(l, words) : l;
 		});
 	}
@@ -692,6 +723,7 @@
 		else if (k === 'r') restart();
 		else if (k === 'l') loopOn = !loopOn;
 		else if (k === 'b') bgMode = !bgMode;
+		else if (k === 'v') chooseVoice(!tapBg);
 		else return;
 		e.preventDefault();
 	}
@@ -717,6 +749,7 @@
 			baseRevision = draft.baseRevision;
 			improving = draft.improving;
 			cur = firstTodo(draft.lines);
+			tapBg = startVoice(draft.lines[cur].words);
 			restored = true;
 			mode = 'edit';
 		} else {
@@ -759,7 +792,7 @@
 	const timedCount = $derived(sung.filter(wordsTimed).length);
 	const lineDone = $derived(
 		!!line &&
-			(line.gap ? line.time !== undefined : wordsTimed(line) && (tapCount === 0 || tapCount > line.words.length))
+			(line.gap ? line.time !== undefined : wordsTimed(line) && (tapCount === 0 || tapCount > pass.length))
 	);
 	/** What stands for a line in a list: its text, or a note for an instrumental break. */
 	const lineLabel = (l: EdLine | undefined) => (l ? lineText(l) || (l.gap ? '♪' : '') : '');
@@ -1253,8 +1286,9 @@
 								{durationMs}
 								running={active && !playback.paused}
 								{position}
-								nextTap={active && !owesTime && !lineDone && tapCount < line.words.length ? tapCount : -1}
+								nextTap={active && !owesTime && !lineDone && tapCount < pass.length ? pass[tapCount] : -1}
 								tapped={owesTime ? 0 : tapCount}
+								{pass}
 								{marks}
 								{bgMode}
 								compact={!wide}
@@ -1262,7 +1296,12 @@
 								gap={!!line.gap}
 								between={nextLine}
 								onwords={(words: EdWord[]) => updateLine(line.id, (l) => withWords(l, words))}
-								onbg={(k: number) => updateLine(line.id, (l) => toggleBg(l, k))}
+								onbg={(k: number) => {
+									updateLine(line.id, (l) => toggleBg(l, k));
+									// The voices just changed: a pass in progress counted the old ones.
+									resetTake();
+									tapBg = startVoice(lines[cur].words);
+								}}
 								onseek={(ms: number) => active && jump(ms)}
 							/>
 							{/key}
@@ -1288,6 +1327,27 @@
 								<HugeiconsIcon icon={ArrowTurnBackwardIcon} class="size-4" />
 								{t('lyrics_editor.again')} <kbd class={KEY}>R</kbd>
 							</Button>
+							<!-- Only on a line with both: which voice the taps time. After the Tap and Again
+							     buttons, so neither moves when it comes and goes. -->
+							{#if line && !line.gap && twoVoices(line.words)}
+								<div role="radiogroup" aria-label={t('lyrics_editor.voice')} title={t('lyrics_editor.voice_hint')} class="flex h-9 items-center gap-0.5 rounded-lg border p-0.5">
+									{#each [false, true] as bg (bg)}
+										<button
+											type="button"
+											role="radio"
+											aria-checked={tapBg === bg}
+											class="h-full cursor-pointer rounded-md px-2.5 text-sm font-medium transition-colors {tapBg === bg
+												? 'bg-foreground text-background'
+												: 'text-muted-foreground hover:text-foreground'}"
+											onclick={() => chooseVoice(bg)}
+										>
+											{bg ? t('lyrics_editor.bg') : t('lyrics_editor.voice_lead')}
+											{#if !voiceTimed(line.words, bg)}<span class="ml-0.5 inline-block size-1.5 rounded-full bg-primary align-middle" aria-hidden="true"></span>{/if}
+										</button>
+									{/each}
+									<kbd class="{KEY} mx-1">V</kbd>
+								</div>
+							{/if}
 							<p class="min-w-44 flex-1 text-sm">
 								{#if active && playback.paused}
 									{t('lyrics_editor.say_paused')}<span class="block text-[13px] text-muted-foreground">{t('lyrics_editor.say_paused_sub')}</span>
@@ -1303,8 +1363,10 @@
 									{t('lyrics_editor.say_line')}<span class="block text-[13px] text-muted-foreground">{t('lyrics_editor.say_line_sub')}</span>
 								{:else if lineDone}
 									{t('lyrics_editor.say_timed')}<span class="block text-[13px] text-muted-foreground">{t('lyrics_editor.say_timed_sub')}</span>
-								{:else if line && tapCount === line.words.length}
+								{:else if line && tapCount === pass.length}
 									{t('lyrics_editor.say_last')}<span class="block text-[13px] text-muted-foreground">{t('lyrics_editor.say_last_sub')}</span>
+								{:else if spill}
+									{t('lyrics_editor.say_bg_words')}<span class="block text-[13px] text-muted-foreground">{t('lyrics_editor.say_bg_words_sub')}</span>
 								{:else}
 									{t('lyrics_editor.say_words')}<span class="block text-[13px] text-muted-foreground">{t('lyrics_editor.say_words_sub')}</span>
 								{/if}

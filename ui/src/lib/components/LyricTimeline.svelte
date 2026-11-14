@@ -1,8 +1,9 @@
 <script lang="ts">
 	// One line of the lyric editor, drawn twice: large, as it is sung (which word the next tap lands
 	// on, which are done, which are background vocals), and as a track under it with a ruler, a block
-	// per timed word whose edges drag, and a mark where each tap of the pass in progress fell. Every
-	// rule is in `lyricsedit.ts`; this draws and reports.
+	// per timed word whose edges drag, and a mark where each tap of the pass in progress fell. A line
+	// with background vocals gets a second lane under the lead's: they are timed on their own and
+	// overlap it. Every rule is in `lyricsedit.ts`; this draws and reports.
 	//
 	// docs/UI-PERFORMANCE.md: the only thing that moves per frame is the playhead, a transform set
 	// straight on the element. The blocks change `left`/`width` only while one is being dragged. The
@@ -21,6 +22,7 @@
 		position,
 		nextTap,
 		tapped,
+		pass,
 		marks,
 		bgMode,
 		compact = false,
@@ -41,8 +43,10 @@
 		position: () => number;
 		/** The word the next tap lands on, or -1 outside a pass. */
 		nextTap: number;
-		/** Taps made in the pass in progress: words before it have landed. */
+		/** Taps made in the pass in progress: the first `tapped` words of `pass` have landed. */
 		tapped: number;
+		/** The words the pass times, as indices: one voice of the line (`passOf`). */
+		pass: number[];
 		/** Where those taps fell, in song ms. */
 		marks: number[];
 		/** Clicking a word flags it as background vocals instead of seeking to it. */
@@ -63,6 +67,13 @@
 	const timed = $derived(
 		words.length > 0 && words.every((w) => w.start !== undefined && w.end !== undefined)
 	);
+	/** The lead and the background each get a lane. */
+	const lanes = $derived(words.some((w) => w.bg) && words.some((w) => !w.bg));
+	const bgCount = $derived(words.filter((w) => w.bg).length);
+	/** The pass is the background's: its marks go in that lane. */
+	const passBg = $derived(lanes && !!words[pass[0]]?.bg);
+	/** Where a block sits: the whole track, or its voice's lane. */
+	const lane = (bg: boolean) => (!lanes ? 'inset-y-[5px]' : bg ? 'bottom-[5px] h-[28px]' : 'top-[5px] h-[34px]');
 
 	// A drag on the first or last word moves the line's own extent, and with it `range`. Rescaling
 	// the track under the pointer would move the edge away from it, so the scale holds for the drag.
@@ -72,7 +83,7 @@
 
 	/** A long line gets a track wider than the page, scrolled sideways, so a word stays grabbable.
 	 *  ponytail: a fixed width per word, not per second; scale by duration if short words crowd. */
-	const minWidth = $derived(words.length * 56);
+	const minWidth = $derived(Math.max(words.length - bgCount, bgCount) * 56);
 
 	let strip = $state<HTMLElement | null>(null);
 	let scroller = $state<HTMLElement | null>(null);
@@ -82,8 +93,10 @@
 	let scrollerW = $state(0);
 	let scrollLeft = 0;
 	let hovering = false;
-	/** The last word the playhead has reached, for the big line. Set only when it changes. */
+	/** The last word of the lead, and of the background, the playhead has reached, for the big line.
+	 *  Set only when they change. */
 	let upTo = $state(-1);
+	let upBg = $state(-1);
 
 	function place(ms: number) {
 		const x = Math.min(100, Math.max(0, pct(ms)));
@@ -95,17 +108,22 @@
 			if (px < scrollLeft || px > scrollLeft + scrollerW - 24) scroller.scrollLeft = Math.max(0, px - 48);
 		}
 		let k = -1;
+		let b = -1;
 		for (let i = 0; i < words.length; i++) {
 			const s = words[i].start;
-			if (s !== undefined && ms >= s) k = i;
+			if (s !== undefined && ms >= s) {
+				if (words[i].bg) b = i;
+				else k = i;
+			}
 		}
-		// Untracked: the effect below writes `upTo` and must not also wait on it.
+		// Untracked: the effect below writes these and must not also wait on them.
 		if (k !== untrack(() => upTo)) upTo = k;
+		if (b !== untrack(() => upBg)) upBg = b;
 	}
 
 	$effect(() => {
 		if (!view) {
-			upTo = -1;
+			upTo = upBg = -1;
 			return;
 		}
 		void words;
@@ -183,10 +201,8 @@
 	/** The loop's lead-in and lead-out: song that plays around the line, where no word can be. */
 	const pads = $derived.by(() => {
 		if (!view) return null;
-		const first = words[0]?.start;
-		const last = words[words.length - 1]?.end;
-		const a = timed && first !== undefined ? first : view.start + LEAD_IN_MS;
-		const b = timed && last !== undefined ? last : view.end - LEAD_OUT_MS;
+		const a = timed ? Math.min(...words.map((w) => w.start!)) : view.start + LEAD_IN_MS;
+		const b = timed ? Math.max(...words.map((w) => w.end!)) : view.end - LEAD_OUT_MS;
 		return { left: Math.min(100, Math.max(0, pct(a))), right: Math.min(100, Math.max(0, 100 - pct(b))) };
 	});
 
@@ -204,6 +220,7 @@
 			: 'text-[2.375rem]'}"
 	>
 		{#each words as w, k (k)}
+			{@const p = tapped > 0 ? pass.indexOf(k) : -1}
 			<button
 				type="button"
 				onclick={() => (bgMode ? onbg(k) : w.start !== undefined && onseek(w.start))}
@@ -219,11 +236,11 @@
 						: 'text-foreground outline-[1.5px] -outline-offset-2 outline-border outline-dashed hover:bg-muted'
 					: k === nextTap
 						? 'bg-primary text-primary-foreground'
-						: tapped > 0
-							? k < tapped
-								? `text-foreground ${k === tapped - 1 ? 'word-landed' : ''}`
+						: p >= 0
+							? p < tapped
+								? `text-foreground ${p === tapped - 1 ? 'word-landed' : ''}`
 								: 'text-muted-foreground'
-							: timed && !(running && k > upTo)
+							: w.start !== undefined && !(running && k > (w.bg ? upBg : upTo))
 								? 'text-foreground'
 								: 'text-muted-foreground'}"
 			>
@@ -257,17 +274,18 @@
 					{/each}
 				</div>
 				<!-- `touch-none` so a drag on a touch screen is not taken for a scroll. -->
-				<div class="relative h-[52px] touch-none overflow-hidden rounded-[10px] border bg-muted/45 select-none">
+				<div class="relative {lanes ? 'h-[76px]' : 'h-[52px]'} touch-none overflow-hidden rounded-[10px] border bg-muted/45 select-none">
 					{#if pads}
 						<div class="lead-pad absolute inset-y-0 left-0" style="width:{pads.left}%"></div>
 						<div class="lead-pad absolute inset-y-0 right-0" style="width:{pads.right}%"></div>
 					{/if}
-					{#if timed}
-						{#each words as w, k (k)}
+					<!-- Each timed word: one voice can be timed while the other waits for its pass. -->
+					{#each words as w, k (k)}
+						{#if w.start !== undefined && w.end !== undefined}
 							{@const left = pct(w.start!)}
 							{@const width = Math.max(0.2, pct(w.end!) - left)}
 							<div
-								class="absolute inset-y-[5px] flex items-center justify-center overflow-hidden rounded-[7px] border text-xs font-semibold {w.bg
+								class="absolute {lane(!!w.bg)} flex items-center justify-center overflow-hidden rounded-[7px] border text-xs font-semibold {w.bg
 									? 'border-dashed border-foreground/40 bg-foreground/5 text-muted-foreground italic'
 									: 'border-primary/55 bg-primary/20 text-foreground'} {edge?.k === k
 									? 'outline-2 outline-offset-1 outline-foreground outline-solid'
@@ -310,10 +328,10 @@
 									</div>
 								{/each}
 							</div>
-						{/each}
-					{/if}
+						{/if}
+					{/each}
 					{#each marks as m, i (i)}
-						<i class="absolute inset-y-2 w-[3px] rounded-full bg-primary" style="left:{pct(m)}%"></i>
+						<i class="absolute {lanes ? (passBg ? 'bottom-2 h-[24px]' : 'top-2 h-[30px]') : 'inset-y-2'} w-[3px] rounded-full bg-primary" style="left:{pct(m)}%"></i>
 					{/each}
 					<!-- The playhead: as wide as the track and moved by a percentage of itself, so placing
 					     it never reads the track's width. Only its left border and its cap show. -->
