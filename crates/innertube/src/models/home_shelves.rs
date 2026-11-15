@@ -8,6 +8,10 @@
 //!
 //! A title missing here costs that shelf on home in that language and nothing else. When YouTube
 //! rewords one, add the new wording next to the old rather than replacing it.
+//!
+//! Quick picks also has a fallback in `parse_home`: it is the only shelf that sets
+//! `numItemsPerColumn`, which carried it through the rename to "Song mixes" in languages whose new
+//! title is not captured here.
 
 /// Kinds named by their "More" button's `browseId`, the same in every language.
 const BY_MORE: &[(&str, &str)] = &[
@@ -48,7 +52,9 @@ const BY_TITLE: &[(&str, &[&str])] = &[
         "quick_picks",
         &[
             "Quick picks",         // en
+            "Song mixes",          // en, renamed by 2026-11-15
             "Schnellauswahl",      // de
+            "Song-Mixe",           // de, renamed by 2026-11-15
             "Selecciones rápidas", // es
             "Sélection rapide",    // fr
             "Pilihan cepat",       // id
@@ -291,6 +297,7 @@ mod tests {
         assert_eq!(kind("Quick picks", None), Some("quick_picks"));
         assert_eq!(kind("Schnellauswahl", None), Some("quick_picks"));
         assert_eq!(kind("  quick PICKS ", None), Some("quick_picks"));
+        assert_eq!(kind("Song mixes", None), Some("quick_picks"));
         assert_eq!(kind("Indila", None), None);
     }
 
