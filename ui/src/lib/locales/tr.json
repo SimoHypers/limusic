@@ -159,7 +159,12 @@
 		"scroll_to_end": "En alta kaydır",
 		"skip_back": "{seconds} saniye geri",
 		"skip_forward": "{seconds} saniye ileri",
-		"speed": "Oynatma hızı"
+		"speed": "Oynatma hızı",
+		"devices": "Cihazlar",
+		"devices_settings": "Cihaz ayarları",
+		"this_computer": "Bu bilgisayar",
+		"devices_paused": "Duraklatıldı",
+		"karaoke": "Karaoke: vokalleri kaldır"
 	},
 	"home": {
 		"good_morning": "Günaydın",
@@ -320,7 +325,8 @@
 			"hotkeys": "Genel Klavye Kısayolları",
 			"hotkeys_hint": "Oynatmayı kontrol etmek için sistem geneli kısayollar.",
 			"scrobbling": "Skroplama",
-			"scrobbling_hint": "Skroplamanın neleri göndereceği ve bir dinlemenin ne zaman sayılacağı."
+			"scrobbling_hint": "Skroplamanın neleri göndereceği ve bir dinlemenin ne zaman sayılacağı.",
+			"devices": "Cihazlar"
 		},
 		"sections": {
 			"language": "Dil (Language)",
@@ -435,7 +441,28 @@
 			"now_playing_pill": "Şu an çalıyor düğmesi",
 			"now_playing_pill_hint": "Bir çalma listesinde veya kuyrukta, çalınan şarkı ekranın dışına kaydırıldığında, o şarkıya geri dönmek için bir düğme gösterilir.",
 			"empty_click_player": "Oynatıcıyı açmak ya da kapatmak için boş bir yere tıklayın",
-			"enhanced_lyrics": "Gelişmiş Şarkı Sözleri"
+			"enhanced_lyrics": "Gelişmiş Şarkı Sözleri",
+			"enhanced_lyrics_hint": "Kelimeler, söylendikçe canlanır ve parlar.",
+			"enhanced_lyrics_line_sync": "Ayrıca senkronize şarkı sözlerini de canlandırın",
+			"lyrics_anim": "Kelime animasyonu",
+			"lyrics_anim_hint": "Her kelimenin şarkı söylenirken nasıl hareket ettiği.",
+			"lyrics_anim_bounce": "Sıçrama",
+			"lyrics_anim_float": "Yüzme",
+			"lyrics_anim_wave": "Dalga",
+			"lyrics_anim_pop": "Pop",
+			"lyrics_anim_slide": "Kaydır",
+			"lyrics_anim_none": "Yok",
+			"lyrics_style": "Vurgu stili",
+			"lyrics_style_hint": "Söylenen sözlerin satır boyunca nasıl dolduğu ve vurgulandığı.",
+			"lyrics_style_feather": "Yumuşak geçiş",
+			"lyrics_style_accent": "Renkli vurgu",
+			"lyrics_style_crisp": "Net karaoke",
+			"lyrics_style_word": "Bütün kelime",
+			"lyrics_anim_strength": "Animasyon yoğunluğu",
+			"lyrics_anim_strength_hint": "Şarkı söyleme animasyonu sırasında kelimelerin ne kadar uzağa hareket ettiği.",
+			"lyrics_glow": "Parıltı yoğunluğu",
+			"lyrics_glow_hint": "Söylenen sözlerdeki yumuşak parıltının gücü.",
+			"theater_clock": "Tiyatro modu saati"
 		},
 		"playback": {
 			"audio_quality": "Ses kalitesi",
@@ -698,6 +725,24 @@
 			"lb_verify_email": "E-postayı doğrula",
 			"lb_problem_email": "ListenBrainz'in dinlediklerinizi kabul etmesi için MetaBrainz e-posta adresinizi doğrulayın.",
 			"lb_problem_rejected": "ListenBrainz artık bu tokeni kabul etmiyor. Yeni bir token kullanarak yeniden bağlanın."
+		},
+		"devices": {
+			"new_code": "Yeni kod",
+			"try_again": "Tekrar dene",
+			"connecting": "Bağlanılıyor…",
+			"this_computer": "Bu bilgisayar",
+			"online": "Çevrimiçi",
+			"offline": "Çevrimdışı",
+			"playing": "Oynatılıyor",
+			"paused": "Duraklatıldı",
+			"playing_here": "Burada oynatılıyor",
+			"ready": "Hazır",
+			"remote_for": "{name} kontrol ediliyor",
+			"play_here": "Burada oynat",
+			"play_on_phone": "Telefonda oynat",
+			"more": "Daha fazla",
+			"unlink": "Bağlantıyı kaldır",
+			"unlink_title": "{name} bağlantısı kaldırılsın mı?"
 		}
 	},
 	"dialogs": {
@@ -1343,5 +1388,92 @@
 		"duration": "Süre",
 		"choose": "Sütunları seç",
 		"label": "Sütunlar"
+	},
+	"karaoke": {
+		"consent": {
+			"source": "Modelin resmi kaynağı olan Github'dan (TRvlvr/model_repo) indirildi.",
+			"runtime": "ONNX Runtime (Microsoft, MIT Lisansı) da resmi GitHub sürümünden indirilir.",
+			"runtime_windows": "ONNX Runtime ve DirectML (her ikisi de Microsoft'a ait) de Microsoft'un resmi NuGet paketlerinden indirilir.",
+			"runtime_linux": "ONNX Runtime (resmi Github sürümü) ve ONNX Runtime WebGPU eklentisi (files.pythonhosted.org sitesinden) de indirilir.",
+			"credit": "Ultimate Vocal Remover'dan UVR-MDX-NET-Inst_HQ_3, UVR-MDX-NET-Inst_Main ve UVR_MDXNET_3_9662; Anjok07 ve aufr33 tarafından MIT Lisansıyla geliştirildi.",
+			"credit_link": "Ultimate Vocal Remover",
+			"redownload": "Bir şarkıyı hazırlamak için Limusic, şarkının ses dosyasını yeniden indirir.",
+			"directml": "Bir grafik kartında karaoke, Microsoft DirectML aracılığıyla çalışır ve bu, kullanım verilerini Microsoft’a gönderebilir."
+		},
+		"button": {
+			"options": "Karaoke seçenekleri",
+			"ready": "Karaoke açık: vokaller kaldırıldı",
+			"preparing": "Karaoke açık: şarkı hazılanıyor",
+			"failed": "Karaoke bu şarkıyı hazırlayamadı",
+			"too_long": "Karaoke açık: Bu şarkı çok uzun"
+		},
+		"panel": {
+			"title": "Karaoke",
+			"hint": "Vokalleri kaldırır, böylece şarkıya eşlik edebilirsiniz.",
+			"now_ready": "Vokaller kaldırıldı",
+			"now_starting": "Şarkı hazırlanıyor",
+			"now_progress": "{pct}% tamamlandı",
+			"now_progress_eta": "{pct}% tamamlandı, {min} dakika kaldı",
+			"now_progress_soon": "{pct}% tamamlandı, neredeyse hazır",
+			"try_again": "Tekrar dene",
+			"up_next": "Sıradaki",
+			"slot_ready": "Hazır",
+			"slot_waiting": "Bekleniyor",
+			"slot_failed": "Hazırlanamadı",
+			"quality": "Kalite",
+			"settings": "Karaoke ayarları"
+		},
+		"setup": {
+			"title": "Karaoke kurulumu",
+			"desc": "Limusic, şarkılardaki vokalleri doğrudan bu bilgisayarda çıkarır. İndirmek için bir kalite seçin, daha sonra bunu değiştirebilirsiniz.",
+			"local": "Şarkılar bu bilgisayarda hazırlanır ve hiçbirşey dışarıya yüklenmez.",
+			"download": "İndir {size}",
+			"downloaded": "İndirildi",
+			"progress": "{done}/{total} MB"
+		},
+		"unavailable": {
+			"load_failed": "Karaoke bu bilgisayarda başlatılamıyor.",
+			"stopped": "Karaoke beklenmedik şekilde durdu. Tekrar kullanmak için Limusic'i yeniden başlatın."
+		},
+		"download_error": {
+			"failed": "İndirme başarısız. Tekrar deneyin."
+		},
+		"download": "İndir",
+		"cancel": "İptal",
+		"retry": "Tekrar dene",
+		"settings": {
+			"title_hint": "Vokal kaldırma ayarları",
+			"model": "YZ modeli",
+			"model_light": "Hafif",
+			"model_balanced": "Dengeli",
+			"model_best": "En iyi",
+			"model_best_desc": "En iyi kalite, fakat yavaş. İşlemci üzerinde oynatma hızına yetişemediği için, bu özellik ekran kartı için tasarlanmıştır.",
+			"model_installed": "Yüklendi ({size})",
+			"model_missing": "Yüklü değil",
+			"cache_used": "Kullanılan önbellek",
+			"clear": "Önbelleği temizle",
+			"clear_confirm": "Onaylamak için tekrar tıklayın",
+			"cleared": "Önbellek temizlendi",
+			"delete": "Modeli sil",
+			"title": "Karaoke",
+			"cache_limit": "Önbellek boyutu sınırı",
+			"cache_custom": "Özel ({n} MB)",
+			"cache_used_desc": "Hazırlanmış karaoke versiyonlarının kapladığı alan.",
+			"delete_confirm": "Onaylamak için tekrar tıklayın",
+			"deleted": "Model silindi",
+			"delete_failed": "Model silinemedi",
+			"status": "Durum",
+			"device": "İşlemci",
+			"device_auto": "Otomatik",
+			"device_cpu": "İşlemci",
+			"device_gpu": "Ekran kartı",
+			"processor_gpu": "Ekran kartında çalışıyor",
+			"processor_cpu": "İşlemcide çalışıyor"
+		},
+		"not_now": "Şimdi değil"
+	},
+	"review": {
+		"approve": "Onayla",
+		"reject": "Reddet"
 	}
 }
