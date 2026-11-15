@@ -1252,37 +1252,42 @@
 				{t('settings.playback.auto_pause_apps_empty')}
 			</p>
 		{:else}
-			<p class="mb-2 text-xs font-medium text-muted-foreground">
-				{t('settings.playback.auto_pause_excluded_title')}
-			</p>
-			<div class="flex max-h-52 flex-col gap-2 overflow-y-auto pr-1">
-				{#each autoPauseExcluded as id (id)}
-					<div class="flex items-center justify-between gap-2 rounded-lg bg-muted/60 py-1.5 pr-1.5 pl-3">
-						<span class="truncate text-xs" title={id}>{appLabel(id)}</span>
-						<Button
-							variant="ghost"
-							size="sm"
-							class="h-7 px-2 text-xs shrink-0"
-							onclick={() => setAutoPauseExcluded(autoPauseExcluded.filter((i) => i !== id))}
-						>
-							{t('settings.playback.auto_pause_include')}
-						</Button>
-					</div>
-				{/each}
-				{#each unexcludedSeen as id (id)}
-					<div class="flex items-center justify-between gap-2 rounded-lg bg-muted/60 py-1.5 pr-1.5 pl-3">
-						<span class="truncate text-xs" title={id}>{appLabel(id)}</span>
-						<Button
-							variant="ghost"
-							size="sm"
-							class="h-7 px-2 text-xs shrink-0"
-							onclick={() => setAutoPauseExcluded([...autoPauseExcluded, id])}
-						>
-							{t('settings.playback.auto_pause_exclude')}
-						</Button>
-					</div>
-				{/each}
-			</div>
+			{#if autoPauseExcluded.length}
+				<p class="mb-2 text-xs font-medium text-muted-foreground">{t('settings.playback.auto_pause_excluded_title')}</p>
+				<div class="flex max-h-52 flex-col gap-2 overflow-y-auto pr-1">
+					{#each autoPauseExcluded as id (id)}
+						<div class="flex items-center justify-between gap-2 rounded-lg bg-muted/60 py-1.5 pr-1.5 pl-3">
+							<span class="truncate text-xs" title={id}>{appLabel(id)}</span>
+							<Button
+								variant="ghost"
+								size="sm"
+								class="h-7 px-2 text-xs shrink-0"
+								onclick={() => setAutoPauseExcluded(autoPauseExcluded.filter((i) => i !== id))}
+							>
+								{t('settings.playback.auto_pause_include')}
+							</Button>
+						</div>
+					{/each}
+				</div>
+			{/if}
+			{#if unexcludedSeen.length}
+				<p class="mb-2 text-xs font-medium text-muted-foreground {autoPauseExcluded.length ? 'mt-4' : ''}">{t('settings.playback.auto_pause_seen_title')}</p>
+				<div class="flex max-h-52 flex-col gap-2 overflow-y-auto pr-1">
+					{#each unexcludedSeen as id (id)}
+						<div class="flex items-center justify-between gap-2 rounded-lg bg-muted/60 py-1.5 pr-1.5 pl-3">
+							<span class="truncate text-xs" title={id}>{appLabel(id)}</span>
+							<Button
+								variant="ghost"
+								size="sm"
+								class="h-7 px-2 text-xs shrink-0"
+								onclick={() => setAutoPauseExcluded([...autoPauseExcluded, id])}
+							>
+								{t('settings.playback.auto_pause_exclude')}
+							</Button>
+						</div>
+					{/each}
+				</div>
+			{/if}
 		{/if}
 	{/if}
 {/snippet}
