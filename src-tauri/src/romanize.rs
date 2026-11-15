@@ -54,8 +54,9 @@ pub fn readings<S: AsRef<str>>(texts: &[S]) -> Vec<Option<String>> {
         .iter()
         .map(|t| {
             let t = t.as_ref();
-            // A Japanese line in a mostly Korean song (a J-version verse) is still Japanese.
-            let r = romanize_line(t, song_japanese || t.chars().any(is_kana));
+            // A Japanese line in a mostly Korean song (a J-version verse) is still Japanese, and a
+            // Chinese line with one stylised の is still Chinese.
+            let r = romanize_line(t, song_japanese || is_japanese(t));
             (r != t).then_some(r)
         })
         .collect()
@@ -443,6 +444,11 @@ mod tests {
         assert!(is_japanese("東京の空\n東京"));
         assert!(!is_japanese("还记得你说家是唯一的城堡の"));
         assert!(!is_japanese("보고 싶다 Baby"));
+        // One stylised の leaves a Chinese line Chinese; a J-verse in a Korean song is Japanese.
+        let zh = readings(&["还记得你说家是唯一的城堡の"]);
+        assert!(zh[0].as_deref().unwrap().starts_with("hái jì"), "{zh:?}");
+        let ko = readings(&["보고 싶다", "보고 싶어", "東京の空"]);
+        assert_eq!(ko[2].as_deref(), Some("toukyou no sora"));
     }
 
     #[test]
