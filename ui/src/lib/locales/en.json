@@ -685,6 +685,8 @@
 			"tabbed_player_hint": "On, the player view carries them as tabs and the bar's two buttons switch between them. Off, those buttons only ever open the side panels, which stay open over the player view so you can see both at once.",
 			"classic_player": "Classic player layout",
 			"classic_player_hint": "The original player view: the artwork alone over a blurred copy of the cover, with the song's details left to the player bar. Off uses the new layout, with the title, artist and album under the artwork and the view lit by the cover's colors.",
+			"cover_lyric_romanized": "Romanized lyric under the artwork",
+			"cover_lyric_romanized_hint": "The lyric line under the artwork shows the romanization instead of the original script, for songs that have one. The lyrics tab keeps its own Romanized switch. New layout only.",
 			"artwork_background": "Artwork background",
 			"artwork_background_hint": "Tint the player view with the playing track's cover, blurred. Off leaves it plain.",
 			"enhanced_lyrics": "Enhanced Lyrics",
