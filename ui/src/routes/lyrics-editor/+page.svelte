@@ -752,6 +752,19 @@
 		offset_ms: 0,
 		lines: buildLines(lines.filter((l) => l.time !== undefined || wordsTimed(l)))
 	});
+	/** The preview as the player will show it: through `romanize::fill`, which also times a
+	 *  word-synced line's romanization by its words. The raw lines until it answers. */
+	let previewShown = $state.raw<api.Lyrics | null>(null);
+	$effect(() => {
+		if (mode !== 'preview') return;
+		const l = previewLyrics;
+		previewShown = null;
+		let stale = false;
+		api.lyricsRomanize(l)
+			.then((r) => !stale && (previewShown = r))
+			.catch(() => {});
+		return () => (stale = true);
+	});
 
 	// --- The list follows the current line ------------------------------------------------------
 	let list = $state<HTMLElement | null>(null);
@@ -1179,7 +1192,7 @@
 			{t('lyrics_editor.preview_note')}
 		</p>
 		<div class="flex min-h-0 flex-1 flex-col overflow-hidden border-t pt-2">
-			<LyricsView expanded preview={previewLyrics} />
+			<LyricsView expanded preview={previewShown ?? previewLyrics} />
 		</div>
 	{:else}
 		<div bind:this={body} class="flex min-h-0 flex-1 border-t {wide ? '' : 'flex-col overflow-y-auto'}">

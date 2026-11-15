@@ -152,7 +152,8 @@ pub struct LyricLine {
     /// them; the local engine's is filled on every answer by `romanize::fill`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub romanized: Option<String>,
-    /// Apple's reading is word-timed like the line, so it can sweep with it.
+    /// The reading, word-timed like the line so it can sweep with it: Apple's arrives timed,
+    /// `romanize::fill` times any other on a word-synced line.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub romanized_words: Option<Vec<LyricWord>>,
     /// Which singer the line belongs to: `v1`, `v2`, ... and `v1000` for everyone together. Only

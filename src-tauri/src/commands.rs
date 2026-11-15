@@ -2716,6 +2716,13 @@ pub async fn lyrics_word_readings(lines: Vec<Vec<String>>) -> Vec<Vec<Option<Str
     crate::romanize::word_readings(&lines)
 }
 
+/// The lyric editor's preview through `romanize::fill`, as the player shows every lyric.
+#[tauri::command]
+pub fn lyrics_romanize(mut lyrics: crate::lyrics::Lyrics) -> crate::lyrics::Lyrics {
+    crate::romanize::fill(&mut lyrics);
+    lyrics
+}
+
 /// What Limusic Lyrics offers: `anonymous` gates contributing, `providers` are the identities that
 /// can be linked.
 #[tauri::command]
