@@ -525,9 +525,9 @@ pub async fn set_setting(
     }
     // A JSON array of app ids that never pause the music.
     if key == "auto_pause_excluded" {
-        state
-            .inner()
-            .set_auto_pause_excluded(serde_json::from_str::<Vec<String>>(&value).unwrap_or_default());
+        state.inner().set_auto_pause_excluded(
+            serde_json::from_str::<Vec<String>>(&value).unwrap_or_default(),
+        );
     }
     // The Scrobbling tab's settings, read whole each time: the two switches from #231 keep rows of
     // their own, and the scrobbler wants all of it in one message.

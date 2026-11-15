@@ -56,9 +56,11 @@ struct Listen {
 }
 
 /// How long other media must play before the music pauses, and how long it must stay quiet before
-/// the music resumes. The gap absorbs the status blip when another player switches tracks.
+/// the music resumes. The gap absorbs the status blip when another player switches tracks: YouTube
+/// waits 5 s before autoplaying the next video and reads "not playing" for all of it, so the resume
+/// delay has to outlast that (plus up to a second for the watcher's polling).
 const AUTO_PAUSE_DELAY: Duration = Duration::from_secs(1);
-const AUTO_RESUME_DELAY: Duration = Duration::from_secs(3);
+const AUTO_RESUME_DELAY: Duration = Duration::from_secs(6);
 const AUTO_PAUSE_SEEN_MAX: usize = 20;
 
 pub struct AppState {
@@ -3702,7 +3704,8 @@ impl AppState {
 
     /// Replace the exclusion list (the `auto_pause_excluded` setting) and re-judge what is playing now.
     pub fn set_auto_pause_excluded(self: &Arc<Self>, ids: Vec<String>) {
-        *self.auto_pause_excluded.write().unwrap_or_else(|e| e.into_inner()) = ids.into_iter().collect();
+        *self.auto_pause_excluded.write().unwrap_or_else(|e| e.into_inner()) =
+            ids.into_iter().collect();
         self.refresh_external_audio();
     }
 

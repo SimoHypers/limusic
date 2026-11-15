@@ -769,7 +769,7 @@
 			"prevent_duplicates": "Prevent duplicate songs in queue",
 			"prevent_duplicates_hint": "Avoid adding songs that are already in the current queue.",
 			"auto_pause_other_audio": "Pause when other apps play media",
-			"auto_pause_other_audio_hint": "Pause Limusic while another app, such as a browser tab or a video player, is playing media, and resume when it stops. Only apps that report to the system media controls are detected, so notification sounds and most games don't pause the music.",
+			"auto_pause_other_audio_hint": "Pause Limusic while another app, such as a browser tab or a video player, is playing media, and resume when it stops. Limusic reads the media status that apps report: the system media controls on Windows and MPRIS on Linux. Apps that don't report there aren't detected, so notification sounds and most games don't pause the music.",
 			"auto_pause_excluded_title": "Apps that never pause the music",
 			"auto_pause_exclude": "Exclude",
 			"auto_pause_include": "Remove",
