@@ -135,8 +135,9 @@
 	data-tauri-drag-region
 	class="pointer-events-auto relative {ui.theaterOpen ? 'z-0' : 'z-50'} flex h-9 shrink-0 select-none items-center justify-between border-b border-border/60 bg-background"
 >
+	<!-- Centred on the window, so below about 800px the icons on the right run into it (#688). -->
 	<span
-		class="pointer-events-none absolute inset-x-0 text-center text-xs font-medium tracking-wide text-muted-foreground"
+		class="pointer-events-none absolute inset-x-0 hidden text-center text-xs font-medium tracking-wide text-muted-foreground min-[50rem]:block"
 	>
 		Limusic
 	</span>
