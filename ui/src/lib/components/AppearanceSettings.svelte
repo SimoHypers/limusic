@@ -444,6 +444,11 @@
 					control: classicPlayerSwitch
 				})}
 				{@render row({
+					title: t('settings.themes.cover_lyric_romanized'),
+					desc: t('settings.themes.cover_lyric_romanized_hint'),
+					control: coverLyricRomanizedSwitch
+				})}
+				{@render row({
 					title: t('settings.themes.open_player'),
 					desc: t('settings.themes.open_player_hint'),
 					control: openPlayerSwitch
@@ -754,6 +759,11 @@
 {#snippet classicPlayerSwitch()}<Switch
 		checked={appearance.classicPlayer}
 		onCheckedChange={(on) => setAppearance({ classicPlayer: on })}
+	/>{/snippet}
+{#snippet coverLyricRomanizedSwitch()}<Switch
+		checked={appearance.coverLyricRomanized}
+		disabled={appearance.classicPlayer}
+		onCheckedChange={(on) => setAppearance({ coverLyricRomanized: on })}
 	/>{/snippet}
 {#snippet openPlayerSwitch()}<Switch
 		checked={appearance.openPlayerOnPlay}

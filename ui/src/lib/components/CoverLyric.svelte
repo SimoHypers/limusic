@@ -9,13 +9,13 @@
 	import { lyricsFor, nowLyrics, setNowLyrics } from '$lib/nowlyrics.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import { glowing, letters, sweep } from '$lib/lyricmotion';
-	import { prefs } from './LyricsView.svelte';
+	import { appearance } from '$lib/theme.svelte';
 
 	// The line being sung, under the now-playing cover (the Android app's CoverLyricLine). Two lines
 	// tall whatever line it holds, so the title under it never moves when a line ends. A one-line
 	// lyric sits in the middle of it, so its gaps to the cover and to the title match. Word-synced
-	// lines light as they are sung; line-synced ones show whole. With the lyrics tab's Romanized
-	// switch on, the line reads in its romanization instead: two lines hold one script, not both.
+	// lines light as they are sung; line-synced ones show whole. Its own Romanized setting
+	// (`coverLyricRomanized`) swaps the line for its reading: two lines hold one script, not both.
 	// The sizes are in `em` off the font size set here, which NowPlaying's title budget (`ART_SIDE`)
 	// counts. Clicking it opens the lyrics.
 	let { onopen }: { onopen: () => void } = $props();
@@ -79,7 +79,7 @@
 		return wasOpen;
 	});
 	const text = $derived(line?.text.trim().replace(/^♪$/, ''));
-	const roman = $derived(prefs.romanized ? line?.romanized?.trim() : undefined);
+	const roman = $derived(appearance.coverLyricRomanized ? line?.romanized?.trim() : undefined);
 	// Background vocals stay in the lyrics tab: here they'd read as part of the lead line. A line
 	// that is nothing but them (an "Oh, oh" answering the lead) sweeps them, or it would show flat.
 	const lead = (all: api.LyricWord[]) => {
