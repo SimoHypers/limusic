@@ -1334,6 +1334,9 @@ export const lyricsEditorSource = (t: LyricsTrack, source: string) =>
 		duration: t.duration,
 		source
 	});
+/** Each line's romanization, `null` where it needs none: the editor's hint under the line being
+ *  timed (#676), never submitted. */
+export const lyricsReadings = (texts: string[]) => invoke<(string | null)[]>('lyrics_readings', { texts });
 // --- Limusic Lyrics account (`limusic.rs`) ---
 export interface LimusicAccount {
 	/** Null while the account is anonymous: it has no public name. */

@@ -109,6 +109,11 @@ export const lineText = (line: EdLine): string =>
 
 const collapse = (s: string) => s.trim().replace(/\s+/g, ' ');
 
+/** The source's own romanization of a line (Apple's), while the text is still the text it was
+ *  written for. */
+export const sourceReading = (l: EdLine): string | undefined =>
+	l.orig?.romanized && collapse(l.orig.text) === collapse(lineText(l)) ? l.orig.romanized : undefined;
+
 /** A provider's words with the trailing spaces put back where the line's own text has them. Some
  *  JSON shapes send bare words ("Hello", "world"), which would read as one run-together word. */
 function wordsOf(line: LyricLine): EdWord[] {

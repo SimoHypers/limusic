@@ -38,16 +38,27 @@ pub fn fill(lyrics: &mut Lyrics) {
     if lyrics.lines.iter().any(|l| l.romanized.is_some()) {
         return;
     }
-    let all: String = lyrics.lines.iter().map(|l| l.text.as_str()).collect();
-    let song_japanese = is_japanese(&all);
-    for line in &mut lyrics.lines {
-        // A Japanese line in a mostly Korean song (a J-version verse) is still Japanese.
-        let japanese = song_japanese || line.text.chars().any(is_kana);
-        let r = romanize_line(&line.text, japanese);
-        if r != line.text {
-            line.romanized = Some(r);
-        }
+    let texts: Vec<&str> = lyrics.lines.iter().map(|l| l.text.as_str()).collect();
+    let readings = readings(&texts);
+    for (line, r) in lyrics.lines.iter_mut().zip(readings) {
+        line.romanized = r;
     }
+}
+
+/// Each line's reading, `None` where it needs none. The whole song decides Japanese or Chinese, so
+/// the lines go in together. Also the lyric editor's hint (#676), which shows it and never sends it.
+pub fn readings<S: AsRef<str>>(texts: &[S]) -> Vec<Option<String>> {
+    let all: String = texts.iter().map(AsRef::as_ref).collect();
+    let song_japanese = is_japanese(&all);
+    texts
+        .iter()
+        .map(|t| {
+            let t = t.as_ref();
+            // A Japanese line in a mostly Korean song (a J-version verse) is still Japanese.
+            let r = romanize_line(t, song_japanese || t.chars().any(is_kana));
+            (r != t).then_some(r)
+        })
+        .collect()
 }
 
 fn is_kana(c: char) -> bool {

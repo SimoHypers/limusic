@@ -2705,6 +2705,13 @@ pub async fn lyrics_editor_source(
     crate::lyrics::editor_source(state.inner(), req, &source).await
 }
 
+/// The lyric editor's romanization hint (#676): each line's reading, `None` where it needs none.
+/// Shown under the line being timed, never submitted.
+#[tauri::command]
+pub async fn lyrics_readings(texts: Vec<String>) -> Vec<Option<String>> {
+    crate::romanize::readings(&texts)
+}
+
 /// What Limusic Lyrics offers: `anonymous` gates contributing, `providers` are the identities that
 /// can be linked.
 #[tauri::command]

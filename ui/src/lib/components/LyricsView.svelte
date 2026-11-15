@@ -1,7 +1,8 @@
 <script module lang="ts">
 	// Romanization (#202) and translations (#329) are one switch each: on stays on across every song
-	// until it is turned off. Shared by every lyrics view, and the `storage` event carries a change
-	// over to the mini player window. Translations start on, the way they always showed.
+	// until it is turned off. Shared by every lyrics view and the lyric editor's hint (#676), and the
+	// `storage` event carries a change over to the mini player window. Translations start on, the
+	// way they always showed.
 	const KEYS = { romanized: 'lyrics_romanized', translated: 'lyrics_translated' } as const;
 	type Pref = keyof typeof KEYS;
 	const DEFAULTS: Record<Pref, boolean> = { romanized: false, translated: true };
@@ -39,13 +40,13 @@
 		}
 	}
 
-	const prefs = $state({ romanized: load('romanized'), translated: load('translated') });
+	export const prefs = $state({ romanized: load('romanized'), translated: load('translated') });
 	window.addEventListener('storage', (e) => {
 		for (const pref of Object.keys(KEYS) as Pref[]) if (e.key === KEYS[pref]) prefs[pref] = load(pref);
 		if (e.key === SIZE_KEY) size.value = loadSize();
 	});
 
-	function toggle(pref: Pref) {
+	export function toggle(pref: Pref) {
 		prefs[pref] = !prefs[pref];
 		try {
 			localStorage.setItem(KEYS[pref], prefs[pref] ? '1' : '0');
