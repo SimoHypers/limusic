@@ -9,12 +9,15 @@
 	import { lyricsFor, nowLyrics, setNowLyrics } from '$lib/nowlyrics.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import { glowing, letters, sweep } from '$lib/lyricmotion';
+	import { prefs } from './LyricsView.svelte';
 
 	// The line being sung, under the now-playing cover (the Android app's CoverLyricLine). Two lines
 	// tall whatever line it holds, so the title under it never moves when a line ends. A one-line
 	// lyric sits in the middle of it, so its gaps to the cover and to the title match. Word-synced
-	// lines light as they are sung; line-synced ones show whole. The sizes are in `em` off the font
-	// size set here, which NowPlaying's title budget (`ART_SIDE`) counts. Clicking it opens the lyrics.
+	// lines light as they are sung; line-synced ones show whole. With the lyrics tab's Romanized
+	// switch on, the line reads in its romanization instead: two lines hold one script, not both.
+	// The sizes are in `em` off the font size set here, which NowPlaying's title budget (`ART_SIDE`)
+	// counts. Clicking it opens the lyrics.
 	let { onopen }: { onopen: () => void } = $props();
 
 	// Asked only when nothing in this window has the song's lyrics yet. The lyrics tab asks too when
@@ -76,12 +79,29 @@
 		return wasOpen;
 	});
 	const text = $derived(line?.text.trim().replace(/^♪$/, ''));
+	const roman = $derived(prefs.romanized ? line?.romanized?.trim() : undefined);
 	// Background vocals stay in the lyrics tab: here they'd read as part of the lead line. A line
 	// that is nothing but them (an "Oh, oh" answering the lead) sweeps them, or it would show flat.
+	const lead = (all: api.LyricWord[]) => {
+		const sung = all.filter((w) => !w.bg);
+		return sung.length ? sung : all;
+	};
 	const words = $derived.by(() => {
-		const all = line?.words ?? [];
-		const lead = all.filter((w) => !w.bg);
-		return lead.length ? lead : all;
+		const sung = lead(line?.words ?? []);
+		if (!roman) return sung;
+		if (line?.romanized_words?.length) return lead(line.romanized_words);
+		// Our own reading is timed to nothing (only Apple's is). Under a word-synced line it shares
+		// the line's sung span out by length, so it still sweeps; under a line-synced one it shows whole.
+		if (!sung.length) return [];
+		const parts = roman.split(/\s+/);
+		const from = sung[0].start_ms;
+		const per = (sung[sung.length - 1].end_ms - from) / parts.reduce((n, p) => n + p.length, 0);
+		let at = from;
+		return parts.map((p, i) => ({
+			text: i < parts.length - 1 ? `${p} ` : p,
+			start_ms: at,
+			end_ms: (at += p.length * per)
+		}));
 	});
 	// A change of key is a new line rising in. Before the first line and in an instrumental break the
 	// slot holds a pulsing note, so an intro doesn't read as a song without lyrics, or as lyrics
@@ -167,7 +187,7 @@
 										>{#each held as l, k (k)}{@render glyph(l, 'lyric-held')}{/each}</span
 									>{:else}{@render glyph(w, '')}{/if}{w.text.endsWith(' ') ? ' ' : ''}{/each}
 						{:else}
-							<span class="text-foreground">{text}</span>
+							<span class="text-foreground">{roman || text}</span>
 						{/if}
 					</span>
 				{/if}
