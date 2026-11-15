@@ -360,11 +360,7 @@ pub fn parse_home(root: &Value) -> HomePage {
                 more.and_then(|e| e.get("browseId")).and_then(Value::as_str).map(str::to_owned);
             let more_params =
                 more.and_then(|e| e.get("params")).and_then(Value::as_str).map(str::to_owned);
-            // ponytail: numItemsPerColumn marks Quick picks today (only shelf of 15 seen on
-            // 2026-11-15 that sets it). If YouTube gives it to another list shelf, that one would
-            // show as a second Quick picks in a language its title is missing from.
-            let kind = super::home_shelves::kind(&title, more_browse_id.as_deref())
-                .or_else(|| shelf.get("numItemsPerColumn").is_some().then_some("quick_picks"));
+            let kind = super::home_shelves::kind(&title, more_browse_id.as_deref());
             sections.push(Section { title, kind, items, more_browse_id, more_params });
         }
     }
@@ -1599,30 +1595,6 @@ mod tests {
         // Dropping it here left Quick picks without "Go to album" (issue #253).
         assert_eq!(song.album_id.as_deref(), Some("MPREb_old"));
         assert_eq!(home.continuation.as_deref(), Some("HOME_MORE"));
-    }
-
-    /// Quick picks under a title the table lacks ("Song mixes" in a language not captured yet) is
-    /// still Quick picks, by the 4-row layout only it uses.
-    #[test]
-    fn quick_picks_by_layout() {
-        let shelf = |title: &str, per_column: Option<u64>| {
-            let mut s = json!({
-                "header": { "musicCarouselShelfBasicHeaderRenderer": { "title": { "runs": [{ "text": title }] } } },
-                "contents": [{ "musicResponsiveListItemRenderer": {
-                    "playlistItemData": { "videoId": "vid1" },
-                    "flexColumns": [{ "musicResponsiveListItemFlexColumnRenderer": {
-                        "text": { "runs": [{ "text": "A Song" }] } } }]
-                } }]
-            });
-            if let Some(n) = per_column {
-                s["numItemsPerColumn"] = json!(n);
-            }
-            json!({ "musicCarouselShelfRenderer": s })
-        };
-        let kind = |root: Value| parse_home(&root).sections[0].kind;
-        assert_eq!(kind(shelf("Mix de canciones", Some(4))), Some("quick_picks"));
-        assert_eq!(kind(shelf("Mix de canciones", None)), None);
-        assert_eq!(kind(shelf("Vergessene Favoriten", Some(4))), Some("forgotten"), "title first");
     }
 
     /// A song *card* (`musicTwoRowItemRenderer`, used by home shelves and the artist page's

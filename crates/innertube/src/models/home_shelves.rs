@@ -9,9 +9,8 @@
 //! A title missing here costs that shelf on home in that language and nothing else. When YouTube
 //! rewords one, add the new wording next to the old rather than replacing it.
 //!
-//! Quick picks also has a fallback in `parse_home`: it is the only shelf that sets
-//! `numItemsPerColumn`, which carried it through the rename to "Song mixes" in languages whose new
-//! title is not captured here.
+//! Not by layout: "Song mixes" (Quick picks) and "Covers and remixes" are the same 4-row list with
+//! the same "Play all" button, so only the title tells them apart.
 
 /// Kinds named by their "More" button's `browseId`, the same in every language.
 const BY_MORE: &[(&str, &str)] = &[
