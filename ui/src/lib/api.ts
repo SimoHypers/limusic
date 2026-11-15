@@ -1334,6 +1334,10 @@ export const lyricsEditorSource = (t: LyricsTrack, source: string) =>
 		duration: t.duration,
 		source
 	});
+/** Each word's romanization, per line as the editor split it, `null` where a word needs none: the
+ *  editor's hint under each word (#676), never submitted. */
+export const lyricsWordReadings = (lines: string[][]) =>
+	invoke<(string | null)[][]>('lyrics_word_readings', { lines });
 // --- Limusic Lyrics account (`limusic.rs`) ---
 export interface LimusicAccount {
 	/** Null while the account is anonymous: it has no public name. */

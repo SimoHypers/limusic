@@ -64,7 +64,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import LimusicNotice from '$lib/components/LimusicNotice.svelte';
 	import LyricTimeline from '$lib/components/LyricTimeline.svelte';
-	import LyricsView from '$lib/components/LyricsView.svelte';
+	import LyricsView, { prefs as lyricsPrefs, toggle as toggleLyricsPref } from '$lib/components/LyricsView.svelte';
 	import SongMap from '$lib/components/SongMap.svelte';
 	import * as api from '$lib/api';
 	import { isLocalId } from '$lib/api';
@@ -402,6 +402,29 @@
 	 *  where such an answer often ends. */
 	const spill = $derived(!!line && tapBg && twoVoices(line.words));
 	const range = $derived(line && !owesTime ? loopRange(lines, cur, durationMs, spill) : null);
+
+	/** How each word is pronounced (#676), under it, so a word can be tapped by its sound: the
+	 *  engine the player uses, for the whole song at once since the song decides Japanese or Chinese.
+	 *  Keyed by the line's words, and asked again only when some text changes, never on a tap. */
+	let readings = $state.raw(new Map<string, (string | null)[]>());
+	const wordsKey = (l: EdLine) => JSON.stringify(l.words.map((w) => w.text));
+	const textKey = $derived(JSON.stringify(lines.filter((l) => l.words.length).map((l) => l.words.map((w) => w.text))));
+	$effect(() => {
+		const texts: string[][] = JSON.parse(textKey);
+		if (!texts.length) {
+			readings = new Map();
+			return;
+		}
+		let stale = false;
+		api.lyricsWordReadings(texts)
+			.then((r) => {
+				if (!stale) readings = new Map(texts.map((ws, i) => [JSON.stringify(ws), r[i]]));
+			})
+			.catch(() => {});
+		return () => (stale = true);
+	});
+	const canRead = $derived([...readings.values()].some((r) => r.some(Boolean)));
+	const wordReadings = $derived(lyricsPrefs.romanized && line ? readings.get(wordsKey(line)) : undefined);
 
 	/** One pass of taps over the current line. `tapCount` moves at the keypress so the next word
 	 *  lights at once; each tap's time arrives a few ms later, into the slot it claimed. A new
@@ -1382,6 +1405,7 @@
 							{#key line.id}
 							<LyricTimeline
 								words={line.words}
+								readings={wordReadings}
 								range={owesTime ? null : range}
 								{durationMs}
 								running={active && !playback.paused}
@@ -1523,6 +1547,12 @@
 								<Switch bind:checked={loopOn} />
 								{t('lyrics_editor.loop')} <kbd class={KEY}>L</kbd>
 							</label>
+							{#if canRead}
+								<label class="flex cursor-pointer items-center gap-2 select-none" title={t('lyrics.romanize_hint')}>
+									<Switch checked={lyricsPrefs.romanized} onCheckedChange={() => toggleLyricsPref('romanized')} />
+									{t('lyrics.romanize')}
+								</label>
+							{/if}
 							<!-- A small value, so a field in the sentence rather than a boxed input. -->
 							<label class="flex items-center gap-2" title={t('lyrics_editor.tap_offset_hint')}>
 								{t('lyrics_editor.tap_offset')}
