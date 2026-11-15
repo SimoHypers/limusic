@@ -98,7 +98,6 @@
 		packDraft,
 		passOf,
 		ready,
-		sourceReading,
 		resplitLine,
 		setAgent,
 		setLineText,
@@ -404,27 +403,28 @@
 	const spill = $derived(!!line && tapBg && twoVoices(line.words));
 	const range = $derived(line && !owesTime ? loopRange(lines, cur, durationMs, spill) : null);
 
-	/** How each line is pronounced (#676), by text: the engine the player uses, for the whole song at
-	 *  once since the song decides Japanese or Chinese. Asked again only when some text changes. */
-	let readings = $state.raw(new Map<string, string>());
-	const textKey = $derived(JSON.stringify(lines.filter((l) => !l.gap).map(lineText)));
+	/** How each word is pronounced (#676), under it, so a word can be tapped by its sound: the
+	 *  engine the player uses, for the whole song at once since the song decides Japanese or Chinese.
+	 *  Keyed by the line's words, and asked again only when some text changes, never on a tap. */
+	let readings = $state.raw(new Map<string, (string | null)[]>());
+	const wordsKey = (l: EdLine) => JSON.stringify(l.words.map((w) => w.text));
+	const textKey = $derived(JSON.stringify(lines.filter((l) => l.words.length).map((l) => l.words.map((w) => w.text))));
 	$effect(() => {
-		const texts: string[] = JSON.parse(textKey);
-		if (!texts.some((s) => s)) {
+		const texts: string[][] = JSON.parse(textKey);
+		if (!texts.length) {
 			readings = new Map();
 			return;
 		}
 		let stale = false;
-		api.lyricsReadings(texts)
+		api.lyricsWordReadings(texts)
 			.then((r) => {
-				if (!stale) readings = new Map(texts.flatMap((s, i) => (r[i] ? [[s, r[i]!]] : [])));
+				if (!stale) readings = new Map(texts.map((ws, i) => [JSON.stringify(ws), r[i]]));
 			})
 			.catch(() => {});
 		return () => (stale = true);
 	});
-	const readingOf = (l: EdLine | undefined) => (l && !l.gap ? (sourceReading(l) ?? readings.get(lineText(l))) : undefined);
-	const canRead = $derived(readings.size > 0 || lines.some((l) => sourceReading(l)));
-	const reading = $derived(lyricsPrefs.romanized ? readingOf(line) : undefined);
+	const canRead = $derived([...readings.values()].some((r) => r.some(Boolean)));
+	const wordReadings = $derived(lyricsPrefs.romanized && line ? readings.get(wordsKey(line)) : undefined);
 
 	/** One pass of taps over the current line. `tapCount` moves at the keypress so the next word
 	 *  lights at once; each tap's time arrives a few ms later, into the slot it claimed. A new
@@ -1383,9 +1383,6 @@
 							</div>
 						{/snippet}
 						{#snippet nextLine()}
-							{#if reading && !textOpen}
-								<p class="mt-1.5 text-[17px] leading-snug text-muted-foreground">{reading}</p>
-							{/if}
 							<p class="mt-2 min-h-[1.3em] truncate font-heading text-base leading-snug font-semibold text-muted-foreground/60">
 								{lineLabel(lines[cur + 1])}
 							</p>
@@ -1408,6 +1405,7 @@
 							{#key line.id}
 							<LyricTimeline
 								words={line.words}
+								readings={wordReadings}
 								range={owesTime ? null : range}
 								{durationMs}
 								running={active && !playback.paused}

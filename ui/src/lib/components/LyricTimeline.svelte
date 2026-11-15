@@ -16,6 +16,7 @@
 
 	let {
 		words,
+		readings,
 		range,
 		durationMs,
 		running,
@@ -34,6 +35,8 @@
 		onseek
 	}: {
 		words: EdWord[];
+		/** Each word's romanization, drawn under it (#676). */
+		readings?: (string | null)[];
 		/** The stretch of song the track shows: the line's loop. `null` before the line has a start. */
 		range: Range | null;
 		durationMs: number;
@@ -283,6 +286,11 @@
 								: 'text-muted-foreground'}"
 			>
 				{label(w)}
+				{#if readings?.[k]}
+					<!-- Under the word, inside the button: part of what gets tapped, in the word's own
+					     colour, so it reads on the next tap's fill too. -->
+					<span class="block text-center text-[0.42em] leading-tight font-medium tracking-normal opacity-75">{readings[k]}</span>
+				{/if}
 			</button>
 		{/each}
 	</div>
