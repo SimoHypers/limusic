@@ -6,6 +6,7 @@
 	import {
 		ArrowUpBigIcon,
 		DashboardSquareEditIcon,
+		IterationCcwIcon,
 		MusicNote01Icon,
 		ViewOffSlashIcon
 	} from '@hugeicons/core-free-icons';
@@ -466,6 +467,7 @@
 						queueAll={false}
 						size={personal.home.cards}
 						community={block.shelf.kind === 'community'}
+						icon={block.shelf.kind === 'listen_again' ? IterationCcwIcon : undefined}
 						onMore={block.shelf.moreBrowseId ? () => showMore(block.shelf!) : undefined}
 					/>
 				{:else if block.key === SHORTCUTS}

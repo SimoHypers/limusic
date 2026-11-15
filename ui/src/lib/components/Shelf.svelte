@@ -51,6 +51,7 @@
 		items,
 		onMore,
 		community = false,
+		icon,
 		rich = true,
 		queueAll = true,
 		size = 'medium'
@@ -64,6 +65,8 @@
 		 * fitting more cards as the window grows. The arrows page through the rest.
 		 */
 		community?: boolean;
+		/** Heading icon, for a shelf whose items don't pick one (a mixed "Listen again"). */
+		icon?: IconSvgElement;
 		/** Opt out of the per-kind forms and render plain cards. */
 		rich?: boolean;
 		/**
@@ -216,7 +219,7 @@
 	style="contain-intrinsic-size: auto {height};"
 >
 	{#if title || onMore}
-		<SectionHeading title={title ?? ''} icon={ICONS[mode]} {onMore}>
+		<SectionHeading title={title ?? ''} icon={icon ?? ICONS[mode]} {onMore}>
 			{#if songs.length}
 				<button
 					onclick={playAll}
