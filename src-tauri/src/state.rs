@@ -61,7 +61,6 @@ struct Listen {
 /// delay has to outlast that, plus up to a second each way for the watcher's polling.
 const AUTO_PAUSE_DELAY: Duration = Duration::from_secs(1);
 const AUTO_RESUME_DELAY: Duration = Duration::from_secs(10);
-const AUTO_PAUSE_SEEN_MAX: usize = 20;
 
 pub struct AppState {
     pub it: InnerTube,
@@ -124,12 +123,6 @@ pub struct AppState {
     /// Bumped on every state change and settings change; a delayed action runs only if it is
     /// still the latest.
     auto_pause_gen: AtomicU64,
-    /// App ids (SMTC `SourceAppUserModelId`) that never pause the music; the `auto_pause_excluded` setting.
-    auto_pause_excluded: std::sync::RwLock<HashSet<String>>,
-    /// The watcher's last report: ids of the other apps playing media, excluded ones included.
-    external_apps: std::sync::Mutex<std::collections::BTreeSet<String>>,
-    /// Apps seen playing recently, newest first, so the settings tab can offer them for exclusion.
-    auto_pause_seen: std::sync::Mutex<Vec<String>>,
     /// The UI shows another linked device's playback (`link_remote_refresh`): its track, position
     /// and queue reach the windows instead of ours, and the playback methods control it.
     remote_on: AtomicBool,
@@ -575,9 +568,6 @@ impl AppState {
             external_audio: AtomicBool::new(false),
             auto_paused: AtomicBool::new(false),
             auto_pause_gen: AtomicU64::new(0),
-            auto_pause_excluded: std::sync::RwLock::default(),
-            external_apps: std::sync::Mutex::default(),
-            auto_pause_seen: std::sync::Mutex::default(),
             remote_on: AtomicBool::new(false),
             remote_gen: AtomicU64::new(0),
             remote_sent: std::sync::Mutex::default(),
@@ -3675,72 +3665,19 @@ impl AppState {
             // The watcher reports nothing while the setting is off, so a stale "something is playing"
             // must not survive until the next time it is turned on.
             self.external_audio.store(false, Ordering::Relaxed);
-            self.external_apps.lock().unwrap_or_else(|e| e.into_inner()).clear();
         }
     }
 
     /// Whether the `auto_pause_other_audio` setting is on. The watcher thread only polls the OS
     /// while it is.
-    #[cfg_attr(not(windows), allow(dead_code))]
+    #[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
     pub fn auto_pause_enabled(&self) -> bool {
         self.auto_pause_enabled.load(Ordering::Relaxed)
     }
 
-    /// The watcher's report: the other apps playing media right now. Apps on the exclusion list are
-    /// remembered (the settings tab offers them) but never count as "other media".
-    #[cfg_attr(not(windows), allow(dead_code))]
-    pub fn on_external_apps(self: &Arc<Self>, apps: std::collections::BTreeSet<String>) {
-        {
-            let mut seen = self.auto_pause_seen.lock().unwrap_or_else(|e| e.into_inner());
-            for id in &apps {
-                seen.retain(|s| s != id);
-                seen.insert(0, id.clone());
-            }
-            seen.truncate(AUTO_PAUSE_SEEN_MAX);
-        }
-        *self.external_apps.lock().unwrap_or_else(|e| e.into_inner()) = apps;
-        self.refresh_external_audio();
-    }
-
-    /// Replace the exclusion list (the `auto_pause_excluded` setting) and re-judge what is playing now.
-    pub fn set_auto_pause_excluded(self: &Arc<Self>, ids: Vec<String>) {
-        tracing::debug!(target: "app_lib::autopause", excluded = ?ids, "exclusion list set");
-        {
-            // Keep every excluded app on the "recently seen" list for the session, so removing it
-            // from the exclusions doesn't make it vanish until it plays again.
-            let mut seen = self.auto_pause_seen.lock().unwrap_or_else(|e| e.into_inner());
-            for id in &ids {
-                if !seen.contains(id) {
-                    seen.push(id.clone());
-                }
-            }
-            seen.truncate(AUTO_PAUSE_SEEN_MAX);
-        }
-        *self.auto_pause_excluded.write().unwrap_or_else(|e| e.into_inner()) =
-            ids.into_iter().collect();
-        self.refresh_external_audio();
-    }
-
-    /// Apps recently seen playing media, newest first.
-    pub fn auto_pause_seen_apps(&self) -> Vec<String> {
-        self.auto_pause_seen.lock().unwrap_or_else(|e| e.into_inner()).clone()
-    }
-
-    fn refresh_external_audio(self: &Arc<Self>) {
-        // While the setting is off the watcher reports nothing, so what we hold is stale.
-        if !self.auto_pause_enabled.load(Ordering::Relaxed) {
-            return;
-        }
-        let active = {
-            let excluded = self.auto_pause_excluded.read().unwrap_or_else(|e| e.into_inner());
-            let apps = self.external_apps.lock().unwrap_or_else(|e| e.into_inner());
-            apps.iter().any(|id| !excluded.contains(id))
-        };
-        self.on_external_audio(active);
-    }
-
     /// Called by the platform watcher whenever it learns whether another app is playing media.
     /// Repeats of the same answer are ignored, so a chatty watcher can't keep restarting the delay.
+    #[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
     pub fn on_external_audio(self: &Arc<Self>, active: bool) {
         if self.external_audio.swap(active, Ordering::Relaxed) == active {
             return;

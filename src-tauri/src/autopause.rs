@@ -3,7 +3,7 @@
 //! It reads the apps' own media status, not the sound card, so a notification ding or a game's
 //! audio never counts: only apps that publish a playing/paused state do (browsers, video players,
 //! Spotify). Windows reads the system media controls (SMTC), Linux reads MPRIS over the session
-//! bus. The result goes to `AppState::on_external_apps`, which owns the delays and the
+//! bus. The result goes to `AppState::on_external_audio`, which owns the delays and the
 //! pause/resume decisions.
 
 #[cfg(any(windows, target_os = "linux"))]
@@ -60,7 +60,7 @@ fn poll_once(
         tracing::info!(target: "app_lib::autopause", apps = ?playing, "other apps playing media changed");
         last.clone_from(&playing);
     }
-    state.on_external_apps(playing);
+    state.on_external_audio(!playing.is_empty());
 }
 
 /// Limusic's own media session (souvlaki) is in the same list and must never pause us.
@@ -190,8 +190,8 @@ mod linux_watcher {
         let mut apps = BTreeSet::new();
         for name in &names {
             let Some(id) = player_id(name) else { continue };
-            // playerctld mirrors whichever player is active, so it would keep an excluded app's
-            // playback alive under another name.
+            // playerctld mirrors whichever player was active last, and that can be Limusic itself,
+            // so counting it would let the music pause itself.
             if id == "playerctld" || is_own(&id) {
                 continue;
             }
@@ -221,5 +221,34 @@ mod linux_watcher {
         .ok()
         .and_then(|status| String::try_from(status).ok())
         .is_some_and(|status| status == "Playing")
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::player_id;
+
+        #[test]
+        fn the_instance_suffix_a_browser_adds_is_dropped() {
+            assert_eq!(
+                player_id("org.mpris.MediaPlayer2.firefox.instance_1_52").as_deref(),
+                Some("firefox")
+            );
+            assert_eq!(
+                player_id("org.mpris.MediaPlayer2.chromium.instance4242").as_deref(),
+                Some("chromium")
+            );
+        }
+
+        #[test]
+        fn a_name_without_a_suffix_is_kept_whole() {
+            assert_eq!(player_id("org.mpris.MediaPlayer2.vlc").as_deref(), Some("vlc"));
+            assert_eq!(player_id("org.mpris.MediaPlayer2.spotify").as_deref(), Some("spotify"));
+        }
+
+        #[test]
+        fn other_bus_names_are_not_players() {
+            assert_eq!(player_id("org.freedesktop.Notifications"), None);
+            assert_eq!(player_id(":1.42"), None);
+        }
     }
 }
