@@ -528,7 +528,7 @@ export const forgetVideoStream = (videoId: string) =>
  *  webview. Resolves whether the picture is up; `false` for a rect means it never will be (no
  *  surface), so fall back to the `<video>` element. `dpr` carries the page zoom to Windows. */
 export const nativeVideoRect = (rect: [number, number, number, number] | null) =>
-	invoke<boolean>('native_video_rect', { rect, dpr: devicePixelRatio });
+	invoke<boolean>('native_video_rect', { rect, dpr: devicePixelRatio, vw: innerWidth });
 
 /** Linux and Windows: the newest small frame of mpv's picture other than `after`, for the ambient
  *  light, as `[seq, w, h]` little-endian u32s and then RGBA rows bottom-up. Empty when there is no
