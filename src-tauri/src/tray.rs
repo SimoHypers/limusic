@@ -227,7 +227,7 @@ mod imp {
 #[cfg(not(target_os = "linux"))]
 mod imp {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+    use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
     use tauri::{AppHandle, Manager, Wry};
 
     use super::{handle_menu, show_main};
@@ -269,7 +269,7 @@ mod imp {
                 #[cfg(target_os = "macos")]
                 if let TrayIconEvent::Click {
                     button: MouseButton::Left,
-                    button_state: MouseButtonState::Up,
+                    button_state: tauri::tray::MouseButtonState::Up,
                     ..
                 } = event
                 {
@@ -326,7 +326,8 @@ mod imp {
     }
 
     /// Detaches the tray menu until right-click so AppKit won't swallow left-clicks
-    /// (backport of upstream tauri-apps/tray-icon#365 for tray-icon 0.24).
+    /// (backport of upstream tauri-apps/tray-icon#365 for tray-icon 0.24). Only macOS 27 needs it;
+    /// delete it with the move to tauri 2.12, which pulls tray-icon 0.25.1 with the fix.
     #[cfg(target_os = "macos")]
     fn patch_macos_tray() {
         use std::sync::{Once, OnceLock};
