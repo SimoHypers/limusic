@@ -1496,6 +1496,7 @@ pub fn run() {
             commands::lyrics_editor_start,
             commands::lyrics_editor_source,
             commands::lyrics_word_readings,
+            commands::lyrics_romanize,
             commands::limusic_providers,
             commands::limusic_status,
             commands::limusic_sign_in,

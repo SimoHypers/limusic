@@ -609,7 +609,7 @@
 
 					{#if showRomanized && line.romanized}
 						<!-- Relative size, so it follows the line from the mini player to theater mode.
-						     Apple's reading is timed to the same syllables and sweeps with the line. -->
+						     A timed reading (Apple's, or ours on a word-synced line) sweeps with the line. -->
 						<span class="mt-0.5 block text-[length:max(0.62em,11px)] font-semibold">
 							{#if romWords.length > 0}
 								{@render sweep(romWords, isActive, halo, v?.far)}
@@ -774,7 +774,7 @@
 	</button>
 {/snippet}
 
-<!-- Word-by-word karaoke sweep (Better Lyrics style), for the line and for Apple's timed
+<!-- Word-by-word karaoke sweep (Better Lyrics style), for the line and for the timed
      romanization under it. A word is the same element whether its line is being sung or not, so a
      change of line restyles words instead of rebuilding them. Off the active line its colour and
      dimming come from the line; on it the sweep paints it, and a held note lights, crests and

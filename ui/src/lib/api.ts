@@ -1338,6 +1338,9 @@ export const lyricsEditorSource = (t: LyricsTrack, source: string) =>
  *  editor's hint under each word (#676), never submitted. */
 export const lyricsWordReadings = (lines: string[][]) =>
 	invoke<(string | null)[][]>('lyrics_word_readings', { lines });
+/** `lyrics` with the romanization the player would add, timed by the words where it can be: the
+ *  lyric editor's preview. */
+export const lyricsRomanize = (lyrics: Lyrics) => invoke<Lyrics>('lyrics_romanize', { lyrics });
 // --- Limusic Lyrics account (`limusic.rs`) ---
 export interface LimusicAccount {
 	/** Null while the account is anonymous: it has no public name. */

@@ -28,21 +28,90 @@ use lindera::{DictionaryKind, DictionaryLoader, Mode, Tokenizer};
 use pinyin::ToPinyin;
 use wana_kana::ConvertJapanese;
 
-use crate::lyrics::Lyrics;
+use crate::lyrics::{LyricWord, Lyrics};
 
 /// Fill `romanized` on every line that needs one. Lines already in Latin script get nothing, so an
 /// English chorus in a K-pop song is not printed twice.
 pub fn fill(lyrics: &mut Lyrics) {
     // Apple's reading or ours, never both in one song: they spell differently, and the mix reads
     // as a bug. Apple leaves its Latin lines out, which is also what this does.
-    if lyrics.lines.iter().any(|l| l.romanized.is_some()) {
+    if !lyrics.lines.iter().any(|l| l.romanized.is_some()) {
+        let texts: Vec<&str> = lyrics.lines.iter().map(|l| l.text.as_str()).collect();
+        let readings = readings(&texts);
+        for (line, r) in lyrics.lines.iter_mut().zip(readings) {
+            line.romanized = r;
+        }
+    }
+    time_readings(lyrics);
+}
+
+/// A word-synced line's reading, timed by its words so it sweeps with them the way Apple's does.
+/// Each word's own reading (the lyric editor's) says where that word ends in the line's. A reading
+/// that is not the engine's, spelled differently, stays untimed.
+fn time_readings(lyrics: &mut Lyrics) {
+    let todo: Vec<usize> = (0..lyrics.lines.len())
+        .filter(|&i| {
+            let l = &lyrics.lines[i];
+            l.romanized.is_some()
+                && l.romanized_words.is_none()
+                && l.words.as_ref().is_some_and(|w| !w.is_empty())
+        })
+        .collect();
+    if todo.is_empty() {
         return;
     }
-    let texts: Vec<&str> = lyrics.lines.iter().map(|l| l.text.as_str()).collect();
-    let readings = readings(&texts);
-    for (line, r) in lyrics.lines.iter_mut().zip(readings) {
-        line.romanized = r;
+    let texts: Vec<Vec<String>> = todo
+        .iter()
+        .map(|&i| lyrics.lines[i].words.iter().flatten().map(|w| w.text.clone()).collect())
+        .collect();
+    // The whole song decides Japanese, as for the line readings, not just the timed lines.
+    let all: String = lyrics.lines.iter().map(|l| l.text.as_str()).collect();
+    for (i, parts) in todo.into_iter().zip(word_readings_in(&texts, is_japanese(&all))) {
+        let line = &mut lyrics.lines[i];
+        line.romanized_words = time_reading(
+            line.romanized.as_deref().unwrap_or_default(),
+            line.words.as_deref().unwrap_or_default(),
+            &parts,
+        );
     }
+}
+
+/// Cuts `reading` at each word's end, matching letters only (spaces and punctuation fall to the
+/// word before). `None` when the words don't spell the reading.
+fn time_reading(
+    reading: &str,
+    words: &[LyricWord],
+    parts: &[Option<String>],
+) -> Option<Vec<LyricWord>> {
+    let r: Vec<char> = reading.chars().collect();
+    let skip = |mut at: usize| {
+        while at < r.len() && !r[at].is_alphanumeric() {
+            at += 1;
+        }
+        at
+    };
+    let mut at = 0;
+    let mut out = Vec::new();
+    for (w, part) in words.iter().zip(parts) {
+        let from = at;
+        for c in part.as_deref().unwrap_or(w.text.trim()).chars().filter(|c| c.is_alphanumeric()) {
+            at = skip(at);
+            if at == r.len() || !r[at].to_lowercase().eq(c.to_lowercase()) {
+                return None;
+            }
+            at += 1;
+        }
+        at = skip(at);
+        if at > from {
+            out.push(LyricWord {
+                text: r[from..at].iter().collect(),
+                start_ms: w.start_ms,
+                end_ms: w.end_ms,
+                bg: w.bg,
+            });
+        }
+    }
+    (at == r.len() && !out.is_empty()).then_some(out)
 }
 
 /// Each line's reading, `None` where it needs none. The whole song decides Japanese or Chinese, so
@@ -247,7 +316,10 @@ fn japanese_run(run: &str) -> String {
 /// by its neighbours, 並 alone is "nami" and in 並べた "nara".
 pub fn word_readings(lines: &[Vec<String>]) -> Vec<Vec<Option<String>>> {
     let all: String = lines.iter().flatten().map(String::as_str).collect();
-    let song_japanese = is_japanese(&all);
+    word_readings_in(lines, is_japanese(&all))
+}
+
+fn word_readings_in(lines: &[Vec<String>], song_japanese: bool) -> Vec<Vec<Option<String>>> {
     lines
         .iter()
         .map(|words| {
@@ -665,6 +737,46 @@ mod tests {
         assert_eq!(align(&['は'], &['ワ']), None);
         let ko = word_readings(&[words(&["보고 ", "싶다 ", "Baby"])]);
         assert_eq!(got(&ko[0]), ["bogo", "sipda", "-"]);
+    }
+
+    #[test]
+    fn fill_times_a_word_synced_reading_by_its_words() {
+        use crate::lyrics::LyricLine;
+        let ws = ["月明かり ", "流れ", "込", "んで ", "影 ", "を ", "並", "べた"];
+        let words: Vec<LyricWord> = ws
+            .iter()
+            .enumerate()
+            .map(|(i, w)| LyricWord {
+                text: w.to_string(),
+                start_ms: i as u64 * 100,
+                end_ms: i as u64 * 100 + 100,
+                bg: false,
+            })
+            .collect();
+        let line = LyricLine {
+            time_ms: Some(0),
+            text: ws.concat(),
+            words: Some(words),
+            ..Default::default()
+        };
+        let mut l = Lyrics { lines: vec![line.clone()], synced: true, ..Default::default() };
+        fill(&mut l);
+        let timed = l.lines[0].romanized_words.as_ref().unwrap();
+        let texts: Vec<&str> = timed.iter().map(|w| w.text.as_str()).collect();
+        assert_eq!(texts, ["tsukiakari ", "nagare", "ko", "nde ", "kage ", "o ", "nara", "beta"]);
+        assert_eq!((timed[2].start_ms, timed[2].end_ms), (200, 300));
+
+        // A stored reading spelled another way stays as it was, untimed.
+        let mut l = Lyrics {
+            lines: vec![LyricLine {
+                romanized: Some("tsukiakari nagarekonde kage wo narabeta".into()),
+                ..line
+            }],
+            synced: true,
+            ..Default::default()
+        };
+        fill(&mut l);
+        assert_eq!(l.lines[0].romanized_words, None);
     }
 
     #[test]
