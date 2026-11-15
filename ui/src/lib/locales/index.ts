@@ -5,6 +5,7 @@ import de from './de.json';
 import en from './en.json';
 import es from './es.json';
 import fr from './fr.json';
+import hu from './hu.json';
 import id from './id.json';
 import it from './it.json';
 import ja from './ja.json';
@@ -43,7 +44,8 @@ export type LocaleId =
 	| 'ja'
 	| 'vi'
 	| 'zh-Hans'
-	| 'ta';
+	| 'ta'
+	| 'hu';
 
 export interface LocaleInfo {
 	id: LocaleId;
@@ -63,6 +65,7 @@ export const LOCALES: LocaleInfo[] = [
 	{ id: 'de', nativeLabel: 'Deutsch', englishLabel: 'German' },
 	{ id: 'es', nativeLabel: 'Español', englishLabel: 'Spanish' },
 	{ id: 'fr', nativeLabel: 'Français', englishLabel: 'French' },
+	{ id: 'hu', nativeLabel: 'Magyar', englishLabel: 'Hungarian' },
 	{ id: 'id', nativeLabel: 'Bahasa Indonesia', englishLabel: 'Indonesian' },
 	{ id: 'it', nativeLabel: 'Italiano', englishLabel: 'Italian' },
 	{ id: 'ja', nativeLabel: '日本語', englishLabel: 'Japanese' },
@@ -103,5 +106,6 @@ export const translations: Record<LocaleId, DeepPartial<Translations>> = {
 	ja,
 	vi,
 	'zh-Hans': zhHans,
-	ta
+	ta,
+	hu
 };
