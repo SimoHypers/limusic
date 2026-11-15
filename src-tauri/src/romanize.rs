@@ -64,7 +64,9 @@ fn time_readings(lyrics: &mut Lyrics) {
         .iter()
         .map(|&i| lyrics.lines[i].words.iter().flatten().map(|w| w.text.clone()).collect())
         .collect();
-    for (i, parts) in todo.into_iter().zip(word_readings(&texts)) {
+    // The whole song decides Japanese, as for the line readings, not just the timed lines.
+    let all: String = lyrics.lines.iter().map(|l| l.text.as_str()).collect();
+    for (i, parts) in todo.into_iter().zip(word_readings_in(&texts, is_japanese(&all))) {
         let line = &mut lyrics.lines[i];
         line.romanized_words = time_reading(
             line.romanized.as_deref().unwrap_or_default(),
@@ -314,7 +316,10 @@ fn japanese_run(run: &str) -> String {
 /// by its neighbours, 並 alone is "nami" and in 並べた "nara".
 pub fn word_readings(lines: &[Vec<String>]) -> Vec<Vec<Option<String>>> {
     let all: String = lines.iter().flatten().map(String::as_str).collect();
-    let song_japanese = is_japanese(&all);
+    word_readings_in(lines, is_japanese(&all))
+}
+
+fn word_readings_in(lines: &[Vec<String>], song_japanese: bool) -> Vec<Vec<Option<String>>> {
     lines
         .iter()
         .map(|words| {
