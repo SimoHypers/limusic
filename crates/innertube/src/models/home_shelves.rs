@@ -49,6 +49,14 @@ const BY_TITLE: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        // A "STATION" shelf of song cards, new by 2026-11-15.
+        "listen_together",
+        &[
+            "Listen together",   // en
+            "Gemeinsam anhören", // de
+        ],
+    ),
+    (
         "quick_picks",
         &[
             "Quick picks",         // en
@@ -298,6 +306,7 @@ mod tests {
         assert_eq!(kind("Schnellauswahl", None), Some("quick_picks"));
         assert_eq!(kind("  quick PICKS ", None), Some("quick_picks"));
         assert_eq!(kind("Song mixes", None), Some("quick_picks"));
+        assert_eq!(kind("Gemeinsam anhören", None), Some("listen_together"));
         assert_eq!(kind("Indila", None), None);
     }
 
