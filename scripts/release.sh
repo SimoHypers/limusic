@@ -265,6 +265,7 @@ if [ "$OK" = 1 ] && [ "$CI_OK" = 1 ] && [ "$RC" = 1 ]; then
 elif [ "$OK" = 1 ] && [ "$CI_OK" = 1 ]; then
   echo "==> $TAG is live and complete: rpm + deb + AppImage + Windows installers + macOS dmg, all"
   echo "    three platforms in latest.json, marked Latest. Installed users will be prompted."
+  scripts/announce.sh "$TAG" || echo "    WARNING: the Discord post failed. Retry: scripts/announce.sh $TAG"
 else
   echo >&2
   echo "==> $TAG IS PUBLISHED BUT INCOMPLETE. Check what failed, then re-dispatch that workflow:" >&2
