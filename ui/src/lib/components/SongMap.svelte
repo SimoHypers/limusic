@@ -106,13 +106,16 @@
 		if (!headEl) return;
 		const r = Math.min(rows - 1, Math.max(0, Math.floor(ms / rowMs)));
 		const x = Math.min(100, Math.max(0, ((ms - r * rowMs) / rowMs) * 100));
-		// Its own size is one row, so a percentage of itself is a row down.
-		headEl.style.transform = `translate(${x}%, ${r * 100}%)`;
+		// Its own height is one row, so a percentage of itself is a row down. Sideways it moves in px:
+		// a full-width head slid by a percentage stuck out of the box, the stage scrolled sideways,
+		// its scrollbar took the height of a row and the map flipped row counts every frame (#686).
+		headEl.style.transform = `translate(${(x / 100) * boxW}px, ${r * 100}%)`;
 	}
 	$effect(() => {
 		if (!headEl) return;
 		void rowMs;
 		void rows;
+		void boxW;
 		place(position());
 		if (!running) return;
 		let frame = requestAnimationFrame(function tick() {
@@ -192,7 +195,7 @@
 				<div
 					bind:this={headEl}
 					aria-hidden="true"
-					class="pointer-events-none absolute top-0 left-0 w-full border-l-2 border-foreground"
+					class="pointer-events-none absolute top-0 left-0 w-0 border-l-2 border-foreground"
 					style="height:{rowH}px"
 				></div>
 			{/if}
