@@ -18,11 +18,11 @@ fn main() {
     // leaves `generate_context!` emitting the old `default_window_icon` (window, tray, taskbar).
     println!("cargo:rerun-if-changed=icons");
 
-    // `tauri-build` links its app manifest into binaries only. The lib test binary gets no
-    // manifest, so Windows binds comctl32 v5, which lacks `TaskDialogIndirect`; the loader kills
-    // it with STATUS_ENTRYPOINT_NOT_FOUND (0xC0000139) before the harness prints. Let the linker
-    // write the manifest into every target instead. `/MANIFEST:*` is link.exe syntax, so msvc
-    // only. Keep the file identical to tauri-build's default; the shipped exe uses it too.
+    // `tauri-build` links its app manifest into binaries only, so the lib test binary binds
+    // comctl32 v5, which lacks `TaskDialogIndirect`, and dies at load with
+    // STATUS_ENTRYPOINT_NOT_FOUND (0xC0000139). Link the manifest into every target instead.
+    // `/MANIFEST:*` is link.exe syntax, so msvc only. Keep the file identical to tauri-build's
+    // default; the shipped exe uses it too.
     let mut attributes = tauri_build::Attributes::new();
     if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
         println!("cargo:rerun-if-changed=windows-app-manifest.xml");

@@ -216,8 +216,7 @@ jobs:
       - name: cargo build -p limusic-app
         run: cargo build -p limusic-app
 
-      # The lib test binary is linked on its own, so it needs the comctl32 v6 manifest that
-      # src-tauri/build.rs adds. Without it the process dies at load before the harness prints.
+      # The lib test binary links on its own, so it only gets the manifest build.rs adds.
       # MPV_DIR goes on PATH because the test binary imports libmpv-2.dll at load.
       - name: cargo test -p limusic-app --lib
         shell: pwsh
