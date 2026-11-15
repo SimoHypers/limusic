@@ -8,6 +8,9 @@
 //!
 //! A title missing here costs that shelf on home in that language and nothing else. When YouTube
 //! rewords one, add the new wording next to the old rather than replacing it.
+//!
+//! Not by layout: "Song mixes" (Quick picks) and "Covers and remixes" are the same 4-row list with
+//! the same "Play all" button, so only the title tells them apart.
 
 /// Kinds named by their "More" button's `browseId`, the same in every language.
 const BY_MORE: &[(&str, &str)] = &[
@@ -45,10 +48,20 @@ const BY_TITLE: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        // A "STATION" shelf of song cards, new by 2026-11-15.
+        "listen_together",
+        &[
+            "Listen together",   // en
+            "Gemeinsam anhören", // de
+        ],
+    ),
+    (
         "quick_picks",
         &[
             "Quick picks",         // en
+            "Song mixes",          // en, renamed by 2026-11-15
             "Schnellauswahl",      // de
+            "Song-Mixe",           // de, renamed by 2026-11-15
             "Selecciones rápidas", // es
             "Sélection rapide",    // fr
             "Pilihan cepat",       // id
@@ -291,6 +304,8 @@ mod tests {
         assert_eq!(kind("Quick picks", None), Some("quick_picks"));
         assert_eq!(kind("Schnellauswahl", None), Some("quick_picks"));
         assert_eq!(kind("  quick PICKS ", None), Some("quick_picks"));
+        assert_eq!(kind("Song mixes", None), Some("quick_picks"));
+        assert_eq!(kind("Gemeinsam anhören", None), Some("listen_together"));
         assert_eq!(kind("Indila", None), None);
     }
 

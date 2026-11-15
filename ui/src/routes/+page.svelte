@@ -6,6 +6,7 @@
 	import {
 		ArrowUpBigIcon,
 		DashboardSquareEditIcon,
+		IterationCcwIcon,
 		MusicNote01Icon,
 		ViewOffSlashIcon
 	} from '@hugeicons/core-free-icons';
@@ -149,7 +150,9 @@
 		const shelves: Block[] = feed.map((s, i) => ({
 			id: `${i}:${s.title}`,
 			key: s.kind ?? s.title,
-			title: s.title,
+			// Our name for it, as on Android: YouTube now calls it "Song mixes", Edit home "Quick picks".
+			// Home only; a mood chip's feed keeps YouTube's titles.
+			title: s.kind === 'quick_picks' && !selected ? t('home.kinds.quick_picks') : s.title,
 			shelf: s
 		}));
 		return selected ? shelves : arrangeSections([...local, ...shelves], personal);
@@ -459,11 +462,12 @@
 			{#each visible as block (block.id)}
 				{#if block.shelf}
 					<Shelf
-						title={block.shelf.title}
+						title={block.title}
 						items={block.shelf.items}
 						queueAll={false}
 						size={personal.home.cards}
 						community={block.shelf.kind === 'community'}
+						icon={block.shelf.kind === 'listen_again' ? IterationCcwIcon : undefined}
 						onMore={block.shelf.moreBrowseId ? () => showMore(block.shelf!) : undefined}
 					/>
 				{:else if block.key === SHORTCUTS}

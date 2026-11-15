@@ -348,6 +348,7 @@ export function orderLibrary(items: BrowseItem[], p: Personal): BrowseItem[] {
  */
 export const HOME_KINDS = [
 	'listen_again',
+	'listen_together',
 	'quick_picks',
 	'from_library',
 	'community',

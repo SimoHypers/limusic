@@ -376,6 +376,7 @@
 		"moved_section": "{title} moved to position {position} of {total}",
 		"kinds": {
 			"listen_again": "Listen again",
+			"listen_together": "Listen together",
 			"quick_picks": "Quick picks",
 			"from_library": "From your library",
 			"community": "From the community",
