@@ -173,12 +173,14 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
             libssl-dev libdbus-1-dev libmpv-dev patchelf file \
-            libjack-jackd2-0 glib-networking mold \
+            libjack-jackd2-0 glib-networking dconf-gsettings-backend mold \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-gl \
             gstreamer1.0-libav gstreamer1.0-alsa
           # libjack: linuxdeploy excludes it, so fix-appdir-tls.sh copies it in by hand.
           # glib-networking: supplies the gio TLS module that gets bundled. Without it the webview
           # has no TLS backend at all, which is the bug that started this whole saga.
+          # dconf-gsettings-backend: the GSettings module that gets bundled. On Wayland GTK reads
+          # the desktop's button layout, cursor, fonts and icons through it.
           # gstreamer1.0-*: WebKit decodes every <video> through GStreamer, and linuxdeploy bundles
           # the core libraries without a single plugin, which aborted the web process on every
           # music video in v0.5.0. These packages put the plugins on disk; fix-appdir-tls.sh copies

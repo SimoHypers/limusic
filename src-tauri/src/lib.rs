@@ -526,6 +526,32 @@ fn raise_fd_limit() {
     }
 }
 
+/// Whether GDK's Wayland backend will get a display, asked the way `wl_display_connect` does:
+/// WAYLAND_SOCKET is an already-open fd, WAYLAND_DISPLAY a socket name under XDG_RUNTIME_DIR or an
+/// absolute path. A set but stale WAYLAND_DISPLAY (left over from a Wayland login, forwarded over
+/// ssh) makes GDK fall back to X11 without a word, so its mere presence is not an answer: with it,
+/// the NVIDIA gates below took the window for Wayland and it never painted (two GBM failures,
+/// reproduced with `WAYLAND_DISPLAY=wayland-stale` on an X server).
+#[cfg(target_os = "linux")]
+fn wayland_reachable() -> bool {
+    if std::env::var_os("WAYLAND_SOCKET").is_some() {
+        return true;
+    }
+    let Some(name) = std::env::var_os("WAYLAND_DISPLAY") else {
+        return false;
+    };
+    let name = std::path::PathBuf::from(name);
+    let path = if name.is_absolute() {
+        name
+    } else {
+        match std::env::var_os("XDG_RUNTIME_DIR") {
+            Some(dir) => std::path::PathBuf::from(dir).join(name),
+            None => return false,
+        }
+    };
+    std::os::unix::net::UnixStream::connect(path).is_ok()
+}
+
 /// The vendor of the EGL that serves the X11 display: "NVIDIA" when the proprietary driver draws
 /// the screen, "Mesa Project" when Intel or AMD does, which is a hybrid laptop's default even with
 /// the NVIDIA driver loaded (#458). WebKit's UI process opens its EGL display the same way, and
@@ -652,18 +678,15 @@ pub fn run() {
     #[cfg(target_os = "linux")]
     {
         // The AppImage's AppRun hook (linuxdeploy-plugin-gtk, shipped by Tauri's bundler) exports
-        // GDK_BACKEND=x11 over whatever the user set, so on a Wayland session every AppImage runs
-        // through XWayland, where a frame costs more to present: NVIDIA needs the SHM path below
-        // (the web process reads every frame back, Xwayland copies it again), and nobody gets the
-        // direct path. `ui/perf/framecost.py` with system libraries, one small animation at
-        // 1300x720, CPU per frame across the UI process, the web compositor and Xwayland: 6.5 ms
-        // on X11 with SHM, 3.6 ms on Wayland. `LIMUSIC_GDK_BACKEND=wayland` is the way to try it:
-        // it wins over the hook because it is read here, after the hook has run. An extracted
-        // 1.4.0-rc.7 AppImage with the hook edited paints on native Wayland with its bundled GTK
-        // and WebKit (GTX 1060, KDE); Mesa and GNOME are untested, which is why this is opt-in.
+        // GDK_BACKEND=x11 over whatever the user set. `scripts/fix-appdir-tls.sh` deletes that line,
+        // so the AppImage picks its backend the way GTK does: Wayland on a Wayland session. Through
+        // XWayland a frame costs more to present: `ui/perf/framecost.py`, one small animation at
+        // 1300x720, CPU per frame across the UI process, the web compositor and Xwayland, 6.5 ms on
+        // X11 with SHM against 3.6 ms on Wayland. `LIMUSIC_GDK_BACKEND` wins over the user's
+        // GDK_BACKEND and any hook, because it is read here, last: `LIMUSIC_GDK_BACKEND=x11` is the
+        // way back for a desktop where the Wayland backend misbehaves.
         //
-        // ponytail: an escape hatch, not a setting. Make Wayland the AppImage's default once an RC
-        // round has covered Mesa, then keep this for forcing x11.
+        // ponytail: an escape hatch, not a setting.
         if let Some(backend) = std::env::var_os("LIMUSIC_GDK_BACKEND") {
             std::env::set_var("GDK_BACKEND", backend);
         }
@@ -674,9 +697,10 @@ pub fn run() {
         }
         // On XWayland the proprietary driver cannot back the DMABUF renderer at all: "Failed to
         // create GBM buffer of size WxH: Invalid argument", zero frames, the window never paints.
-        // The AppImage always lands there, because linuxdeploy-plugin-gtk's AppRun hook exports
-        // GDK_BACKEND=x11 and Tauri's bundler ships that hook; GDK_BACKEND is set nowhere in this
-        // repo. `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` keeps the renderer, and the GPU, while
+        // Any build lands there on an X11 session or with `LIMUSIC_GDK_BACKEND=x11`, except where
+        // WebKit has switched acceleration off by itself (the AppImage's does on X11, see
+        // WEBKIT_FORCE_DMABUF_RENDERER below), which makes this a no-op.
+        // `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` keeps the renderer, and the GPU, while
         // bypassing GBM. It costs about half the CPU of software rendering: 10% vs 18% on one
         // composited animation in `ui/perf/renderprobe.py`. A/B under `GDK_BACKEND=x11` on
         // 2026-08-31 (GTX 1060, driver 580.173.02, WebKitGTK 2.52.5): without it, a black window
@@ -700,14 +724,13 @@ pub fn run() {
         // The variable is only defaulted, and skipped if either WEBKIT_ knob is already set by
         // hand, so retesting stays possible.
         //
-        // ponytail: delete this the day the AppImage stops forcing X11, which would put those
-        // users on native Wayland and the full path, or the day the driver learns GBM on XWayland.
+        // ponytail: delete this the day the driver learns GBM on XWayland.
         //
-        // GDK picks its backend from GDK_BACKEND when set, else Wayland when WAYLAND_DISPLAY is,
-        // else X11.
+        // GDK picks its backend from GDK_BACKEND when set, else Wayland when it can connect to
+        // one, else X11.
         // A list ("wayland,x11") is tried in order, so with no Wayland display to connect to it
         // lands on x11 as well.
-        let no_wayland = std::env::var_os("WAYLAND_DISPLAY").is_none();
+        let no_wayland = !wayland_reachable();
         let on_x11 = match std::env::var("GDK_BACKEND") {
             Ok(b) => {
                 b.split(',').next() == Some("x11")
@@ -725,6 +748,26 @@ pub fn run() {
             std::env::set_var("WEBKIT_DMABUF_RENDERER_FORCE_SHM", "1");
         }
 
+        // Debian, Ubuntu, openSUSE and Gentoo build WebKitGTK with a patch that turns hardware
+        // acceleration off whenever the GL vendor is NVIDIA (disable-nvidia-dmabuf.patch, WebKit
+        // bug 262607), and the AppImage bundles Ubuntu's. So the AppImage on NVIDIA, and the .deb
+        // on those distros, painted every frame on the web process's main thread: `webkit://gpu`
+        // said `Policy: never`. WEBKIT_FORCE_DMABUF_RENDERER is the patch's own override, and an
+        // unpatched build (Fedora, Arch) never reads it. `framecost.py`, the AppImage's own
+        // WebKitGTK 2.52.6, GTX 1060, 580.178.04: navigating Home and Library presents 18 frames a
+        // second instead of 13 (p95 40 -> 36 ms), opening the player 14% -> 6% of frames over
+        // 20 ms, the lyrics sweep 6% -> 2%, all within 2 points and 3 ms of `cargo tauri dev`
+        // (docs/UI-PERF-COMPLAINTS.md, 2026-11-15).
+        //
+        // Not on X11, where forcing it lands on the SHM path above: that fixes the transitions
+        // too, but every steady animation then costs 25 points of a core more than the software
+        // path it replaces (hovering a shelf 31% -> 57%). On Wayland it is the DMABUF path that
+        // Fedora and Arch users on NVIDIA already run. With Intel drawing on a hybrid laptop the
+        // patch sees Mesa and stands down by itself, so this changes nothing there.
+        if !on_x11 && nvidia_draws && std::env::var_os("WEBKIT_FORCE_DMABUF_RENDERER").is_none() {
+            std::env::set_var("WEBKIT_FORCE_DMABUF_RENDERER", "1");
+        }
+
         // The web process deadlocks inside the NVIDIA driver when two of its threads free GL
         // textures at the same moment: the main thread, whose texture pool exists only for GPU
         // painting, and the compositor. Each pool sweeps out what it no longer uses on a timer;
@@ -735,8 +778,10 @@ pub fn run() {
         // entirely: `ui/perf/texhang.py` churn under gdb, 45 s, main thread frees 7108 textures
         // with GPU painting and 0 with this, the compositor 46k and 55k. Price, `framecost.py`
         // on native Wayland: idle, hover, scroll and playing lyrics unchanged, navigation 33 ->
-        // 36% web CPU (p95 frame 23 -> 32-37 ms), opening the player 45 -> 50%. The lock that
-        // hangs is NVIDIA's, so Mesa keeps GPU painting (untested there).
+        // 36% web CPU (p95 frame 23 -> 32-37 ms), opening the player 45 -> 50%. Twice the
+        // painting threads (WEBKIT_SKIA_CPU_PAINTING_THREADS=6 on six cores, default three) bought
+        // nothing back. The lock that hangs is NVIDIA's, so Mesa keeps GPU painting (untested
+        // there).
         //
         // ponytail: a hybrid laptop on Wayland with the driver loaded but Intel drawing gets CPU
         // painting too (the X11 vendor check would start Xwayland on GNOME just to ask). Drop
@@ -839,6 +884,12 @@ pub fn run() {
             let data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir());
             std::fs::create_dir_all(&data_dir).ok();
             init_logging(&data_dir);
+            // Which display GDK actually opened: a Wayland connection that fails falls back to X11
+            // without a word, and a report's log tail should say which one it was.
+            #[cfg(target_os = "linux")]
+            if let Some(d) = gtk::gdk::Display::default() {
+                tracing::info!(display = %gtk::glib::prelude::ObjectExt::type_(&d).name(), "gdk");
+            }
             let cache_dir = data_dir.join("audio-cache");
             std::fs::create_dir_all(&cache_dir).ok();
 
