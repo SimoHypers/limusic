@@ -366,26 +366,30 @@ pub async fn ambient_frame(after: u32) -> tauri::ipc::Response {
 /// or `None` when it has none. mpv draws the picture there, underneath the webview
 /// (nativevideo.rs, nativevideo_windows.rs). `false` means no picture is up, and for a rect that
 /// there never will be: the page falls back to the `<video>` element. `dpr` is the page's
-/// `devicePixelRatio`, which Windows needs for the page zoom; Linux reads the zoom off the webview.
+/// `devicePixelRatio`, which Windows needs for the page zoom; Linux gets it from `vw`, the page's
+/// `innerWidth`, against the webview's own width.
 #[tauri::command]
 pub async fn native_video_rect(
     app: tauri::AppHandle,
     state: St<'_>,
     rect: Option<[f64; 4]>,
     dpr: Option<f64>,
+    vw: Option<f64>,
 ) -> Result<bool, String> {
     #[cfg(target_os = "linux")]
     {
         let _ = dpr;
-        Ok(crate::nativevideo::set_rect(&app, state.inner().clone(), rect).await)
+        Ok(crate::nativevideo::set_rect(&app, state.inner().clone(), rect, vw).await)
     }
+    #[cfg(windows)]
+    let _ = vw;
     #[cfg(windows)]
     return Ok(
         crate::nativevideo::set_rect(&app, state.inner().clone(), rect, dpr.unwrap_or(1.0)).await
     );
     #[cfg(not(any(target_os = "linux", windows)))]
     {
-        let _ = (app, state, rect, dpr);
+        let _ = (app, state, rect, dpr, vw);
         Ok(false)
     }
 }
