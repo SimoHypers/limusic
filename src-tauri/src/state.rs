@@ -3704,6 +3704,18 @@ impl AppState {
 
     /// Replace the exclusion list (the `auto_pause_excluded` setting) and re-judge what is playing now.
     pub fn set_auto_pause_excluded(self: &Arc<Self>, ids: Vec<String>) {
+        tracing::debug!(target: "app_lib::autopause", excluded = ?ids, "exclusion list set");
+        {
+            // Keep every excluded app on the "recently seen" list for the session, so removing it
+            // from the exclusions doesn't make it vanish until it plays again.
+            let mut seen = self.auto_pause_seen.lock().unwrap_or_else(|e| e.into_inner());
+            for id in &ids {
+                if !seen.contains(id) {
+                    seen.push(id.clone());
+                }
+            }
+            seen.truncate(AUTO_PAUSE_SEEN_MAX);
+        }
         *self.auto_pause_excluded.write().unwrap_or_else(|e| e.into_inner()) =
             ids.into_iter().collect();
         self.refresh_external_audio();
