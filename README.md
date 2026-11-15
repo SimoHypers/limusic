@@ -102,7 +102,7 @@ YouTube Music client, and grew from there.
 - Adaptive colors from the playing cover
 - Material You, or your wallpaper's colors through Matugen, wallust or pywal
 - A custom app icon
-- Eighteen languages, more on [Weblate](https://hosted.weblate.org/projects/limusic/)
+- Nineteen languages, more on [Weblate](https://hosted.weblate.org/projects/limusic/)
 
 </td>
 </tr>
@@ -282,7 +282,7 @@ who host it free for libre projects.
   <img src="https://hosted.weblate.org/widget/limusic/ui/multi-auto.svg" alt="Translation status">
 </a>
 
-Eighteen languages ship in the app today, and the badge above shows everything
+Nineteen languages ship in the app today, and the badge above shows everything
 else in flight.
 
 **Translate on Weblate, not in a pull request.** Weblate keeps its own copy of
