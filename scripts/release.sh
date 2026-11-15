@@ -276,3 +276,6 @@ else
   echo "    src/ or ui/ needs a new version, since the run checks out the tag." >&2
   exit 1
 fi
+
+# Complete either way, so tell the Discord: #announcements for a release, #betas for an RC.
+scripts/announce.sh "$TAG" || echo "    WARNING: the Discord post failed. Retry: scripts/announce.sh $TAG"
