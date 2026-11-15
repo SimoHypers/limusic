@@ -33,7 +33,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Popover from '$lib/components/ui/popover';
 	import * as Select from '$lib/components/ui/select';
-	import { HELP_COMBO } from '$lib/shortcuts';
+	import { HELP_COMBO, IS_MAC } from '$lib/shortcuts';
 	import { copyText } from '$lib/clipboard';
 	import * as api from '$lib/api';
 	import { blocked, karaokeAvailability, karaokeConsent, karaokeModels, karaokeSelection, cancelKaraokeModelDownload, deleteKaraokeModel, playback, prefs, refreshLanguage, setAutoplay, ui, toast, unblockArtist, setKaraokeDevice, applyKaraokeStatus, chooseKaraokeModel, refreshKaraokeModels } from '$lib/player.svelte';
@@ -366,6 +366,7 @@
 			settings = s;
 			clients = c;
 			proxyInput = s.proxy ?? '';
+			await refreshAutoPauseSeen();
 		} catch (e) {
 			toast.error(String(e));
 		}
@@ -400,6 +401,42 @@
 	// Off by default, and only offered with music videos on: it costs real GPU time on every frame.
 	const ambientOn = $derived(settings.ambient_light === 'true');
 	const preventDuplicatesOn = $derived(settings.prevent_duplicates === 'true');
+	// Off by default: pause when other apps play media.
+	const autoPauseOn = $derived(settings.auto_pause_other_audio === 'true');
+	function parseIds(raw: string | undefined): string[] {
+		if (!raw) return [];
+		try {
+			const parsed = JSON.parse(raw);
+			if (Array.isArray(parsed)) {
+				return parsed.filter((item): item is string => typeof item === 'string');
+			}
+		} catch {
+			// ignore
+		}
+		return [];
+	}
+	const autoPauseExcluded = $derived(parseIds(settings.auto_pause_excluded));
+	let autoPauseSeen = $state<string[]>([]);
+	async function refreshAutoPauseSeen() {
+		try {
+			autoPauseSeen = await api.autoPauseSeenApps();
+		} catch {
+			autoPauseSeen = [];
+		}
+	}
+	async function setAutoPauseExcluded(ids: string[]) {
+		settings.auto_pause_excluded = JSON.stringify(ids);
+		await api.setSetting('auto_pause_excluded', settings.auto_pause_excluded);
+		await refreshAutoPauseSeen();
+	}
+	// Display only: system media ids are machine names. Store apps look like "Pkg_hash!App",
+	// classic ones like "Vendor.App.123456" or "app.exe"; show the readable tail.
+	function appLabel(id: string) {
+		const tail = id.includes('!') ? id.slice(id.lastIndexOf('!') + 1) : id;
+		const clean = tail.replace(/\.\d+$/, '').replace(/\.exe$/i, '');
+		return clean.includes('.') ? clean.slice(clean.lastIndexOf('.') + 1) : clean;
+	}
+	const unexcludedSeen = $derived(autoPauseSeen.filter((id) => !autoPauseExcluded.includes(id)));
 	// Off by default: shuffle applies to the queue it was turned on for (issue #117).
 	const stickyShuffleOn = $derived(settings.sticky_shuffle === 'true');
 	// Off by default: shuffle keeps what was added with Add to queue behind the playlist (#369).
@@ -493,6 +530,12 @@
 	async function setPreventDuplicates(on: boolean) {
 		settings.prevent_duplicates = on ? 'true' : 'false';
 		await api.setSetting('prevent_duplicates', settings.prevent_duplicates);
+	}
+
+	async function setAutoPause(on: boolean) {
+		settings.auto_pause_other_audio = on ? 'true' : 'false';
+		await api.setSetting('auto_pause_other_audio', settings.auto_pause_other_audio);
+		await refreshAutoPauseSeen();
 	}
 
 	async function setStickyShuffle(on: boolean) {
@@ -831,6 +874,16 @@
 									control: dupSwitch,
 									tall: true
 								})}
+								<!-- there is no media watcher on macOS, so the setting isn't offered there -->
+								{#if !IS_MAC}
+									{@render row({
+										title: t('settings.playback.auto_pause_other_audio'),
+										desc: t('settings.playback.auto_pause_other_audio_hint'),
+										control: autoPauseSwitch,
+										below: autoPauseApps,
+										tall: true
+									})}
+								{/if}
 								{@render row({
 									title: t('settings.playback.sticky_shuffle'),
 									desc: t('settings.playback.sticky_shuffle_hint'),
@@ -1188,6 +1241,51 @@
 		checked={preventDuplicatesOn}
 		onCheckedChange={setPreventDuplicates}
 	/>{/snippet}
+{#snippet autoPauseSwitch()}<Switch
+		checked={autoPauseOn}
+		onCheckedChange={setAutoPause}
+	/>{/snippet}
+{#snippet autoPauseApps()}
+	{#if autoPauseOn}
+		{#if !autoPauseExcluded.length && !unexcludedSeen.length}
+			<p class="text-xs leading-relaxed text-muted-foreground">
+				{t('settings.playback.auto_pause_apps_empty')}
+			</p>
+		{:else}
+			<p class="mb-2 text-xs font-medium text-muted-foreground">
+				{t('settings.playback.auto_pause_excluded_title')}
+			</p>
+			<div class="flex max-h-52 flex-col gap-2 overflow-y-auto pr-1">
+				{#each autoPauseExcluded as id (id)}
+					<div class="flex items-center justify-between gap-2 rounded-lg bg-muted/60 py-1.5 pr-1.5 pl-3">
+						<span class="truncate text-xs" title={id}>{appLabel(id)}</span>
+						<Button
+							variant="ghost"
+							size="sm"
+							class="h-7 px-2 text-xs shrink-0"
+							onclick={() => setAutoPauseExcluded(autoPauseExcluded.filter((i) => i !== id))}
+						>
+							{t('settings.playback.auto_pause_include')}
+						</Button>
+					</div>
+				{/each}
+				{#each unexcludedSeen as id (id)}
+					<div class="flex items-center justify-between gap-2 rounded-lg bg-muted/60 py-1.5 pr-1.5 pl-3">
+						<span class="truncate text-xs" title={id}>{appLabel(id)}</span>
+						<Button
+							variant="ghost"
+							size="sm"
+							class="h-7 px-2 text-xs shrink-0"
+							onclick={() => setAutoPauseExcluded([...autoPauseExcluded, id])}
+						>
+							{t('settings.playback.auto_pause_exclude')}
+						</Button>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	{/if}
+{/snippet}
 {#snippet stickyShuffleSwitch()}<Switch
 		checked={stickyShuffleOn}
 		onCheckedChange={setStickyShuffle}

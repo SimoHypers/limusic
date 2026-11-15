@@ -563,6 +563,7 @@ export const setWebviewOpaque = (opaque: boolean) =>
 export const getSettings = () => invoke<Record<string, string>>('get_settings');
 export const setSetting = (key: string, value: string) =>
 	invoke<void>('set_setting', { key, value });
+export const autoPauseSeenApps = () => invoke<string[]>('auto_pause_seen_apps');
 /** Streamable client keys for the "disabled clients" setting. */
 export const getStreamClients = () => invoke<string[]>('get_stream_clients');
 /** Wipe both cache tiers (URL cache + mpv on-disk audio cache). */

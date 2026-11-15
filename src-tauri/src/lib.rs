@@ -2,6 +2,7 @@
 
 mod appicon;
 mod audioproxy;
+mod autopause;
 mod blocked;
 mod cipher;
 mod commands;
@@ -1069,6 +1070,18 @@ pub fn run() {
             ));
             app.manage(app_state.clone());
 
+            app_state.set_auto_pause_enabled(
+                app_state.db.get_setting("auto_pause_other_audio").as_deref() == Some("true"),
+            );
+            app_state.set_auto_pause_excluded(
+                app_state
+                    .db
+                    .get_setting("auto_pause_excluded")
+                    .and_then(|v| serde_json::from_str::<Vec<String>>(&v).ok())
+                    .unwrap_or_default(),
+            );
+            autopause::spawn(app_state.clone());
+
             // The player view's <video> pulls its bytes from Rust over loopback, so the webview
             // never sees a googlevideo URL (context/11). videoproxy.rs explains why a socket and
             // not a custom scheme.
@@ -1367,6 +1380,7 @@ pub fn run() {
             commands::stop_matugen_watcher,
             commands::get_settings,
             commands::set_setting,
+            commands::auto_pause_seen_apps,
             commands::get_global_hotkeys,
             commands::global_hotkeys_on_wayland,
             commands::set_global_hotkeys,
