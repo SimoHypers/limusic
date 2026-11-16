@@ -28,7 +28,7 @@
 	import { thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
 	import { blockForeignDrag, dragScroll } from '$lib/dnd';
-	import { suppressNative } from '$lib/menu';
+	import { notePress, skipSelectClick, suppressNative } from '$lib/menu';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import Titlebar from '$lib/components/Titlebar.svelte';
 	import ResizeBorders from '$lib/components/ResizeBorders.svelte';
@@ -209,13 +209,16 @@
 
 <!-- oncontextmenu: the app's own menus handle their right-click and stop the event, so anything
      that reaches the window is a place where WebKit would have offered back / reload / inspect.
-     Text fields and selections keep the native menu (see `suppressNative`). -->
+     Text fields and selections keep the native menu (see `suppressNative`). A click that ends a
+     drag-select reaches nothing (`skipSelectClick`, #262). -->
 <!-- A Spotify export, CSV or link dropped anywhere opens the import (#375); anything else foreign is
      refused as before. -->
 <svelte:window
 	ondragover={blockForeignDrag}
 	ondrop={(e) => handleImportDrop(e) || blockForeignDrag(e)}
 	oncontextmenu={suppressNative}
+	onpointerdowncapture={notePress}
+	onclickcapture={skipSelectClick}
 />
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
