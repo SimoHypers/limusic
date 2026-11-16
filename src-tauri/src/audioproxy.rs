@@ -24,7 +24,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::convert::Infallible;
 use std::io;
-use std::net::{Ipv4Addr, TcpListener};
+use std::net::{IpAddr, Ipv4Addr, TcpListener, UdpSocket};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -167,7 +167,7 @@ pub fn register(url: &str, headers: &HashMap<String, String>) -> Option<String> 
         meta: Mutex::new(None),
     });
     {
-        let mut r = REGISTRY.get()?.lock().ok()?;
+        let mut r = REGISTRY.get_or_init(|| Mutex::new(Registry { map: HashMap::new(), order: VecDeque::new() })).lock().ok()?;
         while r.order.len() >= MAX_REGISTRATIONS {
             if let Some(old) = r.order.pop_front() {
                 r.map.remove(&old);
@@ -177,6 +177,152 @@ pub fn register(url: &str, headers: &HashMap<String, String>) -> Option<String> 
         r.order.push_back(id.clone());
     }
     Some(format!("http://127.0.0.1:{port}/{token}/a/{id}"))
+}
+
+struct LanServerState {
+    port: u16,
+    token: String,
+    stop_tx: tokio::sync::oneshot::Sender<()>,
+}
+
+static LAN_STATE: OnceLock<Mutex<Option<LanServerState>>> = OnceLock::new();
+
+fn lan_state_lock() -> &'static Mutex<Option<LanServerState>> {
+    LAN_STATE.get_or_init(|| Mutex::new(None))
+}
+
+/// Start the second listener bound to 0.0.0.0 (ephemeral port) with its own random token, lazily and idempotent.
+pub fn start_lan() -> Option<u16> {
+    let mut lock = lan_state_lock().lock().ok()?;
+    if let Some(state) = &*lock {
+        return Some(state.port);
+    }
+    let listener = match TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)) {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::warn!(error = %e, "audio proxy lan: bind failed");
+            return None;
+        }
+    };
+    let port = match listener.local_addr() {
+        Ok(a) => a.port(),
+        Err(e) => {
+            tracing::warn!(error = %e, "audio proxy lan: local_addr failed");
+            return None;
+        }
+    };
+    if let Err(e) = listener.set_nonblocking(true) {
+        tracing::warn!(error = %e, "audio proxy lan: set_nonblocking failed");
+        return None;
+    }
+    let token = format!("{:016x}{:016x}", rand::random::<u64>(), rand::random::<u64>());
+    let (stop_tx, mut stop_rx) = tokio::sync::oneshot::channel::<()>();
+
+    let token_clone = token.clone();
+    tauri::async_runtime::spawn(async move {
+        let Ok(listener) = tokio::net::TcpListener::from_std(listener) else { return };
+        loop {
+            let accept_fut = listener.accept();
+            tokio::select! {
+                _ = &mut stop_rx => {
+                    break;
+                }
+                accepted = accept_fut => {
+                    let (stream, peer_addr) = match accepted {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tracing::warn!(error = %e, "audio proxy lan: accept failed");
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                            continue;
+                        }
+                    };
+                    let token = token_clone.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let svc = service_fn(move |req| {
+                            let token = token.clone();
+                            async move { handle_lan(req, peer_addr, &token).await }
+                        });
+                        let _ = http1::Builder::new()
+                            .timer(TokioTimer::new())
+                            .header_read_timeout(Duration::from_secs(15))
+                            .serve_connection(TokioIo::new(stream), svc)
+                            .await;
+                    });
+                }
+            }
+        }
+        tracing::info!("audio proxy lan stopped");
+    });
+
+    *lock = Some(LanServerState { port, token, stop_tx });
+    tracing::info!(port, "audio proxy listening on LAN");
+    Some(port)
+}
+
+/// Stop the LAN proxy listener (called when casting ends).
+pub fn stop_lan() {
+    if let Ok(mut lock) = lan_state_lock().lock() {
+        if let Some(state) = lock.take() {
+            let _ = state.stop_tx.send(());
+        }
+    }
+}
+
+/// Register one YouTube stream URL for LAN casting (e.g. Chromecast) and return the LAN URL
+/// the device should be handed. Computes this PC's LAN IP toward `device_ip` by connecting a
+/// UdpSocket to `device_ip:8009` and reading `local_addr()`.
+pub fn register_lan(
+    url: &str,
+    headers: &HashMap<String, String>,
+    device_ip: IpAddr,
+) -> Option<String> {
+    if !crate::orchestrator::is_youtube_stream(url)
+        || std::env::var_os("LIMUSIC_NO_AUDIO_PROXY").is_some()
+    {
+        return None;
+    }
+    let port = start_lan()?;
+    let token = {
+        let lock = lan_state_lock().lock().ok()?;
+        lock.as_ref()?.token.clone()
+    };
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect((device_ip, 8009)).ok()?;
+    let lan_ip = socket.local_addr().ok()?.ip();
+
+    let id = format!("{:016x}", rand::random::<u64>());
+    let reg = Arc::new(Registration {
+        url: url.to_owned(),
+        headers: headers.clone(),
+        meta: Mutex::new(None),
+    });
+    {
+        let mut r = REGISTRY.get_or_init(|| Mutex::new(Registry { map: HashMap::new(), order: VecDeque::new() })).lock().ok()?;
+        while r.order.len() >= MAX_REGISTRATIONS {
+            if let Some(old) = r.order.pop_front() {
+                r.map.remove(&old);
+            }
+        }
+        r.map.insert(id.clone(), reg);
+        r.order.push_back(id.clone());
+    }
+    Some(format!("http://{lan_ip}:{port}/{token}/a/{id}"))
+}
+
+fn is_private_ip(ip: IpAddr) -> bool {
+    if ip.is_loopback() {
+        return true;
+    }
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            v4.is_private() || (o[0] == 169 && o[1] == 254)
+        }
+        IpAddr::V6(v6) => {
+            let s = v6.segments();
+            (s[0] & 0xffc0 == 0xfe80) || (s[0] & 0xfe00 == 0xfc00)
+        }
+    }
 }
 
 /// `/<token>/<kind>/<id>` to `(kind, id)`, once the token matches this launch's.
@@ -312,6 +458,31 @@ async fn serve(req: Request<Incoming>) -> Result<Response<ProxyBody>, Infallible
     Ok(handle(req).await.unwrap_or_else(empty))
 }
 
+async fn handle_lan(
+    req: Request<Incoming>,
+    peer_addr: std::net::SocketAddr,
+    token: &str,
+) -> Result<Response<ProxyBody>, Infallible> {
+    Ok(handle_lan_inner(req, peer_addr, token).await.unwrap_or_else(empty))
+}
+
+async fn handle_lan_inner(
+    req: Request<Incoming>,
+    peer_addr: std::net::SocketAddr,
+    token: &str,
+) -> Result<Response<ProxyBody>, StatusCode> {
+    if !matches!(*req.method(), Method::GET | Method::HEAD) {
+        return Err(StatusCode::METHOD_NOT_ALLOWED);
+    }
+    if !is_private_ip(peer_addr.ip()) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let Some(("a", id)) = route(req.uri().path(), token) else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+    serve_audio_stream(&req, id).await
+}
+
 async fn handle(req: Request<Incoming>) -> Result<Response<ProxyBody>, StatusCode> {
     if !matches!(*req.method(), Method::GET | Method::HEAD) {
         return Err(StatusCode::METHOD_NOT_ALLOWED);
@@ -320,11 +491,19 @@ async fn handle(req: Request<Incoming>) -> Result<Response<ProxyBody>, StatusCod
     if let Some(("k", id)) = route(req.uri().path(), token) {
         return serve_growing(&req, id).await;
     }
-    let id = id_from(req.uri().path(), token).ok_or(StatusCode::NOT_FOUND)?;
+    let Some(("a", id)) = route(req.uri().path(), token) else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+    serve_audio_stream(&req, id).await
+}
+
+async fn serve_audio_stream(
+    req: &Request<Incoming>,
+    id: &str,
+) -> Result<Response<ProxyBody>, StatusCode> {
     let reg = {
         let r = REGISTRY
-            .get()
-            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+            .get_or_init(|| Mutex::new(Registry { map: HashMap::new(), order: VecDeque::new() }))
             .lock()
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         r.map.get(id).cloned()
@@ -625,5 +804,18 @@ mod tests {
         assert_eq!(total_from_content_range("bytes 0-0/122414474"), Some(122414474));
         assert_eq!(total_from_content_range("bytes 0-0/*"), None);
         assert_eq!(total_from_content_range("nonsense"), None);
+    }
+
+    #[test]
+    fn test_is_private_ip() {
+        assert!(is_private_ip("127.0.0.1".parse().unwrap()));
+        assert!(is_private_ip("::1".parse().unwrap()));
+        assert!(is_private_ip("10.0.0.1".parse().unwrap()));
+        assert!(is_private_ip("172.16.0.1".parse().unwrap()));
+        assert!(is_private_ip("192.168.1.1".parse().unwrap()));
+        assert!(is_private_ip("169.254.1.1".parse().unwrap()));
+        assert!(is_private_ip("fe80::1".parse().unwrap()));
+        assert!(!is_private_ip("8.8.8.8".parse().unwrap()));
+        assert!(!is_private_ip("1.1.1.1".parse().unwrap()));
     }
 }
