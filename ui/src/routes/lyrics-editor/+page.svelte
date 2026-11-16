@@ -73,6 +73,7 @@
 	import { link } from '$lib/link.svelte';
 	import { limusic, liveRevision, refreshAccount, submitLyrics } from '$lib/limusic.svelte';
 	import { submitMessage, type Message } from '$lib/limusic';
+	import { isGone, reviewErrorKey } from '$lib/review';
 	import { thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
 	import { keyOf, typing } from '$lib/shortcuts';
@@ -159,6 +160,11 @@
 					duration: clockSecs(opened.duration) || (playback.duration > 0 ? playback.duration : undefined)
 				}
 			: null;
+	/** A reviewer fixing a submission before approving it (Fix before approving, on the review
+	 *  page): its lines are the start, and sending is the approval. Only for the song it is about. */
+	const fixing = limusic.fixing && track && limusic.fixing.videoId === track.videoId ? $state.snapshot(limusic.fixing) : null;
+	/** Why a reviewer turned down my last version of this song, said once at the top. */
+	let rejection = $state<api.LimusicRejection | null>(null);
 
 	const onTrack = $derived(!!track && playback.now?.videoId === track.videoId);
 	/** The song's length in ms, 0 while unknown. mpv's while the song is the one playing. */
@@ -188,7 +194,9 @@
 	function flush() {
 		clearTimeout(saveTimer);
 		saveTimer = undefined;
-		if (!track || !lines.length || sent) return;
+		// ponytail: a fix lives on this page only, so it never overwrites the reviewer's own draft
+		// of the song. Leaving the page drops it; the submission is still in the queue.
+		if (!track || !lines.length || sent || fixing) return;
 		const json = packDraft({ v: 1, videoId: track.videoId, lines, nextId, baseRevision, improving });
 		saveFailed = !store(draftKey(track.videoId), json);
 	}
@@ -311,6 +319,8 @@
 	let discardOpen = $state(false);
 	function discard() {
 		discardOpen = false;
+		// A fix starts over from the submission as it was sent.
+		if (fixing) return begin(fromLyrics(fixing.lines), false);
 		clearTimeout(saveTimer);
 		if (track) store(draftKey(track.videoId), null);
 		lines = [];
@@ -680,6 +690,7 @@
 	let result = $state.raw<Message | null>(null);
 
 	function openSend() {
+		if (fixing) return approveFix();
 		if (!track || !ready(miss)) return;
 		commitField();
 		result = null;
@@ -715,6 +726,30 @@
 			result = m;
 			// Closed while it was on its way: the answer is still owed.
 			sendOpen = true;
+		} finally {
+			submitting = false;
+		}
+	}
+
+	/** The fix goes live in place of what was sent, still the author's. Back to the queue after. */
+	async function approveFix() {
+		if (!fixing || !ready(miss) || submitting) return;
+		commitField();
+		submitting = true;
+		try {
+			await api.limusicReview(fixing.revision, fixing.videoId, 'approve', undefined, buildLines(lines));
+			toast.success(t('review.approved_fixed'));
+			// Left while it was on its way: wherever the reviewer is now is not ours to move.
+			if (!alive) return;
+			limusic.fixing = null;
+			history.back();
+		} catch (e) {
+			const code = String(e);
+			toast.error(t(reviewErrorKey(code)));
+			if (isGone(code) && alive) {
+				limusic.fixing = null;
+				history.back();
+			}
 		} finally {
 			submitting = false;
 		}
@@ -809,7 +844,12 @@
 			mode = 'start';
 			return;
 		}
-		const draft = unpackDraft(
+		if (!fixing && limusic.signedIn) {
+			api.limusicMyRejection(track.videoId)
+				.then((r) => (rejection = r))
+				.catch(() => {});
+		}
+		const draft = fixing ? null : unpackDraft(
 			(() => {
 				try {
 					return localStorage.getItem(draftKey(track.videoId));
@@ -819,7 +859,8 @@
 			})(),
 			track.videoId
 		);
-		if (draft) {
+		if (fixing) begin(fromLyrics(fixing.lines), false);
+		else if (draft) {
 			lines = draft.lines;
 			nextId = draft.nextId;
 			baseRevision = draft.baseRevision;
@@ -846,8 +887,12 @@
 			window.removeEventListener('pagehide', flush);
 		};
 	});
+	let alive = true;
 	onDestroy(() => {
+		alive = false;
 		if (saveTimer !== undefined) flush();
+		// Left without approving: the review page opens the same one again.
+		if (fixing) limusic.fixing = null;
 	});
 
 	const speedLabel = (s: number) => `${+s.toFixed(2)}x`;
@@ -963,13 +1008,14 @@
 						<span class={wide ? '' : 'sr-only'}>{mode === 'edit' ? t('lyrics_editor.preview') : t('lyrics_editor.edit')}</span>
 					</Button>
 					<Button
-						disabled={!ready(miss)}
-						aria-label={t('lyrics_editor.submit')}
+						disabled={!ready(miss) || submitting}
+						aria-label={fixing ? t('review.approve_fixes') : t('lyrics_editor.submit')}
 						title={ready(miss) ? undefined : t('lyrics_editor.submit_not_ready')}
 						onclick={openSend}
 					>
-						<HugeiconsIcon icon={SentIcon} class="size-4" />
-						<span class={wide ? '' : 'sr-only'}>{t('lyrics_editor.submit')}</span>
+						<!-- icon swap via altIcon/showAlt: `icon` is frozen at mount -->
+						<HugeiconsIcon icon={SentIcon} altIcon={Tick02Icon} showAlt={!!fixing} class="size-4" />
+						<span class={wide ? '' : 'sr-only'}>{fixing ? t('review.approve_fixes') : t('lyrics_editor.submit')}</span>
 					</Button>
 					<Popover.Root bind:open={headMenu}>
 						<Popover.Trigger class={buttonVariants({ variant: 'ghost', size: 'icon' })} aria-label={t('lyrics_editor.more')} title={t('lyrics_editor.more')}>
@@ -985,7 +1031,7 @@
 								}}
 							>
 								<HugeiconsIcon icon={Delete02Icon} class="size-4" />
-								{t('lyrics_editor.discard')}
+								{fixing ? t('review.fix_undo') : t('lyrics_editor.discard')}
 							</button>
 						</Popover.Content>
 					</Popover.Root>
@@ -1027,6 +1073,29 @@
 			</div>
 		{/if}
 	</header>
+
+	{#if fixing}
+		<!-- Whose work this is, and what approving does with it. -->
+		<div class="px-6 pb-3">
+			<LimusicNotice
+				icon={PencilEdit02Icon}
+				title={fixing.author ? t('review.fixing_title', { handle: fixing.author }) : t('review.fixing_title_anonymous')}
+				body={t('review.fixing_body')}
+			/>
+		</div>
+	{:else if rejection && mode !== 'preview'}
+		<div class="px-6 pb-3">
+			<LimusicNotice
+				icon={InformationCircleIcon}
+				title={t('lyrics_editor.rejected_title')}
+				body={rejection.reason ? t('lyrics_editor.rejected_reason', { reason: rejection.reason }) : t('lyrics_editor.rejected_no_reason')}
+			>
+				{#snippet actions()}
+					<Button size="sm" variant="ghost" onclick={() => (rejection = null)}>{t('common.close')}</Button>
+				{/snippet}
+			</LimusicNotice>
+		</div>
+	{/if}
 
 	{#if !track}
 		<div class="flex flex-1 flex-col items-center justify-center gap-1.5 border-t px-6 text-center">
@@ -1261,9 +1330,9 @@
 								<HugeiconsIcon icon={ViewIcon} class="size-4" />
 								{t('lyrics_editor.ready_preview')}
 							</Button>
-							<Button size="lg" onclick={openSend}>
-								<HugeiconsIcon icon={SentIcon} class="size-4" />
-								{t('lyrics_editor.submit')}
+							<Button size="lg" disabled={submitting} onclick={openSend}>
+								<HugeiconsIcon icon={SentIcon} altIcon={Tick02Icon} showAlt={!!fixing} class="size-4" />
+								{fixing ? t('review.approve_fixes') : t('lyrics_editor.submit')}
 							</Button>
 						</div>
 					</div>
@@ -1737,12 +1806,12 @@
 <AlertDialog.Root bind:open={discardOpen}>
 	<AlertDialog.Content>
 		<AlertDialog.Header>
-			<AlertDialog.Title>{t('lyrics_editor.discard_title')}</AlertDialog.Title>
-			<AlertDialog.Description>{t('lyrics_editor.discard_body')}</AlertDialog.Description>
+			<AlertDialog.Title>{fixing ? t('review.fix_undo_title') : t('lyrics_editor.discard_title')}</AlertDialog.Title>
+			<AlertDialog.Description>{fixing ? t('review.fix_undo_body') : t('lyrics_editor.discard_body')}</AlertDialog.Description>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>
 			<AlertDialog.Cancel>{t('common.cancel')}</AlertDialog.Cancel>
-			<AlertDialog.Action onclick={discard}>{t('lyrics_editor.discard')}</AlertDialog.Action>
+			<AlertDialog.Action onclick={discard}>{fixing ? t('review.fix_undo') : t('lyrics_editor.discard')}</AlertDialog.Action>
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>

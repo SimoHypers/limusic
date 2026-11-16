@@ -1459,6 +1459,8 @@ export interface LimusicRevision {
 	created_at: number;
 	/** The submitted lines, ready for `LyricsView`'s `preview`. */
 	lyrics: Lyrics | null;
+	/** The author's revisions that went live, and those a reviewer rejected. Absent for mirrored ones. */
+	author_record: { approved: number; rejected: number } | null;
 }
 /** Oldest first, 50 a page. */
 export const limusicReviewQueue = (after?: number) =>
@@ -1470,8 +1472,38 @@ export const limusicLiveLyrics = (videoId: string) =>
 	invoke<Lyrics | null>('limusic_live_lyrics', { videoId });
 /** Resolves with the service's status: `published`, `rejected`, or `reverted` (a live lyric taken
  *  down). An approval also replaces the song's cached lyric here. */
-export const limusicReview = (revision: number, videoId: string, verdict: 'approve' | 'reject', reason?: string) =>
-	invoke<string>('limusic_review', { revision, videoId, verdict, reason: reason ?? null });
+export const limusicReview = (
+	revision: number,
+	videoId: string,
+	verdict: 'approve' | 'reject',
+	reason?: string,
+	/** With an approval of a pending revision: the reviewer's fix, live in place of what was sent. */
+	lines?: LyricLine[]
+) => invoke<string>('limusic_review', { revision, videoId, verdict, reason: reason ?? null, lines: lines ?? null });
+/** A reviewer turned down my latest version of a song, and nothing went live after it. */
+export interface LimusicRejection {
+	reason: string | null;
+	at: number | null;
+}
+export const limusicMyRejection = (videoId: string) =>
+	invoke<LimusicRejection | null>('limusic_my_rejection', { videoId });
+/** One linked account on the lyrics team page (admins only). */
+export interface LimusicMember {
+	handle: string;
+	avatar_url: string | null;
+	role: 'user' | 'reviewer' | 'admin';
+	banned: boolean;
+	score: number;
+	approved: number;
+	rejected: number;
+	joined_at: number;
+	/** This is the admin looking: no controls on it. */
+	you: boolean;
+}
+/** Staff then contributors with points for an empty `q`, else the handles holding it. */
+export const limusicAdminAccounts = (q: string) => invoke<LimusicMember[]>('limusic_admin_accounts', { q });
+export const limusicAdminUpdate = (handle: string, change: { role?: LimusicMember['role']; banned?: boolean }) =>
+	invoke<LimusicMember>('limusic_admin_update', { handle, role: change.role ?? null, banned: change.banned ?? null });
 /** Puts an earlier revision of the song back, or `null` for no lyric. Resolves with the live one. */
 export const limusicRevert = (videoId: string, toRevision: number | null, reason?: string) =>
 	invoke<number | null>('limusic_revert', { videoId, toRevision, reason: reason ?? null });
