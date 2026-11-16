@@ -56,6 +56,7 @@ const SPOTLIGHT = 'rgba(229, 72, 110, 0.16)' as const
 const WEBLATE_URL = 'https://hosted.weblate.org/engage/limusic/'
 const AUR_URL = 'https://aur.archlinux.org/packages/limusic-bin'
 const KOFI_URL = 'https://ko-fi.com/simohypers'
+const DISCORD_URL = 'https://discord.gg/jWWydPV3FF'
 const BUILD_DOCS_URL = `${REPO_URL}/blob/master/docs/BUILD-PLATFORMS.md`
 
 const FEATURES = [
@@ -621,6 +622,9 @@ function Footer() {
           </a>
           <a href="lyrics/" className="flex items-center gap-1.5 transition-colors hover:text-foreground">
             <HugeiconsIcon icon={QuoteDownIcon} size={15} strokeWidth={2} /> Lyrics leaderboard
+          </a>
+          <a href={DISCORD_URL} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 transition-colors hover:text-foreground">
+            <HugeiconsIcon icon={DiscordIcon} size={15} strokeWidth={2} /> Discord
           </a>
           <a href={WEBLATE_URL} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 transition-colors hover:text-foreground">
             <HugeiconsIcon icon={TranslateIcon} size={15} strokeWidth={2} /> Translate
