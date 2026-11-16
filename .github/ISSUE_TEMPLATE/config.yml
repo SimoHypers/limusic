@@ -3,3 +3,6 @@ contact_links:
   - name: Question, or not sure it is a bug
     url: https://github.com/SimoHypers/limusic/discussions
     about: Ask here, no form to fill in.
+  - name: Chat on Discord
+    url: https://discord.gg/jWWydPV3FF
+    about: Help, ideas and music talk with other Limusic users.
