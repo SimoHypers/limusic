@@ -1978,7 +1978,7 @@ fn decode_xml_entities(s: &str) -> String {
     while let Some(amp) = rest.find('&') {
         out.push_str(&rest[..amp]);
         rest = &rest[amp..];
-        let decoded = rest.find(';').filter(|&end| end <= 10).and_then(|end| {
+        let decoded = rest.bytes().take(11).position(|b| b == b';').and_then(|end| {
             let c = match &rest[1..end] {
                 "amp" => '&',
                 "lt" => '<',
