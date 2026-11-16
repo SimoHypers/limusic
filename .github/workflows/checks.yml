@@ -216,6 +216,14 @@ jobs:
       - name: cargo build -p limusic-app
         run: cargo build -p limusic-app
 
+      # The lib test binary links on its own, so it only gets the manifest build.rs adds.
+      # MPV_DIR goes on PATH because the test binary imports libmpv-2.dll at load.
+      - name: cargo test -p limusic-app --lib
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:MPV_DIR;$env:PATH"
+          cargo test -p limusic-app --lib
+
       - name: cargo test -p karaoke
         run: cargo test -p karaoke
 
