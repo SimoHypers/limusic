@@ -160,6 +160,26 @@
 		</div>
 	{:else if local.songs.length}
 		<Tabs.Root bind:value={view}>
+			<!-- Above the tabs, so they are there on Albums and Artists too (#95): Local opens on Albums. -->
+			<div class="mb-3 flex gap-2">
+				<Button
+					size="sm"
+					class="gap-2 rounded-full"
+					disabled={!songs.length}
+					onclick={() => playAll(false)}
+				>
+					<HugeiconsIcon icon={PlayIcon} class="h-4 w-4" /> {t('common.play_all')}
+				</Button>
+				<Button
+					size="sm"
+					variant="outline"
+					class="gap-2 rounded-full"
+					disabled={!songs.length}
+					onclick={() => playAll(true)}
+				>
+					<HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" /> {t('common.shuffle')}
+				</Button>
+			</div>
 			<!-- The counts follow the filter, so the tabs say where the matches are. -->
 			<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
 				<Tabs.List>
@@ -194,25 +214,6 @@
 			</Tabs.Content>
 			<Tabs.Content value="songs">
 				{#if view === 'songs'}
-					<div class="mb-3 flex gap-2">
-						<Button
-							size="sm"
-							class="gap-2 rounded-full"
-							disabled={!songs.length}
-							onclick={() => playAll(false)}
-						>
-							<HugeiconsIcon icon={PlayIcon} class="h-4 w-4" /> {t('common.play_all')}
-						</Button>
-						<Button
-							size="sm"
-							variant="outline"
-							class="gap-2 rounded-full"
-							disabled={!songs.length}
-							onclick={() => playAll(true)}
-						>
-							<HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" /> {t('common.shuffle')}
-						</Button>
-					</div>
 					<div class="content-in">
 						{#each songs.slice(0, shown) as song, i (song.video_id)}
 							<TrackRow
