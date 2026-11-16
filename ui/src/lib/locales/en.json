@@ -771,6 +771,8 @@
 			"crossfade_seconds": "{secs}s",
 			"prevent_duplicates": "Prevent duplicate songs in queue",
 			"prevent_duplicates_hint": "Avoid adding songs that are already in the current queue.",
+			"auto_pause_other_audio": "Pause when other apps play media",
+			"auto_pause_other_audio_hint": "Pause while another app, such as a browser tab or a video player, plays media, and resume when it stops. Notification sounds and games don't count.",
 			"sticky_shuffle": "Keep shuffle on across queues",
 			"sticky_shuffle_hint": "Leave off and shuffle applies only to what's playing: opening an album or playlist afterwards plays it in order.",
 			"shuffle_whole_queue": "Shuffle the whole queue",

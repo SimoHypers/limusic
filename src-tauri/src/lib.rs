@@ -2,6 +2,7 @@
 
 mod appicon;
 mod audioproxy;
+mod autopause;
 mod blocked;
 mod cipher;
 mod commands;
@@ -1069,6 +1070,11 @@ pub fn run() {
                 lastfm,
             ));
             app.manage(app_state.clone());
+
+            app_state.set_auto_pause_enabled(
+                app_state.db.get_setting("auto_pause_other_audio").as_deref() == Some("true"),
+            );
+            autopause::spawn(app_state.clone());
 
             // The player view's <video> pulls its bytes from Rust over loopback, so the webview
             // never sees a googlevideo URL (context/11). videoproxy.rs explains why a socket and

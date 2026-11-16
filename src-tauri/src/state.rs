@@ -4,6 +4,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Duration;
 
 use std::sync::Arc;
 
@@ -53,6 +54,13 @@ struct Listen {
     /// The previous position tick, which the next one is measured against.
     last_pos: Option<f64>,
 }
+
+/// How long other media must play before the music pauses, and how long it must stay quiet before
+/// the music resumes. The gap absorbs the status blip when another player switches tracks: YouTube
+/// waits 8 s before autoplaying the next video and reads "not playing" for all of it, so the resume
+/// delay has to outlast that, plus up to a second each way for the watcher's polling.
+const AUTO_PAUSE_DELAY: Duration = Duration::from_secs(1);
+const AUTO_RESUME_DELAY: Duration = Duration::from_secs(10);
 
 pub struct AppState {
     pub it: InnerTube,
@@ -105,6 +113,16 @@ pub struct AppState {
     /// Mirror of mpv's pause flag (set in `media_set_playing`). Position ticks must consult this
     /// instead of assuming "playing" — mpv fires `time-pos` on seeks while paused too.
     is_playing: AtomicBool,
+    /// The `auto_pause_other_audio` setting, mirrored so the watcher callback needn't read the db.
+    auto_pause_enabled: AtomicBool,
+    /// The watcher's last report: is another app playing media right now.
+    external_audio: AtomicBool,
+    /// True only while we hold the music paused because of other media, so we resume our own
+    /// pause and never one the user made.
+    auto_paused: AtomicBool,
+    /// Bumped on every state change and settings change; a delayed action runs only if it is
+    /// still the latest.
+    auto_pause_gen: AtomicU64,
     /// The UI shows another linked device's playback (`link_remote_refresh`): its track, position
     /// and queue reach the windows instead of ours, and the playback methods control it.
     remote_on: AtomicBool,
@@ -546,6 +564,10 @@ impl AppState {
             history_pinged: AtomicBool::new(false),
             listen: std::sync::Mutex::default(),
             is_playing: AtomicBool::new(false),
+            auto_pause_enabled: AtomicBool::new(false),
+            external_audio: AtomicBool::new(false),
+            auto_paused: AtomicBool::new(false),
+            auto_pause_gen: AtomicU64::new(0),
             remote_on: AtomicBool::new(false),
             remote_gen: AtomicU64::new(0),
             remote_sent: std::sync::Mutex::default(),
@@ -3600,6 +3622,11 @@ impl AppState {
     /// `current_position()` here (the last tick can predate a track change) can't poison its
     /// timeline.
     pub fn media_set_playing(&self, playing: bool) {
+        // Any play, the user's or ours, ends our claim on the pause, so a manual resume followed
+        // by a manual pause is never undone by the watcher.
+        if playing {
+            self.auto_paused.store(false, Ordering::Relaxed);
+        }
         self.is_playing.store(playing, Ordering::Relaxed);
         if let Some(m) = &self.media {
             let pos = self.current_position();
@@ -3621,6 +3648,75 @@ impl AppState {
     pub fn set_discord_enabled(&self, on: bool) {
         if let Some(d) = &self.discord {
             d.set_enabled(on);
+        }
+    }
+
+    /// Turn auto-pause on or off at runtime (the `auto_pause_other_audio` setting). Turning it on
+    /// acts at once if other media is already playing; turning it off drops our claim on any pause
+    /// we made and leaves playback as it is.
+    pub fn set_auto_pause_enabled(self: &Arc<Self>, on: bool) {
+        self.auto_pause_enabled.store(on, Ordering::Relaxed);
+        self.auto_pause_gen.fetch_add(1, Ordering::SeqCst); // cancels anything pending
+        if on {
+            if self.external_audio.load(Ordering::Relaxed) {
+                self.schedule_auto_pause(true);
+            }
+        } else {
+            self.auto_paused.store(false, Ordering::Relaxed);
+            // The watcher reports nothing while the setting is off, so a stale "something is playing"
+            // must not survive until the next time it is turned on.
+            self.external_audio.store(false, Ordering::Relaxed);
+        }
+    }
+
+    /// Whether the `auto_pause_other_audio` setting is on. The watcher thread only polls the OS
+    /// while it is.
+    #[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
+    pub fn auto_pause_enabled(&self) -> bool {
+        self.auto_pause_enabled.load(Ordering::Relaxed)
+    }
+
+    /// Called by the platform watcher whenever it learns whether another app is playing media.
+    /// Repeats of the same answer are ignored, so a chatty watcher can't keep restarting the delay.
+    #[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
+    pub fn on_external_audio(self: &Arc<Self>, active: bool) {
+        if self.external_audio.swap(active, Ordering::Relaxed) == active {
+            return;
+        }
+        self.schedule_auto_pause(active);
+    }
+
+    fn schedule_auto_pause(self: &Arc<Self>, active: bool) {
+        let generation = self.auto_pause_gen.fetch_add(1, Ordering::SeqCst) + 1;
+        if !self.auto_pause_enabled.load(Ordering::Relaxed) {
+            return;
+        }
+        let me = self.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(if active { AUTO_PAUSE_DELAY } else { AUTO_RESUME_DELAY }).await;
+            if me.auto_pause_gen.load(Ordering::SeqCst) != generation
+                || !me.auto_pause_enabled.load(Ordering::Relaxed)
+            {
+                return;
+            }
+            me.apply_external_audio(active).await;
+        });
+    }
+
+    async fn apply_external_audio(self: &Arc<Self>, active: bool) {
+        // A host's pause would stop the whole Listen Together room, and while the bar shows another
+        // device this desktop's player is not what the user is controlling.
+        if self.lt.in_room().await || self.showing_remote() {
+            return;
+        }
+        if active {
+            if self.player.is_idle() || self.player.is_paused() {
+                return;
+            }
+            self.auto_paused.store(true, Ordering::Relaxed);
+            let _ = self.player.pause();
+        } else if self.auto_paused.swap(false, Ordering::Relaxed) && self.player.is_paused() {
+            let _ = self.player.play();
         }
     }
 

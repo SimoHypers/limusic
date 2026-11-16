@@ -279,7 +279,7 @@ pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
 /// `visitor_data`) and internal blobs (`queue_json`, `queue_index`, `queue_position`) never cross
 /// into the webview: they'd otherwise ship the login credential to the renderer on every open, and
 /// the webview can't overwrite them either.
-const UI_SETTINGS: [&str; 33] = [
+const UI_SETTINGS: [&str; 34] = [
     "volume",
     "proxy",
     "quality",
@@ -297,6 +297,7 @@ const UI_SETTINGS: [&str; 33] = [
     "autoplay",
     "hide_videos",
     "prevent_duplicates",
+    "auto_pause_other_audio",
     "update_banner",
     "update_channel",
     "lyrics_providers",
@@ -520,6 +521,10 @@ pub async fn set_setting(
     // to follow without waiting for the next track.
     if key == "discord_rpc_config" {
         state.set_discord_config(&value);
+    }
+    // Takes effect at once: if other media is already playing, the music pauses without waiting.
+    if key == "auto_pause_other_audio" {
+        state.inner().set_auto_pause_enabled(value == "true");
     }
     // The Scrobbling tab's settings, read whole each time: the two switches from #231 keep rows of
     // their own, and the scrobbler wants all of it in one message.

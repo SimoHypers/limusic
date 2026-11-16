@@ -33,7 +33,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Popover from '$lib/components/ui/popover';
 	import * as Select from '$lib/components/ui/select';
-	import { HELP_COMBO } from '$lib/shortcuts';
+	import { HELP_COMBO, IS_MAC } from '$lib/shortcuts';
 	import { copyText } from '$lib/clipboard';
 	import * as api from '$lib/api';
 	import { blocked, karaokeAvailability, karaokeConsent, karaokeModels, karaokeSelection, cancelKaraokeModelDownload, deleteKaraokeModel, playback, prefs, refreshLanguage, setAutoplay, ui, toast, unblockArtist, setKaraokeDevice, applyKaraokeStatus, chooseKaraokeModel, refreshKaraokeModels } from '$lib/player.svelte';
@@ -400,6 +400,8 @@
 	// Off by default, and only offered with music videos on: it costs real GPU time on every frame.
 	const ambientOn = $derived(settings.ambient_light === 'true');
 	const preventDuplicatesOn = $derived(settings.prevent_duplicates === 'true');
+	// Off by default: pause when other apps play media.
+	const autoPauseOn = $derived(settings.auto_pause_other_audio === 'true');
 	// Off by default: shuffle applies to the queue it was turned on for (issue #117).
 	const stickyShuffleOn = $derived(settings.sticky_shuffle === 'true');
 	// Off by default: shuffle keeps what was added with Add to queue behind the playlist (#369).
@@ -493,6 +495,11 @@
 	async function setPreventDuplicates(on: boolean) {
 		settings.prevent_duplicates = on ? 'true' : 'false';
 		await api.setSetting('prevent_duplicates', settings.prevent_duplicates);
+	}
+
+	async function setAutoPause(on: boolean) {
+		settings.auto_pause_other_audio = on ? 'true' : 'false';
+		await api.setSetting('auto_pause_other_audio', settings.auto_pause_other_audio);
 	}
 
 	async function setStickyShuffle(on: boolean) {
@@ -831,6 +838,15 @@
 									control: dupSwitch,
 									tall: true
 								})}
+								<!-- there is no media watcher on macOS, so the setting isn't offered there -->
+								{#if !IS_MAC}
+									{@render row({
+										title: t('settings.playback.auto_pause_other_audio'),
+										desc: t('settings.playback.auto_pause_other_audio_hint'),
+										control: autoPauseSwitch,
+										tall: true
+									})}
+								{/if}
 								{@render row({
 									title: t('settings.playback.sticky_shuffle'),
 									desc: t('settings.playback.sticky_shuffle_hint'),
@@ -1187,6 +1203,10 @@
 {#snippet dupSwitch()}<Switch
 		checked={preventDuplicatesOn}
 		onCheckedChange={setPreventDuplicates}
+	/>{/snippet}
+{#snippet autoPauseSwitch()}<Switch
+		checked={autoPauseOn}
+		onCheckedChange={setAutoPause}
 	/>{/snippet}
 {#snippet stickyShuffleSwitch()}<Switch
 		checked={stickyShuffleOn}
