@@ -327,7 +327,7 @@ async fn cached_or_fetched(state: &AppState, req: LyricsRequest) -> Option<Lyric
             if let Some(l) = &cached {
                 refresh_stale(state, &req, l, now - at);
             }
-            return cached.map(unsync_flat);
+            return cached.map(decode_cached).map(unsync_flat);
         }
     }
     let (lyrics, cacheable) = fetch(state, req).await;
@@ -524,6 +524,23 @@ fn is_flat(l: &Lyrics) -> bool {
 
 /// Flat lyrics as plain. Applied in `ask`, where every provider's answer passes: LRCLIB and
 /// YouTube declare `synced` themselves rather than going through `from_parsed`.
+/// Lyrics cached before TTML entities were decoded (#695) keep `&apos;` forever otherwise.
+fn decode_cached(mut l: Lyrics) -> Lyrics {
+    let fix = |t: &mut String| {
+        if t.contains('&') {
+            *t = decode_xml_entities(t);
+        }
+    };
+    for line in &mut l.lines {
+        fix(&mut line.text);
+        line.romanized.as_mut().map(fix);
+        for w in line.words.iter_mut().chain(line.romanized_words.iter_mut()).flatten() {
+            fix(&mut w.text);
+        }
+    }
+    l
+}
+
 fn unsync_flat(mut l: Lyrics) -> Lyrics {
     if is_flat(&l) {
         l.synced = false;
@@ -1950,12 +1967,61 @@ fn strip_xml_tags(s: &str) -> String {
             out.push(c);
         }
     }
+    decode_xml_entities(&out)
+}
+
+/// `&apos;` and friends back into text (#695): Apple's TTML escapes every apostrophe. The five
+/// XML names plus numeric references; anything else stays as written.
+fn decode_xml_entities(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(amp) = rest.find('&') {
+        out.push_str(&rest[..amp]);
+        rest = &rest[amp..];
+        let decoded = rest.bytes().take(11).position(|b| b == b';').and_then(|end| {
+            let c = match &rest[1..end] {
+                "amp" => '&',
+                "lt" => '<',
+                "gt" => '>',
+                "quot" => '"',
+                "apos" => '\'',
+                n => {
+                    let n = n.strip_prefix('#')?;
+                    let code = match n.strip_prefix(['x', 'X']) {
+                        Some(hex) => u32::from_str_radix(hex, 16).ok()?,
+                        None => n.parse().ok()?,
+                    };
+                    char::from_u32(code)?
+                }
+            };
+            Some((c, end))
+        });
+        match decoded {
+            Some((c, end)) => {
+                out.push(c);
+                rest = &rest[end + 1..];
+            }
+            None => {
+                out.push('&');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
     out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ttml_decodes_entities() {
+        let xml = r#"<tt><body><div><p begin="1.0" end="3.0"><span begin="1.0" end="2.0">I&apos;m</span> <span begin="2.0" end="3.0">R&amp;B &#8217;&#x2019; &bogus; &</span></p></div></body></tt>"#;
+        let lines = parse_ttml_aaml(xml);
+        assert_eq!(lines[0].text, "I'm R&B \u{2019}\u{2019} &bogus; &");
+        assert_eq!(lines[0].words.as_ref().unwrap()[0].text, "I'm ");
+    }
 
     #[test]
     fn parses_basic_lrc() {
