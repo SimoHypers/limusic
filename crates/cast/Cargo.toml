@@ -1,0 +1,13 @@
+[package]
+name = "cast"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+mdns-sd = "0.21.7"
+rust_cast = "0.21.0"
+serde.workspace = true
+tokio.workspace = true
+tracing.workspace = true
