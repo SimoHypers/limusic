@@ -189,6 +189,7 @@ struct Decks {
     /// The volume slider's percent, so a fade can scale the user's own level instead of
     /// overwriting it.
     volume: AtomicI64,
+    muted: AtomicBool,
     /// A track is loaded and paused on the idle deck, waiting to be faded in. Published by the
     /// idle deck's own `FileLoaded`, never by `preload`: `loadfile` returns long before mpv has
     /// the stream open, and a fade into a deck that is still opening plays silence over the
@@ -427,6 +428,7 @@ impl Player {
             active: AtomicUsize::new(0),
             crossfade_ms: AtomicU64::new(0),
             volume: AtomicI64::new(100),
+            muted: AtomicBool::new(false),
             preloaded: AtomicBool::new(false),
             preload_gen: AtomicU64::new(0),
             preload_armed: AtomicU64::new(0),
@@ -756,6 +758,21 @@ impl Player {
     /// Current volume level (0-100).
     pub fn volume(&self) -> i64 {
         self.decks.volume.load(Ordering::Relaxed)
+    }
+
+    /// Used while audio plays on a Cast device and mpv is only a silent clock.
+    pub fn set_muted(&self, muted: bool) -> Result<(), Error> {
+        self.mpv().set_property("mute", muted)?;
+        if let Some(other) = self.decks.mpv(1 - self.decks.active.load(Ordering::SeqCst)) {
+            let _ = other.set_property("mute", muted);
+        }
+        self.decks.muted.store(muted, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Current mute state.
+    pub fn is_muted(&self) -> bool {
+        self.decks.muted.load(Ordering::Relaxed)
     }
 
     /// Route the audio bytes through a proxy (the app's `proxy` setting). Call before the first
@@ -1381,6 +1398,7 @@ fn preload(decks: &Decks, mpv: &Arc<Mpv>, url: &str) -> Result<(), Error> {
     }
     mpv.set_property("pause", true)?;
     mpv.set_property("volume", 0.0)?;
+    mpv.set_property("mute", decks.muted.load(Ordering::Relaxed))?;
     // Off the audio device until its fade starts (`start_crossfade` puts it back). A paused deck
     // with a file loaded still holds an output stream, so Linux mixers listed this one for the
     // whole track as a second app next to the one playing, with a volume slider of its own that
