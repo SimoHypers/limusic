@@ -1458,9 +1458,12 @@ impl AppState {
                         q.items.iter_mut().find(|i| i.video_id == item.video_id)
                     {
                         // Search and home cards carry no album name; the radio's own row for the
-                        // same track does (#309). Nor its video twin, signed in (#442).
+                        // same track does (#309). Nor its video twin, signed in (#442), nor the
+                        // "Save to library" toggle: a search row comes from an anonymous request
+                        // and has no account to carry one for (#680).
                         adopt_twin(have, &item);
                         have.album = have.album.take().or(item.album);
+                        have.library = have.library.take().or(item.library);
                     }
                 }
                 // The seed is already playing and Last.fm, Discord and the OS media widget were
