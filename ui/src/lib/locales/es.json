@@ -222,7 +222,8 @@
 			"new_releases": "Nuevos lanzamientos",
 			"mixed_for_you": "Mixes para ti",
 			"daily_discover": "Tu descubrimiento diario",
-			"music_videos": "Videos musicales para ti"
+			"music_videos": "Videos musicales para ti",
+			"listen_together": "Escuchar juntos"
 		},
 		"live_now": "En directo ahora"
 	},
@@ -541,7 +542,9 @@
 			"videos_first": "Reproducir el video primero",
 			"videos_first_hint": "Canciones de álbumes y playlists que tengan un video musical inician con el video. Desactiva esto si quieres iniciar con la canción. El interruptor de Canción/Video en el reproductor los cambia de todas formas.",
 			"lyrics_prefer_words": "Preferir letras palabra por palabra",
-			"lyrics_prefer_words_hint": "Las letras palabra por palabra de cualquier fuente tienen prioridad sobre las sincronizadas línea por línea de una fuente situada por encima. La primera vez que suena una canción, sus letras pueden tardar unos segundos más en aparecer."
+			"lyrics_prefer_words_hint": "Las letras palabra por palabra de cualquier fuente tienen prioridad sobre las sincronizadas línea por línea de una fuente situada por encima. La primera vez que suena una canción, sus letras pueden tardar unos segundos más en aparecer.",
+			"auto_pause_other_audio": "Pausar cuando otras aplicaciones reproducen medios",
+			"auto_pause_other_audio_hint": "Pausa mientras otra aplicación, como una pestaña de navegador o un reproductor de video, reproducen medios, y se reproduce cuando paran. Sonidos de notificación o juegos no cuentan."
 		},
 		"data": {
 			"clear_cache": "Limpiar caché de imágenes y streams",
@@ -1771,7 +1774,10 @@
 		"voice_hint": "La voz principal y las voces de fondo sincronizan por separado, por lo que pueden superponerse. V las cambia.",
 		"say_bg_words": "Ahora las voces de fondo. Toca cuando empiece cada palabra.",
 		"say_bg_words_sub": "Pueden empezar por debajo de la voz principal, y el bucle continúa sobre la siguiente línea.",
-		"err_copied": "{source} ya tiene la letra sincronizada palabra por palabra, entonces no hay nada nuevo que mandar."
+		"err_copied": "{source} ya tiene la letra sincronizada palabra por palabra, entonces no hay nada nuevo que mandar.",
+		"rejected_title": "Un moderador rechazo tu ultima version",
+		"rejected_reason": "Su razón: \"{reason}\". Puedes arreglar y enviarla otra vez.",
+		"rejected_no_reason": "No dieron una razón. Puedes arreglarla y enviarla otra vez."
 	},
 	"limusic": {
 		"none_title": "No requiere cuenta",
@@ -1864,6 +1870,64 @@
 		"settings_none": "Nada espera revisión",
 		"settings_open": "Revisar letras",
 		"load_more": "Mostrar más",
-		"err_unavailable": "No se pudo conectar con Limusic Lyrics."
+		"err_unavailable": "No se pudo conectar con Limusic Lyrics.",
+		"view_lines": "Líneas",
+		"view_player": "Vista del reproductor",
+		"lines_hint": "Cliquea la línea para reproducir desde ahí. Cada palabra muestra como esta dividida y sincronizada.",
+		"break": "Instrumental, {secs} s",
+		"record": "{approved} aprobado · {rejected} rechazado",
+		"fix": "Corregir antes de aprobar",
+		"fix_live": "Corregirla",
+		"fix_wait": "Espera a que se reproduzca la canción",
+		"key_fix": "corregir",
+		"key_next": "siguiente",
+		"approve_fixes": "Aprobar con correcciones",
+		"approved_fixed": "Aprobado con tus correcciones. Ya está publicada.",
+		"fixing_title": "Estás corrigiendo la contribución de {handle}",
+		"fixing_title_anonymous": "Estás corrigiendo una contribución anónima",
+		"fixing_body": "Aprobarla la publica bajo su nombre y les da los puntos. La revisión registra lo que cambiaste, y el original se guarda.",
+		"fix_undo": "Deshacer mis cambios",
+		"fix_undo_title": "¿Deshacer mis cambios?",
+		"fix_undo_body": "Las letras vuelven a como se enviaron.",
+		"preset_timing": "La sincronización esta desfasada",
+		"preset_words": "Algunas palabras están mal",
+		"preset_missing": "Faltan líneas",
+		"preset_wrong_song": "Estas son letras para una canción diferente"
+	},
+	"team": {
+		"title": "Equipo de letras",
+		"subtitle": "Quién revisa Limusic Lyrics",
+		"search": "Encuentra un contribuidor por nombre",
+		"staff": "Equipo",
+		"top": "Mejores contribuidores",
+		"top_hint": "Usuarios con letras aprobadas, primero los de mejor historial. Buenos candidatos a revisor.",
+		"results": "Resultados",
+		"no_results": "Nadie con ese nombre.",
+		"no_contributors": "No hay contribuidores con puntos aún.",
+		"you": "(tú)",
+		"banned": "Baneado",
+		"stats": "{score} puntos · {approved} aprobados · {rejected} rechazados",
+		"joined": "Se unió {when}",
+		"role_user": "Contribuidor",
+		"role_reviewer": "Moderador",
+		"role_admin": "Administrador",
+		"role_for": "Rol para {handle}",
+		"make_reviewer": "Hacer moderador",
+		"more": "Más para {handle}",
+		"open_profile": "Abrir perfil en limusic.app",
+		"ban": "Banear de contribuir",
+		"unban": "Quitar baneo",
+		"ban_title": "¿Banear a {handle}?",
+		"ban_body": "Se cierra su sesión, se rechaza todo lo que tengan pendiente de revisión y sus votos dejan de contar. Puedes quitarles el ban más tarde.",
+		"role_set": "{handle} ahora es {role}.",
+		"banned_toast": "{handle} esta baneado.",
+		"unbanned_toast": "{handle} ya no esta baneado.",
+		"not_allowed_title": "Esta pagina es para administradores",
+		"not_allowed": "Solo administradores pueden cambiar quien modera.",
+		"err_forbidden": "Tu cuenta no puede administrar el equipo.",
+		"err_own": "No puedes cambiar tu rol o banearte a ti mismo.",
+		"err_gone": "Tu cuenta ya no existe.",
+		"settings_hint": "Elige quien revisa letras",
+		"settings_open": "Equipo de letras"
 	}
 }
