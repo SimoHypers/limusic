@@ -47,7 +47,14 @@
 
 	async function start() {
 		loading = true;
+		loadError = '';
 		if (!limusic.account) await refreshAccount();
+		if (!limusic.account && limusic.signedIn) {
+			// The service couldn't say who this is, which is not the same as not being an admin.
+			loadError = t('review.err_unavailable');
+			loading = false;
+			return;
+		}
 		if (limusic.account?.role !== 'admin' || limusic.anonymous) {
 			allowed = false;
 			loading = false;
@@ -66,7 +73,8 @@
 
 	/** Optimistic: the row changes now, and comes back as it was if the service says no. */
 	async function change(m: Member, to: { role?: Role; banned?: boolean }) {
-		const before = members;
+		// Only this row goes back on a refusal: others may have changed, or a search replaced the list.
+		const before = members.find((x) => x.handle === m.handle) ?? m;
 		members = members.map((x) => (x.handle === m.handle ? { ...x, ...to } : x));
 		try {
 			const now = await api.limusicAdminUpdate(m.handle, to);
@@ -74,7 +82,7 @@
 			if (to.role) toast.success(t('team.role_set', { handle: m.handle, role: roleLabel(to.role) }));
 			else toast.success(t(to.banned ? 'team.banned_toast' : 'team.unbanned_toast', { handle: m.handle }));
 		} catch (e) {
-			members = before;
+			members = members.map((x) => (x.handle === m.handle ? before : x));
 			toast.error(t(errorKey(String(e))));
 		}
 	}
@@ -211,7 +219,7 @@
 						{/each}
 					</div>
 				{:else if loadError}
-					<ErrorState message={loadError} onRetry={load} />
+					<ErrorState message={loadError} onRetry={start} />
 				{:else}
 					{#if staff.length}
 						<section>

@@ -739,12 +739,14 @@
 		try {
 			await api.limusicReview(fixing.revision, fixing.videoId, 'approve', undefined, buildLines(lines));
 			toast.success(t('review.approved_fixed'));
+			// Left while it was on its way: wherever the reviewer is now is not ours to move.
+			if (!alive) return;
 			limusic.fixing = null;
 			history.back();
 		} catch (e) {
 			const code = String(e);
 			toast.error(t(reviewErrorKey(code)));
-			if (isGone(code)) {
+			if (isGone(code) && alive) {
 				limusic.fixing = null;
 				history.back();
 			}
@@ -885,7 +887,9 @@
 			window.removeEventListener('pagehide', flush);
 		};
 	});
+	let alive = true;
 	onDestroy(() => {
+		alive = false;
 		if (saveTimer !== undefined) flush();
 		// Left without approving: the review page opens the same one again.
 		if (fixing) limusic.fixing = null;

@@ -95,7 +95,7 @@
 		await load();
 		const at = limusic.reviewAt;
 		limusic.reviewAt = null;
-		if (at !== null && items.length) openItem(items[Math.min(at, items.length - 1)]);
+		if (at !== null && at >= 0 && items.length) openItem(items[Math.min(at, items.length - 1)]);
 	}
 	onMount(() => {
 		start();
@@ -266,7 +266,8 @@
 		const k = keyOf(e);
 		if (k === 'ArrowDown') step(1);
 		else if (k === 'ArrowUp') step(-1);
-		else if (rejecting || busy || !detail) return;
+		// A held key is one decision: its repeats would approve the next one unread.
+		else if (e.repeat || rejecting || busy || !detail) return;
 		else if (k === 'a') decide('approve');
 		else if (k === 'r') rejecting = true;
 		else if (k === 'e') fix();
