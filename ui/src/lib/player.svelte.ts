@@ -1364,11 +1364,53 @@ async function dropDisliked(videoId: string, isNow: boolean) {
 // once, and all three have to agree the moment one of them writes.
 const songLibrary = $state<Record<string, boolean>>({});
 
+type LibraryToggle = NonNullable<SongItem['library']>;
+
+// The toggle for songs whose row came without one, fetched when their menu opens (#680): a search
+// row comes from an anonymous request and has no account to carry one for, and neither do home
+// and artist cards. `null` once YouTube answered without one. Keyed by account as well, since the
+// tokens are the account's.
+const lookedUp = $state<Record<string, LibraryToggle | null>>({});
+const lookingUp = $state<Record<string, true>>({});
+const lookupKey = (song: SongItem) => `${auth.epoch}:${song.video_id}`;
+
+/** The row's own toggle, or one looked up for it. */
+function libraryOf(song: SongItem): LibraryToggle | undefined {
+	return song.library ?? lookedUp[lookupKey(song)] ?? undefined;
+}
+
+/**
+ * Fetch the toggle for a song whose row had none: one signed-in `/next` for the song, whose row for
+ * it carries the same menu as a playlist row. Videos are skipped, since YouTube gives no video one
+ * (0 of 50 radio rows, live-checked 2026-11-16), and so is anything without an account to save to.
+ * A failed lookup is not recorded, so the next open asks again.
+ */
+export async function lookUpSongLibrary(song: SongItem): Promise<void> {
+	const k = lookupKey(song);
+	if (song.library || song.is_video || song.is_upload || api.isLocalId(song.video_id)) return;
+	if (!auth.account?.signedIn || k in lookedUp || lookingUp[k]) return;
+	lookingUp[k] = true;
+	try {
+		lookedUp[k] = (await api.song(song.video_id)).library ?? null;
+		capOverrides(lookedUp);
+	} catch {
+		// Unrecorded: see above.
+	} finally {
+		delete lookingUp[k];
+	}
+}
+
+/** A lookup for this song is in flight: the menu holds the item's place meanwhile. */
+export function songLibraryPending(song: SongItem): boolean {
+	return !!lookingUp[lookupKey(song)];
+}
+
 /** The token for the direction this song can move in, if the row carried one. A menu that offered
  *  only one way (see `LibraryToggle`) runs out after that one write, and the row hides the action
  *  until the list is fetched again — better than a button that answers "token expired". */
 export function songLibraryToken(song: SongItem): string | undefined {
-	return inSongLibrary(song) ? song.library?.remove_token : song.library?.add_token;
+	const library = libraryOf(song);
+	return inSongLibrary(song) ? library?.remove_token : library?.add_token;
 }
 
 /**
@@ -1408,7 +1450,7 @@ export async function removeSongFromLibrary(song: SongItem): Promise<boolean> {
 
 /** In Library ▸ Songs? The row's own menu is the fallback; a write in this session wins. */
 export function inSongLibrary(song: SongItem): boolean {
-	return songLibrary[song.video_id] ?? song.library?.in_library ?? false;
+	return songLibrary[song.video_id] ?? libraryOf(song)?.in_library ?? false;
 }
 
 /**
