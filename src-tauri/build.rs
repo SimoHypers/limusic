@@ -18,5 +18,17 @@ fn main() {
     // leaves `generate_context!` emitting the old `default_window_icon` (window, tray, taskbar).
     println!("cargo:rerun-if-changed=icons");
 
+    // Monterey may keep an older WebKit in /System even after Safari updates. Like Safari's
+    // own executable, prefer Apple's newer staged frameworks (dyld compares versions and
+    // otherwise keeps the system copy). The older engine rejects decimal OKLCH/color-mix,
+    // leaving theme backgrounds transparent. No bundled runtime or higher OS target needed.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        for kind in ["FRAMEWORK", "LIBRARY"] {
+            println!(
+                "cargo:rustc-link-arg-bins=-Wl,-dyld_env,DYLD_VERSIONED_{kind}_PATH=/Library/Apple/System/Library/StagedFrameworks/Safari"
+            );
+        }
+    }
+
     tauri_build::build()
 }
