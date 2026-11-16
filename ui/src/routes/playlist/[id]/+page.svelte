@@ -106,7 +106,9 @@
 	let error = $state<string | null>(null);
 	let loadingMore = $state(false);
 	let moreError = $state(false);
-	let inflight: Promise<void> | null = null;
+	// State so the end-of-window effect runs again once a page has fully settled: `pl` lands a
+	// microtask before this clears, and a rerun in between would get the finished promise back.
+	let inflight = $state.raw<Promise<void> | null>(null);
 	// The delete confirmation dialog, and the request it is waiting on.
 	let confirmingDelete = $state(false);
 	let deleting = $state(false);
@@ -733,8 +735,8 @@
 		cacheCurrent();
 	}
 
-	// One page at a time, shared: the scroll sentinel and the "load the rest before playing" walk
-	// both go through here, so they can never fire overlapping requests for the same token.
+	// One page at a time, shared: the end-of-window trigger and the "load the rest before playing"
+	// walk both go through here, so they can never fire overlapping requests for the same token.
 	// `total` is for a walk: the backend then fetches the pages after this one too (#536).
 	function loadMore(total?: number): Promise<void> {
 		inflight ??= fetchPage(total).finally(() => (inflight = null));
@@ -752,12 +754,16 @@
 			pl = {
 				...pl,
 				items: [...pl.items, ...more.items],
-				// An empty page would leave the sentinel in view with nothing to show — that's the end.
+				// An empty page would leave the window at the end with nothing to show: that's the end.
 				continuation: more.items.length ? more.continuation : undefined
 			};
 			cacheCurrent();
+			// A page handing back the token it was fetched with made no progress. Treated as a failed
+			// one (retry button, and a walk reports the playlist partial), or the window, still at
+			// the end, would fetch it again for as long as it sat there.
+			if (pl.continuation === token) moreError = true;
 		} catch {
-			// Stop auto-loading and offer a retry — auto-retrying a visible sentinel would spin.
+			// Stop auto-loading and offer a retry: auto-retrying at the end of the list would spin.
 			moreError = true;
 		} finally {
 			loadingMore = false;
@@ -838,19 +844,20 @@
 		el.scrollTo({ top, behavior: 'smooth' });
 	}
 
-	// One page per approach to the bottom: the observer only fires when the sentinel *enters* view,
-	// so an appended page that pushes it back out is required before the next fetch. rootMargin
-	// starts the fetch early enough that the rows are usually there by the time you reach them.
-	function sentinel(node: HTMLElement) {
-		const io = new IntersectionObserver(([e]) => e.isIntersecting && loadMore(), {
-			rootMargin: '600px 0px'
-		});
-		io.observe(node);
-		return () => io.disconnect();
-	}
+	// The next page once the window reaches the last rows that have arrived. The window already
+	// overscans past the viewport, so the fetch starts while those rows are still below it. This
+	// was an IntersectionObserver on a sentinel under the rows, which never fired for a reporter
+	// at 125% whose list stopped scrolling with the sentinel just outside the visible box (#652);
+	// the window is worked out from the scroller's own scrollTop, so it reaches the end whenever
+	// the scroller does. A failed page stays failed until the retry button: re-fetching on every
+	// scroll would spin.
+	$effect(() => {
+		if (pl?.continuation && !moreError && !inflight && win.end >= shown.length)
+			untrack(() => loadMore());
+	});
 
-	// A filter can only match rows that have arrived, and a narrowed list never pushes the sentinel
-	// back out of view, so the observer fires once and stops. Same walk a sort needs, for the same
+	// A filter can only match rows that have arrived, so it walks every page in up front rather than
+	// one per approach to the end. Same walk a sort needs, for the same
 	// reason: the search has to cover the whole playlist, not the pages scrolled so far. The flag
 	// keeps one walk running rather than starting a fresh one on every page it lands.
 	//
@@ -1405,10 +1412,7 @@
 							</Button>
 						</div>
 					{:else}
-						<!-- The sentinel sits above the loader: it triggers the next page as it scrolls
-						     into range, so the rest of a long playlist arrives without a button. -->
 						<div aria-busy={loadingMore}>
-							<div {@attach sentinel}></div>
 							{#if loadingMore}
 								<div class="flex justify-center py-6"><LimusicLoader class="size-10" /></div>
 							{/if}
