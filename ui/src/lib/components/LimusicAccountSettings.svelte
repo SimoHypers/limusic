@@ -185,6 +185,22 @@
 			</div>
 		{/if}
 
+		{#if linked && a?.role === 'admin'}
+			<div class="{SEC} flex flex-wrap items-center gap-3">
+				<p class="min-w-40 flex-1 text-sm">{t('team.settings_hint')}</p>
+				<Button
+					size="sm"
+					variant="outline"
+					onclick={() => {
+						ui.settingsOpen = false;
+						goto('/team');
+					}}
+				>
+					{t('team.settings_open')}
+				</Button>
+			</div>
+		{/if}
+
 		{#if !linked}
 			{#if limusic.providers.length}
 				<!-- Linking: what it gives, the one thing it reads, and that it is optional. -->

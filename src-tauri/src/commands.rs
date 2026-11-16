@@ -2832,6 +2832,7 @@ pub async fn limusic_live_lyrics(video_id: String) -> Option<crate::lyrics::Lyri
 }
 
 /// `verdict` is `approve` or `reject`. Resolves with the service's status for the revision.
+/// `lines` with an approval is the reviewer's fix (Fix before approving).
 #[tauri::command]
 pub async fn limusic_review(
     state: St<'_>,
@@ -2839,8 +2840,40 @@ pub async fn limusic_review(
     video_id: String,
     verdict: String,
     reason: Option<String>,
+    lines: Option<Vec<crate::lyrics::LyricLine>>,
 ) -> Result<String, String> {
-    crate::limusic::review_verdict(state.inner(), revision, &video_id, &verdict, reason).await
+    crate::limusic::review_verdict(state.inner(), revision, &video_id, &verdict, reason, lines)
+        .await
+}
+
+/// Why a reviewer rejected my latest version of the song, for the editor. `None` when there is
+/// nothing to say.
+#[tauri::command]
+pub async fn limusic_my_rejection(
+    state: St<'_>,
+    video_id: String,
+) -> Result<Option<crate::limusic::Rejection>, String> {
+    Ok(crate::limusic::my_rejection(state.inner(), &video_id).await)
+}
+
+/// The lyrics team (admins only): staff and contributors, or the handles holding `q`.
+#[tauri::command]
+pub async fn limusic_admin_accounts(
+    state: St<'_>,
+    q: String,
+) -> Result<Vec<crate::limusic::Member>, String> {
+    crate::limusic::admin_accounts(state.inner(), &q).await
+}
+
+/// Set a role, ban or unban (admins only).
+#[tauri::command]
+pub async fn limusic_admin_update(
+    state: St<'_>,
+    handle: String,
+    role: Option<String>,
+    banned: Option<bool>,
+) -> Result<crate::limusic::Member, String> {
+    crate::limusic::admin_update(state.inner(), &handle, role, banned).await
 }
 
 /// Put an earlier revision back, or `null` for no lyric. Resolves with the live revision.

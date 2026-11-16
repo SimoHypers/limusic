@@ -23,7 +23,12 @@ export const limusic = $state({
 	/** The provider a sign-in is waiting on, and the code its confirm page should show. */
 	signingIn: null as { provider: string; code: string } | null,
 	/** A sign-in is being started: a second one now would cancel the first one's poll. */
-	launching: false
+	launching: false,
+	/** Handed from the review page to the lyric editor: the submission a reviewer is fixing before
+	 *  approving it. The editor clears it when it is left. */
+	fixing: null as { revision: number; videoId: string; author: string | null; lines: api.LyricLine[] } | null,
+	/** Where the review page was in its queue when it opened the editor: it opens that row again. */
+	reviewAt: null as number | null
 });
 
 function apply(s: api.LimusicAccountState) {
