@@ -53,5 +53,5 @@ on Linux/macOS next to the library in `<app data dir>/runtime/onnxruntime-1.24.4
 
 ## Chromecast (`mdns-sd` and `rust_cast`)
 
-- The [`mdns-sd`](https://github.com/PlumeLib/mdns-sd) crate (0.21.7, MIT License) is used for discovering Chromecast devices on the local network via mDNS.
-- The [`rust_cast`](https://github.com/ErikBjare/rust_cast) crate (0.21.0, MIT License) is used for communicating with and controlling Chromecast sessions.
+- The [`mdns-sd`](https://github.com/keepsimple1/mdns-sd) crate (0.21.7, Apache-2.0 OR MIT) is used for discovering Chromecast devices on the local network via mDNS.
+- The [`rust_cast`](https://github.com/azasypkin/rust-cast) crate (0.21.0, MIT) is used for communicating with and controlling Chromecast sessions.
