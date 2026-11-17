@@ -1,3 +1,25 @@
+<script lang="ts" module>
+	import * as api from '$lib/api';
+
+	type Held = { by: string; since: number } | null | undefined;
+	/** Claims go one at a time, and only the latest waits: arrowing through the queue, or leaving
+	 *  the page and coming back, must leave the last one held. Module-wide, so a page that unmounts
+	 *  lets go before the next one claims. Advisory, so a failure (an older service) is undefined. */
+	let wanted: { id: number | null; done: (held: Held) => void } | null = null;
+	let sending = false;
+	async function sendClaim(id: number | null, done: (held: Held) => void) {
+		wanted = { id, done };
+		if (sending) return;
+		sending = true;
+		while (wanted) {
+			const w: { id: number | null; done: (held: Held) => void } = wanted;
+			wanted = null;
+			w.done(await api.limusicReviewClaim(w.id).catch(() => undefined));
+		}
+		sending = false;
+	}
+</script>
+
 <script lang="ts">
 	// Review lyrics: what is waiting for a reviewer, oldest first. Opening one plays the song and
 	// shows the submitted lyric: line by line with each word's reading under it (the editor's word
@@ -32,7 +54,6 @@
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import LimusicNotice from '$lib/components/LimusicNotice.svelte';
 	import LyricsView, { prefs as lyricsPrefs, toggle as toggleLyricsPref } from '$lib/components/LyricsView.svelte';
-	import * as api from '$lib/api';
 	import { playback, seekTo, toast } from '$lib/player.svelte';
 	import { limusic, refreshAccount } from '$lib/limusic.svelte';
 	import { currentLocale, t } from '$lib/i18n.svelte';
@@ -111,12 +132,8 @@
 
 	/** Another reviewer who has the open one, as the service said when it opened. */
 	let taken = $state.raw<{ by: string; since: number } | null>(null);
-	/** One at a time, in order: arrowing through the queue must leave the last one held, not
-	 *  whichever answer came back last. Advisory, so a failure (an older service) is ignored. */
-	let claiming = Promise.resolve();
 	function claim(id: number | null) {
-		claiming = claiming.then(async () => {
-			const held = await api.limusicReviewClaim(id).catch(() => undefined);
+		sendClaim(id, (held) => {
 			if (held === undefined || id === null) return;
 			if (open?.revision === id) taken = held;
 			items = items.map((i) => (i.revision === id ? { ...i, reviewing: held?.by ?? null } : i));
