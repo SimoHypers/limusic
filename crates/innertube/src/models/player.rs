@@ -325,6 +325,31 @@ pub fn find_format(data: &StreamingData, quality: AudioQuality) -> Option<&Forma
     }
 }
 
+/// The rendition a cast target should play: AAC in an MP4 container.
+///
+/// Chromecast's default receiver and the DLNA renderers both take AAC; many of them refuse
+/// Opus in a WebM container, which is what the local player prefers (`codec_score` ranks Opus
+/// above AAC). So a cast asks for this one instead, and falls back to whatever the client
+/// offers when there is no AAC at all.
+pub fn find_cast_format(data: &StreamingData) -> Option<&Format> {
+    let mut audio: Vec<&Format> = data.adaptive_formats.iter().filter(|f| f.is_audio()).collect();
+    if audio.is_empty() {
+        audio = data.formats.iter().flatten().filter(|f| f.is_audio()).collect();
+    }
+    if audio.is_empty() {
+        return None;
+    }
+    // A dubbed video lists every language at the same qualities, so the original is picked
+    // before anything else: a dub is never the better stream, at any bitrate.
+    let original: Vec<&Format> = audio.iter().copied().filter(|f| f.is_original()).collect();
+    let audio = if original.is_empty() { audio } else { original };
+    let aac: Vec<&Format> =
+        audio.iter().copied().filter(|f| f.mime_type.contains("mp4a")).collect();
+    let pool = if aac.is_empty() { audio } else { aac };
+    pool.into_iter()
+        .max_by(|a, b| a.quality_rank().cmp(&b.quality_rank()).then(a.bitrate.cmp(&b.bitrate)))
+}
+
 /// Best VP9 video-only format at or below `max_height`, for the player view's music-video mode.
 ///
 /// Video-only: the audio still comes from mpv, which is playing the same videoId. VP9 rather than
@@ -443,6 +468,21 @@ mod tests {
         let sd = serde_json::from_str::<PlayerResponse>(json).unwrap().streaming_data.unwrap();
         assert_eq!(find_format(&sd, AudioQuality::High).unwrap().url.as_deref(), Some("en"));
         assert_eq!(find_format(&sd, AudioQuality::Low).unwrap().url.as_deref(), Some("en"));
+    }
+
+    #[test]
+    fn find_cast_format_prefers_aac_and_keeps_its_media_type() {
+        let json = r#"{
+            "playabilityStatus": { "status": "OK" },
+            "streamingData": { "adaptiveFormats": [
+                { "itag": 251, "url": "opus", "mimeType": "audio/webm; codecs=\"opus\"", "bitrate": 150000, "audioQuality": "AUDIO_QUALITY_MEDIUM" },
+                { "itag": 140, "url": "aac", "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 130000, "audioQuality": "AUDIO_QUALITY_MEDIUM" }
+            ] }
+        }"#;
+        let sd = serde_json::from_str::<PlayerResponse>(json).unwrap().streaming_data.unwrap();
+        let format = find_cast_format(&sd).unwrap();
+        assert_eq!(format.itag, 140);
+        assert!(format.mime_type.starts_with("audio/mp4"));
     }
 
     /// An RSS-feed podcast episode (#294): no adaptive formats, only the feed's own mp3 as a

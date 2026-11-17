@@ -4,6 +4,7 @@ mod appicon;
 mod audioproxy;
 mod autopause;
 mod blocked;
+mod cast;
 mod cipher;
 mod commands;
 mod db;
@@ -1054,6 +1055,11 @@ pub fn run() {
             let (lt, lt_sync_rx) = listentogether::LtSession::new(handle.clone(), lt_url);
             // Device link: opens a socket only once the user has linked a device.
             let (link, link_rx) = devicelink::LinkSession::new(handle.clone(), db.clone());
+            // Casting: the devices on the network, and the one that is playing.
+            let (cast, cast_rx) = cast::CastSession::new(handle.clone());
+            // The discovery runs on its own handle of the session, so the one that goes into
+            // the player can be moved.
+            let discovery = cast.clone();
 
             let app_state = Arc::new(AppState::new(
                 it,
@@ -1064,6 +1070,7 @@ pub fn run() {
                 orchestrator,
                 lt,
                 link,
+                cast,
                 cache_dir.clone(),
                 media,
                 discord,
@@ -1085,6 +1092,11 @@ pub fn run() {
             // sends becomes bounded ranges upstream, which is the difference between 32 KB/s and
             // several MB/s on the same URL. audioproxy.rs has the measurements.
             audioproxy::start();
+
+            // Casting: the devices on the network are looked for from the start, so the picker
+            // has something in it before anyone opens it.
+            cast::spawn_discovery(discovery.clone());
+
 
             // Local music artwork reaches the webview over the asset protocol, whose configured
             // scope is empty — the folders it may read are the ones the user picked (local.rs).
@@ -1157,6 +1169,17 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     while let Some(cmd) = rx.recv().await {
                         st.apply_link(cmd).await;
+                    }
+                });
+            }
+
+            // Bridge: apply what the casting device says (the track ended, the playhead moved).
+            {
+                let st = app_state.clone();
+                let mut rx = cast_rx;
+                tauri::async_runtime::spawn(async move {
+                    while let Some(cmd) = rx.recv().await {
+                        st.apply_cast(cmd).await;
                     }
                 });
             }
@@ -1496,6 +1519,10 @@ pub fn run() {
             commands::link_forget,
             commands::link_continue_here,
             commands::link_play_on,
+            commands::cast_devices,
+            commands::cast_refresh,
+            commands::cast_start,
+            commands::cast_stop,
             commands::get_lyrics,
             commands::choose_lyrics_source,
             commands::set_lyrics_offset,
@@ -1597,11 +1624,59 @@ pub fn run() {
                 }
             }
 
+            // A SIGTERM (`kill`, a session logging out) has to end the app the way the tray's
+            // Quit does: a device that is playing is told to stop on the way out, and that
+            // only happens on the ordinary exit path. The handler itself does nothing but
+            // raise a flag — what it runs in is not a place to do work.
+            #[cfg(unix)]
+            {
+                extern "C" fn on_terminate(_: libc::c_int) {
+                    TERMINATED.store(true, Ordering::SeqCst);
+                }
+                static TERMINATED: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                // `sighandler_t` is an integer-sized type on every Unix this builds for.
+                let handler = on_terminate as *const () as usize as libc::sighandler_t;
+                // SAFETY: the handler only stores into an atomic, which is async-signal-safe.
+                unsafe {
+                    libc::signal(libc::SIGTERM, handler);
+                }
+                let handle = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                        if TERMINATED.load(Ordering::SeqCst) {
+                            handle.exit(0);
+                            return;
+                        }
+                    }
+                });
+            }
+
             // The single place that saves positions on exit. It covers `app.exit`,
             // `request_restart`, the main window closing, and macOS Cmd+Q from the native menu.
             if let tauri::RunEvent::Exit = &event {
                 if let Some(state) = handle.try_state::<Arc<AppState>>() {
                     state.flush_position();
+                    // A device that is playing keeps playing when this app goes away, and
+                    // there is nobody left to stop it: the song would run to its end on a
+                    // speaker nobody asked to hear it on. The stop is written to the connection
+                    // and the app waits for that write, because a command still in flight when
+                    // the process ends never reaches the device.
+                    if state.cast.is_active() {
+                        let cast = state.cast.clone();
+                        tauri::async_runtime::block_on(async move {
+                            // A device on the network is a socket write, a renderer a small
+                            // request: both land in a moment on a local network. The wait is
+                            // bounded anyway, so a device that does not answer cannot hold
+                            // the app open.
+                            let _ = tokio::time::timeout(
+                                std::time::Duration::from_secs(3),
+                                cast.stop(),
+                            )
+                            .await;
+                        });
+                    }
                 }
                 mini::save_position(handle);
             }
@@ -1671,53 +1746,71 @@ fn spawn_event_pump(
     tauri::async_runtime::spawn(async move {
         let mut throttle = PositionThrottle::new();
         while let Some(ev) = events.recv().await {
+            let casting = state.cast.is_active();
             match ev {
                 PlayerEvent::Position(p) => {
                     // Quiet while the windows show another linked device's playback.
-                    if throttle.should_emit(p, std::time::Instant::now()) && !state.showing_remote()
+                    if throttle.should_emit(p, std::time::Instant::now())
+                        && !state.showing_other_playback()
                     {
                         let _ = app.emit("position", serde_json::json!({ "position": p }));
                     }
-                    state.on_position(p).await;
+                    if !casting {
+                        state.on_position(p).await;
+                    }
                 }
                 PlayerEvent::Duration(d) => {
-                    if !state.showing_remote() {
+                    if !state.showing_other_playback() {
                         let _ = app.emit("duration", serde_json::json!({ "duration": d }));
                     }
-                    state.on_duration(d).await;
+                    if !casting {
+                        state.on_duration(d).await;
+                    }
                 }
                 PlayerEvent::Playing(playing) => {
-                    let remote = state.showing_remote();
+                    let remote = state.showing_other_playback();
                     if !remote {
                         let _ =
                             app.emit("playback-state", if playing { "playing" } else { "paused" });
                     }
-                    if !playing {
-                        state.flush_position(); // persist exact resume position on pause
-                        if !remote {
-                            let _ = app.emit(
-                                "position",
-                                serde_json::json!({ "position": state.current_position() }),
-                            );
+                    if !casting {
+                        if !playing {
+                            state.flush_position(); // persist exact resume position on pause
+                            if !remote {
+                                let _ = app.emit(
+                                    "position",
+                                    serde_json::json!({ "position": state.current_position() }),
+                                );
+                            }
                         }
+                        state.media_set_playing(playing);
+                        // Playing here ends showing another linked device; pausing may start it.
+                        state.link_remote_refresh().await;
                     }
-                    state.media_set_playing(playing);
-                    // Playing here ends showing another linked device; pausing may start it.
-                    state.link_remote_refresh().await;
-                    // Keep the tray's toggle label honest — this arm is the same chokepoint
-                    // MPRIS uses, so tray state can't drift from media-key state.
-                    tray::set_playing(&app, playing);
                 }
                 // Listen Together host: broadcast a pause/resume. Not from `Playing`, which also
                 // flips when a track runs out, and that arrives here after the next track was
                 // announced (`on_track_ended` loads it on this pump), with the old track's end as
                 // the position. Guests then seek the new track to it, past the end of a shorter one.
-                PlayerEvent::Paused(paused) => state.lt_on_play_state(!paused).await,
-                PlayerEvent::TrackEnded => {
-                    state.on_track_ended().await;
+                PlayerEvent::Paused(paused) => {
+                    if !casting {
+                        state.lt_on_play_state(!paused).await;
+                    }
                 }
-                PlayerEvent::Looped => state.on_looped().await,
+                PlayerEvent::TrackEnded => {
+                    if !casting {
+                        state.on_track_ended().await;
+                    }
+                }
+                PlayerEvent::Looped => {
+                    if !casting {
+                        state.on_looped().await;
+                    }
+                }
                 PlayerEvent::TrackFailed(msg) => {
+                    if casting {
+                        continue;
+                    }
                     // The track died (dead/403 URL etc). on_track_failed records a WEB_REMIX 403
                     // (context/06 §2), evicts the poisoned cache, and retries the track once via
                     // the fallback clients — only toast the error if it gave up and advanced.
@@ -1737,6 +1830,9 @@ fn spawn_event_pump(
                     }
                 }
                 PlayerEvent::AudioDeviceLost => {
+                    if casting {
+                        continue;
+                    }
                     tracing::warn!("audio device unavailable, holding the queue where it is");
                     state.on_audio_device_lost().await;
                     let _ = app.emit(
@@ -1747,15 +1843,24 @@ fn spawn_event_pump(
                     );
                 }
                 PlayerEvent::LookaheadFailed(msg) => {
+                    if casting {
+                        continue;
+                    }
                     // No toast: the user is still hearing the current track and nothing they can
                     // see has gone wrong. The only thing owed is the eviction.
                     tracing::warn!(error = %msg, "lookahead preload failed");
                     state.on_lookahead_failed().await;
                 }
-                PlayerEvent::VideoFailed(audio) => state.on_video_failed(&audio).await,
+                PlayerEvent::VideoFailed(audio) => {
+                    if !casting {
+                        state.on_video_failed(&audio).await;
+                    }
+                }
                 PlayerEvent::Error(msg) => {
                     tracing::error!(error = %msg, "player error");
-                    let _ = app.emit("playback-error", serde_json::json!({ "message": msg }));
+                    if !casting {
+                        let _ = app.emit("playback-error", serde_json::json!({ "message": msg }));
+                    }
                 }
             }
         }

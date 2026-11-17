@@ -629,6 +629,7 @@ pub fn playback_data(video_id: &str, path: &str) -> Result<crate::orchestrator::
         video_id: video_id.to_owned(),
         stream_url: path.to_owned(),
         itag: 0,
+        mime_type: None,
         headers: HashMap::new(),
         // Never expires, and never enters the URL cache (see `AppState::resolve`).
         expires_in_seconds: i64::MAX / 2,

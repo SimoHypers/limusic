@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 use crate::db::Db;
@@ -189,16 +189,19 @@ pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
             HotkeyAction::PrevTrack => {
                 state.prev_in_queue().await;
             }
-            HotkeyAction::VolumeUp => change_volume(&state, &app, |v| v + 5),
-            HotkeyAction::VolumeDown => change_volume(&state, &app, |v| v - 5),
-            HotkeyAction::MuteToggle => change_volume(&state, &app, |v| {
-                if v > 0 {
-                    LAST_NONZERO_VOLUME.store(v, Ordering::Relaxed);
-                    0
-                } else {
-                    LAST_NONZERO_VOLUME.load(Ordering::Relaxed)
-                }
-            }),
+            HotkeyAction::VolumeUp => change_volume(&state, |v| v + 5).await,
+            HotkeyAction::VolumeDown => change_volume(&state, |v| v - 5).await,
+            HotkeyAction::MuteToggle => {
+                change_volume(&state, |v| {
+                    if v > 0 {
+                        LAST_NONZERO_VOLUME.store(v, Ordering::Relaxed);
+                        0
+                    } else {
+                        LAST_NONZERO_VOLUME.load(Ordering::Relaxed)
+                    }
+                })
+                .await
+            }
             HotkeyAction::SeekForward => {
                 let pos = state.current_position();
                 let _ = state.user_seek((pos + 10.0).max(0.0)).await;
@@ -222,17 +225,21 @@ pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
 
 /// Read, change, set, persist and echo the volume, the same as a slider commit. Serialized: each
 /// press is its own task, so a held key would otherwise lose steps and two mutes could both mute.
-pub(crate) fn change_volume(state: &AppState, app: &AppHandle, f: impl FnOnce(i64) -> i64) {
-    static LOCK: Mutex<()> = Mutex::new(());
-    let _guard = LOCK.lock().unwrap();
-    let volume = f(state.player.volume()).clamp(0, 100);
-    if state.player.set_volume(volume).is_ok() {
-        if volume > 0 {
-            LAST_NONZERO_VOLUME.store(volume, Ordering::Relaxed);
-        }
-        state.db.set_setting("volume", &volume.to_string());
-        let _ = app.emit("volume", volume);
-        state.media_set_volume(volume);
+pub(crate) async fn change_volume(state: &AppState, f: impl FnOnce(i64) -> i64) {
+    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _guard = LOCK.lock().await;
+    let local_nonzero = LAST_NONZERO_VOLUME.load(Ordering::Relaxed);
+    // The level that is being changed is the one that is playing: the device's while a cast
+    // is running, this desktop's otherwise.
+    let volume = f(state.current_volume()).clamp(0, 100);
+    let result = state.set_volume(volume).await;
+    if state.cast.is_active() {
+        // The remembered level belongs to this desktop, not to the cast device.
+        LAST_NONZERO_VOLUME.store(local_nonzero, Ordering::Relaxed);
+    } else if result.is_err() {
+        LAST_NONZERO_VOLUME.store(local_nonzero, Ordering::Relaxed);
+    } else if volume > 0 {
+        LAST_NONZERO_VOLUME.store(volume, Ordering::Relaxed);
     }
 }
 

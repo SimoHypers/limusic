@@ -2053,6 +2053,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "flume"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e139bc46ca777eb5efaf62df0ab8cc5fd400866427e56c68b22e414e53bd3be"
+dependencies = [
+ "futures-core",
+ "futures-sink",
+ "spin",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3018,6 +3029,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "if-addrs"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0a05c691e1fae256cf7013d99dad472dc52d5543322761f83ec8d47eab40d2b"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "if_chain"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3444,9 +3465,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.186"
+version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
+checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 
 [[package]]
 name = "libdbus-sys"
@@ -3537,6 +3558,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "if-addrs",
  "innertube",
  "karaoke",
  "ksni",
@@ -3545,6 +3567,7 @@ dependencies = [
  "listen-protocol",
  "lofty",
  "md-5",
+ "mdns-sd",
  "notify",
  "notify-rust",
  "objc2",
@@ -3573,6 +3596,7 @@ dependencies = [
  "tauri-plugin-window-state",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
  "tracing",
  "tracing-subscriber",
@@ -3982,6 +4006,21 @@ checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
 dependencies = [
  "cfg-if",
  "digest",
+]
+
+[[package]]
+name = "mdns-sd"
+version = "0.21.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6743ed743ff2bada2b8651ef298d3f98addb0b74844f19cdd57137d8bd0219e"
+dependencies = [
+ "fastrand 2.4.1",
+ "flume",
+ "if-addrs",
+ "log",
+ "mio",
+ "socket-pktinfo",
+ "socket2 0.6.4",
 ]
 
 [[package]]
@@ -6236,6 +6275,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 
 [[package]]
+name = "socket-pktinfo"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "512f5c35377cf69f350b106df2366c3a1df6bd01b047a7a58c8390b70d28838d"
+dependencies = [
+ "libc",
+ "socket2 0.6.4",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "socket2"
 version = "0.4.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6339,6 +6389,15 @@ dependencies = [
  "windows 0.44.0",
  "zbus 3.15.2",
  "zvariant 3.15.2",
+]
+
+[[package]]
+name = "spin"
+version = "0.9.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
+dependencies = [
+ "lock_api",
 ]
 
 [[package]]

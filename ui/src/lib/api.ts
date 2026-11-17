@@ -1716,6 +1716,39 @@ export const linkPlayOn = (deviceId: string) => invoke<void>('link_play_on', { d
 export const onLinkState = (cb: (s: LinkState) => void): Promise<UnlistenFn> =>
 	listen<LinkState>('link-state', (e) => cb(e.payload));
 
+// Casting: a device on the network plays what Limusic plays (src-tauri/src/cast/).
+export interface CastDevice {
+	/** Stable across renames: the Cast device id, or the renderer's UDN. */
+	id: string;
+	name: string;
+	/** "chromecast" or "dlna". */
+	kind: string;
+	/** The model, when the device reports one ("Google Nest Mini", …). */
+	model: string | null;
+	host: string;
+	port: number;
+}
+export interface CastState {
+	/** Whether something is playing on a device. */
+	active: boolean;
+	/** The device that is playing, if any. */
+	device: CastDevice | null;
+	/** Whether the device has answered yet. Until it does, the app does not know what it plays. */
+	synced: boolean;
+}
+
+export const castDevices = () => invoke<CastDevice[]>('cast_devices');
+/** Look for the devices again, now. */
+export const castRefresh = () => invoke<CastDevice[]>('cast_refresh');
+/** Play on a device on the network. It takes over from this desktop. */
+export const castStart = (deviceId: string) => invoke<void>('cast_start', { deviceId });
+/** Stop casting: the device stops and the music comes back to this desktop. */
+export const castStop = () => invoke<void>('cast_stop');
+export const onCastDevices = (cb: (d: CastDevice[]) => void): Promise<UnlistenFn> =>
+	listen<CastDevice[]>('cast-devices', (e) => cb(e.payload));
+export const onCastState = (cb: (s: CastState) => void): Promise<UnlistenFn> =>
+	listen<CastState>('cast-state', (e) => cb(e.payload));
+
 export const getMatugenTheme = () => invoke<string | null>('get_matugen_theme');
 export const onMatugenThemeChanged = (cb: (css: string | null) => void): Promise<UnlistenFn> =>
 	listen<string | null>('matugen-theme-changed', (event) => cb(event.payload));

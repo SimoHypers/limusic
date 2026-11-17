@@ -14,6 +14,7 @@ import type {
 } from './api';
 import { applyLtState, lt } from './lt.svelte';
 import { applyLinkState, link } from './link.svelte';
+import { applyCastDevices, applyCastState } from './cast.svelte';
 import { clearCached, invalidateCached, LIBRARY_SONGS_KEY } from './pagecache';
 import * as pl from './personal';
 import type { Personal } from './personal';
@@ -2116,8 +2117,16 @@ export function initApp(mini = false): () => void {
 		// Rust restores the shared clock before applying room playback, even with no UI open.
 		api.onLtState(applyLtState),
 		api.onLtNotice((msg) => toast(msg)),
-		api.onLinkState(applyLinkState)
+		api.onLinkState(applyLinkState),
+		// Casting: the devices on the network and the one that is playing.
+		api.onCastDevices(applyCastDevices),
+		api.onCastState(applyCastState)
 	];
+	// The devices were found before this window subscribed, so the list is asked for once:
+	// the events only carry what turns up from here on.
+	api.castDevices()
+		.then(applyCastDevices)
+		.catch(() => {});
 	const teardown = () => subs.forEach((u) => u.then((f) => f()));
 	api.getQueue()
 		.then((q) => (playback.queue = q))

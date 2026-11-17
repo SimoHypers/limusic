@@ -13,9 +13,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use innertube::{
-    find_format, find_video_format, pick_hls_variant, rustypipe_fallback, AudioQuality, Clients,
-    Format, InnerTube, Live, PlayerResponse, StreamingData, YouTubeClient, MAIN_CLIENT,
-    STREAM_FALLBACK_ORDER, UPLOAD_FALLBACK_ORDER,
+    find_cast_format, find_format, find_video_format, pick_hls_variant, rustypipe_fallback,
+    AudioQuality, Clients, Format, InnerTube, Live, PlayerResponse, StreamingData, YouTubeClient,
+    MAIN_CLIENT, STREAM_FALLBACK_ORDER, UPLOAD_FALLBACK_ORDER,
 };
 use tokio::sync::Mutex;
 
@@ -28,6 +28,9 @@ pub struct PlaybackData {
     pub video_id: String,
     pub stream_url: String,
     pub itag: i64,
+    /// The selected stream's MIME type, when the resolver knows it.
+    #[serde(skip)]
+    pub mime_type: Option<String>,
     /// HTTP headers mpv must send (User-Agent; Phase 3 adds Cookie).
     #[serde(skip)]
     pub headers: std::collections::HashMap<String, String>,
@@ -219,7 +222,37 @@ impl Orchestrator {
         quality: AudioQuality,
         disabled: &HashSet<String>,
     ) -> Result<PlaybackData, ResolveError> {
-        let prefer_high = matches!(quality, AudioQuality::High | AudioQuality::Auto);
+        self.resolve_inner(video_id, is_upload, quality, disabled, false).await
+    }
+
+    /// The same resolve, for a device on the network: it asks for the AAC rendition a cast
+    /// target can play, instead of the Opus the local player prefers.
+    ///
+    /// The URL is not cached: the cached one is the local player's, and handing that to a
+    /// renderer would be handing it a container it may refuse.
+    pub async fn resolve_cast(
+        &self,
+        video_id: &str,
+        is_upload: bool,
+        disabled: &HashSet<String>,
+    ) -> Result<PlaybackData, ResolveError> {
+        self.resolve_inner(video_id, is_upload, AudioQuality::Auto, disabled, true).await
+    }
+
+    /// The resolve itself. `prefer_cast` asks for the rendition a cast target can play.
+    async fn resolve_inner(
+        &self,
+        video_id: &str,
+        is_upload: bool,
+        quality: AudioQuality,
+        disabled: &HashSet<String>,
+        prefer_cast: bool,
+    ) -> Result<PlaybackData, ResolveError> {
+        // A cast target takes what it can play, not the best the local player can: the two
+        // want different renditions of the same track, and the HIGH two-pass would hand the
+        // cast the Opus one.
+        let prefer_high =
+            !prefer_cast && matches!(quality, AudioQuality::High | AudioQuality::Auto);
         let logged_in = self.it.is_logged_in();
         let visitor = self.it.visitor_data();
         // An upload only streams to an authenticated client, so it gets its own chain and never
@@ -442,7 +475,12 @@ impl Orchestrator {
                     ));
                 }
             }
-            let Some(format) = find_format(streaming, quality) else { continue };
+            let format = if prefer_cast {
+                find_cast_format(streaming)
+            } else {
+                find_format(streaming, quality)
+            };
+            let Some(format) = format else { continue };
             if audio_config_loudness.is_none() {
                 audio_config_loudness = main_loudness(&resp);
             }
@@ -598,6 +636,7 @@ impl Orchestrator {
                 video_id: video_id.to_owned(),
                 stream_url: c.url,
                 itag: c.itag as i64,
+                mime_type: Some(c.mime.clone()),
                 headers: std::collections::HashMap::new(),
                 expires_in_seconds: c.expires_in_seconds as i64,
                 loudness_db: c.loudness_db.map(|f| f as f64),
@@ -878,6 +917,7 @@ impl Orchestrator {
             video_id: video_id.to_owned(),
             stream_url: url,
             itag,
+            mime_type: format.map(|f| f.mime_type.clone()),
             headers,
             expires_in_seconds: expires,
             loudness_db: format.and_then(|f| f.loudness_db).or(loudness),

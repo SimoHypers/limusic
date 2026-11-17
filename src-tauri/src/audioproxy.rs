@@ -70,9 +70,36 @@ pub(crate) async fn no_stall<F: std::future::Future<Output = T>, T>(f: F) -> Res
 /// gapless-next tracks, which are always the two most recent.
 const MAX_REGISTRATIONS: usize = 64;
 
-/// `(port, token)` of the running server. Set once at startup; unset if the bind failed, which
-/// just means [`register`] returns `None` and callers keep the direct URL.
-static ENDPOINT: OnceLock<(u16, String)> = OnceLock::new();
+/// The running proxy.
+struct Proxy {
+    /// The loopback listener's port.
+    port: u16,
+    /// The bearer credential in loopback URLs. It is random per launch.
+    token: String,
+    /// The LAN listener's `(port, token)`, started when the first cast needs it. Its token is
+    /// separate from the loopback one, and it is only ever handed to a device the user picked.
+    lan: Mutex<Option<(u16, String)>>,
+}
+
+/// What a listener may serve. The LAN listener is deliberately narrower than the loopback one.
+#[derive(Clone, Copy)]
+enum ListenerScope {
+    Loopback,
+    Lan,
+}
+
+impl ListenerScope {
+    fn allows(self, kind: &str) -> bool {
+        match self {
+            Self::Loopback => matches!(kind, "a" | "k"),
+            Self::Lan => kind == "a",
+        }
+    }
+}
+
+/// The running proxy's address. Set once at startup; unset if the bind failed, which just means
+/// [`register`] returns `None` and callers keep the direct URL.
+static ENDPOINT: OnceLock<Proxy> = OnceLock::new();
 
 static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
 
@@ -118,35 +145,39 @@ pub fn start() {
         return;
     }
     let token = format!("{:016x}{:016x}", rand::random::<u64>(), rand::random::<u64>());
-    if ENDPOINT.set((port, token)).is_err() {
+    if ENDPOINT.set(Proxy { port, token, lan: Mutex::new(None) }).is_err() {
         return; // already started
     }
     let _ = REGISTRY.set(Mutex::new(Registry { map: HashMap::new(), order: VecDeque::new() }));
     tracing::info!(port, "audio proxy listening on loopback");
 
-    tauri::async_runtime::spawn(async move {
-        let Ok(listener) = tokio::net::TcpListener::from_std(listener) else { return };
-        loop {
-            let (stream, _) = match listener.accept().await {
-                Ok(v) => v,
-                Err(e) => {
-                    // EMFILE/ENFILE/ENOBUFS return immediately, so `continue` alone would spin.
-                    tracing::warn!(error = %e, "audio proxy: accept failed");
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                    continue;
-                }
-            };
-            tauri::async_runtime::spawn(async move {
-                let svc = service_fn(serve);
-                let _ = http1::Builder::new()
-                    // hyper 1.x panics when it arms a timeout without a timer installed.
-                    .timer(TokioTimer::new())
-                    .header_read_timeout(Duration::from_secs(15))
-                    .serve_connection(TokioIo::new(stream), svc)
-                    .await;
-            });
-        }
-    });
+    tauri::async_runtime::spawn(accept_loop(listener, ListenerScope::Loopback));
+}
+
+/// Accept connections and hand each one to the server.
+async fn accept_loop(listener: TcpListener, scope: ListenerScope) {
+    let Ok(listener) = tokio::net::TcpListener::from_std(listener) else { return };
+    loop {
+        let (stream, peer) = match listener.accept().await {
+            Ok(v) => v,
+            Err(e) => {
+                // EMFILE/ENFILE/ENOBUFS return immediately, so `continue` alone would spin.
+                tracing::warn!(error = %e, "audio proxy: accept failed");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                continue;
+            }
+        };
+        tracing::debug!(target: "app_lib::audioproxy", %peer, "audio proxy: a client connected");
+        tauri::async_runtime::spawn(async move {
+            let svc = service_fn(move |req| serve(req, scope));
+            let _ = http1::Builder::new()
+                // hyper 1.x panics when it arms a timeout without a timer installed.
+                .timer(TokioTimer::new())
+                .header_read_timeout(Duration::from_secs(15))
+                .serve_connection(TokioIo::new(stream), svc)
+                .await;
+        });
+    }
 }
 
 /// Register one YouTube stream URL (with the headers it needs) and return the loopback URL mpv
@@ -159,36 +190,122 @@ pub fn register(url: &str, headers: &HashMap<String, String>) -> Option<String> 
     {
         return None;
     }
-    let (port, token) = ENDPOINT.get()?;
+    let proxy = ENDPOINT.get()?;
+    let id = register_id(url, headers)?;
+    Some(format!("http://127.0.0.1:{}/{}/a/{}", proxy.port, proxy.token, id))
+}
+
+/// Register one YouTube stream URL for a device on the LAN, and return the URL that device can
+/// fetch.
+///
+/// This is the renderer path. A DLNA renderer speaks `http://` and not `https://`, and the
+/// stream URL needs the headers this app signed it with, so the bytes have to come through this
+/// proxy rather than straight from googlevideo. The LAN listener is bound on first use and
+/// carries a token of its own: only the device the user picked is ever given a URL with it.
+///
+/// `extension` is the file extension the URL ends with. A renderer that guesses the format
+/// from the address rather than from the metadata gets the right one this way.
+pub fn register_lan(
+    url: &str,
+    headers: &HashMap<String, String>,
+    address: std::net::Ipv4Addr,
+    extension: &str,
+) -> Option<String> {
+    if !crate::orchestrator::is_youtube_stream(url)
+        || std::env::var_os("LIMUSIC_NO_AUDIO_PROXY").is_some()
+    {
+        return None;
+    }
+    let (port, token) = lan_endpoint()?;
+    let id = register_id(url, headers)?;
+    Some(format!("http://{address}:{port}/{token}/a/{id}.{extension}"))
+}
+
+/// The LAN listener's `(port, token)`, started on first use.
+fn lan_endpoint() -> Option<(u16, String)> {
+    let proxy = ENDPOINT.get()?;
+    let mut slot = proxy.lan.lock().ok()?;
+    if let Some((port, token)) = slot.as_ref() {
+        return Some((*port, token.clone()));
+    }
+    let listener = match TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)) {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::warn!(error = %e, "audio proxy: the LAN bind failed");
+            return None;
+        }
+    };
+    let port = match listener.local_addr() {
+        Ok(a) => a.port(),
+        Err(e) => {
+            tracing::warn!(error = %e, "audio proxy: local_addr failed");
+            return None;
+        }
+    };
+    if let Err(e) = listener.set_nonblocking(true) {
+        tracing::warn!(error = %e, "audio proxy: set_nonblocking failed");
+        return None;
+    }
+    let token = format!("{:016x}{:016x}", rand::random::<u64>(), rand::random::<u64>());
+    tracing::info!(port, "audio proxy listening on the LAN for cast targets");
+    tauri::async_runtime::spawn(accept_loop(listener, ListenerScope::Lan));
+    *slot = Some((port, token.clone()));
+    Some((port, token))
+}
+
+/// Register a stream URL and return its id.
+fn register_id(url: &str, headers: &HashMap<String, String>) -> Option<String> {
     let id = format!("{:016x}", rand::random::<u64>());
     let reg = Arc::new(Registration {
         url: url.to_owned(),
         headers: headers.clone(),
         meta: Mutex::new(None),
     });
-    {
-        let mut r = REGISTRY.get()?.lock().ok()?;
-        while r.order.len() >= MAX_REGISTRATIONS {
-            if let Some(old) = r.order.pop_front() {
-                r.map.remove(&old);
-            }
+    let mut r = REGISTRY.get()?.lock().ok()?;
+    while r.order.len() >= MAX_REGISTRATIONS {
+        if let Some(old) = r.order.pop_front() {
+            r.map.remove(&old);
         }
-        r.map.insert(id.clone(), reg);
-        r.order.push_back(id.clone());
     }
-    Some(format!("http://127.0.0.1:{port}/{token}/a/{id}"))
+    r.map.insert(id.clone(), reg);
+    r.order.push_back(id.clone());
+    Some(id)
 }
 
-/// `/<token>/<kind>/<id>` to `(kind, id)`, once the token matches this launch's.
-fn route<'a>(path: &'a str, token: &str) -> Option<(&'a str, &'a str)> {
+/// `/<token>/<kind>/<id>` to `(kind, id)`, once the token matches one of this launch's.
+fn route<'a>(path: &'a str, tokens: &[String]) -> Option<(&'a str, &'a str)> {
     let (t, rest) = path.strip_prefix('/')?.split_once('/')?;
     let (kind, id) = rest.split_once('/')?;
-    (t == token && !id.is_empty()).then_some((kind, id))
+    (tokens.iter().any(|known| known == t) && !id.is_empty()).then_some((kind, id))
 }
 
-/// `/<token>/a/<id>` to the registration id.
-fn id_from<'a>(path: &'a str, token: &str) -> Option<&'a str> {
-    route(path, token).filter(|(kind, _)| *kind == "a").map(|(_, id)| id)
+/// The token this listener accepts. Each listener has its own credential and route scope.
+fn known_tokens(scope: ListenerScope) -> Vec<String> {
+    let Some(proxy) = ENDPOINT.get() else { return Vec::new() };
+    match scope {
+        ListenerScope::Loopback => vec![proxy.token.clone()],
+        ListenerScope::Lan => {
+            let Ok(slot) = proxy.lan.lock() else { return Vec::new() };
+            slot.as_ref().map(|(_, token)| vec![token.clone()]).unwrap_or_default()
+        }
+    }
+}
+
+/// `/<token>/a/<id>` to the registration id. The id may carry the file extension a cast device
+/// needs (see [`register_lan`]); it is not part of the id.
+fn id_from<'a>(path: &'a str, tokens: &[String]) -> Option<&'a str> {
+    let id = route(path, tokens).filter(|(kind, _)| *kind == "a").map(|(_, id)| id)?;
+    Some(strip_extension(id))
+}
+
+/// The file extension off the end of an id, if it has one.
+fn strip_extension(id: &str) -> &str {
+    for extension in [".m4a", ".mp4", ".mp3", ".webm", ".aac", ".ogg", ".wav"] {
+        if let Some(stripped) = id.strip_suffix(extension) {
+            return stripped;
+        }
+    }
+    id
 }
 
 /// Karaoke instrumentals still being written (`/<token>/k/<id>`): the song that is playing, served
@@ -198,10 +315,10 @@ static GROWING: OnceLock<Mutex<HashMap<String, Arc<karaoke::stream::GrowingWav>>
 
 /// The loopback URL mpv plays `wav` from, or `None` if the proxy never came up.
 pub fn register_growing(wav: Arc<karaoke::stream::GrowingWav>) -> Option<String> {
-    let (port, token) = ENDPOINT.get()?;
+    let proxy = ENDPOINT.get()?;
     let id = format!("{:016x}", rand::random::<u64>());
     GROWING.get_or_init(Default::default).lock().ok()?.insert(id.clone(), wav);
-    Some(format!("http://127.0.0.1:{port}/{token}/k/{id}"))
+    Some(format!("http://127.0.0.1:{}/{}/k/{}", proxy.port, proxy.token, id))
 }
 
 /// Forget a stream registered by [`register_growing`]. A connection already reading keeps it.
@@ -308,19 +425,45 @@ fn empty(status: StatusCode) -> Response<ProxyBody> {
     r
 }
 
-async fn serve(req: Request<Incoming>) -> Result<Response<ProxyBody>, Infallible> {
-    Ok(handle(req).await.unwrap_or_else(empty))
+async fn serve(
+    req: Request<Incoming>,
+    scope: ListenerScope,
+) -> Result<Response<ProxyBody>, Infallible> {
+    let method = req.method().clone();
+    let path = req.uri().path().to_owned();
+    let answer = handle(req, scope).await;
+    match &answer {
+        Ok(r) => {
+            tracing::debug!(target: "app_lib::audioproxy", %method, %path, status = r.status().as_u16(), "audio proxy: answered")
+        }
+        Err(e) => {
+            tracing::debug!(target: "app_lib::audioproxy", %method, %path, status = e.as_u16(), "audio proxy: refused")
+        }
+    }
+    Ok(answer.unwrap_or_else(empty))
 }
 
-async fn handle(req: Request<Incoming>) -> Result<Response<ProxyBody>, StatusCode> {
+async fn handle(
+    req: Request<Incoming>,
+    scope: ListenerScope,
+) -> Result<Response<ProxyBody>, StatusCode> {
     if !matches!(*req.method(), Method::GET | Method::HEAD) {
         return Err(StatusCode::METHOD_NOT_ALLOWED);
     }
-    let (_, token) = ENDPOINT.get().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-    if let Some(("k", id)) = route(req.uri().path(), token) {
-        return serve_growing(&req, id).await;
+    let tokens = known_tokens(scope);
+    if tokens.is_empty() {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
-    let id = id_from(req.uri().path(), token).ok_or(StatusCode::NOT_FOUND)?;
+    if let Some(("k", id)) = route(req.uri().path(), &tokens) {
+        if scope.allows("k") {
+            return serve_growing(&req, id).await;
+        }
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let id = id_from(req.uri().path(), &tokens).ok_or(StatusCode::NOT_FOUND)?;
+    if !scope.allows("a") {
+        return Err(StatusCode::NOT_FOUND);
+    }
     let reg = {
         let r = REGISTRY
             .get()
@@ -563,13 +706,22 @@ mod tests {
 
     #[test]
     fn only_the_right_token_and_kind_route() {
-        assert_eq!(id_from("/abc/a/deadbeef", "abc"), Some("deadbeef"));
-        assert_eq!(id_from("/wrong/a/deadbeef", "abc"), None);
-        assert_eq!(id_from("/abc/x/deadbeef", "abc"), None);
-        assert_eq!(id_from("/abc/a/", "abc"), None);
-        assert_eq!(id_from("/abc/a", "abc"), None);
-        assert_eq!(route("/abc/k/beef", "abc"), Some(("k", "beef")));
-        assert_eq!(id_from("/abc/k/beef", "abc"), None, "a stream id is not an audio one");
+        let tokens = vec!["abc".to_owned()];
+        assert_eq!(id_from("/abc/a/deadbeef", &tokens), Some("deadbeef"));
+        assert_eq!(id_from("/wrong/a/deadbeef", &tokens), None);
+        assert_eq!(id_from("/abc/x/deadbeef", &tokens), None);
+        assert_eq!(id_from("/abc/a/", &tokens), None);
+        assert_eq!(id_from("/abc/a", &tokens), None);
+        assert_eq!(route("/abc/k/beef", &tokens), Some(("k", "beef")));
+        assert_eq!(id_from("/abc/k/beef", &tokens), None, "a stream id is not an audio one");
+    }
+
+    #[test]
+    fn the_lan_listener_cannot_serve_loopback_only_routes() {
+        assert!(ListenerScope::Loopback.allows("a"));
+        assert!(ListenerScope::Loopback.allows("k"));
+        assert!(ListenerScope::Lan.allows("a"));
+        assert!(!ListenerScope::Lan.allows("k"));
     }
 
     #[test]
