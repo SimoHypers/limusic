@@ -3612,6 +3612,7 @@ dependencies = [
  "any_ascii",
  "anyhow",
  "base64 0.22.1",
+ "cast",
  "csv",
  "discord-rich-presence",
  "futures-util",

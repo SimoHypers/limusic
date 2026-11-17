@@ -226,14 +226,8 @@ pub(crate) fn change_volume(state: &AppState, app: &AppHandle, f: impl FnOnce(i6
     static LOCK: Mutex<()> = Mutex::new(());
     let _guard = LOCK.lock().unwrap();
     let volume = f(state.player.volume()).clamp(0, 100);
-    if state.player.set_volume(volume).is_ok() {
-        if volume > 0 {
-            LAST_NONZERO_VOLUME.store(volume, Ordering::Relaxed);
-        }
-        state.db.set_setting("volume", &volume.to_string());
-        let _ = app.emit("volume", volume);
-        state.media_set_volume(volume);
-    }
+    state.set_output_volume(volume);
+    state.db.set_setting("volume", &volume.to_string());
 }
 
 pub fn load_config(db: &Db) -> HotkeysConfig {

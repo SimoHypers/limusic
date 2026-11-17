@@ -210,15 +210,30 @@ pub async fn seek(state: St<'_>, position: f64) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn set_volume(state: St<'_>, volume: i64) -> Result<(), String> {
-    state.player.set_volume(volume).map_err(|e| e.to_string())?;
-    if volume > 0 {
-        crate::hotkeys::LAST_NONZERO_VOLUME.store(volume, std::sync::atomic::Ordering::Relaxed);
-    }
-    // There is one volume and there can be two windows (the mini player). Without this the one
-    // that didn't move the slider keeps showing the old level and lies about what you're hearing.
-    let _ = state.app.emit("volume", volume);
-    state.media_set_volume(volume);
+    state.set_output_volume(volume);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn cast_list_devices(state: St<'_>) -> Result<Vec<cast::CastDevice>, String> {
+    Ok(state.cast_list_devices())
+}
+
+#[tauri::command]
+pub async fn cast_connect(state: St<'_>, id: String) -> Result<cast::CastDevice, String> {
+    let state = state.inner().clone();
+    state.cast_connect(&id).await
+}
+
+#[tauri::command]
+pub async fn cast_disconnect(state: St<'_>) -> Result<(), String> {
+    let state = state.inner().clone();
+    state.cast_disconnect().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn cast_status(state: St<'_>) -> Result<Option<cast::CastDevice>, String> {
+    Ok(state.cast_status())
 }
 
 /// A fresh position and when it was read (`AppState::playback_clock`). Async, so the read of mpv

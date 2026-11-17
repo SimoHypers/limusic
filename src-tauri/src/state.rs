@@ -69,6 +69,7 @@ pub struct AppState {
     pub db: Arc<Db>,
     pub app: AppHandle,
     pub orchestrator: Arc<Orchestrator>,
+    pub cast: Arc<crate::castout::CastManager>,
     /// Listen Together session (context/19). Drives host broadcasts + guest gating.
     pub lt: Arc<LtSession>,
     // Serialize effect commands with the room's tempo reset, including requests already pending.
@@ -549,8 +550,9 @@ impl AppState {
             clients,
             player,
             db,
-            app,
+            app: app.clone(),
             orchestrator,
+            cast: Arc::new(crate::castout::CastManager::new(app)),
             lt,
             link,
             cache_dir,
@@ -583,6 +585,84 @@ impl AppState {
             last_media_state: std::sync::Mutex::new(None),
             last_queue_fingerprint: AtomicU64::new(0),
             last_persisted_fingerprint: AtomicU64::new(0),
+        }
+    }
+
+    pub fn cast_list_devices(&self) -> Vec<cast::CastDevice> {
+        self.cast.list_devices()
+    }
+
+    pub async fn cast_connect(self: &Arc<Self>, id: &str) -> Result<cast::CastDevice, String> {
+        self.cast.connect(id, self).await
+    }
+
+    pub async fn cast_disconnect(self: &Arc<Self>) -> Result<(), String> {
+        self.cast.disconnect(self).await
+    }
+
+    pub fn cast_status(&self) -> Option<cast::CastDevice> {
+        self.cast.status()
+    }
+
+    pub fn set_output_volume(&self, volume: i64) {
+        if self.cast.is_connected() {
+            let _ = self.cast.set_volume(volume as f32 / 100.0);
+        } else {
+            let _ = self.player.set_volume(volume);
+        }
+        if volume > 0 {
+            crate::hotkeys::LAST_NONZERO_VOLUME.store(volume, std::sync::atomic::Ordering::Relaxed);
+        }
+        let _ = self.app.emit("volume", volume);
+        self.media_set_volume(volume);
+    }
+
+    pub async fn cast_follow_load(&self, data: &PlaybackData, start_secs: f64, is_karaoke: bool) {
+        if !self.cast.is_connected() {
+            return;
+        }
+        let is_local = crate::local::song_path(&data.video_id).is_some();
+        if is_local || data.live || is_karaoke {
+            let _ = self.player.set_muted(false);
+            return;
+        }
+        let device = match self.cast.status() {
+            Some(d) => d,
+            None => {
+                let _ = self.player.set_muted(false);
+                return;
+            }
+        };
+        if let Some(lan_url) = crate::audioproxy::register_lan(&data.stream_url, &data.headers, device.ip) {
+            let _ = self.player.set_muted(true);
+            let content_type = if data.stream_url.contains("mimeType=audio/webm") || data.stream_url.contains("itag=251") || data.stream_url.contains("itag=250") || data.stream_url.contains("itag=249") {
+                "audio/webm".to_string()
+            } else {
+                "audio/mp4".to_string()
+            };
+            let req = cast::LoadRequest {
+                url: lan_url,
+                content_type,
+                title: data.title.clone(),
+                artist: data.artists.clone(),
+                image_url: data.thumbnail.clone(),
+                start_secs,
+                autoplay: true,
+            };
+            let _ = self.cast.session_load(req);
+        } else {
+            let _ = self.player.set_muted(false);
+        }
+    }
+
+    pub async fn cast_follow_current(&self, start_secs: f64) {
+        if let Some(item) = self.current_item().await {
+            if let Ok(data) = self.resolve(&item.video_id, item.is_upload, parse_duration_ms(item.duration.as_deref()) / 1000).await {
+                let stream_url = mpv_stream_url(&data);
+                let play_u = self.play_url(PinSlot::Current, &item.video_id, &stream_url);
+                let is_karaoke = play_u != stream_url;
+                self.cast_follow_load(&data, start_secs, is_karaoke).await;
+            }
         }
     }
 
@@ -2406,6 +2486,7 @@ impl AppState {
             self.emit_error(&item.video_id, &e.to_string());
             return false;
         }
+        self.cast_follow_load(&data, seek.unwrap_or(0.0), is_karaoke).await;
         // Where mpv starts, from now on: its first tick comes after the unpause, and that pause
         // flag's Play (`lt_on_play_state`) reads this. Left at the last track's position, a Continue
         // here told the device link the music was back where this desktop last stopped, and the
@@ -2877,6 +2958,7 @@ impl AppState {
             self.emit_error(&item.video_id, &e.to_string());
             return;
         }
+        self.cast_follow_load(&data, pos, is_karaoke).await;
         // The picture is keyed by the file mpv plays, and that just changed.
         self.attach_video(&item.video_id, item.is_video && !data.live, &play_u);
         // A cached instrumental or the original: not a stream any more.
@@ -3973,6 +4055,7 @@ impl AppState {
     /// watch-history ping, latched to happen exactly once per play. The ping is additionally
     /// gated on the `enable_history` setting + being logged in. Best-effort (errors logged).
     pub async fn on_position(&self, pos: f64) {
+        self.cast.check_drift(pos, self.is_playing.load(Ordering::Relaxed));
         self.record_position(pos);
         self.hear(pos);
         // On a karaoke stream, the playhead must stay where it is written. Every seek lands here
@@ -4673,6 +4756,7 @@ impl AppState {
             self.emit_error(&track.id, &e.to_string());
             return;
         }
+        self.cast_follow_load(&data, pos, false).await;
         let _ = if playing { self.player.play() } else { self.player.pause() };
         {
             let mut q = self.queue.lock().await;
@@ -4906,6 +4990,9 @@ impl AppState {
             return Ok(());
         }
         self.player.seek(position).map_err(|e| e.to_string())?;
+        if self.cast.is_connected() {
+            let _ = self.cast.seek(position);
+        }
         let p = Playback::at(PlaybackKind::Seek, (position * 1000.0) as i64);
         self.link.publish(p.clone());
         if self.lt.is_host().await {

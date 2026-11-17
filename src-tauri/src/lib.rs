@@ -1,5 +1,6 @@
 //! Limusic Tauri app. Wires transport + player + db + orchestrator behind the command boundary.
 
+mod castout;
 mod appicon;
 mod audioproxy;
 mod autopause;
@@ -1361,6 +1362,10 @@ pub fn run() {
             commands::seek,
             commands::playback_clock,
             commands::set_volume,
+            commands::cast_list_devices,
+            commands::cast_connect,
+            commands::cast_disconnect,
+            commands::cast_status,
             commands::set_playback_params,
             commands::set_karaoke,
             commands::get_queue,
@@ -1602,6 +1607,7 @@ pub fn run() {
             if let tauri::RunEvent::Exit = &event {
                 if let Some(state) = handle.try_state::<Arc<AppState>>() {
                     state.flush_position();
+                    let _ = tauri::async_runtime::block_on(async { state.cast_disconnect().await });
                 }
                 mini::save_position(handle);
             }
@@ -1702,6 +1708,13 @@ fn spawn_event_pump(
                         }
                     }
                     state.media_set_playing(playing);
+                    if state.cast.is_connected() {
+                        if playing {
+                            let _ = state.cast.play();
+                        } else {
+                            let _ = state.cast.pause();
+                        }
+                    }
                     // Playing here ends showing another linked device; pausing may start it.
                     state.link_remote_refresh().await;
                     // Keep the tray's toggle label honest — this arm is the same chokepoint
