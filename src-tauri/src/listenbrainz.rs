@@ -21,9 +21,6 @@ use crate::lastfm::Resolved;
 use crate::state::AppState;
 
 const DEFAULT_ROOT: &str = "https://api.listenbrainz.org";
-/// Custom instance root (`listenbrainz_url` setting); empty = official server. Process-wide so the
-/// scrobbler task, which only holds the token, reaches the same server as connect/profile.
-static ROOT: std::sync::RwLock<String> = std::sync::RwLock::new(String::new());
 
 /// Trimmed, no trailing slash, http(s) with a host and no query or fragment (endpoints are
 /// appended as `{root}/1/...`). Empty = official server.
@@ -44,16 +41,8 @@ fn clean_root(url: &str) -> Result<String, String> {
     Ok(url.to_owned())
 }
 
-pub fn set_root(url: &str) {
-    *ROOT.write().unwrap() = url.to_owned();
-}
-
 fn root_or_default(root: &str) -> String {
     if root.is_empty() { DEFAULT_ROOT } else { root }.to_owned()
-}
-
-fn api_root() -> String {
-    root_or_default(&ROOT.read().unwrap())
 }
 
 const USER_AGENT: &str =
@@ -103,14 +92,16 @@ impl std::fmt::Display for SubmitError {
     }
 }
 
+/// `root` is the `listenbrainz_url` the token was validated against (empty = official server).
 pub(crate) async fn submit(
+    root: &str,
     token: &str,
     listen_type: &str,
     payload: serde_json::Value,
 ) -> Result<(), SubmitError> {
     let body = serde_json::json!({ "listen_type": listen_type, "payload": payload });
     let resp = crate::http::client()
-        .post(format!("{}/1/submit-listens", api_root()))
+        .post(format!("{}/1/submit-listens", root_or_default(root)))
         .header("Authorization", format!("Token {token}"))
         .header("User-Agent", USER_AGENT)
         .json(&body)
@@ -206,15 +197,12 @@ fn emit_state(
 pub async fn connect(state: Arc<AppState>, token: String, url: String) -> Result<(), String> {
     let token = token.trim().to_owned();
     let url = clean_root(&url)?;
-    // Validate against the typed URL, but only switch the shared root once it passes: the
-    // scrobbler must not send an existing token to a server that was never accepted.
     let username = validate(&token, &url).await.map_err(|e| format!("ListenBrainz: {e}"))?;
-    set_root(&url);
     state.db.set_setting("listenbrainz_url", &url);
     state.db.set_setting("listenbrainz_token", &token);
     state.db.set_setting("listenbrainz_username", &username);
     // Same task, same clock: the Last.fm scrobbler holds this token next to its session key.
-    state.lastfm.set_token(Some(token));
+    state.lastfm.set_token(Some((url, token)));
     tracing::info!(user = %username, "listenbrainz connected");
     emit_state(&state.app, true, Some(&username), None);
     Ok(())
@@ -224,7 +212,6 @@ pub fn disconnect(state: &AppState) {
     state.db.set_setting("listenbrainz_token", "");
     state.db.set_setting("listenbrainz_username", "");
     state.db.set_setting("listenbrainz_url", "");
-    set_root("");
     state.lastfm.set_token(None);
     emit_state(&state.app, false, None, None);
 }
@@ -239,9 +226,10 @@ pub fn status(state: &AppState) -> serde_json::Value {
 /// is connected or ListenBrainz didn't answer.
 pub async fn profile(state: &AppState) -> Option<Profile> {
     let username = state.db.get_setting("listenbrainz_username").filter(|s| !s.is_empty())?;
+    let root = root_or_default(&state.db.get_setting("listenbrainz_url").unwrap_or_default());
     // Listen counts are public: no token needed.
     let body: serde_json::Value = crate::http::client()
-        .get(format!("{}/1/user/{username}/listen-count", api_root()))
+        .get(format!("{root}/1/user/{username}/listen-count"))
         .header("User-Agent", USER_AGENT)
         .timeout(Duration::from_secs(15))
         .send()
@@ -254,9 +242,10 @@ pub async fn profile(state: &AppState) -> Option<Profile> {
     Some(Profile {
         username: username.clone(),
         // Custom instances serve the web UI from the same root as the API.
-        url: match api_root() {
-            r if r == DEFAULT_ROOT => format!("https://listenbrainz.org/user/{username}/"),
-            r => format!("{r}/user/{username}/"),
+        url: if root == DEFAULT_ROOT {
+            format!("https://listenbrainz.org/user/{username}/")
+        } else {
+            format!("{root}/user/{username}/")
         },
         listens: count,
     })
@@ -303,6 +292,40 @@ mod tests {
         // Local files carry no URL.
         let m = track_metadata(&r, "LOCAL:/music/song.mp3", 10.0);
         assert!(m["additional_info"].get("origin_url").is_none());
+    }
+
+    /// One-shot stand-in server: answers `body` to the first request and returns that request's
+    /// head (request line + headers).
+    async fn stand_in(body: &'static str) -> (String, tokio::task::JoinHandle<String>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let root = format!("http://{}/lb", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0; 8192];
+            let n = sock.read(&mut buf).await.unwrap();
+            let head = String::from_utf8_lossy(&buf[..n]).to_string();
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            sock.write_all(resp.as_bytes()).await.unwrap();
+            head
+        });
+        (root, task)
+    }
+
+    #[tokio::test]
+    async fn calls_go_to_the_root_they_are_given() {
+        let (root, req) = stand_in(r#"{"status":"ok"}"#).await;
+        assert!(submit(&root, "tok-custom", "single", serde_json::json!([])).await.is_ok());
+        let head = req.await.unwrap().to_lowercase();
+        assert!(head.starts_with("post /lb/1/submit-listens "), "{head}");
+        assert!(head.contains("authorization: token tok-custom"), "{head}");
+
+        let (root, req) = stand_in(r#"{"valid":true,"user_name":"eve"}"#).await;
+        assert_eq!(validate("tok-custom", &root).await.unwrap(), "eve");
+        assert!(req.await.unwrap().starts_with("GET /lb/1/validate-token "));
     }
 
     #[test]

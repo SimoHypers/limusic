@@ -117,10 +117,13 @@
 	$effect(() => {
 		if (listenbrainz.connected) lbToken = '';
 	});
+	// The button and the token field's Enter both go through here, so both get the checks.
+	const lbReady = $derived(
+		!!lbToken.trim() && !(lbCustom && !lbUrl.trim()) && !listenbrainz.connecting
+	);
 	function connectLb() {
-		const token = lbToken.trim();
-		if (!token) return;
-		connectListenBrainz(token, lbCustom ? lbUrl.trim() : '');
+		if (!lbReady) return;
+		connectListenBrainz(lbToken.trim(), lbCustom ? lbUrl.trim() : '');
 	}
 	const num = (n: number) => n.toLocaleString(currentLocale.id);
 	const since = $derived(
@@ -533,7 +536,7 @@
 							/>
 							<Button
 								size="sm"
-								disabled={!lbToken.trim() || (lbCustom && !lbUrl.trim()) || listenbrainz.connecting}
+								disabled={!lbReady}
 								onclick={connectLb}
 							>
 								{#if listenbrainz.connecting}
