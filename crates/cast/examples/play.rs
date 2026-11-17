@@ -22,13 +22,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(async move {
         while let Some(event) = events.recv().await {
             match event {
-                CastEvent::Status {
-                    state,
-                    position_secs,
-                    duration_secs,
-                    idle_reason,
-                    volume,
-                } => {
+                CastEvent::Status { state, position_secs, duration_secs, idle_reason, volume } => {
                     println!(
                         "[Status] State: {:?}, Position: {:.1}s, Duration: {:?}, IdleReason: {:?}, Volume: {:.0}%",
                         state,

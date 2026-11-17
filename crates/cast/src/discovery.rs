@@ -1,8 +1,8 @@
+use mdns_sd::{ResolvedService, ServiceDaemon, ServiceEvent};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::mpsc;
 use std::time::Duration;
-use mdns_sd::{ResolvedService, ServiceDaemon, ServiceEvent};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct CastDevice {
@@ -30,7 +30,9 @@ impl Drop for WatchHandle {
 }
 
 /// Pure function to parse TXT properties into (id, friendly_name, model).
-pub fn parse_txt_properties(get_val: impl Fn(&str) -> Option<String>) -> (Option<String>, Option<String>, Option<String>) {
+pub fn parse_txt_properties(
+    get_val: impl Fn(&str) -> Option<String>,
+) -> (Option<String>, Option<String>, Option<String>) {
     let id = get_val("id");
     let name = get_val("fn");
     let model = get_val("md");
@@ -38,10 +40,9 @@ pub fn parse_txt_properties(get_val: impl Fn(&str) -> Option<String>) -> (Option
 }
 
 fn service_info_to_device(info: &ResolvedService) -> Option<CastDevice> {
-    let (id_opt, name_opt, model_opt) = parse_txt_properties(|key| info.get_property_val_str(key).map(|s| s.to_string()));
-    let id = id_opt.or_else(|| {
-        Some(info.get_fullname().to_string())
-    })?;
+    let (id_opt, name_opt, model_opt) =
+        parse_txt_properties(|key| info.get_property_val_str(key).map(|s| s.to_string()));
+    let id = id_opt.or_else(|| Some(info.get_fullname().to_string()))?;
 
     let name = name_opt.unwrap_or_else(|| info.get_hostname().to_string());
     let port = info.get_port();
@@ -57,23 +58,16 @@ fn service_info_to_device(info: &ResolvedService) -> Option<CastDevice> {
             }
         }
     }
-    let ip = chosen_ip.or_else(|| {
-        addresses.iter().find_map(|a| a.to_string().parse::<IpAddr>().ok())
-    })?;
+    let ip = chosen_ip
+        .or_else(|| addresses.iter().find_map(|a| a.to_string().parse::<IpAddr>().ok()))?;
 
-    Some(CastDevice {
-        id,
-        name,
-        model: model_opt,
-        ip,
-        port,
-    })
+    Some(CastDevice { id, name, model: model_opt, ip, port })
 }
 
 pub fn browse(timeout: Duration) -> anyhow::Result<Vec<CastDevice>> {
     let mdns = ServiceDaemon::new()?;
     let receiver = mdns.browse("_googlecast._tcp.local.")?;
-    
+
     let deadline = std::time::Instant::now() + timeout;
     let mut devices = HashMap::new();
 

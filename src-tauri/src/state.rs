@@ -630,7 +630,13 @@ impl AppState {
         self.media_set_volume(volume);
     }
 
-    pub async fn cast_follow_load(&self, data: &PlaybackData, start_secs: f64, is_karaoke: bool, autoplay: bool) {
+    pub async fn cast_follow_load(
+        &self,
+        data: &PlaybackData,
+        start_secs: f64,
+        is_karaoke: bool,
+        autoplay: bool,
+    ) {
         if !self.cast.is_connected() {
             return;
         }
@@ -646,7 +652,8 @@ impl AppState {
         let has_title = item.as_ref().map_or(false, |i| !i.title.is_empty());
         let has_artist = item.as_ref().map_or(false, |i| !i.artists.is_empty());
         let has_cover = item.as_ref().and_then(|i| i.thumbnail.as_deref()).is_some();
-        let thumb_host = item.as_ref()
+        let thumb_host = item
+            .as_ref()
             .and_then(|i| i.thumbnail.as_deref())
             .and_then(|s| reqwest::Url::parse(s).ok())
             .and_then(|u| u.host_str().map(ToString::to_string));
@@ -663,21 +670,31 @@ impl AppState {
                 return;
             }
         };
-        if let Some(lan_url) = crate::audioproxy::register_lan(&data.stream_url, &data.headers, device.ip) {
+        if let Some(lan_url) =
+            crate::audioproxy::register_lan(&data.stream_url, &data.headers, device.ip)
+        {
             let _ = self.player.set_muted(true);
             let content_type = reqwest::Url::parse(&data.stream_url)
                 .ok()
                 .and_then(|u| {
-                    u.query_pairs()
-                        .find(|(k, _)| k == "mime")
-                        .map(|(_, v)| urlencoding::decode(&v).map(|s| s.into_owned()).unwrap_or_else(|_| v.into_owned()))
+                    u.query_pairs().find(|(k, _)| k == "mime").map(|(_, v)| {
+                        urlencoding::decode(&v)
+                            .map(|s| s.into_owned())
+                            .unwrap_or_else(|_| v.into_owned())
+                    })
                 })
                 .unwrap_or_else(|| "audio/mp4".to_string());
             let lan_url_without_token = reqwest::Url::parse(&lan_url).ok().map(|mut u| {
-                let mut segs: Vec<String> = u.path_segments().map(|s| s.map(ToString::to_string).collect()).unwrap_or_default();
+                let mut segs: Vec<String> = u
+                    .path_segments()
+                    .map(|s| s.map(ToString::to_string).collect())
+                    .unwrap_or_default();
                 if segs.len() >= 3 {
                     segs.remove(0);
-                    let _ = u.path_segments_mut().map(|mut p| { p.clear(); p.extend(&segs); });
+                    let _ = u.path_segments_mut().map(|mut p| {
+                        p.clear();
+                        p.extend(&segs);
+                    });
                 }
                 u.to_string()
             });
@@ -705,11 +722,24 @@ impl AppState {
 
     pub async fn cast_follow_current(&self, start_secs: f64) {
         if let Some(item) = self.current_item().await {
-            if let Ok(data) = self.resolve(&item.video_id, item.is_upload, parse_duration_ms(item.duration.as_deref()) / 1000).await {
+            if let Ok(data) = self
+                .resolve(
+                    &item.video_id,
+                    item.is_upload,
+                    parse_duration_ms(item.duration.as_deref()) / 1000,
+                )
+                .await
+            {
                 let stream_url = mpv_stream_url(&data);
                 let play_u = self.play_url(PinSlot::Current, &item.video_id, &stream_url);
                 let is_karaoke = play_u != stream_url;
-                self.cast_follow_load(&data, start_secs, is_karaoke, self.is_playing.load(Ordering::Relaxed)).await;
+                self.cast_follow_load(
+                    &data,
+                    start_secs,
+                    is_karaoke,
+                    self.is_playing.load(Ordering::Relaxed),
+                )
+                .await;
             }
         }
     }
@@ -2538,7 +2568,13 @@ impl AppState {
             self.emit_error(&item.video_id, &e.to_string());
             return false;
         }
-        self.cast_follow_load(&data, seek.unwrap_or(0.0), is_karaoke, self.is_playing.load(Ordering::Relaxed)).await;
+        self.cast_follow_load(
+            &data,
+            seek.unwrap_or(0.0),
+            is_karaoke,
+            self.is_playing.load(Ordering::Relaxed),
+        )
+        .await;
         // Where mpv starts, from now on: its first tick comes after the unpause, and that pause
         // flag's Play (`lt_on_play_state`) reads this. Left at the last track's position, a Continue
         // here told the device link the music was back where this desktop last stopped, and the
@@ -6818,13 +6854,13 @@ fn persist_fingerprint(q: &QueueState) -> u64 {
 mod tests {
     use super::{
         adopt_playlist_twins, adopt_twin, append_page, backfill_metadata, cache_horizon,
-        cast_cover_url, drop_duplicates, enqueue_at, format_duration, freshen, get_url, guest_insert_index,
-        history_threshold, is_mix, loudness_gain, merge_radio, next_index, parse_duration_ms,
-        persist_fingerprint, playlist_context, prefer_version, prev_track_title, put_url,
-        queue_fingerprint, radio_seed_for, remote_list, retain_upcoming, shuffle_new_queue,
-        shuffle_upcoming, splice_radio_into, swap_version, trim_played, twin_position, unshuffled,
-        upcoming_queued, QueueState, RepeatMode, VideoUrls, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX,
-        MAX_BOOST_DB,
+        cast_cover_url, drop_duplicates, enqueue_at, format_duration, freshen, get_url,
+        guest_insert_index, history_threshold, is_mix, loudness_gain, merge_radio, next_index,
+        parse_duration_ms, persist_fingerprint, playlist_context, prefer_version, prev_track_title,
+        put_url, queue_fingerprint, radio_seed_for, remote_list, retain_upcoming,
+        shuffle_new_queue, shuffle_upcoming, splice_radio_into, swap_version, trim_played,
+        twin_position, unshuffled, upcoming_queued, QueueState, RepeatMode, VideoUrls, KEEP_PLAYED,
+        LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -7968,9 +8004,6 @@ mod tests {
             cast_cover_url("https://example.com/img.jpg=s60"),
             "https://example.com/img.jpg=w544-h544"
         );
-        assert_eq!(
-            cast_cover_url("https://example.com/img.jpg"),
-            "https://example.com/img.jpg"
-        );
+        assert_eq!(cast_cover_url("https://example.com/img.jpg"), "https://example.com/img.jpg");
     }
 }

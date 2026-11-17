@@ -1,9 +1,9 @@
+use cast::{watch, CastDevice, CastEvent, CastSession, DiscoveryEvent, LoadRequest, PlayerState};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
-use cast::{watch, CastDevice, CastEvent, CastSession, DiscoveryEvent, LoadRequest, PlayerState};
 
 /// Manages Chromecast discovery, connection state, and session synchronization.
 pub struct CastManager {
@@ -63,7 +63,11 @@ impl CastManager {
         if self.watcher_started.load(Ordering::SeqCst) {
             return;
         }
-        if self.watcher_started.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+        if self
+            .watcher_started
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
             let devices = self.devices.clone();
             let app = self.app.clone();
             std::thread::spawn(move || {
@@ -90,11 +94,7 @@ impl CastManager {
 
     pub fn list_devices(&self) -> Vec<CastDevice> {
         self.ensure_discovery();
-        let is_empty = if let Ok(map) = self.devices.lock() {
-            map.is_empty()
-        } else {
-            false
-        };
+        let is_empty = if let Ok(map) = self.devices.lock() { map.is_empty() } else { false };
 
         if is_empty {
             if let Ok(browsed) = cast::browse(std::time::Duration::from_secs(1)) {
@@ -128,7 +128,11 @@ impl CastManager {
         }
     }
 
-    pub async fn connect(&self, device_id: &str, state: &Arc<crate::state::AppState>) -> Result<CastDevice, String> {
+    pub async fn connect(
+        &self,
+        device_id: &str,
+        state: &Arc<crate::state::AppState>,
+    ) -> Result<CastDevice, String> {
         let device = {
             let map = self.devices.lock().map_err(|e| e.to_string())?;
             map.get(device_id).cloned().ok_or_else(|| format!("device not found: {device_id}"))?
@@ -141,10 +145,19 @@ impl CastManager {
         }
 
         let session = CastSession::connect(device.ip, device.port).map_err(|e| e.to_string())?;
-        
-        self.inner.desired_playing.store(state.is_playing.load(Ordering::Relaxed), Ordering::SeqCst);
+
+        self.inner
+            .desired_playing
+            .store(state.is_playing.load(Ordering::Relaxed), Ordering::SeqCst);
 
         crate::audioproxy::start_lan();
+        crate::audioproxy::set_lan_peer(
+            if device.model.as_deref().map_or(false, |m| m.contains("Group")) {
+                None
+            } else {
+                Some(device.ip)
+            },
+        );
         let _ = state.player.set_muted(true);
         let _ = session.set_volume(state.player.volume() as f32 / 100.0);
 
@@ -155,7 +168,13 @@ impl CastManager {
         tauri::async_runtime::spawn(async move {
             while let Some(event) = events.recv().await {
                 match event {
-                    CastEvent::Status { state, position_secs, duration_secs: _, idle_reason, volume: _ } => {
+                    CastEvent::Status {
+                        state,
+                        position_secs,
+                        duration_secs: _,
+                        idle_reason,
+                        volume: _,
+                    } => {
                         if matches!(state, PlayerState::Playing | PlayerState::Buffering) {
                             inner.has_played_or_buffered.store(true, Ordering::SeqCst);
                         }
@@ -179,7 +198,9 @@ impl CastManager {
                                     if let Some(to_play) = reconcile {
                                         let mut ok_to_reconcile = false;
                                         if let Ok(mut rec_guard) = inner.last_reconcile.lock() {
-                                            if rec_guard.map_or(true, |last| last.elapsed() >= Duration::from_secs(2)) {
+                                            if rec_guard.map_or(true, |last| {
+                                                last.elapsed() >= Duration::from_secs(2)
+                                            }) {
                                                 *rec_guard = Some(Instant::now());
                                                 ok_to_reconcile = true;
                                             }
@@ -200,7 +221,9 @@ impl CastManager {
                         // Align mpv back to the TV once after startup once real progress is observed,
                         // because the TV takes 1-4 s to start and stays ~3 s behind mpv.
                         if state == PlayerState::Playing {
-                            if inner.sync_pending.load(Ordering::SeqCst) && state_clone.is_playing.load(Ordering::Relaxed) {
+                            if inner.sync_pending.load(Ordering::SeqCst)
+                                && state_clone.is_playing.load(Ordering::Relaxed)
+                            {
                                 let mut performed_sync = false;
                                 if let Ok(guard) = inner.last_playing_pos.lock() {
                                     if let Some(prev) = *guard {
@@ -209,7 +232,10 @@ impl CastManager {
                                             let mpv_pos = state_clone.current_position();
                                             if mpv_pos - target > 0.7 {
                                                 let _ = state_clone.player.seek(target);
-                                                tracing::info!(diff = mpv_pos - target, "cast: aligned mpv back to the TV");
+                                                tracing::info!(
+                                                    diff = mpv_pos - target,
+                                                    "cast: aligned mpv back to the TV"
+                                                );
                                             }
                                             performed_sync = true;
                                         }
@@ -254,10 +280,7 @@ impl CastManager {
 
         {
             let mut active = self.inner.active.lock().map_err(|e| e.to_string())?;
-            *active = Some(ActiveCast {
-                device: device.clone(),
-                session,
-            });
+            *active = Some(ActiveCast { device: device.clone(), session });
         }
 
         let _ = self.app.emit("cast-state", Some(&device));
@@ -278,7 +301,10 @@ impl CastManager {
 
         if let Some(active) = old_active {
             let session = active.session;
-            let _ = tauri::async_runtime::spawn_blocking(move || session.shutdown(std::time::Duration::from_secs(2))).await;
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                session.shutdown(std::time::Duration::from_secs(2))
+            })
+            .await;
             tracing::info!("cast: stopped on shutdown");
         }
 
@@ -315,7 +341,9 @@ impl CastManager {
     }
 
     pub fn set_volume(&self, level: f32) -> Result<(), String> {
-        if let Some(active) = self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone())) {
+        if let Some(active) =
+            self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone()))
+        {
             active.set_volume(level).map_err(|e| e.to_string())?;
         }
         Ok(())
@@ -324,7 +352,9 @@ impl CastManager {
     pub fn play(&self) -> Result<(), String> {
         self.inner.desired_playing.store(true, Ordering::SeqCst);
         tracing::debug!("cast: mirror play");
-        if let Some(active) = self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone())) {
+        if let Some(active) =
+            self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone()))
+        {
             active.play().map_err(|e| e.to_string())?;
         }
         Ok(())
@@ -333,14 +363,18 @@ impl CastManager {
     pub fn pause(&self) -> Result<(), String> {
         self.inner.desired_playing.store(false, Ordering::SeqCst);
         tracing::debug!("cast: mirror pause");
-        if let Some(active) = self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone())) {
+        if let Some(active) =
+            self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone()))
+        {
             active.pause().map_err(|e| e.to_string())?;
         }
         Ok(())
     }
 
     pub fn seek(&self, secs: f64) -> Result<(), String> {
-        if let Some(active) = self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone())) {
+        if let Some(active) =
+            self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone()))
+        {
             active.seek(secs).map_err(|e| e.to_string())?;
         }
         Ok(())
@@ -382,7 +416,9 @@ impl CastManager {
             }
         });
 
-        if let Some(active) = self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone())) {
+        if let Some(active) =
+            self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone()))
+        {
             active.load(req).map_err(|e| e.to_string())?;
         }
         Ok(())
@@ -430,7 +466,11 @@ impl CastManager {
                 let elapsed = instant.elapsed().as_secs_f64();
                 let estimated_cast_pos = cast_pos + elapsed;
                 if (mpv_pos - estimated_cast_pos).abs() > 3.0 {
-                    tracing::debug!(mpv_pos, estimated_cast_pos, "Chromecast drift correction triggered");
+                    tracing::debug!(
+                        mpv_pos,
+                        estimated_cast_pos,
+                        "Chromecast drift correction triggered"
+                    );
                     let _ = self.seek(mpv_pos);
                     *guard = Some((Instant::now(), mpv_pos, player_state));
                     if let Ok(mut corr) = self.inner.last_correction.lock() {

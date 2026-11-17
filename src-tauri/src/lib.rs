@@ -1,10 +1,10 @@
 //! Limusic Tauri app. Wires transport + player + db + orchestrator behind the command boundary.
 
-mod castout;
 mod appicon;
 mod audioproxy;
 mod autopause;
 mod blocked;
+mod castout;
 mod cipher;
 mod commands;
 mod db;

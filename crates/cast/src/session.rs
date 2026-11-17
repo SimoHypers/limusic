@@ -7,8 +7,7 @@ pub use rust_cast::channels::media::{IdleReason, PlayerState};
 
 use rust_cast::{
     channels::media::{
-        Image, LoadOptions, Media, Metadata, MusicTrackMediaMetadata,
-        StatusEntry, StreamType,
+        Image, LoadOptions, Media, Metadata, MusicTrackMediaMetadata, StatusEntry, StreamType,
     },
     channels::receiver::CastDeviceApp,
     CastDevice, ChannelMessage,
@@ -101,11 +100,7 @@ impl CastSession {
 
     /// Returns the event receiver for streaming player status and disconnection events.
     pub fn events(&self) -> UnboundedReceiver<CastEvent> {
-        self.event_rx
-            .lock()
-            .unwrap()
-            .take()
-            .expect("events receiver already taken")
+        self.event_rx.lock().unwrap().take().expect("events receiver already taken")
     }
 
     pub fn load(&self, req: LoadRequest) -> anyhow::Result<()> {
@@ -162,10 +157,8 @@ fn run_worker(
 
     // Attach to running Default Media Receiver if active, otherwise launch it.
     let receiver_status = device.receiver.get_status()?;
-    let app = if let Some(app) = receiver_status
-        .applications
-        .into_iter()
-        .find(|a| a.app_id == "CC1AD845")
+    let app = if let Some(app) =
+        receiver_status.applications.into_iter().find(|a| a.app_id == "CC1AD845")
     {
         app
     } else {
@@ -182,7 +175,12 @@ fn run_worker(
     let refresh_media_session = || -> Option<i32> {
         match device.media.get_status(&transport_id, None) {
             Ok(status) => {
-                if let Some(entry) = status.entries.iter().max_by_key(|e| e.media_session_id).or_else(|| status.entries.first()) {
+                if let Some(entry) = status
+                    .entries
+                    .iter()
+                    .max_by_key(|e| e.media_session_id)
+                    .or_else(|| status.entries.first())
+                {
                     Some(entry.media_session_id)
                 } else {
                     tracing::warn!("cast: no media status entries found");
@@ -204,10 +202,7 @@ fn run_worker(
         match cmd_rx.recv_timeout(Duration::from_millis(300)) {
             Ok(cmd) => match cmd {
                 Command::Load(req) => {
-                    let images = req
-                        .image_url
-                        .map(|u| vec![Image::new(u)])
-                        .unwrap_or_default();
+                    let images = req.image_url.map(|u| vec![Image::new(u)]).unwrap_or_default();
                     let metadata = Metadata::MusicTrack(MusicTrackMediaMetadata {
                         album_name: None,
                         title: req.title,
@@ -226,13 +221,10 @@ fn run_worker(
                         metadata: Some(metadata),
                         duration: None,
                     };
-                    let options = LoadOptions {
-                        current_time: req.start_secs,
-                        autoplay: req.autoplay,
-                    };
-                    let status = device
-                        .media
-                        .load_with_opts(&transport_id, &session_id, &media, options)?;
+                    let options =
+                        LoadOptions { current_time: req.start_secs, autoplay: req.autoplay };
+                    let status =
+                        device.media.load_with_opts(&transport_id, &session_id, &media, options)?;
                     if let Some(entry) = status.entries.first() {
                         media_session_id = Some(entry.media_session_id);
                         emit_status(&event_tx, entry, current_volume);
@@ -255,9 +247,8 @@ fn run_worker(
                 Command::Seek(secs) => {
                     if let Some(msid) = refresh_media_session() {
                         media_session_id = Some(msid);
-                        let entry = device
-                            .media
-                            .seek(&transport_id, msid, Some(secs as f32), None)?;
+                        let entry =
+                            device.media.seek(&transport_id, msid, Some(secs as f32), None)?;
                         emit_status(&event_tx, &entry, current_volume);
                     }
                 }
@@ -308,7 +299,10 @@ fn run_worker(
                 Err(_) => {
                     // Try receiving incoming message (e.g. heartbeat ping) if get_status fails or times out.
                     if let Ok(msg) = device.receive() {
-                        if let ChannelMessage::Heartbeat(rust_cast::channels::heartbeat::HeartbeatResponse::Ping) = msg {
+                        if let ChannelMessage::Heartbeat(
+                            rust_cast::channels::heartbeat::HeartbeatResponse::Ping,
+                        ) = msg
+                        {
                             let _ = device.heartbeat.pong();
                         }
                     }
@@ -321,11 +315,7 @@ fn run_worker(
     Ok(())
 }
 
-fn emit_status(
-    event_tx: &UnboundedSender<CastEvent>,
-    entry: &StatusEntry,
-    volume: f64,
-) {
+fn emit_status(event_tx: &UnboundedSender<CastEvent>, entry: &StatusEntry, volume: f64) {
     let position_secs = entry.current_time.unwrap_or(0.0) as f64;
     let duration_secs = entry.media.as_ref().and_then(|m| m.duration.map(|d| d as f64));
     let _ = event_tx.send(CastEvent::Status {

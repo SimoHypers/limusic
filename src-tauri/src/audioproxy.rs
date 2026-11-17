@@ -167,7 +167,10 @@ pub fn register(url: &str, headers: &HashMap<String, String>) -> Option<String> 
         meta: Mutex::new(None),
     });
     {
-        let mut r = REGISTRY.get_or_init(|| Mutex::new(Registry { map: HashMap::new(), order: VecDeque::new() })).lock().ok()?;
+        let mut r = REGISTRY
+            .get_or_init(|| Mutex::new(Registry { map: HashMap::new(), order: VecDeque::new() }))
+            .lock()
+            .ok()?;
         while r.order.len() >= MAX_REGISTRATIONS {
             if let Some(old) = r.order.pop_front() {
                 r.map.remove(&old);
@@ -259,8 +262,24 @@ pub fn start_lan() -> Option<u16> {
     Some(port)
 }
 
+static LAN_PEER: Mutex<Option<IpAddr>> = Mutex::new(None);
+
+pub fn set_lan_peer(ip: Option<IpAddr>) {
+    if let Ok(mut g) = LAN_PEER.lock() {
+        *g = ip;
+    }
+}
+
+fn peer_allowed(peer: IpAddr, allowed: Option<IpAddr>) -> bool {
+    match allowed {
+        Some(a) => peer == a,
+        None => true,
+    }
+}
+
 /// Stop the LAN proxy listener (called when casting ends).
 pub fn stop_lan() {
+    set_lan_peer(None);
     if let Ok(mut lock) = lan_state_lock().lock() {
         if let Some(state) = lock.take() {
             let _ = state.stop_tx.send(());
@@ -297,7 +316,10 @@ pub fn register_lan(
         meta: Mutex::new(None),
     });
     {
-        let mut r = REGISTRY.get_or_init(|| Mutex::new(Registry { map: HashMap::new(), order: VecDeque::new() })).lock().ok()?;
+        let mut r = REGISTRY
+            .get_or_init(|| Mutex::new(Registry { map: HashMap::new(), order: VecDeque::new() }))
+            .lock()
+            .ok()?;
         while r.order.len() >= MAX_REGISTRATIONS {
             if let Some(old) = r.order.pop_front() {
                 r.map.remove(&old);
@@ -478,6 +500,11 @@ async fn handle_lan_inner(
     }
     if !is_private_ip(peer_addr.ip()) {
         tracing::warn!(peer = %peer_addr, ip = %peer_addr.ip(), "cast LAN request rejected: not private IP");
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let allowed = LAN_PEER.lock().ok().and_then(|g| *g);
+    if !peer_allowed(peer_addr.ip(), allowed) {
+        tracing::warn!(peer = %peer_addr, "cast LAN request rejected: unexpected peer");
         return Err(StatusCode::FORBIDDEN);
     }
     let Some(("a", id)) = route(req.uri().path(), token) else {
@@ -823,5 +850,15 @@ mod tests {
         assert!(is_private_ip("fe80::1".parse().unwrap()));
         assert!(!is_private_ip("8.8.8.8".parse().unwrap()));
         assert!(!is_private_ip("1.1.1.1".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_peer_allowed() {
+        let ip1: IpAddr = "192.168.1.50".parse().unwrap();
+        let ip2: IpAddr = "192.168.1.60".parse().unwrap();
+        assert!(peer_allowed(ip1, Some(ip1)));
+        assert!(!peer_allowed(ip2, Some(ip1)));
+        assert!(peer_allowed(ip1, None));
+        assert!(peer_allowed(ip2, None));
     }
 }
