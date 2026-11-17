@@ -1517,6 +1517,7 @@ pub fn run() {
             commands::limusic_vote,
             commands::limusic_report,
             commands::limusic_review_queue,
+            commands::limusic_review_claim,
             commands::limusic_review_revision,
             commands::limusic_live_lyrics,
             commands::limusic_review,

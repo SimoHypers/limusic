@@ -749,7 +749,8 @@ pub(crate) async fn publish_for_test(admin: &str, video_id: &str) -> i64 {
 // For an account `/v1/me` says `can_review`. Every call carries the session; a 401 forgets it.
 
 /// One waiting revision, as the queue lists it. `kind` is `new`, `edit` or `reported` (a live
-/// lyric with enough open reports). `author` is absent for an anonymous sender.
+/// lyric with enough open reports). `author` is absent for an anonymous sender; `reviewing` names
+/// another reviewer who has it open.
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct QueueItem {
     pub revision: i64,
@@ -764,6 +765,15 @@ pub struct QueueItem {
     pub created_at: i64,
     #[serde(default)]
     pub reports: i64,
+    #[serde(default)]
+    pub reviewing: Option<String>,
+}
+
+/// Another reviewer's hold on a revision: who, and since when (unix seconds).
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct Claim {
+    pub by: String,
+    pub since: i64,
 }
 
 /// Oldest first. `next` is the `after` of the following page, `None` on the last.
@@ -938,6 +948,21 @@ async fn post_revert(
 pub async fn review_queue(state: &AppState, after: Option<i64>) -> Result<Queue, String> {
     let t = session(state)?;
     checked(state, &t, get_queue(&t, after).await)
+}
+
+/// Tell the service which revision this reviewer has open (`None` lets go), so two reviewers don't
+/// work on the same one (#712). `Some` is another reviewer who has it already, and then this one
+/// holds nothing.
+pub async fn review_claim(
+    state: &AppState,
+    revision: Option<i64>,
+) -> Result<Option<Claim>, String> {
+    let t = session(state)?;
+    let rb =
+        crate::http::client().post(url("/v1/review/claim")).json(&json!({ "revision": revision }));
+    let r = expect(send(rb, Some(&t)).await, 200)
+        .map(|b| serde_json::from_value(b["reviewing"].clone()).unwrap_or(None));
+    checked(state, &t, r)
 }
 
 pub async fn review_revision(state: &AppState, revision: i64) -> Result<Revision, String> {

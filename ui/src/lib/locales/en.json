@@ -1568,6 +1568,8 @@
 	},
 	"review": {
 		"title": "Review lyrics",
+		"reviewing": "{name} is reviewing",
+		"taken": "{name} is reviewing this one. They opened it {when}.",
 		"waiting": "{count} waiting, the oldest first",
 		"empty_title": "All caught up",
 		"empty": "Nothing is waiting for review.",
