@@ -5170,22 +5170,16 @@ impl AppState {
         }
         let repeat = {
             let mut q = self.queue.lock().await;
+            let previous = q.repeat;
             q.repeat = next(q.repeat);
             let _ = self.player.set_loop_file(q.repeat == RepeatMode::One);
-            q.repeat
+            (previous, q.repeat)
         };
         self.emit_queue().await; // carries the new repeat state to the UI
         self.persist_queue().await;
         // Repeat-all newly on while playing the last track: the wrap target needs priming.
         self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
-        if self.cast.uses_queue() {
-            let send = receiver_repeat_mode(repeat);
-            if self.cast.set_repeat(send).await.is_ok() {
-                if let Ok(mut sent) = self.cast_repeat_sent.lock() {
-                    *sent = Some(send.to_owned());
-                }
-            }
-        }
+        self.cast_sync_repeat(repeat.0, repeat.1).await;
     }
 
     /// "Play next" from a ⋯ menu: the tracks land at the "up next" boundary — right after the
@@ -6394,11 +6388,16 @@ impl AppState {
             media: self.cast_media_for(item, position, track, device)?,
             video_id: item.video_id.clone(),
         };
-        if device.kind != "chromecast" {
-            let index = self.queue.lock().await.current;
-            return Ok((vec![current], 0, vec![index]));
+        // One item, one track: repeat-one loops it (the receiver has no repeat-one, see
+        // `receiver_repeat_mode`), and a renderer only ever gets the one it plays.
+        let (repeat_one, current_index) = {
+            let q = self.queue.lock().await;
+            (q.repeat == RepeatMode::One, q.current)
+        };
+        if repeat_one || device.kind != "chromecast" {
+            return Ok((vec![current], 0, vec![current_index]));
         }
-        let (past, upcoming, current_index) = {
+        let (past, upcoming) = {
             let q = self.queue.lock().await;
             let castable = |(_, i): &(usize, &SongItem)| {
                 !i.is_upload && !crate::local::is_local_song(&i.video_id)
@@ -6422,7 +6421,7 @@ impl AppState {
                 .take(CAST_QUEUE_NEXT)
                 .map(|(index, item)| (index, item.clone()))
                 .collect::<Vec<(usize, SongItem)>>();
-            (past, upcoming, q.current)
+            (past, upcoming)
         };
         // History is resolved for the device too: the queue can have been played locally
         // before the cast started, and Previous should still reach those tracks. The cast
@@ -6711,10 +6710,22 @@ impl AppState {
                     && self.cast.uses_queue()
                     && !self.cast_advanced.swap(true, Ordering::SeqCst)
                 {
-                    let me = self.clone();
-                    tauri::async_runtime::spawn(async move {
-                        me.on_track_ended().await;
-                    });
+                    // Repeat-one is a one-item window the receiver loops; if it ran out
+                    // anyway, the same track goes back to it instead of the next one.
+                    if self.queue.lock().await.repeat == RepeatMode::One {
+                        let me = self.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let gen = me.generation.fetch_add(1, Ordering::SeqCst) + 1;
+                            if me.cast_start_current(gen).await {
+                                me.prime_lookahead(gen).await;
+                            }
+                        });
+                    } else {
+                        let me = self.clone();
+                        tauri::async_runtime::spawn(async move {
+                            me.on_track_ended().await;
+                        });
+                    }
                 }
             }
             CastCommand::Stopped { epoch, reason } => {
@@ -6806,8 +6817,9 @@ impl AppState {
                 self.toggle_shuffle().await;
             }
         }
-        let wanted = {
+        let (previous, wanted) = {
             let mut q = self.queue.lock().await;
+            let previous = q.repeat;
             // The receiver keeps looping its window off, so a second press of the same
             // button reports the same mode again: the app's own cycle moves instead.
             let wanted = if !shuffled_press && q.repeat == wanted {
@@ -6821,12 +6833,32 @@ impl AppState {
             };
             q.repeat = wanted;
             let _ = self.player.set_loop_file(wanted == RepeatMode::One);
-            wanted
+            (previous, wanted)
         };
         self.emit_queue().await;
         self.persist_queue().await;
         self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
-        let send = receiver_repeat_mode(wanted);
+        self.cast_sync_repeat(previous, wanted).await;
+    }
+
+    /// Tell a Cast receiver which repeat mode the app is in.
+    ///
+    /// Its queue has no repeat-one — `REPEAT_ONE` is refused as invalid — so that mode is a
+    /// one-item window the receiver loops with `REPEAT_ALL`, and entering or leaving it rebuilds
+    /// the window. Repeat-all wraps in the app's queue, so the receiver only has to stop at the
+    /// end of its window and needs nothing but a mode it already has.
+    async fn cast_sync_repeat(self: &std::sync::Arc<Self>, previous: RepeatMode, next: RepeatMode) {
+        if !self.cast.uses_queue() {
+            return;
+        }
+        if previous == RepeatMode::One || next == RepeatMode::One {
+            let Some(item) = self.current_item().await else { return };
+            let playing = self.cast_playing.load(Ordering::SeqCst);
+            let position = self.current_position();
+            self.cast_refresh_queue(position, playing, &item.video_id).await;
+            return;
+        }
+        let send = receiver_repeat_mode(next);
         if self.cast.set_repeat(send).await.is_ok() {
             if let Ok(mut sent) = self.cast_repeat_sent.lock() {
                 *sent = Some(send.to_owned());
@@ -7779,7 +7811,9 @@ fn cast_window_at_edge(
 /// that window would never reach the rest of it.
 fn receiver_repeat_mode(repeat: RepeatMode) -> &'static str {
     match repeat {
-        RepeatMode::One => "REPEAT_ONE",
+        // The receiver's queue has no repeat-one: it refuses `REPEAT_ONE` as invalid. The app
+        // hands it a one-item window for that mode, and `REPEAT_ALL` is what loops it.
+        RepeatMode::One => "REPEAT_ALL",
         RepeatMode::Off | RepeatMode::All => "REPEAT_OFF",
     }
 }
@@ -9269,7 +9303,8 @@ mod tests {
         // The receiver only holds a window, so repeat-all has to wrap in the app's queue.
         assert_eq!(receiver_repeat_mode(RepeatMode::Off), "REPEAT_OFF");
         assert_eq!(receiver_repeat_mode(RepeatMode::All), "REPEAT_OFF");
-        assert_eq!(receiver_repeat_mode(RepeatMode::One), "REPEAT_ONE");
+        // One is a one-item window that loops, not a mode the receiver knows.
+        assert_eq!(receiver_repeat_mode(RepeatMode::One), "REPEAT_ALL");
         assert_eq!(repeat_from_receiver("REPEAT_OFF"), Some(RepeatMode::Off));
         assert_eq!(repeat_from_receiver("REPEAT_ALL"), Some(RepeatMode::All));
         assert_eq!(repeat_from_receiver("REPEAT_ALL_AND_SHUFFLE"), Some(RepeatMode::All));
