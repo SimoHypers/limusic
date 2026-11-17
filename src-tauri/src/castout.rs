@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use cast::{watch, CastDevice, CastEvent, CastSession, DiscoveryEvent, LoadRequest, PlayerState};
 
@@ -9,11 +9,19 @@ use cast::{watch, CastDevice, CastEvent, CastSession, DiscoveryEvent, LoadReques
 pub struct CastManager {
     app: AppHandle,
     devices: Arc<Mutex<HashMap<String, CastDevice>>>,
-    active: Mutex<Option<ActiveCast>>,
+    inner: Arc<CastInner>,
     watcher_started: AtomicBool,
+}
+
+struct CastInner {
+    active: Mutex<Option<ActiveCast>>,
     last_pos_info: Mutex<Option<(Instant, f64, PlayerState)>>,
     loaded_at: Mutex<Option<Instant>>,
     last_correction: Mutex<Option<Instant>>,
+    last_status: Mutex<Option<(PlayerState, Option<cast::session::IdleReason>)>>,
+    has_played_or_buffered: AtomicBool,
+    state: Mutex<Option<Arc<crate::state::AppState>>>,
+    notice_sent_for_load: Mutex<Option<Instant>>,
 }
 
 struct ActiveCast {
@@ -26,11 +34,17 @@ impl CastManager {
         Self {
             app,
             devices: Arc::new(Mutex::new(HashMap::new())),
-            active: Mutex::new(None),
+            inner: Arc::new(CastInner {
+                active: Mutex::new(None),
+                last_pos_info: Mutex::new(None),
+                loaded_at: Mutex::new(None),
+                last_correction: Mutex::new(None),
+                last_status: Mutex::new(None),
+                has_played_or_buffered: AtomicBool::new(false),
+                state: Mutex::new(None),
+                notice_sent_for_load: Mutex::new(None),
+            }),
             watcher_started: AtomicBool::new(false),
-            last_pos_info: Mutex::new(None),
-            loaded_at: Mutex::new(None),
-            last_correction: Mutex::new(None),
         }
     }
 
@@ -91,11 +105,11 @@ impl CastManager {
     }
 
     pub fn status(&self) -> Option<CastDevice> {
-        self.active.lock().ok()?.as_ref().map(|a| a.device.clone())
+        self.inner.active.lock().ok()?.as_ref().map(|a| a.device.clone())
     }
 
     pub fn is_connected(&self) -> bool {
-        self.active.lock().ok().and_then(|a| a.as_ref().map(|_| true)).unwrap_or(false)
+        self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|_| true)).unwrap_or(false)
     }
 
     pub async fn connect(&self, device_id: &str, state: &Arc<crate::state::AppState>) -> Result<CastDevice, String> {
@@ -106,6 +120,10 @@ impl CastManager {
 
         let _ = self.disconnect(state).await;
 
+        if let Ok(mut g) = self.inner.state.lock() {
+            *g = Some(state.clone());
+        }
+
         let session = CastSession::connect(device.ip, device.port).map_err(|e| e.to_string())?;
         
         crate::audioproxy::start_lan();
@@ -113,14 +131,29 @@ impl CastManager {
         let _ = session.set_volume(state.player.volume() as f32 / 100.0);
 
         let mut events = session.events();
+        let inner = self.inner.clone();
         let state_clone = state.clone();
 
         tauri::async_runtime::spawn(async move {
             while let Some(event) = events.recv().await {
                 match event {
                     CastEvent::Status { state, position_secs, duration_secs: _, idle_reason, volume: _ } => {
-                        if let Ok(mut guard) = state_clone.cast.last_pos_info.lock() {
+                        if matches!(state, PlayerState::Playing | PlayerState::Buffering) {
+                            inner.has_played_or_buffered.store(true, Ordering::SeqCst);
+                        }
+                        if let Ok(mut guard) = inner.last_pos_info.lock() {
                             *guard = Some((Instant::now(), position_secs, state));
+                        }
+                        let mut changed = false;
+                        if let Ok(mut status_guard) = inner.last_status.lock() {
+                            let current = (state, idle_reason.clone());
+                            if *status_guard != Some(current.clone()) {
+                                changed = true;
+                                *status_guard = Some(current);
+                            }
+                        }
+                        if changed {
+                            tracing::debug!(?state, position_secs, ?idle_reason, "cast status");
                         }
                         if matches!(idle_reason, Some(cast::session::IdleReason::Error)) {
                             tracing::error!("Chromecast error idle reason encountered");
@@ -140,7 +173,7 @@ impl CastManager {
         });
 
         {
-            let mut active = self.active.lock().map_err(|e| e.to_string())?;
+            let mut active = self.inner.active.lock().map_err(|e| e.to_string())?;
             *active = Some(ActiveCast {
                 device: device.clone(),
                 session,
@@ -159,7 +192,7 @@ impl CastManager {
 
     pub async fn disconnect(&self, state: &Arc<crate::state::AppState>) -> Result<(), String> {
         let old_active = {
-            let mut active = self.active.lock().map_err(|e| e.to_string())?;
+            let mut active = self.inner.active.lock().map_err(|e| e.to_string())?;
             active.take()
         };
 
@@ -171,54 +204,84 @@ impl CastManager {
         crate::audioproxy::stop_lan();
         let _ = state.player.set_muted(false);
         let _ = self.app.emit("cast-state", None::<CastDevice>);
-        if let Ok(mut guard) = self.last_pos_info.lock() {
+        if let Ok(mut guard) = self.inner.last_pos_info.lock() {
             *guard = None;
         }
-        if let Ok(mut guard) = self.loaded_at.lock() {
+        if let Ok(mut guard) = self.inner.loaded_at.lock() {
             *guard = None;
         }
-        if let Ok(mut guard) = self.last_correction.lock() {
+        if let Ok(mut guard) = self.inner.last_correction.lock() {
+            *guard = None;
+        }
+        if let Ok(mut guard) = self.inner.last_status.lock() {
+            *guard = None;
+        }
+        if let Ok(mut guard) = self.inner.notice_sent_for_load.lock() {
+            *guard = None;
+        }
+        self.inner.has_played_or_buffered.store(false, Ordering::SeqCst);
+        if let Ok(mut guard) = self.inner.state.lock() {
             *guard = None;
         }
         Ok(())
     }
 
     pub fn set_volume(&self, level: f32) -> Result<(), String> {
-        if let Some(active) = self.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone())) {
+        if let Some(active) = self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone())) {
             active.set_volume(level).map_err(|e| e.to_string())?;
         }
         Ok(())
     }
 
     pub fn play(&self) -> Result<(), String> {
-        if let Some(active) = self.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone())) {
+        if let Some(active) = self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone())) {
             active.play().map_err(|e| e.to_string())?;
         }
         Ok(())
     }
 
     pub fn pause(&self) -> Result<(), String> {
-        if let Some(active) = self.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone())) {
+        if let Some(active) = self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone())) {
             active.pause().map_err(|e| e.to_string())?;
         }
         Ok(())
     }
 
     pub fn seek(&self, secs: f64) -> Result<(), String> {
-        if let Some(active) = self.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone())) {
+        if let Some(active) = self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone())) {
             active.seek(secs).map_err(|e| e.to_string())?;
         }
         Ok(())
     }
 
     pub fn session_load(&self, req: LoadRequest) -> Result<(), String> {
-        if let Ok(mut guard) = self.last_pos_info.lock() {
+        if let Ok(mut guard) = self.inner.last_pos_info.lock() {
             *guard = None;
         }
-        if let Ok(mut guard) = self.loaded_at.lock() {
-            *guard = Some(Instant::now());
+        let load_time = Instant::now();
+        if let Ok(mut guard) = self.inner.loaded_at.lock() {
+            *guard = Some(load_time);
         }
-        if let Some(active) = self.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone())) {
+        self.inner.has_played_or_buffered.store(false, Ordering::SeqCst);
+
+        let inner = self.inner.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            let current_load = inner.loaded_at.lock().ok().and_then(|g| *g);
+            if current_load == Some(load_time) && current_load.is_some() {
+                if !inner.has_played_or_buffered.load(Ordering::SeqCst) {
+                    let mut sent_guard = inner.notice_sent_for_load.lock().unwrap();
+                    if *sent_guard != current_load {
+                        *sent_guard = current_load;
+                        if let Some(state) = inner.state.lock().ok().and_then(|g| g.clone()) {
+                            state.emit_notice("Chromecast can't reach Limusic. Check that the firewall allows Limusic on private networks.");
+                        }
+                    }
+                }
+            }
+        });
+
+        if let Some(active) = self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone())) {
             active.load(req).map_err(|e| e.to_string())?;
         }
         Ok(())
@@ -228,21 +291,21 @@ impl CastManager {
         if !is_playing {
             return;
         }
-        if let Ok(guard) = self.loaded_at.lock() {
+        if let Ok(guard) = self.inner.loaded_at.lock() {
             if let Some(t) = *guard {
                 if t.elapsed().as_secs_f64() < 6.0 {
                     return;
                 }
             }
         }
-        if let Ok(guard) = self.last_correction.lock() {
+        if let Ok(guard) = self.inner.last_correction.lock() {
             if let Some(t) = *guard {
                 if t.elapsed().as_secs_f64() < 5.0 {
                     return;
                 }
             }
         }
-        if let Ok(mut guard) = self.last_pos_info.lock() {
+        if let Ok(mut guard) = self.inner.last_pos_info.lock() {
             if let Some((instant, cast_pos, player_state)) = *guard {
                 if !matches!(player_state, PlayerState::Playing) {
                     return;
@@ -256,7 +319,7 @@ impl CastManager {
                     tracing::debug!(mpv_pos, estimated_cast_pos, "Chromecast drift correction triggered");
                     let _ = self.seek(mpv_pos);
                     *guard = Some((Instant::now(), mpv_pos, player_state));
-                    if let Ok(mut corr) = self.last_correction.lock() {
+                    if let Ok(mut corr) = self.inner.last_correction.lock() {
                         *corr = Some(Instant::now());
                     }
                 }

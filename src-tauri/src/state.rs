@@ -642,6 +642,16 @@ impl AppState {
                         .map(|(_, v)| urlencoding::decode(&v).map(|s| s.into_owned()).unwrap_or_else(|_| v.into_owned()))
                 })
                 .unwrap_or_else(|| "audio/mp4".to_string());
+            let lan_url_without_token = reqwest::Url::parse(&lan_url).ok().map(|mut u| {
+                let mut segs: Vec<String> = u.path_segments().map(|s| s.map(ToString::to_string).collect()).unwrap_or_default();
+                if segs.len() >= 3 {
+                    segs.remove(0);
+                    let _ = u.path_segments_mut().map(|mut p| { p.clear(); p.extend(&segs); });
+                }
+                u.to_string()
+            });
+            let device_name = &device.name;
+            tracing::info!(url = ?lan_url_without_token, content_type, device = %device_name, "cast: load sent");
             let req = cast::LoadRequest {
                 url: lan_url,
                 content_type,
@@ -651,7 +661,12 @@ impl AppState {
                 start_secs,
                 autoplay,
             };
-            let _ = self.cast.session_load(req);
+            match self.cast.session_load(req) {
+                Ok(()) => {}
+                Err(e) => {
+                    tracing::warn!(error = %e, "cast session load failed");
+                }
+            }
         } else {
             let _ = self.player.set_muted(false);
         }

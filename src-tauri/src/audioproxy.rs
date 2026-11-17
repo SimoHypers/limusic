@@ -333,6 +333,7 @@ fn route<'a>(path: &'a str, token: &str) -> Option<(&'a str, &'a str)> {
 }
 
 /// `/<token>/a/<id>` to the registration id.
+#[cfg(test)]
 fn id_from<'a>(path: &'a str, token: &str) -> Option<&'a str> {
     route(path, token).filter(|(kind, _)| *kind == "a").map(|(_, id)| id)
 }
@@ -472,14 +473,19 @@ async fn handle_lan_inner(
     token: &str,
 ) -> Result<Response<ProxyBody>, StatusCode> {
     if !matches!(*req.method(), Method::GET | Method::HEAD) {
+        tracing::warn!(peer = %peer_addr, method = %req.method(), "cast LAN request rejected: wrong method");
         return Err(StatusCode::METHOD_NOT_ALLOWED);
     }
     if !is_private_ip(peer_addr.ip()) {
+        tracing::warn!(peer = %peer_addr, ip = %peer_addr.ip(), "cast LAN request rejected: not private IP");
         return Err(StatusCode::FORBIDDEN);
     }
     let Some(("a", id)) = route(req.uri().path(), token) else {
+        tracing::warn!(peer = %peer_addr, path = %req.uri().path(), "cast LAN request rejected: wrong token or path");
         return Err(StatusCode::NOT_FOUND);
     };
+    let range = req.headers().get(header::RANGE).and_then(|v| v.to_str().ok());
+    tracing::info!(peer = %peer_addr, ?range, "cast: LAN request");
     serve_audio_stream(&req, id).await
 }
 

@@ -93,6 +93,7 @@ YouTube Music client, and grew from there.
 - Media keys and now playing on every OS
 - `Ctrl+K` to search, `Ctrl+H` for every shortcut
 - Self-updating builds
+- Cast to Chromecast and Google Cast devices
 
 </td>
 <td valign="top">
