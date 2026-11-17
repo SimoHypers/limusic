@@ -22,6 +22,11 @@ struct CastInner {
     has_played_or_buffered: AtomicBool,
     state: Mutex<Option<Arc<crate::state::AppState>>>,
     notice_sent_for_load: Mutex<Option<Instant>>,
+    desired_playing: AtomicBool,
+    last_reconcile: Mutex<Option<Instant>>,
+    loaded_video_id: Mutex<Option<String>>,
+    sync_pending: AtomicBool,
+    last_playing_pos: Mutex<Option<f64>>,
 }
 
 struct ActiveCast {
@@ -43,6 +48,11 @@ impl CastManager {
                 has_played_or_buffered: AtomicBool::new(false),
                 state: Mutex::new(None),
                 notice_sent_for_load: Mutex::new(None),
+                desired_playing: AtomicBool::new(false),
+                last_reconcile: Mutex::new(None),
+                loaded_video_id: Mutex::new(None),
+                sync_pending: AtomicBool::new(false),
+                last_playing_pos: Mutex::new(None),
             }),
             watcher_started: AtomicBool::new(false),
         }
@@ -112,6 +122,12 @@ impl CastManager {
         self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|_| true)).unwrap_or(false)
     }
 
+    pub fn set_loaded_video_id(&self, video_id: String) {
+        if let Ok(mut guard) = self.inner.loaded_video_id.lock() {
+            *guard = Some(video_id);
+        }
+    }
+
     pub async fn connect(&self, device_id: &str, state: &Arc<crate::state::AppState>) -> Result<CastDevice, String> {
         let device = {
             let map = self.devices.lock().map_err(|e| e.to_string())?;
@@ -126,6 +142,8 @@ impl CastManager {
 
         let session = CastSession::connect(device.ip, device.port).map_err(|e| e.to_string())?;
         
+        self.inner.desired_playing.store(state.is_playing.load(Ordering::Relaxed), Ordering::SeqCst);
+
         crate::audioproxy::start_lan();
         let _ = state.player.set_muted(true);
         let _ = session.set_volume(state.player.volume() as f32 / 100.0);
@@ -144,6 +162,68 @@ impl CastManager {
                         if let Ok(mut guard) = inner.last_pos_info.lock() {
                             *guard = Some((Instant::now(), position_secs, state));
                         }
+                        if let Ok(guard) = inner.loaded_at.lock() {
+                            if let Some(t) = *guard {
+                                if t.elapsed().as_secs_f64() > 20.0 {
+                                    inner.sync_pending.store(false, Ordering::SeqCst);
+                                }
+                                if t.elapsed().as_secs_f64() < 15.0 {
+                                    let desired = inner.desired_playing.load(Ordering::SeqCst);
+                                    let reconcile = if desired && state == PlayerState::Paused {
+                                        Some(true)
+                                    } else if !desired && state == PlayerState::Playing {
+                                        Some(false)
+                                    } else {
+                                        None
+                                    };
+                                    if let Some(to_play) = reconcile {
+                                        let mut ok_to_reconcile = false;
+                                        if let Ok(mut rec_guard) = inner.last_reconcile.lock() {
+                                            if rec_guard.map_or(true, |last| last.elapsed() >= Duration::from_secs(2)) {
+                                                *rec_guard = Some(Instant::now());
+                                                ok_to_reconcile = true;
+                                            }
+                                        }
+                                        if ok_to_reconcile {
+                                            tracing::info!("cast: reconcile to playing/paused");
+                                            if to_play {
+                                                let _ = state_clone.cast.play();
+                                            } else {
+                                                let _ = state_clone.cast.pause();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Align mpv back to the TV once after startup once real progress is observed,
+                        // because the TV takes 1-4 s to start and stays ~3 s behind mpv.
+                        if state == PlayerState::Playing {
+                            if inner.sync_pending.load(Ordering::SeqCst) && state_clone.is_playing.load(Ordering::Relaxed) {
+                                let mut performed_sync = false;
+                                if let Ok(guard) = inner.last_playing_pos.lock() {
+                                    if let Some(prev) = *guard {
+                                        if position_secs > prev + 0.3 {
+                                            let target = position_secs + 0.4;
+                                            let mpv_pos = state_clone.current_position();
+                                            if mpv_pos - target > 0.7 {
+                                                let _ = state_clone.player.seek(target);
+                                                tracing::info!(diff = mpv_pos - target, "cast: aligned mpv back to the TV");
+                                            }
+                                            performed_sync = true;
+                                        }
+                                    }
+                                }
+                                if performed_sync {
+                                    inner.sync_pending.store(false, Ordering::SeqCst);
+                                }
+                            }
+                            if let Ok(mut guard) = inner.last_playing_pos.lock() {
+                                *guard = Some(position_secs);
+                            }
+                        }
+
                         let mut changed = false;
                         if let Ok(mut status_guard) = inner.last_status.lock() {
                             let current = (state, idle_reason.clone());
@@ -197,8 +277,9 @@ impl CastManager {
         };
 
         if let Some(active) = old_active {
-            let _ = active.session.stop();
-            let _ = active.session.quit();
+            let session = active.session;
+            let _ = tauri::async_runtime::spawn_blocking(move || session.shutdown(std::time::Duration::from_secs(2))).await;
+            tracing::info!("cast: stopped on shutdown");
         }
 
         crate::audioproxy::stop_lan();
@@ -208,6 +289,9 @@ impl CastManager {
             *guard = None;
         }
         if let Ok(mut guard) = self.inner.loaded_at.lock() {
+            *guard = None;
+        }
+        if let Ok(mut guard) = self.inner.last_reconcile.lock() {
             *guard = None;
         }
         if let Ok(mut guard) = self.inner.last_correction.lock() {
@@ -220,6 +304,10 @@ impl CastManager {
             *guard = None;
         }
         self.inner.has_played_or_buffered.store(false, Ordering::SeqCst);
+        self.inner.sync_pending.store(false, Ordering::SeqCst);
+        if let Ok(mut guard) = self.inner.last_playing_pos.lock() {
+            *guard = None;
+        }
         if let Ok(mut guard) = self.inner.state.lock() {
             *guard = None;
         }
@@ -234,6 +322,8 @@ impl CastManager {
     }
 
     pub fn play(&self) -> Result<(), String> {
+        self.inner.desired_playing.store(true, Ordering::SeqCst);
+        tracing::debug!("cast: mirror play");
         if let Some(active) = self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone())) {
             active.play().map_err(|e| e.to_string())?;
         }
@@ -241,6 +331,8 @@ impl CastManager {
     }
 
     pub fn pause(&self) -> Result<(), String> {
+        self.inner.desired_playing.store(false, Ordering::SeqCst);
+        tracing::debug!("cast: mirror pause");
         if let Some(active) = self.inner.active.lock().ok().and_then(|a| a.as_ref().map(|a| a.session.clone())) {
             active.pause().map_err(|e| e.to_string())?;
         }
@@ -262,7 +354,16 @@ impl CastManager {
         if let Ok(mut guard) = self.inner.loaded_at.lock() {
             *guard = Some(load_time);
         }
+        if let Ok(mut guard) = self.inner.last_reconcile.lock() {
+            *guard = None;
+        }
         self.inner.has_played_or_buffered.store(false, Ordering::SeqCst);
+        self.inner.sync_pending.store(true, Ordering::SeqCst);
+        if let Ok(mut guard) = self.inner.last_playing_pos.lock() {
+            *guard = None;
+        }
+        let mut req = req;
+        req.autoplay = self.inner.desired_playing.load(Ordering::SeqCst);
 
         let inner = self.inner.clone();
         tauri::async_runtime::spawn(async move {
@@ -290,6 +391,19 @@ impl CastManager {
     pub fn check_drift(&self, mpv_pos: f64, is_playing: bool) {
         if !is_playing {
             return;
+        }
+        if let Ok(guard) = self.inner.loaded_video_id.lock() {
+            if let Some(loaded_vid) = &*guard {
+                if let Ok(state_guard) = self.inner.state.lock() {
+                    if let Some(state) = state_guard.as_ref() {
+                        if let Some(curr_vid) = state.current_video_id() {
+                            if curr_vid != *loaded_vid {
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
         }
         if let Ok(guard) = self.inner.loaded_at.lock() {
             if let Some(t) = *guard {

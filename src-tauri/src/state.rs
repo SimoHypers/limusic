@@ -43,6 +43,20 @@ pub fn is_local_playlist(id: &str) -> bool {
     id.starts_with(LOCAL_PLAYLIST_PREFIX)
 }
 
+fn cast_cover_url(url: &str) -> String {
+    static WH: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    static S: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let wh = WH.get_or_init(|| regex::Regex::new(r"=w\d+-h\d+").expect("static regex"));
+    let s = S.get_or_init(|| regex::Regex::new(r"=s\d+").expect("static regex"));
+    if wh.is_match(url) {
+        wh.replace(url, "=w544-h544").into_owned()
+    } else if s.is_match(url) {
+        s.replace(url, "=w544-h544").into_owned()
+    } else {
+        url.to_owned()
+    }
+}
+
 /// One play as it is being heard. See `AppState::hear`.
 #[derive(Default)]
 struct Listen {
@@ -113,7 +127,7 @@ pub struct AppState {
     listen: std::sync::Mutex<Listen>,
     /// Mirror of mpv's pause flag (set in `media_set_playing`). Position ticks must consult this
     /// instead of assuming "playing" — mpv fires `time-pos` on seeks while paused too.
-    is_playing: AtomicBool,
+    pub(crate) is_playing: AtomicBool,
     /// The `auto_pause_other_audio` setting, mirrored so the watcher callback needn't read the db.
     auto_pause_enabled: AtomicBool,
     /// The watcher's last report: is another app playing media right now.
@@ -620,6 +634,23 @@ impl AppState {
         if !self.cast.is_connected() {
             return;
         }
+        self.cast.set_loaded_video_id(data.video_id.clone());
+        let item = {
+            let q = self.queue.lock().await;
+            q.items
+                .iter()
+                .find(|i| i.video_id == data.video_id)
+                .cloned()
+                .or_else(|| q.items.get(q.current).cloned())
+        };
+        let has_title = item.as_ref().map_or(false, |i| !i.title.is_empty());
+        let has_artist = item.as_ref().map_or(false, |i| !i.artists.is_empty());
+        let has_cover = item.as_ref().and_then(|i| i.thumbnail.as_deref()).is_some();
+        let thumb_host = item.as_ref()
+            .and_then(|i| i.thumbnail.as_deref())
+            .and_then(|s| reqwest::Url::parse(s).ok())
+            .and_then(|u| u.host_str().map(ToString::to_string));
+        tracing::info!(has_title, has_artist, has_cover, thumb_host = ?thumb_host, "cast: metadata");
         let is_local = crate::local::song_path(&data.video_id).is_some();
         if is_local || data.live || is_karaoke {
             let _ = self.player.set_muted(false);
@@ -655,9 +686,9 @@ impl AppState {
             let req = cast::LoadRequest {
                 url: lan_url,
                 content_type,
-                title: data.title.clone(),
-                artist: data.artists.clone(),
-                image_url: data.thumbnail.clone(),
+                title: item.as_ref().map(|i| i.title.clone()),
+                artist: item.as_ref().map(|i| i.artists.clone()),
+                image_url: item.as_ref().and_then(|i| i.thumbnail.as_deref()).map(cast_cover_url),
                 start_secs,
                 autoplay,
             };
@@ -2250,6 +2281,10 @@ impl AppState {
                                     // Listen Together host: announce the gapless advance to the room.
         self.lt_broadcast_current_track(0, true).await;
         tracing::info!("advanced to next track (gapless)");
+        if self.cast.is_connected() {
+            tracing::info!("cast: following gapless advance");
+            self.cast_follow_current(0.0).await;
+        }
         // Its instrumental may already be playable, made while the last song played.
         let me = self.clone();
         tauri::async_runtime::spawn(async move { me.karaoke_check_current_stream().await });
@@ -2818,6 +2853,10 @@ impl AppState {
     pub(crate) async fn current_item(&self) -> Option<SongItem> {
         let q = self.queue.lock().await;
         q.items.get(q.current).cloned()
+    }
+
+    pub(crate) fn current_video_id(&self) -> Option<String> {
+        self.queue.try_lock().ok().and_then(|q| q.items.get(q.current).map(|i| i.video_id.clone()))
     }
 
     /// [`loudness_gain`] for one track, honouring the `normalize_volume` setting. Off means mpv
@@ -6779,7 +6818,7 @@ fn persist_fingerprint(q: &QueueState) -> u64 {
 mod tests {
     use super::{
         adopt_playlist_twins, adopt_twin, append_page, backfill_metadata, cache_horizon,
-        drop_duplicates, enqueue_at, format_duration, freshen, get_url, guest_insert_index,
+        cast_cover_url, drop_duplicates, enqueue_at, format_duration, freshen, get_url, guest_insert_index,
         history_threshold, is_mix, loudness_gain, merge_radio, next_index, parse_duration_ms,
         persist_fingerprint, playlist_context, prefer_version, prev_track_title, put_url,
         queue_fingerprint, radio_seed_for, remote_list, retain_upcoming, shuffle_new_queue,
@@ -7917,5 +7956,21 @@ mod tests {
         let mut q = QueueState::default();
         q.keep_context(0.0);
         assert!(q.prev_context.is_none());
+    }
+
+    #[test]
+    fn test_cast_cover_url() {
+        assert_eq!(
+            cast_cover_url("https://example.com/img.jpg=w60-h60"),
+            "https://example.com/img.jpg=w544-h544"
+        );
+        assert_eq!(
+            cast_cover_url("https://example.com/img.jpg=s60"),
+            "https://example.com/img.jpg=w544-h544"
+        );
+        assert_eq!(
+            cast_cover_url("https://example.com/img.jpg"),
+            "https://example.com/img.jpg"
+        );
     }
 }

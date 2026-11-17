@@ -56,6 +56,7 @@ enum Command {
 pub struct CastSession {
     cmd_tx: std::sync::mpsc::Sender<Command>,
     event_rx: Arc<Mutex<Option<UnboundedReceiver<CastEvent>>>>,
+    join_handle: Arc<Mutex<Option<std::thread::JoinHandle<()>>>>,
 }
 
 impl CastSession {
@@ -64,7 +65,7 @@ impl CastSession {
         let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
-        std::thread::spawn(move || {
+        let handle = std::thread::spawn(move || {
             if let Err(e) = run_worker(ip, port, cmd_rx, event_tx.clone()) {
                 let _ = event_tx.send(CastEvent::Disconnected(e.to_string()));
             }
@@ -73,7 +74,29 @@ impl CastSession {
         Ok(Self {
             cmd_tx,
             event_rx: Arc::new(Mutex::new(Some(event_rx))),
+            join_handle: Arc::new(Mutex::new(Some(handle))),
         })
+    }
+
+    /// Shuts down the session synchronously, waiting for the worker thread to exit.
+    pub fn shutdown(&self, timeout: std::time::Duration) {
+        let _ = self.cmd_tx.send(Command::Stop);
+        let _ = self.cmd_tx.send(Command::Quit);
+
+        let handle = self.join_handle.lock().unwrap().take();
+        if let Some(h) = handle {
+            let start = Instant::now();
+            loop {
+                if h.is_finished() {
+                    break;
+                }
+                if start.elapsed() >= timeout {
+                    tracing::warn!("cast: shutdown timed out");
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
     }
 
     /// Returns the event receiver for streaming player status and disconnection events.
@@ -156,6 +179,23 @@ fn run_worker(
     let mut media_session_id: Option<i32> = None;
     let mut current_volume = receiver_status.volume.level.unwrap_or(1.0) as f64;
 
+    let refresh_media_session = || -> Option<i32> {
+        match device.media.get_status(&transport_id, None) {
+            Ok(status) => {
+                if let Some(entry) = status.entries.iter().max_by_key(|e| e.media_session_id).or_else(|| status.entries.first()) {
+                    Some(entry.media_session_id)
+                } else {
+                    tracing::warn!("cast: no media status entries found");
+                    None
+                }
+            }
+            Err(_) => {
+                tracing::warn!("cast: failed to get media status");
+                None
+            }
+        }
+    };
+
     let mut last_status_poll = Instant::now();
     let mut last_heartbeat = Instant::now();
 
@@ -169,10 +209,15 @@ fn run_worker(
                         .map(|u| vec![Image::new(u)])
                         .unwrap_or_default();
                     let metadata = Metadata::MusicTrack(MusicTrackMediaMetadata {
+                        album_name: None,
                         title: req.title,
+                        album_artist: None,
                         artist: req.artist,
+                        composer: None,
+                        track_number: None,
+                        disc_number: None,
                         images,
-                        ..Default::default()
+                        release_date: None,
                     });
                     let media = Media {
                         content_id: req.url,
@@ -194,19 +239,22 @@ fn run_worker(
                     }
                 }
                 Command::Play => {
-                    if let Some(msid) = media_session_id {
+                    if let Some(msid) = refresh_media_session() {
+                        media_session_id = Some(msid);
                         let entry = device.media.play(&transport_id, msid)?;
                         emit_status(&event_tx, &entry, current_volume);
                     }
                 }
                 Command::Pause => {
-                    if let Some(msid) = media_session_id {
+                    if let Some(msid) = refresh_media_session() {
+                        media_session_id = Some(msid);
                         let entry = device.media.pause(&transport_id, msid)?;
                         emit_status(&event_tx, &entry, current_volume);
                     }
                 }
                 Command::Seek(secs) => {
-                    if let Some(msid) = media_session_id {
+                    if let Some(msid) = refresh_media_session() {
+                        media_session_id = Some(msid);
                         let entry = device
                             .media
                             .seek(&transport_id, msid, Some(secs as f32), None)?;
@@ -214,10 +262,11 @@ fn run_worker(
                     }
                 }
                 Command::Stop => {
-                    if let Some(msid) = media_session_id {
+                    if let Some(msid) = refresh_media_session() {
                         let _ = device.media.stop(&transport_id, msid);
                     }
                     let _ = device.receiver.stop_app(&session_id);
+                    break;
                 }
                 Command::SetVolume(level) => {
                     let vol = device.receiver.set_volume(level)?;
