@@ -1962,6 +1962,10 @@ impl AppState {
             if let Err(e) = sent {
                 tracing::warn!(error = %e, "cast: the device refused the play/pause");
             }
+            // Freeze where the clock is before the state flips: a resume must not count the
+            // paused time, and a pause must not lose the time played since the last report.
+            let at = self.cast_clock_now();
+            self.cast_clock_jump(at);
             // Shown at once; the device's own answer follows.
             let next = !playing;
             self.cast_playing.store(next, Ordering::SeqCst);
@@ -5874,6 +5878,10 @@ impl AppState {
             if self.cast_playing.load(Ordering::SeqCst) {
                 let _ = self.cast.pause().await;
             }
+            // Freeze where the clock is: the pause status that follows must not add the
+            // paused time again.
+            let at = self.cast_clock_now();
+            self.cast_clock_jump(at);
             self.cast_playing.store(false, Ordering::SeqCst);
             let _ = self.app.emit("playback-state", "paused");
             self.media_set_playing(false);
@@ -6017,37 +6025,51 @@ impl AppState {
     /// through), and one that is behind is not: the device lags, or it has just reset.
     fn cast_clock_set(&self, position: f64, state: crate::cast::chromecast::PlayerState) {
         let now = now_millis();
+        let was_playing = self.cast_playing.load(Ordering::SeqCst);
         let Ok(mut clock) = self.cast_clock.lock() else { return };
+        clock.pos =
+            Self::cast_clock_advance(clock.pos, clock.at, now, position, state, was_playing);
+        clock.at = now;
+    }
+
+    /// The clock after one device report.
+    ///
+    /// While the device plays, the clock runs with wall time and the report only corrects it:
+    /// a report ahead is a seek or a buffered pass, a report behind is a lag. When the device
+    /// stops, the last playing tick is frozen — repeated stopped reports must not keep moving
+    /// it — and a resume starts from the device's position, not from the paused wall time.
+    fn cast_clock_advance(
+        pos: f64,
+        at: u64,
+        now: u64,
+        position: f64,
+        state: crate::cast::chromecast::PlayerState,
+        was_playing: bool,
+    ) -> f64 {
+        let elapsed = now.saturating_sub(at) as f64 / 1000.0;
         match state {
             crate::cast::chromecast::PlayerState::Playing
             | crate::cast::chromecast::PlayerState::Buffering => {
-                let elapsed = (now.saturating_sub(clock.at)) as f64 / 1000.0;
-                let shown = clock.pos + elapsed;
-                if position > shown + 0.25 {
-                    // The device is ahead: it seeked, or it buffered through.
-                    clock.pos = position;
+                if was_playing {
+                    let shown = pos + elapsed;
+                    if position > shown + 0.25 {
+                        position
+                    } else {
+                        shown
+                    }
                 } else {
-                    // It is behind — it lags, or it has just reset. The clock keeps the
-                    // place it had: the anchor moves with it, so the time in between is
-                    // not lost.
-                    clock.pos = shown;
+                    // Out of a pause: the wall time between the reports is not track time, so
+                    // start where the device says, not where the clock had sat.
+                    position.max(pos)
                 }
             }
-            // The device stopped: the clock stops too, and it stops *where it had got to* —
-            // the time since the last report belongs to the track, not to the anchor. Dropping
-            // it would move the clock back by however long the device went without saying
-            // anything, and the end of the song would never be reached.
             crate::cast::chromecast::PlayerState::Paused
             | crate::cast::chromecast::PlayerState::Idle
             | crate::cast::chromecast::PlayerState::Other => {
-                let elapsed = (now.saturating_sub(clock.at)) as f64 / 1000.0;
-                clock.pos += elapsed;
-                if position > clock.pos {
-                    clock.pos = position;
-                }
+                let stopped = if was_playing { pos + elapsed } else { pos };
+                stopped.max(position)
             }
         }
-        clock.at = now;
     }
 
     /// Put the clock at a position the app knows: the start of a track, or a seek the app
@@ -7880,8 +7902,8 @@ mod tests {
         prefer_version, prev_track_title, put_url, queue_fingerprint, radio_seed_for,
         receiver_repeat_mode, remote_list, repeat_from_receiver, retain_upcoming,
         shuffle_new_queue, shuffle_upcoming, splice_radio_into, swap_version, trim_played,
-        twin_position, unshuffled, upcoming_queued, CastStartError, CastTrack, QueueState,
-        RepeatMode, VideoUrls, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
+        twin_position, unshuffled, upcoming_queued, AppState, CastStartError, CastTrack,
+        QueueState, RepeatMode, VideoUrls, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -9036,6 +9058,24 @@ mod tests {
             cast_content_type(&track(Some("application/vnd.apple.mpegurl"), true)),
             Err(CastStartError::Failed(_))
         ));
+    }
+
+    #[test]
+    fn a_paused_cast_clock_stops_and_a_resume_does_not_jump() {
+        use crate::cast::chromecast::PlayerState;
+        let tick = AppState::cast_clock_advance;
+        // Playing: wall time carries the clock between reports.
+        assert_eq!(tick(10.0, 1_000, 4_000, 10.0, PlayerState::Playing, true), 13.0);
+        // The report that pauses adds the last played stretch, then freezes.
+        assert_eq!(tick(10.0, 1_000, 4_000, 13.0, PlayerState::Paused, true), 13.0);
+        // Repeated paused reports do not keep walking.
+        assert_eq!(tick(13.0, 4_000, 7_000, 13.0, PlayerState::Paused, false), 13.0);
+        assert_eq!(tick(13.0, 7_000, 67_000, 13.0, PlayerState::Idle, false), 13.0);
+        // A resume starts where the device is, not a minute of wall time later.
+        assert_eq!(tick(13.0, 67_000, 70_000, 13.0, PlayerState::Playing, false), 13.0);
+        // Seeks are taken; a lagging report is not.
+        assert_eq!(tick(13.0, 70_000, 70_000, 20.0, PlayerState::Playing, true), 20.0);
+        assert_eq!(tick(13.0, 70_000, 73_000, 12.0, PlayerState::Playing, true), 16.0);
     }
 
     #[test]
