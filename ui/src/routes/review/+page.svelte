@@ -1,9 +1,32 @@
+<script lang="ts" module>
+	import * as api from '$lib/api';
+
+	type Held = { by: string; since: number } | null | undefined;
+	/** Claims go one at a time, and only the latest waits: arrowing through the queue, or leaving
+	 *  the page and coming back, must leave the last one held. Module-wide, so a page that unmounts
+	 *  lets go before the next one claims. Advisory, so a failure (an older service) is undefined. */
+	let wanted: { id: number | null; done: (held: Held) => void } | null = null;
+	let sending = false;
+	async function sendClaim(id: number | null, done: (held: Held) => void) {
+		wanted = { id, done };
+		if (sending) return;
+		sending = true;
+		while (wanted) {
+			const w: { id: number | null; done: (held: Held) => void } = wanted;
+			wanted = null;
+			w.done(await api.limusicReviewClaim(w.id).catch(() => undefined));
+		}
+		sending = false;
+	}
+</script>
+
 <script lang="ts">
 	// Review lyrics: what is waiting for a reviewer, oldest first. Opening one plays the song and
 	// shows the submitted lyric: line by line with each word's reading under it (the editor's word
 	// track), or as listeners will see it. The queue stays beside it, and a decision moves on to the
 	// next one. A submission that is nearly right is fixed in the editor before it is approved, and
 	// stays its author's. The player bar is the only transport. Rules are in `$lib/review.ts`.
+	// Opening one tells the service this reviewer has it, so the others see who is on what (#712).
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
@@ -20,7 +43,8 @@
 		TaskDone01Icon,
 		Tick02Icon,
 		UserGroupIcon,
-		UserIcon
+		UserIcon,
+		ViewIcon
 	} from '@hugeicons/core-free-icons';
 	import LogoMark from '$lib/components/LogoMark.svelte';
 	import { Button } from '$lib/components/ui/button';
@@ -30,7 +54,6 @@
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import LimusicNotice from '$lib/components/LimusicNotice.svelte';
 	import LyricsView, { prefs as lyricsPrefs, toggle as toggleLyricsPref } from '$lib/components/LyricsView.svelte';
-	import * as api from '$lib/api';
 	import { playback, seekTo, toast } from '$lib/player.svelte';
 	import { limusic, refreshAccount } from '$lib/limusic.svelte';
 	import { currentLocale, t } from '$lib/i18n.svelte';
@@ -100,8 +123,22 @@
 	onMount(() => {
 		start();
 		window.addEventListener('keydown', onKey);
-		return () => window.removeEventListener('keydown', onKey);
+		return () => {
+			window.removeEventListener('keydown', onKey);
+			// Into the editor to fix it, the submission is still this reviewer's.
+			if (limusic.reviewAt === null) claim(null);
+		};
 	});
+
+	/** Another reviewer who has the open one, as the service said when it opened. */
+	let taken = $state.raw<{ by: string; since: number } | null>(null);
+	function claim(id: number | null) {
+		sendClaim(id, (held) => {
+			if (held === undefined || id === null) return;
+			if (open?.revision === id) taken = held;
+			items = items.map((i) => (i.revision === id ? { ...i, reviewing: held?.by ?? null } : i));
+		});
+	}
 
 	// --- One submission ---------------------------------------------------------------------------
 	type View = 'lines' | 'player' | 'changes' | 'current';
@@ -185,8 +222,10 @@
 		reason = '';
 		notice = '';
 		heldAt = 0;
+		taken = null;
 		play(item);
 		const id = item.revision;
+		claim(id);
 		if (item.kind === 'edit') {
 			api.limusicLiveLyrics(item.video_id)
 				.then((l) => open?.revision === id && (current = l))
@@ -205,6 +244,7 @@
 	function close() {
 		open = null;
 		detail = null;
+		claim(null);
 	}
 
 	/** The row leaves the list at once and the one after it opens, so a queue is worked through
@@ -217,7 +257,9 @@
 		const at = items.findIndex((i) => i.revision === row.revision);
 		items = without(items, row.revision);
 		count();
-		const following = items[at] ?? items[at - 1];
+		// The next one nobody else has open, else the one before.
+		const free = (i: api.LimusicQueueItem) => !i.reviewing;
+		const following = items.slice(at).find(free) ?? items.slice(0, at).findLast(free);
 		if (following) openItem(following);
 		else close();
 		try {
@@ -378,6 +420,14 @@
 	{/if}
 {/snippet}
 
+{#snippet reviewing(item: api.LimusicQueueItem)}
+	{#if item.reviewing}
+		<span class="mt-0.5 flex items-center gap-1 truncate text-[12px] font-medium text-primary">
+			<HugeiconsIcon icon={ViewIcon} class="size-3.5 shrink-0" />{t('review.reviewing', { name: item.reviewing })}
+		</span>
+	{/if}
+{/snippet}
+
 {#snippet who(author: string | null)}
 	<span class="flex min-w-0 items-center gap-2">
 		<span class="flex size-[22px] shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-bold uppercase">
@@ -504,6 +554,7 @@
 					<span class="min-w-0 flex-1">
 						<span class="block truncate text-[15px] font-semibold">{item.title}</span>
 						<span class="block truncate text-[13px] text-muted-foreground">{item.artist}</span>
+						{@render reviewing(item)}
 					</span>
 					<span class="flex shrink-0 {wide ? 'w-28' : ''}">{@render kind(item)}</span>
 					{#if wide}
@@ -536,6 +587,7 @@
 								<span class="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
 									{@render kind(item)}<span class="truncate">{item.author ?? t('review.anonymous')} · {when(item)}</span>
 								</span>
+								{@render reviewing(item)}
 							</span>
 						</button>
 					{/each}
@@ -592,6 +644,14 @@
 						{/if}
 					</div>
 				</div>
+				{#if taken}
+					<div class="px-6 pb-2.5">
+						<LimusicNotice
+							icon={ViewIcon}
+							title={t('review.taken', { name: taken.by, when: ago(taken.since, Date.now() / 1000, currentLocale.id) })}
+						/>
+					</div>
+				{/if}
 				{#if open.kind === 'reported'}
 					<p class="px-6 pb-2.5 text-[13px] text-muted-foreground">{t('review.reported_hint', { count: open.reports })}</p>
 				{/if}

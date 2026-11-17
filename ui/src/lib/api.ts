@@ -1438,6 +1438,8 @@ export interface LimusicQueueItem {
 	kind: string;
 	created_at: number;
 	reports: number;
+	/** Another reviewer who has it open. */
+	reviewing?: string | null;
 }
 export interface LimusicQueue {
 	items: LimusicQueueItem[];
@@ -1465,6 +1467,10 @@ export interface LimusicRevision {
 /** Oldest first, 50 a page. */
 export const limusicReviewQueue = (after?: number) =>
 	invoke<LimusicQueue>('limusic_review_queue', { after: after ?? null });
+/** Mark the submission this reviewer has open, null to let go. Resolves with another reviewer who
+ *  has it already (this one then holds nothing), else null. */
+export const limusicReviewClaim = (revision: number | null) =>
+	invoke<{ by: string; since: number } | null>('limusic_review_claim', { revision });
 export const limusicReviewRevision = (revision: number) =>
 	invoke<LimusicRevision>('limusic_review_revision', { revision });
 /** The song's live community lyric from the service itself (never a lyrics provider), or null. */

@@ -2820,6 +2820,15 @@ pub async fn limusic_review_queue(
     crate::limusic::review_queue(state.inner(), after).await
 }
 
+/// Mark the revision this reviewer has open (`None` lets go). `Some` is another reviewer who has it.
+#[tauri::command]
+pub async fn limusic_review_claim(
+    state: St<'_>,
+    revision: Option<i64>,
+) -> Result<Option<crate::limusic::Claim>, String> {
+    crate::limusic::review_claim(state.inner(), revision).await
+}
+
 /// One revision with its lines.
 #[tauri::command]
 pub async fn limusic_review_revision(
