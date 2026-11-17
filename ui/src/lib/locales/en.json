@@ -580,7 +580,7 @@
 			"intro": "Link Limusic on your phone: each one shows and controls what the other plays, and the music moves to whichever you pick.",
 			"link_phone": "Link a phone",
 			"link_another": "Link another phone",
-			"step_open": "On your phone, open Limusic: Settings › Integrations › Devices",
+			"step_open": "On your phone, open Limusic: Settings › Devices",
 			"step_type": "Type this code",
 			"custom_server": "On this server, type {invite}",
 			"expires_in": "Expires in {time}",
