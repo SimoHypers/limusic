@@ -1114,7 +1114,8 @@
 		"feedback_gone": "Lirik ini sudah tidak ada di Limusic.",
 		"feedback_rate_limited": "Terlalu banyak sekaligus. Coba lagi nanti.",
 		"feedback_banned": "Akun ini tidak dapat memberi suara atau melaporkan.",
-		"feedback_failed": "Limusic Lyrics tidak dapat dihubungi, jadi tidak tersimpan."
+		"feedback_failed": "Limusic Lyrics tidak dapat dihubungi, jadi tidak tersimpan.",
+		"via": "via {source}"
 	},
 	"queue": {
 		"title": "Antrean"
@@ -1859,6 +1860,7 @@
 		"map_unplaced": "{count} baris belum memiliki awal",
 		"map_unplaced_one": "1 baris belum memiliki awal",
 		"start_sources": "Sumber lainnya",
-		"start_sources_hint": "Lirik yang tersedia di setiap sumber untuk lagu ini. Mulai dari yang paling cocok dengan yang dinyanyikan."
+		"start_sources_hint": "Lirik yang tersedia di setiap sumber untuk lagu ini. Mulai dari yang paling cocok dengan yang dinyanyikan.",
+		"start_lines": "{count} baris"
 	}
 }
