@@ -3,9 +3,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
+pub use rust_cast::channels::media::{IdleReason, PlayerState};
+
 use rust_cast::{
     channels::media::{
-        IdleReason, Image, LoadOptions, Media, Metadata, MusicTrackMediaMetadata, PlayerState,
+        Image, LoadOptions, Media, Metadata, MusicTrackMediaMetadata,
         StatusEntry, StreamType,
     },
     channels::receiver::CastDeviceApp,

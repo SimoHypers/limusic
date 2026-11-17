@@ -605,10 +605,9 @@ impl AppState {
     }
 
     pub fn set_output_volume(&self, volume: i64) {
+        let _ = self.player.set_volume(volume);
         if self.cast.is_connected() {
             let _ = self.cast.set_volume(volume as f32 / 100.0);
-        } else {
-            let _ = self.player.set_volume(volume);
         }
         if volume > 0 {
             crate::hotkeys::LAST_NONZERO_VOLUME.store(volume, std::sync::atomic::Ordering::Relaxed);
@@ -617,7 +616,7 @@ impl AppState {
         self.media_set_volume(volume);
     }
 
-    pub async fn cast_follow_load(&self, data: &PlaybackData, start_secs: f64, is_karaoke: bool) {
+    pub async fn cast_follow_load(&self, data: &PlaybackData, start_secs: f64, is_karaoke: bool, autoplay: bool) {
         if !self.cast.is_connected() {
             return;
         }
@@ -635,11 +634,14 @@ impl AppState {
         };
         if let Some(lan_url) = crate::audioproxy::register_lan(&data.stream_url, &data.headers, device.ip) {
             let _ = self.player.set_muted(true);
-            let content_type = if data.stream_url.contains("mimeType=audio/webm") || data.stream_url.contains("itag=251") || data.stream_url.contains("itag=250") || data.stream_url.contains("itag=249") {
-                "audio/webm".to_string()
-            } else {
-                "audio/mp4".to_string()
-            };
+            let content_type = reqwest::Url::parse(&data.stream_url)
+                .ok()
+                .and_then(|u| {
+                    u.query_pairs()
+                        .find(|(k, _)| k == "mime")
+                        .map(|(_, v)| urlencoding::decode(&v).map(|s| s.into_owned()).unwrap_or_else(|_| v.into_owned()))
+                })
+                .unwrap_or_else(|| "audio/mp4".to_string());
             let req = cast::LoadRequest {
                 url: lan_url,
                 content_type,
@@ -647,7 +649,7 @@ impl AppState {
                 artist: data.artists.clone(),
                 image_url: data.thumbnail.clone(),
                 start_secs,
-                autoplay: true,
+                autoplay,
             };
             let _ = self.cast.session_load(req);
         } else {
@@ -661,7 +663,7 @@ impl AppState {
                 let stream_url = mpv_stream_url(&data);
                 let play_u = self.play_url(PinSlot::Current, &item.video_id, &stream_url);
                 let is_karaoke = play_u != stream_url;
-                self.cast_follow_load(&data, start_secs, is_karaoke).await;
+                self.cast_follow_load(&data, start_secs, is_karaoke, self.is_playing.load(Ordering::Relaxed)).await;
             }
         }
     }
@@ -2486,7 +2488,7 @@ impl AppState {
             self.emit_error(&item.video_id, &e.to_string());
             return false;
         }
-        self.cast_follow_load(&data, seek.unwrap_or(0.0), is_karaoke).await;
+        self.cast_follow_load(&data, seek.unwrap_or(0.0), is_karaoke, self.is_playing.load(Ordering::Relaxed)).await;
         // Where mpv starts, from now on: its first tick comes after the unpause, and that pause
         // flag's Play (`lt_on_play_state`) reads this. Left at the last track's position, a Continue
         // here told the device link the music was back where this desktop last stopped, and the
@@ -2798,7 +2800,7 @@ impl AppState {
         tracing::debug!(index = next_idx, "gapless lookahead primed");
     }
 
-    async fn current_item(&self) -> Option<SongItem> {
+    pub(crate) async fn current_item(&self) -> Option<SongItem> {
         let q = self.queue.lock().await;
         q.items.get(q.current).cloned()
     }
@@ -2958,7 +2960,7 @@ impl AppState {
             self.emit_error(&item.video_id, &e.to_string());
             return;
         }
-        self.cast_follow_load(&data, pos, is_karaoke).await;
+        self.cast_follow_load(&data, pos, is_karaoke, was_playing).await;
         // The picture is keyed by the file mpv plays, and that just changed.
         self.attach_video(&item.video_id, item.is_video && !data.live, &play_u);
         // A cached instrumental or the original: not a stream any more.
@@ -4016,7 +4018,7 @@ impl AppState {
     }
 
     /// A transient toast. Same channel as [`Self::emit_skip`], for messages that phrase themselves.
-    fn emit_notice(&self, message: &str) {
+    pub(crate) fn emit_notice(&self, message: &str) {
         tracing::info!(message, "playback notice");
         let _ = self.app.emit("playback-notice", serde_json::json!({ "message": message }));
     }
@@ -4756,7 +4758,7 @@ impl AppState {
             self.emit_error(&track.id, &e.to_string());
             return;
         }
-        self.cast_follow_load(&data, pos, false).await;
+        self.cast_follow_load(&data, pos, false, playing).await;
         let _ = if playing { self.player.play() } else { self.player.pause() };
         {
             let mut q = self.queue.lock().await;
