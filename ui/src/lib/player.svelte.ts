@@ -14,6 +14,7 @@ import type {
 } from './api';
 import { applyLtState, lt } from './lt.svelte';
 import { applyLinkState, link } from './link.svelte';
+import { applyCastDevices, applyCastState, cast } from './cast.svelte';
 import { clearCached, invalidateCached, LIBRARY_SONGS_KEY } from './pagecache';
 import * as pl from './personal';
 import type { Personal } from './personal';
@@ -2116,7 +2117,9 @@ export function initApp(mini = false): () => void {
 		// Rust restores the shared clock before applying room playback, even with no UI open.
 		api.onLtState(applyLtState),
 		api.onLtNotice((msg) => toast(msg)),
-		api.onLinkState(applyLinkState)
+		api.onLinkState(applyLinkState),
+		api.onCastDevices(applyCastDevices),
+		api.onCastState(applyCastState)
 	];
 	const teardown = () => subs.forEach((u) => u.then((f) => f()));
 	api.getQueue()
@@ -2191,5 +2194,7 @@ export function initApp(mini = false): () => void {
 	// Seed the Listen Together state (server URL, any active room after a UI reload).
 	api.ltGetState().then(applyLtState).catch(() => {});
 	api.linkState().then(applyLinkState).catch(() => {});
+	api.castListDevices().then(applyCastDevices).catch(() => {});
+	api.castStatus().then(applyCastState).catch(() => {});
 	return teardown;
 }

@@ -1721,3 +1721,20 @@ export const onMatugenThemeChanged = (cb: (css: string | null) => void): Promise
 	listen<string | null>('matugen-theme-changed', (event) => cb(event.payload));
 export const startMatugenWatcher = () => invoke<void>('start_matugen_watcher');
 export const stopMatugenWatcher = () => invoke<void>('stop_matugen_watcher');
+
+export interface CastDevice {
+	id: string;
+	name: string;
+	model?: string | null;
+	ip: string;
+	port: number;
+}
+
+export const castListDevices = () => invoke<CastDevice[]>('cast_list_devices');
+export const castConnect = (id: string) => invoke<CastDevice>('cast_connect', { id });
+export const castDisconnect = () => invoke<void>('cast_disconnect');
+export const castStatus = () => invoke<CastDevice | null>('cast_status');
+export const onCastDevices = (cb: (devices: CastDevice[]) => void): Promise<UnlistenFn> =>
+	listen<CastDevice[]>('cast-devices', (e) => cb(e.payload));
+export const onCastState = (cb: (device: CastDevice | null) => void): Promise<UnlistenFn> =>
+	listen<CastDevice | null>('cast-state', (e) => cb(e.payload));

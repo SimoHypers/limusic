@@ -3,6 +3,7 @@
 	// moves what plays there, where it is (src-tauri/src/devicelink.rs).
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
+		CastIcon,
 		ComputerIcon,
 		ComputerPhoneSyncIcon,
 		PlusSignIcon,
@@ -14,25 +15,58 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as api from '$lib/api';
 	import { link } from '$lib/link.svelte';
+	import { cast } from '$lib/cast.svelte';
 	import { playback, toast, ui } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
 
 	let open = $state(false);
 
-	const here = $derived(!link.remote);
 	const remotePlayer = $derived(link.remote ? link.player : null);
+	const castActive = $derived(cast.active);
+	const activeDevice = $derived(remotePlayer ?? castActive);
+	const here = $derived(!link.remote && !castActive);
 	const label = $derived(
 		remotePlayer
 			? link.isPlaying
 				? t('player.link_playing_on', { name: remotePlayer.name })
 				: t('player.link_paused_on', { name: remotePlayer.name })
-			: t('player.devices')
+			: castActive
+				? playback.paused
+					? t('player.link_paused_on', { name: castActive.name })
+					: t('player.link_playing_on', { name: castActive.name })
+				: t('player.devices')
 	);
 
 	async function playOn(deviceId: string) {
 		open = false;
 		try {
 			await api.linkPlayOn(deviceId);
+		} catch (e) {
+			toast.error(String(e));
+		}
+	}
+
+	async function selectCast(d: api.CastDevice) {
+		open = false;
+		try {
+			if (castActive?.id === d.id) {
+				await api.castDisconnect();
+			} else {
+				await api.castConnect(d.id);
+			}
+		} catch (e) {
+			toast.error(String(e));
+		}
+	}
+
+	async function selectHere() {
+		open = false;
+		try {
+			if (castActive) {
+				await api.castDisconnect();
+			} else if (link.remote) {
+				await api.linkPlayOn('');
+			}
 		} catch (e) {
 			toast.error(String(e));
 		}
@@ -48,6 +82,13 @@
 		if (!d.online) return t('settings.devices.offline');
 		if (link.player?.id === d.id) return link.isPlaying ? t('settings.devices.playing') : t('player.devices_paused');
 		return t('settings.devices.online');
+	};
+
+	const castDeviceStatus = (d: api.CastDevice) => {
+		if (castActive?.id === d.id) {
+			return playback.paused ? t('player.devices_paused') : t('player.cast_playing');
+		}
+		return d.model ?? t('player.cast_online');
 	};
 </script>
 
@@ -81,7 +122,7 @@
 	     if/else: bits-ui keeps a single trigger node per popover, and the one unmounting on a
 	     handover clears it after the new one set it, so the popover stopped opening. -->
 	<Popover.Trigger
-		class={remotePlayer
+		class={activeDevice
 			? 'inline-flex h-8 max-w-44 cursor-pointer items-center gap-1.5 rounded-full bg-primary/15 px-3 text-xs font-medium text-primary transition hover:bg-primary/25'
 			: `inline-flex size-8 cursor-pointer items-center justify-center rounded-md transition hover:bg-muted ${here
 					? 'text-muted-foreground hover:text-foreground'
@@ -92,6 +133,9 @@
 		{#if remotePlayer}
 			<HugeiconsIcon icon={SmartPhone01Icon} class="size-4 shrink-0" />
 			<span class="truncate">{remotePlayer.name}</span>
+		{:else if castActive}
+			<HugeiconsIcon icon={CastIcon} class="size-4 shrink-0" />
+			<span class="truncate">{castActive.name}</span>
 		{:else}
 			<HugeiconsIcon icon={ComputerPhoneSyncIcon} class="h-5 w-5" />
 		{/if}
@@ -129,7 +173,7 @@
 					: t('player.devices_this_computer_hint'),
 				here,
 				false,
-				() => (here ? (open = false) : playOn(''))
+				selectHere
 			)}
 			{#each link.devices as d (d.id)}
 				{@render row(
@@ -139,6 +183,16 @@
 					!here && link.player?.id === d.id,
 					!d.online,
 					() => (!here && link.player?.id === d.id ? (open = false) : playOn(d.id))
+				)}
+			{/each}
+			{#each cast.devices as d (d.id)}
+				{@render row(
+					CastIcon,
+					d.name,
+					castDeviceStatus(d),
+					castActive?.id === d.id,
+					false,
+					() => selectCast(d)
 				)}
 			{/each}
 		</div>
