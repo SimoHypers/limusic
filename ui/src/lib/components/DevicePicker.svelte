@@ -79,7 +79,9 @@
 	<!-- While the bar is another device's remote, the button names that device: the only marker
 	     that this bar is not playing here. One trigger whose contents change, never two in an
 	     if/else: bits-ui keeps a single trigger node per popover, and the one unmounting on a
-	     handover clears it after the new one set it, so the popover stopped opening. -->
+	     handover clears it after the new one set it, so the popover stopped opening.
+	     No title: on Hyprland and niri the GTK tooltip opens under the pointer at the bottom
+	     edge, the hover drops, the tooltip hides, and it loops into a flicker. -->
 	<Popover.Trigger
 		class={remotePlayer
 			? 'inline-flex h-8 max-w-44 cursor-pointer items-center gap-1.5 rounded-full bg-primary/15 px-3 text-xs font-medium text-primary transition hover:bg-primary/25'
@@ -87,7 +89,6 @@
 					? 'text-muted-foreground hover:text-foreground'
 					: 'text-primary'}`}
 		aria-label={label}
-		title={label}
 	>
 		{#if remotePlayer}
 			<HugeiconsIcon icon={SmartPhone01Icon} class="size-4 shrink-0" />
