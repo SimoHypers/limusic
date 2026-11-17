@@ -120,9 +120,11 @@ pub struct AppState {
     /// The repeat mode last written to the receiver queue. A status carrying the same mode is
     /// this app's own echo, not a press on the device.
     cast_repeat_sent: std::sync::Mutex<Option<String>>,
-    /// The YouTube ids the receiver's queue currently holds, in order. A status naming a video
-    /// outside it is stale, or about a track that was picked on the device itself.
-    cast_window: std::sync::Mutex<Vec<String>>,
+    /// The receiver's queue as it was handed over, in order: the app queue index each item was
+    /// taken from, and its YouTube id. A status naming a video outside it is stale, or about a
+    /// track that was picked on the device itself. The index is what tells two copies of the
+    /// same song apart.
+    cast_window: std::sync::Mutex<Vec<(usize, String)>>,
     /// Where the playing track sits in `cast_window`. Items before it are the receiver's
     /// history; the window is rebuilt when playback nears either end.
     cast_window_start: std::sync::atomic::AtomicUsize,
@@ -2238,6 +2240,8 @@ impl AppState {
             q.live = false;
         }
         if let Some(item) = self.current_item().await {
+            // mpv moved into the primed file itself: it now holds this row's track.
+            self.note_mpv_track(Some(item.video_id.clone()));
             self.emit_now_playing(&item, "gapless", false);
             // Same as `start_current`: an autoplay-appended track carries no rating of its own.
             self.refresh_from_next(&item.video_id, gen);
@@ -2352,6 +2356,7 @@ impl AppState {
         // blip) that track starts playing, unpaused, while the queue still points at this one:
         // the same "woke up playing music by itself" the retry path used to cause.
         let _ = self.player.stop();
+        self.note_mpv_track(None);
         let mut q = self.queue.lock().await;
         q.lookahead_loaded = None;
         if let Some(item) = q.items.get(q.current) {
@@ -2496,6 +2501,8 @@ impl AppState {
         if let Some(engine) = self.karaoke_engine() {
             engine.set_playing_stream(None);
         }
+        // The load below replaces mpv's file, so what it holds is only provable once it lands.
+        self.note_mpv_track(None);
         // A track that was paused before a cast stays paused when the cast ends, and a
         // moment of sound on the way there would be the wrong kind of handover.
         let start_paused = self.start_paused.swap(false, Ordering::SeqCst);
@@ -2530,9 +2537,7 @@ impl AppState {
         self.latest_position.store(seek.unwrap_or(0.0).to_bits(), Ordering::SeqCst);
         // What mpv holds, so a cast that comes back can tell whether the track it kept is the
         // one the queue is on.
-        if let Ok(mut held) = self.mpv_track.lock() {
-            *held = Some(item.video_id.clone());
-        }
+        self.note_mpv_track(Some(item.video_id.clone()));
         // Listen Together host: announce the track before `play`, whose pause-flag change is the
         // room's Play. Sent after, a skip while paused reaches guests as "play" on the old track
         // first. At the position mpv starts at, so a retry or a restored context isn't sent as 0.
@@ -3006,6 +3011,7 @@ impl AppState {
         }
         // The picture is keyed by the file mpv plays, and that just changed.
         self.attach_video(&item.video_id, item.is_video && !data.live, &play_u);
+        self.note_mpv_track(Some(item.video_id.clone()));
         // A cached instrumental or the original: not a stream any more.
         if let Some(engine) = self.karaoke_engine() {
             engine.set_playing_stream(None);
@@ -3278,6 +3284,7 @@ impl AppState {
             return;
         }
         self.attach_video(video_id, is_video, url);
+        self.note_mpv_track(Some(video_id.to_owned()));
         if was_paused {
             let _ = self.player.pause();
         }
@@ -4063,7 +4070,7 @@ impl AppState {
     }
 
     /// A transient toast. Same channel as [`Self::emit_skip`], for messages that phrase themselves.
-    fn emit_notice(&self, message: &str) {
+    pub(crate) fn emit_notice(&self, message: &str) {
         tracing::info!(message, "playback notice");
         let _ = self.app.emit("playback-notice", serde_json::json!({ "message": message }));
     }
@@ -4813,6 +4820,7 @@ impl AppState {
             return;
         }
         let _ = if playing { self.player.play() } else { self.player.pause() };
+        self.note_mpv_track(Some(track.id.clone()));
         {
             let mut q = self.queue.lock().await;
             q.current_loudness_db = data.loudness_db;
@@ -5114,10 +5122,16 @@ impl AppState {
         // actually near.
         self.extend_queue_radio(gen).await;
         self.lt_broadcast_queue().await;
-        // A Cast receiver keeps a queue of its own; shuffle on the app should shuffle that too,
-        // so next/previous on the phone follow the order the queue panel shows.
-        if self.queue.lock().await.shuffle_orig.is_some() && self.cast.uses_queue() {
-            let _ = self.cast.shuffle().await;
+        // A Cast receiver keeps a queue of its own: the new order has to reach it, or its
+        // next/previous would follow the order it was given before the shuffle. The window
+        // rebuild hands it the app's queue as it now stands, around the playing track — no
+        // `QUEUE_SHUFFLE`, which would shuffle the receiver's copy with its own randomness.
+        if self.cast.uses_queue() {
+            if let Some(item) = self.current_item().await {
+                let playing = self.cast_playing.load(Ordering::SeqCst);
+                let position = self.current_position();
+                self.cast_refresh_queue(position, playing, &item.video_id).await;
+            }
         }
     }
 
@@ -5856,6 +5870,12 @@ impl AppState {
         let level = level.clamp(0, 100);
         if self.cast.is_active() {
             self.cast.set_volume(level as f64 / 100.0).await?;
+            // The accepted level is the one a second press builds on; the device's own report
+            // corrects it when it answers.
+            self.cast_volume.store(level, Ordering::SeqCst);
+            if level > 0 {
+                crate::hotkeys::CAST_NONZERO_VOLUME.store(level, Ordering::Relaxed);
+            }
             // The device reports its own level back, so the bar follows it. The echo here is
             // for the moment before it does.
             let _ = self.app.emit("volume", level);
@@ -5893,6 +5913,12 @@ impl AppState {
     /// Play on a device on the network. The device takes over from this desktop: the track that
     /// is playing here goes there, and this desktop goes quiet.
     pub async fn cast_start(self: &std::sync::Arc<Self>, device_id: String) {
+        // A room and a device are two masters for one transport: the room's timeline is this
+        // desktop's player, which is paused for as long as a cast runs.
+        if self.lt.in_room().await {
+            self.emit_notice("leave the Listen Together room before casting");
+            return;
+        }
         let was_casting = self.cast.is_active();
         let handoff = (!was_casting).then(|| CastHandoff {
             playing: !self.player.is_paused() && !self.player.is_idle(),
@@ -5928,7 +5954,11 @@ impl AppState {
             return;
         }
         // Where the device got to. The queue may have moved on while it was playing, so this
-        // is the position in whatever the queue is on now.
+        // is the position in whatever the queue is on now. The play state is read before the
+        // device is told to stop: the music comes back here the way the device was, not the
+        // way this desktop was before the cast.
+        let cast_playing = self.cast_playing.load(Ordering::SeqCst);
+        let synced = self.cast.synced();
         let position = self.current_position();
         self.cast.stop().await;
         if let Ok(mut ids) = self.cast_window.lock() {
@@ -5951,16 +5981,19 @@ impl AppState {
         };
         // The volume this desktop had before the device's own took over the slider.
         let handoff = self.cast_handoff.lock().ok().and_then(|mut h| h.take());
-        let playing = handoff.as_ref().map(|h| h.playing).unwrap_or(true);
         if let Some(handoff) = &handoff {
             let _ = self.player.set_volume(handoff.volume);
             let _ = self.app.emit("volume", handoff.volume);
             self.media_set_volume(handoff.volume);
         }
+        // A device that answered is the one that knows whether it was playing. One that never
+        // did (a cast that failed to hand anything over) left this desktop where it was.
+        let playing =
+            if synced { cast_playing } else { handoff.as_ref().is_some_and(|h| h.playing) };
         // mpv still holds the very track the queue is on: it was paused when the device took
         // over, so it only has to be moved to where the device got to.
-        let holds_it =
-            self.mpv_track.lock().ok().and_then(|t| t.clone()).is_some_and(|id| id == video_id);
+        let holds_it = !self.player.is_idle()
+            && self.mpv_track.lock().ok().and_then(|t| t.clone()).is_some_and(|id| id == video_id);
         if holds_it {
             // mpv keeps the track, so nothing is loaded and no paused start is waiting.
             self.start_paused.store(false, Ordering::SeqCst);
@@ -5979,8 +6012,8 @@ impl AppState {
         if !video_id.is_empty() {
             *self.pending_seek.lock().unwrap() = Some((video_id, position));
         }
-        // It was paused here before the device took over, so it starts paused rather than
-        // playing for a moment before the pause lands.
+        // A track that comes back paused starts paused rather than playing for a moment
+        // before the pause lands.
         self.start_paused.store(!playing, Ordering::SeqCst);
         self.play_index(index).await;
     }
@@ -6002,13 +6035,28 @@ impl AppState {
                 let position = me.cast_clock_now();
                 me.latest_position.store(position.to_bits(), Ordering::SeqCst);
                 let _ = me.app.emit("position", serde_json::json!({ "position": position }));
+                // This tick is also what times the play: the device reports seconds apart,
+                // and `hear` counts only short steps, so a report would read as a seek.
+                me.on_cast_position(position).await;
                 // A Cast receiver advances through its own queue and says so; only a renderer,
                 // which holds one track, needs the clock to decide the song is over.
                 if !me.cast.uses_queue() && me.cast_track_over(position) {
-                    let me = me.clone();
-                    tauri::async_runtime::spawn(async move {
-                        me.on_track_ended().await;
-                    });
+                    if me.queue.lock().await.repeat == RepeatMode::One {
+                        // Repeat-one loops the file in mpv. A renderer has no such loop, so
+                        // the track goes back to it from the top.
+                        let me = me.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let gen = me.generation.fetch_add(1, Ordering::SeqCst) + 1;
+                            if me.cast_start_current(gen).await {
+                                me.prime_lookahead(gen).await;
+                            }
+                        });
+                    } else {
+                        let me = me.clone();
+                        tauri::async_runtime::spawn(async move {
+                            me.on_track_ended().await;
+                        });
+                    }
                 }
             }
         });
@@ -6021,8 +6069,9 @@ impl AppState {
     /// resets its position to zero — and a clock that took that would never reach the end of
     /// the song.
     ///
-    /// So a report that is *ahead* of the clock is taken (the device seeked, or buffered
-    /// through), and one that is behind is not: the device lags, or it has just reset.
+    /// A report ahead of the clock is taken (the device seeked, or buffered through), and so
+    /// is one well behind it (a seek back from the phone or a voice command). A report within
+    /// a poll interval of the clock is left alone: that is the device's own clock, which lags.
     fn cast_clock_set(&self, position: f64, state: crate::cast::chromecast::PlayerState) {
         let now = now_millis();
         let was_playing = self.cast_playing.load(Ordering::SeqCst);
@@ -6035,9 +6084,12 @@ impl AppState {
     /// The clock after one device report.
     ///
     /// While the device plays, the clock runs with wall time and the report only corrects it:
-    /// a report ahead is a seek or a buffered pass, a report behind is a lag. When the device
-    /// stops, the last playing tick is frozen — repeated stopped reports must not keep moving
-    /// it — and a resume starts from the device's position, not from the paused wall time.
+    /// a report ahead is a seek or a buffered pass, a report well behind is a seek back, and a
+    /// report a moment behind is the device's clock lagging. When the device stops, the last
+    /// playing tick is frozen — repeated stopped reports must not keep moving it — and a
+    /// resume starts from the device's position, not from the paused wall time. An idle
+    /// device has no track to be at a position in, so the clock holds where it got to: idle
+    /// at zero is how the receiver announces the end of a track.
     fn cast_clock_advance(
         pos: f64,
         at: u64,
@@ -6046,28 +6098,36 @@ impl AppState {
         state: crate::cast::chromecast::PlayerState,
         was_playing: bool,
     ) -> f64 {
+        /// How far behind the clock a report has to be before it is taken as a seek back
+        /// instead of the device's own clock disagreeing. Wider than the slowest poll this
+        /// app does (a renderer is asked every three seconds), so ordinary lag is not a seek.
+        const SEEK_BACK: f64 = 5.0;
         let elapsed = now.saturating_sub(at) as f64 / 1000.0;
         match state {
             crate::cast::chromecast::PlayerState::Playing
             | crate::cast::chromecast::PlayerState::Buffering => {
-                if was_playing {
-                    let shown = pos + elapsed;
-                    if position > shown + 0.25 {
-                        position
-                    } else {
-                        shown
-                    }
+                let shown = if was_playing { pos + elapsed } else { pos };
+                if position > shown + 0.25 || shown - position > SEEK_BACK {
+                    position
                 } else {
-                    // Out of a pause: the wall time between the reports is not track time, so
-                    // start where the device says, not where the clock had sat.
-                    position.max(pos)
+                    shown
                 }
             }
-            crate::cast::chromecast::PlayerState::Paused
-            | crate::cast::chromecast::PlayerState::Idle
-            | crate::cast::chromecast::PlayerState::Other => {
+            crate::cast::chromecast::PlayerState::Paused => {
                 let stopped = if was_playing { pos + elapsed } else { pos };
-                stopped.max(position)
+                if position > stopped + 0.25 || stopped - position > SEEK_BACK {
+                    position
+                } else {
+                    stopped
+                }
+            }
+            crate::cast::chromecast::PlayerState::Idle
+            | crate::cast::chromecast::PlayerState::Other => {
+                if was_playing {
+                    pos + elapsed
+                } else {
+                    pos
+                }
             }
         }
     }
@@ -6104,6 +6164,17 @@ impl AppState {
             return clock.pos;
         }
         clock.pos + (now_millis().saturating_sub(clock.at)) as f64 / 1000.0
+    }
+
+    /// Record that mpv now holds `id`, or that it holds nothing.
+    ///
+    /// `cast_stop` compares it with the track the queue came back on: it can only move mpv to
+    /// the device's position when mpv is provably still on that file. Every path that replaces
+    /// mpv's file says so once the load has landed, and the ones that empty it say `None`.
+    fn note_mpv_track(&self, id: Option<String>) {
+        if let Ok(mut held) = self.mpv_track.lock() {
+            *held = id;
+        }
     }
 
     /// Hand the track that is playing here to the device.
@@ -6177,7 +6248,17 @@ impl AppState {
             if self.generation.load(Ordering::SeqCst) != gen {
                 return false;
             }
-            match self.cast_start_track(&item, 0.0, &track, Some(gen)).await {
+            // A queue restored at a saved position, or a row started at an offset, has the
+            // position waiting; the device starts there, like every local load does.
+            let start = self
+                .pending_seek
+                .lock()
+                .unwrap()
+                .take()
+                .filter(|(vid, _)| vid == &item.video_id)
+                .map(|(_, pos)| pos)
+                .unwrap_or(0.0);
+            match self.cast_start_track(&item, start, &track, Some(gen)).await {
                 Ok(()) => {}
                 Err(CastStartError::Superseded) => return false,
                 Err(CastStartError::Failed(e)) => {
@@ -6298,72 +6379,81 @@ impl AppState {
         Ok(media)
     }
 
-    /// The tracks the receiver gets, and the index of the one that starts: the recent
-    /// already-played tracks (so previous has somewhere to go), the current track, then the
-    /// upcoming ones. The receiver's own next/previous/shuffle/repeat controls work on this.
+    /// The tracks the receiver gets, the index of the one that starts, and where each one sits
+    /// in the app's queue: the recent already-played tracks (so previous has somewhere to go),
+    /// the current track, then the upcoming ones. The receiver's own next, previous, shuffle
+    /// and repeat controls work on this.
     async fn cast_queue_window(
         &self,
         item: &SongItem,
         position: f64,
         track: &CastTrack,
         device: &crate::cast::Device,
-    ) -> Result<(Vec<QueueEntry>, usize), CastStartError> {
+    ) -> Result<(Vec<QueueEntry>, usize, Vec<usize>), CastStartError> {
         let current = QueueEntry {
             media: self.cast_media_for(item, position, track, device)?,
             video_id: item.video_id.clone(),
         };
         if device.kind != "chromecast" {
-            return Ok((vec![current], 0));
+            let index = self.queue.lock().await.current;
+            return Ok((vec![current], 0, vec![index]));
         }
-        let (past, upcoming): (Vec<SongItem>, Vec<SongItem>) = {
+        let (past, upcoming, current_index) = {
             let q = self.queue.lock().await;
-            let castable =
-                |i: &&SongItem| !i.is_upload && !crate::local::is_local_song(&i.video_id);
+            let castable = |(_, i): &(usize, &SongItem)| {
+                !i.is_upload && !crate::local::is_local_song(&i.video_id)
+            };
             let past = q
                 .items
                 .iter()
+                .enumerate()
                 .take(q.current)
                 .rev()
                 .filter(castable)
                 .take(CAST_QUEUE_HISTORY)
-                .cloned()
-                .collect::<Vec<_>>();
+                .map(|(index, item)| (index, item.clone()))
+                .collect::<Vec<(usize, SongItem)>>();
             let upcoming = q
                 .items
                 .iter()
+                .enumerate()
                 .skip(q.current + 1)
                 .filter(castable)
                 .take(CAST_QUEUE_NEXT)
-                .cloned()
-                .collect();
-            (past, upcoming)
+                .map(|(index, item)| (index, item.clone()))
+                .collect::<Vec<(usize, SongItem)>>();
+            (past, upcoming, q.current)
         };
         // History is resolved for the device too: the queue can have been played locally
         // before the cast started, and Previous should still reach those tracks. The cast
         // cache makes a rebuild cheap after the first one.
         let (resolved_past, resolved) = futures_util::future::join(
             futures_util::future::join_all(
-                past.iter().map(|i| self.cast_resolve(&i.video_id, false)),
+                past.iter().map(|(_, i)| self.cast_resolve(&i.video_id, false)),
             ),
             futures_util::future::join_all(
-                upcoming.iter().map(|i| self.cast_resolve(&i.video_id, i.is_upload)),
+                upcoming.iter().map(|(_, i)| self.cast_resolve(&i.video_id, i.is_upload)),
             ),
         )
         .await;
         let mut entries: Vec<QueueEntry> = Vec::new();
-        for (item, resolved) in past.iter().zip(resolved_past).rev() {
+        let mut app_indices: Vec<usize> = Vec::new();
+        for ((index, item), resolved) in past.iter().zip(resolved_past).rev() {
             let Ok(track) = resolved else { continue };
             let Ok(media) = self.cast_media_for(item, 0.0, &track, device) else { continue };
             entries.push(QueueEntry { media, video_id: item.video_id.clone() });
+            app_indices.push(*index);
         }
         let start_index = entries.len();
         entries.push(current);
-        for (next, resolved) in upcoming.iter().zip(resolved) {
+        app_indices.push(current_index);
+        for ((index, next), resolved) in upcoming.iter().zip(resolved) {
             let Ok(track) = resolved else { continue };
             let Ok(media) = self.cast_media_for(next, 0.0, &track, device) else { continue };
             entries.push(QueueEntry { media, video_id: next.video_id.clone() });
+            app_indices.push(*index);
         }
-        Ok((entries, start_index))
+        Ok((entries, start_index, app_indices))
     }
 
     /// Remember which URL belongs to which track, for statuses that arrive without
@@ -6384,6 +6474,7 @@ impl AppState {
     /// working instead of running out. The track itself is resumed where it was.
     async fn cast_refresh_queue(&self, position: f64, playing: bool, video_id: &str) {
         let _transition = self.cast_transition.lock().await;
+        let epoch = self.cast.epoch();
         let Some(item) = self.current_item().await else { return };
         // A skip can land while this waits for the lock; the refresh is for the track the
         // receiver reported, not whatever the queue moved to.
@@ -6395,14 +6486,24 @@ impl AppState {
         }
         let Ok(track) = self.cast_resolve(&item.video_id, item.is_upload).await else { return };
         let Some(device) = self.cast.active_device() else { return };
-        let Ok((window, start_index)) =
+        let Ok((window, start_index, app_indices)) =
             self.cast_queue_window(&item, position, &track, &device).await
         else {
             return;
         };
-        let ids: Vec<String> = window.iter().map(|entry| entry.video_id.clone()).collect();
+        let window_entries: Vec<WindowRow> = app_indices
+            .into_iter()
+            .zip(window.iter().map(|entry| entry.video_id.clone()))
+            .collect();
         let repeat = receiver_repeat_mode(self.queue.lock().await.repeat);
         self.cast_remember_urls(&window);
+        // Resolving the window can take seconds, and the device played on in the meantime.
+        // Start the reload where the device is now, not where it was when the rebuild began.
+        let still_ours = self.current_item().await.is_some_and(|now| now.video_id == video_id);
+        if self.cast.epoch() != epoch || !still_ours {
+            return;
+        }
+        let position = self.cast_clock_now();
         if self.cast.load_queue(window, start_index, repeat, position).await.is_err() {
             return;
         }
@@ -6415,7 +6516,7 @@ impl AppState {
         }
         self.cast_window_start.store(start_index, Ordering::SeqCst);
         if let Ok(mut held) = self.cast_window.lock() {
-            *held = ids;
+            *held = window_entries;
         }
     }
 
@@ -6441,7 +6542,8 @@ impl AppState {
         if crate::local::is_local_song(&item.video_id) {
             return Err(CastStartError::Failed("local files cannot be cast".to_owned()));
         }
-        let (window, start_index) = self.cast_queue_window(item, position, track, &device).await?;
+        let (window, start_index, app_indices) =
+            self.cast_queue_window(item, position, track, &device).await?;
         let media = window
             .get(start_index)
             .map(|entry| entry.media.clone())
@@ -6467,7 +6569,10 @@ impl AppState {
             content_type = %media.content_type,
             "cast: handing the track to the device"
         );
-        let window_ids: Vec<String> = window.iter().map(|entry| entry.video_id.clone()).collect();
+        let window_entries: Vec<WindowRow> = app_indices
+            .into_iter()
+            .zip(window.iter().map(|entry| entry.video_id.clone()))
+            .collect();
         self.cast_remember_urls(&window);
         self.cast
             .load_queue(window, start_index, repeat_mode, position)
@@ -6478,7 +6583,7 @@ impl AppState {
         }
         self.cast_window_start.store(start_index, Ordering::SeqCst);
         if let Ok(mut ids) = self.cast_window.lock() {
-            *ids = window_ids;
+            *ids = window_entries;
         }
         // How long this one is: the app decides when it is over.
         self.cast_duration.store(media.duration.unwrap_or(0.0).to_bits(), Ordering::SeqCst);
@@ -6520,6 +6625,7 @@ impl AppState {
                 volume,
                 video_id,
                 content_id,
+                item_id,
                 repeat_mode,
                 finished,
             } => {
@@ -6533,7 +6639,7 @@ impl AppState {
                 // speaker, or the end of the item). The app follows it, so both still show the
                 // same track.
                 let adopted = if let Some(video_id) = video_id.as_deref() {
-                    self.cast_adopt(video_id, position).await
+                    self.cast_adopt(video_id, item_id, position).await
                 } else {
                     None
                 };
@@ -6611,10 +6717,11 @@ impl AppState {
                     });
                 }
             }
-            CastCommand::Stopped(reason) => {
+            CastCommand::Stopped { epoch, reason } => {
                 // The cast was stopped on purpose: the session has no device any more, and
-                // `cast_stop` has already brought the music back here.
-                if !self.cast.is_active() {
+                // `cast_stop` has already brought the music back here. An epoch that moved on
+                // means another device is playing now, and this is the old one's obituary.
+                if !self.cast.is_active() || self.cast.epoch() != epoch {
                     return;
                 }
                 self.emit_notice(&format!("the device stopped playing: {reason}"));
@@ -6630,34 +6737,20 @@ impl AppState {
     async fn cast_adopt(
         self: &std::sync::Arc<Self>,
         video_id: &str,
+        item_id: Option<i64>,
         position: f64,
     ) -> Option<usize> {
-        let receiver_index = self
-            .cast_window
-            .lock()
-            .ok()
-            .and_then(|ids| ids.iter().position(|id| id == video_id))?;
-        let item = {
+        let window = self.cast_window.lock().ok()?.clone();
+        let (item, receiver_index) = {
             let mut q = self.queue.lock().await;
-            // A queue can hold the same song twice; the one at or after the pointer is the
-            // one the receiver just moved to.
-            let index = q
-                .items
-                .iter()
-                .enumerate()
-                .skip(q.current)
-                .find(|(_, item)| item.video_id == video_id)
-                .map(|(index, _)| index)
-                .or_else(|| q.items.iter().position(|item| item.video_id == video_id));
-            let Some(index) = index else {
-                return None;
-            };
+            let (index, receiver_index) =
+                receiver_row(&window, item_id, video_id, &q.items, q.current)?;
             if index == q.current {
                 return None;
             }
             q.seek_to(index);
             q.lookahead_loaded = None;
-            q.items[index].clone()
+            (q.items[index].clone(), receiver_index)
         };
         let cached = self
             .cast_tracks
@@ -7744,9 +7837,49 @@ enum CastStartError {
     Failed(String),
 }
 
+/// A row of the receiver's window: where it sits in the app's queue, and its YouTube id.
+type WindowRow = (usize, String);
+
+/// The queue row a receiver status points at, and its position in the window.
+///
+/// The receiver's item id is the occurrence: a queue can hold the same song twice, and only
+/// the id says which copy it moved to. The ids are the receiver's own: the ones seen number
+/// the queue from 1 and keep counting across loads, so the id is read as one past the window
+/// position — the first window's numbering — and kept only when that row holds the track the
+/// device says it is playing. Anything else falls back to the window's first copy, as before.
+///
+/// The window was built from the queue, so its row is the occurrence; a queue edited since
+/// then can have moved it, and the id search (from the pointer, then from the top) is what is
+/// left to go on then.
+fn receiver_row(
+    window: &[WindowRow],
+    item_id: Option<i64>,
+    video_id: &str,
+    items: &[SongItem],
+    current: usize,
+) -> Option<(usize, usize)> {
+    let window_index = item_id
+        .and_then(|id| usize::try_from(id).ok())
+        .and_then(|id| id.checked_sub(1))
+        .filter(|&i| window.get(i).is_some_and(|(_, id)| id == video_id))
+        .or_else(|| window.iter().position(|(_, id)| id == video_id))?;
+    let index = Some(window[window_index].0)
+        .filter(|&i| items.get(i).is_some_and(|item| item.video_id == video_id))
+        .or_else(|| {
+            items
+                .iter()
+                .enumerate()
+                .skip(current)
+                .find(|(_, item)| item.video_id == video_id)
+                .map(|(index, _)| index)
+        })
+        .or_else(|| items.iter().position(|item| item.video_id == video_id))?;
+    Some((index, window_index))
+}
+
 /// What the local player was doing when a device took the music over.
 struct CastHandoff {
-    /// Whether it was playing.
+    /// Whether it was playing, for a cast that never got a status out of the device.
     playing: bool,
     /// Its volume, which the device's own replaced while the cast ran.
     volume: i64,
@@ -7900,7 +8033,7 @@ mod tests {
         freshen, get_url, guest_insert_index, history_threshold, is_mix, loudness_gain,
         merge_radio, next_index, parse_duration_ms, persist_fingerprint, playlist_context,
         prefer_version, prev_track_title, put_url, queue_fingerprint, radio_seed_for,
-        receiver_repeat_mode, remote_list, repeat_from_receiver, retain_upcoming,
+        receiver_repeat_mode, receiver_row, remote_list, repeat_from_receiver, retain_upcoming,
         shuffle_new_queue, shuffle_upcoming, splice_radio_into, swap_version, trim_played,
         twin_position, unshuffled, upcoming_queued, AppState, CastStartError, CastTrack,
         QueueState, RepeatMode, VideoUrls, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
@@ -9073,9 +9206,45 @@ mod tests {
         assert_eq!(tick(13.0, 7_000, 67_000, 13.0, PlayerState::Idle, false), 13.0);
         // A resume starts where the device is, not a minute of wall time later.
         assert_eq!(tick(13.0, 67_000, 70_000, 13.0, PlayerState::Playing, false), 13.0);
-        // Seeks are taken; a lagging report is not.
+        // A report ahead is taken (a seek, or a buffered pass); one well behind is a seek
+        // back; one a moment behind is the device's own clock, and a renderer three seconds
+        // between polls can be that far behind the interpolated clock.
         assert_eq!(tick(13.0, 70_000, 70_000, 20.0, PlayerState::Playing, true), 20.0);
-        assert_eq!(tick(13.0, 70_000, 73_000, 12.0, PlayerState::Playing, true), 16.0);
+        assert_eq!(tick(20.0, 70_000, 70_000, 8.0, PlayerState::Playing, true), 8.0);
+        assert_eq!(tick(10.0, 1_000, 4_000, 10.0, PlayerState::Playing, true), 13.0);
+        assert_eq!(tick(15.0, 70_000, 71_000, 15.5, PlayerState::Playing, true), 16.0);
+        // A seek back while paused moves the clock as well: the phone can scrub a paused device.
+        assert_eq!(tick(100.0, 70_000, 90_000, 20.0, PlayerState::Paused, false), 20.0);
+        // The end of a track is idle at zero, and that does not drag the clock back.
+        assert_eq!(tick(13.0, 70_000, 73_000, 0.0, PlayerState::Idle, true), 16.0);
+    }
+
+    #[test]
+    fn a_receiver_item_id_picks_the_copy_it_is_on() {
+        // [A, B, C, B] with the receiver's window built around C: B1, A, C, B2.
+        let items = vec![song("a", None), song("b", None), song("c", None), song("b", None)];
+        let window = vec![
+            (1, "b".to_owned()),
+            (0, "a".to_owned()),
+            (2, "c".to_owned()),
+            (3, "b".to_owned()),
+        ];
+        // Previous from C lands on the earlier B; the id from the receiver says which one.
+        // The ids seen number the queue from 1, so item 1 is the first row.
+        assert_eq!(receiver_row(&window, Some(1), "b", &items, 2), Some((1, 0)));
+        // Next from C lands on the later one.
+        assert_eq!(receiver_row(&window, Some(4), "b", &items, 2), Some((3, 3)));
+        // A receiver that reports no id, or one that does not land on the track it says it is
+        // playing, leaves the first copy in the window.
+        assert_eq!(receiver_row(&window, None, "b", &items, 2), Some((1, 0)));
+        assert_eq!(receiver_row(&window, Some(0), "b", &items, 2), Some((1, 0)));
+        assert_eq!(receiver_row(&window, Some(99), "b", &items, 2), Some((1, 0)));
+        // A queue edited since the window was handed over moved the rows: the id search from
+        // the pointer is what is left, and it must not point past the end.
+        let edited = vec![song("b", None), song("c", None), song("b", None)];
+        assert_eq!(receiver_row(&window, Some(4), "b", &edited, 1), Some((2, 3)));
+        // A status about a track the window does not hold is not an advance.
+        assert_eq!(receiver_row(&window, Some(2), "z", &items, 2), None);
     }
 
     #[test]

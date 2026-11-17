@@ -60,7 +60,13 @@ impl FallbackError {
 
 /// Resolve a videoId to its best audio stream via rustypipe. `prefer_high`: pick the
 /// highest-bitrate opus/mp4a stream (matches our HIGH preference); else lowest ≤128k.
-pub async fn resolve(video_id: &str, prefer_high: bool) -> Result<StreamCandidate, FallbackError> {
+/// `prefer_cast`: the stream goes to a device on the network, which wants AAC/MP4 and may
+/// refuse the Opus/WebM the local player prefers.
+pub async fn resolve(
+    video_id: &str,
+    prefer_high: bool,
+    prefer_cast: bool,
+) -> Result<StreamCandidate, FallbackError> {
     // Keep rustypipe's cache out of the app CWD (it defaults to ./rustypipe_cache.json +
     // ./rustypipe_reports/, and an installed app's CWD may not be writable).
     let storage = std::env::temp_dir().join("limusic-rustypipe");
@@ -84,7 +90,8 @@ pub async fn resolve(video_id: &str, prefer_high: bool) -> Result<StreamCandidat
         })?
         .map_err(map_err)?;
 
-    let best = pick_audio(&player.audio_streams, prefer_high).ok_or(FallbackError::NoAudio)?;
+    let best = pick_audio(&player.audio_streams, prefer_high, prefer_cast)
+        .ok_or(FallbackError::NoAudio)?;
     Ok(StreamCandidate {
         url: best.url.clone(),
         itag: best.itag,
@@ -98,7 +105,11 @@ pub async fn resolve(video_id: &str, prefer_high: bool) -> Result<StreamCandidat
     })
 }
 
-fn pick_audio(streams: &[AudioStream], prefer_high: bool) -> Option<&AudioStream> {
+fn pick_audio(
+    streams: &[AudioStream],
+    prefer_high: bool,
+    prefer_cast: bool,
+) -> Option<&AudioStream> {
     fn codec_score(mime: &str) -> u8 {
         if mime.contains("opus") {
             2
@@ -121,10 +132,18 @@ fn pick_audio(streams: &[AudioStream], prefer_high: bool) -> Option<&AudioStream
         let capped: Vec<&AudioStream> =
             streams.iter().copied().filter(|s| s.bitrate <= 128_000).collect();
         if capped.is_empty() {
-            streams.into_iter().min_by_key(|s| s.bitrate)
-        } else {
-            capped.into_iter().max_by_key(|s| s.bitrate)
+            return streams.into_iter().min_by_key(|s| s.bitrate);
         }
+        if prefer_cast {
+            // A device on the network takes the AAC rendition when there is one; the
+            // bitrate-only pick below would hand it whatever is loudest under the cap.
+            if let Some(aac) =
+                capped.iter().copied().filter(|s| s.mime.contains("mp4a")).max_by_key(|s| s.bitrate)
+            {
+                return Some(aac);
+            }
+        }
+        capped.into_iter().max_by_key(|s| s.bitrate)
     }
 }
 

@@ -30,7 +30,8 @@ async fn main() {
         }
         eprintln!("direct clients failed → rustypipe");
     }
-    let c = innertube::rustypipe_fallback::resolve(&video_id, true).await.expect("rustypipe");
+    let c =
+        innertube::rustypipe_fallback::resolve(&video_id, true, false).await.expect("rustypipe");
     eprintln!("resolved via rustypipe (itag {})", c.itag);
     println!("{}", c.url);
 }

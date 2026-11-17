@@ -1523,6 +1523,7 @@ pub fn run() {
             commands::cast_refresh,
             commands::cast_start,
             commands::cast_stop,
+            commands::cast_state,
             commands::get_lyrics,
             commands::choose_lyrics_source,
             commands::set_lyrics_offset,
@@ -1627,7 +1628,9 @@ pub fn run() {
             // A SIGTERM (`kill`, a session logging out) has to end the app the way the tray's
             // Quit does: a device that is playing is told to stop on the way out, and that
             // only happens on the ordinary exit path. The handler itself does nothing but
-            // raise a flag — what it runs in is not a place to do work.
+            // raise a flag — what it runs in is not a place to do work. Installed once: this
+            // callback sees every window event, and a handler per event would leave a polling
+            // task per event for the life of the process.
             #[cfg(unix)]
             {
                 extern "C" fn on_terminate(_: libc::c_int) {
@@ -1635,21 +1638,24 @@ pub fn run() {
                 }
                 static TERMINATED: std::sync::atomic::AtomicBool =
                     std::sync::atomic::AtomicBool::new(false);
-                // `sighandler_t` is an integer-sized type on every Unix this builds for.
-                let handler = on_terminate as *const () as usize as libc::sighandler_t;
-                // SAFETY: the handler only stores into an atomic, which is async-signal-safe.
-                unsafe {
-                    libc::signal(libc::SIGTERM, handler);
-                }
+                static INSTALLED: std::sync::Once = std::sync::Once::new();
                 let handle = handle.clone();
-                tauri::async_runtime::spawn(async move {
-                    loop {
-                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                        if TERMINATED.load(Ordering::SeqCst) {
-                            handle.exit(0);
-                            return;
-                        }
+                INSTALLED.call_once(move || {
+                    // `sighandler_t` is an integer-sized type on every Unix this builds for.
+                    let handler = on_terminate as *const () as usize as libc::sighandler_t;
+                    // SAFETY: the handler only stores into an atomic, which is async-signal-safe.
+                    unsafe {
+                        libc::signal(libc::SIGTERM, handler);
                     }
+                    tauri::async_runtime::spawn(async move {
+                        loop {
+                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                            if TERMINATED.load(Ordering::SeqCst) {
+                                handle.exit(0);
+                                return;
+                            }
+                        }
+                    });
                 });
             }
 

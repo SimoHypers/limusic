@@ -1738,6 +1738,8 @@ export interface CastState {
 }
 
 export const castDevices = () => invoke<CastDevice[]>('cast_devices');
+/** The cast that is running now, for a window that loaded after the `cast-state` event fired. */
+export const castState = () => invoke<CastState>('cast_state');
 /** Look for the devices again, now. */
 export const castRefresh = () => invoke<CastDevice[]>('cast_refresh');
 /** Play on a device on the network. It takes over from this desktop. */

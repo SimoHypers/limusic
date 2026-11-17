@@ -371,8 +371,9 @@ async fn every_surface_yields_a_scrobbleable_artist() {
 
 #[tokio::test]
 async fn rustypipe_url_is_fetchable() {
-    let c =
-        innertube::rustypipe_fallback::resolve(VIDEO_ID, true).await.expect("rustypipe resolve");
+    let c = innertube::rustypipe_fallback::resolve(VIDEO_ID, true, false)
+        .await
+        .expect("rustypipe resolve");
     let (bare, _) = probe(&c.url, None, None).await;
     eprintln!("rustypipe itag {}: no-UA -> HTTP {bare}", c.itag);
     // mpv sends its own libmpv UA by default; also probe with a browser-ish UA for comparison.
@@ -651,8 +652,9 @@ async fn video_search_returns_video_rows() {
 /// the app degrades to "nothing could play this", so what is lost is the last resort.
 #[tokio::test]
 async fn rustypipe_url_streams_to_the_end() {
-    let c =
-        innertube::rustypipe_fallback::resolve(VIDEO_ID, true).await.expect("rustypipe resolve");
+    let c = innertube::rustypipe_fallback::resolve(VIDEO_ID, true, false)
+        .await
+        .expect("rustypipe resolve");
     assert!(c.size > 1024 * 1024, "pick a longer VIDEO_ID: this one fits inside the cap");
     let resp = reqwest::Client::new()
         .get(&c.url)

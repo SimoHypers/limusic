@@ -69,9 +69,11 @@ The LAN listener is bound when the first renderer needs it, and the address it h
 carries a random token that is generated per launch. Only the device that was picked is ever
 given an address with that token in it.
 
-The track is resolved as AAC in an MP4 container for the device, not as the Opus in a WebM
-container the local player uses: cast devices and renderers play the first and refuse the
-second. A renderer that only speaks MP3 is not supported — there is no transcoding.
+The track is resolved as AAC in an MP4 container for the device, where the local player takes
+Opus in WebM. AAC is what Google's receivers play, and what a renderer is likeliest to accept;
+some receivers handle Opus as well, but the sender cannot tell which before the load, so the
+compatible one is what it hands over. A renderer that only speaks MP3 is not supported — there
+is no transcoding.
 
 The few upcoming tracks in a Cast receiver's queue are resolved ahead of time for the same
 reason: the receiver cannot start what it has not fetched, and resolving when the track ends
@@ -93,7 +95,10 @@ bounded and the URLs are still fresh when they are used.
   built-in receiver does not advertise queue commands; see
   [The receiver application](#the-receiver-application-branding-and-controls).
   Repeat-all wraps in the app's queue rather than in the receiver's window, and repeat-one loops
-  on the receiver. A DLNA renderer has no queue, so it offers none of them.
+  on the receiver; a renderer cannot loop, so repeat-one hands it the track again from the top.
+  A DLNA renderer has no queue, so it offers none of them.
+- Shuffle reorders the app's queue and then hands the receiver the reordered window, so its
+  next and previous follow the order the queue panel shows.
 - Everything that moves the music goes through the same place, so the media keys, the global
   hotkeys, the media widget and a linked phone all reach the device while it is playing — and
   this desktop while it is not.
@@ -113,9 +118,10 @@ bounded and the URLs are still fresh when they are used.
   kind of cast.
 
 Stopping the cast stops the device and brings the music back here, at the position the device
-had reached — with this desktop's own volume, and playing only if it was playing before the
-device took over. A track that was paused here stays paused, and it is loaded paused rather than
-played for a moment first.
+had reached — with this desktop's own volume, and in the play state the device was in when it
+was stopped: a track paused on the speaker comes back paused here, and one that was playing
+comes back playing. A track that comes back paused is loaded paused rather than played for a
+moment first.
 
 ## What the phone shows
 
@@ -187,3 +193,6 @@ Google's registration, Styled Media Receiver and Custom Web Receiver documentati
 - **The effects** (tempo, pitch, reverb) are applied locally, as above.
 - **The device's own queue** is not adopted: picking a device hands it Limusic's queue, not
   whatever the speaker was playing before.
+- **A Listen Together room** cannot run at the same time as a cast. The room's timeline is this
+  desktop's player, which is paused while a device plays, so one of the two has to go: casting
+  is refused while in a room, and a room is refused while casting.

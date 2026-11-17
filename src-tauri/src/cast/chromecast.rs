@@ -119,6 +119,10 @@ pub struct Status {
     /// The media session the device is playing. The transport commands name it: the receiver
     /// refuses one without it (`INVALID_MEDIA_SESSION_ID`).
     pub media_session: i64,
+    /// The receiver's own id for the queue item it is on. The window does not set them, so this
+    /// is the receiver's numbering; it is only trusted once the track it points at is the one
+    /// the device says it is playing.
+    pub item_id: Option<i64>,
     /// What the device is playing, when it says: the title, the artist and the cover.
     pub track: Option<DeviceTrack>,
     /// The device's own volume, 0.0 to 1.0. The speaker's, not the media session's: the
@@ -165,8 +169,6 @@ enum Cmd {
     },
     /// Change the queue's repeat mode, leaving the items alone.
     QueueRepeat(String),
-    /// Shuffle the receiver's own queue order.
-    QueueShuffle,
     Play,
     Pause,
     Stop {
@@ -210,11 +212,6 @@ impl Sender {
     /// Change the receiver queue's repeat mode without reloading it.
     pub fn set_repeat(&self, mode: &str) -> Result<(), String> {
         self.send(Cmd::QueueRepeat(mode.to_owned()))
-    }
-
-    /// Ask the receiver to shuffle the queue it already holds.
-    pub fn shuffle(&self) -> Result<(), String> {
-        self.send(Cmd::QueueShuffle)
     }
 
     pub fn play(&self) -> Result<(), String> {
@@ -424,6 +421,13 @@ async fn run(
                     waiting.push(cmd);
                     continue;
                 }
+                // A stop answers the gate rather than waiting for it: the commands behind it
+                // name a track the stop is about to end, and one of them reaching the device
+                // after the stop would start the speaker again with the app no longer casting.
+                if matches!(&cmd, Cmd::Stop { .. }) {
+                    waiting.clear();
+                    gate = None;
+                }
                 let is_load = matches!(cmd, Cmd::LoadQueue { .. });
                 let sent = match cmd {
                     Cmd::SetVolume(level) => {
@@ -441,8 +445,7 @@ async fn run(
                 }
                 // A load leaves the device busy until it reports the session it made.
                 if is_load {
-                    gate_session = media_session;
-                    gate = Some(std::time::Instant::now() + LOAD_GATE);
+                    arm_gate(&mut gate, &mut gate_session, media_session);
                 }
             }
             _ = gate_tick.tick() => {
@@ -452,7 +455,7 @@ async fn run(
                 if let Some(until) = gate {
                     if std::time::Instant::now() >= until {
                         gate = None;
-                        let sent = flush(
+                        let flushed = flush(
                             &mut writer,
                             &mut waiting,
                             session.as_deref().unwrap_or(RECEIVER),
@@ -460,8 +463,12 @@ async fn run(
                             &mut request_id,
                         )
                         .await;
-                        if let Err(e) = sent {
-                            break Err(e);
+                        match flushed {
+                            Ok(true) => {
+                                arm_gate(&mut gate, &mut gate_session, media_session)
+                            }
+                            Ok(false) => {}
+                            Err(e) => break Err(e),
                         }
                     }
                 }
@@ -494,8 +501,11 @@ async fn run(
                         if let Some(volume) = volume_from_receiver(&frame.payload) {
                             receiver_volume = Some(volume);
                         }
-                        if let Some(id) = session_from_status(&frame.payload, &app_id) {
-                            tracing::info!(target: "app_lib::cast", session = %id, "cast: the receiver answered");
+                        if let Some((id, transport)) = session_from_status(&frame.payload, &app_id) {
+                            // The protocol keeps the two apart: payloads name the session, and the
+                            // app's virtual connection is the transport. Both are logged so a run
+                            // can show whether the receiver hands out different values.
+                            tracing::info!(target: "app_lib::cast", session = %id, transport = ?transport, "cast: the receiver answered");
                             session = Some(id.clone());
                             // The channel to the app's session is opened separately: the app
                             // only accepts messages from a sender that connected to it.
@@ -506,17 +516,29 @@ async fn run(
                             if let Some(tx) = ready.take() {
                                 let _ = tx.send(Ok(()));
                             }
-                            let pending: Vec<Cmd> = std::mem::take(&mut waiting);
-                            for cmd in pending {
-                                if write_cmd(&mut writer, cmd, &id, media_session, &mut request_id)
-                                    .await
-                                    .is_err()
-                                {
-                                    break;
+                            // Only a status that arrives with no load in flight may let the
+                            // queue out: a status carrying the receiver's session says
+                            // nothing about a media session the pending load has not made
+                            // yet, and sending them now names the session being replaced.
+                            if gate.is_none() {
+                                let flushed = flush(
+                                    &mut writer,
+                                    &mut waiting,
+                                    &id,
+                                    media_session,
+                                    &mut request_id,
+                                )
+                                .await;
+                                match flushed {
+                                    Ok(true) => {
+                                        arm_gate(&mut gate, &mut gate_session, media_session)
+                                    }
+                                    Ok(false) => {}
+                                    Err(e) => break Err(e),
                                 }
                             }
                         } else if frame.payload.contains("LAUNCH_ERROR") {
-                            let reason = launch_error_reason(&frame.payload)
+                            let reason = error_reason(&frame.payload)
                                 .unwrap_or_else(|| "the device refused to start the receiver".to_owned());
                             if reason.contains("ALREADY_RUNNING") {
                                 // The default receiver survived the previous sender. Ask the
@@ -550,7 +572,7 @@ async fn run(
                                 media_session = status.media_session;
                                 if switched {
                                     gate = None;
-                                    let sent = flush(
+                                    let flushed = flush(
                                         &mut writer,
                                         &mut waiting,
                                         session.as_deref().unwrap_or(RECEIVER),
@@ -558,8 +580,12 @@ async fn run(
                                         &mut request_id,
                                     )
                                     .await;
-                                    if let Err(e) = sent {
-                                        break Err(e);
+                                    match flushed {
+                                        Ok(true) => {
+                                            arm_gate(&mut gate, &mut gate_session, media_session)
+                                        }
+                                        Ok(false) => {}
+                                        Err(e) => break Err(e),
                                     }
                                 }
                             }
@@ -569,15 +595,21 @@ async fn run(
                             }
                             let _ = events.send(Event::Status(status));
                         } else if frame.payload.contains("LOAD_FAILED") {
-                            let reason = frame
-                                .payload
-                                .split("\"reason\":\"")
-                                .nth(1)
-                                .and_then(|r| r.split('"').next())
-                                .unwrap_or("unknown")
-                                .to_owned();
+                            let reason = error_reason(&frame.payload)
+                                .unwrap_or_else(|| "unknown".to_owned());
                             tracing::warn!(target: "app_lib::cast", reason, "cast: the device refused the track");
                             let _ = events.send(Event::Closed(format!("the device refused the track: {reason}")));
+                        } else if frame.payload.contains("INVALID_REQUEST") {
+                            // A transport command against a media session the device does not
+                            // have is answered this way whenever nothing is loaded. A refusal
+                            // while a load is in flight is that load, and the app has to hear
+                            // it: left alone, the cast keeps showing a track the device never
+                            // took, and every play/pause after that is refused too.
+                            let reason = error_reason(&frame.payload).unwrap_or_default();
+                            tracing::warn!(target: "app_lib::cast", reason, "cast: the device refused a request");
+                            if gate.is_some() && !reason.contains("INVALID_MEDIA_SESSION_ID") {
+                                break Err(format!("the device refused the track: {reason}"));
+                            }
                         }
                     }
                     _ => {}
@@ -670,6 +702,8 @@ async fn write_cmd(
     let id = *request_id;
     let payload = match cmd {
         Cmd::LoadQueue { entries, start_index, repeat_mode, current_time } => {
+            // No `itemId` per item: the receiver assigns them, and a load that carries its own
+            // is refused as `INVALID_PARAMS`. What it assigns comes back as `currentItemId`.
             let items: Vec<Value> = entries
                 .iter()
                 .map(|entry| {
@@ -697,13 +731,6 @@ async fn write_cmd(
             "sessionId": session,
             "mediaSessionId": media_session,
             "repeatMode": mode,
-            "customData": {},
-        }),
-        Cmd::QueueShuffle => json!({
-            "type": "QUEUE_SHUFFLE",
-            "requestId": id,
-            "sessionId": session,
-            "mediaSessionId": media_session,
             "customData": {},
         }),
         // The transport commands name the media session: without it the receiver answers
@@ -757,23 +784,37 @@ async fn write_receiver_status(
 }
 
 /// Send the commands that were waiting for the device to be ready.
+///
+/// A load is where it stops: it makes a media session of its own, and everything queued
+/// behind it names that one. The rest stays in `waiting`, and the `true` says a gate is owed
+/// so they only go out once the load reports its session.
 async fn flush(
     writer: &mut tokio::io::WriteHalf<tokio_rustls::client::TlsStream<TcpStream>>,
     waiting: &mut Vec<Cmd>,
     session: &str,
     media_session: i64,
     request_id: &mut i64,
-) -> Result<(), String> {
-    let queued: Vec<Cmd> = std::mem::take(waiting);
-    for cmd in queued {
+) -> Result<bool, String> {
+    while !waiting.is_empty() {
+        let cmd = waiting.remove(0);
+        let is_load = matches!(&cmd, Cmd::LoadQueue { .. });
         let sent = match cmd {
             Cmd::SetVolume(level) => write_volume(writer, level, request_id).await,
             Cmd::ReceiverStatus => write_receiver_status(writer, session, request_id).await,
             cmd => write_cmd(writer, cmd, session, media_session, request_id).await,
         };
         sent?;
+        if is_load {
+            return Ok(true);
+        }
     }
-    Ok(())
+    Ok(false)
+}
+
+/// Hold the commands until the device reports the media session a load made.
+fn arm_gate(gate: &mut Option<std::time::Instant>, gate_session: &mut i64, media_session: i64) {
+    *gate_session = media_session;
+    *gate = Some(std::time::Instant::now() + LOAD_GATE);
 }
 
 /// Set the device's volume. It belongs to the receiver itself, not to the media session, so
@@ -828,17 +869,23 @@ fn larger_cover(url: &str) -> String {
     }
 }
 
-/// The reason out of a receiver launch error.
-fn launch_error_reason(payload: &str) -> Option<String> {
+/// The `reason` out of a receiver error or refusal.
+fn error_reason(payload: &str) -> Option<String> {
     serde_json::from_str::<Value>(payload).ok()?.get("reason")?.as_str().map(str::to_owned)
 }
 
-/// The session id for the receiver app we launched.
-fn session_from_status(payload: &str, app_id: &str) -> Option<String> {
+/// The receiver app's session id, and the transport id for its connection.
+///
+/// Cast names the session in payloads and addresses the app's virtual connection by transport.
+/// This app uses the session for both, which the receivers tested accept; the transport is
+/// carried out so a run can show whether the receiver gives it a different value.
+fn session_from_status(payload: &str, app_id: &str) -> Option<(String, Option<String>)> {
     let value: Value = serde_json::from_str(payload).ok()?;
     let apps = value.get("status")?.get("applications")?.as_array()?;
     let app = apps.iter().find(|app| app.get("appId").and_then(Value::as_str) == Some(app_id))?;
-    app.get("sessionId")?.as_str().map(str::to_owned)
+    let session = app.get("sessionId")?.as_str()?.to_owned();
+    let transport = app.get("transportId").and_then(Value::as_str).map(str::to_owned);
+    Some((session, transport))
 }
 
 /// The media status out of a media message.
@@ -853,6 +900,7 @@ fn status_from_media(payload: &str) -> Option<Status> {
             position: 0.0,
             duration: None,
             media_session: 0,
+            item_id: None,
             track: None,
             volume: None,
             muted: None,
@@ -866,6 +914,7 @@ fn status_from_media(payload: &str) -> Option<Status> {
     let position = first.get("currentTime").and_then(Value::as_f64).unwrap_or(0.0);
     let duration = first.get("media").and_then(|m| m.get("duration")).and_then(Value::as_f64);
     let media_session = first.get("mediaSessionId").and_then(Value::as_i64).unwrap_or(0);
+    let item_id = first.get("currentItemId").and_then(Value::as_i64);
     let track = first.get("media").and_then(|media| {
         let metadata = media.get("metadata")?;
         let title = metadata.get("title").and_then(Value::as_str).map(str::to_owned);
@@ -899,6 +948,7 @@ fn status_from_media(payload: &str) -> Option<Status> {
         position,
         duration,
         media_session,
+        item_id,
         track,
         volume,
         muted,
@@ -984,15 +1034,23 @@ mod tests {
     fn a_session_id_is_read_out_of_the_receiver_status() {
         let payload = r#"{"type":"RECEIVER_STATUS","status":{"applications":[{"appId":"CC1AD845","sessionId":"12345-abc","transportId":"web-42","namespaces":[]}]}}"#;
         assert_eq!(
-            session_from_status(payload, DEFAULT_MEDIA_RECEIVER).as_deref(),
-            Some("12345-abc")
+            session_from_status(payload, DEFAULT_MEDIA_RECEIVER).map(|(session, _)| session),
+            Some("12345-abc".to_owned())
+        );
+        assert_eq!(
+            session_from_status(payload, DEFAULT_MEDIA_RECEIVER)
+                .and_then(|(_, transport)| transport),
+            Some("web-42".to_owned())
         );
         assert_eq!(
             session_from_status(r#"{"type":"RECEIVER_STATUS"}"#, DEFAULT_MEDIA_RECEIVER),
             None
         );
         let payload = r#"{"type":"RECEIVER_STATUS","status":{"applications":[{"appId":"OTHER","sessionId":"wrong"},{"appId":"CC1AD845","sessionId":"right"}]}}"#;
-        assert_eq!(session_from_status(payload, DEFAULT_MEDIA_RECEIVER).as_deref(), Some("right"));
+        assert_eq!(
+            session_from_status(payload, DEFAULT_MEDIA_RECEIVER).map(|(session, _)| session),
+            Some("right".to_owned())
+        );
     }
 
     #[test]
@@ -1002,6 +1060,13 @@ mod tests {
         assert_eq!(status.state, PlayerState::Playing);
         assert_eq!(status.position, 12.5);
         assert_eq!(status.duration, Some(213.4));
+        assert_eq!(status.item_id, None);
+    }
+
+    #[test]
+    fn the_queue_item_the_receiver_is_on_comes_out_of_the_status() {
+        let payload = r#"{"type":"MEDIA_STATUS","status":[{"playerState":"PLAYING","currentTime":3.0,"currentItemId":2,"media":{}}]}"#;
+        assert_eq!(status_from_media(payload).expect("parses").item_id, Some(2));
     }
 
     #[test]

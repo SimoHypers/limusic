@@ -21,6 +21,10 @@ pub const SETTINGS_KEY: &str = "global_hotkeys";
 /// unmuting with the hotkey (or the reverse) lands on the same level.
 pub(crate) static LAST_NONZERO_VOLUME: AtomicI64 = AtomicI64::new(100);
 
+/// The same, for the device a cast is playing on. It is the speaker's own level, so muting the
+/// speaker must not bring back this desktop's volume.
+pub(crate) static CAST_NONZERO_VOLUME: AtomicI64 = AtomicI64::new(100);
+
 /// Supported playback and application actions for global hotkeys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -192,15 +196,12 @@ pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
             HotkeyAction::VolumeUp => change_volume(&state, |v| v + 5).await,
             HotkeyAction::VolumeDown => change_volume(&state, |v| v - 5).await,
             HotkeyAction::MuteToggle => {
-                change_volume(&state, |v| {
-                    if v > 0 {
-                        LAST_NONZERO_VOLUME.store(v, Ordering::Relaxed);
-                        0
-                    } else {
-                        LAST_NONZERO_VOLUME.load(Ordering::Relaxed)
-                    }
-                })
-                .await
+                let remembered = if state.cast.is_active() {
+                    CAST_NONZERO_VOLUME.load(Ordering::Relaxed)
+                } else {
+                    LAST_NONZERO_VOLUME.load(Ordering::Relaxed)
+                };
+                change_volume(&state, |v| if v > 0 { 0 } else { remembered }).await
             }
             HotkeyAction::SeekForward => {
                 let pos = state.current_position();
@@ -223,24 +224,16 @@ pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
     });
 }
 
-/// Read, change, set, persist and echo the volume, the same as a slider commit. Serialized: each
-/// press is its own task, so a held key would otherwise lose steps and two mutes could both mute.
+/// Read, change, set and echo the volume, the same as a slider commit. Serialized: each press
+/// is its own task, so a held key would otherwise lose steps and two mutes could both mute.
+///
+/// Which level mute returns to is `set_volume`'s business: it remembers a nonzero level for
+/// whichever output it drove, so a mute is just a set to zero.
 pub(crate) async fn change_volume(state: &AppState, f: impl FnOnce(i64) -> i64) {
     static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let _guard = LOCK.lock().await;
-    let local_nonzero = LAST_NONZERO_VOLUME.load(Ordering::Relaxed);
-    // The level that is being changed is the one that is playing: the device's while a cast
-    // is running, this desktop's otherwise.
     let volume = f(state.current_volume()).clamp(0, 100);
-    let result = state.set_volume(volume).await;
-    if state.cast.is_active() {
-        // The remembered level belongs to this desktop, not to the cast device.
-        LAST_NONZERO_VOLUME.store(local_nonzero, Ordering::Relaxed);
-    } else if result.is_err() {
-        LAST_NONZERO_VOLUME.store(local_nonzero, Ordering::Relaxed);
-    } else if volume > 0 {
-        LAST_NONZERO_VOLUME.store(volume, Ordering::Relaxed);
-    }
+    let _ = state.set_volume(volume).await;
 }
 
 pub fn load_config(db: &Db) -> HotkeysConfig {

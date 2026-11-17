@@ -163,13 +163,20 @@ async fn describe(http: &reqwest::Client, location: &str) -> Result<Option<Devic
     let Some(control) = control else {
         return Ok(None);
     };
-    let control = absolute(location, &control);
+    // A relative control URL is resolved against the `URLBase` the description declares,
+    // or against the description's own address when it declares none.
+    let base = tag_text(&body, "URLBase")
+        .map(|url| url.trim().to_owned())
+        .filter(|url| !url.is_empty())
+        .map(|url| absolute(location, &url))
+        .unwrap_or_else(|| location.to_owned());
+    let control = absolute(&base, &control);
     // The volume lives in another service, and a renderer without one cannot be turned down.
     let rendering = body.find(RENDERING_CONTROL).and_then(|at| {
         body[at..]
             .split_once("<controlURL>")
             .and_then(|(_, after)| after.split_once("</controlURL>"))
-            .map(|(url, _)| absolute(location, url.trim()))
+            .map(|(url, _)| absolute(&base, url.trim()))
     });
 
     let (host, port) = split_host_port(location)?;
@@ -192,22 +199,33 @@ fn split_host_port(url: &str) -> Result<(String, u16), String> {
 }
 
 /// Make a possibly relative URL absolute against the address it was found at.
+///
+/// UPnP resolves a path-relative target against the description's own directory (or the
+/// `URLBase` it declares), so `control/AVTransport` found at `/device/desc.xml` is
+/// `/device/control/AVTransport`, not `/control/AVTransport`.
 fn absolute(base: &str, target: &str) -> String {
     if target.starts_with("http://") || target.starts_with("https://") {
         return target.to_owned();
     }
-    let origin = match base.split_once("://") {
-        Some((scheme, rest)) => {
-            let authority = rest.split('/').next().unwrap_or(rest);
-            format!("{scheme}://{authority}")
-        }
-        None => base.to_owned(),
+    let Some((scheme, rest)) = base.split_once("://") else { return target.to_owned() };
+    let (authority, path) = match rest.split_once('/') {
+        Some((authority, path)) => (authority, format!("/{path}")),
+        None => (rest, "/".to_owned()),
     };
+    let origin = format!("{scheme}://{authority}");
     if target.starts_with('/') {
-        format!("{origin}{target}")
-    } else {
-        format!("{origin}/{target}")
+        return format!("{origin}{target}");
     }
+    let target = target.strip_prefix("./").unwrap_or(target);
+    let dir = if path.ends_with('/') {
+        path.as_str()
+    } else {
+        match path.rfind('/') {
+            Some(at) => &path[..=at],
+            None => "/",
+        }
+    };
+    format!("{origin}{dir}{target}")
 }
 
 /// The value of a header in an SSDP answer.
@@ -500,6 +518,27 @@ mod tests {
         assert_eq!(
             absolute("http://192.168.1.5:8080/desc.xml", "http://other/ctl"),
             "http://other/ctl"
+        );
+    }
+
+    #[test]
+    fn a_path_relative_control_url_resolves_against_the_description_directory() {
+        assert_eq!(
+            absolute("http://192.168.1.5:8080/device/desc.xml", "control/AVTransport"),
+            "http://192.168.1.5:8080/device/control/AVTransport"
+        );
+        assert_eq!(
+            absolute("http://192.168.1.5:8080/device/desc.xml", "./control/AVTransport"),
+            "http://192.168.1.5:8080/device/control/AVTransport"
+        );
+        // A `URLBase` that ends in a directory is the directory itself.
+        assert_eq!(
+            absolute("http://192.168.1.5:8080/upnp/", "control/AVTransport"),
+            "http://192.168.1.5:8080/upnp/control/AVTransport"
+        );
+        assert_eq!(
+            absolute("http://192.168.1.5:8080", "control/AVTransport"),
+            "http://192.168.1.5:8080/control/AVTransport"
         );
     }
 

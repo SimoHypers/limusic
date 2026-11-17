@@ -626,7 +626,7 @@ impl Orchestrator {
             return Err(ResolveError::UploadUnavailable(video_id.to_owned()));
         }
         tracing::info!(video_id, "all InnerTube clients exhausted → rustypipe fallback");
-        match rustypipe_fallback::resolve(video_id, prefer_high).await {
+        match rustypipe_fallback::resolve(video_id, prefer_high, prefer_cast).await {
             Ok(c) if !self.validate_stream(&c.url, &HashMap::new(), Some(c.size)).await => {
                 tracing::warn!(video_id, "rustypipe URL serves only its first MiB, not playable");
                 // rustypipe answered, so the network is up and this failure is about the URL.

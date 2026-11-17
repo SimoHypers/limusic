@@ -431,13 +431,17 @@ async fn serve(
 ) -> Result<Response<ProxyBody>, Infallible> {
     let method = req.method().clone();
     let path = req.uri().path().to_owned();
+    // The first segment is the LAN token and the last is the registration id: together they are
+    // a working credential for this launch, so neither goes into a log. The route kind says
+    // enough to tell a stream from a karaoke request.
+    let route = path.split('/').nth(2).unwrap_or("").to_owned();
     let answer = handle(req, scope).await;
     match &answer {
         Ok(r) => {
-            tracing::debug!(target: "app_lib::audioproxy", %method, %path, status = r.status().as_u16(), "audio proxy: answered")
+            tracing::debug!(target: "app_lib::audioproxy", %method, %route, status = r.status().as_u16(), "audio proxy: answered")
         }
         Err(e) => {
-            tracing::debug!(target: "app_lib::audioproxy", %method, %path, status = e.as_u16(), "audio proxy: refused")
+            tracing::debug!(target: "app_lib::audioproxy", %method, %route, status = e.as_u16(), "audio proxy: refused")
         }
     }
     Ok(answer.unwrap_or_else(empty))

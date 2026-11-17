@@ -268,7 +268,8 @@ the device instead of this desktop.
 A Chromecast or a Google Home speaker fetches the song from YouTube itself — the receiver
 refuses an address on the local network — while a DLNA renderer fetches it from this computer,
 which serves it over the LAN with a token that is generated per launch. Either way the track is
-resolved as AAC for the device, since cast devices refuse the Opus the local player uses.
+resolved as AAC for the device — what Google's receivers play — while the local player keeps
+its Opus.
 
 [docs/CASTING.md](docs/CASTING.md) has the details: what is supported, how the audio reaches
 the device, and what does not travel (karaoke, music videos, local files).

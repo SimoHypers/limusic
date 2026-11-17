@@ -2123,9 +2123,13 @@ export function initApp(mini = false): () => void {
 		api.onCastState(applyCastState)
 	];
 	// The devices were found before this window subscribed, so the list is asked for once:
-	// the events only carry what turns up from here on.
+	// the events only carry what turns up from here on. The cast itself is the same story — a
+	// reload or a window opened mid-cast missed the `cast-state` that started it.
 	api.castDevices()
 		.then(applyCastDevices)
+		.catch(() => {});
+	api.castState()
+		.then(applyCastState)
 		.catch(() => {});
 	const teardown = () => subs.forEach((u) => u.then((f) => f()));
 	api.getQueue()

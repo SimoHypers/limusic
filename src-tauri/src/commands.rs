@@ -2560,6 +2560,13 @@ pub async fn cast_stop(state: St<'_>) -> Result<(), String> {
     Ok(())
 }
 
+/// The cast that is running now. The windows subscribe to the `cast-state` event, which only
+/// fires on a change, so one that loads mid-cast asks for it.
+#[tauri::command]
+pub async fn cast_state(state: St<'_>) -> Result<serde_json::Value, String> {
+    Ok(state.cast.state())
+}
+
 // --- Listen Together (context/19) ----------------------------------------------------------
 
 /// Current client-side LT state (status, role, room, participants, pending joins, suggestions).
@@ -2579,12 +2586,20 @@ pub async fn lt_set_server_url(state: St<'_>, url: String) -> Result<(), String>
 
 #[tauri::command]
 pub async fn lt_create_room(state: St<'_>, username: String) -> Result<(), String> {
+    if state.cast.is_active() {
+        state.emit_notice("stop casting before starting a room");
+        return Ok(());
+    }
     state.lt.create_room(username).await;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn lt_join_room(state: St<'_>, code: String, username: String) -> Result<(), String> {
+    if state.cast.is_active() {
+        state.emit_notice("stop casting before joining a room");
+        return Ok(());
+    }
     state.lt.join_room(code, username).await;
     Ok(())
 }

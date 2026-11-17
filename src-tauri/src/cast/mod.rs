@@ -123,13 +123,20 @@ pub enum CastCommand {
         /// The URL of the item the receiver is now on. The receiver reports this even when
         /// it drops `customData`.
         content_id: Option<String>,
+        /// The receiver's id for the queue item it is on, when it reports one. A queue can
+        /// hold the same song twice, and this is what names which copy it moved to.
+        item_id: Option<i64>,
         /// The receiver queue's repeat mode, when it reports one.
         repeat_mode: Option<String>,
         /// The receiver ran out of queue items.
         finished: bool,
     },
     /// The device went away, or stopped by itself.
-    Stopped(String),
+    ///
+    /// The epoch is the connection that saw it: a watcher that outlived its device must not
+    /// stop the one that replaced it, and a command already in the channel is not saved by
+    /// the watcher's own check.
+    Stopped { epoch: u64, reason: String },
 }
 
 /// The session: the devices, and the one that is playing.
@@ -352,18 +359,6 @@ impl CastSession {
         }
     }
 
-    /// Shuffle the receiver's own queue order.
-    pub async fn shuffle(&self) -> Result<(), String> {
-        let target = {
-            let inner = self.inner.lock().map_err(|_| "the cast session is locked")?;
-            inner.active.as_ref().map(|a| a.target.clone())
-        };
-        match target {
-            Some(Target::Cast { sender }) => sender.shuffle(),
-            _ => Ok(()),
-        }
-    }
-
     /// Whether the device that is playing holds a queue of its own (a Cast receiver does, a
     /// DLNA renderer does not).
     pub fn uses_queue(&self) -> bool {
@@ -504,14 +499,23 @@ impl CastSession {
         let _ = self.app.emit("cast-devices", devices);
     }
 
+    /// Whether the device has answered since the cast started. Until it does, nothing has been
+    /// handed over that the device acknowledged.
+    pub fn synced(&self) -> bool {
+        self.inner.lock().map(|i| i.synced).unwrap_or(false)
+    }
+
+    /// Whether something is casting, where, and whether the device has answered yet. The same
+    /// payload the `cast-state` event carries, for a window that loaded after it was emitted.
+    pub fn state(&self) -> serde_json::Value {
+        let device = self.active_device();
+        let synced = self.synced();
+        serde_json::json!({ "active": device.is_some(), "device": device, "synced": synced })
+    }
+
     /// Whether something is casting, where, and whether the device has answered yet.
     fn emit_state(&self) {
-        let device = self.active_device();
-        let synced = self.inner.lock().map(|i| i.synced).unwrap_or(false);
-        let _ = self.app.emit(
-            "cast-state",
-            serde_json::json!({ "active": device.is_some(), "device": device, "synced": synced }),
-        );
+        let _ = self.app.emit("cast-state", self.state());
     }
 
     /// The device has answered: the app knows what it is playing.
@@ -671,9 +675,10 @@ fn spawn_watcher(session: Arc<CastSession>, mut target: WatchTarget, epoch: u64)
                                     return;
                                 }
                                 let Some(event) = event else {
-                                    let _ = session.commands.send(CastCommand::Stopped(
-                                        "the cast connection closed".to_owned(),
-                                    ));
+                                    let _ = session.commands.send(CastCommand::Stopped {
+                                        epoch,
+                                        reason: "the cast connection closed".to_owned(),
+                                    });
                                     return;
                                 };
                                 match event {
@@ -708,12 +713,15 @@ fn spawn_watcher(session: Arc<CastSession>, mut target: WatchTarget, epoch: u64)
                                             volume: s.volume,
                                             video_id: s.video_id.clone(),
                                             content_id: s.content_id.clone(),
+                                            item_id: s.item_id,
                                             repeat_mode: s.repeat_mode.clone(),
                                             finished: s.finished,
                                         });
                                     }
                                     chromecast::Event::Closed(e) => {
-                                        let _ = session.commands.send(CastCommand::Stopped(e));
+                                        let _ = session
+                                            .commands
+                                            .send(CastCommand::Stopped { epoch, reason: e });
                                         return;
                                     }
                                 }
@@ -728,12 +736,12 @@ fn spawn_watcher(session: Arc<CastSession>, mut target: WatchTarget, epoch: u64)
                 }
                 WatchTarget::Dlna { control } => {
                     let control = control.clone();
-                    let status = match dlna::position(&control).await {
+                    let polled = match dlna::position(&control).await {
                         Ok((position, duration)) => {
                             let state = dlna::transport_state(&control)
                                 .await
                                 .unwrap_or(dlna::TransportState::Other);
-                            Some(Status {
+                            Ok(Status {
                                 state: match state {
                                     dlna::TransportState::Playing => {
                                         chromecast::PlayerState::Playing
@@ -747,30 +755,39 @@ fn spawn_watcher(session: Arc<CastSession>, mut target: WatchTarget, epoch: u64)
                                 media_session: 0,
                             })
                         }
+                        Err(e) => Err(e),
+                    };
+                    // The renderer may have been replaced while those calls were in flight:
+                    // what it said belongs to a device that is no longer the one playing.
+                    if session.epoch.load(Ordering::SeqCst) != epoch {
+                        return;
+                    }
+                    let status = match polled {
+                        Ok(status) => status,
                         Err(e) => {
                             tracing::debug!(error = %e, "cast: the renderer stopped answering");
-                            let _ = session.commands.send(CastCommand::Stopped(e));
+                            let _ =
+                                session.commands.send(CastCommand::Stopped { epoch, reason: e });
                             return;
                         }
                     };
-                    if let Some(status) = status {
-                        if !watch.is_current(&status) {
-                            continue;
-                        }
-                        let playing = status.state == chromecast::PlayerState::Playing;
-                        let _ = session.commands.send(CastCommand::Position {
-                            position: status.position,
-                            duration: status.duration,
-                            playing,
-                            state: status.state,
-                            track: None,
-                            volume: None,
-                            video_id: None,
-                            content_id: None,
-                            repeat_mode: None,
-                            finished: false,
-                        });
+                    if !watch.is_current(&status) {
+                        continue;
                     }
+                    let playing = status.state == chromecast::PlayerState::Playing;
+                    let _ = session.commands.send(CastCommand::Position {
+                        position: status.position,
+                        duration: status.duration,
+                        playing,
+                        state: status.state,
+                        track: None,
+                        volume: None,
+                        video_id: None,
+                        content_id: None,
+                        item_id: None,
+                        repeat_mode: None,
+                        finished: false,
+                    });
                     tokio::time::sleep(POLL).await;
                 }
             }
@@ -816,9 +833,23 @@ impl Watch {
 
 /// The address of this machine that a device can reach.
 ///
-/// The one on the same network as the device, so a laptop with both Wi-Fi and a VPN does not
-/// hand out an address the speaker cannot route to.
+/// The one the route to the device goes out of, so a laptop with both Wi-Fi and a VPN does not
+/// hand out an address the speaker cannot get to.
 pub fn local_address_for(device: IpAddr) -> Option<Ipv4Addr> {
+    // A UDP `connect` sends nothing: it asks the routing table which local address it would
+    // send from, which is the interface that can reach the device, whatever the netmask is.
+    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect((device, 9)).is_ok() {
+            if let Ok(std::net::SocketAddr::V4(local)) = socket.local_addr() {
+                let addr = *local.ip();
+                if !addr.is_unspecified() && !addr.is_loopback() {
+                    return Some(addr);
+                }
+            }
+        }
+    }
+    // The device is not routed (no default gateway, or it answered from off this network):
+    // fall back to a private address here, preferring one that looks like the device's own.
     let interfaces = if_addrs::get_if_addrs().ok()?;
     let mut fallback = None;
     for interface in interfaces {
