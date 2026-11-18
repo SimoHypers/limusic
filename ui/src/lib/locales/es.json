@@ -89,7 +89,8 @@
 		"remove_account_desc": "{name} solo se quita de la lista. La cuenta de Google en sí no se ve afectada y puedes iniciar sesión con esta cuando quieras.",
 		"saved_accounts_hint": "Elige una cuenta guardada para cambiar a esta.",
 		"no_channels": "YouTube no devolvió ningún canal seleccionable.",
-		"stats": "Estadísticas"
+		"stats": "Estadísticas",
+		"discord": "Únete al Discord de Limusic"
 	},
 	"player": {
 		"play": "Reproducir",
@@ -590,7 +591,10 @@
 			"kofi_button": "Abrir Ko-fi",
 			"rollback_available": "Esta versión se revertirá a {version}, la última versión estable conocida.",
 			"beta": "Versiones beta",
-			"beta_hint": "Recibe nuevas versiones unos días antes que los demás. Estas versiones tienen menos pruebas. Si desactivas esta opción, conservarás tu versión actual hasta que la supere el siguiente lanzamiento habitual."
+			"beta_hint": "Recibe nuevas versiones unos días antes que los demás. Estas versiones tienen menos pruebas. Si desactivas esta opción, conservarás tu versión actual hasta que la supere el siguiente lanzamiento habitual.",
+			"discord": "Únete al Discord",
+			"discord_hint": "Obtén ayuda, comparte ideas y entérate antes que nadie de las nuevas versiones y betas.",
+			"discord_button": "Abrir Discord"
 		},
 		"discord": {
 			"enable": "Rich Presence",
