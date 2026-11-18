@@ -3262,7 +3262,7 @@ pub async fn listenbrainz_profile(
 /// reads a cached flag that can disagree with the placement, which is why unmaximizing from the
 /// UI only fixed it some of the time.
 ///
-/// So: restore from the real placement, go fullscreen, then put the window on the monitor rect
+/// So: un-maximize in the real placement, go fullscreen, then put the window on the monitor rect
 /// with SWP_FRAMECHANGED to force one recalculation with the fullscreen flag set. On the main
 /// thread, where the window messages run inline and the order is guaranteed.
 ///
@@ -3290,25 +3290,66 @@ pub fn theater_fullscreen(window: tauri::WebviewWindow, on: bool) -> Result<(), 
     }
     #[cfg(target_os = "windows")]
     {
+        use std::sync::Mutex;
+        use windows::Win32::Foundation::RECT;
+        use windows::Win32::Graphics::Gdi::{
+            GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+        };
         use windows::Win32::UI::WindowsAndMessaging::{
-            IsZoomed, SetWindowPos, ShowWindow, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE,
-            SWP_NOZORDER, SW_MAXIMIZE, SW_RESTORE,
+            GetWindowPlacement, IsZoomed, SetWindowPlacement, SetWindowPos, SWP_FRAMECHANGED,
+            SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_SHOWNORMAL, WINDOWPLACEMENT,
         };
 
-        /// Restoring the window is what makes fullscreen work, so theater has to put the
-        /// maximized state back itself on the way out.
-        static WAS_MAXIMIZED: AtomicBool = AtomicBool::new(false);
+        /// Un-maximizing the window is what makes fullscreen work, so theater keeps the maximized
+        /// placement and puts it back itself on the way out, restored size included.
+        static MAXIMIZED: Mutex<Option<WINDOWPLACEMENT>> = Mutex::new(None);
 
         let w = window.clone();
         window
             .run_on_main_thread(move || {
                 let Ok(hwnd) = w.hwnd() else { return };
                 if on {
-                    let zoomed = unsafe { IsZoomed(hwnd).as_bool() };
-                    WAS_MAXIMIZED.store(zoomed, Ordering::Relaxed);
+                    let mut mi = MONITORINFO {
+                        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                        ..Default::default()
+                    };
+                    let mut wp = WINDOWPLACEMENT {
+                        length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
+                        ..Default::default()
+                    };
+                    let zoomed = unsafe {
+                        IsZoomed(hwnd).as_bool()
+                            && GetMonitorInfoW(
+                                MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST),
+                                &mut mi,
+                            )
+                            .as_bool()
+                            && GetWindowPlacement(hwnd, &mut wp).is_ok()
+                    };
                     if zoomed {
+                        *MAXIMIZED.lock().unwrap() = Some(wp);
+                        // Un-maximize straight onto the monitor rect. SW_RESTORE shrank the
+                        // window to its restored size first, and tao saved that as the size to
+                        // leave fullscreen to, so closing theater showed the small window over
+                        // the desktop before maximizing it again (#606). rcNormalPosition is in
+                        // workspace coordinates, which start at the work area's corner.
+                        let (m, dx, dy) = (
+                            mi.rcMonitor,
+                            mi.rcWork.left - mi.rcMonitor.left,
+                            mi.rcWork.top - mi.rcMonitor.top,
+                        );
+                        let normal = WINDOWPLACEMENT {
+                            showCmd: SW_SHOWNORMAL.0 as u32,
+                            rcNormalPosition: RECT {
+                                left: m.left - dx,
+                                top: m.top - dy,
+                                right: m.right - dx,
+                                bottom: m.bottom - dy,
+                            },
+                            ..wp
+                        };
                         unsafe {
-                            let _ = ShowWindow(hwnd, SW_RESTORE);
+                            let _ = SetWindowPlacement(hwnd, &normal);
                         }
                     }
                     let _ = w.set_fullscreen(true);
@@ -3327,10 +3368,12 @@ pub fn theater_fullscreen(window: tauri::WebviewWindow, on: bool) -> Result<(), 
                         }
                     }
                 } else {
+                    // tao puts back the placement it saved, the monitor rect when the window was
+                    // maximized, so nothing on screen moves until it is maximized again here.
                     let _ = w.set_fullscreen(false);
-                    if WAS_MAXIMIZED.swap(false, Ordering::Relaxed) {
+                    if let Some(wp) = MAXIMIZED.lock().unwrap().take() {
                         unsafe {
-                            let _ = ShowWindow(hwnd, SW_MAXIMIZE);
+                            let _ = SetWindowPlacement(hwnd, &wp);
                         }
                     }
                     unsafe {
