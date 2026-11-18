@@ -751,7 +751,8 @@
 			"link_phone": "Telefon bağla",
 			"link_another": "Başka bir telefon bağla",
 			"step_open": "Telefonunuzda Limusic'i açın: Ayarlar › Cihazlar",
-			"step_type": "Bu kodu girin"
+			"step_type": "Bu kodu girin",
+			"custom_server": "Bu sunucuda {invite} yazın"
 		},
 		"search": {
 			"placeholder": "Ayarlarda ara",
