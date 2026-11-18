@@ -289,10 +289,10 @@
 		clearCacheConfirm = false;
 		try {
 			await api.karaokeClearCache();
+			if (tab === 'data') loadStorage();
 			const status = await api.karaokeEngineStatus();
 			karaokeCacheBytes = status.cacheBytes;
 			toast.success(t('karaoke.settings.cleared'));
-			if (tab === 'data') loadStorage();
 		} catch (e) {
 			toast.error(String(e));
 		}
@@ -1071,19 +1071,17 @@
 								{#each STORAGE as s (s.id)}
 									{#snippet size()}
 										<div class="flex items-center gap-3">
-											{#if s.id === 'karaoke'}
-												{@render karaokeCacheUsedControl()}
-											{:else}
-												<span class="text-xs text-muted-foreground tabular-nums">
-													{usage ? formatCacheSize(usage[s.id]) : '…'}
-												</span>
-												{#if s.id === 'audio'}
-													{@render clearButton()}
-												{:else if s.id === 'models'}
-													<Button variant="outline" size="sm" onclick={showKaraokeSettings}>
-														{t('settings.data.manage')}
-													</Button>
-												{/if}
+											<span class="text-xs text-muted-foreground tabular-nums">
+												{usage ? formatCacheSize(usage[s.id]) : '…'}
+											</span>
+											{#if s.id === 'audio'}
+												{@render clearButton()}
+											{:else if s.id === 'karaoke'}
+												{@render karaokeClearButton()}
+											{:else if s.id === 'models'}
+												<Button variant="outline" size="sm" onclick={showKaraokeSettings}>
+													{t('settings.data.manage')}
+												</Button>
 											{/if}
 										</div>
 									{/snippet}
@@ -1629,12 +1627,16 @@
 		<span class="text-xs text-muted-foreground">
 			{formatCacheSize(karaokeCacheBytes)}
 		</span>
-		<Button
-			variant={clearCacheConfirm ? 'destructive' : 'outline'}
-			size="sm"
-			onclick={clearKaraokeCache}
-		>
-			{clearCacheConfirm ? t('karaoke.settings.clear_confirm') : t('karaoke.settings.clear')}
-		</Button>
+		{@render karaokeClearButton()}
 	</div>
+{/snippet}
+
+{#snippet karaokeClearButton()}
+	<Button
+		variant={clearCacheConfirm ? 'destructive' : 'outline'}
+		size="sm"
+		onclick={clearKaraokeCache}
+	>
+		{clearCacheConfirm ? t('karaoke.settings.clear_confirm') : t('karaoke.settings.clear')}
+	</Button>
 {/snippet}
