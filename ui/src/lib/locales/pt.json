@@ -51,32 +51,32 @@
 		"unavailable": {
 			"not_installed": "O karaoke não está incluído nesta versão do Limusic.",
 			"corrupt": "Os ficheiros do Karaoke estão danificados. Tenta ligar o Karaoke novamente; se isso não resolver o problema, reinstala o Limusic.",
-			"vc_runtime": "",
-			"load_failed": "",
-			"proxy": "",
-			"stopped": ""
+			"vc_runtime": "O Karaoke necessita de uma versão mais recente do Microsoft Visual C++ Redistributable (14.44 ou posterior).",
+			"load_failed": "Não foi possível iniciar o karaoke neste computador.",
+			"proxy": "O karaoke não está disponível enquanto estiver configurado um proxy.",
+			"stopped": "O karaoke parou inesperadamente. Reinicie o Limusic para voltar a utilizá-lo."
 		},
 		"error": {
-			"incomplete_download": "",
-			"failed": ""
+			"incomplete_download": "O áudio da música não terminou de ser descarregado. Vou tentar novamente daqui a pouco.",
+			"failed": "Não consegui retirar os vocais desta canção."
 		},
 		"download_error": {
-			"network": "",
-			"verify": "",
-			"disk": "",
-			"failed": ""
+			"network": "O download falhou. Verifique a sua ligação e tente novamente.",
+			"verify": "O ficheiro descarregado não corresponde ao esperado. Tente novamente.",
+			"disk": "Não foi possível guardar o ficheiro. Verifique o espaço livre no disco e tente novamente.",
+			"failed": "O download falhou. Tente novamente."
 		},
-		"download": "",
-		"cancel": "",
-		"retry": "",
-		"not_now": "",
+		"download": "Descarregar",
+		"cancel": "Cancelar",
+		"retry": "Tentar novamente",
+		"not_now": "Agora não",
 		"settings": {
-			"title": "",
-			"title_hint": "",
-			"model": "",
-			"model_desc": "",
-			"model_light": "",
-			"model_light_desc": "",
+			"title": "Karaoke",
+			"title_hint": "Definições de remoção de voz",
+			"model": "Modelo de IA",
+			"model_desc": "Escolha o nível do modelo de remoção de voz. Basta descarregá-lo uma vez e funciona sem ligação à Internet.",
+			"model_light": "Luz",
+			"model_light_desc": "É o mais rápido, mas pode deixar um pouco das vozes. Acompanha a reprodução num processador.",
 			"model_balanced": "",
 			"model_balanced_desc": "",
 			"model_best": "",
