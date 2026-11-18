@@ -1481,6 +1481,21 @@ export function toggleRating(song: SongItem, want: 'like' | 'dislike') {
 }
 
 /**
+ * A play's source, until the queue it starts arrives. The sidebar sorts by last played and marks
+ * the playing playlist off the queue (#646); recorded at the click, the row jumped to the top a
+ * second or more before it turned the accent colour, since Rust sends the queue once the first
+ * track has resolved. Recorded when that queue lands, both happen in the same update.
+ */
+let pendingRecent: { source: BrowseItem; sourceId: string } | null = null;
+
+function landRecent(sourceId?: string | null) {
+	if (!pendingRecent || sourceId !== pendingRecent.sourceId) return;
+	pl.noteRecent(personal, pendingRecent.source);
+	pendingRecent = null;
+	savePersonal();
+}
+
+/**
  * Play a playlist/album/artist and record that it was played, which is what sorts the sidebar and
  * seeds Shortcuts. Every "play these tracks from somewhere" call site goes through this.
  * `sourceId` (playlist/album pages only) points autoplay at that context's radio.
@@ -1495,7 +1510,11 @@ export function playFrom(
 	shuffle?: boolean,
 	continuation?: string
 ) {
-	pl.noteRecent(personal, source);
+	// No source id (On Repeat) or the queue already playing from it: no queue change to wait for.
+	if (!sourceId || playback.queue.sourceId === sourceId) {
+		pendingRecent = null;
+		pl.noteRecent(personal, source);
+	} else pendingRecent = { source, sourceId };
 	pl.touchPick(personal, source.id);
 	savePersonal();
 	openPlayer();
@@ -1930,7 +1949,10 @@ export function initApp(mini = false): () => void {
 			capOverrides(ratings);
 			if (playback.now?.videoId === videoId) playback.rating = rating;
 		}),
-		api.onQueueChanged((q) => (playback.queue = q)),
+		api.onQueueChanged((q) => {
+			playback.queue = q;
+			landRecent(q.sourceId);
+		}),
 		// The items did not change, so keep the array we already hold and patch the rest. Splice
 		// the playing row back in: `start_current` backfills its duration and artists after the
 		// stream resolves, and that repair rides on this event rather than a whole new queue.
@@ -1948,6 +1970,7 @@ export function initApp(mini = false): () => void {
 				prevTrack: q.prevTrack,
 				autoplay: q.autoplay
 			};
+			landRecent(q.sourceId);
 		}),
 		api.onQueueAppended((q) => {
 			const items = [...playback.queue.items, ...q.items];
