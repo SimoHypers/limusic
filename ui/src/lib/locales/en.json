@@ -236,6 +236,7 @@
 		"search": "Search",
 		"library": "Library",
 		"settings": "Settings",
+		"discord": "Join the Limusic Discord",
 		"listen_together": "Listen Together",
 		"new_playlist": "New Playlist",
 		"account": "Account",
@@ -898,6 +899,9 @@
 			"report_issue": "Open the bug form",
 			"report_issue_hint": "Opens GitHub in your browser, with the version and system filled in.",
 			"report_issue_button": "Report",
+			"discord": "Join the Discord",
+			"discord_hint": "Get help, share ideas, and hear about new versions and betas first.",
+			"discord_button": "Open Discord",
 			"kofi": "Buy me a coffee",
 			"kofi_hint": "Limusic is free and stays free. Ko-fi is there if you feel like chipping in.",
 			"kofi_button": "Open Ko-fi"

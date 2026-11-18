@@ -425,6 +425,8 @@ export const setVolume = (volume: number) => invoke<void>('set_volume', { volume
 export const setKaraoke = (enabled: boolean) => invoke<void>('set_karaoke', { enabled });
 /** Microsoft's permalink for the latest x64 VC++ runtime (karaoke's ONNX Runtime needs >= 14.44). */
 export const VC_REDIST_URL = 'https://aka.ms/vc14/vc_redist.x64.exe';
+/** The permanent invite: it hands out the User role, a member's own invite doesn't. */
+export const DISCORD_URL = 'https://discord.gg/jWWydPV3FF';
 export type KaraokeDevice = 'auto' | 'cpu' | 'gpu';
 export type KaraokeModelId = 'light' | 'balanced' | 'best';
 

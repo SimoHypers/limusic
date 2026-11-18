@@ -280,7 +280,14 @@ const TABLE: [SettingsTab, K | null, Row[]][] = [
 		]
 	],
 
-	['about', 'settings.sections.support', [['settings.about.kofi', 'settings.about.kofi_hint']]],
+	[
+		'about',
+		'settings.sections.support',
+		[
+			['settings.about.discord', 'settings.about.discord_hint'],
+			['settings.about.kofi', 'settings.about.kofi_hint']
+		]
+	],
 	[
 		'about',
 		'settings.sections.updates',

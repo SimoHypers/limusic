@@ -228,10 +228,20 @@ function Nav({ stars }: { stars: number | null }) {
           <a href="lyrics/" className="transition-colors hover:text-foreground">Lyrics</a>
         </div>
         <a
+          href={DISCORD_URL}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Discord"
+          className="ml-auto flex items-center gap-2 rounded-full border border-white/10 px-3.5 py-1.5 text-sm text-muted-foreground transition-colors hover:border-white/20 hover:text-foreground sm:ml-0"
+        >
+          <HugeiconsIcon icon={DiscordIcon} size={16} strokeWidth={2} />
+          <span className="hidden sm:inline">Discord</span>
+        </a>
+        <a
           href={REPO_URL}
           target="_blank"
           rel="noreferrer"
-          className="ml-auto flex items-center gap-2 rounded-full border border-white/10 px-3.5 py-1.5 text-sm text-muted-foreground transition-colors hover:border-white/20 hover:text-foreground sm:ml-0"
+          className="-ml-3 flex items-center gap-2 rounded-full border border-white/10 px-3.5 py-1.5 text-sm text-muted-foreground transition-colors hover:border-white/20 hover:text-foreground"
         >
           <HugeiconsIcon icon={GithubIcon} size={16} strokeWidth={2} />
           <span className="hidden sm:inline">GitHub</span>
@@ -601,6 +611,32 @@ function Download({ info, os }: { info: ReturnType<typeof useGitHub>; os: string
   )
 }
 
+function Community() {
+  return (
+    <section id="community" className="mx-auto max-w-6xl scroll-mt-20 px-4 pb-24 sm:px-6">
+      <FadeContent duration={800}>
+        <div className="flex flex-col items-center gap-6 rounded-2xl border border-white/10 bg-card/60 px-6 py-10 text-center sm:flex-row sm:px-10 sm:text-left">
+          <HugeiconsIcon icon={DiscordIcon} size={44} strokeWidth={1.6} className="shrink-0 text-primary-bright" />
+          <div className="flex-1">
+            <h2 className="font-heading text-2xl font-bold tracking-tight">Join the Discord</h2>
+            <p className="mt-2 text-muted-foreground">
+              Get help, share ideas, and hear about new versions and betas before anyone else.
+            </p>
+          </div>
+          <a
+            href={DISCORD_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="flex shrink-0 items-center gap-2.5 rounded-full bg-primary-bright px-6 py-3 font-semibold text-primary-foreground shadow-lg shadow-primary/40 transition-transform hover:scale-105"
+          >
+            Join the server
+          </a>
+        </div>
+      </FadeContent>
+    </section>
+  )
+}
+
 function Footer() {
   return (
     <footer className="border-t border-white/5">
@@ -665,6 +701,7 @@ export default function App() {
         <Screens />
         {!android && <Android info={info} lead={false} />}
         <Download info={info} os={os} />
+        <Community />
       </main>
       <Footer />
     </>

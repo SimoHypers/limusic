@@ -1306,6 +1306,12 @@
 							<h3 class={LABEL}>{t('settings.sections.support')}</h3>
 							<div data-settings-card class={CARD}>
 								{@render row({
+									title: t('settings.about.discord'),
+									desc: t('settings.about.discord_hint'),
+									control: discordButton,
+									tall: true
+								})}
+								{@render row({
 									title: t('settings.about.kofi'),
 									desc: t('settings.about.kofi_hint'),
 									control: kofiButton,
@@ -1641,6 +1647,13 @@
 
 {#snippet reportButton()}
 	<Button size="sm" onclick={openBugForm}>{t('settings.about.report_issue_button')}</Button>
+{/snippet}
+
+{#snippet discordButton()}
+	<Button variant="secondary" size="sm" onclick={() => api.openExternal(api.DISCORD_URL)}>
+		<HugeiconsIcon icon={DiscordIcon} size={15} strokeWidth={1.8} />
+		{t('settings.about.discord_button')}
+	</Button>
 {/snippet}
 
 {#snippet kofiButton()}
