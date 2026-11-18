@@ -64,7 +64,8 @@
 		"refresh": "Aggiorna",
 		"videos": "Video",
 		"top_result": "Risultato principale",
-		"all_results_for": "Tutti i risultati per “{query}”"
+		"all_results_for": "Tutti i risultati per “{query}”",
+		"restore": "Ripristina"
 	},
 	"nav": {
 		"home": "Home",
@@ -412,8 +413,8 @@
 			"play_history_hint": "Ricorda i brani riprodotti di recente per personalizzare i consigli.",
 			"music_videos": "Abilita video musicali",
 			"music_videos_hint": "Mostra il flusso video quando disponibile anziché solo l'audio.",
-			"hide_videos": "Nascondi video nei risultati di ricerca",
-			"hide_videos_hint": "Mostra solo tracce audio e pubblicazioni ufficiali nei risultati di ricerca.",
+			"hide_videos": "Nascondi video nei risultati di ricerca e nelle radio",
+			"hide_videos_hint": "Nei risultati di ricerca, nella Home, nelle pagine degli artisti, nelle radio e nella riproduzione automatica vengono mostrati solo i brani audio. Le playlist e gli album che apri continuano a mostrare tutti i contenuti, mentre le radio avviate da un video musicale continuano a riprodurre anche i video.",
 			"normalize_volume": "Normalizzazione del volume",
 			"normalize_volume_hint": "Uniforma il volume dei brani, in modo che una traccia registrata a basso volume non venga sovrastata dalla successiva. Disattivalo per ascoltare ogni brano con il mastering originale.",
 			"crossfade": "Dissolvenza incrociata",
@@ -449,7 +450,7 @@
 			"lyrics_sources_none": "Tutte le fonti sono disattivate, pertanto non verrà trovato alcun testo."
 		},
 		"data": {
-			"clear_cache_button": "Cancella cache adesso"
+			"clear_cache_button": "Cancella cache"
 		},
 		"about": {
 			"description": "Un riproduttore musicale desktop leggero, veloce e moderno basato su Tauri e Svelte.",
@@ -707,8 +708,8 @@
 		"tempo_pitch": {
 			"title": "Controlli di tempo e tonalità",
 			"desc": "Si applica a tutto ciò che riproduci, fino a quando non lo modifichi di nuovo o riavvii l'app.",
-			"tempo": "Tempo (Velocità)",
-			"pitch": "Tonalità (Pitch)"
+			"tempo": "Tempo",
+			"pitch": "Tonalità"
 		},
 		"link": {
 			"title": "Apri link",
@@ -1240,7 +1241,11 @@
 			"corrupt": "I file della modalità karaoke sono danneggiati. Prova a riattivarla; se il problema persiste, reinstalla Limusic.",
 			"vc_runtime": "La modalità karaoke richiede una versione più recente di Microsoft Visual C++ Redistributable (14.44 o successiva).",
 			"load_failed": "Impossibile avviare la modalità karaoke su questo computer.",
-			"proxy": "La modalità karaoke non è disponibile quando è configurato un proxy."
+			"proxy": "La modalità karaoke non è disponibile quando è configurato un proxy.",
+			"stopped": "La modalità karaoke si è interrotta inaspettatamente. Riavvia Limusic per utilizzarla di nuovo."
+		},
+		"error": {
+			"incomplete_download": "Il download dell'audio del brano non è andato a buon fine. Nuovo tentativo tra poco."
 		}
 	}
 }
