@@ -17,7 +17,8 @@
 		SquareArrowLeft01Icon,
 		SquareArrowRight01Icon,
 		SpotifyIcon,
-		Chart02Icon
+		Chart02Icon,
+		VolumeHighIcon
 	} from '@hugeicons/core-free-icons';
 	import LogoMark from './LogoMark.svelte';
 	import { toggleMode } from 'mode-watcher';
@@ -25,7 +26,14 @@
 	import { ON_REPEAT_ID, isLocalPlaylist, type BrowseItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import PlaylistMenu from './PlaylistMenu.svelte';
-	import { library, personal, ui, openNewPlaylist, toggleSidebar } from '$lib/player.svelte';
+	import {
+		library,
+		personal,
+		playback,
+		ui,
+		openNewPlaylist,
+		toggleSidebar
+	} from '$lib/player.svelte';
 	import { mergeSaved, orderLibrary } from '$lib/personal';
 	import { t } from '$lib/i18n.svelte';
 	import { imp } from '$lib/import.svelte';
@@ -45,6 +53,13 @@
 	const playlists = $derived(
 		orderLibrary(mergeSaved(personal, library.items, 'playlist'), personal)
 	);
+	// The playlist the queue is playing from (#646), like Spotify's library: its title in the accent
+	// colour, and a speaker while it plays. Not once autoplay has moved on to a radio past its end.
+	const playingFrom = $derived.by(() => {
+		const q = playback.queue;
+		const current = q.items[q.currentIndex];
+		return current && !current.autoplay ? q.sourceId : null;
+	});
 	// How many of the leading rows are pinned — a rule under the last one explains the split.
 	const pinnedCount = $derived(playlists.filter((p) => personal.pins.includes(p.id)).length);
 
@@ -270,7 +285,12 @@
 							</span>
 						{/if}
 						<div class="min-w-0 flex-1">
-							<div class="truncate text-[13px] font-medium">{pl.title}</div>
+							<div class="truncate text-[13px] font-medium {playingFrom === pl.id ? 'text-primary' : ''}">
+								{pl.title}
+							</div>
+							{#if playingFrom === pl.id}
+								<span class="sr-only">{t('player.now_playing')}</span>
+							{/if}
 							{#if pl.subtitle}
 								<!-- The rail keeps only the count, so a playlist on this machine says
 								     where it lives with an icon instead of the words. -->
@@ -283,6 +303,15 @@
 							{/if}
 						</div>
 					</a>
+					{#if playingFrom === pl.id && !playback.paused}
+						<!-- Where the ⋯ appears on hover, and gives way to it. Still, like the playing
+						     row's mark in a track list: a looping animation keeps the compositor busy. -->
+						<span
+							class="pointer-events-none absolute inset-y-0 right-1 flex w-7 items-center justify-center text-primary group-hover/row:invisible"
+						>
+							<HugeiconsIcon icon={VolumeHighIcon} class="h-4 w-4" />
+						</span>
+					{/if}
 					<PlaylistMenu item={pl} />
 				</div>
 				{#if pinnedCount && i === pinnedCount - 1}
