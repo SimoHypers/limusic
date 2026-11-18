@@ -1069,26 +1069,28 @@
 									below: usageBar
 								})}
 								{#each STORAGE as s (s.id)}
+									<!-- The action rides next to the title at its height, so every size stays in one column. -->
+									{#snippet action()}
+										{#if s.id === 'audio'}
+											{@render clearButton()}
+										{:else if s.id === 'karaoke'}
+											{@render karaokeClearButton(true)}
+										{:else if s.id === 'models'}
+											<Button variant="outline" size="xs" class="h-5 px-2" onclick={showKaraokeSettings}>
+												{t('settings.data.manage')}
+											</Button>
+										{/if}
+									{/snippet}
 									{#snippet size()}
-										<div class="flex items-center gap-3">
-											<span class="text-xs text-muted-foreground tabular-nums">
-												{usage ? formatCacheSize(usage[s.id]) : '…'}
-											</span>
-											{#if s.id === 'audio'}
-												{@render clearButton()}
-											{:else if s.id === 'karaoke'}
-												{@render karaokeClearButton()}
-											{:else if s.id === 'models'}
-												<Button variant="outline" size="sm" onclick={showKaraokeSettings}>
-													{t('settings.data.manage')}
-												</Button>
-											{/if}
-										</div>
+										<span class="text-xs text-muted-foreground tabular-nums">
+											{usage ? formatCacheSize(usage[s.id]) : '…'}
+										</span>
 									{/snippet}
 									{@render row({
 										title: t(`settings.data.${s.id}`),
 										desc: t(s.hint),
 										dot: s.color,
+										extra: action,
 										control: size,
 										tall: true
 									})}
@@ -1414,7 +1416,7 @@
 {/snippet}
 
 {#snippet clearButton()}
-	<Button variant="outline" size="sm" onclick={doClearCaches} disabled={clearing}>
+	<Button variant="outline" size="xs" class="h-5 px-2" onclick={doClearCaches} disabled={clearing}>
 		{clearing ? t('common.loading') : t('settings.data.clear_cache_button')}
 	</Button>
 {/snippet}
@@ -1631,10 +1633,11 @@
 	</div>
 {/snippet}
 
-{#snippet karaokeClearButton()}
+{#snippet karaokeClearButton(small = false)}
 	<Button
 		variant={clearCacheConfirm ? 'destructive' : 'outline'}
-		size="sm"
+		size={small ? 'xs' : 'sm'}
+		class={small ? 'h-5 px-2' : ''}
 		onclick={clearKaraokeCache}
 	>
 		{clearCacheConfirm ? t('karaoke.settings.clear_confirm') : t('karaoke.settings.clear')}
