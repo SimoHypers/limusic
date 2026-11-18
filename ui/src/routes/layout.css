@@ -84,6 +84,26 @@
 	--shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
 }
 
+/* The storage bar's kinds (Settings > Data & storage). Fixed hues in every theme: they name a kind
+   of data, and a theme's --chart-* is often one hue in five shades. Checked as a categorical set in
+   this order, light steps on a light card and dark steps on a dark one: adjacent pairs stay apart
+   for red-green and blue-yellow color blindness. Three light steps are under 3:1 on white, so the
+   rows under the bar label every color. */
+:root {
+	--storage-1: #2a78d6;
+	--storage-2: #eb6834;
+	--storage-3: #1baf7a;
+	--storage-4: #eda100;
+	--storage-5: #e87ba4;
+}
+.dark {
+	--storage-1: #3987e5;
+	--storage-2: #d95926;
+	--storage-3: #199e70;
+	--storage-4: #c98500;
+	--storage-5: #d55181;
+}
+
 .dark {
 	--background: oklch(0.145 0.008 var(--hue));
 	--foreground: oklch(0.985 0 0);

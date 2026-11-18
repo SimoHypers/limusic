@@ -247,11 +247,11 @@
 	// Disk use by kind (#705), measured whenever the Data & storage tab shows and after a clear.
 	let usage = $state<api.StorageUsage | null>(null);
 	const STORAGE = [
-		{ id: 'library', color: 'var(--chart-1)', hint: 'settings.data.library_hint' },
-		{ id: 'audio', color: 'var(--chart-2)', hint: 'settings.data.audio_hint' },
-		{ id: 'karaoke', color: 'var(--chart-3)', hint: 'karaoke.settings.cache_used_desc' },
-		{ id: 'models', color: 'var(--chart-4)', hint: 'settings.data.models_hint' },
-		{ id: 'web', color: 'var(--chart-5)', hint: 'settings.data.web_hint' },
+		{ id: 'library', color: 'var(--storage-1)', hint: 'settings.data.library_hint' },
+		{ id: 'audio', color: 'var(--storage-2)', hint: 'settings.data.audio_hint' },
+		{ id: 'karaoke', color: 'var(--storage-3)', hint: 'karaoke.settings.cache_used_desc' },
+		{ id: 'models', color: 'var(--storage-4)', hint: 'settings.data.models_hint' },
+		{ id: 'web', color: 'var(--storage-5)', hint: 'settings.data.web_hint' },
 		{ id: 'other', color: 'var(--muted-foreground)', hint: 'settings.data.other_hint' }
 	] as const;
 	const usageTotal = $derived(usage ? Object.values(usage).reduce((a, b) => a + b, 0) : 0);
@@ -1425,7 +1425,7 @@
 
 <!-- One segment per kind, sized by its share; the rows below are its legend. -->
 {#snippet usageBar()}
-	<div class="flex h-2 gap-px overflow-hidden rounded-full bg-muted">
+	<div class="flex h-2 gap-0.5 overflow-hidden rounded-full {usage ? '' : 'bg-muted'}">
 		{#each STORAGE as s (s.id)}
 			{#if usage && usageTotal > 0 && usage[s.id] > 0}
 				<div
