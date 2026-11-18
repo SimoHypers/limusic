@@ -799,6 +799,11 @@
 			"unlink": "Desenlazar",
 			"unlink_title": "¿Quieres desenlazar {name}?",
 			"unlink_desc": "Ya no puede controlar esta computadora. Puedes enlazarlo otra vez con un código nuevo."
+		},
+		"search": {
+			"placeholder": "Busca configuraciones",
+			"hint": "Enter abre el primer resultado, Esc limpia la búsqueda.",
+			"empty": "No hay coincidencias con \"{query}\""
 		}
 	},
 	"dialogs": {
