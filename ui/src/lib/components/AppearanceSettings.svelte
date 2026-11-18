@@ -264,7 +264,7 @@
 	control?: Snippet;
 	below?: Snippet;
 })}
-	<div class="px-4 py-3.5">
+	<div data-setting-row class="px-4 py-3.5">
 		<div class="flex min-h-8 items-center justify-between gap-4">
 			<div class="flex min-w-0 items-center gap-2">
 				<span class="text-sm font-medium">{o.title}</span>

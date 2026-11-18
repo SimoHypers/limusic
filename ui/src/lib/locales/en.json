@@ -552,6 +552,13 @@
 	},
 	"settings": {
 		"title": "Settings",
+		"search": {
+			"placeholder": "Search settings",
+			"hint": "Enter opens the first result, Esc clears the search.",
+			"empty": "No settings match “{query}”",
+			"empty_hint": "Try a shorter word, or one from a setting's description.",
+			"shown_when": "Shown when “{setting}” is on"
+		},
 		"tabs": {
 			"general": "General",
 			"general_hint": "History, integrations and how the app starts.",

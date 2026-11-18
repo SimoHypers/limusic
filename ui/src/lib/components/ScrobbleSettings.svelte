@@ -348,7 +348,7 @@
 </script>
 
 {#snippet row_(o: { title: string; desc?: string; control?: Snippet; below?: Snippet })}
-	<div class="px-4 py-3.5">
+	<div data-setting-row class="px-4 py-3.5">
 		<div class="flex items-center justify-between gap-4">
 			<span class="min-w-0 text-sm font-medium">{o.title}</span>
 			{#if o.control}
@@ -603,7 +603,7 @@
 			</div>
 		</section>
 
-		<section class={GROUP}>
+		<section data-setting-row class={GROUP}>
 			<h3 class={LABEL}>{t('settings.scrobbling.section_rules')}</h3>
 			<p class={HINT}>{t('settings.scrobbling.rules_hint')}</p>
 			{#if cfg.rules.length}
@@ -751,7 +751,7 @@
 			{/if}
 		</section>
 
-		<section class={GROUP}>
+		<section data-setting-row class={GROUP}>
 			<h3 class={LABEL}>{t('settings.scrobbling.section_edits')}</h3>
 			<p class={HINT}>{t('settings.scrobbling.edits_hint')}</p>
 			<div data-settings-card class={CARD}>
