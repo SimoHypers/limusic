@@ -14,12 +14,17 @@
 	const reducedMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
 </script>
 
-<button
-	class="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 cursor-pointer items-center gap-1.5 rounded-full border bg-popover px-3 py-1.5 text-xs font-medium text-popover-foreground shadow-lg hover:bg-accent"
-	{onclick}
+<!-- Centred by a flex row, not -translate-x-1/2: a half-pixel offset blurs the text on WebKitGTK (#75). -->
+<div
+	class="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center"
 	transition:fade={{ duration: reducedMotion.current ? 0 : 150 }}
 >
-	<!-- altIcon/showAlt: `icon` is frozen at mount. -->
-	<HugeiconsIcon icon={ArrowDown01Icon} altIcon={ArrowUp01Icon} showAlt={above} class="size-3.5" />
-	{t('player.now_playing')}
-</button>
+	<button
+		class="pointer-events-auto flex cursor-pointer items-center gap-1.5 rounded-full border bg-popover px-3 py-1.5 text-xs font-medium text-popover-foreground shadow-lg hover:bg-accent"
+		{onclick}
+	>
+		<!-- altIcon/showAlt: `icon` is frozen at mount. -->
+		<HugeiconsIcon icon={ArrowDown01Icon} altIcon={ArrowUp01Icon} showAlt={above} class="size-3.5" />
+		{t('player.now_playing')}
+	</button>
+</div>
