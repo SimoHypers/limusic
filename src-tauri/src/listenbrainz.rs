@@ -25,10 +25,12 @@ const DEFAULT_ROOT: &str = "https://api.listenbrainz.org";
 /// Trimmed, no trailing slash, http(s) with a host and no query or fragment (endpoints are
 /// appended as `{root}/1/...`). Empty = official server.
 fn clean_root(url: &str) -> Result<String, String> {
-    let url = url.trim().trim_end_matches('/');
+    // Empty before trimming slashes: a lone `/` is a typo, not a request for the official server.
+    let url = url.trim();
     if url.is_empty() {
         return Ok(String::new());
     }
+    let url = url.trim_end_matches('/');
     let ok = reqwest::Url::parse(url).is_ok_and(|u| {
         matches!(u.scheme(), "http" | "https")
             && u.host_str().is_some()
@@ -333,7 +335,9 @@ mod tests {
         assert_eq!(clean_root(" https://lb.example.com/ ").unwrap(), "https://lb.example.com");
         assert_eq!(clean_root("").unwrap(), "");
         assert_eq!(clean_root("http://10.0.0.2:8080/lb/").unwrap(), "http://10.0.0.2:8080/lb");
-        for bad in ["lb.example.com", "https://", "https://h/p?x=1", "https://h/#f", "ftp://h"] {
+        for bad in
+            ["lb.example.com", "https://", "https://h/p?x=1", "https://h/#f", "ftp://h", "/", "//"]
+        {
             assert!(clean_root(bad).is_err(), "{bad}");
         }
     }
