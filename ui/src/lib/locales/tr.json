@@ -164,7 +164,8 @@
 		"devices_settings": "Cihaz ayarları",
 		"this_computer": "Bu bilgisayar",
 		"devices_paused": "Duraklatıldı",
-		"karaoke": "Karaoke: vokalleri kaldır"
+		"karaoke": "Karaoke: vokalleri kaldır",
+		"live": "Canlı"
 	},
 	"home": {
 		"good_morning": "Günaydın",
@@ -214,7 +215,8 @@
 			"music_videos": "Senin için müzik videoları",
 			"daily_discover": "Günlük keşif",
 			"trending": "Sizin için trend şarkılar",
-			"featured_playlists": "Sizin için öne çıkan çalma listeleri"
+			"featured_playlists": "Sizin için öne çıkan çalma listeleri",
+			"listen_together": "Birlikte dinle"
 		}
 	},
 	"artist": {
@@ -326,7 +328,10 @@
 			"hotkeys_hint": "Oynatmayı kontrol etmek için sistem geneli kısayollar.",
 			"scrobbling": "Skroplama",
 			"scrobbling_hint": "Skroplamanın neleri göndereceği ve bir dinlemenin ne zaman sayılacağı.",
-			"devices": "Cihazlar"
+			"devices": "Cihazlar",
+			"devices_hint": "Telefonunuzdaki Limusic uygulamasını kullanarak bilgisayarınızda çalanları kontrol edin.",
+			"contributing": "Katkı",
+			"contributing_hint": "Limusic Lyrics hesabınız ve nasıl şarkı sözü ekleyebileceğiniz."
 		},
 		"sections": {
 			"language": "Dil (Language)",
@@ -740,7 +745,16 @@
 			"play_on_phone": "Telefonda oynat",
 			"more": "Daha fazla",
 			"unlink": "Bağlantıyı kaldır",
-			"unlink_title": "{name} bağlantısı kaldırılsın mı?"
+			"unlink_title": "{name} bağlantısı kaldırılsın mı?",
+			"title": "Her yerde dinleyin",
+			"subtitle": "Cihazlarınız birbirlerini kontrol eder ve müzik cihazlar arasında dolaşır."
+		},
+		"search": {
+			"placeholder": "Ayarlarda ara",
+			"hint": "Enter tuşuna basıldığında ilk sonuç açılır, Esc tuşuna basıldığında arama silinir.",
+			"empty": "“{query}” ile eşleşen ayar bulunamadı",
+			"empty_hint": "Daha kısa bir kelimeyi ya da bir ayar tanımından kelimeyi deneyin.",
+			"shown_when": "“{setting}” açık olduğunda görüntülenir"
 		}
 	},
 	"dialogs": {
