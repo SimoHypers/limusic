@@ -62,6 +62,13 @@ const ARROW_OWNERS =
 /** Percent per press, matching a step of the volume slider's arrow keys. */
 const VOLUME_STEP = 5;
 
+const ARROWS: Record<string, () => void> = {
+	ArrowLeft: () => skipBy(-SEEK_SECS),
+	ArrowRight: () => skipBy(SEEK_SECS),
+	ArrowUp: () => nudgeVolume(VOLUME_STEP),
+	ArrowDown: () => nudgeVolume(-VOLUME_STEP)
+};
+
 /** Somewhere a bare space or `;` is a character, not a command. A slider (seek bar, volume) is an
  *  input but types nothing, so a click on it no longer leaves Space dead (#574). */
 export const typing = (t: EventTarget | null) =>
@@ -89,12 +96,14 @@ export function initShortcuts(mini = false) {
 			return;
 		}
 		if (!e.ctrlKey && !e.metaKey) {
-			// ← / → seek, 10 s like the global hotkeys (#570). Not while something focused owns the
-			// arrows: a field, a slider (volume, seek bar), a menu, a list, a dialog.
-			if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+			// ← / → seek, 10 s like the global hotkeys (#570), ↑ / ↓ step the volume. Not while
+			// something focused owns the arrows: a field, a slider (volume, seek bar), a menu, a
+			// list, a dialog. With nothing playing, ↑ / ↓ go back to scrolling the page.
+			const arrow = ARROWS[e.key];
+			if (arrow) {
 				if (!playback.now || typing(e.target) || e.altKey || e.shiftKey) return;
 				if (e.target instanceof HTMLElement && e.target.closest(ARROW_OWNERS)) return;
-				skipBy(e.key === 'ArrowLeft' ? -SEEK_SECS : SEEK_SECS);
+				arrow();
 				e.preventDefault();
 				return;
 			}
