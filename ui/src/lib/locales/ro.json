@@ -485,8 +485,6 @@
 			"videos_first_hint": "Piesele de pe albume care au videoclipuri muzicale vor porni în versiunea video. Dezactivează această opțiune pentru a porni versiunea audio. Comutatorul Piesă/Videoclip din ecranul de redare îți permite să treci oricând de la o versiune la alta."
 		},
 		"data": {
-			"clear_cache": "Golește memoria cache pentru imagini și fluxuri",
-			"clear_cache_hint": "Eliberează spațiu pe disc prin ștergerea miniaturilor și a fragmentelor audio stocate temporar.",
 			"clear_cache_button": "Golește memoria cache acum"
 		},
 		"about": {

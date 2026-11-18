@@ -673,8 +673,6 @@
 			"action_show_app_hint": "הבא את חלון Limusic לקדמת המסך."
 		},
 		"data": {
-			"clear_cache": "ניקוי מטמון תמונות והזרמה",
-			"clear_cache_hint": "מפנה שטח דיסק על ידי מחיקת תמונות ממוזערות וקטעי שמע שנשמרו במטמון.",
 			"clear_cache_button": "נקה מטמון כעת"
 		},
 		"about": {

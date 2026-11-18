@@ -449,8 +449,6 @@
 			"lyrics_sources_none": "Tutte le fonti sono disattivate, pertanto non verrà trovato alcun testo."
 		},
 		"data": {
-			"clear_cache": "Cancella cache di immagini e streaming",
-			"clear_cache_hint": "Libera spazio su disco eliminando le miniature e i segmenti audio memorizzati nella cache.",
 			"clear_cache_button": "Cancella cache adesso"
 		},
 		"about": {

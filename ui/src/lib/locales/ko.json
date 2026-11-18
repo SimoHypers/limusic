@@ -20,7 +20,8 @@
 		"playlist_partial": "{playlist}에 {added}곡을 추가했습니다. {duplicates}곡은 이미 존재하며, {remaining}곡은 확인되지 않았습니다. {error}",
 		"remove": "이 재생목록에서 제거",
 		"remove_confirm": "{count}개 곡을 삭제할까요?",
-		"playlists_partial": "전체 {total}개의 재생목록 중 {done}개에 추가했습니다. {error}"
+		"playlists_partial": "전체 {total}개의 재생목록 중 {done}개에 추가했습니다. {error}",
+		"play_on_repeat": "선택한 곡만 반복 재생"
 	},
 	"common": {
 		"loading": "로딩 중...",
@@ -87,7 +88,8 @@
 		"top_result": "인기 검색 결과",
 		"all_results_for": "“{query}” 전체 검색 결과",
 		"refresh": "새로고침",
-		"videos": "동영상"
+		"videos": "동영상",
+		"restore": "복원"
 	},
 	"nav": {
 		"home": "홈",
@@ -110,7 +112,8 @@
 		"remove_account_desc": "{name} 계정은 이 목록에서만 삭제됩니다. Google 계정 자체는 삭제되거나 변경되지 않으며, 언제든지 다시 로그인할 수 있습니다.",
 		"saved_accounts_hint": "전환할 저장된 계정을 선택하세요.",
 		"history": "재생 기록",
-		"no_channels": "선택할 수 있는 YouTube 채널이 없습니다."
+		"no_channels": "선택할 수 있는 YouTube 채널이 없습니다.",
+		"stats": "통계"
 	},
 	"player": {
 		"play": "재생",
@@ -170,7 +173,30 @@
 		"songs_left_one": "1개의 곡이 남았습니다",
 		"queue_ends": "이 곡을 끝으로 대기열이 종료됩니다.",
 		"mini_expand": "미니 플레이어 확장",
-		"edit_scrobble": "감상 기록 수정"
+		"edit_scrobble": "감상 기록 수정",
+		"karaoke": "노래방: 보컬 제거",
+		"link_playing_on": "{name}에서 재생 중",
+		"link_paused_on": "{name}에서 일시정지됨",
+		"link_continue_here": "이 기기에서 이어서 재생",
+		"devices": "기기",
+		"devices_title": "재생할 기기 선택",
+		"devices_hint": "음악을 재생할 기기를 선택하세요.",
+		"devices_settings": "기기 설정",
+		"this_computer": "이 컴퓨터",
+		"devices_this_computer_hint": "이 기기에서 재생됨",
+		"devices_playing_here": "이 기기에서 재생 중",
+		"devices_paused": "일시정지됨",
+		"comments": "댓글",
+		"song": "노래",
+		"video": "동영상",
+		"fullscreen_video": "동영상 전체 화면",
+		"exit_fullscreen_video": "동영상 전체 화면 종료",
+		"up_next": "다음 곡",
+		"live": "실시간",
+		"skip_back": "{seconds}초 뒤로",
+		"skip_forward": "{seconds}초 앞으로",
+		"speed": "재생 속도",
+		"scroll_to_end": "맨 아래로 스크롤"
 	},
 	"home": {
 		"good_morning": "즐거운 아침이에요",
@@ -207,7 +233,23 @@
 		"move_section": "{title} 이동",
 		"moved_section": "{title} 섹션이 {total}개 중 {position}번째로 이동했습니다",
 		"all_hidden": "홈 화면의 모든 섹션이 꺼져 있습니다.",
-		"look": "외관"
+		"look": "외관",
+		"kinds": {
+			"listen_together": "함께 듣기",
+			"listen_again": "다시 듣기",
+			"quick_picks": "빠른 선곡",
+			"from_library": "내 보관함에서 선곡",
+			"community": "커뮤니티 추천",
+			"fresh_finds": "새로운 발견과 즐겨 듣던 명곡",
+			"albums_for_you": "맞춤 앨범",
+			"trending": "취향 맞춤 인기곡",
+			"featured_playlists": "맞춤 추천 재생목록",
+			"new_releases": "새 앨범 및 싱글",
+			"mixed_for_you": "나만의 믹스",
+			"daily_discover": "오늘의 발견",
+			"music_videos": "맞춤 뮤직비디오"
+		},
+		"live_now": "지금 실시간 방송 중"
 	},
 	"history": {
 		"title": "기록",
@@ -223,7 +265,8 @@
 		"subscribed": "구독 중",
 		"subscribe_to": "{name} 구독",
 		"unsubscribe_from": "{name} 구독 취소",
-		"top_songs": "인기곡"
+		"top_songs": "인기곡",
+		"appears_on": "참여 앨범"
 	},
 	"library": {
 		"title": "보관함",
@@ -282,7 +325,16 @@
 		"saved_in_many": "{count}개의 재생목록에 저장됨",
 		"saved_in_more": "외 {count}개",
 		"subscriptions_tab": "구독",
-		"no_subscriptions": "아직 구독된 아티스트가 없습니다. 아티스트 페이지에서 구독하면 여기에 표시됩니다."
+		"no_subscriptions": "아직 구독된 아티스트가 없습니다. 아티스트 페이지에서 구독하면 여기에 표시됩니다.",
+		"suggestions": "추천 곡",
+		"suggestions_hint": "이 재생목록에 담긴 곡을 바탕으로 추천",
+		"suggestions_failed": "추천 곡을 불러오지 못했습니다.",
+		"suggestion_add": "이 재생목록에 {title} 추가",
+		"suggestion_added": "추가됨",
+		"suggestions_hide": "숨기기",
+		"suggestions_show": "표시",
+		"suggestions_hidden": "추천 곡이 숨겨졌습니다. 내 재생목록 맨 아래에서 언제든 다시 표시할 수 있습니다.",
+		"saved_in_count": "재생목록 {count}개"
 	},
 	"local": {
 		"scanning": "기기 음악 찾는 중...",
@@ -316,7 +368,11 @@
 			"hotkeys": "전역 단축키",
 			"hotkeys_hint": "어떤 화면에서나 재생을 제어할 수 있는 시스템 단축키 설정.",
 			"scrobbling": "감상 기록 연동",
-			"scrobbling_hint": "Last.fm에 기록되는 정보와 재생 기록이 남는 시점입니다."
+			"scrobbling_hint": "감상 기록 연동 시 전송되는 정보와 재생 횟수가 집계되는 기준을 안내합니다.",
+			"contributing": "기여하기",
+			"contributing_hint": "Limusic 가사 계정 및 가사 등록 방법을 안내합니다.",
+			"devices": "기기",
+			"devices_hint": "휴대폰의 Limusic 앱으로 이 데스크톱의 재생을 제어합니다."
 		},
 		"sections": {
 			"language": "언어",
@@ -339,7 +395,9 @@
 			"discord_status": "상태 표시 설정",
 			"discord_card": "프로필 카드 설정",
 			"discord_links": "링크 연결 활성화",
-			"discord_buttons": "버튼 설정"
+			"discord_buttons": "버튼 설정",
+			"colors": "색상",
+			"interface": "인터페이스"
 		},
 		"general": {
 			"language": "언어 설정",
@@ -365,7 +423,11 @@
 			"start_minimized": "시스템 시작 시 트레이로 최소화하여 실행",
 			"start_minimized_hint": "컴퓨터가 켜질 때 자동으로 실행되지만, 직접 열기 전까지는 시스템 트레이에 숨겨진 상태를 유지합니다.",
 			"track_notifications": "곡 재생 알림",
-			"track_notifications_hint": "Limusic이 백그라운드에 있을 때 다음 곡이 시작되면 알림을 표시합니다."
+			"track_notifications_hint": "Limusic이 백그라운드에 있을 때 다음 곡이 시작되면 알림을 표시합니다.",
+			"play_on_start": "앱 실행 시 재생 이어하기",
+			"play_on_start_hint": "Limusic을 실행할 때 마지막 대기열의 곡을 자동으로 재생합니다.",
+			"track_notifications_focused": "Limusic 사용 중에도 표시",
+			"track_notifications_focused_hint": "Limusic 창이 활성화된 상태에서도 다음 곡이 자동으로 재생되기 시작하면 알림을 표시합니다. 사용자가 직접 선택한 곡은 알림이 표시되지 않습니다."
 		},
 		"themes": {
 			"interface_font": "앱 표시 글꼴",
@@ -405,7 +467,60 @@
 			"app_icon_dialog": "앱 아이콘 선택",
 			"app_icon_filter": "PNG 이미지",
 			"zoom": "화면 비율",
-			"zoom_hint": "창 안의 모든 요소 크기를 조절합니다. 확대/축소 단축키로도 조절할 수 있으며, 앱을 다시 실행해도 설정이 유지됩니다."
+			"zoom_hint": "창 안의 모든 요소 크기를 조절합니다. 확대/축소 단축키로도 조절할 수 있으며, 앱을 다시 실행해도 설정이 유지됩니다.",
+			"cover_lyric_romanized": "앨범 아트 아래에 발음 표기 가사 표시",
+			"cover_lyric_romanized_hint": "발음 표기가 있는 곡의 경우 앨범 아트 아래 가사 줄에 원문 대신 발음 표기를 보여줍니다. 가사 탭의 발음 표기 전환 스위치는 별도로 유지됩니다. 새 레이아웃에서만 지원됩니다.",
+			"theater_clock": "영화관 모드 시계",
+			"theater_clock_hint": "영화관 모드가 화면을 가득 채워 시스템 시계가 보이지 않을 때 화면 모서리에 현재 시각을 표시합니다.",
+			"theater_clock_side": "시계 표시 위치",
+			"theater_clock_left": "왼쪽 상단",
+			"theater_clock_right": "오른쪽 상단",
+			"theater_clock_format": "시간 형식",
+			"theater_clock_format_auto": "자동",
+			"theater_clock_format_12": "12시간",
+			"theater_clock_format_24": "24시간",
+			"empty_click_player": "빈 공간을 클릭하여 플레이어 열기 또는 닫기",
+			"empty_click_player_hint": "켜면 플레이어 바의 빈 부분을 클릭해 플레이어 화면을 열거나 닫을 수 있으며, 앨범 아트 주변을 클릭해도 닫힙니다. 끄면 화살표 버튼, Esc 키 및 키보드 단축키로만 열고 닫을 수 있습니다.",
+			"classic_player": "클래식 플레이어 레이아웃",
+			"classic_player_hint": "기존 플레이어 화면 스타일입니다: 흐리게 처리된 커버 배경 위에 앨범 아트가 배치되며, 곡 정보는 플레이어 바에 그대로 유지됩니다. 끄면 새 레이아웃이 적용되어 앨범 아트 아래에 제목, 아티스트, 앨범이 표시되고 커버 색상에 맞춘 조명 효과가 적용됩니다.",
+			"enhanced_lyrics": "향상된 가사 효과",
+			"enhanced_lyrics_hint": "노래가 재생되는 흐름에 맞춰 가사 단어에 애니메이션과 발광 효과가 적용됩니다.",
+			"enhanced_lyrics_line_sync": "줄 단위 싱크 가사에도 애니메이션 적용",
+			"enhanced_lyrics_line_sync_hint": "줄 단위 싱크만 있는 가사의 경우 단어별 타이밍을 추정하여 적용합니다. 끄면 기존처럼 줄 단위로만 동기화됩니다.",
+			"lyrics_anim": "단어 애니메이션",
+			"lyrics_anim_hint": "노래가 불릴 때 각 단어가 움직이는 방식을 설정합니다.",
+			"lyrics_anim_bounce": "통통 튀기",
+			"lyrics_anim_float": "둥실 떠오르기",
+			"lyrics_anim_wave": "물결치기",
+			"lyrics_anim_pop": "톡 튀어나오기",
+			"lyrics_anim_slide": "미끄러지기",
+			"lyrics_anim_none": "없음",
+			"lyrics_style": "강조 스타일",
+			"lyrics_style_hint": "노래에 맞춰 한 줄의 가사 단어가 채워지고 강조되는 방식을 설정합니다.",
+			"lyrics_style_feather": "부드러운 그라데이션 채우기",
+			"lyrics_style_accent": "강조 색상 선",
+			"lyrics_style_crisp": "선명한 노래방 스타일",
+			"lyrics_style_word": "단어 전체 강조",
+			"lyrics_anim_strength": "애니메이션 강도",
+			"lyrics_anim_strength_hint": "가사 애니메이션 재생 시 단어가 움직이는 폭을 조절합니다.",
+			"lyrics_glow": "발광 강도",
+			"lyrics_glow_hint": "노래가 불릴 때 단어 주변에 은은하게 빛나는 발광 효과의 세기를 조절합니다.",
+			"blur_playlist_header": "재생목록 상단 배경 흐리게 처리",
+			"blur_playlist_header_hint": "재생목록 상단 영역 뒤에 커버 이미지를 흐리게 표시합니다. 전체 너비로 늘어나 픽셀이 깨져 보이는 커버 이미지를 부드럽게 보정해 줍니다.",
+			"now_playing_pill": "현재 재생 중 이동 버튼",
+			"now_playing_pill_hint": "재생목록이나 대기열을 스크롤하여 현재 재생 중인 곡이 화면에서 벗어났을 때, 해당 곡 위치로 바로 이동하는 버튼을 표시합니다.",
+			"matugen": "바탕화면 색상 팔레트",
+			"matugen_hint": "Matugen, wallust 또는 pywal이 바탕화면에서 추출한 색상 팔레트에서 강조 색상을 포함한 모든 색상을 가져옵니다. 먼저 해당 도구에서 Limusic 템플릿을 설정해야 합니다.",
+			"mode": "밝게 또는 어둡게",
+			"mode_hint": "'시스템 설정'을 선택하면 컴퓨터의 화면 모드 설정에 맞춰 자동으로 전환됩니다.",
+			"mode_light": "밝게",
+			"mode_dark": "어둡게",
+			"mode_system": "시스템 설정",
+			"accent_hint": "버튼, 재생 진행 바 및 선택된 항목에 적용됩니다.",
+			"accent_theme": "테마 기본 강조 색상",
+			"accent_artwork_note": "곡이 재생되는 동안에는 앨범 커버에서 강조 색상을 추출합니다. 이 색상을 사용하려면 '앨범 아트에 맞춰 색상 조정' 옵션을 끄세요.",
+			"preview": "미리보기",
+			"preview_hint": "슬라이더나 색상 선택기를 드래그하는 동안 이곳에 미리보기가 표시되며, 마우스를 놓으면 앱 전체에 적용됩니다."
 		},
 		"playback": {
 			"audio_quality": "오디오 음질",
@@ -422,8 +537,8 @@
 			"play_history_hint": "개인 맞춤형 음악 추천을 위해 최근 감상 기록을 저장합니다.",
 			"music_videos": "뮤직비디오 재생 활성화",
 			"music_videos_hint": "음원만 재생하는 대신 가능한 경우 뮤직비디오 영상을 재생합니다.",
-			"hide_videos": "검색 결과에서 동영상 숨기기",
-			"hide_videos_hint": "검색 결과에 정식 발매 음원과 오디오 트랙만 표시합니다.",
+			"hide_videos": "검색 및 라디오에서 동영상 숨기기",
+			"hide_videos_hint": "검색, 홈, 아티스트 페이지, 라디오 및 자동 재생에서 오디오 곡만 표시합니다. 직접 연 재생목록과 앨범에는 기존처럼 모든 항목이 표시되며, 뮤직비디오에서 시작한 라디오에서는 동영상이 재생됩니다.",
 			"blocked_artists": "차단된 아티스트",
 			"blocked_artists_hint": "차단된 아티스트의 곡은 라디오, 자동 재생, 추천 항목에서 제외됩니다. 단, 사용자가 직접 열어본 재생목록이나 앨범에 포함된 곡은 그대로 재생됩니다.",
 			"blocked_artists_empty": "아직 차단한 아티스트가 없습니다. 곡 옆의 더보기(···) 메뉴에서 '아티스트 차단'을 선택해 보세요.",
@@ -456,12 +571,30 @@
 			"ambient_light_gpu": "PassMark 그래픽 카드 벤치마크 점수가 약 1,000점 이하인 경우, 뮤직비디오 재생 시 플레이어 화면이 버벅이거나 끊길 수 있습니다.",
 			"ambient_light_gpu_check": "내 그래픽 카드 확인하기",
 			"shuffle_whole_queue": "전체 대기열 셔플",
-			"shuffle_whole_queue_hint": "셔플을 켜면 '대기열에 추가'한 곡이 재생목록과 섞여서 재생됩니다. 셔플을 끄면 추가한 순서대로 재생목록이 끝난 후 재생됩니다. '다음에 재생'은 항상 다음에 재생됩니다."
+			"shuffle_whole_queue_hint": "셔플을 켜면 '대기열에 추가'한 곡이 재생목록과 섞여서 재생됩니다. 셔플을 끄면 추가한 순서대로 재생목록이 끝난 후 재생됩니다. '다음에 재생'은 항상 다음에 재생됩니다.",
+			"auto_pause_other_audio": "다른 앱에서 미디어를 재생할 때 일시정지",
+			"auto_pause_other_audio_hint": "브라우저 탭이나 동영상 플레이어 같은 다른 앱에서 미디어를 재생하는 동안 일시정지하고, 재생이 멈추면 다시 이어서 재생합니다. 알림음과 게임 소리는 제외됩니다.",
+			"videos_first": "뮤직비디오 우선 재생",
+			"videos_first_hint": "뮤직비디오가 있는 앨범 및 재생목록 곡을 재생할 때 뮤직비디오부터 시작합니다. 끄면 일반 곡(오디오)으로 시작합니다. 설정 여부와 관계없이 플레이어 화면의 노래/동영상 전환 스위치를 통해 언제든 바꿀 수 있습니다.",
+			"lyrics_prefer_words": "단어별 싱크 가사 우선 사용",
+			"lyrics_prefer_words_hint": "가사 제공처 우선순위에서 아래에 있더라도 단어별 싱크가 포함된 가사를 줄 단위 싱크 가사보다 우선적으로 사용합니다. 곡을 처음 재생할 때는 가사가 표시되기까지 몇 초 정도 더 걸릴 수 있습니다."
 		},
 		"data": {
-			"clear_cache": "이미지 및 스트리밍 캐시 삭제",
-			"clear_cache_hint": "임시 저장된 썸네일과 오디오 데이터를 삭제하여 저장공간을 확보합니다.",
-			"clear_cache_button": "캐시 삭제"
+			"clear_cache_button": "캐시 지우기",
+			"used": "사용 중인 저장 공간",
+			"used_hint": "Limusic이 이 컴퓨터에 저장하고 있는 모든 데이터입니다.",
+			"library": "보관함 및 설정",
+			"library_hint": "앱 설정, 재생 기록, 저장된 가사 및 로컬 음악 보관함 데이터입니다.",
+			"audio": "오디오 캐시",
+			"audio_hint": "곡을 재생하는 동안 임시 저장되는 오디오 데이터와 재생 시작 속도를 높이기 위해 저장된 링크입니다. 캐시를 지우면 로딩이 멈추는 곡의 재생 문제를 해결하는 데도 도움이 됩니다.",
+			"karaoke": "노래방 음원",
+			"models": "노래방 모델",
+			"models_hint": "다운로드한 보컬 제거 모델 및 이를 실행하는 엔진 파일입니다.",
+			"manage": "관리",
+			"web": "이미지 및 웹 캐시",
+			"web_hint": "앱 창에서 불러온 앨범 아트 및 기타 파일로, 시스템 웹 엔진에 의해 보관됩니다.",
+			"other": "기타",
+			"other_hint": "로그, 로컬 파일의 앨범 아트 및 Limusic이 곡을 재생하는 데 필요한 소규모 파일입니다."
 		},
 		"about": {
 			"description": "Tauri와 Svelte 기반으로 개발된 아름답고 빠르며 가벼운 데스크톱 음악 플레이어입니다.",
@@ -597,7 +730,7 @@
 			"enable": "감상 기록 연동",
 			"enable_hint": "계정 연결을 해제하지 않고 감상 기록 연동을 중지하려면 끄세요.",
 			"now_playing": "현재 재생 중인 음악 표시",
-			"now_playing_hint": "곡이 재생되기 시작하면 Last.fm에 전송하여 프로필에 현재 재생 중인 곡이 실시간으로 표시됩니다.",
+			"now_playing_hint": "곡이 재생되기 시작하면 현재 감상 중인 곡이 프로필에 실시간으로 표시되도록 전송합니다.",
 			"section_timing": "재생 기록 시점",
 			"percent": "감상 기록 기준",
 			"percent_value": "{n}%",
@@ -649,13 +782,56 @@
 			"applied_edit": "사용자 수정 사항",
 			"applied_split": "제목 분리",
 			"applied_rule": "규칙 {n}",
-			"status_disconnected": "Last.fm이 연결되어 있지 않아 전송되지 않습니다.",
+			"status_disconnected": "연결된 감상 기록 연동 서비스가 없어 기록이 전송되지 않습니다.",
 			"status_paused": "감상 기록 연동이 꺼져 있습니다.",
 			"status_skip_edit": "사용자 수정 설정으로 인해 이 곡은 전송되지 않습니다.",
 			"status_incomplete": "곡 제목 또는 아티스트 정보가 없어 전송되지 않습니다.",
 			"status_short": "재생 시간이 너무 짧아 기록되지 않습니다.",
 			"status_at": "{time}에 기록됩니다.",
-			"status_done": "{time}에 기록되었습니다."
+			"status_done": "{time}에 기록되었습니다.",
+			"stat_listens": "기록",
+			"lb_open_profile": "ListenBrainz 프로필 열기",
+			"lb_disconnected": "ListenBrainz 계정을 연결하면 감상 기록을 전송할 수 있습니다.",
+			"lb_validating": "ListenBrainz에서 토큰 확인 중...",
+			"lb_token_hint": "사용자 토큰을 여기에 붙여넣으세요. ListenBrainz 설정 페이지에서 복사할 수 있습니다.",
+			"lb_open_settings": "ListenBrainz 설정 열기",
+			"lb_token_placeholder": "ListenBrainz 사용자 토큰",
+			"lb_custom_instance": "사용자 지정 ListenBrainz 인스턴스",
+			"lb_url_label": "인스턴스 API 주소",
+			"lb_problem_email": "ListenBrainz에 감상 기록이 정상적으로 등록되도록 MetaBrainz 이메일을 인증해 주세요.",
+			"lb_problem_rejected": "ListenBrainz에서 이 토큰을 더 이상 허용하지 않습니다. 새 토큰으로 다시 연결해 주세요.",
+			"lb_verify_email": "이메일 인증"
+		},
+		"devices": {
+			"title": "어디서나 재생",
+			"subtitle": "연결된 기기끼리 서로 재생을 제어하고, 기기 간에 음악 재생을 자유롭게 전환할 수 있습니다.",
+			"intro": "휴대폰의 Limusic을 연결해 보세요: 각 기기에서 다른 기기의 재생 상태를 확인하고 제어할 수 있으며, 원하는 기기를 선택해 음악을 바로 이어서 재생할 수 있습니다.",
+			"link_phone": "휴대폰 연결",
+			"link_another": "다른 휴대폰 연결",
+			"step_open": "휴대폰에서 Limusic을 열고 설정 › 기기로 이동하세요",
+			"step_type": "이 코드를 입력하세요",
+			"custom_server": "이 서버에서는 {invite}를 입력하세요",
+			"expires_in": "{time} 후 만료",
+			"expired": "이 코드는 만료되었습니다.",
+			"new_code": "새 코드 발급",
+			"unsupported": "이 서버에서는 아직 기기 연결을 지원하지 않습니다.",
+			"try_again": "다시 시도",
+			"connecting": "연결 중…",
+			"this_computer": "이 컴퓨터",
+			"linked": "연결됨",
+			"online": "온라인",
+			"offline": "오프라인",
+			"playing": "재생 중",
+			"paused": "일시정지됨",
+			"playing_here": "이 기기에서 재생 중",
+			"ready": "준비됨",
+			"remote_for": "{name} 제어 중",
+			"play_here": "이 기기에서 재생",
+			"play_on_phone": "휴대폰에서 재생",
+			"more": "더보기",
+			"unlink": "연결 해제",
+			"unlink_title": "{name} 연결을 해제할까요?",
+			"unlink_desc": "해당 기기에서 더 이상 이 데스크톱을 제어할 수 없게 됩니다. 새 코드를 발급받아 언제든 다시 연결할 수 있습니다."
 		}
 	},
 	"dialogs": {
@@ -682,7 +858,10 @@
 			"copy_link": "링크 복사",
 			"public_link_on": "링크가 있는 사람은 누구나 열어볼 수 있습니다.",
 			"public_link_off": "링크를 가진 모든 사람이 접속할 수 있도록 이 옵션을 켭니다.",
-			"private_note": "이 재생목록은 비공개 상태입니다. 링크를 공유하더라도 다른 사용자는 오류 화면을 보게 됩니다."
+			"private_note": "이 재생목록은 비공개 상태입니다. 링크를 공유하더라도 다른 사용자는 오류 화면을 보게 됩니다.",
+			"start_at": "시작 시간",
+			"start_invalid": "1:23 형식으로 시간을 입력하세요.",
+			"start_too_long": "입력한 시간이 곡의 전체 길이({length})를 초과했습니다. 링크에 시작 시간이 포함되지 않습니다."
 		},
 		"shortcuts": {
 			"title": "키보드 단축키",
@@ -703,13 +882,30 @@
 			"zoom_out": "화면 축소",
 			"reset_zoom": "화면 비율 초기화",
 			"show_this_list": "단축키 안내 창 열기",
-			"refresh_page": "페이지 새로고침"
+			"refresh_page": "페이지 새로고침",
+			"like_song": "곡 좋아요 표시 또는 취소",
+			"quit_app": "Limusic 종료"
 		},
 		"tempo_pitch": {
-			"title": "템포 & 피치 조절",
+			"title": "템포, 피치 & 리버브",
 			"desc": "설정을 원래대로 돌리거나 앱을 다시 시작하기 전까지 재생되는 모든 곡에 적용됩니다.",
 			"tempo": "템포 (속도)",
-			"pitch": "피치 (음높이)"
+			"pitch": "피치 (음높이)",
+			"presets": "프리셋",
+			"builtin": {
+				"original": "원본",
+				"slowed": "느리게 + 잔향",
+				"nightcore": "나이트코어",
+				"practice": "연습용",
+				"hall": "콘서트홀"
+			},
+			"builtin_hints": {
+				"original": "발매된 그대로의 원본 곡",
+				"slowed": "느리고 낮은 톤에 넓은 공간의 울림 추가",
+				"nightcore": "빠르고 높은 톤에 은은한 울림 추가",
+				"practice": "원래 음정을 유지한 채 속도만 느리게 재생",
+				"hall": "마치 라이브 공연장에서 듣는 듯한 현장감"
+			}
 		},
 		"link": {
 			"title": "링크 열기",
@@ -881,8 +1077,35 @@
 			"youtube": "라이선스가 있는 경우 제공되는 YouTube Music 자체 가사입니다.",
 			"netease": "방대한 중국어 카탈로그입니다. 많은 곡에 중국어 번역 가사를 추가로 제공합니다.",
 			"qq": "중국어 카탈로그입니다. 만도팝과 칸토팝 음악이 풍부합니다.",
-			"kugou": "중국어 카탈로그입니다. 희귀한 곡을 찾을 때 좋습니다."
-		}
+			"kugou": "중국어 카탈로그입니다. 희귀한 곡을 찾을 때 좋습니다.",
+			"limusic": "Limusic 자체 가사로, 항상 단어 단위 싱크가 제공되며 현재 재생 중인 영상과 정확히 동기화됩니다."
+		},
+		"via": "제공: {source}",
+		"synced_by": "싱크 제작: {names}",
+		"rate": "이 가사가 정확한가요?",
+		"rate_hint": "익명으로 전송되며 로그인이 필요하지 않습니다.",
+		"vote_up": "가사 정확함",
+		"vote_down": "가사 부정확함",
+		"report": "문제 신고",
+		"report_title": "가사에 어떤 문제가 있나요?",
+		"report_timing": "싱크가 맞지 않음",
+		"report_text": "가사 내용(오탈자) 오류",
+		"report_wrong_song": "다른 곡의 가사임",
+		"report_abuse": "스팸 또는 부적절한 내용",
+		"report_note": "상세 내용 입력 (선택 사항)",
+		"report_send": "신고 보내기",
+		"reported": "신고가 접수되었습니다. 검토자가 내용을 확인할 예정입니다.",
+		"feedback_own": "직접 등록한 가사입니다.",
+		"feedback_gone": "이 가사는 더 이상 Limusic에 존재하지 않습니다.",
+		"feedback_rate_limited": "짧은 시간에 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+		"feedback_banned": "이 계정은 평가하거나 신고할 수 없습니다.",
+		"feedback_failed": "Limusic 가사 서버에 연결할 수 없어 저장되지 않았습니다.",
+		"sync": "이 가사 싱크 맞추기",
+		"sync_hint": "노래에 맞춰 한 번만 탭하면 모든 사용자에게 단어별 싱크가 제공됩니다.",
+		"improve": "이 가사 수정하기",
+		"improve_hint": "잘못된 가사나 맞지 않는 싱크를 수정합니다.",
+		"draft": "작성 중인 초안 이어하기",
+		"draft_hint": "전체 {total}줄 중 {done}줄 싱크 완료."
 	},
 	"queue": {
 		"title": "대기열"
@@ -1094,5 +1317,182 @@
 		"anyway_hint": "중복 곡도 추가",
 		"adds": "+{count}",
 		"anyway_hint_local": "중복 곡은 YouTube 재생목록에만 추가됩니다"
+	},
+	"karaoke": {
+		"consent": {
+			"source": "모델의 공식 출처인 GitHub(TRvlvr/model_repo)에서 다운로드됩니다.",
+			"runtime": "ONNX Runtime(Microsoft, MIT 라이선스)도 공식 GitHub 릴리스에서 함께 다운로드됩니다.",
+			"runtime_windows": "ONNX Runtime과 DirectML(모두 Microsoft 제공)도 Microsoft의 공식 NuGet 패키지에서 함께 다운로드됩니다.",
+			"runtime_linux": "ONNX Runtime(공식 GitHub 릴리스)과 ONNX Runtime WebGPU 플러그인(files.pythonhosted.org)도 함께 다운로드됩니다.",
+			"credit": "Anjok07 및 aufr33의 Ultimate Vocal Remover에서 제공하는 UVR-MDX-NET-Inst_HQ_3, UVR-MDX-NET-Inst_Main 및 UVR_MDXNET_3_9662 모델이 사용됩니다(MIT 라이선스).",
+			"redownload": "노래방 기능을 준비하기 위해 Limusic이 곡의 오디오를 한 번 더 다운로드합니다.",
+			"directml": "그래픽 카드를 사용할 경우 Microsoft DirectML을 통해 노래방 기능이 실행되며, 이 과정에서 사용 데이터가 Microsoft로 전송될 수 있습니다.",
+			"credit_link": "Ultimate Vocal Remover"
+		},
+		"experimental_tooltip": "아직 세부 조정 중인 기능입니다. '가볍게' 모델은 보컬 소리가 약간 남을 수 있으며, '최고 품질' 모델은 그래픽 카드가 없으면 속도가 느려집니다. 결과가 이상하게 나오는 곡이 있다면 제보해 주세요.",
+		"button": {
+			"options": "노래방 옵션",
+			"ready": "노래방 켜짐: 보컬 제거됨",
+			"preparing": "노래방 켜짐: 이 곡 준비 중",
+			"failed": "노래방 기능에서 이 곡을 준비할 수 없습니다",
+			"too_long": "노래방 켜짐: 곡 길이가 너무 깁니다"
+		},
+		"panel": {
+			"title": "노래방",
+			"hint": "따라 부를 수 있도록 곡에서 보컬을 제거합니다.",
+			"off": "기능을 켜면 현재 곡과 다음 두 곡의 보컬이 제거됩니다.",
+			"now_ready": "보컬 제거됨",
+			"now_starting": "이 곡 준비 중",
+			"now_progress": "{pct}% 완",
+			"now_progress_eta": "{pct}% 완료, 약 {min}분 남음",
+			"now_progress_soon": "{pct}% 완료, 거의 준비됨",
+			"now_swap": "준비가 완료되면 현재 재생 중인 위치에서 바로 보컬이 제거됩니다.",
+			"now_too_long": "곡 길이가 15분을 초과하여 보컬이 유지됩니다.",
+			"try_again": "다시 시도",
+			"up_next": "다음 곡",
+			"up_next_empty": "대기열에 추가된 다음 곡이 없습니다.",
+			"slot_ready": "준비됨",
+			"slot_waiting": "대기 중",
+			"slot_failed": "준비 실패",
+			"quality": "품질",
+			"settings": "노래방 설정"
+		},
+		"setup": {
+			"title": "노래방 설정하기",
+			"desc": "Limusic이 이 컴퓨터에서 직접 곡의 보컬을 제거합니다. 한 번 다운로드할 품질을 선택하세요. 나중에 언제든 변경할 수 있습니다.",
+			"local": "곡은 이 컴퓨터에서 직접 처리되며 외부로 아무것도 업로드되지 않습니다.",
+			"cache": "준비가 완료된 곡은 디스크에 저장되므로 다음에는 기다리지 않고 바로 재생됩니다.",
+			"download": "다운로드 ({size})",
+			"use": "{name} 사용",
+			"downloaded": "다운로드됨",
+			"progress": "{total}MB 중 {done}MB 완료"
+		},
+		"unavailable": {
+			"not_installed": "현재 설치된 Limusic 빌에는 노래방 기능이 포함되어 있지 않습니다.",
+			"corrupt": "노래방 기능 파일이 손상되었습니다. 노래방 기능을 다시 켜보시고, 문제가 해결되지 않으면 Limusic을 다시 설치해 주세요.",
+			"vc_runtime": "노래방 기능을 사용하려면 최신 Microsoft Visual C++ 재배포 가능 패키지(14.44 이상)가 필요합니다.",
+			"load_failed": "이 컴퓨터에서 노래방 기능을 시작할 수 없습니다.",
+			"proxy": "프록시가 설정되어 있을 때는 노래방 기능을 사용할 수 없습니다.",
+			"stopped": "노래방 기능이 예기치 않게 중지되었습니다. 다시 사용하려면 Limusic을 재시작해 주세요."
+		},
+		"error": {
+			"incomplete_download": "곡의 오디오 다운로드가 완료되지 않았습니다. 잠시 후 다시 시도합니다.",
+			"failed": "이 곡에서 보컬을 제거하지 못했습니다."
+		},
+		"download_error": {
+			"network": "다운로드에 실패했습니다. 네트워크 연결을 확인한 후 다시 시도해 주세요.",
+			"verify": "다운로드한 파일이 올바르지 않습니다. 다시 시도해 주세요.",
+			"disk": "파일을 저장할 수 없습니다. 디스크 여유 공간을 확인한 후 다시 시도해 주세요.",
+			"failed": "다운로드에 실패했습니다. 다시 시도해 주세요."
+		},
+		"download": "다운로드",
+		"cancel": "취소",
+		"retry": "다시 시도",
+		"not_now": "나중에 하기",
+		"settings": {
+			"title": "노래방",
+			"title_hint": "보컬 제거 설정",
+			"model": "AI 모델",
+			"model_desc": "보컬 제거 모델 등급을 선택합니다. 한 번만 다운로드하면 오프라인에서도 작동합니다.",
+			"model_light": "가볍게",
+			"model_light_desc": "속도가 가장 빠르지만 보컬 소리가 약간 남을 수 있습니다. 프로세서만으로도 재생 속도에 맞춰 원활하게 처리됩니다.",
+			"model_balanced": "균형",
+			"model_balanced_desc": "최고 품질에 가까울 정도로 깔끔하면서 처리 속도가 더 빠릅니다. 고성능 프로세서에서는 재생 속도에 맞춰 원활하게 처리됩니다.",
+			"model_best": "최고 품질",
+			"model_best_desc": "품질이 가장 뛰어나지만 속도가 느립니다. 프로세서만으로는 재생 속도를 따라가기 어려우므로 그래픽 카드사용 환경에 적합합니다.",
+			"model_installed": "설치됨 ({size})",
+			"model_missing": "설치되지 않음",
+			"cache_limit": "캐시 크기 제한",
+			"cache_limit_desc": "보컬 제거가 완료된 곡은 디스크에 캐시로 저장됩니다. 설정한 용량 제한을 초과하면 가장 오래된 파일부터 자동으로 제거됩니다.",
+			"cache_custom": "사용자 지정 ({n}MB)",
+			"cache_used": "사용 중인 캐시",
+			"cache_used_desc": "보컬 제거가 완료된 곡들이 차지하는 저장 공간입니다.",
+			"clear": "캐시 지우기",
+			"clear_confirm": "확인하려면 다시 클릭",
+			"cleared": "캐시를 지웠습니다",
+			"delete": "모델 삭제",
+			"delete_confirm": "확인하려면 다시 클릭",
+			"deleted": "모델을 삭제했습니다",
+			"delete_in_use": "노래방 기능이 켜져 있을 때는 사용 중인 모델을 삭제할 수 없습니다",
+			"delete_failed": "모델 삭제에 실패했습니다",
+			"status": "상태",
+			"status_desc": "노래방 기능이 실행되는 장치 또는 사용할 수 없는 이유를 표시합니다.",
+			"device": "처리 장치",
+			"device_desc": "노래방 모델을 실행할 장치를 선택합니다. 자동을 선택하면 메모리가 충분할 때 그래픽 카드를 사용하고, 그렇지 않으면 프로세서를 사용합니다.",
+			"device_desc_opt_in": "노래방 모델을 실행할 장치를 선택합니다. 일반적으로 그래픽 카드의 처리 속도가 더 빠르며, 사용할 수 없는 경우 자동으로 프로세서로 전환됩니다.",
+			"device_auto": "자동",
+			"device_cpu": "프로세서",
+			"device_gpu": "그래픽 카드",
+			"device_failed": "처리 장치 설정을 변경하지 못했습니다.",
+			"processor_gpu": "그래픽 카드에서 실행 중",
+			"processor_cpu": "프로세서에서 실행 중",
+			"not_started": "이번 세션에서 아직 사용되지 않음",
+			"get_vc_redist": "Microsoft에서 다운로드",
+			"credit": "모델 출처"
+		},
+		"lyrics_hint": "가사입니다. 노래방 기능이 켜져 있으며, 전환 스위치는 가사 화면 맨 아래에 있습니다."
+	},
+	"lyrics_editor": {
+		"step_text": "가사 입력"
+	},
+	"stats": {
+		"title": "감상 통계",
+		"ranges": {
+			"week": "7일",
+			"month": "30일",
+			"year": "12개월",
+			"all": "전체 기간"
+		},
+		"listened": {
+			"week": "최근 7일간 감상 시간",
+			"month": "최근 30일간 감상 시간",
+			"year": "최근 12개월간 감상 시간",
+			"all": "{date} 이후 감상 시간"
+		},
+		"compared": {
+			"week": "이전 7일 대비",
+			"month": "이전 30일 대비",
+			"year": "이전 12개월 대비"
+		},
+		"plays": "재생 횟수",
+		"new_songs": "새 곡 {count}곡",
+		"streak": "연속 감상 일수",
+		"best_streak": "최고 기록: {count}일",
+		"activity": "감상 활동",
+		"daily_average": "일일 평균",
+		"monthly_average": "월간 평균",
+		"busiest_day": "가장 많이 들은 날",
+		"busiest_month": "가장 많이 들은 달",
+		"busiest_weekday": "가장 많이 들은 요일",
+		"busiest_hour": "가장 많이 들은 시간대",
+		"top_songs": "많이 들은 곡",
+		"top_artists": "많이 들은 아티스트",
+		"top_albums": "많이 들은 앨범",
+		"share": "전체 감상의 {percent}%",
+		"when": "주요 감상 시간대",
+		"dayparts": {
+			"morning": "오전",
+			"afternoon": "오후",
+			"evening": "저녁",
+			"night": "밤"
+		},
+		"persona": {
+			"morning": "아침형 리스너",
+			"afternoon": "오후형 리스너",
+			"evening": "저녁형 리스너",
+			"night": "올빼미형 리스너"
+		},
+		"persona_hint": "주로 {from}부터 {to} 사이에 가장 많이 감상합니다.",
+		"less": "적음",
+		"more": "많음",
+		"nothing_in_range": "이 기간에 재생한 곡이 없습니다.",
+		"empty_title": "감상 통계가 이곳에 기록됩니다",
+		"empty": "곡을 몇 곡 재생하면 어떤 음악을 언제, 얼마나 오래 들었는지 이 페이지에 채워집니다.",
+		"on_device": "Limusic에서 재생한 내역을 바탕으로 이 기기에서 자체 집계됩니다. 외부로 아무것도 전송되지 않습니다.",
+		"clear": "재생 기록 지우기",
+		"clear_title": "재생 기록을 지울까요?",
+		"clear_desc": "이 기기에 집계된 모든 재생 횟수가 초기화되어 감상 통계가 처음부터 다시 시작되며 '다시 듣기' 목록이 비워집니다. YouTube Music 재생 기록에는 영향을 주지 않습니다.",
+		"clear_confirm": "재생 기록 지우기",
+		"cleared": "재생 기록을 지웠습니다"
 	}
 }
