@@ -8,6 +8,9 @@
 import * as api from './api';
 import { playback, prefs, videoReady } from './player.svelte';
 
+/** false while the main window is closed to the tray, minimized or replaced by the mini player. */
+export const view = $state({ visible: true });
+
 /** Session-sticky on purpose: someone who hits "show artwork" wants artwork now and almost
  *  certainly on the next video too, but a permanent no is what the setting is for. */
 export const video = $state({
