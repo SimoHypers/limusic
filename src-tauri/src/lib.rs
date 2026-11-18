@@ -1077,6 +1077,7 @@ pub fn run() {
                 app_state.db.get_setting("auto_pause_other_audio").as_deref() == Some("true"),
             );
             autopause::spawn(app_state.clone());
+            import::spawn_auto_updates(app_state.clone());
 
             // The player view's <video> pulls its bytes from Rust over loopback, so the webview
             // never sees a googlevideo URL (context/11). videoproxy.rs explains why a socket and
@@ -1477,6 +1478,7 @@ pub fn run() {
             commands::import_create,
             commands::import_cancel,
             commands::import_source,
+            commands::import_set_auto,
             commands::import_update,
             commands::import_resolve,
             commands::lt_get_state,

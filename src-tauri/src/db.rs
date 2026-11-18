@@ -472,6 +472,19 @@ impl Db {
         );
     }
 
+    /// Every setting whose key starts with `prefix`, as `(key, value)`.
+    pub fn settings_with_prefix(&self, prefix: &str) -> Vec<(String, String)> {
+        let conn = self.0.lock().unwrap();
+        let Ok(mut stmt) =
+            conn.prepare("SELECT key, value FROM settings WHERE substr(key, 1, length(?1)) = ?1")
+        else {
+            return Vec::new();
+        };
+        stmt.query_map([prefix], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map(|rows| rows.flatten().collect())
+            .unwrap_or_default()
+    }
+
     pub fn delete_setting(&self, key: &str) {
         let conn = self.0.lock().unwrap();
         let _ = conn.execute("DELETE FROM settings WHERE key = ?1", [key]);
@@ -1271,6 +1284,20 @@ impl Db {
 
         tx.commit()?;
         Ok(())
+    }
+
+    /// Put the playlist's rows in this order (row ids). Scoped to the playlist like the removal.
+    pub fn order_local_playlist(&self, id: i64, rows: &[i64], now: i64) -> rusqlite::Result<()> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        for (pos, row) in rows.iter().enumerate() {
+            tx.execute(
+                "UPDATE local_playlist_tracks SET pos = ?1 WHERE playlist_id = ?2 AND id = ?3",
+                [pos as i64, id, *row],
+            )?;
+        }
+        tx.execute("UPDATE local_playlists SET updated_at = ?1 WHERE id = ?2", [now, id])?;
+        tx.commit()
     }
 
     /// Drop rows by their row id. Scoped to the playlist, so a stale id from another list can

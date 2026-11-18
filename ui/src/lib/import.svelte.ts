@@ -157,20 +157,27 @@ function landed(s: api.ImportSnapshot) {
 	if (fresh.length) library.items = [...fresh, ...library.items];
 }
 
-// An update has nothing to review: it says what changed and puts itself away.
+// An update has nothing to review: it says what changed and puts itself away. One the background
+// check started only speaks up when it changed something, and Rust puts it away itself.
 function updated(s: api.ImportSnapshot) {
 	if (s.phase !== 'done' && s.phase !== 'failed') return;
-	if (s.phase === 'failed') toast.error(importError(s.message));
-	else {
-		const r = s.results[0];
-		toast.success(
-			r && (r.added || r.removed)
-				? t('import.update_done', { added: r.added, removed: r.removed })
-				: t('import.update_none')
-		);
+	const r = s.results[0];
+	const changed = !!r && (r.added > 0 || r.removed > 0);
+	if (s.phase === 'failed') {
+		if (!s.auto) toast.error(importError(s.message));
+	} else {
+		if (changed || !s.auto)
+			toast.success(
+				!changed
+					? t('import.update_none')
+					: s.auto
+						? t('import.auto_update_done', { name: r.name, added: r.added, removed: r.removed })
+						: t('import.update_done', { added: r.added, removed: r.removed })
+			);
 		if (s.update && location.pathname.includes(encodeURIComponent(s.update))) refreshView();
+		if (r?.local) refreshLocalPlaylists();
 	}
-	api.importCancel().catch(() => {});
+	if (!s.auto) api.importCancel().catch(() => {});
 	imp.snapshot = null;
 }
 

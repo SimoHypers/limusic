@@ -1093,7 +1093,14 @@ export interface ImportSnapshot {
 	matched: number;
 	check: number;
 	missing: number;
-	lists: { kind: ImportListKind; name: string; count: number; cover?: string | null }[];
+	/** `linked`: read off a link, so it can be kept up to date with Spotify. */
+	lists: {
+		kind: ImportListKind;
+		name: string;
+		count: number;
+		cover?: string | null;
+		linked: boolean;
+	}[];
 	/** The last few tracks matched, newest first. */
 	recent: { title: string; artists: string; tier: ImportTier; thumbnail?: string | null }[];
 	/** While creating: steps done, steps in all. */
@@ -1104,6 +1111,8 @@ export interface ImportSnapshot {
 	results: ImportResult[];
 	/** Set when this is an "Update from Spotify" of that playlist rather than an import. */
 	update?: string | null;
+	/** An update the background check started, not the user. */
+	auto: boolean;
 }
 export interface ImportRow {
 	key: string;
@@ -1136,12 +1145,19 @@ export const importRows = (tier: ImportTier) => invoke<ImportRow[]>('import_rows
 /** `null` leaves the track out. A song picked here is remembered for every later import. */
 export const importPick = (key: string, song: SongItem | null) =>
 	invoke<ImportSnapshot>('import_pick', { key, song });
-export const importCreate = (options: { names?: Record<number, string>; local?: boolean }) =>
-	invoke<void>('import_create', { options });
+export const importCreate = (options: {
+	names?: Record<number, string>;
+	local?: boolean;
+	/** Keep the lists read off a link up to date with Spotify on their own. */
+	auto?: boolean;
+}) => invoke<void>('import_create', { options });
 /** Stops a running import, or puts away a finished one. */
 export const importCancel = () => invoke<void>('import_cancel');
+/** The Spotify link a playlist was imported from, and whether it updates by itself. */
 export const importSource = (playlistId: string) =>
-	invoke<string | null>('import_source', { playlistId });
+	invoke<{ url: string; auto: boolean } | null>('import_source', { playlistId });
+export const importSetAuto = (playlistId: string, on: boolean) =>
+	invoke<void>('import_set_auto', { playlistId, on });
 export const importUpdate = (playlistId: string) =>
 	invoke<ImportSnapshot>('import_update', { playlistId });
 export const importResolve = (link: string) => invoke<ImportResolved>('import_resolve', { link });
