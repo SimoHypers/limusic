@@ -11,6 +11,9 @@
 //! 2. **Review.** The job waits while the user changes any pick. Nothing has been written yet.
 //! 3. **Creating.** One playlist per list, on the account or on this machine.
 //!
+//! A playlist imported from a link can be brought up to date later ("Update from Spotify"), by
+//! hand or on its own: see "updating by itself" at the bottom.
+//!
 //! Every request to YouTube goes through [`before_youtube`] first, which is what keeps an import
 //! from getting the user's IP or account flagged. See "staying welcome on YouTube" below.
 //!
@@ -627,6 +630,9 @@ struct Job {
     index: HashMap<String, usize>,
     /// An "Update from Spotify" of this playlist: no review, and the writes are a diff.
     update_of: Option<String>,
+    /// Started by the background check, not by the user: the UI stays quiet unless it changed
+    /// something, and Stop doesn't reach it.
+    auto: bool,
     step: (usize, usize),
     /// Waiting out the hourly search budget: the unix second it frees up.
     waiting_until: Option<i64>,
@@ -643,12 +649,17 @@ pub struct ListBrief {
     name: String,
     count: usize,
     cover: Option<String>,
+    /// Read off a link, so it can be kept up to date with Spotify.
+    linked: bool,
 }
 
 /// Everything the UI draws from, small enough to send four times a second.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
+    /// Which job this is. A command's reply can land after the job's first events, so the UI
+    /// keeps whichever it saw last for a generation rather than the reply.
+    gen: u64,
     phase: Phase,
     total: usize,
     done: usize,
@@ -662,6 +673,7 @@ pub struct Snapshot {
     message: Option<String>,
     results: Vec<ListResult>,
     update: Option<String>,
+    auto: bool,
 }
 
 impl Job {
@@ -701,6 +713,7 @@ impl Job {
             rows,
             index,
             update_of: None,
+            auto: false,
             step: (0, 0),
             waiting_until: None,
             message: None,
@@ -728,6 +741,7 @@ impl Job {
         let count = |t: Tier| self.rows.iter().filter(|r| r.tier == t).count();
         let pending = count(Tier::Pending);
         Snapshot {
+            gen: self.gen,
             phase: self.phase,
             total: self.rows.len(),
             done: self.rows.len() - pending,
@@ -742,6 +756,7 @@ impl Job {
                     name: l.name.clone(),
                     count: l.keys.len(),
                     cover: l.cover.clone(),
+                    linked: l.url.is_some(),
                 })
                 .collect(),
             recent: self.recent.iter().cloned().collect(),
@@ -750,6 +765,7 @@ impl Job {
             message: self.message.clone(),
             results: self.results.clone(),
             update: self.update_of.clone(),
+            auto: self.auto,
         }
     }
 
@@ -1016,6 +1032,9 @@ pub fn status() -> Option<Snapshot> {
 pub fn cancel(state: &AppState) {
     let mut g = IMPORT.lock().unwrap();
     let gen = match g.job.as_mut() {
+        // A background update has no Stop button, and the UI putting the previous update away
+        // must not stop the next one.
+        Some(j) if j.running() && j.auto => return,
         Some(j) if j.running() => {
             j.phase = Phase::Cancelled;
             j.waiting_until = None;
@@ -1040,6 +1059,8 @@ pub struct CreateOptions {
     names: HashMap<usize, String>,
     /// On this machine rather than the account. Forced when signed out.
     local: bool,
+    /// Keep the lists read off a link up to date with Spotify on their own.
+    auto: bool,
 }
 
 pub fn create(state: &Arc<AppState>, opts: CreateOptions) -> Result<(), String> {
@@ -1054,7 +1075,7 @@ pub fn create(state: &Arc<AppState>, opts: CreateOptions) -> Result<(), String> 
         j.phase = Phase::Creating;
         j.gen
     };
-    tauri::async_runtime::spawn(run_create(Arc::clone(state), gen, opts.names, local));
+    tauri::async_runtime::spawn(run_create(Arc::clone(state), gen, opts.names, local, opts.auto));
     Ok(())
 }
 
@@ -1087,7 +1108,13 @@ fn songs_for(j: &Job, keys: &[String]) -> (Vec<SongItem>, usize) {
     (songs, missing)
 }
 
-async fn run_create(state: Arc<AppState>, gen: u64, names: HashMap<usize, String>, local: bool) {
+async fn run_create(
+    state: Arc<AppState>,
+    gen: u64,
+    names: HashMap<usize, String>,
+    local: bool,
+    auto: bool,
+) {
     let plan = with_job(gen, |j| {
         let mut plan = Vec::new();
         for (i, l) in j.lists.iter().enumerate() {
@@ -1126,8 +1153,12 @@ async fn run_create(state: Arc<AppState>, gen: u64, names: HashMap<usize, String
         return;
     };
     emit(&state, gen, true);
+    // Read once, up front: what the playlists are made on, whatever the user switches to meanwhile.
+    let account = (!local).then(|| state.it.data_sync_id()).flatten();
 
-    for p in plan {
+    // Last list first: the library shows the newest playlist on top, so this is what puts them
+    // there in Spotify's order. The results go back the right way round for the done screen.
+    for p in plan.into_iter().rev() {
         if !p.songs.is_empty() {
             match make_playlist(&state, gen, &p.name, &p.songs, local).await {
                 Ok((id, added)) => {
@@ -1140,7 +1171,14 @@ async fn run_create(state: Arc<AppState>, gen: u64, names: HashMap<usize, String
                         }
                     }
                     if let Some(url) = &p.url {
-                        save_source(&state, &id, url, &p.keys);
+                        let src = Source {
+                            url: url.clone(),
+                            keys: p.keys.clone(),
+                            auto,
+                            account: account.clone(),
+                            checked: now_secs(),
+                        };
+                        save_source(&state, &id, &src);
                     }
                     let result = ListResult {
                         kind: p.kind,
@@ -1151,7 +1189,7 @@ async fn run_create(state: Arc<AppState>, gen: u64, names: HashMap<usize, String
                         missing: p.missing + p.songs.len() - added,
                         removed: 0,
                     };
-                    with_job(gen, |j| j.results.push(result));
+                    with_job(gen, |j| j.results.insert(0, result));
                 }
                 Err(h) => return halt(&state, gen, h),
             }
@@ -1165,20 +1203,20 @@ async fn run_create(state: Arc<AppState>, gen: u64, names: HashMap<usize, String
 /// Add `ids` to an account playlist, answering the ones that went in. YouTube applies a batch
 /// whole or not at all, so a refused one is halved until the track it won't take (taken down,
 /// blocked in the region) is alone: a few requests to find it, not one per track. Pushback or an
-/// expired session stops it at once.
+/// expired session stops it at once. Each added video comes back with its row's handle.
 async fn add_all(
     state: &AppState,
     gen: Option<u64>,
     playlist_id: &str,
     ids: &[String],
-) -> Result<Vec<String>, Halt> {
+) -> Result<Vec<(String, String)>, Halt> {
     let client = metadata_client(state).map_err(Halt::Failed)?;
     let mut added = Vec::new();
     let mut todo: VecDeque<&[String]> = ids.chunks(100).collect();
     while let Some(piece) = todo.pop_front() {
         before_youtube(state, gen, Ask::Write).await?;
         match state.it.playlist_add_many(client, playlist_id, piece).await {
-            Ok(()) => added.extend_from_slice(piece),
+            Ok(rows) => added.extend(rows),
             Err(e) if pushed_back(&e) || matches!(e, innertube::Error::SessionExpired) => {
                 return Err(halt_for(state, e));
             }
@@ -1222,7 +1260,8 @@ async fn make_playlist(
     let id = state.it.create_playlist(client, name).await.map_err(|e| halt_for(state, e))?;
     let browse_id = format!("VL{id}");
     let ids: Vec<String> = songs.iter().map(|s| s.video_id.clone()).collect();
-    let added = add_all(state, Some(gen), &browse_id, &ids).await?;
+    let added: Vec<String> =
+        add_all(state, Some(gen), &browse_id, &ids).await?.into_iter().map(|(v, _)| v).collect();
     state.db.set_playlist_tracks(&browse_id, &added);
     Ok((browse_id, added.len()))
 }
@@ -1284,14 +1323,32 @@ async fn find_album(state: &AppState, want: &SavedAlbum) -> Result<Option<Browse
 struct Source {
     url: String,
     keys: Vec<String>,
+    /// Updated by itself in the background ("updating by itself" below).
+    #[serde(default)]
+    auto: bool,
+    /// The account it is on (`data_sync_id`), for the background check: signed into another one,
+    /// the playlist is left alone. `None` for a playlist on this machine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    account: Option<String>,
+    /// Unix second of the last background check.
+    #[serde(default)]
+    checked: i64,
 }
+
+const SOURCE_PREFIX: &str = "spotify_source:";
 
 fn source_key(playlist_id: &str) -> String {
-    format!("spotify_source:{}", playlist_id.strip_prefix("VL").unwrap_or(playlist_id))
+    format!("{SOURCE_PREFIX}{}", playlist_id.strip_prefix("VL").unwrap_or(playlist_id))
 }
 
-fn save_source(state: &AppState, playlist_id: &str, url: &str, keys: &[String]) {
-    if let Ok(json) = serde_json::to_string(&Source { url: url.to_owned(), keys: keys.to_vec() }) {
+/// The browse id a `spotify_source:` key is for.
+fn source_playlist(key: &str) -> Option<String> {
+    let rest = key.strip_prefix(SOURCE_PREFIX)?;
+    Some(if is_local_playlist(rest) { rest.to_owned() } else { format!("VL{rest}") })
+}
+
+fn save_source(state: &AppState, playlist_id: &str, src: &Source) {
+    if let Ok(json) = serde_json::to_string(src) {
         state.db.set_setting(&source_key(playlist_id), &json);
     }
 }
@@ -1300,9 +1357,77 @@ fn source(state: &AppState, playlist_id: &str) -> Option<Source> {
     serde_json::from_str(&state.db.get_setting(&source_key(playlist_id))?).ok()
 }
 
-/// The Spotify link a playlist was imported from, for its "Update from Spotify" banner.
-pub fn source_url(state: &AppState, playlist_id: &str) -> Option<String> {
-    source(state, playlist_id).map(|s| s.url)
+/// The playlist was deleted: nothing left to update.
+pub fn forget_source(state: &AppState, playlist_id: &str) {
+    state.db.delete_setting(&source_key(playlist_id));
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceInfo {
+    url: String,
+    auto: bool,
+}
+
+/// The Spotify link a playlist was imported from, for its "Update from Spotify" chip, and whether
+/// it updates by itself.
+pub fn source_info(state: &AppState, playlist_id: &str) -> Option<SourceInfo> {
+    source(state, playlist_id).map(|s| SourceInfo { url: s.url, auto: s.auto })
+}
+
+/// Turn updating by itself on or off. Turned on from the playlist's page, the playlist is the
+/// signed-in account's (the page only offers it on one you own), so that is the account noted.
+pub fn set_auto(state: &AppState, playlist_id: &str, on: bool) -> Result<(), String> {
+    let mut src = source(state, playlist_id).ok_or("gone")?;
+    src.auto = on;
+    if on && !is_local_playlist(playlist_id) {
+        src.account = state.it.data_sync_id();
+    }
+    save_source(state, playlist_id, &src);
+    Ok(())
+}
+
+/// A list's row keys the way [`Job::new`] files them: in order, each once.
+fn list_keys(list: &SourceList) -> Vec<String> {
+    let mut seen = HashSet::new();
+    list.tracks.iter().map(key).filter(|k| seen.insert(k.clone())).collect()
+}
+
+/// Read the playlist's link again. Only the embed's first 100 tracks is no basis for an update:
+/// everything past them would read as gone from Spotify.
+async fn read_source(src: &Source) -> Result<SourceList, String> {
+    let (kind, id) = spotify::parse_link(&src.url).ok_or("not_spotify")?;
+    let list = spotify::read_link(kind, &id).await?;
+    if list.truncated {
+        return Err("spotify_changed".into());
+    }
+    Ok(list)
+}
+
+/// Take the import slot for an update of `playlist_id` from `list`. By hand it waits only for a
+/// running import or one in review; in the background it never takes the slot from anything but
+/// a finished update, so it can't replace the results of the user's own import either.
+fn begin_update(
+    playlist_id: String,
+    list: SourceList,
+    auto: bool,
+) -> Result<(u64, Snapshot), String> {
+    let mut g = IMPORT.lock().unwrap();
+    let free = match g.job.as_ref() {
+        None => true,
+        Some(j) if auto => j.update_of.is_some() && !j.running(),
+        Some(j) => !j.running() && j.phase != Phase::Review,
+    };
+    if !free {
+        return Err("busy".into());
+    }
+    g.gen += 1;
+    let mut job = Job::new(g.gen, vec![list]);
+    job.update_of = Some(playlist_id);
+    job.auto = auto;
+    let snapshot = job.snapshot();
+    g.job = Some(job);
+    Ok((g.gen, snapshot))
 }
 
 pub async fn update(state: &Arc<AppState>, playlist_id: String) -> Result<Snapshot, String> {
@@ -1313,44 +1438,40 @@ pub async fn update(state: &Arc<AppState>, playlist_id: String) -> Result<Snapsh
         return Err("busy".into());
     }
     let src = source(state, &playlist_id).ok_or("gone")?;
-    let (kind, id) = spotify::parse_link(&src.url).ok_or("not_spotify")?;
-    let list = spotify::read_link(kind, &id).await?;
-    let mut g = IMPORT.lock().unwrap();
-    if g.job.as_ref().is_some_and(Job::running) {
-        return Err("busy".into());
-    }
-    g.gen += 1;
-    let mut job = Job::new(g.gen, vec![list]);
-    job.update_of = Some(playlist_id);
-    let gen = g.gen;
-    let snapshot = job.snapshot();
-    g.job = Some(job);
-    drop(g);
+    let list = read_source(&src).await?;
+    let (gen, snapshot) = begin_update(playlist_id, list, false)?;
     tauri::async_runtime::spawn(run_matching(Arc::clone(state), gen));
     Ok(snapshot)
 }
 
+/// A playlist on this machine as `(video id, row id)`, in its order. A row whose song no longer
+/// parses keeps its place with no video, so it is never taken for one of Spotify's.
+fn local_rows(state: &AppState, key: i64) -> Vec<(String, String)> {
+    state
+        .db
+        .local_playlist_tracks(key)
+        .into_iter()
+        .map(|(row, json, _)| {
+            let video = serde_json::from_str::<SongItem>(&json).map(|s| s.video_id);
+            (video.unwrap_or_default(), row.to_string())
+        })
+        .collect()
+}
+
+fn local_id(playlist_id: &str) -> Option<i64> {
+    playlist_id.strip_prefix(LOCAL_PLAYLIST_PREFIX)?.parse().ok()
+}
+
 /// What the playlist holds right now: each track's video id and its row handle (the
-/// `set_video_id` a removal needs; for a playlist on this machine, the row id).
+/// `set_video_id` a removal or a move needs; for a playlist on this machine, the row id).
 async fn current_rows(
     state: &AppState,
     gen: u64,
     playlist_id: &str,
 ) -> Result<Vec<(String, String)>, Halt> {
     if is_local_playlist(playlist_id) {
-        let key: i64 = playlist_id
-            .strip_prefix(LOCAL_PLAYLIST_PREFIX)
-            .and_then(|n| n.parse().ok())
-            .ok_or_else(|| Halt::Failed("gone".into()))?;
-        return Ok(state
-            .db
-            .local_playlist_tracks(key)
-            .into_iter()
-            .filter_map(|(row, json, _)| {
-                let s: SongItem = serde_json::from_str(&json).ok()?;
-                Some((s.video_id, row.to_string()))
-            })
-            .collect());
+        let key = local_id(playlist_id).ok_or_else(|| Halt::Failed("gone".into()))?;
+        return Ok(local_rows(state, key));
     }
     let client = metadata_client(state).map_err(Halt::Failed)?;
     // Reads, so paced like the searches, and the same budget.
@@ -1373,8 +1494,8 @@ async fn current_rows(
     Ok(out)
 }
 
-/// Apply an update: append what is new on Spotify, take out what left it. Spotify reordering
-/// its playlist is not mirrored, and neither is anything the user added here by hand.
+/// Apply an update: append what is new on Spotify, take out what left it, then put the songs from
+/// Spotify in Spotify's order (#525). Anything the user added here by hand stays where it is.
 async fn run_update(state: Arc<AppState>, gen: u64, playlist_id: String) {
     let Some(old) = source(&state, &playlist_id) else {
         return finish(&state, gen, Phase::Failed, Some("gone".into()));
@@ -1386,6 +1507,10 @@ async fn run_update(state: Arc<AppState>, gen: u64, playlist_id: String) {
     }) else {
         return;
     };
+    // Same songs in the same order: nothing to ask YouTube.
+    if new_keys == old.keys {
+        return finish(&state, gen, Phase::Done, None);
+    }
     let current = match current_rows(&state, gen, &playlist_id).await {
         Ok(rows) => rows,
         Err(h) => return halt(&state, gen, h),
@@ -1419,17 +1544,25 @@ async fn run_update(state: Arc<AppState>, gen: u64, playlist_id: String) {
         .collect();
     let remove: Vec<(String, String)> =
         current.iter().filter(|(v, _)| gone_videos.contains(v)).cloned().collect();
+    let order: Vec<String> = songs.iter().map(|s| s.video_id.clone()).collect();
 
     let applied = if is_local_playlist(&playlist_id) {
-        apply_local(&state, &playlist_id, &add, &remove).map_err(Halt::Failed)
+        local_id(&playlist_id)
+            .ok_or_else(|| "gone".to_string())
+            .and_then(|key| apply_local(&state, key, &add, &remove, &order))
+            .map_err(Halt::Failed)
     } else {
-        apply_account(&state, gen, &playlist_id, &add, &remove).await
+        apply_account(&state, gen, &playlist_id, current, &add, &remove, &order).await
     };
     let added = match applied {
         Ok(n) => n,
         Err(h) => return halt(&state, gen, h),
     };
-    save_source(&state, &playlist_id, &old.url, &new_keys);
+    // Read again rather than `old`: the user may have flipped `auto` while this ran.
+    if let Some(mut src) = source(&state, &playlist_id) {
+        src.keys = new_keys;
+        save_source(&state, &playlist_id, &src);
+    }
     let result = ListResult {
         kind: ListKind::Playlist,
         name,
@@ -1445,17 +1578,15 @@ async fn run_update(state: Arc<AppState>, gen: u64, playlist_id: String) {
 
 fn apply_local(
     state: &AppState,
-    playlist_id: &str,
+    key: i64,
     add: &[SongItem],
     remove: &[(String, String)],
+    order: &[String],
 ) -> Result<usize, String> {
-    let key: i64 = playlist_id
-        .strip_prefix(LOCAL_PLAYLIST_PREFIX)
-        .and_then(|n| n.parse().ok())
-        .ok_or("gone")?;
+    let db_err = |e: rusqlite::Error| e.to_string();
     let rows: Vec<i64> = remove.iter().filter_map(|(_, r)| r.parse().ok()).collect();
     if !rows.is_empty() {
-        state.db.remove_local_playlist_tracks(key, &rows, now_secs()).map_err(|e| e.to_string())?;
+        state.db.remove_local_playlist_tracks(key, &rows, now_secs()).map_err(db_err)?;
     }
     let add = add
         .iter()
@@ -1465,20 +1596,29 @@ fn apply_local(
         })
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
-    if add.is_empty() {
-        return Ok(0);
+    let added = if add.is_empty() {
+        0
+    } else {
+        let went_in = state.db.add_local_playlist_tracks(key, &add, now_secs()).map_err(db_err)?;
+        went_in.into_iter().filter(|&b| b).count()
+    };
+    let rows = local_rows(state, key);
+    let sorted = spotify_order(&rows, order);
+    if sorted != rows {
+        let ids: Vec<i64> = sorted.iter().filter_map(|(_, r)| r.parse().ok()).collect();
+        state.db.order_local_playlist(key, &ids, now_secs()).map_err(db_err)?;
     }
-    let went_in =
-        state.db.add_local_playlist_tracks(key, &add, now_secs()).map_err(|e| e.to_string())?;
-    Ok(went_in.into_iter().filter(|&b| b).count())
+    Ok(added)
 }
 
 async fn apply_account(
     state: &AppState,
     gen: u64,
     playlist_id: &str,
+    current: Vec<(String, String)>,
     add: &[SongItem],
     remove: &[(String, String)],
+    order: &[String],
 ) -> Result<usize, Halt> {
     let client = metadata_client(state).map_err(Halt::Failed)?;
     // A row without its handle can't be removed, and one bad entry would sink the whole batch.
@@ -1497,10 +1637,195 @@ async fn apply_account(
     }
     let ids: Vec<String> = add.iter().map(|s| s.video_id.clone()).collect();
     let added = add_all(state, Some(gen), playlist_id, &ids).await?;
-    for v in &added {
+    for (v, _) in &added {
         state.db.add_playlist_track(playlist_id, v);
     }
+
+    // The playlist as it stands now, in YouTube's order: new rows went in at the end.
+    let gone: HashSet<&str> = remove.iter().map(|(_, h)| h.as_str()).collect();
+    let rows: Vec<(String, String)> = current
+        .into_iter()
+        .filter(|(_, h)| !gone.contains(h.as_str()))
+        .chain(added.iter().cloned())
+        .collect();
+    // A row with no handle can't be moved, nor have anything moved in front of it.
+    if rows.iter().any(|(_, h)| h.is_empty()) {
+        tracing::warn!("import: a row has no handle, playlist left in its order");
+        return Ok(added.len());
+    }
+    let handles =
+        |rows: &[(String, String)]| rows.iter().map(|(_, h)| h.clone()).collect::<Vec<_>>();
+    let known = &rows[..rows.len() - added.len()];
+    let steps = moves(&handles(known), &handles(&spotify_order(&rows, order)));
+    if !steps.is_empty() {
+        before_youtube(state, Some(gen), Ask::Write).await?;
+        match state.it.playlist_move_many(client, playlist_id, &steps).await {
+            Ok(()) => {}
+            Err(e) if pushed_back(&e) || matches!(e, innertube::Error::SessionExpired) => {
+                return Err(halt_for(state, e));
+            }
+            // The songs are in, only out of order: not worth failing the update over.
+            Err(e) => tracing::warn!(error = %e, "import: playlist not reordered"),
+        }
+    }
     Ok(added.len())
+}
+
+/// The playlist's rows `(video, handle)` with the songs from Spotify (`order`, their videos in
+/// Spotify's order) sorted into the places songs from Spotify already hold. Anything added here
+/// by hand keeps its exact place; a video here twice is Spotify's the first time only.
+fn spotify_order(rows: &[(String, String)], order: &[String]) -> Vec<(String, String)> {
+    let wanted: HashSet<&str> = order.iter().map(String::as_str).collect();
+    let mut seen = HashSet::new();
+    let ours: Vec<bool> =
+        rows.iter().map(|(v, _)| wanted.contains(v.as_str()) && seen.insert(v.as_str())).collect();
+    let by_video: HashMap<&str, &(String, String)> =
+        rows.iter().zip(&ours).filter(|(_, o)| **o).map(|(r, _)| (r.0.as_str(), r)).collect();
+    let mut once = HashSet::new();
+    let mut next =
+        order.iter().filter(|v| once.insert(v.as_str())).filter_map(|v| by_video.get(v.as_str()));
+    rows.iter()
+        .zip(&ours)
+        .map(|(r, &o)| match o.then(|| next.next()).flatten() {
+            Some(theirs) => (*theirs).clone(),
+            None => r.clone(),
+        })
+        .collect()
+}
+
+/// The moves that put the handles in the order `to`, applied one after another: `(handle, the
+/// handle it goes in front of)`, `None` for the end. `from` is the order the playlist is known to
+/// be in; the longest run of it already in order stays put, so a song that went to the top on
+/// Spotify is one move, not one per row. A handle in `to` but not in `from` (a row just added,
+/// which YouTube may have put at the end or, with "add to top" set, at the top) always moves.
+/// Emitted from the end of `to` backwards, each in front of its successor there, which lands
+/// right whatever the unkept rows' starting places.
+fn moves(from: &[String], to: &[String]) -> Vec<(String, Option<String>)> {
+    let at: HashMap<&str, usize> = from.iter().enumerate().map(|(i, h)| (h.as_str(), i)).collect();
+    let known: Vec<usize> = (0..to.len()).filter(|&i| at.contains_key(to[i].as_str())).collect();
+    let seq: Vec<usize> = known.iter().map(|&i| at[to[i].as_str()]).collect();
+    let mut keep = vec![false; to.len()];
+    for (k, kept) in increasing_run(&seq).into_iter().enumerate() {
+        keep[known[k]] = kept;
+    }
+    (0..to.len())
+        .rev()
+        .filter(|&i| !keep[i])
+        .map(|i| (to[i].clone(), to.get(i + 1).cloned()))
+        .collect()
+}
+
+/// Which entries of `seq` make up a longest increasing subsequence (patience sorting, n log n).
+fn increasing_run(seq: &[usize]) -> Vec<bool> {
+    // tails[k]: index of the smallest last entry of an increasing run of length k + 1.
+    let mut tails: Vec<usize> = Vec::new();
+    let mut prev: Vec<Option<usize>> = vec![None; seq.len()];
+    for i in 0..seq.len() {
+        let k = tails.partition_point(|&t| seq[t] < seq[i]);
+        prev[i] = k.checked_sub(1).map(|k| tails[k]);
+        if k == tails.len() {
+            tails.push(i);
+        } else {
+            tails[k] = i;
+        }
+    }
+    let mut keep = vec![false; seq.len()];
+    let mut i = tails.last().copied();
+    while let Some(j) = i {
+        keep[j] = true;
+        i = prev[j];
+    }
+    keep
+}
+
+// --- updating by itself --------------------------------------------------------------------------
+//
+// A playlist imported from a link can follow its Spotify playlist on its own (the review step's
+// "Keep up to date with Spotify", or the playlist's menu). Checked two minutes after launch and
+// every half hour after that, each playlist at most every AUTO_EVERY. A check is a read from
+// Spotify only: YouTube hears nothing unless the playlist changed there, and then it is the same
+// update as the button's, paced and budgeted like any other import request.
+
+const AUTO_EVERY: i64 = 6 * HOUR;
+
+pub fn spawn_auto_updates(state: Arc<AppState>) {
+    tauri::async_runtime::spawn(async move {
+        // Past startup, and past a network that comes up after the desktop does.
+        tokio::time::sleep(Duration::from_secs(120)).await;
+        loop {
+            auto_pass(&state).await;
+            tokio::time::sleep(Duration::from_secs(30 * 60)).await;
+        }
+    });
+}
+
+/// Playlists that update by themselves and are due a check, the longest unchecked first.
+fn due(state: &AppState, now: i64) -> Vec<(String, Source)> {
+    let mut out: Vec<(String, Source)> = state
+        .db
+        .settings_with_prefix(SOURCE_PREFIX)
+        .into_iter()
+        .filter_map(|(k, v)| Some((source_playlist(&k)?, serde_json::from_str::<Source>(&v).ok()?)))
+        .filter(|(_, s)| s.auto && now - s.checked >= AUTO_EVERY)
+        .collect();
+    out.sort_by_key(|(_, s)| s.checked);
+    out
+}
+
+/// No import of the user's in the way: nothing held, or only a finished update.
+fn slot_free() -> bool {
+    IMPORT.lock().unwrap().job.as_ref().map_or(true, |j| j.update_of.is_some() && !j.running())
+}
+
+async fn auto_pass(state: &Arc<AppState>) {
+    for (playlist_id, _) in due(state, now_secs()) {
+        // Spotify reads spaced out, not one after another for a long list of playlists.
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        if cooldown(state).is_some() || !slot_free() {
+            return;
+        }
+        // The record as it is now, not as `due` read it: an update by hand or the switch may
+        // have changed it since.
+        let Some(mut src) = source(state, &playlist_id).filter(|s| s.auto) else {
+            continue;
+        };
+        if is_local_playlist(&playlist_id) {
+            if local_id(&playlist_id).and_then(|k| state.db.local_playlist(k)).is_none() {
+                forget_source(state, &playlist_id);
+                continue;
+            }
+        } else if !state.it.is_logged_in() || state.it.data_sync_id() != src.account {
+            continue;
+        }
+        src.checked = now_secs();
+        save_source(state, &playlist_id, &src);
+        let list = match read_source(&src).await {
+            Ok(list) => list,
+            Err(e) => {
+                tracing::info!(error = %e, "import: background check couldn't read Spotify");
+                continue;
+            }
+        };
+        // Switched off, updated by hand or signed into another account while Spotify answered.
+        let now = source(state, &playlist_id);
+        if !now.as_ref().is_some_and(|s| s.auto && s.keys == src.keys)
+            || (!is_local_playlist(&playlist_id) && state.it.data_sync_id() != src.account)
+            || list_keys(&list) == src.keys
+        {
+            continue;
+        }
+        let Ok((gen, _)) = begin_update(playlist_id, list, true) else {
+            return;
+        };
+        emit(state, gen, true);
+        run_matching(Arc::clone(state), gen).await;
+        // Put away here: the UI may not be there to do it, and a finished update left in the slot
+        // would show as still running after a reload.
+        let mut g = IMPORT.lock().unwrap();
+        if g.job.as_ref().is_some_and(|j| j.gen == gen && !j.running()) {
+            g.job = None;
+        }
+    }
 }
 
 // --- Spotify links anywhere ----------------------------------------------------------------------
@@ -1747,6 +2072,72 @@ mod tests {
         assert_eq!(over_budget((now - HOUR, SEARCHES_PER_HOUR), now), None);
         assert_eq!(spend((now - 10, 5), now), (now - 10, 6));
         assert_eq!(spend((now - HOUR, SEARCHES_PER_HOUR), now), (now, 1));
+    }
+
+    /// Rows from letters: video "a" has handle "A".
+    fn rows(videos: &str) -> Vec<(String, String)> {
+        videos.chars().map(|c| (c.to_string(), c.to_ascii_uppercase().to_string())).collect()
+    }
+
+    fn videos(rows: &[(String, String)]) -> String {
+        rows.iter().map(|(v, _)| v.as_str()).collect()
+    }
+
+    /// What YouTube does with the moves: one after another, each in front of its successor.
+    fn apply(mut list: Vec<String>, moves: &[(String, Option<String>)]) -> Vec<String> {
+        for (h, before) in moves {
+            list.retain(|x| x != h);
+            let at =
+                before.as_ref().map_or(list.len(), |b| list.iter().position(|x| x == b).unwrap());
+            list.insert(at, h.clone());
+        }
+        list
+    }
+
+    fn order(videos: &str) -> Vec<String> {
+        videos.chars().map(String::from).collect()
+    }
+
+    #[test]
+    fn follows_spotify_order() {
+        // #525: D went to the top on Spotify, the update appended it.
+        let now = rows("abcd");
+        let sorted = spotify_order(&now, &order("dabc"));
+        assert_eq!(videos(&sorted), "dabc");
+        let handles = |r: &[(String, String)]| r.iter().map(|(_, h)| h.clone()).collect::<Vec<_>>();
+        let steps = moves(&handles(&now), &handles(&sorted));
+        assert_eq!(steps, [("D".to_string(), Some("A".to_string()))], "one move, not four");
+
+        // x was added here by hand: it keeps its place, Spotify's songs fill the others.
+        assert_eq!(videos(&spotify_order(&rows("axbcd"), &order("dcba"))), "dxcba");
+        // A second copy of a Spotify song is the user's.
+        assert_eq!(videos(&spotify_order(&rows("abab"), &order("ba"))), "baab");
+        // A song YouTube wouldn't take is simply not there to place.
+        assert_eq!(videos(&spotify_order(&rows("ab"), &order("bza"))), "ba");
+    }
+
+    #[test]
+    fn moves_reach_any_order() {
+        let from: Vec<String> = (0..40).map(|i| i.to_string()).collect();
+        let mut seed = 7u64;
+        for _ in 0..200 {
+            let mut to = from.clone();
+            for i in (1..to.len()).rev() {
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                to.swap(i, (seed >> 33) as usize % (i + 1));
+            }
+            assert_eq!(apply(from.clone(), &moves(&from, &to)), to);
+        }
+        assert!(moves(&from, &from).is_empty());
+        // Just added, wherever YouTube put it: at the end, or at the top with "add to top" set.
+        let to: Vec<String> = ["new", "0", "1", "2"].map(String::from).into();
+        let old: Vec<String> = ["0", "1", "2"].map(String::from).into();
+        for start in [["0", "1", "2", "new"], ["new", "0", "1", "2"]] {
+            let start: Vec<String> = start.map(String::from).into();
+            assert_eq!(apply(start, &moves(&old, &to)), to);
+        }
+        let reversed: Vec<String> = from.iter().rev().cloned().collect();
+        assert_eq!(moves(&from, &reversed).len(), from.len() - 1);
     }
 
     #[test]

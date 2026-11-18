@@ -646,8 +646,9 @@ fn read_zip(bytes: &[u8], lib: &mut Library) -> Result<(), String> {
     let mut zip =
         zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|_| "unreadable".to_string())?;
     // Playlist1.json, Playlist2.json, … and YourLibrary.json, under a folder whose name has
-    // changed over the years ("MyData", "Spotify Account Data"). Liked Songs is read last so it
-    // ends up first whatever order the zip lists things in.
+    // changed over the years ("MyData", "Spotify Account Data"). By number, so Playlist10 comes
+    // after Playlist9 and the playlists keep Spotify's order. Liked Songs is read last so it ends
+    // up first whatever order the zip lists things in.
     let mut names: Vec<String> = zip
         .file_names()
         .filter(|n| {
@@ -656,7 +657,11 @@ fn read_zip(bytes: &[u8], lib: &mut Library) -> Result<(), String> {
         })
         .map(str::to_owned)
         .collect();
-    names.sort_by_key(|n| (n.ends_with("YourLibrary.json"), n.clone()));
+    let number = |n: &str| -> u32 {
+        let base = n.rsplit('/').next().unwrap_or(n);
+        base.trim_start_matches("Playlist").trim_end_matches(".json").parse().unwrap_or(0)
+    };
+    names.sort_by_key(|n| (n.ends_with("YourLibrary.json"), number(n), n.clone()));
     for name in names {
         let mut buf = Vec::new();
         zip.by_name(&name)
@@ -903,6 +908,14 @@ mod tests {
                 ]},{"name":"Empty","items":[]}]}"#,
             )
             .unwrap();
+            // Big exports split across files; zipped in name order, Playlist10 before Playlist2.
+            for (file, name) in [("Playlist10", "Tenth"), ("Playlist2", "Second")] {
+                z.start_file(format!("Spotify Account Data/{file}.json"), opts).unwrap();
+                let json = format!(
+                    r#"{{"playlists":[{{"name":"{name}","items":[{{"track":{{"trackName":"Jump","artistName":"Van Halen","albumName":"1984","trackUri":"spotify:track:7N3PAbqfTjSEU1edb2tY8j"}}}}]}}]}}"#
+                );
+                z.write_all(json.as_bytes()).unwrap();
+            }
             z.start_file("Spotify Account Data/Userdata.json", opts).unwrap();
             z.write_all(b"{}").unwrap();
             z.finish().unwrap();
@@ -913,7 +926,12 @@ mod tests {
     #[test]
     fn data_export() {
         let lib = read_file(&export_zip(), "my_spotify_data.zip").unwrap();
-        assert_eq!(lib.lists.len(), 2, "the empty playlist is dropped");
+        let names: Vec<&str> = lib.lists.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["Liked Songs", "Road trip", "Second", "Tenth"],
+            "the empty one is dropped"
+        );
         assert_eq!(lib.lists[0].kind, ListKind::Liked);
         assert_eq!(lib.lists[0].tracks[0].id.as_deref(), Some("6r8k1vznHrzlEKYxL4dZEe"));
         let road = &lib.lists[1];

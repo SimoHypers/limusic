@@ -49,6 +49,15 @@ export function importError(e: unknown): string {
 	return text === key ? raw : text;
 }
 
+// The newest job generation an `import-progress` event has spoken for. Starting an import or an
+// update answers with the job's first snapshot, but the job runs as soon as it is spawned: with
+// every song already matched it reaches review (or an update finishes) before that answer is
+// back. Applied late, the answer put the dialog back at "0 of 7" for good.
+let seen = 0;
+const unlessNewer = (s: api.ImportSnapshot | null) => {
+	if (s && s.gen > seen) imp.snapshot = s;
+};
+
 /** An import (not an update) is holding the dialog. */
 const holding = () => !!imp.snapshot && !imp.snapshot.update;
 
@@ -103,7 +112,7 @@ export function handleImportDrop(e: DragEvent): boolean {
 export async function startImport(lists: number[]) {
 	imp.picked = lists;
 	try {
-		imp.snapshot = await api.importStart(lists);
+		unlessNewer(await api.importStart(lists));
 	} catch (e) {
 		toast.error(importError(e));
 	}
@@ -118,7 +127,7 @@ export async function dismissImport() {
 
 export async function updateFromSpotify(playlistId: string) {
 	try {
-		imp.snapshot = await api.importUpdate(playlistId);
+		unlessNewer(await api.importUpdate(playlistId));
 	} catch (e) {
 		toast.error(importError(e));
 	}
@@ -157,24 +166,32 @@ function landed(s: api.ImportSnapshot) {
 	if (fresh.length) library.items = [...fresh, ...library.items];
 }
 
-// An update has nothing to review: it says what changed and puts itself away.
+// An update has nothing to review: it says what changed and puts itself away. One the background
+// check started only speaks up when it changed something, and Rust puts it away itself.
 function updated(s: api.ImportSnapshot) {
 	if (s.phase !== 'done' && s.phase !== 'failed') return;
-	if (s.phase === 'failed') toast.error(importError(s.message));
-	else {
-		const r = s.results[0];
-		toast.success(
-			r && (r.added || r.removed)
-				? t('import.update_done', { added: r.added, removed: r.removed })
-				: t('import.update_none')
-		);
+	const r = s.results[0];
+	const changed = !!r && (r.added > 0 || r.removed > 0);
+	if (s.phase === 'failed') {
+		if (!s.auto) toast.error(importError(s.message));
+	} else {
+		if (changed || !s.auto)
+			toast.success(
+				!changed
+					? t('import.update_none')
+					: s.auto
+						? t('import.auto_update_done', { name: r.name, added: r.added, removed: r.removed })
+						: t('import.update_done', { added: r.added, removed: r.removed })
+			);
 		if (s.update && location.pathname.includes(encodeURIComponent(s.update))) refreshView();
+		if (r?.local) refreshLocalPlaylists();
 	}
-	api.importCancel().catch(() => {});
+	if (!s.auto) api.importCancel().catch(() => {});
 	imp.snapshot = null;
 }
 
 function onSnapshot(s: api.ImportSnapshot) {
+	seen = Math.max(seen, s.gen);
 	const before = imp.snapshot;
 	imp.snapshot = s;
 	if (before?.phase === s.phase && before?.update === s.update) return;
@@ -196,8 +213,6 @@ export function initImport() {
 	api.onImportProgress(onSnapshot);
 	api
 		.importStatus()
-		.then((s) => {
-			if (s) imp.snapshot = s;
-		})
+		.then(unlessNewer)
 		.catch(() => {});
 }

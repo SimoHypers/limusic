@@ -1926,9 +1926,12 @@
 		"from_spotify": "From Spotify",
 		"update": "Update",
 		"updating": "Updating…",
-		"update_tooltip": "Add what’s new in the Spotify playlist and take out what left it",
+		"update_tooltip": "Add what’s new in the Spotify playlist, take out what left it, and follow its order",
 		"update_done": "Updated from Spotify: {added} added, {removed} removed",
 		"update_none": "Already up to date with Spotify",
+		"keep_updated": "Keep up to date with Spotify",
+		"keep_updated_desc": "Limusic checks the Spotify playlist when it starts and every few hours, and adds, removes and reorders songs to match.",
+		"auto_update_done": "{name} updated from Spotify: {added} added, {removed} removed",
 		"nudge_title": "Coming from Spotify?",
 		"nudge_desc": "Bring your playlists and Liked Songs over in a few clicks.",
 		"errors": {

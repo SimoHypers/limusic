@@ -1,6 +1,6 @@
 //! High-level endpoint facade over the transport. context/03, 08.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures_util::future::join_all;
@@ -1149,13 +1149,35 @@ impl InnerTube {
     /// Add many videos in one `browse/edit_playlist` call, in order. The edit is all or nothing,
     /// and one track the playlist already holds fails the whole batch (`edit_rejection`), so the
     /// caller passes only videos it knows are new. Used by the Spotify import (#375).
+    ///
+    /// Answers each video with the `setVideoId` its new row got (what a move or removal of it
+    /// needs), empty where the reply didn't say.
     pub async fn playlist_add_many(
         &self,
         client: &YouTubeClient,
         playlist_id: &str,
         video_ids: &[String],
-    ) -> Result<(), Error> {
+    ) -> Result<Vec<(String, String)>, Error> {
         let actions = video_ids.iter().map(|v| add_video_action(v, false)).collect();
+        let value = self.edit_playlist_value(client, playlist_id, actions, true).await?;
+        let handles = added_handles(&value);
+        Ok(video_ids
+            .iter()
+            .map(|v| (v.clone(), handles.get(v.as_str()).cloned().unwrap_or_default()))
+            .collect())
+    }
+
+    /// Several moves in one `edit_playlist` request, applied in order: `(setVideoId, the
+    /// setVideoId it goes before)`, `None` for the end. All or nothing: one handle that is no
+    /// longer in the playlist fails the lot (progress/notes/youtube-playlist-move-batch.md).
+    pub async fn playlist_move_many(
+        &self,
+        client: &YouTubeClient,
+        playlist_id: &str,
+        moves: &[(String, Option<String>)],
+    ) -> Result<(), Error> {
+        let actions =
+            moves.iter().map(|(h, before)| move_video_action(h, before.as_deref())).collect();
         self.edit_playlist_actions(client, playlist_id, actions).await
     }
 
@@ -1642,6 +1664,19 @@ fn add_video_action(video_id: &str, allow_duplicates: bool) -> serde_json::Value
     action
 }
 
+/// `videoId` to the `setVideoId` of its new row, from an add's reply.
+fn added_handles(v: &serde_json::Value) -> HashMap<&str, String> {
+    v["playlistEditResults"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| {
+            let d = &r["playlistEditVideoAddedResultData"];
+            Some((d["videoId"].as_str()?, d["setVideoId"].as_str()?.to_owned()))
+        })
+        .collect()
+}
+
 fn move_video_action(set_video_id: &str, before: Option<&str>) -> serde_json::Value {
     let mut action = serde_json::json!({
         "action": "ACTION_MOVE_VIDEO_BEFORE",
@@ -1795,6 +1830,10 @@ mod tests {
             "setVideoId": "56B44F6D10557CC6", "videoId": "dQw4w9WgXcQ" } }],
             "status": "STATUS_SUCCEEDED" });
         assert!(edit_rejection(&ok).is_none());
+        assert_eq!(
+            added_handles(&ok).get("dQw4w9WgXcQ").map(String::as_str),
+            Some("56B44F6D10557CC6")
+        );
 
         let dup = json!({ "actions": [{ "addToToastAction": { "item": {
             "notificationActionRenderer": { "actionButton": { "buttonRenderer": {

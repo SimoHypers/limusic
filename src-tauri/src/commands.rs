@@ -2242,11 +2242,13 @@ pub async fn delete_playlist(state: St<'_>, playlist_id: String) -> Result<(), S
             let _ = std::fs::remove_file(cover);
             state.db.delete_setting(&cover_key(&playlist_id));
         }
+        crate::import::forget_source(&state, &playlist_id);
         return Ok(());
     }
     let client = editable_playlist(&state, &playlist_id)?;
     state.it.delete_playlist(client, &playlist_id).await.map_err(|e| e.to_string())?;
     state.db.forget_playlist(&playlist_id);
+    crate::import::forget_source(&state, &playlist_id);
     Ok(())
 }
 
@@ -2499,10 +2501,20 @@ pub async fn import_cancel(state: St<'_>) -> Result<(), String> {
     Ok(())
 }
 
-/// The Spotify link a playlist was imported from, when it was imported from one.
+/// The Spotify link a playlist was imported from, when it was imported from one, and whether it
+/// updates by itself.
 #[tauri::command]
-pub async fn import_source(state: St<'_>, playlist_id: String) -> Result<Option<String>, String> {
-    Ok(crate::import::source_url(&state, &playlist_id))
+pub async fn import_source(
+    state: St<'_>,
+    playlist_id: String,
+) -> Result<Option<crate::import::SourceInfo>, String> {
+    Ok(crate::import::source_info(&state, &playlist_id))
+}
+
+/// Keep a playlist imported from a link up to date with Spotify on its own, or stop.
+#[tauri::command]
+pub async fn import_set_auto(state: St<'_>, playlist_id: String, on: bool) -> Result<(), String> {
+    crate::import::set_auto(&state, &playlist_id, on)
 }
 
 /// "Update from Spotify": re-read the playlist's link and apply what changed.
