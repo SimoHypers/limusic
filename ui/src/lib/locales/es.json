@@ -547,7 +547,21 @@
 			"auto_pause_other_audio_hint": "Pausa mientras otra aplicación, como una pestaña de navegador o un reproductor de video, reproducen medios, y se reproduce cuando paran. Sonidos de notificación o juegos no cuentan."
 		},
 		"data": {
-			"clear_cache_button": "Limpiar caché ahora"
+			"clear_cache_button": "Limpiar caché",
+			"used": "Espacio usado",
+			"used_hint": "Todo lo que Limusic almacena en esta computadora.",
+			"library": "Biblioteca y configuraciones",
+			"library_hint": "Tus configuraciones, historial de reproducciones, letras guardadas y biblioteca local de música.",
+			"audio": "Caché de audio",
+			"audio_hint": "Audio usado mientras se reproducen las canciones y los links guardados para iniciarlas más rápido. Limpiándolo también puede arreglar canciones que pararon de cargar.",
+			"karaoke": "Versiones de karaoke",
+			"models": "Modelos de karaoke",
+			"models_hint": "Los modelos de eliminación de voz que descargaste y el motor que los ejecuta.",
+			"manage": "Administrar",
+			"web": "Imágenes y caché web",
+			"web_hint": "Carátula y otros archivos que la ventana de la app ha cargado, guardados por el motor web de tu sistema.",
+			"other": "Otro",
+			"other_hint": "Registros, carátulas de tus archivos locales y archivos pequeños que Limusic necesita para reproducir canciones."
 		},
 		"about": {
 			"description": "Un reproductor de música de escritorio hermoso, rápido y ligero, impulsado por Tauri y Svelte.",
@@ -751,7 +765,9 @@
 			"lb_token_placeholder": "Token de usuario de ListenBrainz",
 			"lb_problem_email": "Verifica tu correo de MetaBrainz para que ListenBrainz acepte lo que escuchas.",
 			"lb_problem_rejected": "ListenBrainz ya no acepta este token. Conéctate otra vez con uno nuevo.",
-			"lb_verify_email": "Verificar email"
+			"lb_verify_email": "Verificar email",
+			"lb_custom_instance": "Instancia personalizada de ListenBrainz",
+			"lb_url_label": "Dirección API de la instancia"
 		},
 		"devices": {
 			"title": "Reproduce en donde sea",
@@ -759,7 +775,7 @@
 			"intro": "Enlaza Limusic en tu celular: cada uno muestra y controla lo que el otro reproduce y la música se mueve al que tu elijas.",
 			"link_phone": "Enlaza un celular",
 			"link_another": "Enlaza otro celular",
-			"step_open": "En tu celular, abre Limusic: Configuración › Integraciones › Dispositivos",
+			"step_open": "En tu celular, abre Limusic: Configuración › Dispositivos",
 			"step_type": "Escribe este código",
 			"custom_server": "En este servidor, escribe {invite}",
 			"expires_in": "Expira en {time}",
@@ -1890,7 +1906,9 @@
 		"preset_timing": "La sincronización esta desfasada",
 		"preset_words": "Algunas palabras están mal",
 		"preset_missing": "Faltan líneas",
-		"preset_wrong_song": "Estas son letras para una canción diferente"
+		"preset_wrong_song": "Estas son letras para una canción diferente",
+		"reviewing": "{name} esta revisando",
+		"taken": "{name} está revisando esta contribución. La abrió {when}."
 	},
 	"team": {
 		"title": "Equipo de letras",
