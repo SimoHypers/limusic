@@ -39,6 +39,7 @@ crypt32.dll
 dbghelp.dll
 dwmapi.dll
 gdi32.dll
+iphlpapi.dll
 kernel32.dll
 libmpv-2.dll
 ntdll.dll

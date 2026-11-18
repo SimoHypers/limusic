@@ -504,6 +504,21 @@ impl Player {
         self.load_with(url, headers, gain_db, start, live, &[])
     }
 
+    /// Load a file and leave it paused: the position is set, but no sound comes out.
+    ///
+    /// This is what a track that was paused before a cast gets when the cast ends — the
+    /// alternative is a moment of sound before the pause lands.
+    pub fn load_paused(
+        &self,
+        url: &str,
+        headers: &HashMap<String, String>,
+        gain_db: Option<f64>,
+        start: Option<f64>,
+        live: bool,
+    ) -> Result<(), Error> {
+        self.load_with(url, headers, gain_db, start, live, &["pause=yes"])
+    }
+
     /// [`Self::load`] for a WAV served over HTTP while it is still being written (karaoke's
     /// instrumental of the song that is playing). The header says everything ffmpeg needs, so
     /// its stream probe is skipped: that probe reads seconds of audio from the start of the file
@@ -2317,6 +2332,10 @@ mod tests {
         assert_eq!(
             loadfile_args("u", None, &["demuxer-lavf-probe-info=no"], false),
             vec!["\"u\"", "replace", "\"demuxer-lavf-probe-info=no\""]
+        );
+        assert_eq!(
+            loadfile_args("u", None, &["pause=yes"], true),
+            vec!["\"u\"", "replace", "-1", "\"pause=yes\""]
         );
     }
 

@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 use crate::db::Db;
@@ -20,6 +20,10 @@ pub const SETTINGS_KEY: &str = "global_hotkeys";
 /// The level mute-toggle returns to. The UI's `set_volume` writes it too, so muting in the app and
 /// unmuting with the hotkey (or the reverse) lands on the same level.
 pub(crate) static LAST_NONZERO_VOLUME: AtomicI64 = AtomicI64::new(100);
+
+/// The same, for the device a cast is playing on. It is the speaker's own level, so muting the
+/// speaker must not bring back this desktop's volume.
+pub(crate) static CAST_NONZERO_VOLUME: AtomicI64 = AtomicI64::new(100);
 
 /// Supported playback and application actions for global hotkeys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -189,16 +193,16 @@ pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
             HotkeyAction::PrevTrack => {
                 state.prev_in_queue().await;
             }
-            HotkeyAction::VolumeUp => change_volume(&state, &app, |v| v + 5),
-            HotkeyAction::VolumeDown => change_volume(&state, &app, |v| v - 5),
-            HotkeyAction::MuteToggle => change_volume(&state, &app, |v| {
-                if v > 0 {
-                    LAST_NONZERO_VOLUME.store(v, Ordering::Relaxed);
-                    0
+            HotkeyAction::VolumeUp => change_volume(&state, |v| v + 5).await,
+            HotkeyAction::VolumeDown => change_volume(&state, |v| v - 5).await,
+            HotkeyAction::MuteToggle => {
+                let remembered = if state.cast.is_active() {
+                    CAST_NONZERO_VOLUME.load(Ordering::Relaxed)
                 } else {
                     LAST_NONZERO_VOLUME.load(Ordering::Relaxed)
-                }
-            }),
+                };
+                change_volume(&state, |v| if v > 0 { 0 } else { remembered }).await
+            }
             HotkeyAction::SeekForward => {
                 let pos = state.current_position();
                 let _ = state.user_seek((pos + 10.0).max(0.0)).await;
@@ -220,20 +224,16 @@ pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
     });
 }
 
-/// Read, change, set, persist and echo the volume, the same as a slider commit. Serialized: each
-/// press is its own task, so a held key would otherwise lose steps and two mutes could both mute.
-pub(crate) fn change_volume(state: &AppState, app: &AppHandle, f: impl FnOnce(i64) -> i64) {
-    static LOCK: Mutex<()> = Mutex::new(());
-    let _guard = LOCK.lock().unwrap();
-    let volume = f(state.player.volume()).clamp(0, 100);
-    if state.player.set_volume(volume).is_ok() {
-        if volume > 0 {
-            LAST_NONZERO_VOLUME.store(volume, Ordering::Relaxed);
-        }
-        state.db.set_setting("volume", &volume.to_string());
-        let _ = app.emit("volume", volume);
-        state.media_set_volume(volume);
-    }
+/// Read, change, set and echo the volume, the same as a slider commit. Serialized: each press
+/// is its own task, so a held key would otherwise lose steps and two mutes could both mute.
+///
+/// Which level mute returns to is `set_volume`'s business: it remembers a nonzero level for
+/// whichever output it drove, so a mute is just a set to zero.
+pub(crate) async fn change_volume(state: &AppState, f: impl FnOnce(i64) -> i64) {
+    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _guard = LOCK.lock().await;
+    let volume = f(state.current_volume()).clamp(0, 100);
+    let _ = state.set_volume(volume).await;
 }
 
 pub fn load_config(db: &Db) -> HotkeysConfig {

@@ -55,6 +55,13 @@ tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 futures-util = { workspace = true }
 rand = { workspace = true }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+# Casting: the Cast devices are found over mDNS, and the LAN address of this machine comes from
+# the same interface list. mdns-sd pulls in if-addrs; both are listed here because they are used
+# directly.
+mdns-sd = "0.21"
+if-addrs = "0.15"
+# Casting: the Chromecast control channel is TLS with a certificate the app cannot check.
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 discord-rich-presence = "1.1.0"
 # Last.fm API signature (api_sig is md5 of the sorted params + secret), and the stable
 # saved-account key (db.rs::account_key).
@@ -105,11 +112,15 @@ windows = { version = "0.61", features = [
   "Win32_UI_WindowsAndMessaging",
 ] }
 
+[target.'cfg(unix)'.dependencies]
+# A SIGTERM has to end the app the way the tray's Quit does, so a device that is playing is
+# told to stop (lib.rs). The signal handler itself is libc's.
+libc = "0.2"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # The music video's GL surface under the webview (nativevideo.rs). Same version tauri pulls in.
 gtk = "0.18"
 ksni = "0.3.6"
-libc = "0.2"
 # Reaching the WebKitGTK settings wry leaves at browser defaults. Must track wry's version.
 webkit2gtk = { version = "2.0", features = ["v2_40"] }
 # Holding off suspend while playing (inhibit.rs, #347). Already in the tree through notify-rust.

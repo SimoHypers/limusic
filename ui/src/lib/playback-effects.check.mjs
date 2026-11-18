@@ -47,7 +47,8 @@ function harness() {
 		}
 	});
 	const context = { api, playback, toast: { error: (e) => errors.push(e) },
-		forgetLocal() {}, applyLtState() {}, applyLinkState() {}, refreshKaraokeModels: async () => {}, performance };
+		forgetLocal() {}, applyLtState() {}, applyLinkState() {}, applyCastDevices() {},
+		applyCastState() {}, refreshKaraokeModels: async () => {}, performance };
 	const handlers = runInNewContext(code + '\n({ setTempoPitch, initApp })', context);
 	handlers.initApp(true);
 	return { ...handlers, playback, snapshot, requests, callbacks, errors };

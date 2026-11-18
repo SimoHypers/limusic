@@ -255,6 +255,18 @@
 		"stats": "Stats",
 		"no_channels": "YouTube did not return any selectable channels."
 	},
+	"cast": {
+		"button": "Cast",
+		"title": "Play on a device",
+		"hint": "Pick a speaker or a television on your network.",
+		"refresh": "Look for devices again",
+		"playing_on": "Playing on {name}",
+		"back_here": "Play on this computer",
+		"no_devices": "No devices found yet. Both have to be on the same network.",
+		"nothing_playing": "Nothing is playing.",
+		"chromecast": "Google Cast",
+		"dlna": "DLNA renderer"
+	},
 	"player": {
 		"link_playing_on": "Playing on {name}",
 		"link_paused_on": "Paused on {name}",

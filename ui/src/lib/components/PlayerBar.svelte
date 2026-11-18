@@ -49,7 +49,9 @@
 	import SpeedPicker from './SpeedPicker.svelte';
 	import TrackMenu from './TrackMenu.svelte';
 	import DevicePicker from './DevicePicker.svelte';
+	import CastPicker from './CastPicker.svelte';
 	import { link } from '$lib/link.svelte';
+	import { castState } from '$lib/cast.svelte';
 	import { currentLocale, t } from '$lib/i18n.svelte';
 	import LiveBadge from './LiveBadge.svelte';
 
@@ -122,18 +124,21 @@
 	// Seek: while dragging, hold a local value so incoming mpv position ticks can't yank the thumb
 	// back under the pointer; only invoke the (expensive) seek on release.
 	let seekDrag = $state<number | null>(null);
+	// A device that is casting plays at its own speed, so its position is the track's time and
+	// the tempo does not scale it.
+	const speed = $derived(castState.active ? 1 : playback.speed);
 	// Display playback seconds at the selected tempo; mpv seeks still take track seconds.
-	const shownPosition = $derived((seekDrag ?? playback.position) / playback.speed);
-	const shownDuration = $derived(playback.duration / playback.speed);
+	const shownPosition = $derived((seekDrag ?? playback.position) / speed);
+	const shownDuration = $derived(playback.duration / speed);
 	const seekPct = $derived(
 		shownDuration > 0 ? Math.min(1, Math.max(0, shownPosition / shownDuration)) : 0
 	);
 
 	function onSeekInput(e: Event) {
-		seekDrag = Number((e.target as HTMLInputElement).value) * playback.speed;
+		seekDrag = Number((e.target as HTMLInputElement).value) * speed;
 	}
 	function onSeekCommit(e: Event) {
-		const v = Number((e.target as HTMLInputElement).value) * playback.speed;
+		const v = Number((e.target as HTMLInputElement).value) * speed;
 		playback.position = v;
 		seekDrag = null;
 		api.seek(v);
@@ -423,7 +428,8 @@
 	<!-- Volume + queue -->
 	<div class="flex flex-1 items-center justify-end gap-2">
 		<!-- Volume is the first control to drop on a narrow window (OS volume still works). It is
-		     this desktop's, so it goes while the bar controls a linked device. -->
+		     this desktop's, so it goes while the bar controls a linked device; a cast device has
+		     a volume of its own, and the slider drives that instead. -->
 		<div class="group/vol relative hidden items-center gap-1 {link.remote ? '' : 'md:flex'}">
 			<Button
 				variant="ghost"
@@ -464,9 +470,10 @@
 		</div>
 		<!-- One cluster, so they sit tighter to each other than to the volume slider. -->
 		<div class="flex items-center gap-0.5">
+			<CastPicker />
 			{#if link.status !== 'off'}<DevicePicker />{/if}
 			<!-- Speed, pitch and reverb are this desktop's player's; hidden while it controls a linked device. -->
-			{#if !link.remote}
+			{#if !link.remote && !castState.active}
 			<Button
 				variant={ui.tempoPitchOpen ? 'secondary' : 'ghost'}
 				size="icon-sm"

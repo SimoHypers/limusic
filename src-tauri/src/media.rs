@@ -216,14 +216,15 @@ pub(crate) fn handle_event(app: &AppHandle, event: MediaControlEvent) {
         match event {
             MediaControlEvent::Play | MediaControlEvent::Toggle => state.resume_or_toggle().await,
             MediaControlEvent::Pause | MediaControlEvent::Stop => {
-                let _ = state.player.pause();
+                // Wherever the music is: a device that is casting has a pause of its own.
+                state.pause().await;
             }
             // GNOME's panel media widget calls MPRIS Raise when the entry itself is clicked.
             MediaControlEvent::Raise => crate::tray::show_main(&app),
             MediaControlEvent::Next => state.next_in_queue().await,
             MediaControlEvent::Previous => state.prev_in_queue().await,
             MediaControlEvent::SetPosition(MediaPosition(pos)) => {
-                let _ = state.player.seek(pos.as_secs_f64() * state.player.speed());
+                let _ = state.user_seek(pos.as_secs_f64() * state.position_scale()).await;
             }
             MediaControlEvent::SeekBy(dir, by) => {
                 let delta = if matches!(dir, SeekDirection::Forward) {
@@ -231,18 +232,18 @@ pub(crate) fn handle_event(app: &AppHandle, event: MediaControlEvent) {
                 } else {
                     -by.as_secs_f64()
                 };
-                let delta = delta * state.player.speed();
-                let _ = state.player.seek((state.current_position() + delta).max(0.0));
+                let delta = delta * state.position_scale();
+                let _ = state.user_seek((state.current_position() + delta).max(0.0)).await;
             }
             MediaControlEvent::Seek(dir) => {
                 let delta = if matches!(dir, SeekDirection::Forward) { 10.0 } else { -10.0 };
-                let delta = delta * state.player.speed();
-                let _ = state.player.seek((state.current_position() + delta).max(0.0));
+                let delta = delta * state.position_scale();
+                let _ = state.user_seek((state.current_position() + delta).max(0.0)).await;
             }
             // An MPRIS widget or KDE Connect (#220). Same path as a volume hotkey, which also
             // pushes the new level back: without that the widget snaps to the old one.
             MediaControlEvent::SetVolume(v) => {
-                crate::hotkeys::change_volume(&state, &app, |_| (v * 100.0).round() as i64)
+                crate::hotkeys::change_volume(&state, |_| (v * 100.0).round() as i64).await
             }
             _ => {}
         }

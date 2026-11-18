@@ -91,6 +91,7 @@ YouTube Music client, and grew from there.
 - Mini player and fullscreen theater mode
 - Tray icon, optional start on login
 - Media keys and now playing on every OS
+- Cast to a Chromecast, a Google Home speaker or a DLNA renderer
 - `Ctrl+K` to search, `Ctrl+H` for every shortcut
 - Self-updating builds
 
@@ -254,6 +255,24 @@ graphics card. The **Processor** setting picks one: on Windows Auto uses the
 graphics card through DirectML, on Linux it's an opt-in through Vulkan (Intel,
 AMD and NVIDIA), and on Apple Silicon an opt-in through CoreML. Songs over 15
 minutes keep their vocals, and karaoke is off while a proxy is set.
+
+---
+
+## Casting
+
+The player bar has a cast button: pick a Chromecast, a Google Home or Nest speaker, or a DLNA
+renderer, and the music moves there. The queue follows — when the track ends, the device gets
+the next one — and the bar, the media keys and the operating system's media widget all control
+the device instead of this desktop.
+
+A Chromecast or a Google Home speaker fetches the song from YouTube itself — the receiver
+refuses an address on the local network — while a DLNA renderer fetches it from this computer,
+which serves it over the LAN with a token that is generated per launch. Either way the track is
+resolved as AAC for the device — what Google's receivers play — while the local player keeps
+its Opus.
+
+[docs/CASTING.md](docs/CASTING.md) has the details: what is supported, how the audio reaches
+the device, and what does not travel (karaoke, music videos, local files).
 
 ---
 
