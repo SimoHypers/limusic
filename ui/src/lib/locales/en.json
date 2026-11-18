@@ -850,9 +850,21 @@
 			"action_show_app_hint": "Bring the Limusic window to the foreground."
 		},
 		"data": {
-			"clear_cache": "Clear image and stream cache",
-			"clear_cache_hint": "Frees up disk space by clearing cached thumbnails and audio chunks.",
-			"clear_cache_button": "Clear cache now"
+			"clear_cache_button": "Clear cache",
+			"used": "Space used",
+			"used_hint": "Everything Limusic keeps on this computer.",
+			"library": "Library and settings",
+			"library_hint": "Your settings, listening history, saved lyrics and local music library.",
+			"audio": "Audio cache",
+			"audio_hint": "Audio held while songs play, and the links saved to start them faster. Clearing it can also fix songs that stop loading.",
+			"karaoke": "Karaoke versions",
+			"models": "Karaoke models",
+			"models_hint": "The vocal removal models you downloaded, and the engine that runs them.",
+			"manage": "Manage",
+			"web": "Images and web cache",
+			"web_hint": "Artwork and other files the app window has loaded, kept by your system's web engine.",
+			"other": "Other",
+			"other_hint": "Logs, artwork from your local files, and small files Limusic needs to play songs."
 		},
 		"about": {
 			"description": "A beautiful, fast, and lightweight desktop music player powered by Tauri and Svelte.",

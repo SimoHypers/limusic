@@ -1380,6 +1380,7 @@ pub fn run() {
             commands::reset_global_hotkeys,
             commands::get_stream_clients,
             commands::clear_caches,
+            commands::storage_usage,
             commands::set_app_icon,
             commands::app_icon_path,
             commands::get_account,
