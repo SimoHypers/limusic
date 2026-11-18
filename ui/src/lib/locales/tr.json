@@ -518,8 +518,6 @@
 			"videos_first_hint": "Müzik videosu bulunan albüm şarkıları, video ile başlar. Şarkı ile başlamak için bu seçeneği kapatın. Oynatıcı ekranındaki “Ses/Video” düğmesi, her iki yönde de geçiş yapmanızı sağlar."
 		},
 		"data": {
-			"clear_cache": "Görsel ve akış önbelleğini temizle",
-			"clear_cache_hint": "Önbelleğe alınan küçük resimleri ve ses parçalarını silerek disk alanı açar.",
 			"clear_cache_button": "Önbelleği şimdi temizle"
 		},
 		"about": {

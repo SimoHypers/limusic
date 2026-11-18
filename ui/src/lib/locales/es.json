@@ -547,8 +547,6 @@
 			"auto_pause_other_audio_hint": "Pausa mientras otra aplicación, como una pestaña de navegador o un reproductor de video, reproducen medios, y se reproduce cuando paran. Sonidos de notificación o juegos no cuentan."
 		},
 		"data": {
-			"clear_cache": "Limpiar caché de imágenes y streams",
-			"clear_cache_hint": "Libera espacio en disco al limpiar miniaturas y fragmentos de audio en caché.",
 			"clear_cache_button": "Limpiar caché ahora"
 		},
 		"about": {

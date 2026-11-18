@@ -526,8 +526,6 @@
 			"action_show_app_hint": "Limusicのウィンドウを最前面に表示します。"
 		},
 		"data": {
-			"clear_cache": "画像とストリームのキャッシュを消去",
-			"clear_cache_hint": "キャッシュされたサムネイルとオーディオチャンクを削除してディスク容量を解放します。",
 			"clear_cache_button": "今すぐキャッシュを消去"
 		},
 		"about": {

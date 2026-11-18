@@ -575,8 +575,6 @@
 			"lyrics_prefer_words_hint": "Teksty słowo po słowie z dowolnego źródła biją teksty linia po linii ze źródła powyżej. Przy pierwszym odtworzeniu utworu jego tekst może pojawić się kilka sekund później."
 		},
 		"data": {
-			"clear_cache": "Wyczyść pamięć podręczną obrazów i strumieni",
-			"clear_cache_hint": "Zwolnij miejsce na dysku, czyszcząc buforowane miniatury i fragmenty dźwięku.",
 			"clear_cache_button": "Wyczyść pamięć podręczną teraz"
 		},
 		"about": {

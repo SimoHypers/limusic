@@ -547,8 +547,6 @@
 			"auto_pause_other_audio_hint": "Jeda ketika aplikasi lain, seperti tab peramban atau pemutar video, memutar media, dan lanjutkan ketika itu berhenti. Suara notifikasi dan permainan tidak termasuk."
 		},
 		"data": {
-			"clear_cache": "Hapus cache gambar dan stream",
-			"clear_cache_hint": "Membebaskan ruang penyimpanan dengan menghapus gambar mini dan potongan audio yang tersimpan di cache.",
 			"clear_cache_button": "Hapus cache sekarang"
 		},
 		"about": {

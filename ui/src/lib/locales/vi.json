@@ -585,8 +585,6 @@
 			"action_show_app_hint": "Đưa cửa sổ Limusic lên trên cùng."
 		},
 		"data": {
-			"clear_cache": "Xoá bộ nhớ đệm hình ảnh và luồng phát",
-			"clear_cache_hint": "Giải phóng dung lượng đĩa bằng cách xoá ảnh thu nhỏ và đoạn âm thanh đã lưu đệm.",
 			"clear_cache_button": "Xoá bộ nhớ đệm ngay"
 		},
 		"about": {
