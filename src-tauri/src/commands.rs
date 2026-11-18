@@ -3267,16 +3267,18 @@ pub async fn listenbrainz_profile(
 /// Theater mode's fullscreen toggle (#139).
 ///
 /// `setFullscreen` on its own is not enough on Windows. tao decides the client area in
-/// WM_NCCALCSIZE: while the real Win32 placement says maximized it clamps the client to the
-/// monitor's *work* area, so the "fullscreen" window sits under the taskbar with a frame-thick
-/// border around it, and while the window is undecorated-with-shadow it insets the client by the
-/// frame thickness. Both are decided before the fullscreen flag is, and tao's own `is_maximized`
-/// reads a cached flag that can disagree with the placement, which is why unmaximizing from the
-/// UI only fixed it some of the time.
+/// WM_NCCALCSIZE: while the window is maximized it clamps the client to the monitor's *work*
+/// area, so the "fullscreen" window sits under the taskbar with a frame-thick border around it,
+/// and while the window is undecorated-with-shadow it insets the client by the frame thickness.
+/// Both are decided before the fullscreen flag is.
 ///
-/// So: un-maximize in the real placement, go fullscreen, then put the window on the monitor rect
-/// with SWP_FRAMECHANGED to force one recalculation with the fullscreen flag set. On the main
-/// thread, where the window messages run inline and the order is guaranteed.
+/// Un-maximizing first got around that, and was wrong (#606): the window shrank to its restored
+/// size on the way in, tao saved that as the size to leave fullscreen to, so closing theater
+/// showed the small window over the desktop before it maximized again, and the window-state
+/// plugin, which records the size of every un-maximized window, took the monitor size for the
+/// restored one. So a maximized window stays maximized and only moves, the way Chromium does
+/// fullscreen, and `theater_client` overrides tao's WM_NCCALCSIZE while theater is up. On the
+/// main thread, where the window messages run inline and the order is guaranteed.
 ///
 /// A window that was fullscreen already when theater opened (macOS's green button, a window
 /// manager's shortcut) is left alone both ways, so closing theater doesn't drop the user out of a
@@ -3303,66 +3305,47 @@ pub fn theater_fullscreen(window: tauri::WebviewWindow, on: bool) -> Result<(), 
     #[cfg(target_os = "windows")]
     {
         use std::sync::Mutex;
-        use windows::Win32::Foundation::RECT;
-        use windows::Win32::Graphics::Gdi::{
-            GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-        };
+        use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+        use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
         use windows::Win32::UI::WindowsAndMessaging::{
-            GetWindowPlacement, IsZoomed, SetWindowPlacement, SetWindowPos, SWP_FRAMECHANGED,
-            SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_SHOWNORMAL, WINDOWPLACEMENT,
+            GetWindowRect, IsZoomed, SetWindowPos, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE,
+            SWP_NOZORDER, WM_NCCALCSIZE,
         };
 
-        /// Un-maximizing the window is what makes fullscreen work, so theater keeps the maximized
-        /// placement and puts it back itself on the way out, restored size included.
-        static MAXIMIZED: Mutex<Option<WINDOWPLACEMENT>> = Mutex::new(None);
+        const SUBCLASS_ID: usize = 0x7e_a7_e5;
+
+        /// The whole window is client area while theater is up. WM_NCCALCSIZE hands over the new
+        /// window rect in `rgrc[0]`, and returning 0 without touching it makes all of it client.
+        /// Installed after tao's subclass, so it runs first and tao's clamp never sees the message.
+        unsafe extern "system" fn theater_client(
+            hwnd: HWND,
+            msg: u32,
+            wparam: WPARAM,
+            lparam: LPARAM,
+            _id: usize,
+            _data: usize,
+        ) -> LRESULT {
+            if msg == WM_NCCALCSIZE && wparam.0 != 0 {
+                return LRESULT(0);
+            }
+            unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
+        }
+
+        /// The maximized window's rect, to move it back to: it is still maximized, so nothing
+        /// else puts it back on the work area.
+        static MAXIMIZED: Mutex<Option<RECT>> = Mutex::new(None);
 
         let w = window.clone();
         window
             .run_on_main_thread(move || {
                 let Ok(hwnd) = w.hwnd() else { return };
                 if on {
-                    let mut mi = MONITORINFO {
-                        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-                        ..Default::default()
-                    };
-                    let mut wp = WINDOWPLACEMENT {
-                        length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
-                        ..Default::default()
-                    };
-                    let zoomed = unsafe {
-                        IsZoomed(hwnd).as_bool()
-                            && GetMonitorInfoW(
-                                MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST),
-                                &mut mi,
-                            )
-                            .as_bool()
-                            && GetWindowPlacement(hwnd, &mut wp).is_ok()
-                    };
-                    if zoomed {
-                        *MAXIMIZED.lock().unwrap() = Some(wp);
-                        // Un-maximize straight onto the monitor rect. SW_RESTORE shrank the
-                        // window to its restored size first, and tao saved that as the size to
-                        // leave fullscreen to, so closing theater showed the small window over
-                        // the desktop before maximizing it again (#606). rcNormalPosition is in
-                        // workspace coordinates, which start at the work area's corner.
-                        let (m, dx, dy) = (
-                            mi.rcMonitor,
-                            mi.rcWork.left - mi.rcMonitor.left,
-                            mi.rcWork.top - mi.rcMonitor.top,
-                        );
-                        let normal = WINDOWPLACEMENT {
-                            showCmd: SW_SHOWNORMAL.0 as u32,
-                            rcNormalPosition: RECT {
-                                left: m.left - dx,
-                                top: m.top - dy,
-                                right: m.right - dx,
-                                bottom: m.bottom - dy,
-                            },
-                            ..wp
-                        };
-                        unsafe {
-                            let _ = SetWindowPlacement(hwnd, &normal);
-                        }
+                    let mut r = RECT::default();
+                    let zoomed =
+                        unsafe { IsZoomed(hwnd).as_bool() && GetWindowRect(hwnd, &mut r).is_ok() };
+                    *MAXIMIZED.lock().unwrap() = zoomed.then_some(r);
+                    unsafe {
+                        let _ = SetWindowSubclass(hwnd, Some(theater_client), SUBCLASS_ID, 0);
                     }
                     let _ = w.set_fullscreen(true);
                     if let Ok(Some(m)) = w.current_monitor() {
@@ -3380,23 +3363,27 @@ pub fn theater_fullscreen(window: tauri::WebviewWindow, on: bool) -> Result<(), 
                         }
                     }
                 } else {
-                    // tao puts back the placement it saved, the monitor rect when the window was
-                    // maximized, so nothing on screen moves until it is maximized again here.
                     let _ = w.set_fullscreen(false);
-                    if let Some(wp) = MAXIMIZED.lock().unwrap().take() {
-                        unsafe {
-                            let _ = SetWindowPlacement(hwnd, &wp);
-                        }
+                    unsafe {
+                        let _ = RemoveWindowSubclass(hwnd, Some(theater_client), SUBCLASS_ID);
                     }
+                    // The frame change hands WM_NCCALCSIZE back to tao, with its clamp.
+                    let (r, flags) = match MAXIMIZED.lock().unwrap().take() {
+                        Some(r) => (r, SWP_FRAMECHANGED | SWP_NOZORDER),
+                        None => (
+                            RECT::default(),
+                            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+                        ),
+                    };
                     unsafe {
                         let _ = SetWindowPos(
                             hwnd,
                             None,
-                            0,
-                            0,
-                            0,
-                            0,
-                            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+                            r.left,
+                            r.top,
+                            r.right - r.left,
+                            r.bottom - r.top,
+                            flags,
                         );
                     }
                 }
