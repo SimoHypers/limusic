@@ -657,6 +657,9 @@ pub struct ListBrief {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
+    /// Which job this is. A command's reply can land after the job's first events, so the UI
+    /// keeps whichever it saw last for a generation rather than the reply.
+    gen: u64,
     phase: Phase,
     total: usize,
     done: usize,
@@ -738,6 +741,7 @@ impl Job {
         let count = |t: Tier| self.rows.iter().filter(|r| r.tier == t).count();
         let pending = count(Tier::Pending);
         Snapshot {
+            gen: self.gen,
             phase: self.phase,
             total: self.rows.len(),
             done: self.rows.len() - pending,

@@ -1086,6 +1086,8 @@ export interface ImportResult {
 	removed: number;
 }
 export interface ImportSnapshot {
+	/** The job's generation: newer jobs, higher numbers. */
+	gen: number;
 	phase: ImportPhase;
 	/** Distinct tracks across every list being imported. */
 	total: number;
