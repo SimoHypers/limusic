@@ -244,6 +244,38 @@
 		return `${gb.toFixed(1)} GB`;
 	}
 
+	// Disk use by kind (#705), measured whenever the Data & storage tab shows and after a clear.
+	let usage = $state<api.StorageUsage | null>(null);
+	const STORAGE = [
+		{ id: 'library', color: 'var(--storage-1)', hint: 'settings.data.library_hint' },
+		{ id: 'audio', color: 'var(--storage-2)', hint: 'settings.data.audio_hint' },
+		{ id: 'karaoke', color: 'var(--storage-3)', hint: 'karaoke.settings.cache_used_desc' },
+		{ id: 'models', color: 'var(--storage-4)', hint: 'settings.data.models_hint' },
+		{ id: 'web', color: 'var(--storage-5)', hint: 'settings.data.web_hint' },
+		{ id: 'other', color: 'var(--muted-foreground)', hint: 'settings.data.other_hint' }
+	] as const;
+	const usageTotal = $derived(usage ? Object.values(usage).reduce((a, b) => a + b, 0) : 0);
+
+	async function loadStorage() {
+		try {
+			usage = await api.storageUsage();
+		} catch (e) {
+			console.warn(e);
+		}
+	}
+
+	$effect(() => {
+		if (ui.settingsOpen && tab === 'data') untrack(loadStorage);
+	});
+
+	// Models are removed one by one in Playback > Karaoke, so the storage row links there.
+	function showKaraokeSettings() {
+		tab = 'playback';
+		tick().then(() => {
+			document.getElementById('settings-karaoke')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+		});
+	}
+
 	async function clearKaraokeCache() {
 		if (!clearCacheConfirm) {
 			clearCacheConfirm = true;
@@ -257,6 +289,7 @@
 		clearCacheConfirm = false;
 		try {
 			await api.karaokeClearCache();
+			if (tab === 'data') loadStorage();
 			const status = await api.karaokeEngineStatus();
 			karaokeCacheBytes = status.cacheBytes;
 			toast.success(t('karaoke.settings.cleared'));
@@ -599,6 +632,7 @@
 			toast.success(t('toasts.caches_cleared'));
 		} finally {
 			clearing = false;
+			loadStorage();
 		}
 	}
 </script>
@@ -608,6 +642,8 @@
 {#snippet row(o: {
 	title: string;
 	desc?: string;
+	/** A legend swatch before the title (the storage bar). */
+	dot?: string;
 	badge?: string;
 	/** After the title and badge, for a small info affordance that belongs to the title. */
 	extra?: Snippet;
@@ -619,6 +655,9 @@
 		<div class="flex {o.tall ? 'items-start' : 'items-center'} justify-between gap-6">
 			<div class="min-w-0">
 				<div class="flex items-center gap-2">
+					{#if o.dot}
+						<span class="size-2 shrink-0 rounded-full" style:background={o.dot}></span>
+					{/if}
 					<span class="text-sm font-medium">{o.title}</span>
 					{#if o.badge}
 						<span
@@ -1024,10 +1063,36 @@
 							<h3 class={LABEL}>{t('settings.sections.storage')}</h3>
 							<div data-settings-card class={CARD}>
 								{@render row({
-									title: t('settings.data.clear_cache'),
-									desc: t('settings.data.clear_cache_hint'),
-									control: clearButton
+									title: t('settings.data.used'),
+									desc: t('settings.data.used_hint'),
+									control: usageTotalText,
+									below: usageBar
 								})}
+								{#each STORAGE as s (s.id)}
+									{#snippet size()}
+										<div class="flex items-center gap-3">
+											<span class="text-xs text-muted-foreground tabular-nums">
+												{usage ? formatCacheSize(usage[s.id]) : '…'}
+											</span>
+											{#if s.id === 'audio'}
+												{@render clearButton()}
+											{:else if s.id === 'karaoke'}
+												{@render karaokeClearButton()}
+											{:else if s.id === 'models'}
+												<Button variant="outline" size="sm" onclick={showKaraokeSettings}>
+													{t('settings.data.manage')}
+												</Button>
+											{/if}
+										</div>
+									{/snippet}
+									{@render row({
+										title: t(`settings.data.${s.id}`),
+										desc: t(s.hint),
+										dot: s.color,
+										control: size,
+										tall: true
+									})}
+								{/each}
 							</div>
 						</section>
 					{:else if tab === 'about'}
@@ -1349,9 +1414,28 @@
 {/snippet}
 
 {#snippet clearButton()}
-	<Button variant="destructive" size="sm" onclick={doClearCaches} disabled={clearing}>
+	<Button variant="outline" size="sm" onclick={doClearCaches} disabled={clearing}>
 		{clearing ? t('common.loading') : t('settings.data.clear_cache_button')}
 	</Button>
+{/snippet}
+
+{#snippet usageTotalText()}
+	<span class="text-sm font-medium tabular-nums">{usage ? formatCacheSize(usageTotal) : '…'}</span>
+{/snippet}
+
+<!-- One segment per kind, sized by its share; the rows below are its legend. -->
+{#snippet usageBar()}
+	<div class="flex h-2 gap-0.5 overflow-hidden rounded-full {usage ? '' : 'bg-muted'}">
+		{#each STORAGE as s (s.id)}
+			{#if usage && usageTotal > 0 && usage[s.id] > 0}
+				<div
+					class="min-w-1 basis-0"
+					style:flex-grow={usage[s.id] / usageTotal}
+					style:background={s.color}
+				></div>
+			{/if}
+		{/each}
+	</div>
 {/snippet}
 
 {#snippet copyDiagButton()}
@@ -1543,12 +1627,16 @@
 		<span class="text-xs text-muted-foreground">
 			{formatCacheSize(karaokeCacheBytes)}
 		</span>
-		<Button
-			variant={clearCacheConfirm ? 'destructive' : 'outline'}
-			size="sm"
-			onclick={clearKaraokeCache}
-		>
-			{clearCacheConfirm ? t('karaoke.settings.clear_confirm') : t('karaoke.settings.clear')}
-		</Button>
+		{@render karaokeClearButton()}
 	</div>
+{/snippet}
+
+{#snippet karaokeClearButton()}
+	<Button
+		variant={clearCacheConfirm ? 'destructive' : 'outline'}
+		size="sm"
+		onclick={clearKaraokeCache}
+	>
+		{clearCacheConfirm ? t('karaoke.settings.clear_confirm') : t('karaoke.settings.clear')}
+	</Button>
 {/snippet}

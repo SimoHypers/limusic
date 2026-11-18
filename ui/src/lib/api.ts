@@ -567,6 +567,9 @@ export const setSetting = (key: string, value: string) =>
 export const getStreamClients = () => invoke<string[]>('get_stream_clients');
 /** Wipe both cache tiers (URL cache + mpv on-disk audio cache). */
 export const clearCaches = () => invoke<void>('clear_caches');
+/** Bytes on disk by kind, for Settings > Data & storage (#705). */
+export type StorageUsage = Record<'library' | 'audio' | 'karaoke' | 'models' | 'web' | 'other', number>;
+export const storageUsage = () => invoke<StorageUsage>('storage_usage');
 /** Set the app icon to a PNG the user picked, or restore the bundled one with `null` (#173). */
 export const setAppIcon = (path: string | null) => invoke<void>('set_app_icon', { path });
 /** Path to the custom app icon, granted to the asset protocol. `null` when the bundled one is in use. */

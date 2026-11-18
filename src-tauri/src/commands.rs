@@ -745,6 +745,78 @@ pub async fn clear_caches(state: St<'_>) -> Result<(), String> {
     Ok(())
 }
 
+/// Bytes on disk by what they are, for Settings > Data & storage (#705).
+#[derive(Debug, Default, PartialEq, serde::Serialize)]
+pub struct StorageUsage {
+    /// The SQLite file: settings, history, saved lyrics, the local library.
+    pub library: u64,
+    /// mpv's on-disk demuxer cache.
+    pub audio: u64,
+    /// Karaoke instrumentals.
+    pub karaoke: u64,
+    /// Karaoke models and the ONNX Runtime.
+    pub models: u64,
+    /// The webview's own files: its HTTP cache (artwork), storage, service workers.
+    pub web: u64,
+    /// Logs, the player.js cache, local file artwork.
+    pub other: u64,
+}
+
+/// Apparent size of a file, or of everything under a directory. Symlinks are not followed.
+fn disk_size(path: &std::path::Path) -> u64 {
+    let Ok(meta) = std::fs::symlink_metadata(path) else { return 0 };
+    if !meta.is_dir() {
+        return meta.len();
+    }
+    std::fs::read_dir(path).into_iter().flatten().flatten().map(|e| disk_size(&e.path())).sum()
+}
+
+/// Sorts the app data dir's top-level entries. Anything we don't name is the webview's: on Linux
+/// WebKitGTK keeps its folders here, beside ours.
+fn tally_data_dir(dir: &std::path::Path) -> StorageUsage {
+    let mut u = StorageUsage::default();
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = entry.file_name();
+        let slot = match name.to_string_lossy().as_ref() {
+            "audio-cache" => &mut u.audio,
+            "karaoke-cache" => &mut u.karaoke,
+            "models" | "runtime" => &mut u.models,
+            // Also a quarantined `limusic.corrupt-<stamp>.sqlite`.
+            n if n.starts_with("limusic.") && n.contains("sqlite") => &mut u.library,
+            n if n.starts_with("limusic.") => &mut u.other,
+            "cipher_cache" | "covers" | "app-icon.png" => &mut u.other,
+            _ => &mut u.web,
+        };
+        *slot += disk_size(&entry.path());
+    }
+    u
+}
+
+#[tauri::command]
+pub async fn storage_usage(app: tauri::AppHandle) -> Result<StorageUsage, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = app.path();
+        let data = p.app_data_dir().map_err(|e| e.to_string())?;
+        let mut u = tally_data_dir(&data);
+        // The webview's folders outside the data dir: WebView2's under local data on Windows,
+        // WKWebView's cache and website data on macOS. Same dir as `data` elsewhere, skipped.
+        #[allow(unused_mut)]
+        let mut extra = vec![p.app_local_data_dir(), p.app_cache_dir()];
+        #[cfg(target_os = "macos")]
+        extra.push(p.home_dir().map(|h| h.join("Library/WebKit").join(&app.config().identifier)));
+        let mut seen = vec![data];
+        for dir in extra.into_iter().flatten() {
+            if !seen.contains(&dir) {
+                u.web += disk_size(&dir);
+                seen.push(dir);
+            }
+        }
+        Ok(u)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // --- auth (context/15) ---------------------------------------------------------------------
 
 #[tauri::command]
@@ -3530,6 +3602,34 @@ pub fn stop_matugen_watcher() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn storage_tally_sorts_the_data_dir() {
+        let dir = std::env::temp_dir().join(format!("limusic-storage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let put = |rel: &str, n: usize| {
+            let p = dir.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, vec![0u8; n]).unwrap();
+        };
+        put("limusic.sqlite", 100);
+        put("limusic.sqlite-wal", 10);
+        put("limusic.corrupt-1.sqlite", 1);
+        put("limusic.log", 5);
+        put("audio-cache/a", 20);
+        put("karaoke-cache/x/y.flac", 300);
+        put("models/m.onnx", 40);
+        put("runtime/onnx/lib.so", 2);
+        put("cipher_cache/p.js", 7);
+        put("WebKitCache/Version 16/r", 50);
+        put("localstorage/s", 3);
+        let u = tally_data_dir(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            u,
+            StorageUsage { library: 111, audio: 20, karaoke: 300, models: 42, web: 53, other: 12 }
+        );
+    }
 
     /// Official channels only, one card per stream, most watched first (#424).
     #[test]
