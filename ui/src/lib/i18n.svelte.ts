@@ -86,6 +86,12 @@ export function t(key: TranslationKey, params?: Record<string, string | number>)
 	return str.replace(/\{(\w+)\}/g, (_, k) => (params[k] !== undefined ? String(params[k]) : `{${k}}`));
 }
 
+/** The English string whatever the active language: the settings search matches it too. */
+export function tEn(key: TranslationKey): string {
+	const str = getNestedValue(translations.en, key);
+	return typeof str === 'string' ? str : key;
+}
+
 /**
  * How much of each catalog Weblate has actually landed, 0..1, so the picker can say a language is
  * half English before someone picks it and finds out the hard way.

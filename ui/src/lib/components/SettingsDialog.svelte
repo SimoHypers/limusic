@@ -22,7 +22,9 @@
 		ArrowDown01Icon,
 		Alert02Icon,
 		LinkSquare02Icon,
-		ComputerPhoneSyncIcon
+		ComputerPhoneSyncIcon,
+		Search01Icon,
+		ArrowRight01Icon
 	} from '@hugeicons/core-free-icons';
 	import { goto } from '$app/navigation';
 	import { Button } from '$lib/components/ui/button';
@@ -55,7 +57,10 @@
 		recheckForUpdates
 	} from '$lib/updater.svelte';
 	import { getVersion } from '@tauri-apps/api/app';
-	import { t, setLocale, currentLocale, LOCALES } from '$lib/i18n.svelte';
+	import { t, tEn, setLocale, currentLocale, LOCALES, type TranslationKey } from '$lib/i18n.svelte';
+	import { SETTINGS, indexSettings, type SettingEntry, type SettingsTab } from '$lib/settings-search';
+	import { match } from '$lib/localsearch';
+	import { HOTKEY_ACTIONS } from '$lib/hotkeys.svelte';
 	import GlobalHotkeysSettings from '$lib/components/GlobalHotkeysSettings.svelte';
 	import LimusicAccountSettings from './LimusicAccountSettings.svelte';
 	import { limusic } from '$lib/limusic.svelte';
@@ -63,17 +68,7 @@
 	import EnhancedLyricsSettings from '$lib/components/EnhancedLyricsSettings.svelte';
 	import LanguagePicker from '$lib/components/LanguagePicker.svelte';
 
-	type TabId =
-		| 'general'
-		| 'themes'
-		| 'playback'
-		| 'contributing'
-		| 'hotkeys'
-		| 'discord'
-		| 'scrobbling'
-		| 'devices'
-		| 'data'
-		| 'about';
+	type TabId = SettingsTab;
 	const TABS = $derived<{ id: TabId; label: string; hint: string; icon: typeof Settings02Icon }[]>([
 		{ id: 'general', label: t('settings.tabs.general'), hint: t('settings.tabs.general_hint'), icon: Settings02Icon },
 		{ id: 'themes', label: t('settings.tabs.themes'), hint: t('settings.tabs.themes_hint'), icon: PaintBoardIcon },
@@ -138,6 +133,7 @@
 	$effect(() => {
 		if (!ui.settingsOpen) return;
 		untrack(() => {
+			query = '';
 			// Opened on a section from elsewhere (the lyrics source picker): its tab, scrolled to it
 			// once the tab has rendered. The Last.fm menu and "Edit scrobble" open a whole tab.
 			if (ui.settingsFocus === 'scrobbling' || ui.settingsFocus === 'devices') {
@@ -460,6 +456,106 @@
 		)
 	);
 
+	// Settings search (#624): a query swaps the tab's content for the rows that match it, and picking
+	// one opens its tab on that row.
+	let query = $state('');
+	let searchInput = $state<HTMLInputElement | null>(null);
+	let pane: HTMLElement | undefined;
+	const searching = $derived(query.trim() !== '');
+	const firstTerm = $derived(query.trim().toLowerCase().split(/\s+/)[0]);
+	const HOTKEY_SECTIONS = {
+		playback: 'settings.hotkeys.section_playback',
+		audio: 'settings.hotkeys.section_audio',
+		window: 'settings.hotkeys.section_window'
+	} as const;
+	// Rows this machine never shows, the same tests as the markup below.
+	const unavailable = $derived(
+		new Set<string>([
+			...(IS_MAC ? ['settings.playback.auto_pause_other_audio'] : []),
+			...(systemTitlebarFixed ? ['settings.general.system_titlebar'] : []),
+			...(betaAvailable ? [] : ['settings.about.beta']),
+			...(karaokeAvailability.gpuSupported ? [] : ['karaoke.settings.device'])
+		])
+	);
+	const searchIndex = $derived(
+		indexSettings(
+			[
+				...SETTINGS,
+				...HOTKEY_ACTIONS.map(
+					(a): SettingEntry => ({
+						tab: 'hotkeys',
+						section: HOTKEY_SECTIONS[a.section],
+						title: a.titleKey,
+						desc: a.hintKey,
+						under: 'settings.hotkeys.enable'
+					})
+				)
+			].filter((e) => TABS.some((tb) => tb.id === e.tab) && !unavailable.has(e.title)),
+			t,
+			tEn
+		)
+	);
+	// Grouped by tab in the order of each tab's best hit, so the top row is the one Enter opens.
+	const results = $derived.by(() => {
+		const groups: { tab: (typeof TABS)[number]; rows: SettingEntry[] }[] = [];
+		for (const e of match(searchIndex, query)) {
+			let g = groups.find((x) => x.tab.id === e.tab);
+			if (!g) groups.push((g = { tab: TABS.find((tb) => tb.id === e.tab)!, rows: [] }));
+			g.rows.push(e);
+		}
+		return groups;
+	});
+
+	/** The row titled `key` in the tab on screen, found by its text: every row snippet marks itself. */
+	function findRow(key: TranslationKey): HTMLElement | null {
+		if (!pane) return null;
+		const text = t(key);
+		const walk = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT);
+		for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+			if (n.nodeValue?.trim() !== text) continue;
+			const row = n.parentElement?.closest<HTMLElement>('[data-setting-row]');
+			if (row) return row;
+		}
+		return null;
+	}
+
+	// A row behind a switch that is off lands on the switch. One colour fade on one element, so
+	// nothing the scrolling-list rules object to. The accent is resolved first: a var() inside a
+	// Web Animations keyframe is not something to count on in every engine here.
+	async function openResult(e: SettingEntry) {
+		query = '';
+		tab = e.tab;
+		await tick();
+		const row = findRow(e.title) ?? (e.under ? findRow(e.under) : null);
+		if (!row) return;
+		row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+		const accent = getComputedStyle(row).getPropertyValue('--primary').trim();
+		const lit = {
+			backgroundColor: `color-mix(in oklab, ${accent} 16%, transparent)`,
+			boxShadow: `inset 0 0 0 1px ${accent}`
+		};
+		row.animate(
+			[lit, { ...lit, offset: 0.55 }, { backgroundColor: 'transparent', boxShadow: 'inset 0 0 0 1px transparent' }],
+			{ duration: 1800, easing: 'ease-out' }
+		);
+	}
+
+	function onSearchKey(e: KeyboardEvent) {
+		const top = results[0]?.rows[0];
+		if (e.key === 'Enter' && top) {
+			e.preventDefault();
+			openResult(top);
+		}
+	}
+
+	// "/" puts the cursor in the search, as on most sites. Not Ctrl+F: that is next track here.
+	function onDialogKey(e: KeyboardEvent) {
+		if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+		if ((e.target as HTMLElement).closest('input, textarea, [contenteditable]')) return;
+		e.preventDefault();
+		searchInput?.focus();
+	}
+
 	const QUALITIES = [
 		{ id: 'LOW', key: 'settings.playback.quality_low' },
 		{ id: 'AUTO', key: 'settings.playback.quality_auto' },
@@ -651,7 +747,7 @@
 	below?: Snippet;
 	tall?: boolean;
 })}
-	<div class="px-4 py-3.5">
+	<div data-setting-row class="px-4 py-3.5">
 		<div class="flex {o.tall ? 'items-start' : 'items-center'} justify-between gap-6">
 			<div class="min-w-0">
 				<div class="flex items-center gap-2">
@@ -682,12 +778,29 @@
 	</div>
 {/snippet}
 
+<!-- A result's title with the first word of the query marked. Only where lowercasing kept the
+     length, or the slice would land off by a letter. -->
+{#snippet marked(text: string)}
+	{@const i = text.length === text.toLowerCase().length ? text.toLowerCase().indexOf(firstTerm) : -1}
+	{#if i < 0}{text}{:else}{text.slice(0, i)}<mark class="rounded-[3px] bg-primary/25 text-foreground"
+			>{text.slice(i, i + firstTerm.length)}</mark
+		>{text.slice(i + firstTerm.length)}{/if}
+{/snippet}
+
 <Dialog.Root bind:open={ui.settingsOpen}>
 	<!-- The Discord, Scrobbling and Appearance tabs put their live preview *beside* the controls rather than
 	     under them, so they need the extra width; every other tab reads better narrow. Deliberately not animated:
 	     transitioning the width relayouts the whole modal every frame, and WebKitGTK is the webview
 	     that would pay for it. -->
 	<Dialog.Content
+		onkeydown={onDialogKey}
+		onEscapeKeydown={(e) => {
+			// The first Esc clears a search, the next one closes.
+			if (query) {
+				e.preventDefault();
+				query = '';
+			}
+		}}
 		class="gap-0 overflow-hidden p-0 {tab === 'discord' || tab === 'scrobbling' || tab === 'themes' ? 'sm:max-w-5xl' : tab === 'hotkeys' ? 'sm:max-w-4xl' : 'sm:max-w-3xl'}"
 	>
 		<Dialog.Description class="sr-only">{t('settings.title')}</Dialog.Description>
@@ -698,13 +811,36 @@
 				<Dialog.Title class="px-3 pt-1 pb-4 font-heading text-base font-semibold">
 					{t('settings.title')}
 				</Dialog.Title>
+				<div class="relative mb-2.5">
+					<span class="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-muted-foreground">
+						<HugeiconsIcon icon={Search01Icon} size={15} strokeWidth={2} />
+					</span>
+					<Input
+						bind:ref={searchInput}
+						bind:value={query}
+						onkeydown={onSearchKey}
+						placeholder={t('settings.search.placeholder')}
+						aria-label={t('settings.search.placeholder')}
+						autocomplete="off"
+						spellcheck={false}
+						class="h-8 rounded-lg pr-7 pl-8 text-[13px] md:text-[13px]"
+					/>
+					{#if !query}
+						<span class="pointer-events-none absolute inset-y-0 right-2 flex items-center">
+							<kbd class="rounded border px-1 font-mono text-[10px] leading-4 text-muted-foreground">/</kbd>
+						</span>
+					{/if}
+				</div>
 				<div class="flex flex-col gap-0.5">
 					{#each TABS as tb (tb.id)}
+						{@const active = !searching && tab === tb.id}
 						<button
-							onclick={() => (tab = tb.id)}
-							aria-current={tab === tb.id}
-							class="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors {tab ===
-							tb.id
+							onclick={() => {
+								tab = tb.id;
+								query = '';
+							}}
+							aria-current={active}
+							class="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors {active
 								? 'bg-background text-foreground shadow-sm ring-1 ring-border/70'
 								: 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}"
 						>
@@ -712,7 +848,7 @@
 								icon={tb.icon}
 								size={17}
 								strokeWidth={2}
-								class={tab === tb.id ? 'text-primary' : ''}
+								class={active ? 'text-primary' : ''}
 							/>
 							<span class="truncate">{tb.label}</span>
 						</button>
@@ -725,16 +861,66 @@
 
 			<!-- Content pane. min-w-0: a flex child's min-width is auto, so without it one wide row
 			     (a long font name, a long path) widens the pane and pushes every tab off the modal. -->
-			<div class="flex min-w-0 flex-1 flex-col">
+			<div bind:this={pane} class="flex min-w-0 flex-1 flex-col">
 				<!-- h-14 also keeps the dialog's close button clear of the first row. -->
 				<header
 					data-settings-header
 					class="flex h-14 shrink-0 flex-col justify-center border-b px-6 pr-14"
 				>
-					<h2 class="text-sm font-semibold">{currentTab.label}</h2>
-					<p class="truncate text-xs text-muted-foreground">{currentTab.hint}</p>
+					<h2 class="text-sm font-semibold">{searching ? t('common.search') : currentTab.label}</h2>
+					<p class="truncate text-xs text-muted-foreground">
+						{searching ? t('settings.search.hint') : currentTab.hint}
+					</p>
 				</header>
 
+				{#if searching}
+					<!-- No hover transition: these rows scroll (docs/UI-PERFORMANCE.md). -->
+					<div class="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-6 py-5">
+						{#each results as g (g.tab.id)}
+							<section class={GROUP}>
+								<h3 class={LABEL}>{g.tab.label}</h3>
+								<div data-settings-card class={CARD}>
+									{#each g.rows as e (e.title)}
+										<button
+											type="button"
+											onclick={() => openResult(e)}
+											class="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left outline-none hover:bg-foreground/5 focus-visible:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+										>
+											<span class="min-w-0 flex-1">
+												<span class="block text-sm font-medium">{@render marked(t(e.title))}</span>
+												{#if e.desc}
+													<span class="mt-0.5 block truncate text-xs text-muted-foreground">{t(e.desc)}</span>
+												{/if}
+												{#if e.under}
+													<span class="mt-0.5 block text-xs text-muted-foreground">
+														{t('settings.search.shown_when', { setting: t(e.under) })}
+													</span>
+												{/if}
+											</span>
+											{#if e.section}
+												<span class="shrink-0 text-xs text-muted-foreground">{t(e.section)}</span>
+											{/if}
+											<HugeiconsIcon
+												icon={ArrowRight01Icon}
+												size={14}
+												strokeWidth={2}
+												class="shrink-0 text-muted-foreground"
+											/>
+										</button>
+									{/each}
+								</div>
+							</section>
+						{:else}
+							<div class="py-16 text-center">
+								<p class="text-sm font-medium">{t('settings.search.empty', { query: query.trim() })}</p>
+								<p class="mt-1.5 text-xs text-muted-foreground">{t('settings.search.empty_hint')}</p>
+							</div>
+						{/each}
+					</div>
+				{/if}
+				<!-- Hidden, not unmounted, while a search shows: Esc brings the tab back as it was, an
+				     unsaved edit in it included. -->
+				<div class={searching ? 'hidden' : 'contents'}>
 				{#if loaded && tab === 'discord'}
 					<DiscordSettings {settings} />
 				{:else if loaded && tab === 'scrobbling'}
@@ -1194,6 +1380,7 @@
 					{/if}
 				</div>
 				{/if}
+				</div>
 			</div>
 		</div>
 	</Dialog.Content>

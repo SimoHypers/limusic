@@ -21,7 +21,7 @@
 </script>
 
 {#snippet row(o: { title: string; desc: string; badge?: string; control?: Snippet; below?: Snippet })}
-	<div class="px-4 py-3.5">
+	<div data-setting-row class="px-4 py-3.5">
 		<div class="flex items-center justify-between gap-6">
 			<div class="min-w-0">
 				<div class="flex items-center gap-2">

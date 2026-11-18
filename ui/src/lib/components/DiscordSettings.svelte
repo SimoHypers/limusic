@@ -142,7 +142,7 @@
 	<!-- The description sits *under* the control, not beside it. These hints are long (they have to
 	     explain what a Discord slot is), and boxing them into the column left of the dropdown wasted
 	     the whole width under it and turned every one into six short lines. -->
-	<div class="px-4 py-3.5">
+	<div data-setting-row class="px-4 py-3.5">
 		<div class="flex items-center justify-between gap-4">
 			<span class="min-w-0 text-sm font-medium">{o.title}</span>
 			{#if o.control}
