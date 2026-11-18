@@ -747,7 +747,11 @@
 			"unlink": "Bağlantıyı kaldır",
 			"unlink_title": "{name} bağlantısı kaldırılsın mı?",
 			"title": "Her yerde dinleyin",
-			"subtitle": "Cihazlarınız birbirlerini kontrol eder ve müzik cihazlar arasında dolaşır."
+			"subtitle": "Cihazlarınız birbirlerini kontrol eder ve müzik cihazlar arasında dolaşır.",
+			"link_phone": "Telefon bağla",
+			"link_another": "Başka bir telefon bağla",
+			"step_open": "Telefonunuzda Limusic'i açın: Ayarlar › Cihazlar",
+			"step_type": "Bu kodu girin"
 		},
 		"search": {
 			"placeholder": "Ayarlarda ara",
