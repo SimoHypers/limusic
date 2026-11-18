@@ -803,7 +803,9 @@
 		"search": {
 			"placeholder": "Busca configuraciones",
 			"hint": "Enter abre el primer resultado, Esc limpia la búsqueda.",
-			"empty": "No hay coincidencias con \"{query}\""
+			"empty": "No hay coincidencias con \"{query}\"",
+			"empty_hint": "Intenta una palabra más corta o una de la descripción de una configuración.",
+			"shown_when": "Mostrar cuando \"{setting}\" está activo"
 		}
 	},
 	"dialogs": {
@@ -1370,7 +1372,7 @@
 		"from_spotify": "De Spotify",
 		"update": "Actualizar",
 		"updating": "Actualizando…",
-		"update_tooltip": "Añade lo nuevo en la playlist de Spotify y elimina lo que ya no está",
+		"update_tooltip": "Añade lo nuevo en la playlist de Spotify, elimina lo que ya no está y sigue su orden",
 		"update_done": "Actualizado de Spotify: {added} añadidos, {removed} eliminados",
 		"update_none": "Ya esta al día con Spotify",
 		"nudge_title": "¿Vienes de Spotify?",
@@ -1389,7 +1391,10 @@
 			"not_found": "No se pudo encontrar eso en YouTube Music.",
 			"cooldown": "YouTube Music le pidió a Limusic que bajara la velocidad, así que los importes se pausaron hasta las {time}. Todo lo que se ha encontrado se conserva."
 		},
-		"paste_link_hint": "¿Solo en YouTube como un video? Pega su link."
+		"paste_link_hint": "¿Solo en YouTube como un video? Pega su link.",
+		"keep_updated": "Mantente al día con Spotify",
+		"keep_updated_desc": "Limusic revisa la playlist de Spotify cuando inicia y cada pocas horas, y agrega, quita y reordena las canciones para que coincidan.",
+		"auto_update_done": "{name} actualizados desde Spotify: {added} agregados, {removed} eliminados"
 	},
 	"comments": {
 		"title": "Comentarios",
