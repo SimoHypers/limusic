@@ -123,6 +123,9 @@ struct Active {
     /// The URL of the item the device is on, and of the one queued after it.
     cur: Option<String>,
     next: Option<String>,
+    /// Their items, for a repeat-one the receiver doesn't loop by itself.
+    cur_media: Option<Media>,
+    next_media: Option<Media>,
     /// Playing or buffering, as the windows were last told.
     playing: bool,
     idle: bool,
@@ -314,6 +317,8 @@ impl CastManager {
                 synced: false,
                 cur: None,
                 next: None,
+                cur_media: None,
+                next_media: None,
                 playing: false,
                 idle: true,
                 desynced: false,
@@ -327,7 +332,11 @@ impl CastManager {
                 refusals: 0,
             });
         }
-        crate::audioproxy::start_lan(device.ip, device.kind == cast::Kind::Group);
+        if !crate::audioproxy::start_lan(device.ip, device.kind == cast::Kind::Group) {
+            // Nothing could reach the music: let the device go rather than cast silence.
+            self.stop().await;
+            return Err(StartError::Unreachable);
+        }
         self.spawn_session(epoch, events);
         self.emit_state();
         Ok(())
@@ -396,6 +405,8 @@ impl CastManager {
         let Some((epoch, repeat)) = self.with(|a| {
             a.cur = Some(url.clone());
             a.next = None;
+            a.cur_media = Some(media.clone());
+            a.next_media = None;
             a.idle = false;
             a.desynced = false;
             a.duration = media.duration;
@@ -409,7 +420,11 @@ impl CastManager {
         };
         tracing::info!(start, autoplay, ?repeat, "cast: load");
         // A device that can't reach this computer says nothing for a long time, and then often
-        // only "failed". The proxy knows sooner whether it ever asked.
+        // only "failed". The proxy knows sooner whether it ever asked. Not for a paused load,
+        // which a device may not fetch until it plays.
+        if !autoplay {
+            return;
+        }
         let me = self.clone();
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(FETCH_DEADLINE).await;
@@ -424,6 +439,7 @@ impl CastManager {
     pub fn append(&self, media: Media) {
         self.with(|a| {
             a.next = Some(media.url.clone());
+            a.next_media = Some(media.clone());
             a.tx.send(Command::Append(media));
         });
     }
@@ -431,6 +447,7 @@ impl CastManager {
     /// Drop the queued next track (the queue changed under it).
     pub fn drop_next(&self) {
         self.with(|a| {
+            a.next_media = None;
             if a.next.take().is_some() {
                 a.tx.send(Command::DropNext);
             }
@@ -625,6 +642,7 @@ impl CastManager {
             // The device moved on to the queued track by itself: what mpv calls a gapless
             // advance. The one it left is cleared off its queue.
             a.cur = a.next.take();
+            a.cur_media = a.next_media.take();
             a.duration = s.duration;
             a.clock.set(s.position, s.state == State::Playing);
             a.tx.send(Command::TrimPlayed);
@@ -648,12 +666,20 @@ impl CastManager {
                 let was_idle = std::mem::replace(&mut a.idle, true);
                 match s.idle_reason.as_deref() {
                     _ if was_idle => {}
-                    Some("FINISHED") if a.repeat_one => {
-                        // A receiver that doesn't loop by itself: start it again from the top.
+                    Some("FINISHED") if a.repeat_one && a.cur_media.is_some() => {
+                        // A receiver that doesn't loop by itself: hand it the track again. A
+                        // finished session can't be seeked back into.
+                        let media = a.cur_media.clone().into_iter().collect();
                         a.idle = false;
                         a.clock.set(0.0, false);
-                        a.tx.send(Command::Seek(0.0));
-                        a.tx.send(Command::Play);
+                        a.load_from = Some(a.session);
+                        let repeat = Repeat::One;
+                        a.tx.send(Command::Load {
+                            items: media,
+                            start: 0.0,
+                            autoplay: true,
+                            repeat,
+                        });
                         out.push(Signal::Player(PlayerEvent::Looped));
                     }
                     Some("FINISHED") => out.push(Signal::Player(PlayerEvent::TrackEnded)),

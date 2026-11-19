@@ -208,8 +208,9 @@ static LAN_STATE: Mutex<Option<LanServerState>> = Mutex::new(None);
 /// leader (any member) does the fetching.
 static LAN_PEER: Mutex<Option<IpAddr>> = Mutex::new(None);
 
-/// Open the LAN listener for a cast to `device`. A fresh port and token every cast.
-pub fn start_lan(device: IpAddr, group: bool) {
+/// Open the LAN listener for a cast to `device`. A fresh port and token every cast. `false`
+/// when it couldn't listen.
+pub fn start_lan(device: IpAddr, group: bool) -> bool {
     stop_lan();
     if let Ok(mut peer) = LAN_PEER.lock() {
         *peer = (!group).then_some(device);
@@ -218,12 +219,12 @@ pub fn start_lan(device: IpAddr, group: bool) {
         Ok(l) => l,
         Err(e) => {
             tracing::warn!(error = %e, "audio proxy lan: bind failed");
-            return;
+            return false;
         }
     };
-    let Ok(port) = listener.local_addr().map(|a| a.port()) else { return };
+    let Ok(port) = listener.local_addr().map(|a| a.port()) else { return false };
     if listener.set_nonblocking(true).is_err() {
-        return;
+        return false;
     }
     let token = format!("{:016x}{:016x}", rand::random::<u64>(), rand::random::<u64>());
     let (stop_tx, mut stop_rx) = tokio::sync::oneshot::channel::<()>();
@@ -265,6 +266,7 @@ pub fn start_lan(device: IpAddr, group: bool) {
         *state = Some(LanServerState { port, token, stop_tx });
     }
     tracing::info!(port, "audio proxy listening on the LAN for a cast");
+    true
 }
 
 /// Close the LAN listener (the cast ended).
