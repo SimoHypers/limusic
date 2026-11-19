@@ -611,10 +611,20 @@ impl Orchestrator {
         };
         if let Some(twin) = redirect {
             tracing::info!(video_id, twin, "unplayable id redirects, resolving its twin");
-            let mut data =
-                Box::pin(self.resolve_as(&twin, false, quality, disabled, false)).await?;
-            data.video_id = video_id.to_owned();
-            return Ok(data);
+            // A playback 403 blacklists the row's id (`mark_web_remix_failed`), not the twin's.
+            {
+                let mut failed = self.web_remix_failed.lock().await;
+                if blacklist_blocks(&failed, video_id, Instant::now()) {
+                    blacklist_insert(&mut failed, &twin, Instant::now());
+                }
+            }
+            match Box::pin(self.resolve_as(&twin, false, quality, disabled, false)).await {
+                Ok(mut data) => {
+                    data.video_id = video_id.to_owned();
+                    return Ok(data);
+                }
+                Err(e) => tracing::warn!(video_id, twin, error = %e, "redirect twin failed too"),
+            }
         }
         tracing::info!(video_id, "all InnerTube clients exhausted → rustypipe fallback");
         match rustypipe_fallback::resolve(video_id, prefer_high).await {
