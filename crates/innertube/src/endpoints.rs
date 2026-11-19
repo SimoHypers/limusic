@@ -281,6 +281,29 @@ impl InnerTube {
         Ok(next)
     }
 
+    /// The videoId YouTube redirects `video_id` to, if it redirects at all. Some region-locked
+    /// tracks are aliased to a twin upload that plays in the caller's region, and only resolving
+    /// the URL follows that alias: the watch page and `navigation/resolve_url` answer with the
+    /// twin, while `/player` and `/next` keep answering for the dead id (live-checked 2026-11-19,
+    /// `uUaexHgTsUU` to `0bsObTAGYqM`). Anonymous, like the watch page that showed it.
+    pub async fn watch_redirect(
+        &self,
+        client: &YouTubeClient,
+        video_id: &str,
+    ) -> Result<Option<String>, Error> {
+        #[derive(Serialize)]
+        struct Body {
+            context: Context,
+            url: String,
+        }
+        let body = Body {
+            context: self.context_anonymous(client),
+            url: format!("https://music.youtube.com/watch?v={video_id}"),
+        };
+        let value = self.post_no_heal("navigation/resolve_url", client, &body, false).await?;
+        Ok(redirect_target(&value, video_id))
+    }
+
     // --- comments. Reads go through `next`: a comments token sent to `browse` is answered with
     // the Home feed. -----------------------------------------------------------------------
 
@@ -1508,6 +1531,12 @@ const PAGE_ROWS: u64 = 100;
 /// ponytail: process-wide, so one odd playlist turns it off for all of them until a restart.
 static AHEAD_OFF: AtomicBool = AtomicBool::new(false);
 
+/// The watch target of a `navigation/resolve_url` answer, when it is not the id asked about.
+fn redirect_target(response: &serde_json::Value, video_id: &str) -> Option<String> {
+    let id = response.pointer("/endpoint/watchEndpoint/videoId")?.as_str()?;
+    (id != video_id).then(|| id.to_owned())
+}
+
 /// "Hide music videos" on a `/next` page. The seed always stays: "start radio from this video"
 /// opens on that video, and the track already playing is never yanked out from under the user.
 ///
@@ -1706,6 +1735,17 @@ fn edit_rejection(v: &serde_json::Value) -> Option<Error> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_redirected_watch_url_names_its_twin() {
+        let v = serde_json::from_str(include_str!("../tests/fixtures/resolve_url_redirect.json"))
+            .unwrap();
+        assert_eq!(redirect_target(&v, "uUaexHgTsUU").as_deref(), Some("0bsObTAGYqM"));
+        // A playable id resolves to itself, and a channel or a refusal has no watch target.
+        assert_eq!(redirect_target(&v, "0bsObTAGYqM"), None);
+        assert_eq!(redirect_target(&json!({"endpoint": {"browseEndpoint": {}}}), "x"), None);
+        assert_eq!(redirect_target(&json!({}), "x"), None);
+    }
 
     #[test]
     fn hiding_videos_never_empties_a_radio() {

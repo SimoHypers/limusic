@@ -219,6 +219,18 @@ impl Orchestrator {
         quality: AudioQuality,
         disabled: &HashSet<String>,
     ) -> Result<PlaybackData, ResolveError> {
+        self.resolve_as(video_id, is_upload, quality, disabled, true).await
+    }
+
+    /// [`resolve`](Self::resolve), following a watch redirect at most once (`follow`).
+    async fn resolve_as(
+        &self,
+        video_id: &str,
+        is_upload: bool,
+        quality: AudioQuality,
+        disabled: &HashSet<String>,
+        follow: bool,
+    ) -> Result<PlaybackData, ResolveError> {
         let prefer_high = matches!(quality, AudioQuality::High | AudioQuality::Auto);
         let logged_in = self.it.is_logged_in();
         let visitor = self.it.visitor_data();
@@ -586,6 +598,33 @@ impl Orchestrator {
         if is_upload {
             tracing::warn!(video_id, "no authenticated client could stream this upload");
             return Err(ResolveError::UploadUnavailable(video_id.to_owned()));
+        }
+        // 6c. YouTube answered and nothing played: the id may be an alias. Some region-locked
+        // tracks redirect to a twin that plays here, but only URL resolution follows it, so
+        // `/player` (and rustypipe, which asks the same thing) keep refusing the dead id. The twin
+        // streams under the row's id, so the queue, the lyrics and the cache stay keyed on it.
+        let redirect = match self.clients.get(innertube::METADATA_CLIENT) {
+            Some(c) if follow && reached => {
+                self.it.watch_redirect(c, video_id).await.ok().flatten()
+            }
+            _ => None,
+        };
+        if let Some(twin) = redirect {
+            tracing::info!(video_id, twin, "unplayable id redirects, resolving its twin");
+            // A playback 403 blacklists the row's id (`mark_web_remix_failed`), not the twin's.
+            {
+                let mut failed = self.web_remix_failed.lock().await;
+                if blacklist_blocks(&failed, video_id, Instant::now()) {
+                    blacklist_insert(&mut failed, &twin, Instant::now());
+                }
+            }
+            match Box::pin(self.resolve_as(&twin, false, quality, disabled, false)).await {
+                Ok(mut data) => {
+                    data.video_id = video_id.to_owned();
+                    return Ok(data);
+                }
+                Err(e) => tracing::warn!(video_id, twin, error = %e, "redirect twin failed too"),
+            }
         }
         tracing::info!(video_id, "all InnerTube clients exhausted → rustypipe fallback");
         match rustypipe_fallback::resolve(video_id, prefer_high).await {
