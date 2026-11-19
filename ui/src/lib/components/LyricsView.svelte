@@ -76,6 +76,7 @@
 	import LyricsSourcePicker from './LyricsSourcePicker.svelte';
 	import KaraokeButton from './KaraokeButton.svelte';
 	import { link } from '$lib/link.svelte';
+	import { cast } from '$lib/cast.svelte';
 	import { voices } from '$lib/lyricvoices';
 	import { durationSecs, lyricsFor, setNowLyrics } from '$lib/nowlyrics.svelte';
 	import { SCROLL_EASE, glowing, letters, scrollMs, sweep as sweepStyle } from '$lib/lyricmotion';
@@ -702,7 +703,7 @@
 		{/if}
 		<!-- Karaoke's switch lives here, not in the player bar (KaraokeButton.svelte). It works on
 		     this desktop's player, so it goes while the bar controls a linked device. -->
-		{#if !link.remote}<KaraokeButton />{/if}
+		{#if !link.remote && !cast.device}<KaraokeButton />{/if}
 		<!-- One icon, because the footer is full (the side panel is 320px). The popover holds the
 		     `− 115% +` stepper; the ends go dead rather than wrapping. -->
 		{#if canResize}

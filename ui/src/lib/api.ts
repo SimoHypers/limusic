@@ -1751,19 +1751,35 @@ export const onMatugenThemeChanged = (cb: (css: string | null) => void): Promise
 export const startMatugenWatcher = () => invoke<void>('start_matugen_watcher');
 export const stopMatugenWatcher = () => invoke<void>('stop_matugen_watcher');
 
+/** A Cast device on the network (src-tauri/src/castout.rs). */
 export interface CastDevice {
 	id: string;
 	name: string;
 	model?: string | null;
-	ip: string;
-	port: number;
+	kind: 'speaker' | 'tv' | 'group';
+}
+/** What is casting, and what is being connected to. */
+export interface CastState {
+	device: CastDevice | null;
+	connecting: string | null;
+}
+/** A cast message: `key` is translated as `cast.<key>`. */
+export interface CastNotice {
+	key: string;
+	name?: string | null;
+	title?: string | null;
 }
 
-export const castListDevices = () => invoke<CastDevice[]>('cast_list_devices');
-export const castConnect = (id: string) => invoke<CastDevice>('cast_connect', { id });
-export const castDisconnect = () => invoke<void>('cast_disconnect');
-export const castStatus = () => invoke<CastDevice | null>('cast_status');
+/** The device picker opened or closed: discovery runs while it is open. Answers the devices
+ *  already found. */
+export const castPicker = (open: boolean) => invoke<CastDevice[]>('cast_picker', { open });
+/** Play on a device. Rejects with a key (`cast.<key>`) when it can't. */
+export const castStart = (id: string) => invoke<void>('cast_start', { id });
+export const castStop = () => invoke<void>('cast_stop');
+export const castState = () => invoke<CastState>('cast_state');
 export const onCastDevices = (cb: (devices: CastDevice[]) => void): Promise<UnlistenFn> =>
 	listen<CastDevice[]>('cast-devices', (e) => cb(e.payload));
-export const onCastState = (cb: (device: CastDevice | null) => void): Promise<UnlistenFn> =>
-	listen<CastDevice | null>('cast-state', (e) => cb(e.payload));
+export const onCastState = (cb: (state: CastState) => void): Promise<UnlistenFn> =>
+	listen<CastState>('cast-state', (e) => cb(e.payload));
+export const onCastNotice = (cb: (notice: CastNotice) => void): Promise<UnlistenFn> =>
+	listen<CastNotice>('cast-notice', (e) => cb(e.payload));
