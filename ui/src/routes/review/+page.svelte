@@ -122,9 +122,11 @@
 	}
 	onMount(() => {
 		start();
-		window.addEventListener('keydown', onKey);
+		// The document, not the window: a keydown reaches it first, so ↑ / ↓ step the list here
+		// instead of the app-wide handler taking them for volume.
+		document.addEventListener('keydown', onKey);
 		return () => {
-			window.removeEventListener('keydown', onKey);
+			document.removeEventListener('keydown', onKey);
 			// Into the editor to fix it, the submission is still this reviewer's.
 			if (limusic.reviewAt === null) claim(null);
 		};
