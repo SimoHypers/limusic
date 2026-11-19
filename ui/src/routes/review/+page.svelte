@@ -102,12 +102,16 @@
 	 *  claim, verdict or a new submission shows without leaving. Rows from later pages stay as they
 	 *  were. ponytail: polling, a push channel from the service if the team outgrows it. */
 	let decided = 0;
+	let polling = false;
+	let left = false;
 	async function refresh() {
-		if (loading || !allowed || document.visibilityState !== 'visible') return;
+		if (polling || loading || busy || !allowed || document.visibilityState !== 'visible') return;
+		polling = true;
 		const before = decided;
 		const q = await api.limusicReviewQueue().catch(() => null);
-		// A decision made meanwhile: this answer may still list its row.
-		if (!q || before !== decided) return;
+		polling = false;
+		// A decision made or settled meanwhile: this answer may still list its row.
+		if (!q || left || before !== decided) return;
 		const rest = q.next === null ? [] : items.filter((i) => i.revision > q.next!);
 		items = [...q.items, ...rest];
 		if (!rest.length) next = q.next;
@@ -147,6 +151,7 @@
 		document.addEventListener('visibilitychange', refresh);
 		const poll = setInterval(refresh, 10_000);
 		return () => {
+			left = true;
 			document.removeEventListener('keydown', onKey);
 			document.removeEventListener('visibilitychange', refresh);
 			clearInterval(poll);
@@ -299,6 +304,7 @@
 				count();
 			}
 		} finally {
+			decided++;
 			busy = false;
 		}
 	}
