@@ -98,6 +98,29 @@
 	/** The card in Settings shows the same number. */
 	const count = () => (limusic.waiting = { count: items.length, more: next !== null });
 
+	/** The first page again, every few seconds while the page is in front, so another reviewer's
+	 *  claim, verdict or a new submission shows without leaving. Rows from later pages stay as they
+	 *  were. ponytail: polling, a push channel from the service if the team outgrows it. */
+	let decided = 0;
+	let polling = false;
+	let left = false;
+	async function refresh() {
+		if (polling || loading || busy || !allowed || document.visibilityState !== 'visible') return;
+		polling = true;
+		const before = decided;
+		const q = await api.limusicReviewQueue().catch(() => null);
+		polling = false;
+		// A decision made or settled meanwhile: this answer may still list its row.
+		if (!q || left || before !== decided) return;
+		const rest = q.next === null ? [] : items.filter((i) => i.revision > q.next!);
+		items = [...q.items, ...rest];
+		if (!rest.length) next = q.next;
+		count();
+		// The open one was someone else's and they have let go: it is this reviewer's now.
+		const row = taken && open && q.items.find((i) => i.revision === open!.revision);
+		if (row && !row.reviewing) claim(row.revision);
+	}
+
 	/** Who this is, then the queue. Also the retry. Back from the editor, the row it was on opens
 	 *  again: the one after a fix that went live, the same one after a fix that was dropped. */
 	async function start() {
@@ -125,8 +148,13 @@
 		// The document, not the window: a keydown reaches it first, so ↑ / ↓ step the list here
 		// instead of the app-wide handler taking them for volume.
 		document.addEventListener('keydown', onKey);
+		document.addEventListener('visibilitychange', refresh);
+		const poll = setInterval(refresh, 10_000);
 		return () => {
+			left = true;
 			document.removeEventListener('keydown', onKey);
+			document.removeEventListener('visibilitychange', refresh);
+			clearInterval(poll);
 			// Into the editor to fix it, the submission is still this reviewer's.
 			if (limusic.reviewAt === null) claim(null);
 		};
@@ -257,6 +285,7 @@
 		busy = true;
 		const why = verdict === 'reject' ? reason.trim() : '';
 		const at = items.findIndex((i) => i.revision === row.revision);
+		decided++;
 		items = without(items, row.revision);
 		count();
 		// The next one nobody else has open, else the one before.
@@ -275,6 +304,7 @@
 				count();
 			}
 		} finally {
+			decided++;
 			busy = false;
 		}
 	}
