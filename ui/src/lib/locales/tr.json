@@ -89,7 +89,8 @@
 		"remove_account_desc": "{name} yalnızca bu listeden kaldırıldı. Google hesabınız bu eylemden etkilenmedi ve istediğiniz zaman onunla giriş yapabilirsiniz.",
 		"saved_accounts_hint": "Geçmek için kaydedilmiş bir hesabı seçin.",
 		"no_channels": "YouTube seçilebilir bir kanal döndürmedi.",
-		"stats": "İstatistikler"
+		"stats": "İstatistikler",
+		"discord": "Limusic Discord sunucusuna katıl"
 	},
 	"player": {
 		"play": "Oynat",
@@ -165,7 +166,14 @@
 		"this_computer": "Bu bilgisayar",
 		"devices_paused": "Duraklatıldı",
 		"karaoke": "Karaoke: vokalleri kaldır",
-		"live": "Canlı"
+		"live": "Canlı",
+		"link_playing_on": "{name} cihazında çalıyor",
+		"link_paused_on": "{name} cihazında duraklatıldı",
+		"link_continue_here": "Burada devam et",
+		"devices_title": "Şu cihazda çal",
+		"devices_hint": "Müziğin çalacağı cihazı seçin.",
+		"devices_this_computer_hint": "Burada çalar",
+		"devices_playing_here": "Bu cihazda çalıyor"
 	},
 	"home": {
 		"good_morning": "Günaydın",
@@ -217,7 +225,8 @@
 			"trending": "Sizin için trend şarkılar",
 			"featured_playlists": "Sizin için öne çıkan çalma listeleri",
 			"listen_together": "Birlikte dinle"
-		}
+		},
+		"live_now": "Şu anda canlı"
 	},
 	"artist": {
 		"subscribe": "Abone ol",
@@ -471,7 +480,15 @@
 			"theater_clock_format": "Saat formatı",
 			"theater_clock_format_auto": "Otomatik",
 			"theater_clock_format_12": "12-saat",
-			"theater_clock_format_24": "24-saat"
+			"theater_clock_format_24": "24-saat",
+			"empty_click_player_hint": "Açıkken oynatıcı çubuğunun boş bir yerine tıklamak oynatıcı görünümünü açar veya kapatır; albüm kapağının etrafına tıklamak ise oynatıcı görünümü sadece kapatır. Kapalıyken yalnızca ok düğmeleri, Esc ve klavye kısayolu çalışır.",
+			"cover_lyric_romanized": "Albüm kapağı altında Latin harfli şarkı sözü",
+			"cover_lyric_romanized_hint": "Okunuş bilgisi bulunan şarkılarda, albüm kapağının altındaki şarkı sözü satırında orijinal alfabe yerine okunuşu gösterilir. Şarkı sözleri sekmesi kendi okunuş anahtarını korur. Yalnızca yeni düzende geçerlidir.",
+			"enhanced_lyrics_line_sync_hint": "Yalnızca satır zamanlamasına sahip şarkı sözleri için kelime zamanlamasını tahmin eder. Kapalıyken sözler satır satır senkronize kalır.",
+			"theater_clock_hint": "Tiyatro modunun bir köşesinde saati gösterir; ekranı kapladığı ve sistem saatinin görünmediği durumlar için kullanışlıdır.",
+			"theater_clock_side": "Saat konumu",
+			"theater_clock_left": "Sol üst",
+			"theater_clock_right": "Sağ üst"
 		},
 		"playback": {
 			"audio_quality": "Ses kalitesi",
@@ -527,7 +544,8 @@
 			"videos_first_hint": "Müzik videosu bulunan albüm ve çalma listesi parçaları, video ile başlar. Şarkı ile başlamak için bu seçeneği kapatın. Oynatıcı ekranındaki “Şarkı/Video” düğmesi, her iki yönde de geçiş yapmanızı sağlar.",
 			"auto_pause_other_audio": "Diğer uygulamalar medya oynatırken duraklat",
 			"lyrics_prefer_words": "Sözcük sözcük şarkı sözlerini tercih et",
-			"lyrics_prefer_words_hint": "Herhangi bir kaynaktan alınan sözcük sözcük şarkı sözleri, yukarısındaki kaynaktan alınan satır satır şarkı sözlerinden daha iyidir. Bir şarkı ilk kez çalındığında, şarkı sözlerinin görünmesi birkaç saniye daha uzun sürebilir."
+			"lyrics_prefer_words_hint": "Herhangi bir kaynaktan alınan sözcük sözcük şarkı sözleri, yukarısındaki kaynaktan alınan satır satır şarkı sözlerinden daha iyidir. Bir şarkı ilk kez çalındığında, şarkı sözlerinin görünmesi birkaç saniye daha uzun sürebilir.",
+			"auto_pause_other_audio_hint": "Tarayıcı sekmesi ya da video oynatıcı gibi başka bir uygulamada medya çalarken duraklatır, bitince devam ettirir. Bildirim sesleri ve oyunlar dikkate alınmaz."
 		},
 		"data": {
 			"clear_cache_button": "Önbelleği temizle",
@@ -781,7 +799,10 @@
 			"custom_server": "Bu sunucuda {invite} yazın",
 			"expires_in": "Şu süre sonunda geçersiz olacak: {time}",
 			"expired": "Bu kodun geçerliliği sona erdi.",
-			"unsupported": "Bu sunucu henüz cihaz bağlantısını desteklemiyor."
+			"unsupported": "Bu sunucu henüz cihaz bağlantısını desteklemiyor.",
+			"intro": "Telefonunuzdaki Limusic'le eşleştirin: Cihazlar birbirini kontrol edebilir ve müzik seçtiğiniz cihazda çalar.",
+			"linked": "Eşleştirildi",
+			"unlink_desc": "Artık bu bilgisayarı kontrol edemeyecek. Yeni bir kodla yeniden eşleştirebilirsiniz."
 		},
 		"search": {
 			"placeholder": "Ayarlarda ara",
@@ -850,7 +871,9 @@
 			"builtin": {
 				"original": "Orijinal",
 				"nightcore": "Nightcore",
-				"hall": "Konser salonu"
+				"hall": "Konser salonu",
+				"slowed": "Yavaşlatılmış + yankılı",
+				"practice": "Pratik"
 			},
 			"builtin_hints": {
 				"original": "Şarkının yayınlandığı hali",
@@ -896,7 +919,16 @@
 			"reverb_hint": "Sanki bir odada çalınıyormuş gibi bir ses çıkarır.",
 			"reverb_amount": "Miktar",
 			"reverb_fine_tune": "Daha fazla yankı ayarları",
-			"reset_all": "Tümünü sıfırla"
+			"reset_all": "Tümünü sıfırla",
+			"preset_room_hint": "Dinleme odasındayken ön ayarlar sadece perde ve yankıyı değiştirir; kayıtlı tempo ayarınız tek başınıza dinlerken kullanılmak üzere korunur.",
+			"song_length": "Şarkı süresi: {time}",
+			"tempo_room_locked": "erkesin aynı anı duyabilmesi için dinleme odasında tempo normal hızda kalır.",
+			"reverb_control_hints": {
+				"dry": "Yankılıyken şarkının kendi ses seviyesi.",
+				"decay": "Her sesten sonra yankının uzama süresi.",
+				"preDelay": "Yankı başlamadan önceki kısa boşluk. Artırdıkça daha büyük bir oda hissi verir.",
+				"damping": "Değeri düşürdükçe yankı daha boğuk tınlar. Şarkının kendisi etkilenmez."
+			}
 		},
 		"link": {
 			"title": "Bağlantı Aç",
@@ -1505,7 +1537,11 @@
 			"slot_waiting": "Bekleniyor",
 			"slot_failed": "Hazırlanamadı",
 			"quality": "Kalite",
-			"settings": "Karaoke ayarları"
+			"settings": "Karaoke ayarları",
+			"now_too_long": "15 dakikayı aştığı için bu şarkıda vokaller aktif.",
+			"up_next_empty": "Sırada başka şarkı yok.",
+			"off": "Bu ve sonraki iki şarkının vokallerini kaldırmak için etkinleştirin.",
+			"now_swap": "Hazır olduğu anda, şarkının tam kaldığınız yerinde vokaller kesilir."
 		},
 		"setup": {
 			"title": "Karaoke kurulumu",
@@ -1513,14 +1549,23 @@
 			"local": "Şarkılar bu bilgisayarda hazırlanır ve hiçbirşey dışarıya yüklenmez.",
 			"download": "İndir {size}",
 			"downloaded": "İndirildi",
-			"progress": "{done}/{total} MB"
+			"progress": "{done}/{total} MB",
+			"cache": "Hazırlanan şarkılar cihazda depolanır, sonraki açılışta hemen başlar.",
+			"use": "{name} kullan"
 		},
 		"unavailable": {
 			"load_failed": "Karaoke bu bilgisayarda başlatılamıyor.",
-			"stopped": "Karaoke beklenmedik şekilde durdu. Tekrar kullanmak için Limusic'i yeniden başlatın."
+			"stopped": "Karaoke beklenmedik şekilde durdu. Tekrar kullanmak için Limusic'i yeniden başlatın.",
+			"not_installed": "Limusic'in bu sürümünde karaoke özelliği yer almıyor.",
+			"corrupt": "Karaoke dosyaları bozuk. Karaokeyi tekrar açmayı deneyin, sorun çözülmezse Limusic'i yeniden yükleyin.",
+			"vc_runtime": "Karaoke için daha güncel bir Microsoft Visual C++ Redistributable (14.44 veya üzeri) gerekiyor.",
+			"proxy": "Proxy etkinken karaoke kullanılamaz."
 		},
 		"download_error": {
-			"failed": "İndirme başarısız. Tekrar deneyin."
+			"failed": "İndirme başarısız. Tekrar deneyin.",
+			"network": "İndirme başarısız. Bağlantınızı kontrol edip yeniden deneyin.",
+			"verify": "İndirilen dosya doğrulanamadı. Lütfen tekrar deneyin.",
+			"disk": "Dosya kaydedilemedi. Depolama alanını kontrol edin ve tekrar deneyin."
 		},
 		"download": "İndir",
 		"cancel": "İptal",
@@ -1552,9 +1597,27 @@
 			"device_cpu": "İşlemci",
 			"device_gpu": "Ekran kartı",
 			"processor_gpu": "Ekran kartında çalışıyor",
-			"processor_cpu": "İşlemcide çalışıyor"
+			"processor_cpu": "İşlemcide çalışıyor",
+			"model_desc": "Vokal ayırma modelinin seviyesini seçin. Bir kez indirilir, çevrimdışı çalışır.",
+			"model_light_desc": "En hızlı modeldir fakat arkada hafif vokal sesi kalabilir. Sadece işlemciyle bile şarkının akışına yetişir.",
+			"model_balanced_desc": "Neredeyse en iyi model kadar temiz sonuç verir ve daha hızlıdır. Güçlü bir işlemciyle şarkı akışına yetişir.",
+			"cache_limit_desc": "Hazırlanan karaoke sürümleri diskte saklanır. Belirlenen sınır aşıldığında en eski dosyalar kaldırılır.",
+			"delete_in_use": "Karaoke etkinken kullanımdaki model silinemez",
+			"status_desc": "Karaokenin nerede çalıştığını veya neden çalışamadığını gösterir.",
+			"device_desc": "Karaoke modelinin hangi donanımda çalışacağını belirler. Otomatik seçeneği, yeterli belleği varsa ekran kartını, aksi takdirde işlemciyi kullanır.",
+			"device_desc_opt_in": "Karaoke modelinin hangi donanımda çalışacağını belirler. Ekran kartı genellikle daha hızlıdır; kullanılamadığı durumlarda otomatik olarak işlemciye geçer.",
+			"device_failed": "Donanım ayarı değiştirilemedi.",
+			"not_started": "Bu oturumda henüz kullanılmadı",
+			"get_vc_redist": "Microsoft'tan indir",
+			"credit": "Model kaynağı"
 		},
-		"not_now": "Şimdi değil"
+		"not_now": "Şimdi değil",
+		"error": {
+			"incomplete_download": "Şarkı sesi eksik indirildi. Birazdan tekrar denenecek.",
+			"failed": "Bu şarkıdan vokaller çıkarılamadı."
+		},
+		"experimental_tooltip": "Hâlâ geliştirme aşamasında. Hafif model vokallerden biraz iz bırakabilir, En iyi model ise ekran kartı olmadan yavaş çalışır. Bir şarkı hatalı işlenirse lütfen bildirin.",
+		"lyrics_hint": "Şarkı sözleri. Karaoke açık; açma/kapama tuşu sözlerin en altında yer alır."
 	},
 	"review": {
 		"approve": "Onayla",
