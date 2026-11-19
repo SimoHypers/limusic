@@ -158,12 +158,8 @@ fn tune_webview(win: &tauri::WebviewWindow, media: bool) {
             // lyric sweep, the seek bar) pays the walk every frame. `ui/perf/framecost.py`, player
             // view open with a song playing, 2.52.1: `Document::considerSpeculationRules` in 31%
             // of the web main thread's samples, and 19% of a core with it on against 16% off. Read
-            // live, so unlike the compositor switches below it needs no restart.
+            // live, so it needs no restart.
             features_off(&settings, &[b"SpeculationRulesPrefetch"]);
-
-            if compositor_features_off(&settings) {
-                restart_web_process(&webview);
-            }
         }
         heal_lost_release(&webview);
     });
@@ -173,35 +169,6 @@ fn tune_webview(win: &tauri::WebviewWindow, media: bool) {
         }
         Err(e) => tracing::warn!(label, error = %e, "webkit tuning failed (continuing)"),
     }
-}
-
-/// WebKitGTK 2.54's new compositing, back to what every earlier release did (#433). Returns
-/// whether anything changed.
-///
-/// 2.54 composites with Skia, and Skia draws a layer at its opacity from before an animation on the
-/// frame the animation ends, so every fade blinks: switches, dialogs, the player view. Any GPU,
-/// opaque windows too. `UseSkiaForComposition` off brings back TextureMapper. 2.54 also has the
-/// compositor draw only the damaged rectangles, and on Intel/Mesa (GNOME, niri) a buffer that
-/// holds nothing outside them leaves our transparent window see-through on alternate frames, so
-/// both damage switches go off as well and every frame is drawn whole, as on 2.52.
-/// `ui/perf/flashprobe.py` on 2.54.1: 7-8 one-frame flashes per 6.5 s of fades, 0 with these off,
-/// 0 on 2.52.1.
-///
-/// ponytail: drop this once a WebKitGTK release fixes both; run flashprobe.py on it first.
-#[cfg(target_os = "linux")]
-fn compositor_features_off(settings: &webkit2gtk::Settings) -> bool {
-    // SAFETY: takes nothing.
-    if unsafe { webkit2gtk::ffi::webkit_get_minor_version() } < 54 {
-        return false;
-    }
-    features_off(
-        settings,
-        &[
-            b"UseSkiaForComposition",
-            b"UseDamagingInformationForCompositing",
-            b"PropagateDamagingInformation",
-        ],
-    )
 }
 
 /// Turns WebKit runtime features off by identifier. Returns whether any was on.
@@ -266,31 +233,6 @@ fn features_off(settings: &webkit2gtk::Settings, off: &[&[u8]]) -> bool {
         unref(list);
         changed
     }
-}
-
-/// Builds the page again so [`compositor_features_off`] takes effect. The web process reads those
-/// settings once, when it creates the page, and wry starts that load inside `build()`, before tauri
-/// hands the webview over: flipped afterwards they are ignored (measured). So the process is
-/// killed and the same URL loaded again. `reload()` would not do: the first load has usually not
-/// committed yet, and a reload of nothing paints nothing. Costs one extra web-process start per
-/// window, only on 2.54+. A later crash is not ours to answer, hence the reason check.
-#[cfg(target_os = "linux")]
-fn restart_web_process(webview: &webkit2gtk::WebView) {
-    use webkit2gtk::{WebProcessTerminationReason, WebViewExt};
-
-    let Some(uri) = webview.uri() else {
-        tracing::warn!(
-            "webkit 2.54+: no URI to rebuild the page with, compositing unchanged (#433)"
-        );
-        return;
-    };
-    webview.connect_web_process_terminated(move |view, reason| {
-        if reason == WebProcessTerminationReason::TerminatedByApi {
-            view.load_uri(&uri);
-        }
-    });
-    webview.terminate_web_process();
-    tracing::info!("webkit 2.54+: Skia compositing and damage tracking off, page rebuilt (#433)");
 }
 
 /// Hands WebKit a left-button release it never got. A titlebar drag starts a compositor move grab
