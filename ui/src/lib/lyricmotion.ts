@@ -8,7 +8,12 @@ type Timed = Pick<LyricWord, 'start_ms' | 'end_ms'>;
 
 /** The soft edge of the sweep, in em: a short word and a long one light at the same softness. */
 const FEATHER = 0.5;
-const DIM = 'var(--muted-foreground)';
+/** A word not sung yet: the foreground a little over half way to the background, opaque (a
+ *  translucent text colour brightens where glyphs overlap, #191). Not `--muted-foreground`: themes
+ *  keep that close to the foreground so secondary text stays readable, which left the sweep at
+ *  1.33:1 on Material dark and 1.00:1 on Neon light (#720). This is 2.7:1 to 4.8:1 on every theme,
+ *  and the word stays at least 2.6:1 against the background. */
+const DIM = 'color-mix(in oklab, var(--foreground) 55%, var(--background))';
 const LIT = 'var(--foreground)';
 const UNSUNG = `background-image:linear-gradient(${DIM},${DIM})`;
 const SUNG = `background-image:linear-gradient(${LIT},${LIT})`;

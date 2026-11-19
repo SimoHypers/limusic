@@ -817,8 +817,9 @@
 	});
 
 	// --- Keys -----------------------------------------------------------------------------------
-	// None of these collide with the app's own: every global shortcut but Space and `;` hangs off
-	// Ctrl or Cmd, and Space stays play/pause here.
+	// Unmodified, only ↑ / ↓ collide with the app's own keys (volume). This listens on the document,
+	// which a keydown reaches before the window, so it takes them first and the app-wide handler sees
+	// them already handled. Space stays play/pause here.
 	function onKey(e: KeyboardEvent) {
 		if (mode !== 'edit' || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
 		if (celebrate && e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
@@ -879,11 +880,11 @@
 			visible = v;
 			if (!v) flush();
 		});
-		window.addEventListener('keydown', onKey);
+		document.addEventListener('keydown', onKey);
 		window.addEventListener('pagehide', flush);
 		return () => {
 			unVisible.then((u) => u());
-			window.removeEventListener('keydown', onKey);
+			document.removeEventListener('keydown', onKey);
 			window.removeEventListener('pagehide', flush);
 		};
 	});

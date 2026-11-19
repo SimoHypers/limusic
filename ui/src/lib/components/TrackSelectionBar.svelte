@@ -94,95 +94,100 @@
 <!-- Floating, like the update banner and the toast above it, rather than a strip wedged between the
      header and row 1: the actions belong to the selection, not to a slot in the page, and a list
      that reflows the moment you tick a box is the thing you were aiming at moving. bottom-24 clears
-     the player bar. Only in select mode; the header button is what turns that on. -->
+     the player bar. Only in select mode; the header button is what turns that on. Centred by a
+     flex row, not -translate-x-1/2: a half-pixel offset blurs the text on WebKitGTK (#75). -->
 {#if selection.active}
 	<div
 		transition:fly={{ y: 16, duration: 220, easing: cubicOut }}
-		class="fixed bottom-24 left-1/2 z-40 flex max-w-[min(44rem,calc(100vw-2rem))] -translate-x-1/2 flex-col gap-1 rounded-2xl border bg-card px-2 py-2 shadow-lg"
-		data-track-selection
+		class="pointer-events-none fixed inset-x-0 bottom-24 z-40 flex justify-center"
 	>
-		<div class="flex flex-wrap items-center justify-center gap-1" role="group" aria-label={t('selection.actions')}>
-			<span class="px-2 text-sm whitespace-nowrap" role="status">
-				{#if selection.count}
-					<span class="font-medium">{t('selection.count', { count: selection.count })}</span>
-					{#if selection.hidden}
-						<span class="text-muted-foreground"> · {t('selection.hidden', { count: selection.hidden })}</span>
-					{/if}
-				{:else}
-					<span class="text-muted-foreground">{t('selection.hint')}</span>
-				{/if}
-			</span>
-
-			{#if selection.count}
-				<span class="mx-1 h-5 w-px shrink-0 bg-border"></span>
-				<Button variant="ghost" size="icon" disabled={blocked} onkeydown={onKey}
-					title={t('player.play_next')} aria-label={t('player.play_next')}
-					onclick={() => queue(true)}>
-					<HugeiconsIcon icon={ArrowUpNarrowWideIcon} class="h-4 w-4" />
-				</Button>
-				<Button variant="ghost" size="icon" disabled={blocked} onkeydown={onKey}
-					title={t('player.add_to_queue')} aria-label={t('player.add_to_queue')}
-					onclick={() => queue(false)}>
-					<HugeiconsIcon icon={ArrowDownWideNarrowIcon} class="h-4 w-4" />
-				</Button>
-				{#if canAdd}
-					<Button variant="ghost" size="icon" disabled={blocked || ui.addPending} onkeydown={onKey}
-						title={t('player.add_to_playlist')} aria-label={t('player.add_to_playlist')}
-						onclick={() => openAddManyToPlaylist([...selection.songs])}>
-						<HugeiconsIcon icon={PlayListAddIcon} class="h-4 w-4" />
-					</Button>
-				{/if}
-				{#if onRemove}
-					{#if confirmRemove}
-						<Button variant="destructive" size="sm" disabled={blocked} onkeydown={onKey}
-							onclick={remove}>
-							{t('selection.remove_confirm', { count: selection.count })}
-						</Button>
+		<div
+			class="pointer-events-auto flex max-w-[min(44rem,calc(100vw-2rem))] flex-col gap-1 rounded-2xl border bg-card px-2 py-2 shadow-lg"
+			data-track-selection
+		>
+			<div class="flex flex-wrap items-center justify-center gap-1" role="group" aria-label={t('selection.actions')}>
+				<span class="px-2 text-sm whitespace-nowrap" role="status">
+					{#if selection.count}
+						<span class="font-medium">{t('selection.count', { count: selection.count })}</span>
+						{#if selection.hidden}
+							<span class="text-muted-foreground"> · {t('selection.hidden', { count: selection.hidden })}</span>
+						{/if}
 					{:else}
+						<span class="text-muted-foreground">{t('selection.hint')}</span>
+					{/if}
+				</span>
+
+				{#if selection.count}
+					<span class="mx-1 h-5 w-px shrink-0 bg-border"></span>
+					<Button variant="ghost" size="icon" disabled={blocked} onkeydown={onKey}
+						title={t('player.play_next')} aria-label={t('player.play_next')}
+						onclick={() => queue(true)}>
+						<HugeiconsIcon icon={ArrowUpNarrowWideIcon} class="h-4 w-4" />
+					</Button>
+					<Button variant="ghost" size="icon" disabled={blocked} onkeydown={onKey}
+						title={t('player.add_to_queue')} aria-label={t('player.add_to_queue')}
+						onclick={() => queue(false)}>
+						<HugeiconsIcon icon={ArrowDownWideNarrowIcon} class="h-4 w-4" />
+					</Button>
+					{#if canAdd}
+						<Button variant="ghost" size="icon" disabled={blocked || ui.addPending} onkeydown={onKey}
+							title={t('player.add_to_playlist')} aria-label={t('player.add_to_playlist')}
+							onclick={() => openAddManyToPlaylist([...selection.songs])}>
+							<HugeiconsIcon icon={PlayListAddIcon} class="h-4 w-4" />
+						</Button>
+					{/if}
+					{#if onRemove}
+						{#if confirmRemove}
+							<Button variant="destructive" size="sm" disabled={blocked} onkeydown={onKey}
+								onclick={remove}>
+								{t('selection.remove_confirm', { count: selection.count })}
+							</Button>
+						{:else}
+							<Button variant="ghost" size="icon" disabled={blocked} onkeydown={onKey}
+								title={t('selection.remove')} aria-label={t('selection.remove')}
+								onclick={() => (confirmRemove = true)}>
+								<HugeiconsIcon icon={PlayListRemoveIcon} class="h-4 w-4" />
+							</Button>
+						{/if}
+					{/if}
+					<!-- A guest cannot replace the session's queue, only add to it. -->
+					{#if lt.role !== 'guest'}
 						<Button variant="ghost" size="icon" disabled={blocked} onkeydown={onKey}
-							title={t('selection.remove')} aria-label={t('selection.remove')}
-							onclick={() => (confirmRemove = true)}>
-							<HugeiconsIcon icon={PlayListRemoveIcon} class="h-4 w-4" />
+							title={t('selection.play_on_repeat')} aria-label={t('selection.play_on_repeat')}
+							onclick={loop}>
+							<HugeiconsIcon icon={RepeatIcon} class="h-4 w-4" />
 						</Button>
 					{/if}
 				{/if}
-				<!-- A guest cannot replace the session's queue, only add to it. -->
-				{#if lt.role !== 'guest'}
-					<Button variant="ghost" size="icon" disabled={blocked} onkeydown={onKey}
-						title={t('selection.play_on_repeat')} aria-label={t('selection.play_on_repeat')}
-						onclick={loop}>
-						<HugeiconsIcon icon={RepeatIcon} class="h-4 w-4" />
+
+				<span class="mx-1 h-5 w-px shrink-0 bg-border"></span>
+				{#if !selection.allSelected}
+					<Button variant="ghost" size="sm" disabled={!selection.selectAllCount || selection.selectingAll}
+						onkeydown={onKey}
+						onclick={() => selection.selectAll()}>
+						{selection.selectingAll
+							? t('common.loading')
+							: t('selection.select_all', { count: selection.selectAllCount })}
 					</Button>
 				{/if}
-			{/if}
+				{#if selection.count}
+					<Button variant="ghost" size="sm" onkeydown={onKey} onclick={() => selection.clear()}>
+						{t('selection.clear')}
+					</Button>
+				{/if}
+				<Button variant="ghost" size="icon" onkeydown={onKey}
+					title={t('selection.exit')} aria-label={t('selection.exit')}
+					onclick={() => selection.exit()}>
+					<HugeiconsIcon icon={Cancel01Icon} class="h-4 w-4" />
+				</Button>
+			</div>
 
-			<span class="mx-1 h-5 w-px shrink-0 bg-border"></span>
-			{#if !selection.allSelected}
-				<Button variant="ghost" size="sm" disabled={!selection.selectAllCount || selection.selectingAll}
-					onkeydown={onKey}
-					onclick={() => selection.selectAll()}>
-					{selection.selectingAll
-						? t('common.loading')
-						: t('selection.select_all', { count: selection.selectAllCount })}
-				</Button>
+			{#if selection.pending || selection.lost}
+				<p class="px-2 text-xs text-muted-foreground" role="status">
+					{selection.pending ? t('selection.pending', { count: selection.pending }) : ''}
+					{selection.lost ? t('selection.lost', { count: selection.lost }) : ''}
+				</p>
 			{/if}
-			{#if selection.count}
-				<Button variant="ghost" size="sm" onkeydown={onKey} onclick={() => selection.clear()}>
-					{t('selection.clear')}
-				</Button>
-			{/if}
-			<Button variant="ghost" size="icon" onkeydown={onKey}
-				title={t('selection.exit')} aria-label={t('selection.exit')}
-				onclick={() => selection.exit()}>
-				<HugeiconsIcon icon={Cancel01Icon} class="h-4 w-4" />
-			</Button>
 		</div>
-
-		{#if selection.pending || selection.lost}
-			<p class="px-2 text-xs text-muted-foreground" role="status">
-				{selection.pending ? t('selection.pending', { count: selection.pending }) : ''}
-				{selection.lost ? t('selection.lost', { count: selection.lost }) : ''}
-			</p>
-		{/if}
 	</div>
 {/if}

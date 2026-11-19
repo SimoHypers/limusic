@@ -58,10 +58,10 @@ export function watchListenBrainz(): () => void {
 }
 
 /** Validate and store a pasted user token. */
-export async function connectListenBrainz(token: string) {
+export async function connectListenBrainz(token: string, url?: string) {
 	listenbrainz.connecting = true;
 	try {
-		await api.listenbrainzConnect(token);
+		await api.listenbrainzConnect(token, url);
 	} catch (err) {
 		listenbrainz.connecting = false;
 		toast.error(String(err));

@@ -2,8 +2,8 @@
 # Repair the bundled AppDir so it runs on hosts that aren't the build machine, then repack and
 # re-sign the AppImage in place.
 #
-# Seven defects. The first five are linuxdeploy's, the sixth is Ubuntu's gnutls, the seventh the GTK
-# hook's.
+# Eight defects. The first five are linuxdeploy's, the sixth is Ubuntu's gnutls, the seventh the GTK
+# hook's, the eighth Ubuntu's libxkbcommon.
 #
 #   1. GIO_EXTRA_MODULES is written with a literal newline in it, plus an absolute path into the
 #      build machine's own target/ directory. GLib parses one garbage path, finds no module, and
@@ -71,6 +71,16 @@
 #      counts again. `LIMUSIC_GDK_BACKEND=x11` forces X11 when a desktop needs it. On Wayland GTK
 #      reads the desktop's settings through GSettings, which is why 1b2 bundles the dconf module.
 #
+#   8. libxkbcommon compiles keymaps from the host's XKB data (/usr/share/X11/xkb, plus the user's
+#      own ~/.config/xkb), so it has to be at least as new as that data, and Ubuntu 24.04's 1.6 is
+#      not. A user override that pulls in the system file with `include "%S/complete"` is valid
+#      since libxkbcommon learned %S in include statements; 1.6 looks for a file literally named
+#      "%S/complete", the keymap fails to compile, and GTK on Wayland, which compiles the default
+#      keymap at startup, dereferences the NULL and segfaults (#693, host libxkbcommon 1.13). Defect
+#      7's fix exposed it: through XWayland GTK takes its keymap from the X server and never
+#      compiles one. Fixed by deleting our copy so the host's loads, parser and data from the same
+#      distro. Same soname everywhere, versioned additive ABI, and GTK 3 itself depends on it.
+#
 # ON PRUNING. v0.2.11 pruned eight libraries and broke worse than what it fixed, so the bar is high,
 # but "never prune" is the wrong rule — defect 3 above is only fixable by pruning. What made v0.2.11
 # wrong, and what a prune has to clear:
@@ -114,7 +124,7 @@ HOST_BASELINE="libGL.so.1 libEGL.so.1 libGLX.so.0 libGLdispatch.so.0 libOpenGL.s
   libdrm.so.2 libgbm.so.1 libwayland-client.so.0 libX11.so.6 libX11-xcb.so.1 libxcb.so.1
   libxcb-dri3.so.0 libexpat.so.1 libfontconfig.so.1 libfreetype.so.6 libharfbuzz.so.0
   libfribidi.so.0 libz.so.1 libasound.so.2 libusb-1.0.so.0 libcom_err.so.2 libgpg-error.so.0
-  libresolv.so.2 libgcc_s.so.1 libstdc++.so.6
+  libresolv.so.2 libgcc_s.so.1 libstdc++.so.6 libxkbcommon.so.0
   libgnutls.so.30 libnettle.so.8 libhogweed.so.6 libgmp.so.10 libtasn1.so.6 libp11-kit.so.0
   libidn2.so.0 libunistring.so.5"
 
@@ -211,13 +221,14 @@ else
   bundle_deps_of "$DCONFMOD"
 fi
 
-# 1c. Drop libwayland-client. It has to be the host's copy, because the host's Mesa is linked
-#     against it and we are first on LD_LIBRARY_PATH — see defect 3 in the header. Everything the
-#     bundle needs from it exists in 1.22, and every host that can open a window ships a newer one.
-for lib in "$APPDIR"/usr/lib/libwayland-client.so.0*; do
+# 1c. Drop libwayland-client and libxkbcommon. Both have to be the host's copy: the host's Mesa is
+#     linked against libwayland-client (defect 3) and libxkbcommon parses the host's XKB data
+#     (defect 8), and we are first on LD_LIBRARY_PATH. Everything the bundle needs from either
+#     exists in Ubuntu's version, and every host that can open a window ships one at least as new.
+for lib in "$APPDIR"/usr/lib/libwayland-client.so.0* "$APPDIR"/usr/lib/libxkbcommon.so.0*; do
   [ -e "$lib" ] || continue
   rm -f "$lib"
-  echo "==> removed $(basename "$lib") — the host's Mesa must link its own"
+  echo "==> removed $(basename "$lib"): it has to be the host's copy"
 done
 
 # 1d. GStreamer plugins, so the webview can decode a music video. See defect 5 in the header.

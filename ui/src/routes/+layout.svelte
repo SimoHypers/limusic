@@ -343,33 +343,40 @@
 	<!-- The two notification banners below run at z-[100]. Dialogs and menus sit at z-50 and portal to
 	     <body>, so a z-50 banner loses the tie on DOM order and hides behind an open modal. The update
 	     banner also needs pointer-events-auto: an open dialog sets `pointer-events: none` on <body>,
-	     so without it the banner shows above the modal but its buttons can't be clicked. -->
+	     so without it the banner shows above the modal but its buttons can't be clicked.
+	     Both are centred by a full-width flex row, never left-1/2 + -translate-x-1/2: an odd width
+	     makes that a half-pixel offset and WebKitGTK resamples the layer, so the text goes soft
+	     (the dialog fix in #75). -->
 	{#if updateState.available}
 		<div
 			transition:fly={{ y: 16, duration: 220, easing: cubicOut }}
-			class="pointer-events-auto fixed bottom-24 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-3 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
+			class="pointer-events-none fixed inset-x-0 bottom-24 z-[100] flex justify-center px-4"
 		>
-			<span>{availableMessage(updateState.available)}</span>
-			{#if updateState.canInstall}
-				<Button size="sm" onclick={installUpdate} disabled={updateState.installing}>
-					{updateState.installing ? t('common.loading') : t('settings.about.install_update')}
-				</Button>
-			{:else}
-				<!-- Packaged build (.rpm, AUR): the updater can only rewrite an AppImage, so send them
-				     to the releases page and let their package manager do it. -->
-				<Button size="sm" onclick={openDownloadPage}>{t('settings.about.download_page')}</Button>
-			{/if}
-			{#if !updateState.installing}
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					class="-mr-2 text-muted-foreground hover:text-foreground"
-					aria-label={t('common.close')}
-					onclick={() => (updateState.available = null)}
-				>
-					<HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
-				</Button>
-			{/if}
+			<div
+				class="pointer-events-auto flex items-center gap-3 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
+			>
+				<span>{availableMessage(updateState.available)}</span>
+				{#if updateState.canInstall}
+					<Button size="sm" onclick={installUpdate} disabled={updateState.installing}>
+						{updateState.installing ? t('common.loading') : t('settings.about.install_update')}
+					</Button>
+				{:else}
+					<!-- Packaged build (.rpm, AUR): the updater can only rewrite an AppImage, so send them
+					     to the releases page and let their package manager do it. -->
+					<Button size="sm" onclick={openDownloadPage}>{t('settings.about.download_page')}</Button>
+				{/if}
+				{#if !updateState.installing}
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						class="-mr-2 text-muted-foreground hover:text-foreground"
+						aria-label={t('common.close')}
+						onclick={() => (updateState.available = null)}
+					>
+						<HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
+					</Button>
+				{/if}
+			</div>
 		</div>
 	{/if}
 
@@ -377,21 +384,25 @@
 		{@const t = ui.toast}
 		<div
 			transition:fly={{ y: 16, duration: 220, easing: cubicOut }}
-			class="fixed bottom-40 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-2 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
+			class="pointer-events-none fixed inset-x-0 bottom-40 z-[100] flex justify-center px-4"
 		>
-			<!-- Three branches instead of a ternary on `icon`: HugeiconsIcon freezes `icon` at mount, so a
-			     new toast replacing a visible one would keep the old glyph. -->
-			{#if t.kind === 'success'}
-				<HugeiconsIcon icon={CheckmarkCircle02Icon} class="h-4 w-4 shrink-0 text-primary" />
-			{:else if t.kind === 'error'}
-				<HugeiconsIcon icon={AlertCircleIcon} class="h-4 w-4 shrink-0 text-destructive" />
-			{:else}
-				<HugeiconsIcon
-					icon={InformationCircleIcon}
-					class="h-4 w-4 shrink-0 text-muted-foreground"
-				/>
-			{/if}
-			{t.msg}
+			<div
+				class="pointer-events-auto flex items-center gap-2 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
+			>
+				<!-- Three branches instead of a ternary on `icon`: HugeiconsIcon freezes `icon` at mount, so a
+				     new toast replacing a visible one would keep the old glyph. -->
+				{#if t.kind === 'success'}
+					<HugeiconsIcon icon={CheckmarkCircle02Icon} class="h-4 w-4 shrink-0 text-primary" />
+				{:else if t.kind === 'error'}
+					<HugeiconsIcon icon={AlertCircleIcon} class="h-4 w-4 shrink-0 text-destructive" />
+				{:else}
+					<HugeiconsIcon
+						icon={InformationCircleIcon}
+						class="h-4 w-4 shrink-0 text-muted-foreground"
+					/>
+				{/if}
+				{t.msg}
+			</div>
 		</div>
 	{/if}
 {/if}

@@ -425,6 +425,8 @@ export const setVolume = (volume: number) => invoke<void>('set_volume', { volume
 export const setKaraoke = (enabled: boolean) => invoke<void>('set_karaoke', { enabled });
 /** Microsoft's permalink for the latest x64 VC++ runtime (karaoke's ONNX Runtime needs >= 14.44). */
 export const VC_REDIST_URL = 'https://aka.ms/vc14/vc_redist.x64.exe';
+/** The permanent invite: it hands out the User role, a member's own invite doesn't. */
+export const DISCORD_URL = 'https://discord.gg/jWWydPV3FF';
 export type KaraokeDevice = 'auto' | 'cpu' | 'gpu';
 export type KaraokeModelId = 'light' | 'balanced' | 'best';
 
@@ -567,6 +569,9 @@ export const setSetting = (key: string, value: string) =>
 export const getStreamClients = () => invoke<string[]>('get_stream_clients');
 /** Wipe both cache tiers (URL cache + mpv on-disk audio cache). */
 export const clearCaches = () => invoke<void>('clear_caches');
+/** Bytes on disk by kind, for Settings > Data & storage (#705). */
+export type StorageUsage = Record<'library' | 'audio' | 'karaoke' | 'models' | 'web' | 'other', number>;
+export const storageUsage = () => invoke<StorageUsage>('storage_usage');
 /** Set the app icon to a PNG the user picked, or restore the bundled one with `null` (#173). */
 export const setAppIcon = (path: string | null) => invoke<void>('set_app_icon', { path });
 /** Path to the custom app icon, granted to the asset protocol. `null` when the bundled one is in use. */
@@ -1083,6 +1088,8 @@ export interface ImportResult {
 	removed: number;
 }
 export interface ImportSnapshot {
+	/** The job's generation: newer jobs, higher numbers. */
+	gen: number;
 	phase: ImportPhase;
 	/** Distinct tracks across every list being imported. */
 	total: number;
@@ -1090,7 +1097,14 @@ export interface ImportSnapshot {
 	matched: number;
 	check: number;
 	missing: number;
-	lists: { kind: ImportListKind; name: string; count: number; cover?: string | null }[];
+	/** `linked`: read off a link, so it can be kept up to date with Spotify. */
+	lists: {
+		kind: ImportListKind;
+		name: string;
+		count: number;
+		cover?: string | null;
+		linked: boolean;
+	}[];
 	/** The last few tracks matched, newest first. */
 	recent: { title: string; artists: string; tier: ImportTier; thumbnail?: string | null }[];
 	/** While creating: steps done, steps in all. */
@@ -1101,6 +1115,8 @@ export interface ImportSnapshot {
 	results: ImportResult[];
 	/** Set when this is an "Update from Spotify" of that playlist rather than an import. */
 	update?: string | null;
+	/** An update the background check started, not the user. */
+	auto: boolean;
 }
 export interface ImportRow {
 	key: string;
@@ -1133,12 +1149,19 @@ export const importRows = (tier: ImportTier) => invoke<ImportRow[]>('import_rows
 /** `null` leaves the track out. A song picked here is remembered for every later import. */
 export const importPick = (key: string, song: SongItem | null) =>
 	invoke<ImportSnapshot>('import_pick', { key, song });
-export const importCreate = (options: { names?: Record<number, string>; local?: boolean }) =>
-	invoke<void>('import_create', { options });
+export const importCreate = (options: {
+	names?: Record<number, string>;
+	local?: boolean;
+	/** Keep the lists read off a link up to date with Spotify on their own. */
+	auto?: boolean;
+}) => invoke<void>('import_create', { options });
 /** Stops a running import, or puts away a finished one. */
 export const importCancel = () => invoke<void>('import_cancel');
+/** The Spotify link a playlist was imported from, and whether it updates by itself. */
 export const importSource = (playlistId: string) =>
-	invoke<string | null>('import_source', { playlistId });
+	invoke<{ url: string; auto: boolean } | null>('import_source', { playlistId });
+export const importSetAuto = (playlistId: string, on: boolean) =>
+	invoke<void>('import_set_auto', { playlistId, on });
 export const importUpdate = (playlistId: string) =>
 	invoke<ImportSnapshot>('import_update', { playlistId });
 export const importResolve = (link: string) => invoke<ImportResolved>('import_resolve', { link });
@@ -1438,6 +1461,8 @@ export interface LimusicQueueItem {
 	kind: string;
 	created_at: number;
 	reports: number;
+	/** Another reviewer who has it open. */
+	reviewing?: string | null;
 }
 export interface LimusicQueue {
 	items: LimusicQueueItem[];
@@ -1465,6 +1490,10 @@ export interface LimusicRevision {
 /** Oldest first, 50 a page. */
 export const limusicReviewQueue = (after?: number) =>
 	invoke<LimusicQueue>('limusic_review_queue', { after: after ?? null });
+/** Mark the submission this reviewer has open, null to let go. Resolves with another reviewer who
+ *  has it already (this one then holds nothing), else null. */
+export const limusicReviewClaim = (revision: number | null) =>
+	invoke<{ by: string; since: number } | null>('limusic_review_claim', { revision });
 export const limusicReviewRevision = (revision: number) =>
 	invoke<LimusicRevision>('limusic_review_revision', { revision });
 /** The song's live community lyric from the service itself (never a lyrics provider), or null. */
@@ -1594,8 +1623,8 @@ export interface ListenBrainzState {
 }
 export const listenbrainzStatus = () => invoke<ListenBrainzState>('listenbrainz_status');
 /** Validates the pasted user token and stores it. Rejects on a bad token or no network. */
-export const listenbrainzConnect = (token: string) =>
-	invoke<void>('listenbrainz_connect', { token });
+export const listenbrainzConnect = (token: string, url?: string) =>
+	invoke<void>('listenbrainz_connect', { token, url });
 export const listenbrainzDisconnect = () => invoke<void>('listenbrainz_disconnect');
 export const onListenBrainzState = (cb: (s: ListenBrainzState) => void): Promise<UnlistenFn> =>
 	listen<ListenBrainzState>('listenbrainz-state', (e) => cb(e.payload));

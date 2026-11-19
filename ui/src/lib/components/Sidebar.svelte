@@ -2,6 +2,9 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { scale } from 'svelte/transition';
+	import { flip } from 'svelte/animate';
+	import { cubicOut } from 'svelte/easing';
+	import { MediaQuery } from 'svelte/reactivity';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		Home01Icon,
@@ -17,15 +20,29 @@
 		SquareArrowLeft01Icon,
 		SquareArrowRight01Icon,
 		SpotifyIcon,
-		Chart02Icon
+		Chart02Icon,
+		VolumeHighIcon,
+		PlayIcon,
+		PauseIcon,
+		DiscordIcon
 	} from '@hugeicons/core-free-icons';
 	import LogoMark from './LogoMark.svelte';
+	import LimusicLoader from './LimusicLoader.svelte';
+	import { playItem } from '$lib/browse';
 	import { toggleMode } from 'mode-watcher';
 	import { Button } from '$lib/components/ui/button';
-	import { ON_REPEAT_ID, isLocalPlaylist, type BrowseItem } from '$lib/api';
+	import { DISCORD_URL, ON_REPEAT_ID, isLocalPlaylist, openExternal, togglePause, type BrowseItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import PlaylistMenu from './PlaylistMenu.svelte';
-	import { library, personal, ui, openNewPlaylist, toggleSidebar } from '$lib/player.svelte';
+	import {
+		library,
+		personal,
+		playback,
+		ui,
+		openNewPlaylist,
+		toggleSidebar,
+		toast
+	} from '$lib/player.svelte';
 	import { mergeSaved, orderLibrary } from '$lib/personal';
 	import { t } from '$lib/i18n.svelte';
 	import { imp } from '$lib/import.svelte';
@@ -45,6 +62,30 @@
 	const playlists = $derived(
 		orderLibrary(mergeSaved(personal, library.items, 'playlist'), personal)
 	);
+	// The playlist the queue is playing from (#646), like Spotify's library: its title in the accent
+	// colour, and a speaker while it plays. Not once autoplay has moved on to a radio past its end.
+	const playingFrom = $derived.by(() => {
+		const q = playback.queue;
+		const current = q.items[q.currentIndex];
+		return current && !current.autoplay ? q.sourceId : null;
+	});
+	// The cover plays the playlist, like Spotify's library, or pauses and resumes it once it is the
+	// one playing. `starting`: the playlist being fetched before it can play.
+	let starting = $state<string | null>(null);
+	async function playRow(item: BrowseItem) {
+		if (starting) return;
+		if (playingFrom === item.id) return togglePause();
+		starting = item.id;
+		try {
+			await playItem(item);
+		} finally {
+			starting = null;
+		}
+	}
+	// A playlist that starts playing moves to the top (rows go by last played): slid there, not
+	// cut. The same 200 ms as the queue's and Shortcuts' reorders.
+	const reducedMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
+	const slide = $derived(reducedMotion.current ? 0 : 200);
 	// How many of the leading rows are pinned — a rule under the last one explains the split.
 	const pinnedCount = $derived(playlists.filter((p) => personal.pins.includes(p.id)).length);
 
@@ -139,6 +180,16 @@
 				<HugeiconsIcon icon={Sun01Icon} strokeWidth={2} class="h-4 w-4 dark:hidden" />
 				<HugeiconsIcon icon={Moon02Icon} strokeWidth={2} class="hidden h-4 w-4 dark:block" />
 			</Button>
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				class="hover:text-primary"
+				onclick={() => openExternal(DISCORD_URL).catch((e) => toast.error(t('toasts.browser_failed', { error: String(e) })))}
+				title={t('nav.discord')}
+				aria-label={t('nav.discord')}
+			>
+				<HugeiconsIcon icon={DiscordIcon} strokeWidth={2} class="h-4 w-4" />
+			</Button>
 		</div>
 	</div>
 
@@ -226,68 +277,116 @@
 		     for as long as the fade runs (#420, same bug as #343). -->
 		<div class="min-h-0 flex-1 overflow-y-auto relative z-0">
 			{#each playlists as pl, i (pl.id)}
-				<!-- The ⋯ is a sibling of the link, not a child: a <button> inside an <a> is invalid
-				     HTML. pr-9 keeps the title clear of the button that overlays the row on hover. -->
-				<div class="group/row relative" data-ctx>
-					<a
-						href={playlistHref(pl)}
-						title={pl.title}
-						data-nav-item
-						class="flex items-center gap-2.5 rounded-lg py-1.5 pl-2 pr-9 transition-colors hover:bg-sidebar-accent/50"
-					>
-						<div
-							class="relative h-10 w-10 shrink-0 overflow-hidden bg-muted {pl.kind === 'artist'
-								? 'rounded-full'
-								: 'rounded-md'}"
+				{@const current = playingFrom === pl.id}
+				<!-- One element per row: `animate:flip` takes the only child of a keyed each. -->
+				<div animate:flip={{ duration: slide, easing: cubicOut }}>
+					<!-- The ⋯ and the cover's play button are siblings of the link, not children: a
+					     <button> inside an <a> is invalid HTML. pr-9 keeps the title clear of the ⋯ that
+					     overlays the row on hover. The link takes its hover from the row so the highlight
+					     stays while the pointer is on either button. -->
+					<div class="group/row relative" data-ctx>
+						<a
+							href={playlistHref(pl)}
+							title={pl.title}
+							data-nav-item
+							class="flex items-center gap-2.5 rounded-lg py-1.5 pl-2 pr-9 transition-colors group-hover/row:bg-sidebar-accent/50"
 						>
-							{#if pl.thumbnail && pl.id !== ON_REPEAT_ID}
-								<img
-									src={thumb(pl.thumbnail, 96)}
-									alt=""
-									class="h-full w-full object-cover"
-									loading="lazy"
-								/>
-							{:else}
-								<!-- On Repeat has no artwork by nature: icon tile, same as its card. -->
-								<div
-									class="flex h-full w-full items-center justify-center {pl.id === ON_REPEAT_ID
-										? 'bg-primary/10 text-primary'
-										: 'text-muted-foreground/20'}"
-								>
-									{#if pl.id === ON_REPEAT_ID}
-										<HugeiconsIcon icon={ListRestartIcon} class="h-5 w-5" />
-									{:else}
-										<LogoMark class="size-3/4" />
-									{/if}
-								</div>
-							{/if}
-						</div>
-						{#if personal.pins.includes(pl.id)}
-							<span
-								class="absolute left-9 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground shadow"
+							<div
+								class="relative h-10 w-10 shrink-0 overflow-hidden bg-muted {pl.kind === 'artist'
+									? 'rounded-full'
+									: 'rounded-md'}"
 							>
-								<HugeiconsIcon icon={PinIcon} class="h-2.5 w-2.5" />
+								{#if pl.thumbnail && pl.id !== ON_REPEAT_ID}
+									<img
+										src={thumb(pl.thumbnail, 96)}
+										alt=""
+										class="h-full w-full object-cover"
+										loading="lazy"
+									/>
+								{:else}
+									<!-- On Repeat has no artwork by nature: icon tile, same as its card. -->
+									<div
+										class="flex h-full w-full items-center justify-center {pl.id === ON_REPEAT_ID
+											? 'bg-primary/10 text-primary'
+											: 'text-muted-foreground/20'}"
+									>
+										{#if pl.id === ON_REPEAT_ID}
+											<HugeiconsIcon icon={ListRestartIcon} class="h-5 w-5" />
+										{:else}
+											<LogoMark class="size-3/4" />
+										{/if}
+									</div>
+								{/if}
+							</div>
+							{#if personal.pins.includes(pl.id)}
+								<span
+									class="absolute left-9 top-0.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground shadow"
+								>
+									<HugeiconsIcon icon={PinIcon} class="h-2.5 w-2.5" />
+								</span>
+							{/if}
+							<div class="min-w-0 flex-1">
+								<div class="truncate text-[13px] font-medium {current ? 'text-primary' : ''}">
+									{pl.title}
+								</div>
+								{#if current}
+									<span class="sr-only">{t('player.now_playing')}</span>
+								{/if}
+								{#if pl.subtitle}
+									<!-- The rail keeps only the count, so a playlist on this machine says
+									     where it lives with an icon instead of the words. -->
+									<div class="flex items-center gap-1 text-xs text-muted-foreground">
+										{#if isLocalPlaylist(pl.id)}
+											<HugeiconsIcon icon={ComputerIcon} class="h-3 w-3 shrink-0" />
+										{/if}
+										<span class="truncate">{rowSubtitle(pl.subtitle)}</span>
+									</div>
+								{/if}
+							</div>
+						</a>
+						{#if pl.kind !== 'artist'}
+							<!-- Over the cover, the same dark wash and white mark as a Shortcuts tile (a wash
+							     over artwork, not a theme surface). Shown with visibility, no fade: rows in a
+							     scrolling list carry no transition (docs/UI-PERFORMANCE.md). -->
+							<button
+								class="absolute inset-y-0 left-2 my-auto flex h-10 w-10 cursor-pointer items-center justify-center rounded-md bg-black/50 text-white hover:bg-black/60 {starting ===
+								pl.id
+									? 'visible'
+									: 'invisible group-hover/row:visible group-focus-within/row:visible'}"
+								disabled={starting === pl.id}
+								aria-label={current && !playback.paused
+									? t('player.pause')
+									: t('a11y.play_item', { title: pl.title })}
+								onclick={() => playRow(pl)}
+							>
+								{#if starting === pl.id}
+									<LimusicLoader class="size-6 text-white" />
+								{:else}
+									<!-- altIcon/showAlt, not a ternary: `icon` is read once at mount. -->
+									<HugeiconsIcon
+										icon={PlayIcon}
+										altIcon={PauseIcon}
+										showAlt={current && !playback.paused}
+										class="h-5 w-5"
+									/>
+								{/if}
+							</button>
+						{/if}
+						{#if current && !playback.paused}
+							<!-- Where the ⋯ appears on hover, and gives way to it. Still, like the playing
+							     row's mark in a track list: a looping animation keeps the compositor busy. -->
+							<span
+								class="pointer-events-none absolute inset-y-0 right-1 flex w-7 items-center justify-center text-primary group-hover/row:invisible"
+							>
+								<HugeiconsIcon icon={VolumeHighIcon} class="h-4 w-4" />
 							</span>
 						{/if}
-						<div class="min-w-0 flex-1">
-							<div class="truncate text-[13px] font-medium">{pl.title}</div>
-							{#if pl.subtitle}
-								<!-- The rail keeps only the count, so a playlist on this machine says
-								     where it lives with an icon instead of the words. -->
-								<div class="flex items-center gap-1 text-xs text-muted-foreground">
-									{#if isLocalPlaylist(pl.id)}
-										<HugeiconsIcon icon={ComputerIcon} class="h-3 w-3 shrink-0" />
-									{/if}
-									<span class="truncate">{rowSubtitle(pl.subtitle)}</span>
-								</div>
-							{/if}
-						</div>
-					</a>
-					<PlaylistMenu item={pl} />
+						<PlaylistMenu item={pl} />
+					</div>
+					{#if pinnedCount && i === pinnedCount - 1}
+						<div class="mx-3 my-1.5 h-px bg-border"></div>
+					{/if}
 				</div>
-				{#if pinnedCount && i === pinnedCount - 1}
-					<div class="mx-3 my-1.5 h-px bg-border"></div>
-				{/if}
 			{:else}
 				{#if library.loading}
 					<p class="px-3 py-1.5 text-xs text-muted-foreground">{t('common.loading')}</p>

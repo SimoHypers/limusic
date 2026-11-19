@@ -760,6 +760,78 @@ pub async fn clear_caches(state: St<'_>) -> Result<(), String> {
     Ok(())
 }
 
+/// Bytes on disk by what they are, for Settings > Data & storage (#705).
+#[derive(Debug, Default, PartialEq, serde::Serialize)]
+pub struct StorageUsage {
+    /// The SQLite file: settings, history, saved lyrics, the local library.
+    pub library: u64,
+    /// mpv's on-disk demuxer cache.
+    pub audio: u64,
+    /// Karaoke instrumentals.
+    pub karaoke: u64,
+    /// Karaoke models and the ONNX Runtime.
+    pub models: u64,
+    /// The webview's own files: its HTTP cache (artwork), storage, service workers.
+    pub web: u64,
+    /// Logs, the player.js cache, local file artwork.
+    pub other: u64,
+}
+
+/// Apparent size of a file, or of everything under a directory. Symlinks are not followed.
+fn disk_size(path: &std::path::Path) -> u64 {
+    let Ok(meta) = std::fs::symlink_metadata(path) else { return 0 };
+    if !meta.is_dir() {
+        return meta.len();
+    }
+    std::fs::read_dir(path).into_iter().flatten().flatten().map(|e| disk_size(&e.path())).sum()
+}
+
+/// Sorts the app data dir's top-level entries. Anything we don't name is the webview's: on Linux
+/// WebKitGTK keeps its folders here, beside ours.
+fn tally_data_dir(dir: &std::path::Path) -> StorageUsage {
+    let mut u = StorageUsage::default();
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = entry.file_name();
+        let slot = match name.to_string_lossy().as_ref() {
+            "audio-cache" => &mut u.audio,
+            "karaoke-cache" => &mut u.karaoke,
+            "models" | "runtime" => &mut u.models,
+            // Also a quarantined `limusic.corrupt-<stamp>.sqlite`.
+            n if n.starts_with("limusic.") && n.contains("sqlite") => &mut u.library,
+            n if n.starts_with("limusic.") => &mut u.other,
+            "cipher_cache" | "covers" | "app-icon.png" => &mut u.other,
+            _ => &mut u.web,
+        };
+        *slot += disk_size(&entry.path());
+    }
+    u
+}
+
+#[tauri::command]
+pub async fn storage_usage(app: tauri::AppHandle) -> Result<StorageUsage, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = app.path();
+        let data = p.app_data_dir().map_err(|e| e.to_string())?;
+        let mut u = tally_data_dir(&data);
+        // The webview's folders outside the data dir: WebView2's under local data on Windows,
+        // WKWebView's cache and website data on macOS. Same dir as `data` elsewhere, skipped.
+        #[allow(unused_mut)]
+        let mut extra = vec![p.app_local_data_dir(), p.app_cache_dir()];
+        #[cfg(target_os = "macos")]
+        extra.push(p.home_dir().map(|h| h.join("Library/WebKit").join(&app.config().identifier)));
+        let mut seen = vec![data];
+        for dir in extra.into_iter().flatten() {
+            if !seen.contains(&dir) {
+                u.web += disk_size(&dir);
+                seen.push(dir);
+            }
+        }
+        Ok(u)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // --- auth (context/15) ---------------------------------------------------------------------
 
 #[tauri::command]
@@ -2185,11 +2257,13 @@ pub async fn delete_playlist(state: St<'_>, playlist_id: String) -> Result<(), S
             let _ = std::fs::remove_file(cover);
             state.db.delete_setting(&cover_key(&playlist_id));
         }
+        crate::import::forget_source(&state, &playlist_id);
         return Ok(());
     }
     let client = editable_playlist(&state, &playlist_id)?;
     state.it.delete_playlist(client, &playlist_id).await.map_err(|e| e.to_string())?;
     state.db.forget_playlist(&playlist_id);
+    crate::import::forget_source(&state, &playlist_id);
     Ok(())
 }
 
@@ -2442,10 +2516,20 @@ pub async fn import_cancel(state: St<'_>) -> Result<(), String> {
     Ok(())
 }
 
-/// The Spotify link a playlist was imported from, when it was imported from one.
+/// The Spotify link a playlist was imported from, when it was imported from one, and whether it
+/// updates by itself.
 #[tauri::command]
-pub async fn import_source(state: St<'_>, playlist_id: String) -> Result<Option<String>, String> {
-    Ok(crate::import::source_url(&state, &playlist_id))
+pub async fn import_source(
+    state: St<'_>,
+    playlist_id: String,
+) -> Result<Option<crate::import::SourceInfo>, String> {
+    Ok(crate::import::source_info(&state, &playlist_id))
+}
+
+/// Keep a playlist imported from a link up to date with Spotify on its own, or stop.
+#[tauri::command]
+pub async fn import_set_auto(state: St<'_>, playlist_id: String, on: bool) -> Result<(), String> {
+    crate::import::set_auto(&state, &playlist_id, on)
 }
 
 /// "Update from Spotify": re-read the playlist's link and apply what changed.
@@ -2835,6 +2919,15 @@ pub async fn limusic_review_queue(
     crate::limusic::review_queue(state.inner(), after).await
 }
 
+/// Mark the revision this reviewer has open (`None` lets go). `Some` is another reviewer who has it.
+#[tauri::command]
+pub async fn limusic_review_claim(
+    state: St<'_>,
+    revision: Option<i64>,
+) -> Result<Option<crate::limusic::Claim>, String> {
+    crate::limusic::review_claim(state.inner(), revision).await
+}
+
 /// One revision with its lines.
 #[tauri::command]
 pub async fn limusic_review_revision(
@@ -3158,8 +3251,12 @@ pub async fn lastfm_preview(
 /// Validate `token` against ListenBrainz and store it. Returns the error rather than emitting
 /// it: a pasted token is validated synchronously, unlike Last.fm's browser round-trip.
 #[tauri::command]
-pub async fn listenbrainz_connect(state: St<'_>, token: String) -> Result<(), String> {
-    crate::listenbrainz::connect(state.inner().clone(), token).await
+pub async fn listenbrainz_connect(
+    state: St<'_>,
+    token: String,
+    url: Option<String>,
+) -> Result<(), String> {
+    crate::listenbrainz::connect(state.inner().clone(), token, url.unwrap_or_default()).await
 }
 
 #[tauri::command]
@@ -3185,16 +3282,18 @@ pub async fn listenbrainz_profile(
 /// Theater mode's fullscreen toggle (#139).
 ///
 /// `setFullscreen` on its own is not enough on Windows. tao decides the client area in
-/// WM_NCCALCSIZE: while the real Win32 placement says maximized it clamps the client to the
-/// monitor's *work* area, so the "fullscreen" window sits under the taskbar with a frame-thick
-/// border around it, and while the window is undecorated-with-shadow it insets the client by the
-/// frame thickness. Both are decided before the fullscreen flag is, and tao's own `is_maximized`
-/// reads a cached flag that can disagree with the placement, which is why unmaximizing from the
-/// UI only fixed it some of the time.
+/// WM_NCCALCSIZE: while the window is maximized it clamps the client to the monitor's *work*
+/// area, so the "fullscreen" window sits under the taskbar with a frame-thick border around it,
+/// and while the window is undecorated-with-shadow it insets the client by the frame thickness.
+/// Both are decided before the fullscreen flag is.
 ///
-/// So: restore from the real placement, go fullscreen, then put the window on the monitor rect
-/// with SWP_FRAMECHANGED to force one recalculation with the fullscreen flag set. On the main
-/// thread, where the window messages run inline and the order is guaranteed.
+/// Un-maximizing first got around that, and was wrong (#606): the window shrank to its restored
+/// size on the way in, tao saved that as the size to leave fullscreen to, so closing theater
+/// showed the small window over the desktop before it maximized again, and the window-state
+/// plugin, which records the size of every un-maximized window, took the monitor size for the
+/// restored one. So a maximized window stays maximized and only moves, the way Chromium does
+/// fullscreen, and `theater_client` overrides tao's WM_NCCALCSIZE while theater is up. On the
+/// main thread, where the window messages run inline and the order is guaranteed.
 ///
 /// A window that was fullscreen already when theater opened (macOS's green button, a window
 /// manager's shortcut) is left alone both ways, so closing theater doesn't drop the user out of a
@@ -3220,26 +3319,48 @@ pub fn theater_fullscreen(window: tauri::WebviewWindow, on: bool) -> Result<(), 
     }
     #[cfg(target_os = "windows")]
     {
+        use std::sync::Mutex;
+        use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+        use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
         use windows::Win32::UI::WindowsAndMessaging::{
-            IsZoomed, SetWindowPos, ShowWindow, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE,
-            SWP_NOZORDER, SW_MAXIMIZE, SW_RESTORE,
+            GetWindowRect, IsZoomed, SetWindowPos, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE,
+            SWP_NOZORDER, WM_NCCALCSIZE,
         };
 
-        /// Restoring the window is what makes fullscreen work, so theater has to put the
-        /// maximized state back itself on the way out.
-        static WAS_MAXIMIZED: AtomicBool = AtomicBool::new(false);
+        const SUBCLASS_ID: usize = 0x7e_a7_e5;
+
+        /// The whole window is client area while theater is up. WM_NCCALCSIZE hands over the new
+        /// window rect in `rgrc[0]`, and returning 0 without touching it makes all of it client.
+        /// Installed after tao's subclass, so it runs first and tao's clamp never sees the message.
+        unsafe extern "system" fn theater_client(
+            hwnd: HWND,
+            msg: u32,
+            wparam: WPARAM,
+            lparam: LPARAM,
+            _id: usize,
+            _data: usize,
+        ) -> LRESULT {
+            if msg == WM_NCCALCSIZE && wparam.0 != 0 {
+                return LRESULT(0);
+            }
+            unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
+        }
+
+        /// The maximized window's rect, to move it back to: it is still maximized, so nothing
+        /// else puts it back on the work area.
+        static MAXIMIZED: Mutex<Option<RECT>> = Mutex::new(None);
 
         let w = window.clone();
         window
             .run_on_main_thread(move || {
                 let Ok(hwnd) = w.hwnd() else { return };
                 if on {
-                    let zoomed = unsafe { IsZoomed(hwnd).as_bool() };
-                    WAS_MAXIMIZED.store(zoomed, Ordering::Relaxed);
-                    if zoomed {
-                        unsafe {
-                            let _ = ShowWindow(hwnd, SW_RESTORE);
-                        }
+                    let mut r = RECT::default();
+                    let zoomed =
+                        unsafe { IsZoomed(hwnd).as_bool() && GetWindowRect(hwnd, &mut r).is_ok() };
+                    *MAXIMIZED.lock().unwrap() = zoomed.then_some(r);
+                    unsafe {
+                        let _ = SetWindowSubclass(hwnd, Some(theater_client), SUBCLASS_ID, 0);
                     }
                     let _ = w.set_fullscreen(true);
                     if let Ok(Some(m)) = w.current_monitor() {
@@ -3258,20 +3379,26 @@ pub fn theater_fullscreen(window: tauri::WebviewWindow, on: bool) -> Result<(), 
                     }
                 } else {
                     let _ = w.set_fullscreen(false);
-                    if WAS_MAXIMIZED.swap(false, Ordering::Relaxed) {
-                        unsafe {
-                            let _ = ShowWindow(hwnd, SW_MAXIMIZE);
-                        }
+                    unsafe {
+                        let _ = RemoveWindowSubclass(hwnd, Some(theater_client), SUBCLASS_ID);
                     }
+                    // The frame change hands WM_NCCALCSIZE back to tao, with its clamp.
+                    let (r, flags) = match MAXIMIZED.lock().unwrap().take() {
+                        Some(r) => (r, SWP_FRAMECHANGED | SWP_NOZORDER),
+                        None => (
+                            RECT::default(),
+                            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+                        ),
+                    };
                     unsafe {
                         let _ = SetWindowPos(
                             hwnd,
                             None,
-                            0,
-                            0,
-                            0,
-                            0,
-                            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+                            r.left,
+                            r.top,
+                            r.right - r.left,
+                            r.bottom - r.top,
+                            flags,
                         );
                     }
                 }
@@ -3536,6 +3663,34 @@ pub fn stop_matugen_watcher() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn storage_tally_sorts_the_data_dir() {
+        let dir = std::env::temp_dir().join(format!("limusic-storage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let put = |rel: &str, n: usize| {
+            let p = dir.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, vec![0u8; n]).unwrap();
+        };
+        put("limusic.sqlite", 100);
+        put("limusic.sqlite-wal", 10);
+        put("limusic.corrupt-1.sqlite", 1);
+        put("limusic.log", 5);
+        put("audio-cache/a", 20);
+        put("karaoke-cache/x/y.flac", 300);
+        put("models/m.onnx", 40);
+        put("runtime/onnx/lib.so", 2);
+        put("cipher_cache/p.js", 7);
+        put("WebKitCache/Version 16/r", 50);
+        put("localstorage/s", 3);
+        let u = tally_data_dir(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            u,
+            StorageUsage { library: 111, audio: 20, karaoke: 300, models: 42, web: 53, other: 12 }
+        );
+    }
 
     /// Official channels only, one card per stream, most watched first (#424).
     #[test]

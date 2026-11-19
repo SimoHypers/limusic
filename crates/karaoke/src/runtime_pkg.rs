@@ -8,9 +8,6 @@ pub const VERSION: &str = "1.24.4";
 /// Linux plugin execution provider (WebGPU over Vulkan), downloaded next to the runtime.
 pub const WEBGPU_PLUGIN: &str = "libonnxruntime_providers_webgpu.so";
 
-pub const GITHUB_HOSTS: &[&str] =
-    &["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"];
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArchiveKind {
     Tgz,
@@ -45,41 +42,45 @@ pub struct RuntimePackage {
     pub parts: &'static [Part],
 }
 
+/// Linux and macOS: the library from the official Microsoft.ML.OnnxRuntime NuGet package (125 MB),
+/// of which only the needed files are fetched with Range requests. These came from the GitHub
+/// release until Microsoft made github.com/microsoft/onnxruntime private on 2026-11-17; the Linux
+/// library is byte-identical in both, so its pin did not change.
 pub static LINUX_X86_64: RuntimePackage = RuntimePackage {
     platform: "linux-x86_64",
     parts: &[
         Part {
             name: "onnxruntime",
-            url: "https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-linux-x64-1.24.4.tgz",
-            archive_size: 8155822,
-            archive_sha256: "3a211fbea252c1e66290658f1b735b772056149f28321e71c308942cdb54b747",
-            fetch_size: 8155822,
-            kind: ArchiveKind::Tgz,
-            hosts: GITHUB_HOSTS,
+            url: "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.24.4/microsoft.ml.onnxruntime.1.24.4.nupkg",
+            archive_size: 125194303,
+            archive_sha256: "",
+            fetch_size: 8060000,
+            kind: ArchiveKind::ZipRange,
+            hosts: NUGET_HOSTS,
             files: &[
                 PartFile {
-                    entry: "onnxruntime-linux-x64-1.24.4/lib/libonnxruntime.so.1.24.4",
+                    entry: "runtimes/linux-x64/native/libonnxruntime.so",
                     dest: "libonnxruntime.so.1.24.4",
                     size: 22159232,
                     sha256: "d132535d051344ff5c64c9c200004150559049a81ed330eb4422c1962fb6b7e4",
                     optional: false,
                 },
                 PartFile {
-                    entry: "onnxruntime-linux-x64-1.24.4/LICENSE",
+                    entry: "LICENSE",
                     dest: "LICENSE",
                     size: 0,
                     sha256: "",
                     optional: true,
                 },
                 PartFile {
-                    entry: "onnxruntime-linux-x64-1.24.4/ThirdPartyNotices.txt",
+                    entry: "ThirdPartyNotices.txt",
                     dest: "ThirdPartyNotices.txt",
                     size: 0,
                     sha256: "",
                     optional: true,
                 },
                 PartFile {
-                    entry: "onnxruntime-linux-x64-1.24.4/Privacy.md",
+                    entry: "Privacy.md",
                     dest: "Privacy.md",
                     size: 0,
                     sha256: "",
@@ -126,36 +127,36 @@ pub static MACOS_AARCH64: RuntimePackage = RuntimePackage {
     platform: "macos-aarch64",
     parts: &[Part {
         name: "onnxruntime",
-        url: "https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-osx-arm64-1.24.4.tgz",
-        archive_size: 30937282,
-        archive_sha256: "93787795f47e1eee369182e43ed51b9e5da0878ab0346aecf4258979b8bba989",
-        fetch_size: 30937282,
-        kind: ArchiveKind::Tgz,
-        hosts: GITHUB_HOSTS,
+        url: "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.24.4/microsoft.ml.onnxruntime.1.24.4.nupkg",
+        archive_size: 125194303,
+        archive_sha256: "",
+        fetch_size: 9850000,
+        kind: ArchiveKind::ZipRange,
+        hosts: NUGET_HOSTS,
         files: &[
             PartFile {
-                entry: "onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib",
+                entry: "runtimes/osx-arm64/native/libonnxruntime.dylib",
                 dest: "libonnxruntime.1.24.4.dylib",
-                size: 35418600,
-                sha256: "872533f130f1839a5bc01788ddb4f75c83a189763441ba1178788ed965449289",
+                size: 35451632,
+                sha256: "0db33e160224e480c17932799d1dfaea59853b8e722b57bf61932c87e03586f0",
                 optional: false,
             },
             PartFile {
-                entry: "onnxruntime-osx-arm64-1.24.4/LICENSE",
+                entry: "LICENSE",
                 dest: "LICENSE",
                 size: 0,
                 sha256: "",
                 optional: true,
             },
             PartFile {
-                entry: "onnxruntime-osx-arm64-1.24.4/ThirdPartyNotices.txt",
+                entry: "ThirdPartyNotices.txt",
                 dest: "ThirdPartyNotices.txt",
                 size: 0,
                 sha256: "",
                 optional: true,
             },
             PartFile {
-                entry: "onnxruntime-osx-arm64-1.24.4/Privacy.md",
+                entry: "Privacy.md",
                 dest: "Privacy.md",
                 size: 0,
                 sha256: "",
@@ -969,12 +970,12 @@ mod tests {
 
         let part = Part {
             name: "test-tgz",
-            url: "https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/test.tgz",
+            url: "https://example.com/test.tgz",
             archive_size: tgz_bytes.len() as u64,
             archive_sha256: "",
             fetch_size: tgz_bytes.len() as u64,
             kind: ArchiveKind::Tgz,
-            hosts: GITHUB_HOSTS,
+            hosts: &[],
             files: files_ref,
         };
 
@@ -1685,26 +1686,25 @@ mod tests {
                 assert_eq!(pinned[1].dest, "DirectML.dll");
             }
 
-            for (i, part) in pkg.parts.iter().enumerate() {
-                if pkg.platform.starts_with("windows") {
+            for part in pkg.parts {
+                if part.name != "webgpu-ep" {
                     assert_eq!(part.hosts, NUGET_HOSTS);
                     assert!(part.url.starts_with("https://api.nuget.org/v3-flatcontainer/"));
                     assert!(part.url.ends_with(".nupkg"));
 
-                    if i == 0 {
-                        assert_eq!(part.kind, ArchiveKind::Zip);
+                    if part.kind == ArchiveKind::Zip {
                         assert_eq!(part.archive_sha256.len(), 64);
                         assert!(part
                             .archive_sha256
                             .chars()
                             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
                         assert_eq!(part.fetch_size, part.archive_size);
-                    } else if i == 1 {
+                    } else {
                         assert_eq!(part.kind, ArchiveKind::ZipRange);
                         assert!(part.archive_sha256.is_empty());
                         assert!(part.fetch_size < part.archive_size);
                     }
-                } else if part.name == "webgpu-ep" {
+                } else {
                     assert_eq!(part.hosts, PYPI_HOSTS);
                     assert!(part.url.starts_with("https://files.pythonhosted.org/"));
                     assert!(part.url.ends_with(".whl"));
@@ -1715,22 +1715,6 @@ mod tests {
                         .chars()
                         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
                     assert_eq!(part.fetch_size, part.archive_size);
-                } else {
-                    assert_eq!(part.archive_sha256.len(), 64);
-                    assert!(part
-                        .archive_sha256
-                        .chars()
-                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
-                    assert!(part.hosts.contains(&"github.com"));
-
-                    assert!(part.fetch_size > 0);
-                    assert_eq!(part.fetch_size, part.archive_size);
-
-                    let prefix = format!(
-                        "https://github.com/microsoft/onnxruntime/releases/download/v{VERSION}/"
-                    );
-                    assert!(part.url.starts_with(&prefix));
-                    assert!(part.url.ends_with(".tgz"));
                 }
 
                 assert!(part.files.iter().any(|f| !f.sha256.is_empty() && !f.optional));
@@ -1753,6 +1737,6 @@ mod tests {
         assert_eq!(LINUX_X86_64.parts.len(), 2);
         assert_eq!(main_lib(&LINUX_X86_64).dest, format!("libonnxruntime.so.{VERSION}"));
         assert!(pinned_files(&LINUX_X86_64).any(|f| f.dest == WEBGPU_PLUGIN));
-        assert_eq!(total_archive_size(&LINUX_X86_64), 8155822 + 6935993);
+        assert_eq!(total_archive_size(&LINUX_X86_64), 8060000 + 6935993);
     }
 }

@@ -189,8 +189,15 @@
 
 	let name = $state('');
 	let where = $state<'account' | 'device'>('account');
+	let keepUpdated = $state(false);
+	// Only a list read off a link has a Spotify playlist to go back to.
+	const linked = $derived(!!job?.lists.some((l) => l.linked));
 	$effect(() => {
-		if (view === 'review') untrack(() => (name = job?.lists.length === 1 ? listName(job.lists[0]) : ''));
+		if (view === 'review')
+			untrack(() => {
+				name = job?.lists.length === 1 ? listName(job.lists[0]) : '';
+				keepUpdated = false;
+			});
 	});
 
 	async function create() {
@@ -201,7 +208,11 @@
 		});
 		if (job.lists.length === 1 && name.trim()) names[0] = name.trim();
 		try {
-			await api.importCreate({ names, local: !signedIn || where === 'device' });
+			await api.importCreate({
+				names,
+				local: !signedIn || where === 'device',
+				auto: linked && keepUpdated
+			});
 		} catch (e) {
 			toast.error(importError(e));
 		}
@@ -563,6 +574,15 @@
 						<HugeiconsIcon icon={ComputerIcon} class="mt-px h-3.5 w-3.5 shrink-0" />
 						{t('import.device_only')}
 					</p>
+				{/if}
+				{#if linked}
+					<label class="flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-2 transition-colors hover:bg-accent/10">
+						<Checkbox class="mt-0.5" checked={keepUpdated} onCheckedChange={(v) => (keepUpdated = !!v)} />
+						<span class="min-w-0">
+							<span class="block text-sm">{t('import.keep_updated')}</span>
+							<span class="block text-xs text-muted-foreground">{t('import.keep_updated_desc')}</span>
+						</span>
+					</label>
 				{/if}
 			</div>
 			<Dialog.Footer>

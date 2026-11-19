@@ -517,8 +517,6 @@
 			"lyrics_prefer_words_hint": "Les paroles mot à mot de n'importe quelle source l'emportent sur celles ligne par ligne d'une source située au-dessus. La première fois qu'un titre est lu, ses paroles peuvent mettre quelques secondes de plus à apparaître."
 		},
 		"data": {
-			"clear_cache": "Vider le cache des images et des flux",
-			"clear_cache_hint": "Libère de l'espace disque en supprimant les miniatures et les segments audio mis en cache.",
 			"clear_cache_button": "Vider le cache maintenant"
 		},
 		"about": {

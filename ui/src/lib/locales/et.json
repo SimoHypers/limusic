@@ -584,8 +584,6 @@
 			"action_show_app_hint": "Too Limusicu aken esiplaanile."
 		},
 		"data": {
-			"clear_cache": "Tühjenda piltide ja voogude vahemälu",
-			"clear_cache_hint": "Vabastab kettaruumi, kustutades vahemällu salvestatud pisipildid ja helitükid.",
 			"clear_cache_button": "Tühjenda vahemälu kohe"
 		},
 		"about": {

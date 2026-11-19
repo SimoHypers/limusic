@@ -4,7 +4,7 @@
 mod common;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "downloads the real runtime (about 22 MB on Windows, 8 to 31 MB on Linux/macOS); run it by hand"]
+#[ignore = "downloads the real runtime (about 22 MB on Windows, 15 MB on Linux, 10 MB on macOS); run it by hand"]
 async fn the_real_runtime_downloads_verifies_and_loads() {
     if karaoke::runtime_pkg::current().is_none() {
         eprintln!("no runtime package for this platform");

@@ -222,7 +222,8 @@
 			"new_releases": "Rilis baru",
 			"mixed_for_you": "Campuran untuk Anda",
 			"daily_discover": "Penemuan harian Anda",
-			"music_videos": "Video musik untuk Anda"
+			"music_videos": "Video musik untuk Anda",
+			"listen_together": "Dengar bersama"
 		},
 		"live_now": "Live sekarang"
 	},
@@ -444,8 +445,8 @@
 			"accent_artwork_note": "Saat lagu diputar, warna aksen diambil dari sampulnya. Nonaktifkan Sesuaikan warna dengan sampul untuk melihat warna ini.",
 			"preview": "Pratinjau",
 			"preview_hint": "Perubahan penggeser dan pemilih warna ditampilkan di sini saat Anda menyeretnya, lalu diterapkan ke aplikasi saat Anda melepasnya.",
-			"blur_playlist_header": "Burmaskan header daftar putar",
-			"blur_playlist_header_hint": "Tampilkan sampul daftar putar yang blur di dietro header-nya. Membuat halus sampul yang terlihat piksel dan diregang ke lebar penuh.",
+			"blur_playlist_header": "Buramkan header daftar putar",
+			"blur_playlist_header_hint": "Tampilkan sampul daftar putar yang buram di belakang header-nya. Membuat halus sampul yang terlihat piksel dan diregang ke lebar penuh.",
 			"matugen_hint": "Ambil setiap warna, termasuk aksen, dari palet yang dibuat Matugen, wallust, atau pywal dari wallpaper Anda. Siapkan template Limusic di alat tersebut terlebih dahulu.",
 			"classic_player": "Tata letak pemain klasik",
 			"classic_player_hint": "Tampilan pemain asli: artwork saja di atas salinan blur dari sampul, dengan detail lagu berada di sebelah bilah pemain. Off menggunakan tata letak baru, dengan judul, artis dan album di bawah artwork dan tampilan diterangi oleh warna sampul.",
@@ -484,7 +485,9 @@
 			"theater_clock_format": "Format jam",
 			"theater_clock_format_auto": "Otomatis",
 			"theater_clock_format_12": "12 jam",
-			"theater_clock_format_24": "24 jam"
+			"theater_clock_format_24": "24 jam",
+			"cover_lyric_romanized": "Lirik romanisasi di bawah sampul",
+			"cover_lyric_romanized_hint": "Baris lirik di bawah sampul menampilkan romanisasi alih-alih aksara aslinya, untuk lagu yang memilikinya. Tab lirik tetap memiliki tombol Romanisasi tersendiri. Hanya untuk tata letak baru."
 		},
 		"playback": {
 			"audio_quality": "Kualitas audio",
@@ -539,11 +542,11 @@
 			"videos_first": "Mainkan video terlebih dahulu",
 			"videos_first_hint": "Lagu dari album dan daftar putar yang memiliki video musik dimulai sebagai video. Matikan ini untuk memulai dengan lagunya. Tombol Lagu/Video di tampilan pemutar tetap menukar keduanya.",
 			"lyrics_prefer_words": "Utamakan lirik kata demi kata",
-			"lyrics_prefer_words_hint": "Lirik kata demi kata dari sumber mana pun lebih diutamakan daripada lirik baris demi baris dari sumber di atasnya. Saat sebuah lagu pertama kali diputar, liriknya bisa butuh beberapa detik lebih lama untuk muncul."
+			"lyrics_prefer_words_hint": "Lirik kata demi kata dari sumber mana pun lebih diutamakan daripada lirik baris demi baris dari sumber di atasnya. Saat sebuah lagu pertama kali diputar, liriknya bisa butuh beberapa detik lebih lama untuk muncul.",
+			"auto_pause_other_audio": "Jeda ketika aplikasi lain memutar media",
+			"auto_pause_other_audio_hint": "Jeda ketika aplikasi lain, seperti tab peramban atau pemutar video, memutar media, dan lanjutkan ketika itu berhenti. Suara notifikasi dan permainan tidak termasuk."
 		},
 		"data": {
-			"clear_cache": "Hapus cache gambar dan stream",
-			"clear_cache_hint": "Membebaskan ruang penyimpanan dengan menghapus gambar mini dan potongan audio yang tersimpan di cache.",
 			"clear_cache_button": "Hapus cache sekarang"
 		},
 		"about": {
@@ -831,7 +834,8 @@
 			"reset_zoom": "Atur ulang skala",
 			"show_this_list": "Tampilkan daftar ini",
 			"refresh_page": "Segarkan halaman",
-			"quit_app": "Keluar dari Limusic"
+			"quit_app": "Keluar dari Limusic",
+			"like_song": "Sukai atau batalkan suka pada lagu"
 		},
 		"tempo_pitch": {
 			"title": "Tempo, nada & gema",
@@ -1108,7 +1112,8 @@
 		"feedback_gone": "Lirik ini sudah tidak ada di Limusic.",
 		"feedback_rate_limited": "Terlalu banyak sekaligus. Coba lagi nanti.",
 		"feedback_banned": "Akun ini tidak dapat memberi suara atau melaporkan.",
-		"feedback_failed": "Limusic Lyrics tidak dapat dihubungi, jadi tidak tersimpan."
+		"feedback_failed": "Limusic Lyrics tidak dapat dihubungi, jadi tidak tersimpan.",
+		"via": "via {source}"
 	},
 	"queue": {
 		"title": "Antrean"
@@ -1851,6 +1856,9 @@
 		"strip_gap_no_start": "Ketuk sekali saat jeda dimulai.",
 		"map": "Peta lagu",
 		"map_unplaced": "{count} baris belum memiliki awal",
-		"map_unplaced_one": "1 baris belum memiliki awal"
+		"map_unplaced_one": "1 baris belum memiliki awal",
+		"start_sources": "Sumber lainnya",
+		"start_sources_hint": "Lirik yang tersedia di setiap sumber untuk lagu ini. Mulai dari yang paling cocok dengan yang dinyanyikan.",
+		"start_lines": "{count} baris"
 	}
 }

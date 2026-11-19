@@ -236,6 +236,7 @@
 		"search": "Search",
 		"library": "Library",
 		"settings": "Settings",
+		"discord": "Join the Limusic Discord",
 		"listen_together": "Listen Together",
 		"new_playlist": "New Playlist",
 		"account": "Account",
@@ -556,6 +557,13 @@
 	},
 	"settings": {
 		"title": "Settings",
+		"search": {
+			"placeholder": "Search settings",
+			"hint": "Enter opens the first result, Esc clears the search.",
+			"empty": "No settings match “{query}”",
+			"empty_hint": "Try a shorter word, or one from a setting's description.",
+			"shown_when": "Shown when “{setting}” is on"
+		},
 		"tabs": {
 			"general": "General",
 			"general_hint": "History, integrations and how the app starts.",
@@ -584,7 +592,7 @@
 			"intro": "Link Limusic on your phone: each one shows and controls what the other plays, and the music moves to whichever you pick.",
 			"link_phone": "Link a phone",
 			"link_another": "Link another phone",
-			"step_open": "On your phone, open Limusic: Settings › Integrations › Devices",
+			"step_open": "On your phone, open Limusic: Settings › Devices",
 			"step_type": "Type this code",
 			"custom_server": "On this server, type {invite}",
 			"expires_in": "Expires in {time}",
@@ -854,9 +862,21 @@
 			"action_show_app_hint": "Bring the Limusic window to the foreground."
 		},
 		"data": {
-			"clear_cache": "Clear image and stream cache",
-			"clear_cache_hint": "Frees up disk space by clearing cached thumbnails and audio chunks.",
-			"clear_cache_button": "Clear cache now"
+			"clear_cache_button": "Clear cache",
+			"used": "Space used",
+			"used_hint": "Everything Limusic keeps on this computer.",
+			"library": "Library and settings",
+			"library_hint": "Your settings, listening history, saved lyrics and local music library.",
+			"audio": "Audio cache",
+			"audio_hint": "Audio held while songs play, and the links saved to start them faster. Clearing it can also fix songs that stop loading.",
+			"karaoke": "Karaoke versions",
+			"models": "Karaoke models",
+			"models_hint": "The vocal removal models you downloaded, and the engine that runs them.",
+			"manage": "Manage",
+			"web": "Images and web cache",
+			"web_hint": "Artwork and other files the app window has loaded, kept by your system's web engine.",
+			"other": "Other",
+			"other_hint": "Logs, artwork from your local files, and small files Limusic needs to play songs."
 		},
 		"about": {
 			"description": "A beautiful, fast, and lightweight desktop music player powered by Tauri and Svelte.",
@@ -883,6 +903,9 @@
 			"report_issue": "Open the bug form",
 			"report_issue_hint": "Opens GitHub in your browser, with the version and system filled in.",
 			"report_issue_button": "Report",
+			"discord": "Join the Discord",
+			"discord_hint": "Get help, share ideas, and hear about new versions and betas first.",
+			"discord_button": "Open Discord",
 			"kofi": "Buy me a coffee",
 			"kofi_hint": "Limusic is free and stays free. Ko-fi is there if you feel like chipping in.",
 			"kofi_button": "Open Ko-fi"
@@ -1019,6 +1042,8 @@
 			"lb_token_hint": "Paste your user token here. You can copy it from your ListenBrainz settings page.",
 			"lb_open_settings": "Open ListenBrainz settings",
 			"lb_token_placeholder": "ListenBrainz user token",
+			"lb_custom_instance": "Custom ListenBrainz instance",
+			"lb_url_label": "Instance API address",
 			"lb_problem_email": "Verify your MetaBrainz email so ListenBrainz accepts your listens.",
 			"lb_problem_rejected": "ListenBrainz no longer accepts this token. Connect again with a new one.",
 			"lb_verify_email": "Verify email"
@@ -1572,6 +1597,8 @@
 	},
 	"review": {
 		"title": "Review lyrics",
+		"reviewing": "{name} is reviewing",
+		"taken": "{name} is reviewing this one. They opened it {when}.",
 		"waiting": "{count} waiting, the oldest first",
 		"empty_title": "All caught up",
 		"empty": "Nothing is waiting for review.",
@@ -1914,9 +1941,12 @@
 		"from_spotify": "From Spotify",
 		"update": "Update",
 		"updating": "Updating…",
-		"update_tooltip": "Add what’s new in the Spotify playlist and take out what left it",
+		"update_tooltip": "Add what’s new in the Spotify playlist, take out what left it, and follow its order",
 		"update_done": "Updated from Spotify: {added} added, {removed} removed",
 		"update_none": "Already up to date with Spotify",
+		"keep_updated": "Keep up to date with Spotify",
+		"keep_updated_desc": "Limusic checks the Spotify playlist when it starts and every few hours, and adds, removes and reorders songs to match.",
+		"auto_update_done": "{name} updated from Spotify: {added} added, {removed} removed",
 		"nudge_title": "Coming from Spotify?",
 		"nudge_desc": "Bring your playlists and Liked Songs over in a few clicks.",
 		"errors": {

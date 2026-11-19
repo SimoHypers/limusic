@@ -31,6 +31,15 @@ YouTube Music client, and grew from there.
 
 ---
 
+## Community
+
+Help, ideas, bug hunting and the first word on new versions and betas all happen on the Limusic
+Discord.
+
+<a href="https://discord.gg/jWWydPV3FF"><img alt="Join the Discord" src="https://img.shields.io/badge/Join_the_Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" height="40"></a>
+
+---
+
 ## Features
 
 <table>

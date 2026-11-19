@@ -330,7 +330,6 @@
 					size="icon-sm"
 					onclick={() => skipBy(-SKIP_SECS)}
 					aria-label={t('player.skip_back', { seconds: SKIP_SECS })}
-					title={t('player.skip_back', { seconds: SKIP_SECS })}
 				>
 					<HugeiconsIcon icon={GoBackward15SecIcon} class="h-5 w-5" />
 				</Button>
@@ -358,7 +357,6 @@
 					size="icon-sm"
 					onclick={() => skipBy(SKIP_SECS)}
 					aria-label={t('player.skip_forward', { seconds: SKIP_SECS })}
-					title={t('player.skip_forward', { seconds: SKIP_SECS })}
 				>
 					<HugeiconsIcon icon={GoForward15SecIcon} class="h-5 w-5" />
 				</Button>
