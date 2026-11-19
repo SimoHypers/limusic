@@ -46,11 +46,13 @@ step "installing a desktop package set"
 if command -v apt-get >/dev/null; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
+  # The 64-bit time_t rename (trixie on) left bookworm with the old name.
+  ALSA=libasound2t64; apt-cache show "$ALSA" >/dev/null 2>&1 || ALSA=libasound2
   apt-get install -y -qq --no-install-recommends \
     xvfb xauth dbus dbus-x11 python3 weston \
     libegl-mesa0 libgl1-mesa-dri libglx-mesa0 libgles2 libgl1 libegl1 \
     libharfbuzz0b libharfbuzz-icu0 libkrb5-3 libgssapi-krb5-2 libpango-1.0-0 \
-    libasound2t64 libfribidi0 libusb-1.0-0 libcom-err2 libgpg-error0 libexpat1 \
+    "$ALSA" libfribidi0 libusb-1.0-0 libcom-err2 libgpg-error0 libexpat1 \
     libfontconfig1 fonts-dejavu-core ca-certificates gvfs libxkbcommon0
 elif command -v pacman >/dev/null; then
   # -Syu, never -Sy: Arch does not support partial upgrades. The image lags the repo, so -Sy pulls
@@ -225,7 +227,10 @@ if ! command -v weston >/dev/null; then
 else
   export XDG_RUNTIME_DIR=/tmp/xdg-runtime
   mkdir -p -m 0700 "$XDG_RUNTIME_DIR"
-  weston --backend=headless --socket=limusic-check --idle-time=0 > /tmp/weston.log 2>&1 &
+  # The short backend names came with weston 12; bookworm's 10 only knows the module file.
+  BACKEND=headless
+  case "$(weston --version 2>/dev/null)" in *" "[0-9].*|*" 1"[01].*) BACKEND=headless-backend.so ;; esac
+  weston --backend="$BACKEND" --socket=limusic-check --idle-time=0 > /tmp/weston.log 2>&1 &
   WESTONPID=$!
   for _ in $(seq 20); do
     [ -S "$XDG_RUNTIME_DIR/limusic-check" ] && break
