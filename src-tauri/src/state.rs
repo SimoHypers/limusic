@@ -14,7 +14,7 @@ use innertube::{
 };
 use karaoke::cache::PinSlot;
 use listen_protocol::{Playback, PlaybackKind, RemoteAction, Track};
-use player::Player;
+use player::{Player, PlayerEvent};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
 
@@ -41,20 +41,6 @@ pub const LOCAL_PLAYLIST_PREFIX: &str = "LOCALPLAYLIST:";
 
 pub fn is_local_playlist(id: &str) -> bool {
     id.starts_with(LOCAL_PLAYLIST_PREFIX)
-}
-
-fn cast_cover_url(url: &str) -> String {
-    static WH: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    static S: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let wh = WH.get_or_init(|| regex::Regex::new(r"=w\d+-h\d+").expect("static regex"));
-    let s = S.get_or_init(|| regex::Regex::new(r"=s\d+").expect("static regex"));
-    if wh.is_match(url) {
-        wh.replace(url, "=w544-h544").into_owned()
-    } else if s.is_match(url) {
-        s.replace(url, "=w544-h544").into_owned()
-    } else {
-        url.to_owned()
-    }
 }
 
 /// One play as it is being heard. See `AppState::hear`.
@@ -127,7 +113,7 @@ pub struct AppState {
     listen: std::sync::Mutex<Listen>,
     /// Mirror of mpv's pause flag (set in `media_set_playing`). Position ticks must consult this
     /// instead of assuming "playing" — mpv fires `time-pos` on seeks while paused too.
-    pub(crate) is_playing: AtomicBool,
+    is_playing: AtomicBool,
     /// The `auto_pause_other_audio` setting, mirrored so the watcher callback needn't read the db.
     auto_pause_enabled: AtomicBool,
     /// The watcher's last report: is another app playing media right now.
@@ -602,146 +588,286 @@ impl AppState {
         }
     }
 
-    pub fn cast_list_devices(&self) -> Vec<cast::CastDevice> {
-        self.cast.list_devices()
+    // ---- Casting (#399, castout.rs) ----
+    //
+    // While a cast runs, the device is the player. The transport reaches `player` only through
+    // these `out_*` methods, and each one sends it to the device instead.
+
+    fn casting(&self) -> bool {
+        self.cast.is_active()
     }
 
-    pub async fn cast_connect(self: &Arc<Self>, id: &str) -> Result<cast::CastDevice, String> {
-        self.cast.connect(id, self).await
+    pub(crate) fn out_pause(&self) {
+        if self.casting() {
+            self.cast.set_playing(false);
+        } else {
+            let _ = self.player.pause();
+        }
     }
 
-    pub async fn cast_disconnect(self: &Arc<Self>) -> Result<(), String> {
-        self.cast.disconnect(self).await
+    fn out_toggle(&self) {
+        if self.casting() {
+            self.cast.toggle();
+        } else {
+            let _ = self.player.toggle();
+        }
     }
 
-    pub fn cast_status(&self) -> Option<cast::CastDevice> {
-        self.cast.status()
+    fn out_seek(&self, to: f64) -> Result<(), String> {
+        if self.casting() {
+            self.cast.seek(to);
+            Ok(())
+        } else {
+            self.player.seek(to).map_err(|e| e.to_string())
+        }
     }
 
+    pub(crate) fn out_is_idle(&self) -> bool {
+        if self.casting() {
+            self.cast.is_idle()
+        } else {
+            self.player.is_idle()
+        }
+    }
+
+    /// Drop the queued next track, on the device or in mpv's playlist.
+    fn out_clear_next(&self) {
+        if self.casting() {
+            self.cast.drop_next();
+        } else {
+            let _ = self.player.clear_playlist();
+        }
+    }
+
+    fn out_set_loop(&self, on: bool) {
+        if self.casting() {
+            self.cast.set_repeat_one(on);
+        }
+        // mpv keeps its own loop flag either way, for when the music comes back here.
+        let _ = self.player.set_loop_file(on);
+    }
+
+    /// The playback speed. A device plays at 1x: tempo is this computer's.
+    pub(crate) fn out_speed(&self) -> f64 {
+        if self.casting() {
+            1.0
+        } else {
+            self.player.speed()
+        }
+    }
+
+    /// The volume the slider shows: the speaker's while casting.
+    pub(crate) fn out_volume(&self) -> i64 {
+        self.cast.volume().filter(|_| self.casting()).unwrap_or_else(|| self.player.volume())
+    }
+
+    /// Set the volume of whatever is playing, and tell everything that shows it.
     pub fn set_output_volume(&self, volume: i64) {
-        let _ = self.player.set_volume(volume);
-        if self.cast.is_connected() {
-            let _ = self.cast.set_volume(volume as f32 / 100.0);
+        if self.casting() {
+            self.cast.set_volume(volume);
+        } else {
+            let _ = self.player.set_volume(volume);
         }
         if volume > 0 {
-            crate::hotkeys::LAST_NONZERO_VOLUME.store(volume, std::sync::atomic::Ordering::Relaxed);
+            crate::hotkeys::LAST_NONZERO_VOLUME.store(volume, Ordering::Relaxed);
         }
+        // There is one volume and there can be two windows (the mini player).
         let _ = self.app.emit("volume", volume);
         self.media_set_volume(volume);
     }
 
-    pub async fn cast_follow_load(
-        &self,
-        data: &PlaybackData,
-        start_secs: f64,
-        is_karaoke: bool,
-        autoplay: bool,
-    ) {
-        if !self.cast.is_connected() {
+    /// Tell the windows the playback params, at 1x while a device plays: every clock in the UI
+    /// divides by the speed, and a device plays at its own.
+    fn emit_playback_params(&self) {
+        let (speed, semitones, reverb) = self.player.playback_params();
+        let speed = if self.casting() { 1.0 } else { speed };
+        let _ = self.app.emit(
+            "playback-params",
+            serde_json::json!({ "speed": speed, "semitones": semitones, "reverb": reverb }),
+        );
+    }
+
+    /// A cast message for the windows, as a key they translate (`cast.<key>`).
+    fn cast_notice(&self, key: &str, name: Option<&str>, title: Option<&str>) {
+        tracing::info!(key, name, title, "cast notice");
+        let _ = self
+            .app
+            .emit("cast-notice", serde_json::json!({ "key": key, "name": name, "title": title }));
+    }
+
+    /// Play on a Cast device, picking the music up where it is now.
+    pub async fn cast_start(self: &Arc<Self>, id: &str) -> Result<(), crate::castout::StartError> {
+        // A room's timeline is this computer's player; a cast would leave two masters.
+        if self.lt.in_room().await {
+            return Err(crate::castout::StartError::LeaveRoom);
+        }
+        if self.showing_remote() {
+            self.link_continue_here().await;
+        }
+        let switching = self.casting();
+        let position = match switching {
+            true => self.cast.position().unwrap_or_else(|| self.current_position()),
+            false => self.current_position(),
+        };
+        let playing = self.is_playing.load(Ordering::Relaxed);
+        self.cast.connect(id).await?;
+        // mpv keeps playing until the device has the music (`Signal::Synced`), but nothing it
+        // primed is on the device.
+        let repeat_one = {
+            let mut q = self.queue.lock().await;
+            q.lookahead_loaded = None;
+            q.repeat == RepeatMode::One
+        };
+        if !switching {
+            let _ = self.player.clear_playlist();
+        }
+        self.cast.set_repeat_one(repeat_one);
+        self.cast_handover(position, playing).await;
+        Ok(())
+    }
+
+    /// Hand the device the current track at `position`, then the next one.
+    async fn cast_handover(self: &Arc<Self>, position: f64, playing: bool) {
+        let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        // An empty queue: the device waits for the first play.
+        let Some(item) = self.current_item().await else { return };
+        let secs = parse_duration_ms(item.duration.as_deref()) / 1000;
+        let data = match self.resolve(&item.video_id, item.is_upload, secs).await {
+            Ok(d) => d,
+            // Nothing loaded; the next play resolves it again.
+            Err(e) => return tracing::warn!(error = %e, "cast: the handover could not resolve"),
+        };
+        if self.generation.load(Ordering::SeqCst) != gen || !self.casting() {
             return;
         }
-        self.cast.set_loaded_video_id(data.video_id.clone());
-        let item = {
-            let q = self.queue.lock().await;
-            q.items
-                .iter()
-                .find(|i| i.video_id == data.video_id)
-                .cloned()
-                .or_else(|| q.items.get(q.current).cloned())
+        let Some(media) = self.cast.media_for(&item, &data) else {
+            self.cast_notice(
+                "skipped",
+                self.cast.device().map(|d| d.name).as_deref(),
+                Some(&item.title),
+            );
+            if playing {
+                self.next_in_queue_local().await;
+            }
+            return;
         };
-        let has_title = item.as_ref().map_or(false, |i| !i.title.is_empty());
-        let has_artist = item.as_ref().map_or(false, |i| !i.artists.is_empty());
-        let has_cover = item.as_ref().and_then(|i| i.thumbnail.as_deref()).is_some();
-        let thumb_host = item
-            .as_ref()
-            .and_then(|i| i.thumbnail.as_deref())
-            .and_then(|s| reqwest::Url::parse(s).ok())
-            .and_then(|u| u.host_str().map(ToString::to_string));
-        tracing::info!(has_title, has_artist, has_cover, thumb_host = ?thumb_host, "cast: metadata");
-        let is_local = crate::local::song_path(&data.video_id).is_some();
-        if is_local || data.live || is_karaoke {
-            let _ = self.player.set_muted(false);
+        self.cast.load(media, position, playing);
+        self.latest_position.store(position.to_bits(), Ordering::SeqCst);
+        self.prime_lookahead(gen).await;
+    }
+
+    /// Stop casting: the device stops, and the music comes back here, the way it was there.
+    pub async fn cast_stop(self: &Arc<Self>) {
+        if !self.casting() {
             return;
         }
-        let device = match self.cast.status() {
-            Some(d) => d,
-            None => {
-                let _ = self.player.set_muted(false);
-                return;
-            }
+        let synced = self.cast.synced();
+        let position = self.cast.position().unwrap_or_else(|| self.current_position());
+        let playing = self.is_playing.load(Ordering::Relaxed);
+        self.cast.stop().await;
+        self.resume_here(synced, position, playing).await;
+    }
+
+    /// The cast ended without being asked to (lost, taken over, unreachable): the music comes
+    /// back here paused, at the device's last position, and the user hears why.
+    async fn cast_ended(self: &Arc<Self>, epoch: u64, key: &str, close: bool) {
+        if self.cast.epoch() != epoch || !self.casting() {
+            return;
+        }
+        let name = self.cast.device().map(|d| d.name);
+        let synced = self.cast.synced();
+        let position = self.cast.position().unwrap_or_else(|| self.current_position());
+        if close {
+            self.cast.stop().await;
+        } else if !self.cast.forget(epoch) {
+            return;
+        }
+        self.cast_notice(key, name.as_deref(), None);
+        self.resume_here(synced, position, false).await;
+    }
+
+    /// The music comes back to this computer.
+    async fn resume_here(self: &Arc<Self>, synced: bool, position: f64, playing: bool) {
+        let volume = self.player.volume();
+        let _ = self.app.emit("volume", volume);
+        self.media_set_volume(volume);
+        self.emit_playback_params();
+        if !synced {
+            // The device never took over, so mpv still has the music, as it was.
+            let playing = !self.player.is_paused() && !self.player.is_idle();
+            self.media_set_playing(playing);
+            let _ = self.app.emit("playback-state", if playing { "playing" } else { "paused" });
+            return;
+        }
+        let (index, video_id) = {
+            let mut q = self.queue.lock().await;
+            q.lookahead_loaded = None;
+            (q.current, q.items.get(q.current).map(|i| i.video_id.clone()))
         };
-        if let Some(lan_url) =
-            crate::audioproxy::register_lan(&data.stream_url, &data.headers, device.ip)
-        {
-            let _ = self.player.set_muted(true);
-            let content_type = reqwest::Url::parse(&data.stream_url)
-                .ok()
-                .and_then(|u| {
-                    u.query_pairs().find(|(k, _)| k == "mime").map(|(_, v)| {
-                        urlencoding::decode(&v)
-                            .map(|s| s.into_owned())
-                            .unwrap_or_else(|_| v.into_owned())
-                    })
-                })
-                .unwrap_or_else(|| "audio/mp4".to_string());
-            let lan_url_without_token = reqwest::Url::parse(&lan_url).ok().map(|mut u| {
-                let mut segs: Vec<String> = u
-                    .path_segments()
-                    .map(|s| s.map(ToString::to_string).collect())
-                    .unwrap_or_default();
-                if segs.len() >= 3 {
-                    segs.remove(0);
-                    let _ = u.path_segments_mut().map(|mut p| {
-                        p.clear();
-                        p.extend(&segs);
-                    });
-                }
-                u.to_string()
-            });
-            let device_name = &device.name;
-            tracing::info!(url = ?lan_url_without_token, content_type, device = %device_name, "cast: load sent");
-            let req = cast::LoadRequest {
-                url: lan_url,
-                content_type,
-                title: item.as_ref().map(|i| i.title.clone()),
-                artist: item.as_ref().map(|i| i.artists.clone()),
-                image_url: item.as_ref().and_then(|i| i.thumbnail.as_deref()).map(cast_cover_url),
-                start_secs,
-                autoplay,
-            };
-            match self.cast.session_load(req) {
-                Ok(()) => {}
-                Err(e) => {
-                    tracing::warn!(error = %e, "cast session load failed");
-                }
-            }
+        let _ = self.player.stop();
+        self.latest_position.store(position.to_bits(), Ordering::SeqCst);
+        if let Some(video_id) = video_id {
+            *self.pending_seek.lock().unwrap() = Some((video_id, position));
+        }
+        if playing {
+            self.play_index_at(index, None).await;
         } else {
-            let _ = self.player.set_muted(false);
+            // Loaded on the next play, at this position, like a queue restored at launch.
+            self.media_set_playing(false);
+            let _ = self.app.emit("playback-state", "paused");
+            let _ = self.app.emit("position", serde_json::json!({ "position": position }));
         }
     }
 
-    pub async fn cast_follow_current(&self, start_secs: f64) {
-        if let Some(item) = self.current_item().await {
-            if let Ok(data) = self
-                .resolve(
-                    &item.video_id,
-                    item.is_upload,
-                    parse_duration_ms(item.duration.as_deref()) / 1000,
-                )
-                .await
-            {
-                let stream_url = mpv_stream_url(&data);
-                let play_u = self.play_url(PinSlot::Current, &item.video_id, &stream_url);
-                let is_karaoke = play_u != stream_url;
-                self.cast_follow_load(
-                    &data,
-                    start_secs,
-                    is_karaoke,
-                    self.is_playing.load(Ordering::Relaxed),
-                )
-                .await;
+    /// One thing the cast session said (castout.rs). A player event comes back for the pump to
+    /// handle exactly as one of mpv's.
+    pub async fn on_cast_signal(
+        self: &Arc<Self>,
+        epoch: u64,
+        signal: crate::castout::Signal,
+    ) -> Option<PlayerEvent> {
+        use crate::castout::Signal;
+        if epoch != self.cast.epoch() {
+            return None; // an earlier cast's
+        }
+        match signal {
+            Signal::Player(event) => return Some(event),
+            Signal::Synced => {
+                // The device has the music: this computer goes quiet.
+                let _ = self.player.stop();
+                self.emit_playback_params();
+                tracing::info!("cast: the device took over");
+            }
+            Signal::Volume(level) => {
+                if level > 0 {
+                    crate::hotkeys::LAST_NONZERO_VOLUME.store(level, Ordering::Relaxed);
+                }
+                let _ = self.app.emit("volume", level);
+                self.media_set_volume(level);
+            }
+            // It fetched the track and still refused it: the track's problem, skip it the way
+            // a dead stream is skipped. Never fetched: the device can't reach this computer,
+            // and every other track would fail the same way.
+            // Two tracks in a row (each retried once) is the device, not the tracks: stop before
+            // the whole queue is skipped.
+            Signal::Refused { fetched: true, count } if count < 3 => {
+                return Some(PlayerEvent::TrackFailed("the cast device refused the track".into()))
+            }
+            Signal::Refused { fetched: true, .. } => self.cast_ended(epoch, "refused", true).await,
+            Signal::Refused { fetched: false, .. } | Signal::Unreachable => {
+                self.cast_ended(epoch, "firewall", true).await
+            }
+            Signal::NoStatus => self.cast_ended(epoch, "unreachable", true).await,
+            Signal::Closed(reason) => {
+                let key = match reason {
+                    cast::Closed::TakenOver => "taken_over",
+                    cast::Closed::Stopped => "stopped",
+                    _ => "lost",
+                };
+                self.cast_ended(epoch, key, false).await;
             }
         }
+        None
     }
 
     /// Remember where the loopback video proxy should fetch `id` from.
@@ -1840,7 +1966,7 @@ impl AppState {
         };
         // A shared link's `t=`: only a song radio has a seed track to start partway into.
         let start = start.filter(|s| kind == "song" && s.is_finite() && *s > 0.0);
-        if playing_seed && !self.player.is_idle() {
+        if playing_seed && !self.out_is_idle() {
             self.splice_radio(items, seed, title).await;
             if let Some(pos) = start {
                 self.user_seek(pos).await?;
@@ -1918,7 +2044,7 @@ impl AppState {
             splice_radio_into(&mut q, items, seed, title);
             // Whatever mpv had primed as the gapless next belongs to the old queue.
             if q.lookahead_loaded.take().is_some() {
-                let _ = self.player.clear_playlist();
+                self.out_clear_next();
             }
         }
         self.emit_queue().await;
@@ -1997,7 +2123,7 @@ impl AppState {
                     && (q.lookahead_loaded != expected || before != after)
                 {
                     q.lookahead_loaded = None;
-                    let _ = self.player.clear_playlist();
+                    self.out_clear_next();
                 }
             }
             pages += 1;
@@ -2045,7 +2171,7 @@ impl AppState {
         if self.lt.is_guest().await {
             return; // guest playback is host-driven
         }
-        if self.player.is_idle() {
+        if self.out_is_idle() {
             let (idx, has_items) = {
                 let q = self.queue.lock().await;
                 (q.current, !q.items.is_empty())
@@ -2055,7 +2181,7 @@ impl AppState {
                 return;
             }
         }
-        let _ = self.player.toggle();
+        self.out_toggle();
     }
 
     /// Jump to a specific queue index.
@@ -2077,6 +2203,19 @@ impl AppState {
         if self.lt.is_guest().await {
             self.emit_guest_hint(); // guest playback is host-driven
             return;
+        }
+        // The next track is already on the device, buffered: jump to it instead of loading it
+        // again. The device's move comes back as a gapless advance (`on_track_ended`).
+        if self.casting() && start.is_none() && self.cast.has_next() {
+            let primed = {
+                let q = self.queue.lock().await;
+                q.lookahead_loaded == Some(index)
+                    && next_index(q.items.len(), q.current, q.repeat) == Some(index)
+            };
+            if primed {
+                self.cast.next();
+                return;
+            }
         }
         let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let video_id = {
@@ -2180,7 +2319,7 @@ impl AppState {
             let stale = primed.is_some() && primed != primed_id(q);
             if stale {
                 q.lookahead_loaded = None;
-                let _ = self.player.clear_playlist();
+                self.out_clear_next();
             }
             stale
         };
@@ -2246,7 +2385,7 @@ impl AppState {
             });
             return;
         }
-        if !primed || self.player.is_idle() {
+        if !primed || self.out_is_idle() {
             // No gapless handoff happened. `is_idle` alone is not enough: right at EOF mpv can
             // still report not-idle before it settles, and with nothing primed that would send us
             // into the gapless branch below — a phantom "now playing" over a silent player. If we
@@ -2273,7 +2412,9 @@ impl AppState {
             // is playing at the *previous* one's gain until this lands.
             if let Some(loudness) = q.lookahead_loudness_db.take() {
                 q.current_loudness_db = loudness;
-                if let Err(e) = self.player.set_gain(self.track_gain(loudness)) {
+                if self.casting() {
+                    // A device plays at its own level; nothing to apply.
+                } else if let Err(e) = self.player.set_gain(self.track_gain(loudness)) {
                     tracing::warn!(error = %e, "applying lookahead loudness gain failed");
                 }
             }
@@ -2311,10 +2452,6 @@ impl AppState {
                                     // Listen Together host: announce the gapless advance to the room.
         self.lt_broadcast_current_track(0, true).await;
         tracing::info!("advanced to next track (gapless)");
-        if self.cast.is_connected() {
-            tracing::info!("cast: following gapless advance");
-            self.cast_follow_current(0.0).await;
-        }
         // Its instrumental may already be playable, made while the last song played.
         let me = self.clone();
         tauri::async_runtime::spawn(async move { me.karaoke_check_current_stream().await });
@@ -2470,6 +2607,24 @@ impl AppState {
                 return false;
             }
             match resolved {
+                // A device can't play a broadcast or a file on this disk: skip it, as a track
+                // no client can resolve is skipped, rather than play it on this computer.
+                Ok(d)
+                    if self.casting()
+                        && (d.live || crate::local::is_local_song(&item.video_id)) =>
+                {
+                    let name = self.cast.device().map(|d| d.name);
+                    self.cast_notice("skipped", name.as_deref(), Some(&item.title));
+                    let mut q = self.queue.lock().await;
+                    if q.current + 1 >= q.items.len() {
+                        return false;
+                    }
+                    let next = q.current + 1;
+                    q.seek_to(next);
+                    q.lookahead_loaded = None;
+                    drop(q);
+                    self.emit_queue().await;
+                }
                 Ok(d) => break (item, d),
                 // A deleted local file is gone for good, so it leaves the queue outright rather
                 // than being skipped over — a row that can only ever fail again is noise. Every
@@ -2558,7 +2713,14 @@ impl AppState {
         if let Some(engine) = self.karaoke_engine() {
             engine.set_playing_stream(None);
         }
-        if let Err(e) = self.player.load(
+        if self.casting() {
+            // The device gets the track itself: karaoke and the music video are this computer's.
+            // Uncastable tracks were skipped above, so `None` here is a cast that just ended.
+            match self.cast.media_for(&item, &data) {
+                Some(media) => self.cast.load(media, seek.unwrap_or(0.0), true),
+                None => return false,
+            }
+        } else if let Err(e) = self.player.load(
             &play_u,
             &data.headers,
             self.track_gain(data.loudness_db),
@@ -2568,13 +2730,6 @@ impl AppState {
             self.emit_error(&item.video_id, &e.to_string());
             return false;
         }
-        self.cast_follow_load(
-            &data,
-            seek.unwrap_or(0.0),
-            is_karaoke,
-            self.is_playing.load(Ordering::Relaxed),
-        )
-        .await;
         // Where mpv starts, from now on: its first tick comes after the unpause, and that pause
         // flag's Play (`lt_on_play_state`) reads this. Left at the last track's position, a Continue
         // here told the device link the music was back where this desktop last stopped, and the
@@ -2584,7 +2739,9 @@ impl AppState {
         // room's Play. Sent after, a skip while paused reaches guests as "play" on the old track
         // first. At the position mpv starts at, so a retry or a restored context isn't sent as 0.
         self.lt_broadcast_current_track((seek.unwrap_or(0.0) * 1000.0) as i64, true).await;
-        let _ = self.player.play();
+        if !self.casting() {
+            let _ = self.player.play();
+        }
         // Items played from cards/radio can arrive without a duration; the player response knows
         // the exact length of the cut we stream. Backfill before emitting — lyrics matching keys
         // on it (a wrong-cut LRCLIB match plays lyrics seconds off the audio).
@@ -2596,7 +2753,9 @@ impl AppState {
             data.is_episode,
         );
         // A broadcast's picture is segment bases too (#424), so there is no 720p file to pair.
-        self.attach_video(&item.video_id, item.is_video && !data.live, &play_u);
+        if !self.casting() {
+            self.attach_video(&item.video_id, item.is_video && !data.live, &play_u);
+        }
         {
             let mut q = self.queue.lock().await;
             q.current_client = Some(data.stream_client.clone());
@@ -2853,12 +3012,20 @@ impl AppState {
         }
         let url = self.play_url(PinSlot::Next, next_video, &stream_url);
         let is_karaoke = url != stream_url;
-        if self.player.current_path().as_deref() == Some(&url) {
-            return;
-        }
-        if let Err(e) = self.player.enqueue(&url) {
-            tracing::warn!(error = %e, "enqueue lookahead failed");
-            return;
+        if self.casting() {
+            // A track the device can't play isn't queued there: the device finishes the current
+            // one, and `start_current` skips this one with a notice.
+            let Some(item) = q.items.get(next_idx).cloned() else { return };
+            let Some(media) = self.cast.media_for(&item, &data) else { return };
+            self.cast.append(media);
+        } else {
+            if self.player.current_path().as_deref() == Some(&url) {
+                return;
+            }
+            if let Err(e) = self.player.enqueue(&url) {
+                tracing::warn!(error = %e, "enqueue lookahead failed");
+                return;
+            }
         }
         q.lookahead_loaded = Some(next_idx);
         q.lookahead_client = Some(data.stream_client.clone());
@@ -2881,18 +3048,16 @@ impl AppState {
                 data.is_episode,
             );
             // Resolved now, minutes early, so the picture is there the moment the track starts.
-            self.attach_video(&qi.video_id, qi.is_video, &url);
+            if !self.casting() {
+                self.attach_video(&qi.video_id, qi.is_video, &url);
+            }
         }
         tracing::debug!(index = next_idx, "gapless lookahead primed");
     }
 
-    pub(crate) async fn current_item(&self) -> Option<SongItem> {
+    async fn current_item(&self) -> Option<SongItem> {
         let q = self.queue.lock().await;
         q.items.get(q.current).cloned()
-    }
-
-    pub(crate) fn current_video_id(&self) -> Option<String> {
-        self.queue.try_lock().ok().and_then(|q| q.items.get(q.current).map(|i| i.video_id.clone()))
     }
 
     /// [`loudness_gain`] for one track, honouring the `normalize_volume` setting. Off means mpv
@@ -2918,7 +3083,11 @@ impl AppState {
     }
 
     fn karaoke_active(&self) -> bool {
-        self.karaoke_engine().map_or(false, |e| e.is_enabled()) && !crate::http::has_proxy()
+        // Not while casting: an instrumental is made and played on this computer, and the device
+        // gets the track itself.
+        self.karaoke_engine().map_or(false, |e| e.is_enabled())
+            && !crate::http::has_proxy()
+            && !self.casting()
     }
 
     /// What mpv is handed for `video_id` in `slot`: the prepared instrumental when karaoke has
@@ -2970,6 +3139,10 @@ impl AppState {
     }
 
     pub async fn reload_current_source(self: &std::sync::Arc<Self>) {
+        // A karaoke switch is a source for mpv; a device keeps playing the track itself.
+        if self.casting() {
+            return;
+        }
         let gen = self.generation.load(Ordering::SeqCst);
         let Some(item) = self.current_item().await else { return };
         let resolved = self
@@ -3050,7 +3223,6 @@ impl AppState {
             self.emit_error(&item.video_id, &e.to_string());
             return;
         }
-        self.cast_follow_load(&data, pos, is_karaoke, was_playing).await;
         // The picture is keyed by the file mpv plays, and that just changed.
         self.attach_video(&item.video_id, item.is_video && !data.live, &play_u);
         // A cached instrumental or the original: not a stream any more.
@@ -3131,7 +3303,7 @@ impl AppState {
                 {
                     let mut q = self.queue.lock().await;
                     q.lookahead_loaded = None;
-                    let _ = self.player.clear_playlist();
+                    self.out_clear_next();
                 }
                 self.unpin_karaoke(PinSlot::Next);
                 self.prime_lookahead(gen).await;
@@ -3288,6 +3460,9 @@ impl AppState {
         url: &str,
         rate: f64,
     ) {
+        if self.casting() {
+            return; // the device plays the original
+        }
         /// Seconds the stream must be ahead of playback at the switch. It only grows after.
         const LEAD: f64 = 5.0;
         /// The stream must be made at least this much faster than it plays, or playback would
@@ -3418,7 +3593,7 @@ impl AppState {
                 q.lookahead_loaded = None;
                 q.lookahead_is_karaoke = false;
                 q.lookahead_karaoke_model = None;
-                let _ = self.player.clear_playlist();
+                self.out_clear_next();
             }
             self.prime_lookahead(gen).await;
         }
@@ -3452,7 +3627,7 @@ impl AppState {
                     q.lookahead_loaded = None;
                     q.lookahead_is_karaoke = false;
                     q.lookahead_karaoke_model = None;
-                    let _ = self.player.clear_playlist();
+                    self.out_clear_next();
                 }
                 self.prime_lookahead(gen).await;
             }
@@ -3517,8 +3692,9 @@ impl AppState {
             "position": self.current_position(),
             // 0 until mpv loads the file, which a restored track waits for until play (#502).
             "duration": if duration > 0.0 { duration } else { item.as_ref().map_or(0.0, row_secs) },
-            "volume": saved_volume(&self.db),
-            "speed": speed,
+            // A speaker's own level while casting, and 1x: tempo is this computer's.
+            "volume": if self.casting() { self.out_volume() } else { saved_volume(&self.db) },
+            "speed": if self.casting() { 1.0 } else { speed },
             "semitones": semitones,
             "reverb": reverb,
         })
@@ -3757,10 +3933,7 @@ impl AppState {
     ) -> Result<(), String> {
         self.player.set_playback_params(speed, semitones, reverb).map_err(|e| e.to_string())?;
         self.media_refresh_timing().await;
-        let _ = self.app.emit(
-            "playback-params",
-            serde_json::json!({ "speed": speed, "semitones": semitones, "reverb": reverb }),
-        );
+        self.emit_playback_params();
         Ok(())
     }
 
@@ -3778,7 +3951,7 @@ impl AppState {
     /// Tempo changes do not emit a new mpv duration; refresh OS and Discord timelines immediately.
     pub async fn media_refresh_timing(&self) {
         let secs = self.queue.lock().await.duration;
-        let speed = self.player.speed();
+        let speed = self.out_speed();
         if let Some(m) = &self.media {
             if secs > 0.0 {
                 m.set_duration(secs, speed);
@@ -3809,12 +3982,14 @@ impl AppState {
             let pos = self.current_position();
             // Record what the controls now hold, or the next tick would repeat this very push.
             *self.last_media_state.lock().unwrap() = Some((playing, pos));
-            m.set_playback(playing, pos, self.player.speed());
+            m.set_playback(playing, pos, self.out_speed());
         }
         #[cfg(target_os = "windows")]
         crate::taskbar::set_playing(&self.app, playing);
         #[cfg(target_os = "linux")]
         crate::inhibit::set_playing(playing);
+        #[cfg(not(target_os = "linux"))]
+        crate::keepawake::set(playing && self.casting());
         if let Some(d) = &self.discord {
             d.set_playing(playing);
         }
@@ -3883,7 +4058,8 @@ impl AppState {
     async fn apply_external_audio(self: &Arc<Self>, active: bool) {
         // A host's pause would stop the whole Listen Together room, and while the bar shows another
         // device this desktop's player is not what the user is controlling.
-        if self.lt.in_room().await || self.showing_remote() {
+        // Nor while casting: something playing on this computer says nothing about the speaker.
+        if self.lt.in_room().await || self.showing_remote() || self.casting() {
             return;
         }
         if active {
@@ -3915,14 +4091,14 @@ impl AppState {
             return None;
         }
         let before = std::time::SystemTime::now();
-        let position = self.player.clock()?;
+        let position = if self.casting() { self.cast.position()? } else { self.player.clock()? };
         // The middle of the read, which takes microseconds unless mpv's core is busy.
         let at = before + before.elapsed().unwrap_or_default() / 2;
         let at_ms = at.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs_f64() * 1000.0;
         Some(serde_json::json!({
             "position": position,
             "atMs": at_ms,
-            "speed": self.player.speed(),
+            "speed": self.out_speed(),
             "paused": !self.is_playing.load(Ordering::Relaxed),
         }))
     }
@@ -4147,7 +4323,6 @@ impl AppState {
     /// watch-history ping, latched to happen exactly once per play. The ping is additionally
     /// gated on the `enable_history` setting + being logged in. Best-effort (errors logged).
     pub async fn on_position(&self, pos: f64) {
-        self.cast.check_drift(pos, self.is_playing.load(Ordering::Relaxed));
         self.record_position(pos);
         self.hear(pos);
         // On a karaoke stream, the playhead must stay where it is written. Every seek lands here
@@ -4234,7 +4409,7 @@ impl AppState {
     pub async fn on_duration(&self, secs: f64) {
         if secs.is_finite() && secs > 0.0 {
             self.queue.lock().await.duration = secs;
-            let speed = self.player.speed();
+            let speed = self.out_speed();
             if let Some(m) = &self.media {
                 m.set_duration(secs, speed);
             }
@@ -4602,7 +4777,7 @@ impl AppState {
             // synchronous on mpv's core lock. `is_playing` is kept current by `PlayerEvent::Playing`,
             // which mpv now pushes (it derives from `idle-active`, not just `pause`).
             let playing = self.is_playing.load(Ordering::Relaxed);
-            let speed = self.player.speed();
+            let speed = self.out_speed();
             if let Some(m) = &self.media {
                 // Push when the play state flipped, or when the position moved further than one
                 // tick of ordinary playback explains (a seek, a track change). Not every second:
@@ -4848,7 +5023,6 @@ impl AppState {
             self.emit_error(&track.id, &e.to_string());
             return;
         }
-        self.cast_follow_load(&data, pos, false, playing).await;
         let _ = if playing { self.player.play() } else { self.player.pause() };
         {
             let mut q = self.queue.lock().await;
@@ -5008,7 +5182,7 @@ impl AppState {
     /// The remote's volume slider starts from what the player last said.
     fn link_publish_volume(&self) {
         let mut v = Playback::new(PlaybackKind::SetVolume);
-        v.volume = self.player.volume() as f64 / 100.0;
+        v.volume = self.out_volume() as f64 / 100.0;
         self.link.publish(v);
     }
 
@@ -5072,7 +5246,7 @@ impl AppState {
         if self.lt.is_guest().await {
             return Ok(()); // guests can't scrub — the host controls the timeline
         }
-        if self.player.is_idle() {
+        if self.out_is_idle() {
             // Nothing loaded to seek, as with a track restored at launch: move where it will
             // start instead, which an exit before play also saves (#502).
             if let Some(item) = self.current_item().await {
@@ -5081,10 +5255,7 @@ impl AppState {
             }
             return Ok(());
         }
-        self.player.seek(position).map_err(|e| e.to_string())?;
-        if self.cast.is_connected() {
-            let _ = self.cast.seek(position);
-        }
+        self.out_seek(position)?;
         let p = Playback::at(PlaybackKind::Seek, (position * 1000.0) as i64);
         self.link.publish(p.clone());
         if self.lt.is_host().await {
@@ -5131,7 +5302,7 @@ impl AppState {
             // The primed lookahead almost certainly points at the wrong song now — drop it
             // unconditionally (cheap; re-primed below).
             if q.lookahead_loaded.take().is_some() {
-                let _ = self.player.clear_playlist();
+                self.out_clear_next();
             }
         }
         self.emit_queue().await;
@@ -5183,7 +5354,7 @@ impl AppState {
         {
             let mut q = self.queue.lock().await;
             q.repeat = next(q.repeat);
-            let _ = self.player.set_loop_file(q.repeat == RepeatMode::One);
+            self.out_set_loop(q.repeat == RepeatMode::One);
         }
         self.emit_queue().await; // carries the new repeat state to the UI
         self.persist_queue().await;
@@ -5372,7 +5543,7 @@ impl AppState {
                 && (removed || q.lookahead_loaded != expected || before != after)
             {
                 q.lookahead_loaded = None;
-                let _ = self.player.clear_playlist();
+                self.out_clear_next();
             }
             was_empty
         };
@@ -5424,7 +5595,7 @@ impl AppState {
                 // recorded index, not `current + 1`, so a primed repeat-all wrap target is caught.)
                 Some(i) if i == index => {
                     q.lookahead_loaded = None;
-                    let _ = self.player.clear_playlist();
+                    self.out_clear_next();
                     true
                 }
                 // The primed entry is the same song at a shifted index.
@@ -5471,7 +5642,7 @@ impl AppState {
             self.remove_from_queue_local(*i).await;
         }
         // After the purge, so the skip cannot land on another blocked track.
-        if playing_blocked && !self.player.is_idle() {
+        if playing_blocked && !self.out_is_idle() {
             self.next_in_queue_local().await;
             // The purge can empty the tail: with repeat off and autoplay dead there is nothing to
             // advance into, and `next_in_queue` leaves the blocked track playing. Pausing is the
@@ -5481,7 +5652,7 @@ impl AppState {
                 q.items.get(q.current).is_some_and(|i| bl.blocks_song(i))
             };
             if stuck {
-                let _ = self.player.pause();
+                self.out_pause();
             }
         }
         if !upcoming.is_empty() || playing_blocked {
@@ -5534,7 +5705,7 @@ impl AppState {
                     || before != q.items.get(first).map(|i| i.video_id.clone()));
             if stale {
                 q.lookahead_loaded = None;
-                let _ = self.player.clear_playlist();
+                self.out_clear_next();
             }
             stale
         };
@@ -5583,7 +5754,7 @@ impl AppState {
             // Indices shifted, so a primed lookahead may point at the wrong slot. Drop it
             // unconditionally (cheap; re-primed below), same as toggle_shuffle.
             if q.lookahead_loaded.take().is_some() {
-                let _ = self.player.clear_playlist();
+                self.out_clear_next();
             }
         }
         self.emit_queue().await;
@@ -5624,9 +5795,7 @@ impl AppState {
                         self.resume_or_toggle().await;
                     }
                 }
-                RemoteAction::Pause => {
-                    let _ = self.player.pause();
-                }
+                RemoteAction::Pause => self.out_pause(),
                 RemoteAction::Next => self.next_in_queue_local().await,
                 RemoteAction::Previous => self.prev_in_queue().await,
                 RemoteAction::Seek { position_ms } => {
@@ -5685,7 +5854,7 @@ impl AppState {
             LinkCommand::Changed => self.link_remote_refresh().await,
             LinkCommand::HostLost => {
                 if self.is_playing.load(Ordering::Relaxed) {
-                    let _ = self.player.pause();
+                    self.out_pause();
                 }
             }
             LinkCommand::Republish => {
@@ -5812,7 +5981,7 @@ impl AppState {
             self.media_show(item);
         }
         if let Some(m) = &self.media {
-            let speed = self.player.speed();
+            let speed = self.out_speed();
             m.set_duration(snap["duration"].as_f64().unwrap_or(0.0), speed);
             m.set_playback(!paused, self.current_position(), speed);
         }
@@ -6854,13 +7023,13 @@ fn persist_fingerprint(q: &QueueState) -> u64 {
 mod tests {
     use super::{
         adopt_playlist_twins, adopt_twin, append_page, backfill_metadata, cache_horizon,
-        cast_cover_url, drop_duplicates, enqueue_at, format_duration, freshen, get_url,
-        guest_insert_index, history_threshold, is_mix, loudness_gain, merge_radio, next_index,
-        parse_duration_ms, persist_fingerprint, playlist_context, prefer_version, prev_track_title,
-        put_url, queue_fingerprint, radio_seed_for, remote_list, retain_upcoming,
-        shuffle_new_queue, shuffle_upcoming, splice_radio_into, swap_version, trim_played,
-        twin_position, unshuffled, upcoming_queued, QueueState, RepeatMode, VideoUrls, KEEP_PLAYED,
-        LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
+        drop_duplicates, enqueue_at, format_duration, freshen, get_url, guest_insert_index,
+        history_threshold, is_mix, loudness_gain, merge_radio, next_index, parse_duration_ms,
+        persist_fingerprint, playlist_context, prefer_version, prev_track_title, put_url,
+        queue_fingerprint, radio_seed_for, remote_list, retain_upcoming, shuffle_new_queue,
+        shuffle_upcoming, splice_radio_into, swap_version, trim_played, twin_position, unshuffled,
+        upcoming_queued, QueueState, RepeatMode, VideoUrls, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX,
+        MAX_BOOST_DB,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -7992,18 +8161,5 @@ mod tests {
         let mut q = QueueState::default();
         q.keep_context(0.0);
         assert!(q.prev_context.is_none());
-    }
-
-    #[test]
-    fn test_cast_cover_url() {
-        assert_eq!(
-            cast_cover_url("https://example.com/img.jpg=w60-h60"),
-            "https://example.com/img.jpg=w544-h544"
-        );
-        assert_eq!(
-            cast_cover_url("https://example.com/img.jpg=s60"),
-            "https://example.com/img.jpg=w544-h544"
-        );
-        assert_eq!(cast_cover_url("https://example.com/img.jpg"), "https://example.com/img.jpg");
     }
 }

@@ -1,15 +1,37 @@
-use mdns_sd::{ResolvedService, ServiceDaemon, ServiceEvent};
+//! Finding Cast devices over mDNS (`_googlecast._tcp.local.`).
+//!
+//! Browsing only runs while someone could use it (the app decides when): the first multicast
+//! socket is what makes Windows Firewall and macOS's Local Network permission ask, and nobody
+//! should be asked at launch for a feature they never touch.
+
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::sync::mpsc;
-use std::time::Duration;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+use mdns_sd::{ResolvedService, ServiceDaemon, ServiceEvent};
+use tokio::sync::mpsc;
+
+const SERVICE: &str = "_googlecast._tcp.local.";
+
+/// What kind of device it is, for the icon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    Speaker,
+    Tv,
+    Group,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CastDevice {
+    /// The device's own id (the TXT `id`), stable across renames and address changes.
     pub id: String,
+    /// The name its owner gave it (`fn`).
     pub name: String,
+    /// The model (`md`): "Chromecast", "Google Nest Mini", "Google Cast Group".
     pub model: Option<String>,
+    pub kind: Kind,
     pub ip: IpAddr,
+    /// Always the announced one: a speaker group listens on a port of its own, not 8009.
     pub port: u16,
 }
 
@@ -19,132 +41,112 @@ pub enum DiscoveryEvent {
     Lost(String),
 }
 
-pub struct WatchHandle {
+/// A running browse. Dropping it stops the browse and the daemon.
+pub struct Browser {
     daemon: ServiceDaemon,
 }
 
-impl Drop for WatchHandle {
+impl Drop for Browser {
     fn drop(&mut self) {
-        let _ = self.daemon.stop_browse("_googlecast._tcp.local.");
+        let _ = self.daemon.stop_browse(SERVICE);
+        let _ = self.daemon.shutdown();
     }
 }
 
-/// Pure function to parse TXT properties into (id, friendly_name, model).
-pub fn parse_txt_properties(
-    get_val: impl Fn(&str) -> Option<String>,
-) -> (Option<String>, Option<String>, Option<String>) {
-    let id = get_val("id");
-    let name = get_val("fn");
-    let model = get_val("md");
-    (id, name, model)
-}
-
-fn service_info_to_device(info: &ResolvedService) -> Option<CastDevice> {
-    let (id_opt, name_opt, model_opt) =
-        parse_txt_properties(|key| info.get_property_val_str(key).map(|s| s.to_string()));
-    let id = id_opt.or_else(|| Some(info.get_fullname().to_string()))?;
-
-    let name = name_opt.unwrap_or_else(|| info.get_hostname().to_string());
-    let port = info.get_port();
-
-    // Prefer an IPv4 address
-    let addresses = info.get_addresses();
-    let mut chosen_ip = None;
-    for addr in addresses {
-        if let Ok(ip) = addr.to_string().parse::<IpAddr>() {
-            if ip.is_ipv4() {
-                chosen_ip = Some(ip);
-                break;
-            }
-        }
-    }
-    let ip = chosen_ip
-        .or_else(|| addresses.iter().find_map(|a| a.to_string().parse::<IpAddr>().ok()))?;
-
-    Some(CastDevice { id, name, model: model_opt, ip, port })
-}
-
-pub fn browse(timeout: Duration) -> anyhow::Result<Vec<CastDevice>> {
-    let mdns = ServiceDaemon::new()?;
-    let receiver = mdns.browse("_googlecast._tcp.local.")?;
-
-    let deadline = std::time::Instant::now() + timeout;
-    let mut devices = HashMap::new();
-
-    while let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) {
-        match receiver.recv_timeout(remaining) {
-            Ok(event) => match event {
-                ServiceEvent::ServiceResolved(info) => {
-                    if let Some(device) = service_info_to_device(&info) {
-                        tracing::debug!(device_id = %device.id, device_name = %device.name, "Discovered Cast device");
-                        devices.insert(device.id.clone(), device);
+/// Start browsing. Each device found or gone arrives on the receiver.
+pub fn browse() -> Result<(mpsc::UnboundedReceiver<DiscoveryEvent>, Browser), String> {
+    let daemon = ServiceDaemon::new().map_err(|e| e.to_string())?;
+    let events = daemon.browse(SERVICE).map_err(|e| e.to_string())?;
+    let (tx, rx) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        // The removal names the mDNS instance, not the device id the app keys on.
+        let mut instances: HashMap<String, String> = HashMap::new();
+        while let Ok(event) = events.recv_async().await {
+            let sent = match event {
+                ServiceEvent::ServiceResolved(info) => match device(&info) {
+                    Some(d) => {
+                        instances.insert(info.get_fullname().to_owned(), d.id.clone());
+                        tx.send(DiscoveryEvent::Found(d))
                     }
-                }
-                ServiceEvent::ServiceRemoved(_service_type, _fullname) => {}
-                _ => {}
-            },
-            Err(_) => break,
-        }
-    }
-
-    let _ = mdns.stop_browse("_googlecast._tcp.local.");
-
-    Ok(devices.into_values().collect())
-}
-
-pub fn watch() -> (mpsc::Receiver<DiscoveryEvent>, WatchHandle) {
-    let (tx, rx) = mpsc::channel();
-    let mdns = ServiceDaemon::new().expect("failed to start mdns daemon");
-    let receiver = mdns.browse("_googlecast._tcp.local.").expect("failed to browse mdns");
-
-    std::thread::spawn(move || {
-        let mut known_devices: HashMap<String, String> = HashMap::new();
-        while let Ok(event) = receiver.recv() {
-            match event {
-                ServiceEvent::ServiceResolved(info) => {
-                    if let Some(device) = service_info_to_device(&info) {
-                        tracing::debug!(device_id = %device.id, device_name = %device.name, "Watch: discovered Cast device");
-                        known_devices.insert(device.id.clone(), info.get_fullname().to_string());
-                        let _ = tx.send(DiscoveryEvent::Found(device));
-                    }
-                }
-                ServiceEvent::ServiceRemoved(_service_type, fullname) => {
-                    let mut removed_id = None;
-                    for (id, fn_str) in &known_devices {
-                        if fn_str == &fullname {
-                            removed_id = Some(id.clone());
-                            break;
-                        }
-                    }
-                    if let Some(id) = removed_id {
-                        tracing::debug!(device_id = %id, "Watch: lost Cast device");
-                        known_devices.remove(&id);
-                        let _ = tx.send(DiscoveryEvent::Lost(id));
-                    }
-                }
-                _ => {}
+                    None => Ok(()),
+                },
+                ServiceEvent::ServiceRemoved(_, fullname) => match instances.remove(&fullname) {
+                    Some(id) => tx.send(DiscoveryEvent::Lost(id)),
+                    None => Ok(()),
+                },
+                _ => Ok(()),
+            };
+            if sent.is_err() {
+                return;
             }
         }
     });
+    Ok((rx, Browser { daemon }))
+}
 
-    (rx, WatchHandle { daemon: mdns })
+fn device(info: &ResolvedService) -> Option<CastDevice> {
+    let txt = |key| info.get_property_val_str(key).map(str::to_owned);
+    // A device whose address record hasn't arrived yet is left for the next event.
+    let ip = IpAddr::V4(*info.get_addresses_v4().iter().min()?);
+    Some(device_from(txt("id")?, txt("fn"), txt("md"), txt("ca"), ip, info.get_port()))
+}
+
+/// The device a TXT record describes. Apart from the mDNS types so it can be tested.
+fn device_from(
+    id: String,
+    name: Option<String>,
+    model: Option<String>,
+    capabilities: Option<String>,
+    ip: IpAddr,
+    port: u16,
+) -> CastDevice {
+    // `ca` is a capability bitmask; bit 0 is video out.
+    let video = capabilities.and_then(|c| c.parse::<u64>().ok()).is_some_and(|c| c & 1 == 1);
+    let group = model.as_deref().is_some_and(|m| m.contains("Group"));
+    let kind = if group {
+        Kind::Group
+    } else if video {
+        Kind::Tv
+    } else {
+        Kind::Speaker
+    };
+    let name = name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| id.clone());
+    CastDevice { id, name, model, kind, ip, port }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_parse_txt_properties() {
-        let map = HashMap::from([
-            ("id".to_string(), "12345".to_string()),
-            ("fn".to_string(), "Living Room TV".to_string()),
-            ("md".to_string(), "Chromecast Ultra".to_string()),
-        ]);
+    fn ip() -> IpAddr {
+        "192.168.1.20".parse().unwrap()
+    }
 
-        let (id, name, model) = parse_txt_properties(|k| map.get(k).cloned());
-        assert_eq!(id.as_deref(), Some("12345"));
-        assert_eq!(name.as_deref(), Some("Living Room TV"));
-        assert_eq!(model.as_deref(), Some("Chromecast Ultra"));
+    #[test]
+    fn the_txt_record_names_the_kind() {
+        let s = |v: &str| Some(v.to_owned());
+        let tv = device_from("a".into(), s("Office TV"), s("Chromecast"), s("4101"), ip(), 8009);
+        assert_eq!(tv.kind, Kind::Tv);
+        assert_eq!(tv.name, "Office TV");
+        let mini =
+            device_from("b".into(), s("Kitchen"), s("Google Nest Mini"), s("2052"), ip(), 8009);
+        assert_eq!(mini.kind, Kind::Speaker);
+        let group = device_from(
+            "c".into(),
+            s("Downstairs"),
+            s("Google Cast Group"),
+            s("2084"),
+            ip(),
+            32187,
+        );
+        assert_eq!(group.kind, Kind::Group);
+        assert_eq!(group.port, 32187);
+    }
+
+    #[test]
+    fn a_device_without_a_name_is_shown_by_its_id() {
+        let d = device_from("abc".into(), Some("  ".into()), None, None, ip(), 8009);
+        assert_eq!(d.name, "abc");
+        assert_eq!(d.kind, Kind::Speaker);
     }
 }

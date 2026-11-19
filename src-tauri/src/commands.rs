@@ -214,26 +214,35 @@ pub async fn set_volume(state: St<'_>, volume: i64) -> Result<(), String> {
     Ok(())
 }
 
+/// The device picker opened or closed: discovery runs while it is open (castout.rs).
 #[tauri::command]
-pub async fn cast_list_devices(state: St<'_>) -> Result<Vec<cast::CastDevice>, String> {
-    Ok(state.cast_list_devices())
+pub async fn cast_picker(
+    state: St<'_>,
+    open: bool,
+) -> Result<Vec<crate::castout::DeviceView>, String> {
+    state.cast.set_picker_open(open);
+    Ok(state.cast.devices())
 }
 
+/// Play on a Cast device. The error is a key the UI translates (`cast.<key>`).
 #[tauri::command]
-pub async fn cast_connect(state: St<'_>, id: String) -> Result<cast::CastDevice, String> {
+pub async fn cast_start(state: St<'_>, id: String) -> Result<(), String> {
     let state = state.inner().clone();
-    state.cast_connect(&id).await
+    state.cast_start(&id).await.map_err(|e| e.code().to_owned())
 }
 
+/// Stop casting; the music comes back here.
 #[tauri::command]
-pub async fn cast_disconnect(state: St<'_>) -> Result<(), String> {
+pub async fn cast_stop(state: St<'_>) -> Result<(), String> {
     let state = state.inner().clone();
-    state.cast_disconnect().await.map_err(|e| e.to_string())
+    state.cast_stop().await;
+    Ok(())
 }
 
+/// What is casting, for a window that opened after it started.
 #[tauri::command]
-pub async fn cast_status(state: St<'_>) -> Result<Option<cast::CastDevice>, String> {
-    Ok(state.cast_status())
+pub async fn cast_state(state: St<'_>) -> Result<serde_json::Value, String> {
+    Ok(state.cast.state())
 }
 
 /// A fresh position and when it was read (`AppState::playback_clock`). Async, so the read of mpv
@@ -2657,12 +2666,21 @@ pub async fn lt_set_server_url(state: St<'_>, url: String) -> Result<(), String>
 
 #[tauri::command]
 pub async fn lt_create_room(state: St<'_>, username: String) -> Result<(), String> {
+    // A room's timeline is this computer's player, which is quiet while a cast plays.
+    if state.cast.is_active() {
+        let _ = state.app.emit("cast-notice", serde_json::json!({ "key": "stop_to_join" }));
+        return Ok(());
+    }
     state.lt.create_room(username).await;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn lt_join_room(state: St<'_>, code: String, username: String) -> Result<(), String> {
+    if state.cast.is_active() {
+        let _ = state.app.emit("cast-notice", serde_json::json!({ "key": "stop_to_join" }));
+        return Ok(());
+    }
     state.lt.join_room(code, username).await;
     Ok(())
 }

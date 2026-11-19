@@ -225,9 +225,12 @@ pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
 pub(crate) fn change_volume(state: &AppState, _app: &AppHandle, f: impl FnOnce(i64) -> i64) {
     static LOCK: Mutex<()> = Mutex::new(());
     let _guard = LOCK.lock().unwrap();
-    let volume = f(state.player.volume()).clamp(0, 100);
+    let volume = f(state.out_volume()).clamp(0, 100);
     state.set_output_volume(volume);
-    state.db.set_setting("volume", &volume.to_string());
+    // The saved level is this computer's: a speaker's own level is never written over it.
+    if !state.cast.is_active() {
+        state.db.set_setting("volume", &volume.to_string());
+    }
 }
 
 pub fn load_config(db: &Db) -> HotkeysConfig {
