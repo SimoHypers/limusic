@@ -219,6 +219,16 @@ else
   # (e.g. an old 0.1.1 rpm uploaded to the 0.1.2 release).
   RPM="$(ls target/release/bundle/rpm/limusic-${VERSION}-*.rpm 2>/dev/null | head -1)"
   [ -n "$RPM" ] || die "no rpm for $VERSION in target/release/bundle/rpm"
+  # The rpm requires only what tauri.conf.json lists, and the binary links OpenSSL by soname (reqwest's
+  # native-tls, switched on by rustypipe-botguard). Fedora 45 moved libssl.so.3 out of the default
+  # install, so an rpm that doesn't ask for it installs and then can't start (#707). A build host on
+  # OpenSSL 4 links .so.4 and makes the list in tauri.conf.json wrong: stop before that ships.
+  for so in $(readelf -d target/release/limusic-app | sed -n 's/.*\[\(lib\(ssl\|crypto\)\.so\.[0-9]*\)\]/\1/p'); do
+    rpm -qpR "$RPM" | grep -qxF "$so()(64bit)" || die "the binary links $so but $(basename "$RPM") \
+doesn't require it. Fix bundle.linux.rpm.depends in src-tauri/tauri.conf.json, rebuild with
+  cargo tauri build --bundles rpm
+and attach it by hand: gh release upload $TAG $RPM --clobber --repo $REPO"
+  done
   gh release upload "$TAG" "$RPM" --clobber --repo "$REPO"
   echo "    attached $(basename "$RPM")"
 fi
@@ -276,3 +286,6 @@ else
   echo "    src/ or ui/ needs a new version, since the run checks out the tag." >&2
   exit 1
 fi
+
+# Complete either way, so tell the Discord: #announcements for a release, #betas for an RC.
+scripts/announce.sh "$TAG" || echo "    WARNING: the Discord post failed. Retry: scripts/announce.sh $TAG"

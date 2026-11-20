@@ -61,6 +61,10 @@ pub enum Error {
     SessionExpired,
     #[error("This track is already in the playlist.")]
     AlreadyInPlaylist,
+    /// YouTube refused an add to a playlist this account doesn't own. See
+    /// [`InnerTube::playlist_add`].
+    #[error("Only the playlist's owner can add songs to it.")]
+    PlaylistNotEditable,
     /// A post or reply that may have reached YouTube with its answer lost. See
     /// [`InnerTube::post_write`].
     #[error("The request may have reached YouTube.")]

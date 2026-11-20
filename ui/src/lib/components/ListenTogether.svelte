@@ -16,11 +16,13 @@
 		ServerStack01Icon,
 		PlusSignIcon
 	} from '@hugeicons/core-free-icons';
+	import LimusicLoader from './LimusicLoader.svelte';
 	import * as api from '$lib/api';
 	import { copyText } from '$lib/clipboard';
 	import { ui, toast } from '$lib/player.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import { t } from '$lib/i18n.svelte';
+	import { makeInvite, parseInvite } from '$lib/invite';
 
 	let mode = $state<'join' | 'host'>('join');
 	let name = $state('');
@@ -66,34 +68,6 @@
 	/** First letter of a display name, for the participant circles. */
 	function initial(username: string): string {
 		return (username.trim()[0] ?? '?').toUpperCase();
-	}
-
-	// An invite bundles the server + code so a guest only pastes one thing: `<code>@<host>`.
-	// `wss://` and the `/ws` path are implied, so the usual invite stays short and typable.
-	// An empty server is the built-in default, which the backend fills in, so that invite is the
-	// bare code: a host on the default never shares a hostname, and a guest never types one.
-	function makeInvite(server: string, code: string): string {
-		if (!server) return code;
-		return code + '@' + server.replace(/^wss:\/\//, '').replace(/\/ws$/, '');
-	}
-	function parseInvite(raw: string): { server: string; code: string } | null {
-		const s = raw.trim();
-		// Invites minted before 0.6.5: `LMSC~<base64(server|code)>`.
-		if (s.startsWith('LMSC~')) {
-			try {
-				const [server, code] = atob(s.slice(5)).split('|');
-				return { server: server ?? '', code: (code ?? '').toUpperCase() };
-			} catch {
-				return null;
-			}
-		}
-		const at = s.lastIndexOf('@');
-		// A bare room code: reuse whatever server we last connected to.
-		if (at < 0) return { server: '', code: s.toUpperCase() };
-		let server = s.slice(at + 1);
-		if (!/^wss?:\/\//.test(server)) server = 'wss://' + server;
-		if (!server.replace(/^wss?:\/\//, '').includes('/')) server += '/ws';
-		return { server, code: s.slice(0, at).toUpperCase() };
 	}
 
 	/** The default is stored as empty, so typing it in by hand still mints bare invites. */
@@ -173,7 +147,7 @@
 		{#if waiting}
 			<!-- Asked to join / creating — waiting on the room. -->
 			<div class="flex min-w-0 flex-col items-center gap-4 py-12">
-				<div class="h-9 w-9 animate-spin rounded-full border-2 border-muted border-t-primary"></div>
+				<LimusicLoader />
 				<p class="text-center text-sm text-muted-foreground">
 					{lt.status === 'connecting'
 						? t('dialogs.listen_together.connecting')
@@ -420,14 +394,14 @@
 									{#if isHost && u.user_id !== lt.myId}
 										<!-- Revealed on hover, but always in the tab order and always named. -->
 										<button
-											class="shrink-0 cursor-pointer rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+											class="shrink-0 cursor-pointer rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground focus-visible:shown group-hover:shown"
 											onclick={() => api.ltTransferHost(u.user_id)}
 										>
 											<HugeiconsIcon icon={Exchange01Icon} class="h-4 w-4" />
 											<span class="sr-only">{t('dialogs.listen_together.make_host')}</span>
 										</button>
 										<button
-											class="shrink-0 cursor-pointer rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-muted hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+											class="shrink-0 cursor-pointer rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-muted hover:text-destructive focus-visible:shown group-hover:shown"
 											onclick={() => api.ltKick(u.user_id)}
 										>
 											<HugeiconsIcon icon={UserRemove01Icon} class="h-4 w-4" />

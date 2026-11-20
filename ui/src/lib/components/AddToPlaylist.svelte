@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { windowCorners } from '$lib/win.svelte';
 	import { fade, fly, scale } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
@@ -13,14 +14,33 @@
 		Tick02Icon
 	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
-	import type { BrowseItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
-	import { ui, toast, addSongsToPlaylists, openNewPlaylist, savedIn } from '$lib/player.svelte';
+	import {
+		ui,
+		addSongsToPlaylists,
+		openNewPlaylist,
+		savedIn,
+		library,
+		loadLibrary
+	} from '$lib/player.svelte';
 	import { Button } from '$lib/components/ui/button';
 
-	let playlists = $state<BrowseItem[]>([]);
-	let loading = $state(false);
+	// The library the sidebar already holds, which every in-app create, rename, delete and add keeps
+	// current, so the picker opens filled (#654). On Repeat and Liked Music are dropped: On Repeat is
+	// built from local play counts, and Liked Music takes likes rather than playlist edits (YouTube
+	// 400s the add). So are playlists saved from someone else, which only their owner can add to
+	// (#651). The command boundary refuses all of them too, but a target you can tap and can't use is
+	// the bug.
+	const playlists = $derived(
+		library.items.filter(
+			(i) =>
+				i.id !== api.ON_REPEAT_ID &&
+				i.id !== api.LIKED_MUSIC_ID &&
+				!savedIn.readOnly.includes(i.id)
+		)
+	);
+	const loading = $derived(library.loading && !library.items.length);
 	let filter = $state('');
 	let selectedIds = $state<string[]>([]);
 	let box = $state<HTMLInputElement | null>(null);
@@ -65,31 +85,16 @@
 	const skipAdds = $derived(chosen.length * songs.length - dupeTotal);
 	const anywayAdds = $derived(chosen.length * songs.length - localDupes);
 
-	// Fetch the library playlists fresh each time the picker opens (cheap; picks up new playlists).
-	// On Repeat and Liked Music are dropped: On Repeat is built from local play counts, and Liked
-	// Music takes likes rather than playlist edits (YouTube 400s the add). The command boundary
-	// refuses both too, but a target you can tap and can't use is the bug. When the account's half
-	// can't be fetched, the playlists on this machine still can: they need no network.
+	// Refresh behind the open list, for playlists made on another device. Selection is by id, so a
+	// row the refresh moves keeps its tick. Offline, loadLibrary falls back to the playlists on this
+	// machine, which need no network. untrack: loadLibrary reads and writes `library`, and this
+	// effect must rerun only when the picker opens.
 	$effect(() => {
 		if (ui.addSongs) {
-			loading = true;
 			filter = '';
 			selectedIds = [];
 			step = 'pick';
-			api
-				.getLibrary()
-				.catch((e) => {
-					toast.error(String(e));
-					return api.getLocalPlaylists();
-				})
-				.then(
-					(p) =>
-						(playlists = p.filter(
-							(i) => i.id !== api.ON_REPEAT_ID && i.id !== api.LIKED_MUSIC_ID
-						))
-				)
-				.catch((e) => toast.error(String(e)))
-				.finally(() => (loading = false));
+			untrack(() => loadLibrary(true));
 		}
 	});
 
@@ -245,24 +250,24 @@
 				<div class="mt-3 pt-2">
 					<Button
 						class="relative w-full"
-						disabled={selectedIds.length === 0 || ui.addPending}
+						disabled={chosen.length === 0 || ui.addPending}
 						onclick={confirm}
 					>
-						{selectedIds.length === 1 ? t('add_playlist.confirm_one') : t('add_playlist.confirm')}
-						{#if selectedIds.length}
+						{chosen.length === 1 ? t('add_playlist.confirm_one') : t('add_playlist.confirm')}
+						{#if chosen.length}
 							<!-- Pinned to the edge so the label never shifts. An odometer: one small element, so
 							     its transforms cost nothing (docs/UI-PERFORMANCE.md). -->
 							<span
 								transition:scale={{ duration: 150, start: 0.4, easing: cubicOut }}
 								class="absolute top-1/2 right-2 grid h-5 -translate-y-1/2 min-w-5 place-items-center overflow-hidden rounded-full bg-primary-foreground px-1.5 text-xs font-semibold tabular-nums text-primary"
 							>
-								{#key selectedIds.length}
+								{#key chosen.length}
 									<span
 										class="[grid-area:1/1]"
 										in:fly={{ y: 12 * dir, duration: 180, easing: cubicOut }}
 										out:fly={{ y: -12 * dir, duration: 180, easing: cubicOut }}
 									>
-										{selectedIds.length}
+										{chosen.length}
 									</span>
 								{/key}
 							</span>

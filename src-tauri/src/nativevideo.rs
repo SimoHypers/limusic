@@ -225,13 +225,14 @@ fn wake() {
 }
 
 /// Put the picture at `rect` (`[x, y, w, h]`, CSS pixels relative to the viewport, as the page
-/// measured its hole) or take it away, and tell mpv whether anyone can see it. Returns whether the
-/// picture is up; `false` for a rect means there is no GL surface and the page should fall back to
-/// the `<video>` element.
+/// measured its hole) or take it away, and tell mpv whether anyone can see it. `vw` is the page's
+/// `innerWidth`. Returns whether the picture is up; `false` for a rect means there is no GL surface
+/// and the page should fall back to the `<video>` element.
 pub async fn set_rect(
     app: &tauri::AppHandle,
     state: Arc<AppState>,
     rect: Option<[f64; 4]>,
+    vw: Option<f64>,
 ) -> bool {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let res = app.run_on_main_thread(move || {
@@ -251,11 +252,16 @@ pub async fn set_rect(
             if let Some(id) = s.release.take() {
                 id.remove();
             }
-            // CSS pixels to GTK's: the page zoom (1 unless someone changed it), and a pixel of
-            // slack all round, because a picture a pixel short of the hole would leave a hairline
-            // of desktop showing through the transparent window. The page's surround covers the
-            // excess.
-            let z = s.webview.zoom_level();
+            // CSS pixels to GTK's, and a pixel of slack all round, because a picture a pixel short
+            // of the hole would leave a hairline of desktop showing through the transparent window.
+            // The page's surround covers the excess. The factor is the webview's width over the
+            // page's: `zoom_level()` alone leaves out the zoom WebKitGTK applies for the desktop's
+            // text scaling factor (fontDPI / 96, divided back out of what it returns), which drew
+            // the picture 1.15x too small at a factor of 1.15 (#682). `devicePixelRatio` only
+            // includes page zoom from WebKitGTK 2.52, and the AppImage ships an older one.
+            let z = vw
+                .filter(|&v| v >= 1.0)
+                .map_or_else(|| s.webview.zoom_level(), |v| s.webview.allocated_width() as f64 / v);
             let (x0, y0) = ((x * z).floor() as i32 - 1, (y * z).floor() as i32 - 1);
             let (x1, y1) = (((x + w) * z).ceil() as i32 + 1, ((y + h) * z).ceil() as i32 + 1);
             s.at.set(Some((x0, y0, x1 - x0, y1 - y0)));

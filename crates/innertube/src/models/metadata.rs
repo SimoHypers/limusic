@@ -1492,6 +1492,25 @@ mod tests {
         );
     }
 
+    // The reporter's `/next {videoId, playlistId}` for a two-entry playlist of music videos (#542).
+    // Each entry comes back as its song with the video the playlist holds as the twin: for Zoo a
+    // different one than the song's own (`Kw3935PH01E`), for The Fox one the song has no pairing
+    // with at all outside the playlist.
+    #[test]
+    fn a_playlist_pairs_each_song_with_the_video_it_holds() {
+        let root: Value =
+            serde_json::from_str(include_str!("../../tests/fixtures/next_playlist_context.json"))
+                .unwrap();
+        let out = parse_next(&root);
+        let pairs: Vec<_> =
+            out.items.iter().map(|i| (i.video_id.as_str(), i.counterpart.as_deref())).collect();
+        assert_eq!(
+            pairs,
+            [("WTRm-Yr5Foo", Some("Xry6B0I3pT8")), ("W20gcM6_UtQ", Some("jofNR_WkoCE"))]
+        );
+        assert!(out.items.iter().all(|i| !i.is_video && i.counterpart_segments.is_empty()));
+    }
+
     // A real radio page has no automix marker — nothing to escalate to, and nothing to mistake a
     // regular playlist id for.
     #[test]

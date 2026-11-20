@@ -1,7 +1,8 @@
 <script module lang="ts">
 	// Romanization (#202) and translations (#329) are one switch each: on stays on across every song
-	// until it is turned off. Shared by every lyrics view, and the `storage` event carries a change
-	// over to the mini player window. Translations start on, the way they always showed.
+	// until it is turned off. Shared by every lyrics view and the lyric editor's hint (#676), and the
+	// `storage` event carries a change over to the mini player window. Translations start on, the
+	// way they always showed.
 	const KEYS = { romanized: 'lyrics_romanized', translated: 'lyrics_translated' } as const;
 	type Pref = keyof typeof KEYS;
 	const DEFAULTS: Record<Pref, boolean> = { romanized: false, translated: true };
@@ -39,13 +40,13 @@
 		}
 	}
 
-	const prefs = $state({ romanized: load('romanized'), translated: load('translated') });
+	export const prefs = $state({ romanized: load('romanized'), translated: load('translated') });
 	window.addEventListener('storage', (e) => {
 		for (const pref of Object.keys(KEYS) as Pref[]) if (e.key === KEYS[pref]) prefs[pref] = load(pref);
 		if (e.key === SIZE_KEY) size.value = loadSize();
 	});
 
-	function toggle(pref: Pref) {
+	export function toggle(pref: Pref) {
 		prefs[pref] = !prefs[pref];
 		try {
 			localStorage.setItem(KEYS[pref], prefs[pref] ? '1' : '0');
@@ -61,6 +62,7 @@
 	import {
 		CharacterPhoneticIcon,
 		MinusSignIcon,
+		MusicNote01Icon,
 		PlusSignIcon,
 		Search01Icon,
 		TextFontIcon,
@@ -72,6 +74,11 @@
 	import { appearance } from '$lib/theme.svelte';
 	import * as Popover from '$lib/components/ui/popover';
 	import LyricsSourcePicker from './LyricsSourcePicker.svelte';
+	import KaraokeButton from './KaraokeButton.svelte';
+	import { link } from '$lib/link.svelte';
+	import { voices } from '$lib/lyricvoices';
+	import { durationSecs, lyricsFor, setNowLyrics } from '$lib/nowlyrics.svelte';
+	import { SCROLL_EASE, glowing, letters, scrollMs, sweep as sweepStyle } from '$lib/lyricmotion';
 
 	// `expanded` only sizes the type and centres the column. The owner of the extra room (the side
 	// panel, or the now-playing view) decides how much there is. Toggling it must not remount this
@@ -80,19 +87,14 @@
 	// scrollbar. It only shrinks the type and chrome; the sync/auto-scroll logic is identical.
 	// `missing` says the playing song has nothing to read (none found, or instrumental). It changes
 	// only when a fetch answers, never while the next one loads, so theater can lay out on it.
+	// `preview` shows these lyrics in place of the song's own, with no footer: the lyric editor's
+	// look at a draft, drawn by the same code that will draw it once it is published.
 	let {
 		expanded = false,
 		compact = false,
-		missing = $bindable(false)
-	}: { expanded?: boolean; compact?: boolean; missing?: boolean } = $props();
-
-	/** "3:21" / "1:02:03" → seconds. */
-	function durationSecs(d?: string): number | undefined {
-		if (!d) return undefined;
-		const parts = d.split(':').map(Number);
-		if (!parts.length || parts.some(Number.isNaN)) return undefined;
-		return parts.reduce((a, b) => a * 60 + b, 0);
-	}
+		missing = $bindable(false),
+		preview
+	}: { expanded?: boolean; compact?: boolean; missing?: boolean; preview?: api.Lyrics } = $props();
 
 	let lyrics = $state<api.Lyrics | null>(null);
 	let loading = $state(true);
@@ -102,6 +104,13 @@
 	const showRomanized = $derived(canRomanize && prefs.romanized);
 	const canTranslate = $derived(!!lyrics?.lines.some((l) => l.translation));
 	const showTranslation = $derived(canTranslate && prefs.translated);
+	/** Where each line sits and which of its words are background vocals. Null for a lyric with
+	 *  neither (most of them): its lines are drawn by the same markup as before, with nothing
+	 *  added. Worked out once per lyric, never per frame. */
+	const voice = $derived(lyrics?.synced ? voices(lyrics.lines) : null);
+	/** Two singers: where there is room (the enlarged views), each also keeps off the other's
+	 *  edge, so the turns read at a glance. A side panel is too narrow to give any width away. */
+	const duet = $derived(!!voice?.some((v) => v.far));
 	const enhanced = $derived(appearance.enhancedLyrics);
 	const animateSynced = $derived(enhanced && appearance.enhancedLyricsLineSync);
 	const reducedMotion = new MediaQuery('prefers-reduced-motion: reduce');
@@ -135,12 +144,41 @@
 		lyrics = l;
 		missing = !l || l.instrumental;
 		hasScrolled = false;
+		setNowLyrics(videoId, l);
 	}
 
 	// videoId of the fetch whose result is (or will be) shown — guards stale responses.
 	let requested = '';
 
+	// Shared with the line under the now-playing cover, which writes and reads the same answer.
+	const ask = (now: NonNullable<typeof playback.now>) =>
+		lyricsFor(now).then((l) => (setNowLyrics(now.videoId, l), l));
+
+	// The cache brought this song's lyrics up to date behind the ones on screen (`refresh_stale`):
+	// swap them in where they are, with no loading state and no jump.
 	$effect(() => {
+		if (preview) return;
+		const sub = api.onLyricsUpdated((id) => {
+			const now = playback.now;
+			if (!now || now.videoId !== id || requested !== id) return;
+			ask(now)
+				.then((l) => {
+					if (requested !== id) return;
+					lyrics = l;
+					missing = !l || l.instrumental;
+				})
+				.catch(() => {});
+		});
+		return () => void sub.then((u) => u());
+	});
+
+	$effect(() => {
+		if (preview) {
+			requested = '';
+			lyrics = preview;
+			loading = false;
+			return;
+		}
 		const now = playback.now;
 		if (!now) {
 			requested = '';
@@ -152,17 +190,7 @@
 		const id = (requested = now.videoId);
 		loading = true;
 		lyrics = null;
-		api.getLyrics({
-			videoId: id,
-			title: now.title,
-			artists: now.artists,
-			// From now-playing, not the queue row: on a gapless advance the queue event lands after
-			// this one, and the previous song's album makes Boidu and LRCLIB miss.
-			album: now.album ?? undefined,
-			// The track's own length — NOT playback.duration, which still holds the previous
-			// track's value for a moment after a track change.
-			duration: durationSecs(now.duration)
-		})
+		ask(now)
 			.then((l) => {
 				if (requested !== id) return;
 				lyrics = l;
@@ -177,22 +205,36 @@
 			});
 	});
 
-	// Last synced line whose cue has passed (lines arrive sorted by time).
-	const activeIndex = $derived.by(() => {
+	/** Last synced line whose cue has passed by `ms` (lines arrive sorted by time). */
+	function lineAt(ms: number): number {
 		if (!lyrics?.synced) return -1;
-		const currentMs = posMs;
 		let i = -1;
 		for (let j = 0; j < lyrics.lines.length; j++) {
 			const t = lyrics.lines[j].time_ms;
 			if (t === undefined) continue;
-			if (t > currentMs) break;
+			if (t > ms) break;
 			i = j;
 		}
 		return i;
+	}
+	const activeIndex = $derived.by(() => lineAt(posMs));
+	/** A line before the one being sung whose background vocals are still going, -1 for none. It
+	 *  stays lit, so an answer sung over the next line's start keeps sweeping instead of going dim
+	 *  halfway. A lyric without background vocals never reads the clock here.
+	 *  ponytail: the nearest such line only; two at once would need a set. */
+	const lingering = $derived.by(() => {
+		if (!voice) return -1;
+		for (let j = activeIndex - 1; j >= Math.max(0, activeIndex - 3); j--) {
+			if (posMs < voice[j].until) return j;
+		}
+		return -1;
 	});
+	// The view moves to a line before it is sung, so the line lands as the singer reaches it rather
+	// than sliding in under the first word. Its highlight still waits for its cue.
+	const scrollIndex = $derived.by(() => lineAt(posMs + 500));
 
 	// Auto-scroll pauses while the user is scrolling (wheel/touch/scrollbar), resumes after 3s.
-	// Tracked via input events, not `scroll`, so our own smooth scrolls don't trip it.
+	// Tracked via input events, not `scroll`, so our own scrolls don't trip it.
 	let userScrollUntil = 0;
 	let hasScrolled = false;
 	function onUserScroll() {
@@ -202,8 +244,8 @@
 	let wasLayout: string | undefined;
 
 	$effect(() => {
-		const i = activeIndex;
-		// Re-centre after the layout width/font changes or the romanized lines come and go, and
+		const i = scrollIndex;
+		// Re-place after the layout width/font changes or the romanized lines come and go, and
 		// jump rather than glide across it. (Also fires on the first run.)
 		const layout = `${expanded} ${showRomanized} ${size.value}`;
 		if (layout !== wasLayout) {
@@ -212,21 +254,70 @@
 			userScrollUntil = 0;
 		}
 		if (i < 0 || !scroller || Date.now() < userScrollUntil) return;
-		const line = scroller.querySelector(`[data-line="${i}"]`);
-		if (!line) return;
-		// Scroll the scroller itself, never `scrollIntoView`: that walks up and scrolls every
-		// scrollable ancestor too, including theater mode's `overflow-hidden` grid, which then has
-		// no scrollbar to put it back (issue #168).
-		const lineRect = line.getBoundingClientRect();
-		const boxRect = scroller.getBoundingClientRect();
-		scroller.scrollTo({
-			top:
-				scroller.scrollTop + (lineRect.top - boxRect.top) - (boxRect.height - lineRect.height) / 2,
-			// Opening mid-song jumps straight to the line; after that, glide.
-			behavior: hasScrolled ? 'smooth' : 'instant'
-		});
+		// Opening mid-song jumps straight to the line; after that, glide.
+		glide(scroller, i, hasScrolled);
 		hasScrolled = true;
 	});
+
+	/** The line glides that are still running, so a jump can stop them. */
+	let gliding: Animation[] = [];
+
+	/** Puts line `i` a bit above the middle, where more of what's coming shows than of what's gone.
+	 *  The scroller jumps there at once and every line on screen eases from where it was, each on its
+	 *  own time (`scrollMs`), Better Lyrics' scroll. A glide that starts while one runs adds to it
+	 *  (`composite: 'add'`), so lines that come fast keep moving instead of restarting from rest.
+	 *  Positions are layout ones (`offsetTop`, the scroller is `relative` so it is their offsetParent),
+	 *  which neither a running glide's `translate` nor a line's `scale` moves.
+	 *  Scrolls the scroller itself, never `scrollIntoView`: that walks up and scrolls every
+	 *  scrollable ancestor too, including theater mode's `overflow-hidden` grid (issue #168). */
+	function glide(box: HTMLElement, i: number, smooth: boolean) {
+		const rows = box.querySelectorAll<HTMLElement>('[data-line]');
+		const line = rows[i];
+		if (!line) return;
+		const h = box.clientHeight;
+		const from = box.scrollTop;
+		const to = Math.max(
+			0,
+			Math.min(box.scrollHeight - h, line.offsetTop + line.offsetHeight / 2 - h * 0.37)
+		);
+		const delta = to - from;
+		if (Math.abs(delta) < 1) return;
+		box.scrollTo({ top: to, behavior: 'instant' });
+		gliding = gliding.filter((a) => a.playState === 'running');
+		if (!smooth) {
+			for (const a of gliding) a.cancel();
+			gliding = [];
+			return;
+		}
+		// From a viewport away at most, so a long way back after a seek or a manual scroll moves
+		// what will be on screen, not every line in between.
+		const shift = Math.max(-h, Math.min(h, delta));
+		// A jump of several lines tightens the stagger, so the lines don't run into each other.
+		const near = [rows[i - 1], rows[i + 1]]
+			.filter(Boolean)
+			.map((r) => Math.abs(r.offsetTop - line.offsetTop));
+		const step = near.length ? Math.min(...near) : line.offsetHeight;
+		const stagger = reducedMotion.current ? 0 : Math.min(1, step / Math.abs(delta));
+		const base = scrollMs(0, false);
+		// A row still gliding may be on screen only by its glide, so it takes the next one whatever
+		// its layout position says, or it would jump by the scroll.
+		const moving = new Set(gliding.map((a) => (a.effect as KeyframeEffect | null)?.target));
+		rows.forEach((row, j) => {
+			const top = row.offsetTop - to;
+			const off =
+				Math.max(top, top + shift) + row.offsetHeight < 0 || Math.min(top, top + shift) > h;
+			if (off && !moving.has(row)) return;
+			const rel = j - i;
+			const ahead = delta > 0 ? rel < 0 : rel > 0;
+			gliding.push(
+				row.animate([{ translate: `0 ${shift}px` }, { translate: '0 0' }], {
+					duration: base + (scrollMs(rel, ahead) - base) * stagger,
+					easing: SCROLL_EASE,
+					composite: 'add'
+				})
+			);
+		});
+	}
 
 	function seekTo(line: api.LyricLine) {
 		if (line.time_ms === undefined) return;
@@ -266,9 +357,12 @@
 		// the next tick corrected it.
 		const base = pos;
 		const baseAt = performance.now();
+		// The song moves `speed` seconds a second. Without it the sweep ran ahead at a slowed tempo
+		// and snapped back on every position tick (60 ms at 0.75x, 125 ms at 0.5x).
+		const speed = playback.speed;
 		interpolatedPosSecs = pos;
 		let frameId = requestAnimationFrame(function tick() {
-			interpolatedPosSecs = base + (performance.now() - baseAt) / 1000;
+			interpolatedPosSecs = base + ((performance.now() - baseAt) / 1000) * speed;
 			frameId = requestAnimationFrame(tick);
 		});
 		return () => cancelAnimationFrame(frameId);
@@ -428,7 +522,7 @@
 	onwheel={onUserScroll}
 	ontouchmove={onUserScroll}
 	onpointerdown={onUserScroll}
-	class="min-h-0 flex-1 overflow-y-auto {compact
+	class="relative min-h-0 flex-1 overflow-y-auto {compact
 		? 'px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
 		: expanded
 			? 'px-10 py-6'
@@ -450,43 +544,75 @@
 		     behaves. -->
 		<div class="pb-[55vh] {expanded ? 'mx-auto max-w-3xl' : ''}">
 			{#each lyrics.lines as line, i (i)}
-				{@const isActive = i === activeIndex}
+				{@const isActive = i === activeIndex || i === lingering}
 				{@const isPast = i < activeIndex}
+				<!-- A held note's halo stays a line longer than the sweep, so the note it ends a
+				     line on lets go of its glow after the next line has started. -->
+				{@const halo = isActive || i === activeIndex - 1}
 				{@const words = getLineWords(line, i)}
 				{@const romWords =
 					showRomanized && line.romanized ? getLineWords(line, i, line.romanized) : []}
+				{@const v = voice?.[i]}
 				<!-- Dimming is `opacity` on the line, never a translucent text colour. A colour with
 				     alpha is composited glyph by glyph, so wherever two glyphs overlap the coverage
 				     adds up and the overlap comes out brighter than the rest of the line: very
 				     visible in scripts whose marks sit on top of the letters, Devanagari in issue
 				     #191. `opacity` paints the line opaque first and fades it once, as a group.
 				     Light themes dim less: the dark themes' 70% put dark grey on white at about 2.8:1,
-				     90% matches the 4:1 the dark themes get. -->
+				     90% matches the 4:1 the dark themes get.
+				     The line being sung is full size and the rest a step smaller, from the side it
+				     reads from, so the active line grows into place rather than past its neighbours.
+				     With motion on `scale` is always set, so a line keeps its layer while its opacity
+				     crosses 1 (the opacity rule in docs/UI-PERFORMANCE.md). -->
 				<button
 					data-line={i}
 					onclick={() => seekTo(line)}
-					class="block w-full origin-left cursor-pointer text-left font-heading font-bold leading-snug transition-[color,opacity,transform] duration-300 ease-out hover:text-foreground hover:opacity-100 dark:hover:opacity-100
+					class="block w-full cursor-pointer font-heading font-bold leading-snug transition-[color,opacity,scale] duration-500 ease-[cubic-bezier(0.2,0.7,0.3,1)] hover:text-foreground hover:opacity-100 dark:hover:opacity-100
+						{v?.far ? 'origin-right text-right' : 'origin-left text-left'}
+						{duet && expanded ? (v?.far ? 'pl-[14%]' : 'pr-[14%]') : ''}
 						{expanded ? 'py-3 text-[1.875em]' : compact ? 'py-1 text-[0.875em]' : 'py-2 text-[1.25em]'}
 						{isActive
-						? enhanced && (words.length > 0 || romWords.length > 0)
-							? 'text-foreground'
-							: 'scale-[1.04] text-foreground'
+						? 'text-foreground motion-safe:scale-100'
 						: isPast
-							? 'text-muted-foreground opacity-55 dark:opacity-40'
-							: 'text-muted-foreground opacity-90 dark:opacity-70'}"
+							? 'text-muted-foreground opacity-55 motion-safe:scale-[0.96] dark:opacity-40'
+							: 'text-muted-foreground opacity-90 motion-safe:scale-[0.96] dark:opacity-70'}"
 				>
-					{#if words.length > 0}
-						{@render sweep(words, isActive)}
+					{#if v?.runs && words === line.words}
+						<!-- Background vocals are a quieter line of their own, under the lead they
+						     answer: smaller, and dimmed as a group (see the note on `opacity` above).
+						     They sweep on their own timings, which overlap the lead's. -->
+						{#each v.runs as run, r (r)}
+							{#if run.bg}
+								<span class="block py-[0.1em] text-[0.72em] font-semibold opacity-65">
+									{@render sweep(run.words, isActive, halo, v.far)}
+								</span>
+							{:else}
+								{@render sweep(run.words, isActive, halo, v.far)}
+							{/if}
+						{/each}
+					{:else if words.length > 0}
+						{@render sweep(words, isActive, halo, v?.far)}
+					{:else if line.text}
+						<span>{line.text}</span>
 					{:else}
-						<span>{line.text || '♪'}</span>
+						<!-- An instrumental break: a timed line with no text. An icon, not the font's
+						     ♪, which the heading face lacks and a fallback draws thin and small. It
+						     pulses while the break plays, like the line under the cover. -->
+						<HugeiconsIcon
+							icon={MusicNote01Icon}
+							class="inline-block size-[1.1em] {isActive
+								? `motion-safe:animate-note-pulse ${playback.paused ? '[animation-play-state:paused]' : ''}`
+								: ''}"
+						/>
+						<span class="sr-only">{t('lyrics.instrumental')}</span>
 					{/if}
 
 					{#if showRomanized && line.romanized}
 						<!-- Relative size, so it follows the line from the mini player to theater mode.
-						     Apple's reading is timed to the same syllables and sweeps with the line. -->
+						     A timed reading (Apple's, or ours on a word-synced line) sweeps with the line. -->
 						<span class="mt-0.5 block text-[length:max(0.62em,11px)] font-semibold">
 							{#if romWords.length > 0}
-								{@render sweep(romWords, isActive)}
+								{@render sweep(romWords, isActive, halo, v?.far)}
 							{:else}
 								{line.romanized}
 							{/if}
@@ -548,7 +674,7 @@
 		</div>
 	{/if}
 </div>
-{#if track && !loading && !compact}
+{#if track && !loading && !compact && !preview}
 	<div class="mt-3 flex items-center gap-1 border-t border-border/60 px-4 pt-2 pb-1.5 text-xs text-muted-foreground">
 		<!-- The source is the switch (#23): a popover with every provider's answer for this song. -->
 		<div class="flex min-w-0 flex-1">
@@ -574,6 +700,9 @@
 				t('lyrics.romanize_hint')
 			)}
 		{/if}
+		<!-- Karaoke's switch lives here, not in the player bar (KaraokeButton.svelte). It works on
+		     this desktop's player, so it goes while the bar controls a linked device. -->
+		{#if !link.remote}<KaraokeButton />{/if}
 		<!-- One icon, because the footer is full (the side panel is 320px). The popover holds the
 		     `− 115% +` stepper; the ends go dead rather than wrapping. -->
 		{#if canResize}
@@ -645,40 +774,51 @@
 	</button>
 {/snippet}
 
-<!-- Word-by-word karaoke sweep (Better Lyrics style), for the line and for Apple's timed
-     romanization under it. -->
-{#snippet sweep(words: api.LyricWord[], active: boolean)}
-	<span class="inline-flex flex-wrap items-baseline">
+<!-- Word-by-word karaoke sweep (Better Lyrics style), for the line and for the timed
+     romanization under it. A word is the same element whether its line is being sung or not, so a
+     change of line restyles words instead of rebuilding them. Off the active line its colour and
+     dimming come from the line; on it the sweep paints it, and a held note lights, crests and
+     glows letter by letter (`lyricmotion.ts`). Enhanced lyrics draw their own style and motion
+     per frame instead. -->
+{#snippet sweep(words: api.LyricWord[], active: boolean, halo: boolean, far = false)}
+	<span class="inline-flex flex-wrap items-baseline {far ? 'justify-end' : ''}">
 		{#each words as word, wIdx (wIdx)}
-			{@const isWordEnd = word.text.endsWith(' ')}
-			{@const cleanText = word.text.trimEnd()}
-			{#if active}
-				{@const progress = getWordProgress(word, posMs)}
-				{@const pct = Math.round(Math.min(1, Math.max(0, progress)) * 100)}
-				{@const isCurrentWord = progress > 0 && progress < 1}
-				<!-- Only the gradient stop moves per frame; the clip/fill are static, so they
-				     live in the class and aren't re-serialised 60 times a second. Both
-				     colours are theme tokens: the sung half was hardcoded white, which is
-				     invisible on every light theme. -->
-				<span
-					class="inline-block bg-clip-text text-transparent [-webkit-text-fill-color:transparent] {isWordEnd
-						? 'mr-[0.26em]'
-						: ''} {enhanced
-						? ''
-						: `transition-transform duration-100 ease-out ${isCurrentWord ? 'scale-[1.03]' : ''}`}"
-					style={enhanced
-						? getEnhancedWordStyle(word, progress, posMs)
-						: `background-image: linear-gradient(90deg, var(--foreground) ${pct}%, var(--muted-foreground) ${pct}%)`}
+			<!-- No gap after the last word: on a far-side line it would hold the text off the edge. -->
+			{@const gap = word.text.endsWith(' ') && wIdx < words.length - 1 ? 'mr-[0.26em]' : ''}
+			{@const held = enhanced ? null : letters(word)}
+			{#if held}
+				<span class="relative isolate inline-block whitespace-nowrap {gap}"
+					>{#if halo}{@render glow(held, word, posMs)}{/if}{#each held as l, k (k)}{@render glyph(
+							l,
+							active,
+							'lyric-held'
+						)}{/each}</span
 				>
-					{cleanText}
-				</span>
 			{:else}
-				<!-- Colour and dimming both come from the line. -->
-				<span class="inline-block {isWordEnd ? 'mr-[0.26em]' : ''}">
-					{cleanText}
-				</span>
+				{@render glyph(word, active, gap)}
 			{/if}
 		{/each}
 	</span>
 {/snippet}
 
+<!-- A held note's halo (`.lyric-halo`): the same letters, clear, under a text shadow. -->
+{#snippet glow(held: api.LyricWord[], note: api.LyricWord, ms: number)}<span
+		class="lyric-halo"
+		aria-hidden="true"
+		>{#each held as l, k (k)}<span class={glowing(l, note, ms) ? 'lit' : ''}>{l.text}</span
+			>{/each}</span
+	>{/snippet}
+
+<!-- The clip and the fill are classes, so per frame only the gradient's stops are re-serialised.
+     Both colours are theme tokens: the sung half was hardcoded white once, invisible on every
+     light theme. -->
+{#snippet glyph(word: api.LyricWord, active: boolean, extra: string)}<span
+		class="inline-block {extra} {active
+			? `bg-clip-text text-transparent [-webkit-text-fill-color:transparent] ${extra === 'lyric-held' && posMs >= word.start_ms ? 'sung' : ''}`
+			: ''}"
+		style={!active
+			? undefined
+			: enhanced
+				? getEnhancedWordStyle(word, getWordProgress(word, posMs), posMs)
+				: sweepStyle(word, posMs)}>{word.text.trimEnd()}</span
+	>{/snippet}

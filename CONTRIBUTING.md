@@ -2,6 +2,18 @@
 
 Thanks for wanting to help. This is a small project, so this is short.
 
+## Before you start
+
+- **Downloads are out of scope.** The desktop app won't get offline downloads,
+  and a PR adding them will be closed. The reasoning is in
+  [this discussion](https://github.com/SimoHypers/limusic/discussions/291).
+- **Planning a big feature? Talk to me first.** Open an issue describing what
+  you want to build before you write any code, or comment on the issue if one
+  already exists. I'll tell you whether it's planned, and we can scope it out
+  together so the PR fits when it arrives. A new page, a new integration, or
+  anything that changes playback or extraction counts as big. Bug fixes don't
+  need this, send them straight in.
+
 ## Getting set up
 
 Prerequisites and the build are in the [README](README.md#building-from-source).

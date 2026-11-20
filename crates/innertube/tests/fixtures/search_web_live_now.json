@@ -1,0 +1,295 @@
+{
+  "contents": {
+    "twoColumnSearchResultsRenderer": {
+      "primaryContents": {
+        "sectionListRenderer": {
+          "contents": [
+            {
+              "itemSectionRenderer": {
+                "contents": [
+                  {
+                    "videoRenderer": {
+                      "videoId": "e0MJyYLeRlU",
+                      "thumbnail": {
+                        "thumbnails": [
+                          {
+                            "url": "https://i.ytimg.com/vi/e0MJyYLeRlU/hq720.jpg",
+                            "width": 360,
+                            "height": 202
+                          },
+                          {
+                            "url": "https://i.ytimg.com/vi/e0MJyYLeRlU/hq720.jpg",
+                            "width": 720,
+                            "height": 404
+                          }
+                        ]
+                      },
+                      "title": {
+                        "accessibility": {
+                          "accessibilityData": {
+                            "label": "Cafe Music LIVE | Today's COFFEE FRIDAY ☕ November Jazz to Unwind After Work"
+                          }
+                        },
+                        "runs": [
+                          {
+                            "text": "Cafe Music LIVE | Today's COFFEE FRIDAY ☕ November Jazz to Unwind After Work"
+                          }
+                        ]
+                      },
+                      "ownerText": {
+                        "runs": [
+                          {
+                            "text": "Cafe Music BGM channel",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCJhjE7wbdYAae1G25m0tHAA"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "viewCountText": {
+                        "runs": [
+                          {
+                            "text": "434"
+                          },
+                          {
+                            "text": " watching"
+                          }
+                        ]
+                      },
+                      "badges": [
+                        {
+                          "metadataBadgeRenderer": {
+                            "style": "BADGE_STYLE_TYPE_LIVE_NOW"
+                          }
+                        },
+                        {
+                          "metadataBadgeRenderer": {
+                            "style": "BADGE_STYLE_TYPE_SIMPLE"
+                          }
+                        }
+                      ],
+                      "ownerBadges": [
+                        {
+                          "metadataBadgeRenderer": {
+                            "style": "BADGE_STYLE_TYPE_VERIFIED_ARTIST"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "videoRenderer": {
+                      "videoId": "0sfDth4lMLc",
+                      "thumbnail": {
+                        "thumbnails": [
+                          {
+                            "url": "https://i.ytimg.com/vi/0sfDth4lMLc/hq720.jpg",
+                            "width": 360,
+                            "height": 202
+                          },
+                          {
+                            "url": "https://i.ytimg.com/vi/0sfDth4lMLc/hq720.jpg",
+                            "width": 720,
+                            "height": 404
+                          }
+                        ]
+                      },
+                      "title": {
+                        "accessibility": {
+                          "accessibilityData": {
+                            "label": "24/7 halloween ambience 🎃 spooky lofi to get chills to"
+                          }
+                        },
+                        "runs": [
+                          {
+                            "text": "24/7 halloween ambience 🎃 spooky lofi to get chills to"
+                          }
+                        ]
+                      },
+                      "ownerText": {
+                        "runs": [
+                          {
+                            "text": "Lofi Girl",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCSJ4gkVC6NrvII8umztf0Ow"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "viewCountText": {
+                        "runs": [
+                          {
+                            "text": "522"
+                          },
+                          {
+                            "text": " watching"
+                          }
+                        ]
+                      },
+                      "badges": [
+                        {
+                          "metadataBadgeRenderer": {
+                            "style": "BADGE_STYLE_TYPE_LIVE_NOW"
+                          }
+                        },
+                        {
+                          "metadataBadgeRenderer": {
+                            "style": "BADGE_STYLE_TYPE_SIMPLE"
+                          }
+                        }
+                      ],
+                      "ownerBadges": [
+                        {
+                          "metadataBadgeRenderer": {
+                            "style": "BADGE_STYLE_TYPE_VERIFIED_ARTIST"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "videoRenderer": {
+                      "videoId": "IMr9TMQ3_4U",
+                      "thumbnail": {
+                        "thumbnails": [
+                          {
+                            "url": "https://i.ytimg.com/vi/IMr9TMQ3_4U/hq720.jpg",
+                            "width": 360,
+                            "height": 202
+                          },
+                          {
+                            "url": "https://i.ytimg.com/vi/IMr9TMQ3_4U/hq720.jpg",
+                            "width": 720,
+                            "height": 404
+                          }
+                        ]
+                      },
+                      "title": {
+                        "accessibility": {
+                          "accessibilityData": {
+                            "label": "Vintage Evening Radio Jazz – 1930s 1940s Smooth Swing & Vinyl Background Music"
+                          }
+                        },
+                        "runs": [
+                          {
+                            "text": "Vintage Evening Radio Jazz – 1930s 1940s Smooth Swing & Vinyl Background Music"
+                          }
+                        ]
+                      },
+                      "ownerText": {
+                        "runs": [
+                          {
+                            "text": "Songs Little PIB",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCjXDOwB3LsPUNR962Yun2pA"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "viewCountText": {
+                        "runs": [
+                          {
+                            "text": "384"
+                          },
+                          {
+                            "text": " watching"
+                          }
+                        ]
+                      },
+                      "badges": [
+                        {
+                          "metadataBadgeRenderer": {
+                            "style": "BADGE_STYLE_TYPE_LIVE_NOW"
+                          }
+                        },
+                        {
+                          "metadataBadgeRenderer": {
+                            "style": "BADGE_STYLE_TYPE_SIMPLE"
+                          }
+                        }
+                      ],
+                      "ownerBadges": [
+                        {
+                          "metadataBadgeRenderer": {
+                            "style": "BADGE_STYLE_TYPE_VERIFIED"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "videoRenderer": {
+                      "videoId": "9m1ZJHhUVSs",
+                      "thumbnail": {
+                        "thumbnails": [
+                          {
+                            "url": "https://i.ytimg.com/vi/9m1ZJHhUVSs/hq720.jpg",
+                            "width": 360,
+                            "height": 202
+                          },
+                          {
+                            "url": "https://i.ytimg.com/vi/9m1ZJHhUVSs/hq720.jpg",
+                            "width": 720,
+                            "height": 404
+                          }
+                        ]
+                      },
+                      "title": {
+                        "accessibility": {
+                          "accessibilityData": {
+                            "label": "Spotify Hits Music 2026 🎤 | Best 100 English Songs | TikTok Viral Music | New Popular English Songs"
+                          }
+                        },
+                        "runs": [
+                          {
+                            "text": "Spotify Hits Music 2026 🎤 | Best 100 English Songs | TikTok Viral Music | New Popular English Songs"
+                          }
+                        ]
+                      },
+                      "ownerText": {
+                        "runs": [
+                          {
+                            "text": "Soft Feelings",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCh_4VN7jDxDi1WNJ7xgcQZA"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "viewCountText": {
+                        "runs": [
+                          {
+                            "text": "1,822"
+                          },
+                          {
+                            "text": " watching"
+                          }
+                        ]
+                      },
+                      "badges": [
+                        {
+                          "metadataBadgeRenderer": {
+                            "style": "BADGE_STYLE_TYPE_LIVE_NOW"
+                          }
+                        }
+                      ],
+                      "ownerBadges": []
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 //! High-level endpoint facade over the transport. context/03, 08.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures_util::future::join_all;
@@ -31,6 +31,9 @@ pub const FILTER_SONG: &str = "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D";
 pub const FILTER_VIDEO: &str = "EgWKAQIQAWoKEAkQChAFEAMQBA%3D%3D";
 pub const FILTER_ALBUM: &str = "EgWKAQIYAWoKEAkQChAFEAMQBA%3D%3D";
 pub const FILTER_ARTIST: &str = "EgWKAQIgAWoKEAkQChAFEAMQBA%3D%3D";
+/// YouTube's (not YouTube Music's) search filter for broadcasts on air. Only the WEB client's
+/// search understands it.
+pub const FILTER_LIVE_NOW: &str = "EgJAAQ%3D%3D";
 pub const FILTER_COMMUNITY_PLAYLIST: &str = "EgeKAQQoAEABagoQAxAEEAoQCRAF";
 
 /// A comment's like/unlike/dislike/undislike and delete: `{context, actions: [<token>]}`.
@@ -228,6 +231,21 @@ impl InnerTube {
         Ok(browse::parse_search_cards(&value))
     }
 
+    /// Broadcasts on air for `query`, from YouTube's search with its Live filter (#424). `client`
+    /// is the WEB client: YouTube Music's own search returns no live marker at all. Anonymous,
+    /// like every search that records no history.
+    pub async fn live_now(
+        &self,
+        client: &YouTubeClient,
+        query: &str,
+    ) -> Result<Vec<browse::LiveVideo>, Error> {
+        let value = self.search_raw(client, query, Some(FILTER_LIVE_NOW), false).await?;
+        let mut live = browse::parse_live_search(&value);
+        let blocked = self.blocked();
+        live.retain(|l| !blocked.blocks_card(&l.item));
+        Ok(live)
+    }
+
     /// Up-next queue / radio for a video. context/08. Uses the metadata client.
     ///
     /// `video_id` is optional: an artist/mood radio is a playlist id with no seed track
@@ -261,6 +279,29 @@ impl InnerTube {
         }
         self.drop_blocked_songs(&mut next.items, video_id);
         Ok(next)
+    }
+
+    /// The videoId YouTube redirects `video_id` to, if it redirects at all. Some region-locked
+    /// tracks are aliased to a twin upload that plays in the caller's region, and only resolving
+    /// the URL follows that alias: the watch page and `navigation/resolve_url` answer with the
+    /// twin, while `/player` and `/next` keep answering for the dead id (live-checked 2026-11-19,
+    /// `uUaexHgTsUU` to `0bsObTAGYqM`). Anonymous, like the watch page that showed it.
+    pub async fn watch_redirect(
+        &self,
+        client: &YouTubeClient,
+        video_id: &str,
+    ) -> Result<Option<String>, Error> {
+        #[derive(Serialize)]
+        struct Body {
+            context: Context,
+            url: String,
+        }
+        let body = Body {
+            context: self.context_anonymous(client),
+            url: format!("https://music.youtube.com/watch?v={video_id}"),
+        };
+        let value = self.post_no_heal("navigation/resolve_url", client, &body, false).await?;
+        Ok(redirect_target(&value, video_id))
     }
 
     // --- comments. Reads go through `next`: a comments token sent to `browse` is answered with
@@ -1103,6 +1144,13 @@ impl InnerTube {
     ///
     /// Returns `false` when the track is already in the playlist: YouTube refuses the add (see
     /// `edit_rejection`) rather than storing a second copy, unless `allow_duplicates` asks for one.
+    ///
+    /// Adding is the one edit the app offers on any playlist, saved ones from other people
+    /// included, so a 401/403 here is YouTube saying the list isn't this account's to edit
+    /// (`Error::PlaylistNotEditable`), not a dead session. It never wakes the healer: a heal signs
+    /// in again, and the UI took that for an account switch mid-add (#651). ponytail: a session
+    /// that really went stale reads as a refusal here too, but every add follows a library or
+    /// playlist read that heals it.
     pub async fn playlist_add(
         &self,
         client: &YouTubeClient,
@@ -1110,12 +1158,13 @@ impl InnerTube {
         video_id: &str,
         allow_duplicates: bool,
     ) -> Result<bool, Error> {
-        match self
-            .edit_playlist(client, playlist_id, add_video_action(video_id, allow_duplicates))
-            .await
-        {
-            Ok(()) => Ok(true),
+        let action = vec![add_video_action(video_id, allow_duplicates)];
+        match self.edit_playlist_value(client, playlist_id, action, false).await {
+            Ok(_) => Ok(true),
             Err(Error::AlreadyInPlaylist) => Ok(false),
+            Err(Error::Http(e)) if e.status().is_some_and(|s| s == 401 || s == 403) => {
+                Err(Error::PlaylistNotEditable)
+            }
             Err(e) => Err(e),
         }
     }
@@ -1123,13 +1172,35 @@ impl InnerTube {
     /// Add many videos in one `browse/edit_playlist` call, in order. The edit is all or nothing,
     /// and one track the playlist already holds fails the whole batch (`edit_rejection`), so the
     /// caller passes only videos it knows are new. Used by the Spotify import (#375).
+    ///
+    /// Answers each video with the `setVideoId` its new row got (what a move or removal of it
+    /// needs), empty where the reply didn't say.
     pub async fn playlist_add_many(
         &self,
         client: &YouTubeClient,
         playlist_id: &str,
         video_ids: &[String],
-    ) -> Result<(), Error> {
+    ) -> Result<Vec<(String, String)>, Error> {
         let actions = video_ids.iter().map(|v| add_video_action(v, false)).collect();
+        let value = self.edit_playlist_value(client, playlist_id, actions, true).await?;
+        let handles = added_handles(&value);
+        Ok(video_ids
+            .iter()
+            .map(|v| (v.clone(), handles.get(v.as_str()).cloned().unwrap_or_default()))
+            .collect())
+    }
+
+    /// Several moves in one `edit_playlist` request, applied in order: `(setVideoId, the
+    /// setVideoId it goes before)`, `None` for the end. All or nothing: one handle that is no
+    /// longer in the playlist fails the lot (progress/notes/youtube-playlist-move-batch.md).
+    pub async fn playlist_move_many(
+        &self,
+        client: &YouTubeClient,
+        playlist_id: &str,
+        moves: &[(String, Option<String>)],
+    ) -> Result<(), Error> {
+        let actions =
+            moves.iter().map(|(h, before)| move_video_action(h, before.as_deref())).collect();
         self.edit_playlist_actions(client, playlist_id, actions).await
     }
 
@@ -1326,6 +1397,7 @@ impl InnerTube {
                     "action": "ACTION_REMOVE_CUSTOM_THUMBNAIL",
                     "deletedCustomThumbnail": custom_thumbnail_key(),
                 })],
+                true,
             )
             .await
             .map_err(cover_refusal)?;
@@ -1347,14 +1419,16 @@ impl InnerTube {
         playlist_id: &str,
         actions: Vec<serde_json::Value>,
     ) -> Result<(), Error> {
-        self.edit_playlist_value(client, playlist_id, actions).await.map(|_| ())
+        self.edit_playlist_value(client, playlist_id, actions, true).await.map(|_| ())
     }
 
+    /// `heal`: whether a 401/403 may wake the session healer (see [`InnerTube::post_no_heal`]).
     async fn edit_playlist_value(
         &self,
         client: &YouTubeClient,
         playlist_id: &str,
         actions: Vec<serde_json::Value>,
+        heal: bool,
     ) -> Result<serde_json::Value, Error> {
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
@@ -1368,7 +1442,11 @@ impl InnerTube {
             playlist_id: strip_vl(playlist_id).to_owned(),
             actions,
         };
-        let value = self.post("browse/edit_playlist", client, &body, true).await?;
+        let value = if heal {
+            self.post("browse/edit_playlist", client, &body, true).await?
+        } else {
+            self.post_no_heal("browse/edit_playlist", client, &body, true).await?
+        };
         match edit_rejection(&value) {
             Some(e) => Err(e),
             None => Ok(value),
@@ -1452,6 +1530,12 @@ const PAGE_ROWS: u64 = 100;
 /// page at a time, as before #536.
 /// ponytail: process-wide, so one odd playlist turns it off for all of them until a restart.
 static AHEAD_OFF: AtomicBool = AtomicBool::new(false);
+
+/// The watch target of a `navigation/resolve_url` answer, when it is not the id asked about.
+fn redirect_target(response: &serde_json::Value, video_id: &str) -> Option<String> {
+    let id = response.pointer("/endpoint/watchEndpoint/videoId")?.as_str()?;
+    (id != video_id).then(|| id.to_owned())
+}
 
 /// "Hide music videos" on a `/next` page. The seed always stays: "start radio from this video"
 /// opens on that video, and the track already playing is never yanked out from under the user.
@@ -1609,6 +1693,19 @@ fn add_video_action(video_id: &str, allow_duplicates: bool) -> serde_json::Value
     action
 }
 
+/// `videoId` to the `setVideoId` of its new row, from an add's reply.
+fn added_handles(v: &serde_json::Value) -> HashMap<&str, String> {
+    v["playlistEditResults"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| {
+            let d = &r["playlistEditVideoAddedResultData"];
+            Some((d["videoId"].as_str()?, d["setVideoId"].as_str()?.to_owned()))
+        })
+        .collect()
+}
+
 fn move_video_action(set_video_id: &str, before: Option<&str>) -> serde_json::Value {
     let mut action = serde_json::json!({
         "action": "ACTION_MOVE_VIDEO_BEFORE",
@@ -1638,6 +1735,17 @@ fn edit_rejection(v: &serde_json::Value) -> Option<Error> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_redirected_watch_url_names_its_twin() {
+        let v = serde_json::from_str(include_str!("../tests/fixtures/resolve_url_redirect.json"))
+            .unwrap();
+        assert_eq!(redirect_target(&v, "uUaexHgTsUU").as_deref(), Some("0bsObTAGYqM"));
+        // A playable id resolves to itself, and a channel or a refusal has no watch target.
+        assert_eq!(redirect_target(&v, "0bsObTAGYqM"), None);
+        assert_eq!(redirect_target(&json!({"endpoint": {"browseEndpoint": {}}}), "x"), None);
+        assert_eq!(redirect_target(&json!({}), "x"), None);
+    }
 
     #[test]
     fn hiding_videos_never_empties_a_radio() {
@@ -1762,6 +1870,10 @@ mod tests {
             "setVideoId": "56B44F6D10557CC6", "videoId": "dQw4w9WgXcQ" } }],
             "status": "STATUS_SUCCEEDED" });
         assert!(edit_rejection(&ok).is_none());
+        assert_eq!(
+            added_handles(&ok).get("dQw4w9WgXcQ").map(String::as_str),
+            Some("56B44F6D10557CC6")
+        );
 
         let dup = json!({ "actions": [{ "addToToastAction": { "item": {
             "notificationActionRenderer": { "actionButton": { "buttonRenderer": {
@@ -1929,6 +2041,23 @@ mod tests {
         assert!(matches!(it.comments(&web(), "vid").await, Err(Error::Http(_))));
         assert_eq!(server.requests().len(), 1);
         no_heal(&it).await;
+    }
+
+    /// #651: someone else's playlist refuses the add. That is the answer, not a dead session to heal
+    /// (a heal would sit out its 90 s timeout here, hence the short one).
+    #[tokio::test]
+    async fn an_add_to_someone_elses_playlist_is_refused_without_healing() {
+        for status in [401, 403] {
+            let server = MockServer::start(move |_| (status, "{}".into()));
+            let it = it_against(&server, true);
+            let client = web();
+            let add = it.playlist_add(&client, "VLPLtheirs", "vid", false);
+            let got =
+                tokio::time::timeout(Duration::from_secs(5), add).await.expect("no heal wait");
+            assert!(matches!(got, Err(Error::PlaylistNotEditable)), "{status}: {got:?}");
+            assert_eq!(server.requests().len(), 1);
+            no_heal(&it).await;
+        }
     }
 
     #[tokio::test]

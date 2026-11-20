@@ -161,7 +161,7 @@
 						</span>
 						<HugeiconsIcon
 							icon={ArrowRight01Icon}
-							class="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 group-hover/pl:opacity-100 group-focus-visible/pl:opacity-100"
+							class="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 group-hover/pl:shown group-focus-visible/pl:shown"
 						/>
 					</a>
 				{/each}

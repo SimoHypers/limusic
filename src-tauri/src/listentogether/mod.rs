@@ -89,7 +89,21 @@ impl Status {
 /// bare room code, so nobody has to see (or retype) somebody else's hostname to listen together.
 /// An empty `server_url` means "this one", resolved at connect time in [`LtSession::run`], so
 /// clearing the field is how a self-hoster comes back to the default.
-const DEFAULT_SERVER: &str = "wss://fedora-1.tail9c4985.ts.net/ws";
+pub(crate) const DEFAULT_SERVER: &str = "wss://sync.limusic.app/ws";
+
+/// The previous default, a Tailscale Funnel address some ISP filters reset (#627). Builds that
+/// pre-filled the server field saved it into the setting and minted it into invites, so it still
+/// arrives from both. It means the default, so it is stored as empty and moves with
+/// [`DEFAULT_SERVER`].
+const OLD_DEFAULT_SERVER: &str = "wss://fedora-1.tail9c4985.ts.net/ws";
+
+pub(crate) fn stored_url(url: String) -> String {
+    if url.trim() == OLD_DEFAULT_SERVER {
+        String::new()
+    } else {
+        url
+    }
+}
 
 #[derive(Default)]
 struct Inner {
@@ -170,7 +184,7 @@ impl LtSession {
         // rustls needs a process-wide crypto provider before the first `wss://` handshake.
         let _ = rustls::crypto::ring::default_provider().install_default();
         let (sync_tx, sync_rx) = mpsc::unbounded_channel();
-        let inner = Inner { server_url, ..Inner::default() };
+        let inner = Inner { server_url: stored_url(server_url), ..Inner::default() };
         let s = Arc::new(LtSession {
             app,
             inner: Arc::new(Mutex::new(inner)),
@@ -183,7 +197,7 @@ impl LtSession {
     // --- public API (called by commands + AppState) -----------------------------------------
 
     pub async fn set_server_url(&self, url: String) {
-        self.inner.lock().await.server_url = url;
+        self.inner.lock().await.server_url = stored_url(url);
         self.emit_state().await;
     }
 
@@ -471,6 +485,12 @@ impl LtSession {
         sanitize(&mut sm);
         match sm {
             ServerMessage::Pong => return false,
+            // Device link messages: the server never sends them to a Listen Together socket.
+            ServerMessage::LinkJoined { .. }
+            | ServerMessage::PairCode { .. }
+            | ServerMessage::Paired { .. }
+            | ServerMessage::Remote { .. }
+            | ServerMessage::LinkStatus { .. } => return false,
 
             ServerMessage::RoomCreated { room_code: _, user_id, session_token, state } => {
                 {
@@ -733,7 +753,7 @@ impl LtSession {
 /// so a peer could point us at any path. On Windows a UNC path (`\\host\share`) makes the OS
 /// connect to that host and offer the user's NTLM credentials. Outbound, the same rule keeps our
 /// local paths, and the username in them, off the relay; guests couldn't play the file anyway.
-fn shareable(t: &Track) -> bool {
+pub(crate) fn shareable(t: &Track) -> bool {
     t.id.len() == 11 && t.id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
@@ -752,7 +772,8 @@ fn sanitize(sm: &mut ServerMessage) {
         ServerMessage::RoomCreated { state, .. }
         | ServerMessage::JoinApproved { state, .. }
         | ServerMessage::Reconnected { state, .. }
-        | ServerMessage::SyncState { state } => {
+        | ServerMessage::SyncState { state }
+        | ServerMessage::LinkJoined { state, .. } => {
             state.current_track = state.current_track.take().filter(shareable);
             state.queue.retain(shareable);
         }
@@ -769,12 +790,20 @@ fn sanitize(sm: &mut ServerMessage) {
         | ServerMessage::SuggestionApproved { .. }
         | ServerMessage::SuggestionRejected { .. }
         | ServerMessage::Kicked { .. }
-        | ServerMessage::Error { .. } => {}
+        | ServerMessage::Error { .. }
+        // Link only (`handle` ignores them); a remote `play_track` never reaches this socket.
+        | ServerMessage::Remote { .. }
+        | ServerMessage::PairCode { .. }
+        | ServerMessage::Paired { .. }
+        | ServerMessage::LinkStatus { .. } => {}
     }
 }
 
 /// How long one address gets to complete a TCP handshake before we move to the next.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
+/// How long the TLS and WebSocket handshakes get once TCP is up. A network that drops the
+/// ClientHello used to hang this await for good, and with it the retry loop around it (#732).
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// No frame from the server for this long means the connection is dead. Pings go out every 25s
 /// and each gets a Pong, so this is two missed answers plus slack.
@@ -788,7 +817,9 @@ const SILENCE_LIMIT: Duration = Duration::from_secs(60);
 /// AAAA ingress is a black hole from some networks; glibc sorts IPv6 first, so a host with working
 /// IPv6 burned six minutes on dead addresses before ever trying the IPv4 that works. Same reason a
 /// join request never reached the host: the socket carrying it was still in a SYN retry.
-async fn connect_ws(url: &str) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, WsError> {
+pub(crate) async fn connect_ws(
+    url: &str,
+) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, WsError> {
     let req = url.into_client_request()?;
     let uri = req.uri().clone();
     let host = uri
@@ -799,7 +830,10 @@ async fn connect_ws(url: &str) -> Result<WebSocketStream<MaybeTlsStream<TcpStrea
     let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, port)).await?.collect();
     let socket = connect_first(&addrs).await.map_err(WsError::Io)?;
 
-    let (ws, _) = tokio_tungstenite::client_async_tls_with_config(req, socket, None, None).await?;
+    let handshake = tokio_tungstenite::client_async_tls_with_config(req, socket, None, None);
+    let (ws, _) = tokio::time::timeout(HANDSHAKE_TIMEOUT, handshake).await.map_err(|_| {
+        WsError::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, "handshake timed out"))
+    })??;
     Ok(ws)
 }
 
@@ -887,6 +921,23 @@ mod tests {
         );
     }
 
+    /// The bug (#732): a server that takes the TCP connection and never answers the TLS hello hung
+    /// `connect_ws` for good, and the retry loop around it. It must fail instead.
+    #[tokio::test]
+    async fn a_silent_handshake_fails_instead_of_hanging() {
+        // The kernel completes the TCP handshake from the backlog; nothing ever answers after it.
+        let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("wss://127.0.0.1:{}/ws", silent.local_addr().unwrap().port());
+        let r = tokio::time::timeout(HANDSHAKE_TIMEOUT * 2, connect_ws(&url)).await;
+        assert!(matches!(r, Ok(Err(_))), "the handshake should time out, not hang");
+    }
+
+    #[test]
+    fn the_old_default_server_means_the_default() {
+        assert_eq!(stored_url(OLD_DEFAULT_SERVER.into()), "");
+        assert_eq!(stored_url("wss://my.host/ws".into()), "wss://my.host/ws");
+    }
+
     #[tokio::test]
     async fn no_addresses_is_an_error_not_a_hang() {
         assert!(connect_first(&[]).await.is_err());
@@ -894,7 +945,7 @@ mod tests {
 }
 
 /// Exponential backoff, capped at 32s (context/19 Part B §1: the client's real ceiling).
-fn backoff_delay(attempt: u32) -> Duration {
+pub(crate) fn backoff_delay(attempt: u32) -> Duration {
     let shift = attempt.clamp(1, 6) - 1; // 0..=5 → 1,2,4,8,16,32
     Duration::from_secs(1u64 << shift)
 }

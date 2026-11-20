@@ -3,8 +3,10 @@
 @import '@fontsource-variable/ibm-plex-sans';
 
 /* Limusic app theme (default, dark), tokens copied from ui/src/routes/layout.css .dark block.
-   The site is dark-only. */
+   The landing page is dark-only (`class="dark"` on its <html>); the lyrics pages follow the system
+   theme, light below. */
 :root {
+  color-scheme: dark;
   --background: oklch(0.145 0.008 326);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.212 0.019 322.12);
@@ -26,6 +28,39 @@
   --radius: 0.45rem;
   /* the brighter crimson the app uses for active/play accents */
   --primary-bright: oklch(0.645 0.246 16.439);
+  /* the lyrics board's first place */
+  --gold: oklch(0.84 0.15 86);
+  /* second and third in the lyrics board's headline, beside the accent */
+  --orchid: oklch(0.74 0.16 318);
+  --amber: oklch(0.8 0.14 62);
+}
+
+/* The app's default light palette (layout.css :root, hue 326). --primary-bright is the light
+   primary there: the dark one is too pale for text on white. */
+@media (prefers-color-scheme: light) {
+  :root:not(.dark) {
+    color-scheme: light;
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0.008 326);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0.008 326);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0.008 326);
+    --primary: oklch(0.514 0.222 16.935);
+    --secondary: oklch(0.967 0.001 326);
+    --secondary-foreground: oklch(0.21 0.006 326);
+    --muted: oklch(0.96 0.003 326);
+    --muted-foreground: oklch(0.542 0.034 326);
+    --accent: oklch(0.514 0.222 16.935);
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.922 0.005 326);
+    --input: oklch(0.922 0.005 326);
+    --ring: oklch(0.711 0.019 326);
+    --primary-bright: oklch(0.514 0.222 16.935);
+    --gold: oklch(0.7 0.15 75);
+    --orchid: oklch(0.56 0.2 318);
+    --amber: oklch(0.64 0.16 55);
+  }
 }
 
 @theme inline {
@@ -38,6 +73,7 @@
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary-bright: var(--primary-bright);
+  --color-gold: var(--gold);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -71,8 +107,66 @@
   }
 }
 
+/* The lyrics board's headline: each word fills left to right once, like a sung line in the app's
+   lyrics view (LyricsView's sweep, --foreground over --muted-foreground). */
+.sweep-word {
+  background-image: linear-gradient(
+    90deg,
+    var(--foreground) 47%,
+    color-mix(in oklch, var(--muted-foreground) 45%, transparent) 53%
+  );
+  background-size: 220% 100%;
+  background-position: 100% 0;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: sweep var(--d) linear var(--t) forwards;
+}
+
+/* The headline's names, which are links, each fill in its own colour (`--sung`). */
+.sweep-word.is-name {
+  background-image: linear-gradient(
+    90deg,
+    var(--sung) 47%,
+    color-mix(in oklch, var(--muted-foreground) 45%, transparent) 53%
+  );
+}
+
+/* A word the visitor just tapped in the try-it line: it lands in the accent with a glow, then
+   settles. */
+.tap-word {
+  animation: tap 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes tap {
+  from {
+    color: var(--primary-bright);
+    transform: translateY(-0.12em) scale(1.08);
+    text-shadow: 0 0 0.5em color-mix(in oklch, var(--primary-bright) 70%, transparent);
+  }
+}
+
+@keyframes sweep {
+  to {
+    background-position: 0 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
   }
+  .sweep-word {
+    animation: none;
+    background-position: 0 0;
+  }
+  .tap-word {
+    animation: none;
+  }
+}
+
+/* A line waiting for its turn (the steps under the board): its words hold, unsung. */
+.sweep-wait .sweep-word {
+  animation-play-state: paused;
 }

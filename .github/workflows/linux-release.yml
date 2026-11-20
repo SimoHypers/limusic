@@ -14,6 +14,13 @@ name: Linux release binaries
 # Ubuntu and would silently reintroduce exactly the bug this workflow exists to fix. The
 # "Check the glibc floor" step below fails the build if someone does it anyway.
 #
+# Older is not safe either. 1.4.1 was built in debian:bookworm (glibc 2.36) and its AppImage died
+# on Fedora the moment a color emoji was drawn: the bundled WebKit's Skia is compiled against the
+# build host's FreeType headers, but the AppImage runs on the host's libfreetype (it is on the
+# AppImage exclude list). Bookworm has FreeType 2.12, where FT_ColorStop is 6 bytes; 2.13 widened
+# it to 16, so a 2.13+ host overwrote Skia's stack on every COLRv1 gradient glyph (Fedora's default
+# emoji font is COLRv1). A build host whose FreeType predates its users' breaks the AppImage.
+#
 # The .deb is here for exactly the same reason, and needs it more. Tauri writes a deb's Depends
 # verbatim from tauri.conf.json and never runs dpkg-shlibdeps, so nothing in the package records a
 # glibc floor at all: a Fedora-built deb installs cleanly on Debian and then dies at startup on a
@@ -173,12 +180,14 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
             libssl-dev libdbus-1-dev libmpv-dev patchelf file \
-            libjack-jackd2-0 glib-networking mold \
+            libjack-jackd2-0 glib-networking dconf-gsettings-backend mold \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-gl \
             gstreamer1.0-libav gstreamer1.0-alsa
           # libjack: linuxdeploy excludes it, so fix-appdir-tls.sh copies it in by hand.
           # glib-networking: supplies the gio TLS module that gets bundled. Without it the webview
           # has no TLS backend at all, which is the bug that started this whole saga.
+          # dconf-gsettings-backend: the GSettings module that gets bundled. On Wayland GTK reads
+          # the desktop's button layout, cursor, fonts and icons through it.
           # gstreamer1.0-*: WebKit decodes every <video> through GStreamer, and linuxdeploy bundles
           # the core libraries without a single plugin, which aborted the web process on every
           # music video in v0.5.0. These packages put the plugins on disk; fix-appdir-tls.sh copies
@@ -278,7 +287,7 @@ jobs:
             libdrm.so.2 libgbm.so.1 libwayland-client.so.0 libX11.so.6
             libX11-xcb.so.1 libxcb.so.1 libxcb-dri3.so.0 libexpat.so.1 libfontconfig.so.1
             libfreetype.so.6 libharfbuzz.so.0 libfribidi.so.0 libz.so.1 libasound.so.2
-            libusb-1.0.so.0 libcom_err.so.2 libgpg-error.so.0"
+            libusb-1.0.so.0 libcom_err.so.2 libgpg-error.so.0 libxkbcommon.so.0"
           for f in "$APPDIR"/usr/lib/*.so* "$APPDIR"/usr/lib64/*.so* \
                    "$APPDIR"/usr/lib/gstreamer-1.0/*.so "$APPDIR"/usr/bin/*; do
             [ -e "$f" ] || continue
@@ -398,6 +407,23 @@ jobs:
       - name: Dry run — built and verified, attaching nothing
         if: ${{ inputs.dry_run }}
         run: echo "dry_run - every build step and guard passed; release assets left untouched."
+
+      # The guards above prove the AppImage starts on other distros, not how it feels to use. Hand
+      # it over as a workflow artifact, as the Windows workflow does with its installer: a branch
+      # can then be run for a day as the build users would get (this runner's WebKitGTK, not the
+      # developer's) before it is tagged. Artifacts are not release assets, so no user sees this
+      # and latest.json is untouched. One day, because it is an unreleased build and an artifact on
+      # a public repository can be downloaded by anyone.
+      - name: Dry run, keep the AppImage as an artifact
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: limusic-dry-run-${{ steps.rel.outputs.tag }}
+          path: target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+          retention-days: 1
+          # Already squashfs: zipping it again buys nothing and costs a minute.
+          compression-level: 0
 
       - name: Attach the AppImage + deb, teach latest.json about Linux
         if: ${{ !inputs.dry_run }}

@@ -24,12 +24,11 @@
     import TrackFilter, {
         filterTracks,
     } from "$lib/components/TrackFilter.svelte";
-    import TrackRowSkeleton from "$lib/components/TrackRowSkeleton.svelte";
+    import LimusicLoader from "$lib/components/LimusicLoader.svelte";
     import Shelf from "$lib/components/Shelf.svelte";
     import ErrorState from "$lib/components/ErrorState.svelte";
     import ArtistLine from "$lib/components/ArtistLine.svelte";
     import ExplicitIcon from "$lib/components/ExplicitIcon.svelte";
-    import { Skeleton } from "$lib/components/ui/skeleton";
     import * as api from "$lib/api";
     import type { AlbumPage, BrowseItem } from "$lib/api";
     import {
@@ -221,25 +220,7 @@
 </script>
 
 {#if loading}
-    <div class="flex flex-col gap-5 p-6 pt-10">
-        <div class="flex items-end gap-5">
-            <Skeleton class="h-28 w-28 shrink-0 rounded-xl" />
-            <div class="flex-1 space-y-3">
-                <Skeleton class="h-3 w-16 rounded" />
-                <Skeleton class="h-10 w-1/2 rounded-lg" />
-                <Skeleton class="h-4 w-40 rounded" />
-            </div>
-        </div>
-        <div class="flex gap-3">
-            <Skeleton class="h-11 w-28 rounded-full" />
-            <Skeleton class="h-11 w-28 rounded-full" />
-        </div>
-    </div>
-    <div class="p-6 pt-2">
-        {#each Array(8) as _, i (i)}
-            <TrackRowSkeleton hideThumb />
-        {/each}
-    </div>
+    <div class="flex h-full items-center justify-center"><LimusicLoader /></div>
 {:else if error}
     <div class="p-6"><ErrorState message={error} onRetry={() => load(id)} /></div>
 {:else if album}

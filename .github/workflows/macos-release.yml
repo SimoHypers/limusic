@@ -16,9 +16,11 @@ name: macOS release binaries
 # rewriting a Mach-O invalidates its signature, arm64 macOS refuses to execute unsigned code, so the
 # bundle is re-signed (ad-hoc) before it is archived, and the updater .sig is generated afterwards.
 #
-# ARM ONLY. macos-14 is the oldest Apple Silicon runner, and Homebrew bottles are built per macOS
-# version, so the runner's OS is the app's floor exactly like glibc is on Linux: this produces a
-# macOS 14+ arm64 build, which is what `minimumSystemVersion` in tauri.macos.conf.json declares.
+# ARM ONLY. macos-15 is the oldest Apple Silicon runner GitHub still offers (macos-14 was retired on
+# 2026-11-02 and fails a job at once), and Homebrew bottles are built per macOS version, so the
+# runner's OS is the app's floor exactly like glibc is on Linux: this produces a macOS 15+ arm64
+# build, which is what `minimumSystemVersion` in tauri.macos.conf.json declares. When this runner is
+# retired too, the floor and that key move together.
 # Intel Macs need a second leg on `macos-13` publishing `darwin-x86_64`; add it when someone asks.
 #
 # NOT SIGNED WITH AN APPLE CERT, so the app is quarantined on first launch and Gatekeeper says the
@@ -62,7 +64,7 @@ jobs:
   build:
     # PINNED. macos-latest tracks the newest macOS, and since every bundled Homebrew dylib is built
     # for the runner's OS, that would silently raise the floor for users. Oldest arm64 runner wins.
-    runs-on: macos-14
+    runs-on: macos-15
     # A healthy run is ~15 min, ~25 on a cold cargo cache (brew install mpv alone is a few minutes).
     timeout-minutes: 45
     steps:

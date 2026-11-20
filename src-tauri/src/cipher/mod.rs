@@ -205,19 +205,17 @@ impl CipherDeobfuscator {
         let bridge = inner.bridge.clone()?;
         drop(inner);
 
-        let re = regex::Regex::new(r"[?&]n=([^&]+)").ok()?;
-        let enc = re.captures(url)?.get(1)?.as_str().to_owned();
-        let decoded = urlencoding::decode(&enc).ok()?.into_owned();
+        let (start, end) = n_param_span(url)?;
+        let enc = &url[start..end];
+        let decoded = urlencoding::decode(enc).ok()?.into_owned();
         let js = format!(
             "(function(){{try{{return String(window._nTransformFunc({}));}}catch(e){{return null;}}}})()",
             js_string(&decoded)
         );
         match bridge.eval_json(js, CALL_TIMEOUT).await.ok()? {
-            Value::String(newn) if !newn.is_empty() && newn != decoded => Some(url.replacen(
-                &format!("n={enc}"),
-                &format!("n={}", urlencoding::encode(&newn)),
-                1,
-            )),
+            Value::String(newn) if !newn.is_empty() && newn != decoded => {
+                Some(format!("{}{}{}", &url[..start], urlencoding::encode(&newn), &url[end..]))
+            }
             _ => None,
         }
     }
@@ -436,6 +434,15 @@ fn parse_cipher(cipher: &str) -> Option<(String, String, String)> {
     Some((s?, sp.unwrap_or_else(|| "signature".into()), url?))
 }
 
+/// Where a stream URL keeps its `n` challenge, as the byte range of the value: `&n=` in a file's
+/// query, `/n/<x>/` in a live HLS playlist's path (#424, the pattern yt-dlp reads it with).
+pub(crate) fn n_param_span(url: &str) -> Option<(usize, usize)> {
+    let re = regex::Regex::new(r"[?&]n=([^&]+)|/n/([^/]+)/").ok()?;
+    let c = re.captures(url)?;
+    let m = c.get(1).or_else(|| c.get(2))?;
+    Some((m.start(), m.end()))
+}
+
 /// A JS string literal for the given value (properly escaped via JSON).
 fn js_string(s: &str) -> String {
     serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
@@ -449,6 +456,21 @@ fn keep_bridge(sig_available: bool, n_available: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_n_in_a_query_and_in_a_playlist_path() {
+        let n = |u: &str| n_param_span(u).map(|(s, e)| u[s..e].to_owned());
+        assert_eq!(
+            n("https://x.googlevideo.com/videoplayback?a=1&n=AbC%3D&b=2").unwrap(),
+            "AbC%3D"
+        );
+        assert_eq!(
+            n("https://manifest.googlevideo.com/api/manifest/hls_variant/ei/E/n/AbC/x/1/playlist/index.m3u8")
+                .unwrap(),
+            "AbC"
+        );
+        assert_eq!(n("https://x.googlevideo.com/videoplayback?a=1&in=2"), None);
+    }
 
     #[test]
     fn parses_signature_cipher() {

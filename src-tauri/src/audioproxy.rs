@@ -179,11 +179,127 @@ pub fn register(url: &str, headers: &HashMap<String, String>) -> Option<String> 
     Some(format!("http://127.0.0.1:{port}/{token}/a/{id}"))
 }
 
-/// `/<token>/a/<id>` to the registration id, once the token matches this launch's.
-fn id_from<'a>(path: &'a str, token: &str) -> Option<&'a str> {
+/// `/<token>/<kind>/<id>` to `(kind, id)`, once the token matches this launch's.
+fn route<'a>(path: &'a str, token: &str) -> Option<(&'a str, &'a str)> {
     let (t, rest) = path.strip_prefix('/')?.split_once('/')?;
     let (kind, id) = rest.split_once('/')?;
-    (t == token && kind == "a" && !id.is_empty()).then_some(id)
+    (t == token && !id.is_empty()).then_some((kind, id))
+}
+
+/// `/<token>/a/<id>` to the registration id.
+fn id_from<'a>(path: &'a str, token: &str) -> Option<&'a str> {
+    route(path, token).filter(|(kind, _)| *kind == "a").map(|(_, id)| id)
+}
+
+/// Karaoke instrumentals still being written (`/<token>/k/<id>`): the song that is playing, served
+/// while the rest of it is prepared (`karaoke::KaraokeStream`).
+static GROWING: OnceLock<Mutex<HashMap<String, Arc<karaoke::stream::GrowingWav>>>> =
+    OnceLock::new();
+
+/// The loopback URL mpv plays `wav` from, or `None` if the proxy never came up.
+pub fn register_growing(wav: Arc<karaoke::stream::GrowingWav>) -> Option<String> {
+    let (port, token) = ENDPOINT.get()?;
+    let id = format!("{:016x}", rand::random::<u64>());
+    GROWING.get_or_init(Default::default).lock().ok()?.insert(id.clone(), wav);
+    Some(format!("http://127.0.0.1:{port}/{token}/k/{id}"))
+}
+
+/// Forget a stream registered by [`register_growing`]. A connection already reading keeps it.
+pub fn unregister_growing(url: &str) {
+    if let (Some(id), Some(m)) = (url.rsplit('/').next(), GROWING.get()) {
+        if let Ok(mut m) = m.lock() {
+            m.remove(id);
+        }
+    }
+}
+
+/// Serves a growing WAV. Bytes not written yet are waited for (the separation is outrunning
+/// playback, or playback would not be on it), until the job is abandoned or mpv hangs up.
+async fn serve_growing(
+    req: &Request<Incoming>,
+    id: &str,
+) -> Result<Response<ProxyBody>, StatusCode> {
+    let wav = GROWING
+        .get()
+        .and_then(|m| m.lock().ok().and_then(|m| m.get(id).cloned()))
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let total = wav.len();
+    let want = parse_range(req.headers().get(header::RANGE).and_then(|v| v.to_str().ok()));
+    let Some((start, end)) = resolve_window(want, total) else {
+        let mut r = empty(StatusCode::RANGE_NOT_SATISFIABLE);
+        if let Ok(v) = format!("bytes */{total}").parse() {
+            r.headers_mut().insert(header::CONTENT_RANGE, v);
+        }
+        return Ok(r);
+    };
+    let ranged = !matches!(want, Want::Full);
+    tracing::debug!(target: "app_lib::karaoke", start, end, total, method = %req.method(), "karaoke stream request");
+    let mut builder = Response::builder()
+        .status(if ranged { StatusCode::PARTIAL_CONTENT } else { StatusCode::OK }.as_u16())
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::CONTENT_LENGTH, end - start + 1)
+        .header(header::CONTENT_TYPE, "audio/wav");
+    if ranged {
+        builder = builder.header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{total}"));
+    }
+    let body = if req.method() == Method::HEAD {
+        Empty::<Bytes>::new().map_err(|e| match e {}).boxed()
+    } else {
+        let (tx, rx) = mpsc::channel::<Result<Bytes, io::Error>>(8);
+        tauri::async_runtime::spawn(async move { pump_growing(wav, start, end, tx).await });
+        let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+            rx.recv().await.map(|item| (item.map(Frame::data), rx))
+        });
+        BodyExt::boxed(StreamBody::new(stream))
+    };
+    builder.body(body).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn pump_growing(
+    wav: Arc<karaoke::stream::GrowingWav>,
+    start: u64,
+    end: u64,
+    tx: mpsc::Sender<Result<Bytes, io::Error>>,
+) {
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    let mut file = match tokio::fs::File::open(wav.path()).await {
+        Ok(f) => f,
+        Err(e) => {
+            let _ = tx.send(Err(e)).await;
+            return;
+        }
+    };
+    let mut buf = vec![0u8; 256 * 1024];
+    let mut pos = start;
+    let mut waited = false;
+    while pos <= end {
+        let ready = wav.servable_from(pos);
+        if ready == 0 {
+            if wav.is_abandoned() || tx.is_closed() {
+                return;
+            }
+            if !waited {
+                waited = true;
+                tracing::debug!(target: "app_lib::karaoke", at = pos, "karaoke stream: waiting for bytes");
+            }
+            // ponytail: a 50 ms poll, not a wakeup per write. Chunks land seconds apart.
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            continue;
+        }
+        let n = ready.min(buf.len() as u64).min(end - pos + 1) as usize;
+        let read = async {
+            file.seek(io::SeekFrom::Start(pos)).await?;
+            file.read_exact(&mut buf[..n]).await
+        };
+        if let Err(e) = read.await {
+            let _ = tx.send(Err(e)).await;
+            return;
+        }
+        if tx.send(Ok(Bytes::copy_from_slice(&buf[..n]))).await.is_err() {
+            return;
+        }
+        pos += n as u64;
+    }
 }
 
 fn empty(status: StatusCode) -> Response<ProxyBody> {
@@ -201,6 +317,9 @@ async fn handle(req: Request<Incoming>) -> Result<Response<ProxyBody>, StatusCod
         return Err(StatusCode::METHOD_NOT_ALLOWED);
     }
     let (_, token) = ENDPOINT.get().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    if let Some(("k", id)) = route(req.uri().path(), token) {
+        return serve_growing(&req, id).await;
+    }
     let id = id_from(req.uri().path(), token).ok_or(StatusCode::NOT_FOUND)?;
     let reg = {
         let r = REGISTRY
@@ -449,6 +568,8 @@ mod tests {
         assert_eq!(id_from("/abc/x/deadbeef", "abc"), None);
         assert_eq!(id_from("/abc/a/", "abc"), None);
         assert_eq!(id_from("/abc/a", "abc"), None);
+        assert_eq!(route("/abc/k/beef", "abc"), Some(("k", "beef")));
+        assert_eq!(id_from("/abc/k/beef", "abc"), None, "a stream id is not an audio one");
     }
 
     #[test]

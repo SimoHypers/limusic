@@ -9,7 +9,7 @@
 # squashfs-root instead. CI calls it for debian:sid, archlinux and opensuse/tumbleweed on every
 # build.
 #
-# Five checks, in the order they catch things:
+# Six checks, in the order they catch things:
 #
 #   1. ldd -r on the app binary — every load-time symbol resolves. Catches KI-6, KI-7, KI-8.
 #   2. Host libraries the app dlopens are still loadable with the AppDir on the search path.
@@ -29,6 +29,11 @@
 #      that, because the app starts and plays audio perfectly without a single plugin.
 #   5. An actual launch under Xvfb. The verification hole behind four broken releases in one night
 #      was that nothing ever started the app anywhere except the build host's own OS family.
+#   6. The same launch on a headless Wayland compositor, with no X server at all. The AppImage runs
+#      on Wayland wherever the session is Wayland, so a library we bundle that breaks the host's
+#      Wayland stack (libwayland-client did, KI-9) has to fail here, not on users. With no X server,
+#      a quiet fallback to X11 has nothing to land on, so passing means GTK really drew on Wayland.
+#      Skipped, and said so, only where weston itself will not install (openSUSE, best effort).
 set -uo pipefail
 
 APPDIR=/app
@@ -41,22 +46,27 @@ step "installing a desktop package set"
 if command -v apt-get >/dev/null; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
+  # The 64-bit time_t rename (trixie on) left bookworm with the old name.
+  ALSA=libasound2t64; apt-cache show "$ALSA" >/dev/null 2>&1 || ALSA=libasound2
   apt-get install -y -qq --no-install-recommends \
-    xvfb xauth dbus dbus-x11 python3 \
+    xvfb xauth dbus dbus-x11 python3 weston \
     libegl-mesa0 libgl1-mesa-dri libglx-mesa0 libgles2 libgl1 libegl1 \
     libharfbuzz0b libharfbuzz-icu0 libkrb5-3 libgssapi-krb5-2 libpango-1.0-0 \
-    libasound2t64 libfribidi0 libusb-1.0-0 libcom-err2 libgpg-error0 libexpat1 \
-    libfontconfig1 fonts-dejavu-core ca-certificates gvfs
+    "$ALSA" libfribidi0 libusb-1.0-0 libcom-err2 libgpg-error0 libexpat1 \
+    libfontconfig1 fonts-dejavu-core ca-certificates gvfs libxkbcommon0
 elif command -v pacman >/dev/null; then
-  pacman -Sy --noconfirm --quiet \
-    xorg-server-xvfb xorg-xauth dbus python \
+  # -Syu, never -Sy: Arch does not support partial upgrades. The image lags the repo, so -Sy pulls
+  # packages built against a newer glibc than the image has (weston wanted GLIBC_2.44 there on
+  # 2026-11-15) and Mesa's EGL fails to load, which looks exactly like KI-9.
+  pacman -Syu --noconfirm --quiet \
+    xorg-server-xvfb xorg-xauth dbus python weston \
     mesa libglvnd harfbuzz harfbuzz-icu krb5 pango alsa-lib fribidi libusb \
-    expat fontconfig ttf-dejavu ca-certificates gvfs gnutls
+    expat fontconfig ttf-dejavu ca-certificates gvfs gnutls libxkbcommon
 elif command -v dnf >/dev/null; then
   dnf install -y -q \
-    xorg-x11-server-Xvfb xorg-x11-xauth dbus-daemon dbus-x11 python3 \
+    xorg-x11-server-Xvfb xorg-x11-xauth dbus-daemon dbus-x11 python3 weston \
     mesa-libEGL mesa-libGL mesa-libGLES libglvnd harfbuzz krb5-libs pango alsa-lib \
-    fribidi libusb1 expat fontconfig dejavu-sans-fonts ca-certificates gvfs
+    fribidi libusb1 expat fontconfig dejavu-sans-fonts ca-certificates gvfs libxkbcommon
 elif command -v zypper >/dev/null; then
   # openSUSE spells half of these differently: xvfb-run is its own package, dbus-run-session comes
   # from dbus-1-daemon, and there is no dbus-1-x11 at all.
@@ -64,16 +74,23 @@ elif command -v zypper >/dev/null; then
     xvfb-run xauth dbus-1-daemon python3 \
     Mesa-libEGL1 Mesa-libGL1 Mesa-libGLESv2-2 libglvnd harfbuzz-tools libharfbuzz0 krb5 \
     libpango-1_0-0 alsa-lib libfribidi0 libusb-1_0-0 libcom_err2 libgpg-error0 libexpat1 \
-    fontconfig dejavu-fonts ca-certificates gvfs libgnutls30
+    fontconfig dejavu-fonts ca-certificates gvfs libgnutls30 libxkbcommon0
+  # weston on its own and best effort: on Tumbleweed it drags in some 130 packages (ffmpeg, pipewire,
+  # freerdp, fuse3), and on GitHub's runner that transaction once ended "with error" and took
+  # xvfb-run down with it. Not quiet, so the next failure says which package it was. Debian and Arch
+  # still have to install it.
+  zypper --non-interactive in -y weston || WAYLAND_OPTIONAL=1
 else
   echo "   unknown package manager"; exit 1
 fi
-# gvfs is deliberately installed: it is what makes a host/bundle GLib mismatch visible. gnutls is
-# installed for the same reason it is not bundled (defect 6): it is a host library now, and these
-# images are barer than any desktop that would run the app. Debian and Fedora pull it in with gvfs;
+# gvfs is deliberately installed: it is what makes a host/bundle GLib mismatch visible. gnutls and
+# libxkbcommon are installed for the same reason they are not bundled (defects 6 and 8): they are
+# host libraries now, and these images are barer than any desktop that would run the app. Debian and Fedora pull it in with gvfs;
 # Arch and openSUSE have to be told.
 # A half-installed container makes every check below meaningless, and the missing symbols it
 # produces look exactly like a real defect (KI-8). Stop here instead.
+[ "${WAYLAND_OPTIONAL:-0}" = 1 ] || command -v weston >/dev/null || {
+  echo "   package install failed: no weston"; exit 1; }
 for tool in xvfb-run dbus-run-session ldd python3; do
   command -v "$tool" >/dev/null || { echo "   package install failed: no $tool"; exit 1; }
 done
@@ -203,6 +220,47 @@ fi
 # back over IPC, so it proves the same thing about the window a user actually sees. Both are needed:
 # since 0.6.7 the cipher webview is built on demand, so a startup that plays nothing never has one.
 grep -qE "$WEBVIEW_OK" /tmp/run.log || bad "no webview ever became usable"
+
+step "launching the app on Wayland (headless weston, no X server)"
+if ! command -v weston >/dev/null; then
+  echo "   skipped: weston would not install on this image (see the package step)"
+else
+  export XDG_RUNTIME_DIR=/tmp/xdg-runtime
+  mkdir -p -m 0700 "$XDG_RUNTIME_DIR"
+  # The short backend names came with weston 12; bookworm's 10 only knows the module file.
+  BACKEND=headless
+  case "$(weston --version 2>/dev/null)" in *" "[0-9].*|*" 1"[01].*) BACKEND=headless-backend.so ;; esac
+  weston --backend="$BACKEND" --socket=limusic-check --idle-time=0 > /tmp/weston.log 2>&1 &
+  WESTONPID=$!
+  for _ in $(seq 20); do
+    [ -S "$XDG_RUNTIME_DIR/limusic-check" ] && break
+    sleep 0.5
+  done
+  if [ ! -S "$XDG_RUNTIME_DIR/limusic-check" ]; then
+    sed 's/^/   weston: /' /tmp/weston.log | head -20
+    bad "weston never opened its socket, so the Wayland launch could not run"
+  else
+    : > /tmp/run-wl.log
+    # env -u DISPLAY: xvfb-run above leaves none behind, but a stray one would let GTK fall back to
+    # X11 and pass this step without ever touching Wayland.
+    env -u DISPLAY WAYLAND_DISPLAY=limusic-check timeout 90 dbus-run-session -- "$APPDIR/AppRun" \
+      > /tmp/run-wl.log 2>&1 &
+    RUNPID=$!
+    for _ in $(seq 90); do
+      grep -qE "$WEBVIEW_OK" /tmp/run-wl.log && break
+      kill -0 "$RUNPID" 2>/dev/null || break
+      sleep 1
+    done
+    kill "$RUNPID" 2>/dev/null
+    wait "$RUNPID" 2>/dev/null
+    grep -viE 'dbind|StatusNotifier|libEGL warning|DRI3' /tmp/run-wl.log | head -40 | sed 's/^/   /'
+    if grep -qE 'Could not create .*EGL display|undefined symbol|cannot open shared object file|Failed to load module|webview never became ready|symbol lookup error|core dumped|cannot open display' /tmp/run-wl.log; then
+      bad "the Wayland startup log contains a loader or webview failure (see above)"
+    fi
+    grep -qE "$WEBVIEW_OK" /tmp/run-wl.log || bad "no webview ever became usable on Wayland"
+  fi
+  kill "$WESTONPID" 2>/dev/null
+fi
 
 printf '\n'
 [ "$FAIL" = 0 ] && { echo "PASS: $(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-unknown}")"; exit 0; }

@@ -331,7 +331,7 @@
 				title={t('settings.playback.autoplay_hint')}
 			>
 				{t('player.autoplay')}
-				<Switch size="sm" checked={prefs.autoplay} onCheckedChange={setAutoplay} />
+				<Switch size="sm" checked={playback.queue.autoplay ?? prefs.autoplay} onCheckedChange={setAutoplay} />
 			</label>
 		{/if}
 	</div>

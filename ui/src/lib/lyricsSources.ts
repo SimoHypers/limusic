@@ -7,6 +7,7 @@ export type LyricsKind = 'words' | 'synced' | 'plain' | 'instrumental';
 
 /** The best a provider can give, which Settings shows as its badge. */
 export const SOURCE_KIND: Record<string, LyricsKind> = {
+	limusic: 'words',
 	boidu: 'words',
 	unison: 'words',
 	lyricsplus: 'words',

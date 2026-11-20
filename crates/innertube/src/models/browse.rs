@@ -1291,6 +1291,76 @@ pub(crate) fn continuation_token(root: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// A broadcast on air, from YouTube's own search with its Live filter (the WEB client's
+/// `videoRenderer`; YouTube Music's search marks nothing as live). Home's Live section is built
+/// from these (#424).
+#[derive(Debug, Clone)]
+pub struct LiveVideo {
+    /// A song card: playing it resolves the broadcast like any other video. `subtitle` is the
+    /// channel alone, because a played card's subtitle becomes the track's artist line.
+    pub item: BrowseItem,
+    /// "1,822 watching", as a number for ranking. 0 when the count won't parse (a locale with
+    /// other digits), which only costs the row its place in the order.
+    pub watching: u64,
+    /// The channel carries YouTube's official-artist badge, the one signal that separates a
+    /// label or artist stream from the re-upload channels that fill the rest of the results.
+    pub official: bool,
+}
+
+/// The on-air rows of a Live-filtered WEB search. A row without the LIVE_NOW badge (an upcoming
+/// premiere, a recording slipped in) is left out.
+pub fn parse_live_search(root: &Value) -> Vec<LiveVideo> {
+    let badge = |v: &Value, key: &str, style: &str| {
+        v.get(key).and_then(Value::as_array).is_some_and(|b| {
+            b.iter().any(|b| {
+                b.pointer("/metadataBadgeRenderer/style").and_then(Value::as_str) == Some(style)
+            })
+        })
+    };
+    find_all(root, "videoRenderer")
+        .into_iter()
+        .filter(|v| badge(v, "badges", "BADGE_STYLE_TYPE_LIVE_NOW"))
+        .filter_map(|v| {
+            let id = v.get("videoId")?.as_str()?.to_owned();
+            let title = runs_text(v.get("title"))?;
+            let owner = v.pointer("/ownerText/runs/0");
+            let channel = owner.and_then(|o| o.get("text")).and_then(Value::as_str);
+            let channel_id = owner
+                .and_then(|o| o.pointer("/navigationEndpoint/browseEndpoint/browseId"))
+                .and_then(Value::as_str);
+            let count = v.get("viewCountText").and_then(|t| {
+                t.get("simpleText")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .or_else(|| runs_text(Some(t)))
+            });
+            let watching = count
+                .map(|c| c.chars().filter(char::is_ascii_digit).collect::<String>())
+                .and_then(|d| d.parse().ok())
+                .unwrap_or(0);
+            let official = badge(v, "ownerBadges", "BADGE_STYLE_TYPE_VERIFIED_ARTIST");
+            let item = BrowseItem {
+                kind: "song",
+                id,
+                title,
+                subtitle: channel.map(str::to_owned),
+                thumbnail: v.get("thumbnail").and_then(last_thumbnail),
+                duration: None,
+                album_id: None,
+                artist_runs: channel
+                    .map(|c| ArtistRun { text: c.to_owned(), id: channel_id.map(str::to_owned) })
+                    .into_iter()
+                    .collect(),
+                play_count: None,
+                is_video: false,
+                is_upload: false,
+                explicit: false,
+            };
+            Some(LiveVideo { item, watching, official })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2588,5 +2658,26 @@ mod tests {
         assert_eq!(s[0].items[1].color, "#606060");
         assert_eq!(s[1].items.len(), 1);
         assert_eq!(s[1].items[0].title, "Jazz");
+    }
+
+    /// A WEB search with the Live filter (query "music", 2026-11-06, trimmed to four rows): two
+    /// official artist channels, two of the re-upload channels that make up the rest.
+    #[test]
+    fn live_search_keeps_the_on_air_rows_and_flags_official_artists() {
+        let root: Value =
+            serde_json::from_str(include_str!("../../tests/fixtures/search_web_live_now.json"))
+                .unwrap();
+        let live = parse_live_search(&root);
+        assert_eq!(live.len(), 4);
+        let official: Vec<_> =
+            live.iter().filter(|l| l.official).map(|l| l.item.subtitle.as_deref()).collect();
+        assert_eq!(official, [Some("Cafe Music BGM channel"), Some("Lofi Girl")]);
+        let lofi = live.iter().find(|l| l.item.subtitle.as_deref() == Some("Lofi Girl")).unwrap();
+        assert_eq!(lofi.watching, 522);
+        assert_eq!(lofi.item.kind, "song");
+        assert!(lofi.item.thumbnail.as_deref().unwrap().contains("/vi/0sfDth4lMLc/"));
+        assert!(lofi.item.artist_runs[0].id.as_deref().unwrap().starts_with("UC"));
+        // Thousands separators are not digits of their own.
+        assert!(live.iter().any(|l| l.watching == 1822));
     }
 }

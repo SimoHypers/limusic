@@ -126,10 +126,17 @@ export default function Aurora(props: AuroraProps) {
     const ctn = ctnDom.current;
     if (!ctn) return;
 
-    const renderer = new Renderer({
-      alpha: true,
-      premultipliedAlpha: true
-    });
+    // ogl throws when there is no WebGL (LibreWolf turns it off, #622), and an uncaught throw
+    // here unmounts the whole page. The hero just goes without the aurora, as with reduced motion.
+    let renderer: Renderer;
+    try {
+      renderer = new Renderer({
+        alpha: true,
+        premultipliedAlpha: true
+      });
+    } catch {
+      return;
+    }
     const gl = renderer.gl;
     gl.clearColor(0, 0, 0, 0);
     gl.enable(gl.BLEND);

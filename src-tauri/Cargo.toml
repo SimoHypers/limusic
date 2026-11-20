@@ -17,7 +17,7 @@ tauri-build = { version = "2", features = [] }
 serde = { workspace = true }
 notify = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["net", "io-util"] }
+tokio = { workspace = true, features = ["net", "io-util", "sync"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = { workspace = true }
@@ -35,6 +35,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 # one. Measured in `progress/active/webremix-stream-403.md`. This pulls in V8.
 rustypipe-botguard = "0.1.2"
 base64 = "0.22"
+gethostname = "1.1"
 regex = "1"
 urlencoding = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "stream"] }
@@ -46,6 +47,7 @@ http-body-util = "0.1"
 
 innertube = { path = "../crates/innertube" }
 player = { path = "../crates/player" }
+karaoke = { path = "../crates/karaoke" }
 souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
 # Listen Together: shared wire types + WebSocket client (wss via rustls). context/19.
 listen-protocol = { workspace = true }
@@ -57,6 +59,7 @@ discord-rich-presence = "1.1.0"
 # Last.fm API signature (api_sig is md5 of the sorted params + secret), and the stable
 # saved-account key (db.rs::account_key).
 md-5 = "0.10"
+sha2 = "0.10"
 lofty = "0.22.2"
 tauri-plugin-dialog = "2.7.2"
 tauri-plugin-window-state = "2.4.1"
@@ -92,6 +95,9 @@ objc2 = "0.6"
 # `Window::hwnd()` hands us a matching HWND.
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.61", features = [
+  "Foundation",
+  "Foundation_Collections",
+  "Media_Control",
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
   "Win32_System_Com",

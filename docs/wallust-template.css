@@ -1,0 +1,57 @@
+/* Limusic wallust palette template.
+ *
+ * Copy this file into ~/.config/wallust/templates/ as limusic.css and add it to the
+ * [templates] table in wallust.toml (see docs/MATUGEN.md). wallust expands the placeholders.
+ *
+ * wallust makes one palette, dark or light, so it is written for both of Limusic's modes.
+ * Surfaces are the background with a little of the foreground mixed in, which lifts them
+ * on a dark palette and sinks them on a light one without a separate set of values.
+ * The accent is color12 on a dark palette and color4 on a light one, whichever reads better
+ * against the background. Destructive red stays Limusic's own: color1 is only red by chance.
+ * Based on the templates shared by 1ulisses in issue #631.
+ */
+
+{% set accent = color4 if "light" in (palette | lower) else color12 %}
+
+html.matugen-theme,
+html.matugen-theme.dark {
+	--background: {{background}};
+	--foreground: {{foreground}};
+
+	--card: color-mix(in oklab, {{foreground}} 6%, {{background}});
+	--card-foreground: {{foreground}};
+
+	--popover: color-mix(in oklab, {{foreground}} 9%, {{background}});
+	--popover-foreground: {{foreground}};
+
+	--primary: {{accent}};
+	--primary-foreground: {{background}};
+	--accent: {{accent}};
+	--accent-foreground: {{background}};
+
+	--secondary: color-mix(in oklab, {{foreground}} 10%, {{background}});
+	--secondary-foreground: {{foreground}};
+
+	--muted: color-mix(in oklab, {{foreground}} 8%, {{background}});
+	--muted-foreground: color-mix(in oklab, {{foreground}} 70%, {{background}});
+
+	--border: color-mix(in oklab, {{foreground}} 14%, {{background}});
+	--input: color-mix(in oklab, {{foreground}} 18%, {{background}});
+	--outline: color-mix(in oklab, {{foreground}} 40%, {{background}});
+	--ring: {{accent}};
+
+	--chart-1: {{accent}};
+	--chart-2: {{color5}};
+	--chart-3: {{color6}};
+	--chart-4: {{color1}};
+	--chart-5: {{color2}};
+
+	--sidebar: {{background}};
+	--sidebar-foreground: {{foreground}};
+	--sidebar-primary: {{accent}};
+	--sidebar-primary-foreground: {{background}};
+	--sidebar-accent: color-mix(in oklab, {{foreground}} 8%, {{background}});
+	--sidebar-accent-foreground: {{foreground}};
+	--sidebar-border: color-mix(in oklab, {{foreground}} 14%, {{background}});
+	--sidebar-ring: {{accent}};
+}

@@ -136,6 +136,13 @@ export const appearance = $state({
 	 *  `stagePlayer` flipped: that one was saved as `false` for everyone, so a new default would
 	 *  never have reached them. */
 	classicPlayer: false,
+	/** The new layout's lyric line under the cover. Off, the title sits where it did before the
+	 *  line existed, and the song's lyrics are only fetched when a lyrics view asks. */
+	coverLyric: true,
+	/** The new layout's line under the cover reads in its romanization instead of the original
+	 *  script. Apart from the lyrics tab's Romanized switch: that one adds a reading under each line,
+	 *  this one swaps a line that only has room for one. */
+	coverLyricRomanized: false,
 	/**
 	 * The now-playing view carries queue and lyrics itself, as tabs, and the player bar's two
 	 * buttons switch between them while it's open. Off, those buttons only ever open the floating
@@ -154,6 +161,10 @@ export const appearance = $state({
 	theaterQueue: false,
 	/** Derive the whole palette from Matugen. Off by default. */
 	matugen: false,
+	/** Theater mode: a small clock in a top corner, for a screen that hides the system clock. */
+	theaterClock: false,
+	theaterClockSide: 'right' as 'left' | 'right',
+	theaterClockFormat: 'auto' as 'auto' | '12' | '24',
 	enhancedLyrics: false,
 	...LYRICS_DEFAULTS
 });
@@ -581,6 +592,8 @@ export function initTheme(): void {
 			'blurPlaylistHeader',
 			'nowPlayingPill',
 			'classicPlayer',
+			'coverLyric',
+			'coverLyricRomanized',
 			'tabbedPlayer',
 			'openPlayerOnPlay',
 			'emptyClickTogglesPlayer',
@@ -588,11 +601,17 @@ export function initTheme(): void {
 			'theaterLyrics',
 			'theaterQueue',
 			'matugen',
+			'theaterClock',
 			'enhancedLyrics',
 			'enhancedLyricsLineSync'
 		] as const) {
 			if (typeof saved?.[k] === 'boolean') appearance[k] = saved[k];
 		}
+		// Not booleans, so they are not in the list above: one value each, checked on its own.
+		if (saved?.theaterClockSide === 'left' || saved?.theaterClockSide === 'right')
+			appearance.theaterClockSide = saved.theaterClockSide;
+		if (['auto', '12', '24'].includes(saved?.theaterClockFormat))
+			appearance.theaterClockFormat = saved.theaterClockFormat;
 		if (LYRICS_ANIMS.includes(saved?.lyricsAnim)) appearance.lyricsAnim = saved.lyricsAnim;
 		if (LYRICS_STYLES.includes(saved?.lyricsStyle)) appearance.lyricsStyle = saved.lyricsStyle;
 		if (typeof saved?.lyricsAnimStrength === 'number') {

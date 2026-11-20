@@ -9,7 +9,7 @@ rustypipe_reports/
 /src-tauri/libmpv-2.dll
 /.libmpv/
 /libmpv/
-
+/src-tauri/vcruntime/*.dll
 # Local tool state
 /.freebuff/
 

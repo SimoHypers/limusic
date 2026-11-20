@@ -4,7 +4,17 @@
 // it also owns the ctrl+wheel gesture.
 import { browser } from '$app/environment';
 import * as api from './api';
-import { cycleRepeat, np, nudgeVolume, playback, refreshView, toggleMute, ui } from './player.svelte';
+import {
+	cycleRepeat,
+	np,
+	nudgeVolume,
+	playback,
+	refreshView,
+	skipBy,
+	toggleMute,
+	toggleNowPlayingRating,
+	ui
+} from './player.svelte';
 
 export const IS_MAC = browser && navigator.platform.startsWith('Mac');
 
@@ -42,8 +52,22 @@ export const MUTE_COMBO = IS_MAC ? `${MOD}⇧M` : `${MOD}M`;
 /** Mute's key, shift and all. Elsewhere ⇧ is ignored, the way it always was for these letters. */
 const isMuteKey = (e: KeyboardEvent) => keyOf(e) === 'm' && (!IS_MAC || e.shiftKey);
 
+/** Seconds per ← / → press, the same jump as the global seek hotkeys. */
+export const SEEK_SECS = 10;
+
+/** Focused things that use the arrow keys themselves. */
+const ARROW_OWNERS =
+	'input,textarea,select,[contenteditable],[role=slider],[role=dialog],[role=alertdialog],[role=menu],[role=listbox],[role=tablist],[role=radiogroup]';
+
 /** Percent per press, matching a step of the volume slider's arrow keys. */
 const VOLUME_STEP = 5;
+
+const ARROWS: Record<string, () => void> = {
+	ArrowLeft: () => skipBy(-SEEK_SECS),
+	ArrowRight: () => skipBy(SEEK_SECS),
+	ArrowUp: () => nudgeVolume(VOLUME_STEP),
+	ArrowDown: () => nudgeVolume(-VOLUME_STEP)
+};
 
 /** Somewhere a bare space or `;` is a character, not a command. A slider (seek bar, volume) is an
  *  input but types nothing, so a click on it no longer leaves Space dead (#574). */
@@ -72,6 +96,17 @@ export function initShortcuts(mini = false) {
 			return;
 		}
 		if (!e.ctrlKey && !e.metaKey) {
+			// ← / → seek, 10 s like the global hotkeys (#570), ↑ / ↓ step the volume. Not while
+			// something focused owns the arrows: a field, a slider (volume, seek bar), a menu, a
+			// list, a dialog. With nothing playing, ↑ / ↓ go back to scrolling the page.
+			const arrow = ARROWS[e.key];
+			if (arrow) {
+				if (!playback.now || typing(e.target) || e.altKey || e.shiftKey) return;
+				if (e.target instanceof HTMLElement && e.target.closest(ARROW_OWNERS)) return;
+				arrow();
+				e.preventDefault();
+				return;
+			}
 			// Space also activates a focused button and scrolls the page, so it is swallowed either
 			// way once we know it isn't being typed.
 			if (e.key !== ' ' && e.key !== ';') return;
@@ -125,6 +160,11 @@ export function initShortcuts(mini = false) {
 				break;
 			case 'r':
 				cycleRepeat();
+				break;
+			// #621. A local file has no YouTube identity to rate, as in the player bar.
+			case 'l':
+				if (!playback.now || api.isLocalId(playback.now.videoId)) return;
+				toggleNowPlayingRating();
 				break;
 			// Shift+. and Shift+, on a US layout. The unshifted keys are accepted too, so the
 			// shortcut still works on layouts that put > and < somewhere else.

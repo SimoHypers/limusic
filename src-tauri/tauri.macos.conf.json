@@ -3,7 +3,7 @@
   "bundle": {
     "targets": ["app", "dmg"],
     "macOS": {
-      "minimumSystemVersion": "14.0"
+      "minimumSystemVersion": "15.0"
     }
   },
   "app": {
@@ -13,7 +13,7 @@
         "title": "Limusic",
         "width": 1200,
         "height": 800,
-        "minWidth": 900,
+        "minWidth": 640,
         "minHeight": 620,
         "resizable": true,
         "fullscreen": false,

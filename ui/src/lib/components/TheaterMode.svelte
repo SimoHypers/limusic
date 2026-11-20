@@ -33,7 +33,6 @@
 		GoForward15SecIcon,
 		Mic01Icon,
 		MinimizeScreenIcon,
-		MusicNote01Icon,
 		NextIcon,
 		PauseIcon,
 		PlayIcon,
@@ -45,6 +44,7 @@
 		VolumeHighIcon,
 		VolumeMute02Icon
 	} from '@hugeicons/core-free-icons';
+	import LogoMark from './LogoMark.svelte';
 	import * as api from '$lib/api';
 	import {
 		commitVolume,
@@ -75,6 +75,7 @@
 	import { appearance, setAppearance } from '$lib/theme.svelte';
 	import { isMissingThumb, thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
+	import LiveBadge from './LiveBadge.svelte';
 	import { keyOf, typing } from '$lib/shortcuts';
 	import ArtistLine from './ArtistLine.svelte';
 	import LyricsView from './LyricsView.svelte';
@@ -83,6 +84,7 @@
 	import SpeedPicker from './SpeedPicker.svelte';
 	import TrackMenu from './TrackMenu.svelte';
 	import Ambient from './Ambient.svelte';
+	import TheaterClock from './TheaterClock.svelte';
 
 	const close = () => (ui.theaterOpen = false);
 
@@ -278,6 +280,24 @@
 		setAppearance({ theaterQueue: on, ...(on && !roomy.current && { theaterLyrics: false }) });
 	}
 
+	// Header left textwidth on theater mode
+	let headerTextEl = $state<HTMLElement | null>(null);
+	let headerTextWidth = $state(0);
+
+	$effect(() => {
+		if (!headerTextEl || !appearance.theaterClock) {
+			headerTextWidth = 0;
+			return;
+		}
+		const ro = new ResizeObserver((entries) => {
+			for (const entry of entries) {
+				headerTextWidth = entry.borderBoxSize[0]?.inlineSize ?? entry.contentRect.width;
+			}
+		});
+		ro.observe(headerTextEl);
+		return () => ro.disconnect();
+	});
+
 	// The picture's side. A square spends whichever is smaller of its column's width and the height
 	// the title block leaves; a video spends that height at 16:9 instead. The spotlight is bigger
 	// and its title is set larger, so it budgets more for it.
@@ -471,7 +491,10 @@
 			: ''}"
 		style="height:{headerH}"
 	>
-		<div class="min-w-0">
+		<div
+			bind:this={headerTextEl}
+			class="min-w-0 {appearance.theaterClock ? 'w-fit max-w-[30vw]' : ''}"
+		>
 			<!-- The queue column says this itself. -->
 			{#if !queueShown}
 				<p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
@@ -492,6 +515,15 @@
 			<HugeiconsIcon icon={Cancel01Icon} class="h-5 w-5" />
 		</button>
 	</header>
+
+	{#if appearance.theaterClock}
+		<TheaterClock
+			height={headerH}
+			{calm}
+			hasHeaderText={!queueShown}
+			textWidth={headerTextWidth}
+		/>
+	{/if}
 
 	<!-- === The stage. The picture and what's playing, and beside it at most one column. ===
 	     A stacking context of its own (z-10), so the light behind the picture (-z-10) stays above the
@@ -581,9 +613,9 @@
 											/>
 										{:else}
 											<div
-												class="flex aspect-square w-full items-center justify-center rounded-2xl bg-muted text-muted-foreground/40"
+												class="flex aspect-square w-full items-center justify-center rounded-2xl bg-muted text-muted-foreground/20"
 											>
-												<HugeiconsIcon icon={MusicNote01Icon} class="h-20 w-20" />
+												<LogoMark class="size-3/4" />
 											</div>
 										{/if}
 										<!-- A hairline round the edge, so a cover that is mostly the background's
@@ -767,42 +799,49 @@
 	>
 		<!-- Fixed-width slots for the times: the font may have no tabular figures, and the bar would
 		     shift a few px per tick (#463). -->
-		<div class="flex items-center gap-4 text-xs font-medium tabular-nums text-muted-foreground">
-			<span class="min-w-[5ch] text-right">{fmt(shownPosition)}</span>
-			<div
-				class="m3-seek m3-seek-theater relative flex min-w-0 flex-1 items-center {cinema ? 'on-art' : ''}"
-				style="--pct:{pct}%"
-			>
-				<M3SeekWave
-					pct={pct / 100}
-					paused={playback.paused}
-					duration={shownDuration}
-					dragging={seekDrag !== null}
-					strokeWidth={4.5}
-					thumbWidth={5}
-					thumbHeight={22}
-					maxAmp={3.4}
-					wavelength={24}
-				/>
-				<input
-					type="range"
-					class="range theater-range min-w-0 flex-1 {cinema ? 'on-art' : ''}"
-					style="--pct:{pct}%"
-					min="0"
-					max={shownDuration || 0}
-					value={shownPosition}
-					oninput={(e) => (seekDrag = Number(e.currentTarget.value) * playback.speed)}
-					onchange={(e) => {
-						const v = Number(e.currentTarget.value) * playback.speed;
-						playback.position = v;
-						seekDrag = null;
-						api.seek(v);
-					}}
-					aria-label={t('player.seek')}
-				/>
+		{#if playback.now?.live}
+			<!-- The seek row's height (the range input's 16 px), so the dock keeps its size. -->
+			<div class="flex h-4 items-center justify-center">
+				<LiveBadge onArt={cinema} />
 			</div>
-			<span class="min-w-[5ch]">{fmt(shownDuration)}</span>
-		</div>
+		{:else}
+			<div class="flex items-center gap-4 text-xs font-medium tabular-nums text-muted-foreground">
+				<span class="min-w-[5ch] text-right">{fmt(shownPosition)}</span>
+				<div
+					class="m3-seek m3-seek-theater relative flex min-w-0 flex-1 items-center {cinema ? 'on-art' : ''}"
+					style="--pct:{pct}%"
+				>
+					<M3SeekWave
+						pct={pct / 100}
+						paused={playback.paused}
+						duration={shownDuration}
+						dragging={seekDrag !== null}
+						strokeWidth={4.5}
+						thumbWidth={5}
+						thumbHeight={22}
+						maxAmp={3.4}
+						wavelength={24}
+					/>
+					<input
+						type="range"
+						class="range theater-range min-w-0 flex-1 {cinema ? 'on-art' : ''}"
+						style="--pct:{pct}%"
+						min="0"
+						max={shownDuration || 0}
+						value={shownPosition}
+						oninput={(e) => (seekDrag = Number(e.currentTarget.value) * playback.speed)}
+						onchange={(e) => {
+							const v = Number(e.currentTarget.value) * playback.speed;
+							playback.position = v;
+							seekDrag = null;
+							api.seek(v);
+						}}
+						aria-label={t('player.seek')}
+					/>
+				</div>
+				<span class="min-w-[5ch]">{fmt(shownDuration)}</span>
+			</div>
+		{/if}
 
 		<div
 			class="grid grid-cols-[1fr_auto_1fr] items-center gap-6 {short.current ? 'mt-1.5' : 'mt-3'}"
@@ -963,7 +1002,15 @@
 						? ''
 						: 'lg:flex'}"
 				>
-					{@render sideButton(Mic01Icon, t('player.lyrics'), lyricsShown, toggleLyrics)}
+					<!-- Karaoke's switch is in the lyrics footer: with the column closed, the dot says
+					     it's on, and where (as on the player bar's lyrics button). -->
+					{@render sideButton(
+						Mic01Icon,
+						t('player.lyrics'),
+						lyricsShown,
+						toggleLyrics,
+						playback.karaoke && !lyricsColumn
+					)}
 					{@render sideButton(Queue01Icon, t('player.queue'), queueShown, toggleQueue)}
 				</div>
 				<!-- svelte-ignore a11y_no_static_element_interactions -- wheel is the volume gesture -->
@@ -1041,17 +1088,26 @@
 	</button>
 {/snippet}
 
-{#snippet sideButton(icon: typeof Mic01Icon, label: string, on: boolean, toggle: () => void)}
+{#snippet sideButton(
+	icon: typeof Mic01Icon,
+	label: string,
+	on: boolean,
+	toggle: () => void,
+	karaokeDot = false
+)}
 	<button
 		type="button"
 		onclick={toggle}
-		class="flex size-8 cursor-pointer items-center justify-center rounded-full transition-colors {on
+		class="relative flex size-8 cursor-pointer items-center justify-center rounded-full transition-colors {on
 			? 'bg-foreground/10 text-primary'
 			: 'text-muted-foreground hover:bg-foreground/10 hover:text-foreground'}"
 		aria-label={label}
 		aria-pressed={on}
-		title={label}
+		title={karaokeDot ? t('karaoke.lyrics_hint') : label}
 	>
 		<HugeiconsIcon {icon} class="h-4 w-4" />
+		{#if karaokeDot}
+			<span class="absolute right-1 top-1 size-1.5 rounded-full bg-primary" aria-hidden="true"></span>
+		{/if}
 	</button>
 {/snippet}

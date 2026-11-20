@@ -55,13 +55,13 @@ async fn main() {
         if manual { "ON (the tones should overlap)" } else { "OFF (a hard cut)" }
     );
 
-    p.load(first.to_str().unwrap(), &HashMap::new(), None, None).expect("load A");
+    p.load(first.to_str().unwrap(), &HashMap::new(), None, None, false).expect("load A");
     p.play().expect("play");
 
     // Let the first tone establish itself, then do exactly what Next does: load the new track.
     tokio::time::sleep(Duration::from_millis(1500)).await;
     println!("--- skip ---");
-    p.load(second.to_str().unwrap(), &HashMap::new(), None, None).expect("load B");
+    p.load(second.to_str().unwrap(), &HashMap::new(), None, None, false).expect("load B");
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
     let mut overlap_ms = 0u64;
@@ -70,7 +70,7 @@ async fn main() {
         match tokio::time::timeout(Duration::from_millis(50), events.recv()).await {
             Ok(Some(PlayerEvent::TrackEnded)) => {
                 ended += 1;
-                println!("TrackEnded — the app's queue would advance here");
+                println!("TrackEnded â€” the app's queue would advance here");
             }
             Ok(Some(PlayerEvent::TrackFailed(e))) => {
                 eprintln!("track failed: {e}");

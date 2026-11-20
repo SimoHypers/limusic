@@ -1,0 +1,54 @@
+/* Limusic pywal palette template (pywal16).
+ *
+ * Copy this file into ~/.config/wal/templates/ as limusic.css. pywal writes the result to
+ * ~/.cache/wal/limusic.css, which Limusic reads through a symlink (see docs/MATUGEN.md).
+ * Placeholders are single braces; CSS braces are doubled so pywal leaves them alone.
+ *
+ * pywal makes one palette, dark or light (wal -l), so it is written for both of Limusic's
+ * modes. Surfaces are the background with a little of the foreground mixed in, which lifts
+ * them on a dark palette and sinks them on a light one without a separate set of values.
+ * Destructive red stays Limusic's own: color1 is only red by chance.
+ */
+
+html.matugen-theme,
+html.matugen-theme.dark {{
+	--background: {background};
+	--foreground: {foreground};
+
+	--card: color-mix(in oklab, {foreground} 6%, {background});
+	--card-foreground: {foreground};
+
+	--popover: color-mix(in oklab, {foreground} 9%, {background});
+	--popover-foreground: {foreground};
+
+	--primary: {color4};
+	--primary-foreground: {background};
+	--accent: {color4};
+	--accent-foreground: {background};
+
+	--secondary: color-mix(in oklab, {foreground} 10%, {background});
+	--secondary-foreground: {foreground};
+
+	--muted: color-mix(in oklab, {foreground} 8%, {background});
+	--muted-foreground: color-mix(in oklab, {foreground} 70%, {background});
+
+	--border: color-mix(in oklab, {foreground} 14%, {background});
+	--input: color-mix(in oklab, {foreground} 18%, {background});
+	--outline: color-mix(in oklab, {foreground} 40%, {background});
+	--ring: {color4};
+
+	--chart-1: {color4};
+	--chart-2: {color5};
+	--chart-3: {color6};
+	--chart-4: {color1};
+	--chart-5: {color2};
+
+	--sidebar: {background};
+	--sidebar-foreground: {foreground};
+	--sidebar-primary: {color4};
+	--sidebar-primary-foreground: {background};
+	--sidebar-accent: color-mix(in oklab, {foreground} 8%, {background});
+	--sidebar-accent-foreground: {foreground};
+	--sidebar-border: color-mix(in oklab, {foreground} 14%, {background});
+	--sidebar-ring: {color4};
+}}

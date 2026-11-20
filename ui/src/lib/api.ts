@@ -87,6 +87,8 @@ export interface NowPlaying {
 	isVideo?: boolean;
 	/** A podcast episode: the transport offers speed and 15-second skips (#500). */
 	isEpisode?: boolean;
+	/** A broadcast on air: no length and nothing to seek, so a Live badge stands in for the bar (#424). */
+	live?: boolean;
 }
 
 export type RepeatMode = 'off' | 'all' | 'one';
@@ -105,6 +107,9 @@ export interface QueueState {
 	 *  Set only while `backToPrevious` would actually do something: at the head of the queue, with
 	 *  a kept one behind it. */
 	prevTrack?: string | null;
+	/** The playing device's Autoplay setting: this desktop's, or a linked phone's while the bar
+	 *  controls it. Absent from a phone that predates it. */
+	autoplay?: boolean | null;
 }
 
 export interface Account {
@@ -162,6 +167,8 @@ export interface BrowseItem {
 	/** Song cards only: one of the user's own uploads. Carried into the SongItem `asSong` builds,
 	 *  because that flag is what picks the login-only client chain when it plays. */
 	isUpload?: boolean;
+	/** A broadcast on air (home's Live section): the card wears a Live badge. UI-only. */
+	live?: boolean;
 }
 
 export interface HomeSection {
@@ -415,6 +422,81 @@ export const setRepeat = (mode: RepeatMode) => invoke<void>('set_repeat', { mode
 export const togglePause = () => invoke<void>('toggle_pause');
 export const seek = (position: number) => invoke<void>('seek', { position });
 export const setVolume = (volume: number) => invoke<void>('set_volume', { volume });
+export const setKaraoke = (enabled: boolean) => invoke<void>('set_karaoke', { enabled });
+/** Microsoft's permalink for the latest x64 VC++ runtime (karaoke's ONNX Runtime needs >= 14.44). */
+export const VC_REDIST_URL = 'https://aka.ms/vc14/vc_redist.x64.exe';
+/** The permanent invite: it hands out the User role, a member's own invite doesn't. */
+export const DISCORD_URL = 'https://discord.gg/jWWydPV3FF';
+export type KaraokeDevice = 'auto' | 'cpu' | 'gpu';
+export type KaraokeModelId = 'light' | 'balanced' | 'best';
+
+export interface ModelStatus {
+	installed: boolean;
+	downloading: boolean;
+	sizeBytes: number;
+	path?: string;
+	model?: KaraokeModelId;
+}
+export type KaraokeUnavailableReason =
+	| 'not_installed'
+	| 'corrupt'
+	| 'vc_runtime'
+	| 'load_failed'
+	| 'proxy'
+	| 'stopped';
+export type KaraokeErrorCode = 'incomplete_download' | 'failed';
+export interface KaraokeEngineStatus {
+	enabled: boolean;
+	modelInstalled: boolean;
+	cacheBytes: number;
+	/** From the last attempt to turn karaoke on; nothing is probed just to answer. */
+	availability: 'ready' | 'needs-model' | 'unavailable';
+	reason?: KaraokeUnavailableReason;
+	processor?: 'gpu' | 'cpu';
+	device: KaraokeDevice;
+	gpuSupported: boolean;
+	/** Windows only: elsewhere Auto could only ever mean the processor. */
+	autoSupported: boolean;
+	model?: KaraokeModelId;
+}
+export interface KaraokeStatusEvent {
+	videoId: string;
+	state: 'off' | 'needs-model' | 'preparing' | 'ready' | 'error' | 'too-long';
+	progress?: number;
+	code?: KaraokeErrorCode;
+	message?: string;
+	model?: KaraokeModelId;
+}
+export interface KaraokeQueueSlot {
+	videoId: string;
+	state: 'ready' | 'preparing' | 'queued' | 'error';
+	progress?: number;
+}
+export interface KaraokeQueueEvent {
+	slots: KaraokeQueueSlot[];
+}
+export type KaraokeModelErrorCode = 'network' | 'verify' | 'disk' | 'failed';
+
+export type KaraokeModelEvent =
+	| { model: KaraokeModelId; state: 'downloading'; downloaded: number; total: number }
+	| { model: KaraokeModelId; state: 'ready' }
+	| { model: KaraokeModelId; state: 'cancelled' }
+	| { model: KaraokeModelId; state: 'error'; code: KaraokeModelErrorCode }
+	| { model: KaraokeModelId; state: 'deleted' };
+
+export const karaokeModelStatus = (model?: KaraokeModelId) => invoke<ModelStatus>('karaoke_model_status', model ? { model } : {});
+export const karaokeModelDownload = (model: KaraokeModelId) => invoke<void>('karaoke_model_download', { model });
+export const karaokeModelCancel = () => invoke<void>('karaoke_model_cancel');
+export const karaokeModelDelete = (model: KaraokeModelId) => invoke<void>('karaoke_model_delete', { model });
+export const karaokeModelGet = () => invoke<KaraokeModelId>('karaoke_model_get');
+export const karaokeModelSet = (model: KaraokeModelId) => invoke<KaraokeModelId>('karaoke_model_set', { model });
+export const karaokeDeviceGet = () => invoke<KaraokeDevice>('karaoke_device_get');
+export const karaokeDeviceSet = (device: KaraokeDevice) => invoke<KaraokeDevice>('karaoke_device_set', { device });
+export const karaokeEngineStatus = () => invoke<KaraokeEngineStatus>('karaoke_engine_status');
+export const karaokeClearCache = () => invoke<void>('karaoke_clear_cache');
+export const karaokeCacheLimitMb = () => invoke<number>('karaoke_cache_limit_mb');
+export const karaokeSetCacheLimitMb = (mb: number) => invoke<number>('karaoke_set_cache_limit_mb', { mb });
+export const karaokeRetryFailed = (): Promise<void> => invoke<void>('karaoke_retry_failed');
 export interface Reverb {
 	enabled: boolean;
 	preset: number;
@@ -448,7 +530,7 @@ export const forgetVideoStream = (videoId: string) =>
  *  webview. Resolves whether the picture is up; `false` for a rect means it never will be (no
  *  surface), so fall back to the `<video>` element. `dpr` carries the page zoom to Windows. */
 export const nativeVideoRect = (rect: [number, number, number, number] | null) =>
-	invoke<boolean>('native_video_rect', { rect, dpr: devicePixelRatio });
+	invoke<boolean>('native_video_rect', { rect, dpr: devicePixelRatio, vw: innerWidth });
 
 /** Linux and Windows: the newest small frame of mpv's picture other than `after`, for the ambient
  *  light, as `[seq, w, h]` little-endian u32s and then RGBA rows bottom-up. Empty when there is no
@@ -482,6 +564,9 @@ export const setSetting = (key: string, value: string) =>
 export const getStreamClients = () => invoke<string[]>('get_stream_clients');
 /** Wipe both cache tiers (URL cache + mpv on-disk audio cache). */
 export const clearCaches = () => invoke<void>('clear_caches');
+/** Bytes on disk by kind, for Settings > Data & storage (#705). */
+export type StorageUsage = Record<'library' | 'audio' | 'karaoke' | 'models' | 'web' | 'other', number>;
+export const storageUsage = () => invoke<StorageUsage>('storage_usage');
 /** Set the app icon to a PNG the user picked, or restore the bundled one with `null` (#173). */
 export const setAppIcon = (path: string | null) => invoke<void>('set_app_icon', { path });
 /** Path to the custom app icon, granted to the asset protocol. `null` when the bundled one is in use. */
@@ -570,6 +655,8 @@ export const setMiniCompact = (compact: boolean) => invoke<void>('set_mini_compa
 // --- browse / library (context/08) ---------------------------------------------------------
 /** `params` is a `HomeChip.params` token — omit for the unfiltered feed. */
 export const getHome = (params?: string) => invoke<HomePage>('get_home', { params });
+/** Home's Live section: broadcasts on air from official artist channels, most watched first (#424). */
+export const getLiveNow = () => invoke<BrowseItem[]>('get_live_now');
 export const getHomeMore = (token: string) => invoke<HomePage>('get_home_more', { token });
 
 /** A comment's author. `channel_id` and `avatar` are absent when YouTube omitted them. */
@@ -779,6 +866,9 @@ export const playlistIndex = () => invoke<Record<string, string[]>>('playlist_in
  * is still inside its window, so calling this on every launch is cheap.
  */
 export const syncPlaylistIndex = () => invoke<Record<string, string[]>>('sync_playlist_index');
+/** The library playlists the last `syncPlaylistIndex` crawl found you can't edit: saved ones that
+ *  belong to someone else. Empty until that crawl has run. */
+export const readonlyPlaylists = () => invoke<string[]>('readonly_playlists');
 /**
  * videoId → times played, from the local listening history, over the trailing window On Repeat uses
  * (a month). A videoId that isn't in the map has not been played inside the window.
@@ -916,6 +1006,8 @@ export const unblockArtist = (key: string) => invoke<BlockedArtist[]>('unblock_a
 /** Like, dislike, or clear the rating. YouTube's three states are mutually exclusive, so a dislike
  *  un-likes in the same call. */
 export const rate = (videoId: string, rating: Rating) => invoke<void>('rate', { videoId, rating });
+/** What `addToPlaylist` rejects with when the playlist belongs to someone else. */
+export const PLAYLIST_NOT_EDITABLE = 'not_editable';
 /** `false` = the playlist already had this track, so YouTube added nothing. */
 export const addToPlaylist = (playlistId: string, videoId: string, allowDuplicates = false) =>
 	invoke<boolean>('add_to_playlist', { playlistId, videoId, allowDuplicates });
@@ -991,6 +1083,8 @@ export interface ImportResult {
 	removed: number;
 }
 export interface ImportSnapshot {
+	/** The job's generation: newer jobs, higher numbers. */
+	gen: number;
 	phase: ImportPhase;
 	/** Distinct tracks across every list being imported. */
 	total: number;
@@ -998,7 +1092,14 @@ export interface ImportSnapshot {
 	matched: number;
 	check: number;
 	missing: number;
-	lists: { kind: ImportListKind; name: string; count: number; cover?: string | null }[];
+	/** `linked`: read off a link, so it can be kept up to date with Spotify. */
+	lists: {
+		kind: ImportListKind;
+		name: string;
+		count: number;
+		cover?: string | null;
+		linked: boolean;
+	}[];
 	/** The last few tracks matched, newest first. */
 	recent: { title: string; artists: string; tier: ImportTier; thumbnail?: string | null }[];
 	/** While creating: steps done, steps in all. */
@@ -1009,6 +1110,8 @@ export interface ImportSnapshot {
 	results: ImportResult[];
 	/** Set when this is an "Update from Spotify" of that playlist rather than an import. */
 	update?: string | null;
+	/** An update the background check started, not the user. */
+	auto: boolean;
 }
 export interface ImportRow {
 	key: string;
@@ -1041,12 +1144,19 @@ export const importRows = (tier: ImportTier) => invoke<ImportRow[]>('import_rows
 /** `null` leaves the track out. A song picked here is remembered for every later import. */
 export const importPick = (key: string, song: SongItem | null) =>
 	invoke<ImportSnapshot>('import_pick', { key, song });
-export const importCreate = (options: { names?: Record<number, string>; local?: boolean }) =>
-	invoke<void>('import_create', { options });
+export const importCreate = (options: {
+	names?: Record<number, string>;
+	local?: boolean;
+	/** Keep the lists read off a link up to date with Spotify on their own. */
+	auto?: boolean;
+}) => invoke<void>('import_create', { options });
 /** Stops a running import, or puts away a finished one. */
 export const importCancel = () => invoke<void>('import_cancel');
+/** The Spotify link a playlist was imported from, and whether it updates by itself. */
 export const importSource = (playlistId: string) =>
-	invoke<string | null>('import_source', { playlistId });
+	invoke<{ url: string; auto: boolean } | null>('import_source', { playlistId });
+export const importSetAuto = (playlistId: string, on: boolean) =>
+	invoke<void>('import_set_auto', { playlistId, on });
 export const importUpdate = (playlistId: string) =>
 	invoke<ImportSnapshot>('import_update', { playlistId });
 export const importResolve = (link: string) => invoke<ImportResolved>('import_resolve', { link });
@@ -1081,6 +1191,7 @@ export interface QueueIndex {
 	sourceId?: string | null;
 	prevTrack?: string | null;
 	current: SongItem | null;
+	autoplay?: boolean | null;
 }
 
 export const onQueueIndex = (cb: (q: QueueIndex) => void): Promise<UnlistenFn> =>
@@ -1114,6 +1225,19 @@ export const onDuration = (cb: (d: number) => void): Promise<UnlistenFn> =>
 /** Echo of every `set_volume`, so a second window's slider can't drift from what you hear. */
 export const onVolume = (cb: (v: number) => void): Promise<UnlistenFn> =>
 	listen<number>('volume', (e) => cb(e.payload));
+export const onKaraoke = (cb: (v: boolean) => void): Promise<UnlistenFn> =>
+	listen<boolean>('karaoke', (e) => cb(e.payload));
+export const onKaraokeStatus = (cb: (s: KaraokeStatusEvent) => void): Promise<UnlistenFn> =>
+	listen<KaraokeStatusEvent>('karaoke-status', (e) => cb(e.payload));
+export const onKaraokeQueue = (cb: (e: KaraokeQueueEvent) => void): Promise<UnlistenFn> =>
+	listen<KaraokeQueueEvent>('karaoke-queue', (e) => cb(e.payload));
+/** The track's instrumental is (or stopped being) what plays, while the rest is still made. */
+export const onKaraokeStreaming = (
+	cb: (e: { videoId: string; on: boolean }) => void
+): Promise<UnlistenFn> =>
+	listen<{ videoId: string; on: boolean }>('karaoke-streaming', (e) => cb(e.payload));
+export const onKaraokeModel = (cb: (m: KaraokeModelEvent) => void): Promise<UnlistenFn> =>
+	listen<KaraokeModelEvent>('karaoke-model', (e) => cb(e.payload));
 export const onPlaybackState = (cb: (s: 'playing' | 'paused') => void): Promise<UnlistenFn> =>
 	listen<'playing' | 'paused'>('playback-state', (e) => cb(e.payload));
 export const onPlaybackError = (cb: (msg: string) => void): Promise<UnlistenFn> =>
@@ -1146,6 +1270,8 @@ export interface LyricWord {
 	text: string;
 	start_ms: number;
 	end_ms: number;
+	/** Background vocals, with timings of their own; drawn smaller, under the lead (`lyricvoices.ts`). */
+	bg?: boolean;
 }
 export interface LyricLine {
 	/** Start cue in milliseconds; present ⇔ the line is synced. */
@@ -1157,6 +1283,9 @@ export interface LyricLine {
 	/** Latin-script reading of `text` (#202). Word-timed only when Apple Music wrote it. */
 	romanized?: string;
 	romanized_words?: LyricWord[];
+	/** Which singer: `v1`, `v2`, ... and `v1000` for everyone together. A second singer's lines
+	 *  sit on the opposite side (`lyricvoices.ts`). */
+	agent?: string;
 }
 export interface Lyrics {
 	/** Attribution for the panel footer ("LRCLIB", "Source: Musixmatch", …). */
@@ -1170,6 +1299,12 @@ export interface Lyrics {
 	pinned: boolean;
 	/** Timing nudge in ms, positive = lyrics later. */
 	offset_ms: number;
+	/** Limusic's revision of the lyric. Absent from every other source. */
+	revision?: number;
+	/** Who synced a community lyric on Limusic, oldest first. Absent everywhere else. */
+	authors?: string[];
+	/** The provider Limusic mirrored the lyric from ("Boidu"). Absent everywhere else. */
+	via?: string;
 }
 // A type, not an interface: `invoke` takes a record, and only a type alias is assignable to one.
 export type LyricsTrack = {
@@ -1191,6 +1326,223 @@ export const chooseLyricsSource = (args: LyricsTrack & { source: string | null }
 	invoke<Lyrics | null>('choose_lyrics_source', args);
 export const setLyricsOffset = (videoId: string, offsetMs: number) =>
 	invoke<void>('set_lyrics_offset', { videoId, offsetMs });
+/** Where the lyric editor starts: the song's lyrics as their provider sent them (no romanization
+ *  this app worked out), or `null` when nothing has any. */
+export interface LyricsEditorStart {
+	lyrics: Lyrics | null;
+	/** The revision the service has live for the song: what a submission is based on. */
+	base_revision: number | null;
+}
+export const lyricsEditorStart = (t: LyricsTrack) =>
+	invoke<LyricsEditorStart>('lyrics_editor_start', {
+		videoId: t.videoId,
+		title: t.title,
+		artists: t.artists,
+		album: t.album,
+		duration: t.duration
+	});
+/** One provider's lyrics for the editor to start from, as it sent them. `null`: it has none (an
+ *  instrumental counts as none); rejects when it couldn't be reached. */
+export const lyricsEditorSource = (t: LyricsTrack, source: string) =>
+	invoke<Lyrics | null>('lyrics_editor_source', {
+		videoId: t.videoId,
+		title: t.title,
+		artists: t.artists,
+		album: t.album,
+		duration: t.duration,
+		source
+	});
+/** Each word's romanization, per line as the editor split it, `null` where a word needs none: the
+ *  editor's hint under each word (#676), never submitted. */
+export const lyricsWordReadings = (lines: string[][]) =>
+	invoke<(string | null)[][]>('lyrics_word_readings', { lines });
+/** `lyrics` with the romanization the player would add, timed by the words where it can be: the
+ *  lyric editor's preview. */
+export const lyricsRomanize = (lyrics: Lyrics) => invoke<Lyrics>('lyrics_romanize', { lyrics });
+// --- Limusic Lyrics account (`limusic.rs`) ---
+export interface LimusicAccount {
+	/** Null while the account is anonymous: it has no public name. */
+	handle: string | null;
+	anonymous: boolean;
+	avatar_url: string | null;
+	score: number;
+	joined_at: number;
+	role: 'user' | 'reviewer' | 'admin' | '';
+	trusted: boolean;
+	can_review: boolean;
+}
+export interface LimusicAccountState {
+	/** There is a session: an anonymous one counts. */
+	signed_in: boolean;
+	handle: string | null;
+	/** The session is an anonymous account (no handle). */
+	anonymous: boolean;
+	/** A code (`expired`, `banned`, `failed`, `session_ended`) when a sign-in or a session ended badly. */
+	error?: string | null;
+}
+export interface LimusicProviders {
+	/** The identities that can be linked. May be empty. */
+	providers: string[];
+	/** The service has anonymous accounts: the gate for contributing at all. False for an older
+	 *  service, a 404 or no connection. */
+	anonymous: boolean;
+}
+export const limusicProviders = () => invoke<LimusicProviders>('limusic_providers');
+export const limusicStatus = () => invoke<LimusicAccountState>('limusic_status');
+/** Opens the browser; resolves with the code to compare with the confirm page. With an anonymous
+ *  session the identity is linked to it, with none a linked account is made. The outcome arrives
+ *  through `onLimusicAccount`. Rejects with a code (`rate_limited`, `unavailable`, ...). */
+export const limusicSignIn = (provider: string) => invoke<string>('limusic_sign_in', { provider });
+export const limusicCancel = () => invoke<void>('limusic_cancel');
+export const limusicSignOut = () => invoke<void>('limusic_sign_out');
+export const limusicMe = () => invoke<LimusicAccount | null>('limusic_me');
+/** Rejects with the service's code: `taken`, `invalid`, `rate_limited`, `unauthorized`. */
+export const limusicRename = (handle: string) => invoke<LimusicAccount>('limusic_rename', { handle });
+/** A cached lyric was replaced behind the one on screen (a newer Limusic revision, or Limusic has
+ *  the song now, or its lyric was taken down). The payload is the video id: ask again. */
+export const onLyricsUpdated = (cb: (videoId: string) => void): Promise<UnlistenFn> =>
+	listen<string>('lyrics-updated', (e) => cb(e.payload));
+/** The lyric Limusic has live for a song: its votes, mine, and whether it is my own work. */
+export interface LimusicLyricState {
+	revision: number;
+	up: number;
+	down: number;
+	my_vote: -1 | 0 | 1;
+	own: boolean;
+}
+/** `null` when the song has no live lyric. Rejects with a code when the service can't say. */
+export const limusicLyricState = (videoId: string) =>
+	invoke<LimusicLyricState | null>('limusic_lyric_state', { videoId });
+/** 1, -1, or 0 to take the vote back. The first one makes an anonymous account, silently.
+ *  Rejects with the service's code: `own`, `not_found`, `rate_limited`, `banned`, `unavailable`. */
+export const limusicVote = (videoId: string, value: -1 | 0 | 1) =>
+	invoke<Pick<LimusicLyricState, 'up' | 'down' | 'my_vote'>>('limusic_vote', { videoId, value });
+export type LimusicReportReason = 'wrong_song' | 'timing' | 'text' | 'abuse';
+/** Rejects with the service's code, as a vote does. */
+export const limusicReport = (videoId: string, reason: LimusicReportReason, note?: string) =>
+	invoke<void>('limusic_report', { videoId, reason, note: note || null });
+export const onLimusicAccount = (cb: (s: LimusicAccountState) => void): Promise<UnlistenFn> =>
+	listen<LimusicAccountState>('limusic-account', (e) => cb(e.payload));
+export interface LimusicSubmission {
+	video_id: string;
+	lines: LyricLine[];
+	title: string;
+	artist: string;
+	album?: string;
+	duration?: number;
+	base_revision: number | null;
+}
+export type LimusicSubmitted =
+	| { kind: 'published'; revision: number }
+	| { kind: 'pending'; revision: number }
+	| { kind: 'failed'; code: string; detail: string | null };
+export const limusicSubmit = (submission: LimusicSubmission) =>
+	invoke<LimusicSubmitted>('limusic_submit', { submission });
+/** The song's live revision on the service now, null when it has no live lyric. Rejects when the
+ *  service can't be asked. */
+export const limusicLiveRevision = (videoId: string) =>
+	invoke<number | null>('limusic_live_revision', { videoId });
+// Review (reviewers only). Every call rejects with the service's code: `forbidden`,
+// `unauthorized`, `not_found`, `not_reviewable`, `stale`, `rate_limited`, `unavailable`.
+export interface LimusicQueueItem {
+	revision: number;
+	video_id: string;
+	title: string;
+	artist: string;
+	duration: number | null;
+	/** Null when the sender is anonymous. */
+	author: string | null;
+	/** `new`, `edit`, or `reported` (a live lyric with enough open reports). */
+	kind: string;
+	created_at: number;
+	reports: number;
+	/** Another reviewer who has it open. */
+	reviewing?: string | null;
+}
+export interface LimusicQueue {
+	items: LimusicQueueItem[];
+	/** Pass as `after` for the next page, null on the last. */
+	next: number | null;
+}
+export interface LimusicRevision {
+	revision: number;
+	video_id: string;
+	status: string;
+	kind: string;
+	author: string | null;
+	title: string;
+	artist: string;
+	album: string | null;
+	duration: number | null;
+	base_revision: number | null;
+	note: string | null;
+	created_at: number;
+	/** The submitted lines, ready for `LyricsView`'s `preview`. */
+	lyrics: Lyrics | null;
+	/** The author's revisions that went live, and those a reviewer rejected. Absent for mirrored ones. */
+	author_record: { approved: number; rejected: number } | null;
+}
+/** Oldest first, 50 a page. */
+export const limusicReviewQueue = (after?: number) =>
+	invoke<LimusicQueue>('limusic_review_queue', { after: after ?? null });
+/** Mark the submission this reviewer has open, null to let go. Resolves with another reviewer who
+ *  has it already (this one then holds nothing), else null. */
+export const limusicReviewClaim = (revision: number | null) =>
+	invoke<{ by: string; since: number } | null>('limusic_review_claim', { revision });
+export const limusicReviewRevision = (revision: number) =>
+	invoke<LimusicRevision>('limusic_review_revision', { revision });
+/** The song's live community lyric from the service itself (never a lyrics provider), or null. */
+export const limusicLiveLyrics = (videoId: string) =>
+	invoke<Lyrics | null>('limusic_live_lyrics', { videoId });
+/** Resolves with the service's status: `published`, `rejected`, or `reverted` (a live lyric taken
+ *  down). An approval also replaces the song's cached lyric here. */
+export const limusicReview = (
+	revision: number,
+	videoId: string,
+	verdict: 'approve' | 'reject',
+	reason?: string,
+	/** With an approval of a pending revision: the reviewer's fix, live in place of what was sent. */
+	lines?: LyricLine[]
+) => invoke<string>('limusic_review', { revision, videoId, verdict, reason: reason ?? null, lines: lines ?? null });
+/** A reviewer turned down my latest version of a song, and nothing went live after it. */
+export interface LimusicRejection {
+	reason: string | null;
+	at: number | null;
+}
+export const limusicMyRejection = (videoId: string) =>
+	invoke<LimusicRejection | null>('limusic_my_rejection', { videoId });
+/** One linked account on the lyrics team page (admins only). */
+export interface LimusicMember {
+	handle: string;
+	avatar_url: string | null;
+	role: 'user' | 'reviewer' | 'admin';
+	banned: boolean;
+	score: number;
+	approved: number;
+	rejected: number;
+	joined_at: number;
+	/** This is the admin looking: no controls on it. */
+	you: boolean;
+}
+/** Staff then contributors with points for an empty `q`, else the handles holding it. */
+export const limusicAdminAccounts = (q: string) => invoke<LimusicMember[]>('limusic_admin_accounts', { q });
+export const limusicAdminUpdate = (handle: string, change: { role?: LimusicMember['role']; banned?: boolean }) =>
+	invoke<LimusicMember>('limusic_admin_update', { handle, role: change.role ?? null, banned: change.banned ?? null });
+/** Puts an earlier revision of the song back, or `null` for no lyric. Resolves with the live one. */
+export const limusicRevert = (videoId: string, toRevision: number | null, reason?: string) =>
+	invoke<number | null>('limusic_revert', { videoId, toRevision, reason: reason ?? null });
+/** A pasted or picked lyric file (TTML, eLRC, LRC) as lines, by the parsers the providers use.
+ *  Empty for plain text. Rejects with `too_large` over 1 MB. */
+export const lyricsParse = (text: string) => invoke<LyricLine[]>('lyrics_parse', { text });
+/** A position read from the player this instant and the wall-clock time (Unix ms) of the read:
+ *  what the lyric editor places a tap with (`stampTap`). `null` with nothing loaded. */
+export interface PlaybackClock {
+	position: number;
+	atMs: number;
+	speed: number;
+	paused: boolean;
+}
+export const playbackClock = () => invoke<PlaybackClock | null>('playback_clock');
 export interface LyricsProvider {
 	id: string;
 	name: string;
@@ -1266,8 +1618,8 @@ export interface ListenBrainzState {
 }
 export const listenbrainzStatus = () => invoke<ListenBrainzState>('listenbrainz_status');
 /** Validates the pasted user token and stores it. Rejects on a bad token or no network. */
-export const listenbrainzConnect = (token: string) =>
-	invoke<void>('listenbrainz_connect', { token });
+export const listenbrainzConnect = (token: string, url?: string) =>
+	invoke<void>('listenbrainz_connect', { token, url });
 export const listenbrainzDisconnect = () => invoke<void>('listenbrainz_disconnect');
 export const onListenBrainzState = (cb: (s: ListenBrainzState) => void): Promise<UnlistenFn> =>
 	listen<ListenBrainzState>('listenbrainz-state', (e) => cb(e.payload));
@@ -1349,6 +1701,45 @@ export const onLtState = (cb: (s: LtState) => void): Promise<UnlistenFn> =>
 	listen<LtState>('lt-state', (e) => cb(e.payload));
 export const onLtNotice = (cb: (msg: string) => void): Promise<UnlistenFn> =>
 	listen<string>('lt-notice', (e) => cb(e.payload));
+
+// Device link: the phone as a remote, and Continue here (src-tauri/src/devicelink.rs).
+export interface LinkDevice {
+	id: string;
+	name: string;
+	online: boolean;
+	playing: boolean;
+}
+export interface LinkState {
+	/** `off`: no link. `unsupported`: a server of the user's own predates linking and never
+	 *  answered. `unreachable`: no code came back in time, the network is in the way. */
+	status: 'off' | 'connecting' | 'connected' | 'unsupported' | 'unreachable';
+	error: string | null;
+	/** The server the link was made on; empty means the default. */
+	server: string;
+	/** This desktop's name as the other devices see it. */
+	selfName: string;
+	/** A live pairing code; `expiresAt` is unix ms on this machine's clock. */
+	pairing: { code: string; expiresAt: number } | null;
+	/** The other linked devices. */
+	devices: LinkDevice[];
+	/** Another device that is playing, or played last. */
+	player: { id: string; name: string; online: boolean } | null;
+	track: LtTrack | null;
+	isPlaying: boolean;
+	/** The player bar shows and controls the player's playback, not this desktop's. */
+	remote: boolean;
+}
+
+export const linkState = () => invoke<LinkState>('link_state');
+export const linkStartPairing = () => invoke<void>('link_start_pairing');
+export const linkCancelPairing = () => invoke<void>('link_cancel_pairing');
+export const linkUnlink = (deviceId: string) => invoke<void>('link_unlink', { deviceId });
+export const linkForget = () => invoke<void>('link_forget');
+export const linkContinueHere = () => invoke<void>('link_continue_here');
+/** The device picker: play on `deviceId`, or on this desktop when it is empty. */
+export const linkPlayOn = (deviceId: string) => invoke<void>('link_play_on', { deviceId });
+export const onLinkState = (cb: (s: LinkState) => void): Promise<UnlistenFn> =>
+	listen<LinkState>('link-state', (e) => cb(e.payload));
 
 export const getMatugenTheme = () => invoke<string | null>('get_matugen_theme');
 export const onMatugenThemeChanged = (cb: (css: string | null) => void): Promise<UnlistenFn> =>

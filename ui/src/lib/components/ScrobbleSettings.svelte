@@ -16,10 +16,11 @@
 		Delete02Icon,
 		FileImportIcon,
 		LinkSquare02Icon,
-		Loading03Icon,
 		MusicNote01Icon,
 		PencilEdit02Icon
 	} from '@hugeicons/core-free-icons';
+	import LimusicLoader from './LimusicLoader.svelte';
+	import LogoMark from './LogoMark.svelte';
 	import { untrack, type Snippet } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -103,6 +104,8 @@
 	// (same as Last.fm's `watchLastfm`): a second subscription here would double the toasts.
 	let lbProfile = $state<api.ListenBrainzProfile | null>(null);
 	let lbToken = $state('');
+	let lbCustom = $state(false); // the URL field only exists while this is on
+	let lbUrl = $state('');
 	$effect(() => {
 		const name = listenbrainz.connected ? listenbrainz.username : null;
 		lbProfile = null;
@@ -111,11 +114,17 @@
 			.then((p) => listenbrainz.username === name && (lbProfile = p))
 			.catch(() => {});
 	});
+	// Keep the token while connecting so a wrong address doesn't mean pasting it again.
+	$effect(() => {
+		if (listenbrainz.connected) lbToken = '';
+	});
+	// The button and the token field's Enter both go through here, so both get the checks.
+	const lbReady = $derived(
+		!!lbToken.trim() && !(lbCustom && !lbUrl.trim()) && !listenbrainz.connecting
+	);
 	function connectLb() {
-		const token = lbToken.trim();
-		if (!token) return;
-		lbToken = '';
-		connectListenBrainz(token);
+		if (!lbReady) return;
+		connectListenBrainz(lbToken.trim(), lbCustom ? lbUrl.trim() : '');
 	}
 	const num = (n: number) => n.toLocaleString(currentLocale.id);
 	const since = $derived(
@@ -339,7 +348,7 @@
 </script>
 
 {#snippet row_(o: { title: string; desc?: string; control?: Snippet; below?: Snippet })}
-	<div class="px-4 py-3.5">
+	<div data-setting-row class="px-4 py-3.5">
 		<div class="flex items-center justify-between gap-4">
 			<span class="min-w-0 text-sm font-medium">{o.title}</span>
 			{#if o.control}
@@ -503,6 +512,19 @@
 							<HugeiconsIcon icon={LinkSquare02Icon} size={15} />
 							{t('settings.scrobbling.lb_open_settings')}
 						</Button>
+						<label class="mb-2 flex items-center justify-between gap-3 text-xs">
+							{t('settings.scrobbling.lb_custom_instance')}
+							<Switch bind:checked={lbCustom} />
+						</label>
+						{#if lbCustom}
+							<Input
+								class="mb-2 h-8 font-mono text-xs"
+								bind:value={lbUrl}
+								placeholder="https://listenbrainz.example.com"
+								aria-label={t('settings.scrobbling.lb_url_label')}
+								spellcheck={false}
+							/>
+						{/if}
 						<div class="flex gap-2">
 							<Input
 								class="h-8 font-mono text-xs"
@@ -515,11 +537,11 @@
 							/>
 							<Button
 								size="sm"
-								disabled={!lbToken.trim() || listenbrainz.connecting}
+								disabled={!lbReady}
 								onclick={connectLb}
 							>
 								{#if listenbrainz.connecting}
-									<HugeiconsIcon icon={Loading03Icon} size={15} class="animate-spin" />
+									<LimusicLoader class="size-4 text-current" />
 								{:else}
 									{t('settings.scrobbling.connect')}
 								{/if}
@@ -581,7 +603,7 @@
 			</div>
 		</section>
 
-		<section class={GROUP}>
+		<section data-setting-row class={GROUP}>
 			<h3 class={LABEL}>{t('settings.scrobbling.section_rules')}</h3>
 			<p class={HINT}>{t('settings.scrobbling.rules_hint')}</p>
 			{#if cfg.rules.length}
@@ -729,7 +751,7 @@
 			{/if}
 		</section>
 
-		<section class={GROUP}>
+		<section data-setting-row class={GROUP}>
 			<h3 class={LABEL}>{t('settings.scrobbling.section_edits')}</h3>
 			<p class={HINT}>{t('settings.scrobbling.edits_hint')}</p>
 			<div data-settings-card class={CARD}>
@@ -869,7 +891,7 @@
 						{#if track.thumbnail}
 							<img src={thumb(track.thumbnail, 96)} alt="" class="size-full object-cover" draggable="false" />
 						{:else}
-							<HugeiconsIcon icon={MusicNote01Icon} size={20} class="text-muted-foreground" />
+							<LogoMark class="size-3/4 text-muted-foreground/20" />
 						{/if}
 					</div>
 					<div class="min-w-0 flex-1">
@@ -885,7 +907,7 @@
 								<div class="truncate text-xs text-muted-foreground">{preview.album}</div>
 							{/if}
 						{:else}
-							<HugeiconsIcon icon={Loading03Icon} size={16} class="animate-spin text-muted-foreground" />
+							<LimusicLoader class="size-5" />
 						{/if}
 					</div>
 				</div>
@@ -924,7 +946,7 @@
 	{:else if lastfm.connecting}
 		<!-- Cancels the browser authorization, same as a second click on the titlebar button. -->
 		<Button variant="ghost" size="sm" class="gap-1.5" onclick={disconnectLastfm}>
-			<HugeiconsIcon icon={Loading03Icon} size={15} class="animate-spin" />
+			<LimusicLoader class="size-4" />
 			{t('common.cancel')}
 		</Button>
 	{:else}

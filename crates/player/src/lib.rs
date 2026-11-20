@@ -16,6 +16,9 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 mod video;
 pub use video::{GlDisplay, Thumbnail, VideoRenderer};
 
+mod decode;
+pub use decode::decode_to_wav;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("mpv: {0}")]
@@ -227,6 +230,10 @@ struct Decks {
     /// into the one behind it. Mirrored here because the trigger runs on the event thread, where
     /// asking mpv for a property can stall the pump.
     loop_file: AtomicBool,
+    /// The URL `load` was told is a live broadcast (#424), so the event thread can tell which
+    /// file is on air by its `path`. By path, not a flag: a gapless advance into the lookahead
+    /// changes the file without a `load`, and the next track must not inherit "live".
+    live_url: Mutex<Option<String>>,
     cache_dir: String,
     afir_normalization: OnceLock<&'static str>,
     tx: UnboundedSender<PlayerEvent>,
@@ -310,13 +317,21 @@ fn new_mpv(cache_dir: &str) -> Result<Mpv, Error> {
     // unwanted sample at EOF and an audible pop between otherwise-continuous tracks. FFmpeg's
     // demuxer rounds the padding correctly without altering the stream bytes.
     mpv.set_property("demuxer", "lavf")?;
+    // A live broadcast (#424) normally arrives as the one rendition the app picked from its HLS
+    // master playlist. When the app hands over the master instead, mpv's default takes the
+    // largest rendition, 1080p muxed picture at ~4.5 Mbit/s for a picture that is never decoded.
+    mpv.set_property("hls-bitrate", "min")?;
     // Open the appended remote entry while the current track is still playing. `gapless-audio`
     // keeps the output device alive, but on its own does not guarantee that the next HTTP stream
     // and demuxer are ready before the buffered tail reaches the playlist boundary.
     mpv.set_property("prefetch-playlist", "yes")?;
     mpv.set_property("cache", "yes")?;
     mpv.set_property("cache-on-disk", "yes")?;
-    mpv.set_property("demuxer-cache-dir", cache_dir)?;
+    // `cache-dir` before mpv 0.36 (Debian 12 ships 0.35.1). Without the fallback an mpv that old
+    // has no player at all.
+    if mpv.set_property("demuxer-cache-dir", cache_dir).is_err() {
+        mpv.set_property("cache-dir", cache_dir)?;
+    }
     // The demuxer runs at mpv's browser-sized defaults otherwise: 150 MiB forward and 50 MiB
     // back, per open file, and the gapless lookahead keeps two open across every transition.
     //
@@ -365,13 +380,24 @@ fn new_mpv(cache_dir: &str) -> Result<Mpv, Error> {
     // Playback then pins at the seek target forever (issue #188). A threshold of 1 forces every
     // real seek to close the connection and open a fresh Range request, which googlevideo
     // answers with a 206.
-    mpv.set_property(
-            "stream-lavf-o",
-            "reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_delay_max=2,reconnect_max_retries=6,reconnect_delay_total_max=30,short_seek_size=1",
-        )?;
+    mpv.set_property("stream-lavf-o", LAVF_FILE_OPTS)?;
     request_mpv_log(&mpv);
     Ok(mpv)
 }
+
+/// ffmpeg's HTTP reader options for one googlevideo file: the reconnect set `new_mpv` explains.
+const LAVF_FILE_OPTS: &str = "reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_delay_max=2,reconnect_max_retries=6,reconnect_delay_total_max=30,short_seek_size=1";
+
+/// For a live HLS playlist (#424): none of the above. Its segments come chunked, with no length,
+/// so `reconnect_streamed` reads each one's end as "ends prematurely", re-opens it from byte 0 and
+/// plays the tail twice, which the position bar shows as a step back every segment. The hls
+/// demuxer retries a failed segment on its own.
+const LAVF_LIVE_OPTS: &str = "";
+
+/// The hls demuxer's own options for a live playlist (#424). googlevideo answers a segment
+/// request on a reused connection with 400, so with ffmpeg's default every segment cost a refused
+/// request and a warning in the log before the retry on a new connection got it.
+const LAVF_LIVE_DEMUX_OPTS: &str = "http_persistent=0";
 
 /// Observe the properties the event loop derives everything from, and run it on its own thread.
 fn spawn_deck_events(mpv: &Arc<Mpv>, deck: usize, decks: Arc<Decks>) -> Result<(), Error> {
@@ -381,6 +407,7 @@ fn spawn_deck_events(mpv: &Arc<Mpv>, deck: usize, decks: Arc<Decks>) -> Result<(
     ev.observe_property("duration", Format::Double, 1)?;
     ev.observe_property("pause", Format::Flag, 2)?;
     ev.observe_property("idle-active", Format::Flag, 3)?;
+    ev.observe_property("path", Format::String, 4)?;
     std::thread::Builder::new()
         .name(format!("mpv-events-{deck}"))
         .spawn(move || event_loop(ev, deck, decks))
@@ -429,6 +456,7 @@ impl Player {
             fade_gen: AtomicU64::new(0),
             pending: Mutex::new(None),
             loop_file: AtomicBool::new(false),
+            live_url: Mutex::new(None),
             cache_dir: cache_dir.to_owned(),
             afir_normalization: OnceLock::new(),
             tx,
@@ -488,17 +516,53 @@ impl Player {
     /// setting is on: [`Self::manual_fade_len`] decides, since every such change comes through
     /// here. A skip that lands mid-fade ends that fade first, so it still restarts one from
     /// whatever is playing.
+    ///
+    /// `live` is an HLS playlist of a broadcast on air (#424), which wants ffmpeg's HTTP reader
+    /// without the reconnect options a single file gets ([`LAVF_LIVE_OPTS`]). Like the headers,
+    /// the option is global to the deck, so the next `load` sets it back.
     pub fn load(
         &self,
         url: &str,
         headers: &HashMap<String, String>,
         gain_db: Option<f64>,
         start: Option<f64>,
+        live: bool,
+    ) -> Result<(), Error> {
+        self.load_with(url, headers, gain_db, start, live, &[])
+    }
+
+    /// [`Self::load`] for a WAV served over HTTP while it is still being written (karaoke's
+    /// instrumental of the song that is playing). The header says everything ffmpeg needs, so
+    /// its stream probe is skipped: that probe reads seconds of audio from the start of the file
+    /// before mpv seeks to `start`, and the start of such a file may be the last part written.
+    /// No seekable cache either: what mpv read before the seek may be silence standing in for a
+    /// part not written yet, and a later seek back must ask the server again rather than replay it.
+    pub fn load_wav_stream(
+        &self,
+        url: &str,
+        gain_db: Option<f64>,
+        start: Option<f64>,
+    ) -> Result<(), Error> {
+        let opts = ["demuxer-lavf-probe-info=no", "demuxer-seekable-cache=no"];
+        self.load_with(url, &HashMap::new(), gain_db, start, false, &opts)
+    }
+
+    fn load_with(
+        &self,
+        url: &str,
+        headers: &HashMap<String, String>,
+        gain_db: Option<f64>,
+        start: Option<f64>,
+        live: bool,
+        file_opts: &[&str],
     ) -> Result<(), Error> {
         if self.wants_manual_fade() {
             self.settle_fade();
         }
-        if let Some(fade) = self.manual_fade_len() {
+        // A broadcast (#424) is a DVR timeline, not a track: it has nothing to fade and no track
+        // position for `start=` to mean, so it always takes the direct path below, which is also
+        // what arms `live_url` and the ffmpeg reader options.
+        if let Some(fade) = self.manual_fade_len().filter(|_| !live) {
             match self.load_overlapping(url, headers, gain_db, start, fade) {
                 Ok(()) => return Ok(()),
                 Err(e) => {
@@ -530,7 +594,14 @@ impl Player {
         }
         self.apply_headers(headers)?;
         self.set_gain(gain_db)?;
-        let args = loadfile_args(url, start, loadfile_has_index(self.mpv()));
+        self.mpv()
+            .set_property("stream-lavf-o", if live { LAVF_LIVE_OPTS } else { LAVF_FILE_OPTS })?;
+        self.mpv().set_property("demuxer-lavf-o", if live { LAVF_LIVE_DEMUX_OPTS } else { "" })?;
+        *self.decks.live_url.lock().unwrap() = live.then(|| url.to_owned());
+        // A broadcast always starts at its live edge: a resume point or a host's position is a
+        // track position, and as an offset into the DVR window it lands hours behind (#424).
+        let start = start.filter(|_| !live);
+        let args = loadfile_args(url, start, file_opts, loadfile_has_index(self.mpv()));
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
         self.mpv().command("loadfile", &refs)?;
         Ok(())
@@ -623,7 +694,7 @@ impl Player {
         // `deck_swapped` looks the picture up by what the deck has loaded, and the swap follows
         // this file's `FileLoaded` too closely for that read to land first.
         self.decks.videos.lock().unwrap().set_loaded(deck, url);
-        let args = loadfile_args(url, start, loadfile_has_index(&mpv));
+        let args = loadfile_args(url, start, &[], loadfile_has_index(&mpv));
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
         // Armed before the command: the fade starts from the event it can raise inside it.
         *self.decks.manual_fade_url.lock().unwrap() = Some(url.to_owned());
@@ -771,6 +842,11 @@ impl Player {
         self.decks.fading.load(Ordering::Acquire)
     }
 
+    /// True when mpv is currently paused.
+    pub fn is_paused(&self) -> bool {
+        self.mpv().get_property::<bool>("pause").unwrap_or(false)
+    }
+
     pub fn play(&self) -> Result<(), Error> {
         self.mpv().set_property("pause", false)?;
         self.note_manual_fade_pause();
@@ -823,7 +899,19 @@ impl Player {
     /// seek: inside the cache it is instant and never touches the network, past it mpv has to open
     /// a *fresh* HTTP request for the new offset. A report that says "seeking hangs" is answered by
     /// which of those it was, and nothing used to record it. Issue #188.
+    /// The file playing is the broadcast `load` was told about (#424). By `path`, like the event
+    /// thread's `on_air`: the lookahead that follows a track is never live.
+    fn on_air(&self) -> bool {
+        let live = self.decks.live_url.lock().unwrap();
+        live.is_some() && self.mpv().get_property::<String>("path").ok() == *live
+    }
+
     pub fn seek(&self, position_secs: f64) -> Result<(), Error> {
+        // A broadcast's timeline is its DVR window, not a track (#424): a position from the UI,
+        // a media key or a Listen Together host means nothing in it.
+        if self.on_air() {
+            return Ok(());
+        }
         // Scrubbing is aimed at the track that is playing, which during an overlap is the
         // incoming deck. The outgoing one has nothing to do with the new position.
         self.cancel_fade();
@@ -967,6 +1055,19 @@ impl Player {
 
     pub fn speed(&self) -> f64 {
         self.decks.speed()
+    }
+
+    /// Where the audio being heard is right now, in seconds, for a caller that has to stamp an
+    /// instant (the lyric editor's taps). `None` with nothing loaded.
+    ///
+    /// `audio-pts`, not `time-pos`: mpv works `audio-pts` out from the output's buffer on every
+    /// read, while `time-pos` is whatever the last pass of its play loop left, up to a buffer
+    /// behind. Read every ~17 ms against the wall clock over a local tone (mpv 0.41, PipeWire and
+    /// the null output alike), `audio-pts` strayed 0.1-0.2 ms from a straight line at 1x, 0.75x
+    /// and 0.5x, and `time-pos` 85-98 ms at 1x. A read costs about 20 microseconds.
+    pub fn clock(&self) -> Option<f64> {
+        let mpv = self.mpv();
+        mpv.get_property::<f64>("audio-pts").or_else(|_| mpv.get_property::<f64>("time-pos")).ok()
     }
 
     pub fn playback_params(&self) -> (f64, i32, Reverb) {
@@ -1257,6 +1358,9 @@ fn event_loop(mut ev: EventContext, deck: usize, decks: Arc<Decks>) {
     let mut duration = 0.0f64;
     // The previous `time-pos`, to spot repeat-one going back to the top (`loop_wrapped`).
     let mut last_pos = f64::NAN;
+    // The file playing is a broadcast (#424). mpv's `duration` for one is the DVR window, which
+    // grows a segment at a time, so it is neither a length for the app nor an end to fade at.
+    let mut on_air = false;
     // Playback state is derived from two properties, never polled: mpv answers `mpv_get_property`
     // synchronously on its core lock, so asking it from the app's async event pump can stall that
     // pump exactly when mpv is busiest (a gapless transition opening the next stream) — and a
@@ -1283,7 +1387,7 @@ fn event_loop(mut ev: EventContext, deck: usize, decks: Arc<Decks>) {
                         let leaving = live() && decks.manual_fade_ms.load(Ordering::Acquire) > 0;
                         // Not while paused: mpv reports `time-pos` on a seek too, and a seek
                         // into the last seconds of a paused track must not start the next one.
-                        if live() && !paused && !idle && !leaving {
+                        if live() && !paused && !idle && !leaving && !on_air {
                             maybe_crossfade(&decks, deck, p, duration);
                         }
                         if live()
@@ -1300,9 +1404,15 @@ fn event_loop(mut ev: EventContext, deck: usize, decks: Arc<Decks>) {
                         name: "duration",
                         change: PropertyData::Double(d),
                         ..
-                    } => {
+                    } if !on_air => {
                         duration = d;
                         Some(PlayerEvent::Duration(d))
+                    }
+                    Event::PropertyChange {
+                        name: "path", change: PropertyData::Str(p), ..
+                    } => {
+                        on_air = decks.live_url.lock().unwrap().as_deref() == Some(p);
+                        None
                     }
                     Event::PropertyChange {
                         name: "pause", change: PropertyData::Flag(p), ..
@@ -1631,7 +1741,6 @@ fn start_crossfade(decks: &Arc<Decks>, from: usize, t: Transition) {
         // `set_loop_file` writes the same property to the same deck under it, so a toggle landing
         // here is either seen by the read below or lands on the deck that is left playing.
         let _swap = decks.pending.lock().unwrap();
-        decks.fading.store(true, Ordering::Release);
         decks.manual_fade_ms.store(0, Ordering::Release);
         // Repeat-one can be switched while the track is still opening, so the deck taking over is
         // told here, just before it is heard, rather than only when it was loaded.
@@ -1639,6 +1748,10 @@ fn start_crossfade(decks: &Arc<Decks>, from: usize, t: Transition) {
             tracing::warn!(error = %e, "incoming deck refused its loop setting");
         }
         decks.active.store(1 - from, Ordering::SeqCst);
+        // Last, and a release store: whoever sees `fading` set has already seen the swap. The loop
+        // write above runs an mpv call, and publishing the fade before it left a window where
+        // `is_crossfading()` was true while the old deck was still the live one.
+        decks.fading.store(true, Ordering::Release);
     }
     video::deck_swapped(decks);
     // Back on the real device (see `preload`). mpv reopens the output from where the null one had
@@ -1790,13 +1903,23 @@ fn quoted(arg: &str) -> String {
 /// `start` is present; older mpv reads the options as argument 3 (see [`loadfile_has_index`]).
 /// A non-finite or non-positive start is dropped: `start=0` is the default anyway, and a NaN would
 /// poison the load.
-fn loadfile_args(url: &str, start: Option<f64>, has_index: bool) -> Vec<String> {
-    let mut args = vec![quoted(url), "replace".to_owned()];
+fn loadfile_args(
+    url: &str,
+    start: Option<f64>,
+    file_opts: &[&str],
+    has_index: bool,
+) -> Vec<String> {
+    let mut opts: Vec<String> = Vec::new();
     if let Some(pos) = start.filter(|p| p.is_finite() && *p > 0.0) {
+        opts.push(format!("start={pos}"));
+    }
+    opts.extend(file_opts.iter().map(|o| o.to_string()));
+    let mut args = vec![quoted(url), "replace".to_owned()];
+    if !opts.is_empty() {
         if has_index {
             args.push("-1".to_owned());
         }
-        args.push(quoted(&format!("start={pos}")));
+        args.push(quoted(&opts.join(",")));
     }
     args
 }
@@ -2183,7 +2306,7 @@ mod tests {
         p.mpv().set_property("ao", "null").unwrap();
         p.mpv().set_property("ao-null-untimed", false).unwrap();
         p.set_playback_params(0.8, -1, reverb(3)).unwrap();
-        p.load(track.to_str().unwrap(), &Default::default(), None, None).unwrap();
+        p.load(track.to_str().unwrap(), &Default::default(), None, None, false).unwrap();
         p.play().unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
         while p.mpv().get_property::<f64>("time-pos").unwrap_or(0.0) < 0.1 {
@@ -2258,6 +2381,7 @@ mod tests {
                 &HashMap::new(),
                 None,
                 None,
+                false,
             )
             .unwrap();
             p.play().unwrap(); // keep-open pauses at EOF; every render starts playing.
@@ -2456,7 +2580,7 @@ mod tests {
         let path = || p.mpv().get_property::<String>("path").ok();
         let old = "av://lavfi:sine=f=440:d=30";
 
-        p.load(old, &HashMap::new(), None, None).unwrap();
+        p.load(old, &HashMap::new(), None, None, false).unwrap();
         p.play().unwrap();
         let t = Instant::now();
         while path().as_deref() != Some(old) && t.elapsed() < Duration::from_secs(5) {
@@ -2466,9 +2590,10 @@ mod tests {
         p.pause().unwrap();
 
         for _ in 0..10 {
-            p.load("av://lavfi:sine=f=1000:d=30", &HashMap::new(), Some(-3.0), None).unwrap();
+            p.load("av://lavfi:sine=f=1000:d=30", &HashMap::new(), Some(-3.0), None, false)
+                .unwrap();
             assert_ne!(path().as_deref(), Some(old), "load returned with the paused track loaded");
-            p.load(old, &HashMap::new(), None, None).unwrap();
+            p.load(old, &HashMap::new(), None, None, false).unwrap();
             let t = Instant::now();
             while path().as_deref() != Some(old) && t.elapsed() < Duration::from_secs(5) {
                 std::thread::sleep(Duration::from_millis(10));
@@ -2479,12 +2604,12 @@ mod tests {
     #[test]
     fn loadfile_start_is_a_file_local_option() {
         // No start: the plain 2-argument loadfile, unchanged.
-        assert_eq!(loadfile_args("u", None, true), vec!["\"u\"", "replace"]);
+        assert_eq!(loadfile_args("u", None, &[], true), vec!["\"u\"", "replace"]);
         // Anything at or below 0 is the default position, so it is not worth the option, and a
         // NaN or infinity must never reach mpv.
         for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
             assert_eq!(
-                loadfile_args("u", Some(bad), true),
+                loadfile_args("u", Some(bad), &[], true),
                 vec!["\"u\"", "replace"],
                 "start={bad}"
             );
@@ -2492,17 +2617,26 @@ mod tests {
         // On mpv 0.38+ the `index` positional has to be present for `options` to be read, and
         // before 0.38 it doesn't exist (issue #384).
         assert_eq!(
-            loadfile_args("u", Some(605.0), true),
+            loadfile_args("u", Some(605.0), &[], true),
             vec!["\"u\"", "replace", "-1", "\"start=605\""]
         );
         assert_eq!(
-            loadfile_args("u", Some(605.0), false),
+            loadfile_args("u", Some(605.0), &[], false),
             vec!["\"u\"", "replace", "\"start=605\""]
         );
         // Fractional resume positions are what `state::pending_seek` actually carries.
         assert_eq!(
-            loadfile_args("u", Some(8.6155624669999), true),
+            loadfile_args("u", Some(8.6155624669999), &[], true),
             vec!["\"u\"", "replace", "-1", "\"start=8.6155624669999\""]
+        );
+        // Per-file options ride in the same string, with or without a start.
+        assert_eq!(
+            loadfile_args("u", Some(60.5), &["demuxer-lavf-probe-info=no"], true),
+            vec!["\"u\"", "replace", "-1", "\"start=60.5,demuxer-lavf-probe-info=no\""]
+        );
+        assert_eq!(
+            loadfile_args("u", None, &["demuxer-lavf-probe-info=no"], false),
+            vec!["\"u\"", "replace", "\"demuxer-lavf-probe-info=no\""]
         );
     }
 
@@ -2657,7 +2791,7 @@ mod tests {
             panic!("timed out, saw {seen:?}");
         };
 
-        p.load("av://lavfi:sine=duration=0.3", &Default::default(), None, None).unwrap();
+        p.load("av://lavfi:sine=duration=0.3", &Default::default(), None, None, false).unwrap();
         let _ = p.play();
         // Through the end of the file and mpv going idle, which is the `Playing(false)` that used
         // to be broadcast as a pause.
@@ -2684,7 +2818,7 @@ mod tests {
         // time-pos can precede mpv's initial start seek. Pausing makes this wait meaningful:
         // an ignored start option cannot accidentally pass by playing from zero to two seconds.
         p.mpv().set_property("pause", true).unwrap();
-        p.load("av://lavfi:sine=duration=5", &Default::default(), None, Some(2.0)).unwrap();
+        p.load("av://lavfi:sine=duration=5", &Default::default(), None, Some(2.0), false).unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
         let pos = loop {
             if let Ok(pos) = p.mpv().get_property::<f64>("time-pos") {
@@ -2696,5 +2830,34 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         };
         assert!((1.9..3.0).contains(&pos), "started at {pos}");
+    }
+
+    /// A broadcast ignores a start position and every seek, whoever sends them (#424), and the next
+    /// ordinary file honours both again: the guard follows `path`, not a flag the live load left.
+    #[test]
+    fn a_live_file_ignores_start_and_seeks_the_next_one_does_not() {
+        use super::Player;
+        use std::time::{Duration, Instant};
+
+        let dir = std::env::temp_dir().join("limusic-live-seek-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = Player::new(dir.to_str().unwrap()).expect("libmpv");
+        p.mpv().set_property("ao", "null").unwrap();
+        p.mpv().set_property("pause", true).unwrap();
+        let pos_after_seek = |url: &str, live: bool| {
+            p.load(url, &Default::default(), None, Some(10.0), live).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while p.mpv().get_property::<f64>("time-pos").is_err() {
+                assert!(Instant::now() < deadline, "file never loaded");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            p.seek(20.0).unwrap();
+            std::thread::sleep(Duration::from_millis(300));
+            p.mpv().get_property::<f64>("time-pos").unwrap()
+        };
+        let live = pos_after_seek("av://lavfi:sine=f=440:d=30", true);
+        assert!(live < 1.0, "a live file got to {live}");
+        let file = pos_after_seek("av://lavfi:sine=f=880:d=30", false);
+        assert!(file > 19.0, "an ordinary file after it stayed at {file}");
     }
 }

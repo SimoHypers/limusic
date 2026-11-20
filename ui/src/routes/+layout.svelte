@@ -24,10 +24,11 @@
 		initTheme
 	} from '$lib/theme.svelte';
 	import { loadAppIcon } from '$lib/appicon.svelte';
+	import { watchLimusic } from '$lib/limusic.svelte';
 	import { thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
 	import { blockForeignDrag, dragScroll } from '$lib/dnd';
-	import { suppressNative } from '$lib/menu';
+	import { notePress, skipSelectClick, suppressNative } from '$lib/menu';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import Titlebar from '$lib/components/Titlebar.svelte';
 	import ResizeBorders from '$lib/components/ResizeBorders.svelte';
@@ -44,6 +45,7 @@
 	import ListenTogether from '$lib/components/ListenTogether.svelte';
 	import LinkDialog from '$lib/components/LinkDialog.svelte';
 	import ImportDialog from '$lib/components/ImportDialog.svelte';
+	import KaraokeSetupDialog from '$lib/components/KaraokeSetupDialog.svelte';
 	import { handleImportDrop, initImport } from '$lib/import.svelte';
 	import MiniPlayer from '$lib/components/MiniPlayer.svelte';
 	import NowPlaying from '$lib/components/NowPlaying.svelte';
@@ -179,12 +181,14 @@
 		// mounted for days and a mount-only check would never see a release published in between.
 		const updateTimer = setInterval(checkForUpdatesQuiet, QUIET_INTERVAL_MS);
 		const teardownApp = initApp();
+		const teardownLimusic = watchLimusic();
 		const teardownZoom = initZoom();
 		const teardownShortcuts = initShortcuts();
 		initImport();
 		return () => {
 			clearInterval(updateTimer);
 			teardownApp();
+			teardownLimusic();
 			teardownWin();
 			teardownZoom();
 			teardownShortcuts();
@@ -194,13 +198,16 @@
 
 <!-- oncontextmenu: the app's own menus handle their right-click and stop the event, so anything
      that reaches the window is a place where WebKit would have offered back / reload / inspect.
-     Text fields and selections keep the native menu (see `suppressNative`). -->
+     Text fields and selections keep the native menu (see `suppressNative`). A click that ends a
+     drag-select reaches nothing (`skipSelectClick`, #262). -->
 <!-- A Spotify export, CSV or link dropped anywhere opens the import (#375); anything else foreign is
      refused as before. -->
 <svelte:window
 	ondragover={blockForeignDrag}
 	ondrop={(e) => handleImportDrop(e) || blockForeignDrag(e)}
 	oncontextmenu={suppressNative}
+	onpointerdowncapture={notePress}
+	onclickcapture={skipSelectClick}
 />
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
@@ -264,6 +271,7 @@
 			{#if np.open && playback.now}<NowPlaying
 					queueOpen={showQueue}
 					lyricsOpen={showLyrics || showComments}
+					onLyrics={() => ((lyricsOpen = true), (commentsOpen = false))}
 				/>{/if}
 			<!-- Lyrics before queue: side by side over the page, lyrics on the left, queue on the right. -->
 			{#if showLyrics}<LyricsPanel onClose={() => (lyricsOpen = false)} queueOpen={showQueue} />{/if}
@@ -319,37 +327,45 @@
 	<ListenTogether />
 	<LinkDialog />
 	<ImportDialog />
+	<KaraokeSetupDialog />
 
 	<!-- The two notification banners below run at z-[100]. Dialogs and menus sit at z-50 and portal to
 	     <body>, so a z-50 banner loses the tie on DOM order and hides behind an open modal. The update
 	     banner also needs pointer-events-auto: an open dialog sets `pointer-events: none` on <body>,
-	     so without it the banner shows above the modal but its buttons can't be clicked. -->
+	     so without it the banner shows above the modal but its buttons can't be clicked.
+	     Both are centred by a full-width flex row, never left-1/2 + -translate-x-1/2: an odd width
+	     makes that a half-pixel offset and WebKitGTK resamples the layer, so the text goes soft
+	     (the dialog fix in #75). -->
 	{#if updateState.available}
 		<div
 			transition:fly={{ y: 16, duration: 220, easing: cubicOut }}
-			class="pointer-events-auto fixed bottom-24 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-3 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
+			class="pointer-events-none fixed inset-x-0 bottom-24 z-[100] flex justify-center px-4"
 		>
-			<span>{availableMessage(updateState.available)}</span>
-			{#if updateState.canInstall}
-				<Button size="sm" onclick={installUpdate} disabled={updateState.installing}>
-					{updateState.installing ? t('common.loading') : t('settings.about.install_update')}
-				</Button>
-			{:else}
-				<!-- Packaged build (.rpm, AUR): the updater can only rewrite an AppImage, so send them
-				     to the releases page and let their package manager do it. -->
-				<Button size="sm" onclick={openDownloadPage}>{t('settings.about.download_page')}</Button>
-			{/if}
-			{#if !updateState.installing}
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					class="-mr-2 text-muted-foreground hover:text-foreground"
-					aria-label={t('common.close')}
-					onclick={() => (updateState.available = null)}
-				>
-					<HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
-				</Button>
-			{/if}
+			<div
+				class="pointer-events-auto flex items-center gap-3 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
+			>
+				<span>{availableMessage(updateState.available)}</span>
+				{#if updateState.canInstall}
+					<Button size="sm" onclick={installUpdate} disabled={updateState.installing}>
+						{updateState.installing ? t('common.loading') : t('settings.about.install_update')}
+					</Button>
+				{:else}
+					<!-- Packaged build (.rpm, AUR): the updater can only rewrite an AppImage, so send them
+					     to the releases page and let their package manager do it. -->
+					<Button size="sm" onclick={openDownloadPage}>{t('settings.about.download_page')}</Button>
+				{/if}
+				{#if !updateState.installing}
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						class="-mr-2 text-muted-foreground hover:text-foreground"
+						aria-label={t('common.close')}
+						onclick={() => (updateState.available = null)}
+					>
+						<HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
+					</Button>
+				{/if}
+			</div>
 		</div>
 	{/if}
 
@@ -357,21 +373,25 @@
 		{@const t = ui.toast}
 		<div
 			transition:fly={{ y: 16, duration: 220, easing: cubicOut }}
-			class="fixed bottom-40 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-2 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
+			class="pointer-events-none fixed inset-x-0 bottom-40 z-[100] flex justify-center px-4"
 		>
-			<!-- Three branches instead of a ternary on `icon`: HugeiconsIcon freezes `icon` at mount, so a
-			     new toast replacing a visible one would keep the old glyph. -->
-			{#if t.kind === 'success'}
-				<HugeiconsIcon icon={CheckmarkCircle02Icon} class="h-4 w-4 shrink-0 text-primary" />
-			{:else if t.kind === 'error'}
-				<HugeiconsIcon icon={AlertCircleIcon} class="h-4 w-4 shrink-0 text-destructive" />
-			{:else}
-				<HugeiconsIcon
-					icon={InformationCircleIcon}
-					class="h-4 w-4 shrink-0 text-muted-foreground"
-				/>
-			{/if}
-			{t.msg}
+			<div
+				class="pointer-events-auto flex items-center gap-2 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
+			>
+				<!-- Three branches instead of a ternary on `icon`: HugeiconsIcon freezes `icon` at mount, so a
+				     new toast replacing a visible one would keep the old glyph. -->
+				{#if t.kind === 'success'}
+					<HugeiconsIcon icon={CheckmarkCircle02Icon} class="h-4 w-4 shrink-0 text-primary" />
+				{:else if t.kind === 'error'}
+					<HugeiconsIcon icon={AlertCircleIcon} class="h-4 w-4 shrink-0 text-destructive" />
+				{:else}
+					<HugeiconsIcon
+						icon={InformationCircleIcon}
+						class="h-4 w-4 shrink-0 text-muted-foreground"
+					/>
+				{/if}
+				{t.msg}
+			</div>
 		</div>
 	{/if}
 {/if}

@@ -4,7 +4,9 @@
 	// packing more of them per row (see Shelf's `community` prop).
 	import { goto } from '$app/navigation';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { PlayIcon, PlayListAddIcon, MusicNote01Icon } from '@hugeicons/core-free-icons';
+	import { PlayIcon, PlayListAddIcon } from '@hugeicons/core-free-icons';
+	import LogoMark from './LogoMark.svelte';
+	import LimusicLoader from './LimusicLoader.svelte';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import * as api from '$lib/api';
 	import type { BrowseItem, PlaylistPage } from '$lib/api';
@@ -117,7 +119,7 @@
 >
 	<ItemMenu
 		{item}
-		triggerClass="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-0 shadow-md transition hover:bg-background focus-visible:opacity-100 group-hover:opacity-100 cursor-pointer"
+		triggerClass="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-0 shadow-md transition hover:bg-background focus-visible:shown group-hover:shown cursor-pointer"
 	/>
 	<!-- A div, not a button: `ctxHost` treats a nested <button> as its own thing and would leave the
 	     card's whole cover-and-title block without a right-click menu. -->
@@ -155,8 +157,8 @@
 					loading="lazy"
 				/>
 			{:else}
-				<div class="flex h-full w-full items-center justify-center text-muted-foreground/50">
-					<HugeiconsIcon icon={MusicNote01Icon} class="h-6 w-6" />
+				<div class="flex h-full w-full items-center justify-center text-muted-foreground/20">
+					<LogoMark class="size-3/4" />
 				</div>
 			{/if}
 		</div>
@@ -220,11 +222,14 @@
 		<button
 			aria-label={t('a11y.play')}
 			disabled={busy}
-			class:animate-pulse={busy}
 			class="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md transition hover:brightness-110"
 			onclick={() => act((p) => playFrom(item, p.items, null, item.id, undefined, p.continuation))}
 		>
-			<HugeiconsIcon icon={PlayIcon} class="h-3.5 w-3.5" />
+			{#if busy}
+				<LimusicLoader class="size-5 text-primary-foreground" />
+			{:else}
+				<HugeiconsIcon icon={PlayIcon} class="h-3.5 w-3.5" />
+			{/if}
 		</button>
 		<button
 			aria-label={t('player.add_to_playlist')}

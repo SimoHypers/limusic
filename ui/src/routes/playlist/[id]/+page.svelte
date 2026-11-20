@@ -28,9 +28,10 @@
 		Search01Icon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
+	import { Switch } from '$lib/components/ui/switch';
 	import * as RadioGroup from '$lib/components/ui/radio-group';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
-	import { Skeleton } from '$lib/components/ui/skeleton';
+	import LimusicLoader from '$lib/components/LimusicLoader.svelte';
 	import TrackRow from '$lib/components/TrackRow.svelte';
 	import TrackColumns, { chosen, loadMyPlays, myPlays } from '$lib/components/TrackColumns.svelte';
 	import { availableColumns, fitColumns } from '$lib/trackcolumns';
@@ -40,7 +41,6 @@
 	import { subtitleCount, withSubtitleCount } from '$lib/trackcount';
 	import EditPlaylistDialog from '$lib/components/EditPlaylistDialog.svelte';
 	import TrackFilter, { filterTracks } from '$lib/components/TrackFilter.svelte';
-	import TrackRowSkeleton from '$lib/components/TrackRowSkeleton.svelte';
 	import PlaylistSuggestions from '$lib/components/PlaylistSuggestions.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import NowPlayingPill from '$lib/components/NowPlayingPill.svelte';
@@ -107,7 +107,9 @@
 	let error = $state<string | null>(null);
 	let loadingMore = $state(false);
 	let moreError = $state(false);
-	let inflight: Promise<void> | null = null;
+	// State so the end-of-window effect runs again once a page has fully settled: `pl` lands a
+	// microtask before this clears, and a rerun in between would get the finished promise back.
+	let inflight = $state.raw<Promise<void> | null>(null);
 	// The delete confirmation dialog, and the request it is waiting on.
 	let confirmingDelete = $state(false);
 	let deleting = $state(false);
@@ -248,18 +250,29 @@
 	// Kept on this machine (#251): no YouTube item behind it, so no radio and nothing to share, and
 	// every row is already here (no pages to walk).
 	const isLocalList = $derived(api.isLocalPlaylist(id));
-	// Imported from a Spotify link (#375): the header offers to bring it up to date with Spotify.
-	let spotifyUrl = $state<string | null>(null);
+	// Imported from a Spotify link (#375): the header offers to bring it up to date with Spotify,
+	// and the menu to keep it up to date on its own.
+	let spotify = $state<{ url: string; auto: boolean } | null>(null);
 	$effect(() => {
 		const pid = id;
-		spotifyUrl = null;
+		spotify = null;
 		api
 			.importSource(pid)
-			.then((url) => {
-				if (pid === id) spotifyUrl = url;
+			.then((src) => {
+				if (pid === id) spotify = src;
 			})
 			.catch(() => {});
 	});
+	function setAutoUpdate(on: boolean) {
+		// This playlist's record: a failure after navigating away rolls back this one, not the next.
+		const src = spotify;
+		if (!src) return;
+		src.auto = on;
+		api.importSetAuto(id, on).catch((e) => {
+			src.auto = !on;
+			toast.error(String(e));
+		});
+	}
 	const updatingFromSpotify = $derived(imp.snapshot?.update === id);
 	// YouTube's auto-built 2x2 collage of the first four tracks. It comes off yt3 with an `=s<size>`
 	// suffix; every cover somebody actually chose (uploaded here, in YTM, or in Studio) arrives as
@@ -655,7 +668,11 @@
 			return true;
 		} catch (e) {
 			drop();
-			toast.error(String(e));
+			toast.error(
+				e === api.PLAYLIST_NOT_EDITABLE
+					? t('toasts.playlist_not_editable', { playlist: pl?.title ?? '' })
+					: String(e)
+			);
 			return false;
 		}
 	}
@@ -730,8 +747,8 @@
 		cacheCurrent();
 	}
 
-	// One page at a time, shared: the scroll sentinel and the "load the rest before playing" walk
-	// both go through here, so they can never fire overlapping requests for the same token.
+	// One page at a time, shared: the end-of-window trigger and the "load the rest before playing"
+	// walk both go through here, so they can never fire overlapping requests for the same token.
 	// `total` is for a walk: the backend then fetches the pages after this one too (#536).
 	function loadMore(total?: number): Promise<void> {
 		inflight ??= fetchPage(total).finally(() => (inflight = null));
@@ -749,12 +766,16 @@
 			pl = {
 				...pl,
 				items: [...pl.items, ...more.items],
-				// An empty page would leave the sentinel in view with nothing to show — that's the end.
+				// An empty page would leave the window at the end with nothing to show: that's the end.
 				continuation: more.items.length ? more.continuation : undefined
 			};
 			cacheCurrent();
+			// A page handing back the token it was fetched with made no progress. Treated as a failed
+			// one (retry button, and a walk reports the playlist partial), or the window, still at
+			// the end, would fetch it again for as long as it sat there.
+			if (pl.continuation === token) moreError = true;
 		} catch {
-			// Stop auto-loading and offer a retry — auto-retrying a visible sentinel would spin.
+			// Stop auto-loading and offer a retry: auto-retrying at the end of the list would spin.
 			moreError = true;
 		} finally {
 			loadingMore = false;
@@ -835,19 +856,20 @@
 		el.scrollTo({ top, behavior: 'smooth' });
 	}
 
-	// One page per approach to the bottom: the observer only fires when the sentinel *enters* view,
-	// so an appended page that pushes it back out is required before the next fetch. rootMargin
-	// starts the fetch early enough that the rows are usually there by the time you reach them.
-	function sentinel(node: HTMLElement) {
-		const io = new IntersectionObserver(([e]) => e.isIntersecting && loadMore(), {
-			rootMargin: '600px 0px'
-		});
-		io.observe(node);
-		return () => io.disconnect();
-	}
+	// The next page once the window reaches the last rows that have arrived. The window already
+	// overscans past the viewport, so the fetch starts while those rows are still below it. This
+	// was an IntersectionObserver on a sentinel under the rows, which never fired for a reporter
+	// at 125% whose list stopped scrolling with the sentinel just outside the visible box (#652);
+	// the window is worked out from the scroller's own scrollTop, so it reaches the end whenever
+	// the scroller does. A failed page stays failed until the retry button: re-fetching on every
+	// scroll would spin.
+	$effect(() => {
+		if (pl?.continuation && !moreError && !inflight && win.end >= shown.length)
+			untrack(() => loadMore());
+	});
 
-	// A filter can only match rows that have arrived, and a narrowed list never pushes the sentinel
-	// back out of view, so the observer fires once and stops. Same walk a sort needs, for the same
+	// A filter can only match rows that have arrived, so it walks every page in up front rather than
+	// one per approach to the end. Same walk a sort needs, for the same
 	// reason: the search has to cover the whole playlist, not the pages scrolled so far. The flag
 	// keeps one walk running rather than starting a fresh one on every page it lands.
 	//
@@ -1155,20 +1177,7 @@
 <!-- relative: the Now playing pill floats over the bottom of the scroller. -->
 <div class="relative flex h-full flex-col">
 	{#if loading}
-		<div class="flex items-end gap-6 p-6">
-			<Skeleton class="h-40 w-40 shrink-0 rounded-xl" />
-			<div class="flex-1 space-y-3">
-				<Skeleton class="h-3 w-16 rounded" />
-				<Skeleton class="h-10 w-2/3 rounded-lg" />
-				<Skeleton class="h-4 w-40 rounded" />
-				<Skeleton class="h-9 w-24 rounded-4xl" />
-			</div>
-		</div>
-		<div class="p-4">
-			{#each Array(8) as _, i (i)}
-				<TrackRowSkeleton />
-			{/each}
-		</div>
+		<div class="flex flex-1 items-center justify-center"><LimusicLoader /></div>
 	{:else if error}
 		<div class="p-6"><ErrorState message={error} onRetry={() => load(id)} /></div>
 	{:else if pl}
@@ -1229,7 +1238,7 @@
 								title={t('library.collab_tooltip')}>{t('library.collab')}</span
 							>
 						{/if}
-						{#if spotifyUrl && (pl.owned || isLocalList)}
+						{#if spotify && (pl.owned || isLocalList)}
 							<button
 								class="flex cursor-pointer items-center gap-1.5 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary transition-colors hover:bg-primary/25 disabled:cursor-default disabled:opacity-60"
 								title={t('import.update_tooltip')}
@@ -1415,14 +1424,9 @@
 							</Button>
 						</div>
 					{:else}
-						<!-- The sentinel sits above the skeletons: it triggers the next page as it scrolls
-						     into range, so the rest of a long playlist arrives without a button. -->
 						<div aria-busy={loadingMore}>
-							<div {@attach sentinel}></div>
 							{#if loadingMore}
-								{#each Array(4) as _, i (i)}
-									<TrackRowSkeleton />
-								{/each}
+								<div class="flex justify-center py-6"><LimusicLoader class="size-10" /></div>
 							{/if}
 						</div>
 					{/if}
@@ -1579,6 +1583,13 @@
 					{t('library.remove_from_library')}
 				</button>
 			{/if}
+		{/if}
+		{#if spotify && (pl?.owned || isLocalList)}
+			<label class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10">
+				<HugeiconsIcon icon={SpotifyIcon} class="h-4 w-4" />
+				<span class="flex-1">{t('import.keep_updated')}</span>
+				<Switch size="sm" checked={spotify.auto} onCheckedChange={setAutoUpdate} />
+			</label>
 		{/if}
 		{#if editable}
 			<button

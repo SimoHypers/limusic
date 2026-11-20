@@ -46,8 +46,8 @@ importers:
         specifier: ^5.2.8
         version: 5.2.8
       '@hugeicons/core-free-icons':
-        specifier: ^4.2.3
-        version: 4.2.3
+        specifier: ^4.3.5
+        version: 4.3.5
       '@hugeicons/svelte':
         specifier: ^1.1.4
         version: 1.1.4(svelte@5.57.1)
@@ -147,8 +147,8 @@ packages:
   '@fontsource-variable/oxanium@5.2.8':
     resolution: {integrity: sha512-W3HWxRLXVB6yox3dgm1DIGOp98pz8KglwiM6/2BsMopvZrg98mXI9citFWz2pUX0FOOLwf8fmHxX+KrIn+6BoA==}
 
-  '@hugeicons/core-free-icons@4.2.3':
-    resolution: {integrity: sha512-fpiU0qFZkv4ABi23xJ2m4qNr0BBfuIaYjPboN8WDA6aj9D+OzXa7eykxKOpACZRuGbDz1U9S5DsNx1d5KNnsgA==}
+  '@hugeicons/core-free-icons@4.3.5':
+    resolution: {integrity: sha512-Sv+NjHRPnQk+yZsGCMcGznCHdTfJR9PMMOEKcJYAQU4gy90dmlc9PwdtvYOImBZIjiheMsTLL5eMn2DmHxUiUg==}
 
   '@hugeicons/svelte@1.1.4':
     resolution: {integrity: sha512-G/oYlqhJ6DTN64/BuOPiFBz6zfAvocUHiewA7x/ktOElwKPl0NM3TAnZcvTy+DsYRH6CD03JdNYrQTu/mPFMBw==}
@@ -1072,7 +1072,7 @@ snapshots:
 
   '@fontsource-variable/oxanium@5.2.8': {}
 
-  '@hugeicons/core-free-icons@4.2.3': {}
+  '@hugeicons/core-free-icons@4.3.5': {}
 
   '@hugeicons/svelte@1.1.4(svelte@5.57.1)':
     dependencies:

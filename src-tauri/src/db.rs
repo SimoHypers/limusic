@@ -329,6 +329,28 @@ impl Db {
             let _ = conn.execute("DELETE FROM lyrics_cache", []);
             let _ = conn.execute_batch("PRAGMA user_version = 2");
         }
+        // Apple's background vocals were read as lead words, timed out of order. Drop the cached
+        // lyrics of the sources that send them so they are read again; a hand-picked one stays.
+        if version < 3 {
+            let _ = conn.execute(
+                "DELETE FROM lyrics_cache WHERE json_extract(lyrics, '$.source')
+                    IN ('Boidu', 'LyricsPlus', 'Unison') AND json_extract(lyrics, '$.pinned') IS NOT 1",
+                [],
+            );
+            let _ = conn.execute_batch("PRAGMA user_version = 3");
+        }
+        // A mirrored lyric was cached as "Limusic (Boidu)". The footer says Limusic alone now and
+        // the provider moved to `via`; rewritten rather than dropped, so a pin stays.
+        if version < 4 {
+            let _ = conn.execute(
+                "UPDATE lyrics_cache SET lyrics = json_set(lyrics, '$.source', 'Limusic', '$.via',
+                    substr(json_extract(lyrics, '$.source'), 10,
+                        length(json_extract(lyrics, '$.source')) - 10))
+                 WHERE json_extract(lyrics, '$.source') LIKE 'Limusic (%)'",
+                [],
+            );
+            let _ = conn.execute_batch("PRAGMA user_version = 4");
+        }
         // #396: On Repeat's `plays` (a trailing month, a full `SongItem` per row) becomes
         // `listens` + `listen_songs`, kept for good. Its rows carry over so the stats page opens on
         // up to a month of history instead of nothing. Checked on every open rather than once per
@@ -448,6 +470,19 @@ impl Db {
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             [key, value],
         );
+    }
+
+    /// Every setting whose key starts with `prefix`, as `(key, value)`.
+    pub fn settings_with_prefix(&self, prefix: &str) -> Vec<(String, String)> {
+        let conn = self.0.lock().unwrap();
+        let Ok(mut stmt) =
+            conn.prepare("SELECT key, value FROM settings WHERE substr(key, 1, length(?1)) = ?1")
+        else {
+            return Vec::new();
+        };
+        stmt.query_map([prefix], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map(|rows| rows.flatten().collect())
+            .unwrap_or_default()
     }
 
     pub fn delete_setting(&self, key: &str) {
@@ -810,6 +845,17 @@ impl Db {
     /// Cached lyrics JSON for a track. `Some(None)` = a cached "no lyrics" verdict (NULL row),
     /// still valid; misses expire after `miss_ttl` secs while hits live forever.
     pub fn get_lyrics(&self, video_id: &str, now: i64, miss_ttl: i64) -> Option<Option<String>> {
+        self.get_lyrics_row(video_id, now, miss_ttl).map(|(lyrics, _)| lyrics)
+    }
+
+    /// `get_lyrics` with the row's stamp: when it was written, or last checked against its source
+    /// (`touch_lyrics`).
+    pub fn get_lyrics_row(
+        &self,
+        video_id: &str,
+        now: i64,
+        miss_ttl: i64,
+    ) -> Option<(Option<String>, i64)> {
         let conn = self.0.lock().unwrap();
         let (lyrics, fetched_at): (Option<String>, i64) = conn
             .query_row(
@@ -821,7 +867,16 @@ impl Db {
         if lyrics.is_none() && now - fetched_at > miss_ttl {
             return None; // stale negative result → refetch
         }
-        Some(lyrics)
+        Some((lyrics, fetched_at))
+    }
+
+    /// Restamp a cached lyric without rewriting it. A "no lyrics" verdict keeps its own clock.
+    pub fn touch_lyrics(&self, video_id: &str, at: i64) {
+        let conn = self.0.lock().unwrap();
+        let _ = conn.execute(
+            "UPDATE lyrics_cache SET fetched_at = ?2 WHERE video_id = ?1 AND lyrics IS NOT NULL",
+            rusqlite::params![video_id, at],
+        );
     }
 
     /// `lyrics = None` records a "no lyrics found" verdict.
@@ -1229,6 +1284,20 @@ impl Db {
 
         tx.commit()?;
         Ok(())
+    }
+
+    /// Put the playlist's rows in this order (row ids). Scoped to the playlist like the removal.
+    pub fn order_local_playlist(&self, id: i64, rows: &[i64], now: i64) -> rusqlite::Result<()> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        for (pos, row) in rows.iter().enumerate() {
+            tx.execute(
+                "UPDATE local_playlist_tracks SET pos = ?1 WHERE playlist_id = ?2 AND id = ?3",
+                [pos as i64, id, *row],
+            )?;
+        }
+        tx.execute("UPDATE local_playlists SET updated_at = ?1 WHERE id = ?2", [now, id])?;
+        tx.commit()
     }
 
     /// Drop rows by their row id. Scoped to the playlist, so a stale id from another list can
@@ -1742,6 +1811,31 @@ mod tests {
         assert_eq!(d.get_lyrics("auto", 2, 10), None);
         assert_eq!(d.get_lyrics("miss", 2, 10), None);
         assert!(d.get_lyrics("picked", 2, 10).is_some(), "a hand-picked source is not a cache");
+        drop(d);
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// A mirrored lyric cached as "Limusic (Boidu)" reads Limusic, via Boidu, and keeps its pin.
+    #[test]
+    fn opening_the_db_moves_a_mirrored_source_to_via() {
+        let path = std::env::temp_dir().join("limusic-lyrics-via-test.sqlite");
+        std::fs::remove_file(&path).ok();
+        {
+            let d = Db::open(&path).unwrap();
+            let conn = d.0.lock().unwrap();
+            conn.execute_batch("PRAGMA user_version = 3").unwrap();
+            conn.execute(
+                "INSERT INTO lyrics_cache VALUES('m', '{\"source\":\"Limusic (Boidu)\",\"pinned\":true}', 1)",
+                [],
+            )
+            .unwrap();
+        }
+        let d = Db::open(&path).unwrap();
+        let row: serde_json::Value =
+            serde_json::from_str(&d.get_lyrics("m", 2, 10).unwrap().unwrap()).unwrap();
+        assert_eq!(row["source"], "Limusic");
+        assert_eq!(row["via"], "Boidu");
+        assert_eq!(row["pinned"], true);
         drop(d);
         std::fs::remove_file(&path).ok();
     }

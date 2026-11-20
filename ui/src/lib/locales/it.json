@@ -64,7 +64,8 @@
 		"refresh": "Aggiorna",
 		"videos": "Video",
 		"top_result": "Risultato principale",
-		"all_results_for": "Tutti i risultati per “{query}”"
+		"all_results_for": "Tutti i risultati per “{query}”",
+		"restore": "Ripristina"
 	},
 	"nav": {
 		"home": "Home",
@@ -412,8 +413,8 @@
 			"play_history_hint": "Ricorda i brani riprodotti di recente per personalizzare i consigli.",
 			"music_videos": "Abilita video musicali",
 			"music_videos_hint": "Mostra il flusso video quando disponibile anziché solo l'audio.",
-			"hide_videos": "Nascondi video nei risultati di ricerca",
-			"hide_videos_hint": "Mostra solo tracce audio e pubblicazioni ufficiali nei risultati di ricerca.",
+			"hide_videos": "Nascondi video nei risultati di ricerca e nelle radio",
+			"hide_videos_hint": "Nei risultati di ricerca, nella Home, nelle pagine degli artisti, nelle radio e nella riproduzione automatica vengono mostrati solo i brani audio. Le playlist e gli album che apri continuano a mostrare tutti i contenuti, mentre le radio avviate da un video musicale continuano a riprodurre anche i video.",
 			"normalize_volume": "Normalizzazione del volume",
 			"normalize_volume_hint": "Uniforma il volume dei brani, in modo che una traccia registrata a basso volume non venga sovrastata dalla successiva. Disattivalo per ascoltare ogni brano con il mastering originale.",
 			"crossfade": "Dissolvenza incrociata",
@@ -449,9 +450,7 @@
 			"lyrics_sources_none": "Tutte le fonti sono disattivate, pertanto non verrà trovato alcun testo."
 		},
 		"data": {
-			"clear_cache": "Cancella cache di immagini e streaming",
-			"clear_cache_hint": "Libera spazio su disco eliminando le miniature e i segmenti audio memorizzati nella cache.",
-			"clear_cache_button": "Cancella cache adesso"
+			"clear_cache_button": "Cancella cache"
 		},
 		"about": {
 			"description": "Un riproduttore musicale desktop leggero, veloce e moderno basato su Tauri e Svelte.",
@@ -709,8 +708,8 @@
 		"tempo_pitch": {
 			"title": "Controlli di tempo e tonalità",
 			"desc": "Si applica a tutto ciò che riproduci, fino a quando non lo modifichi di nuovo o riavvii l'app.",
-			"tempo": "Tempo (Velocità)",
-			"pitch": "Tonalità (Pitch)"
+			"tempo": "Tempo",
+			"pitch": "Tonalità"
 		},
 		"link": {
 			"title": "Apri link",
@@ -1186,6 +1185,67 @@
 			"gone": "Questa importazione non è più aperta.",
 			"not_found": "Impossibile trovare l'elemento su YouTube Music.",
 			"cooldown": "YouTube Music ha richiesto di rallentare: le importazioni sono in pausa fino alle {time}. Tutti i progressi effettuati sono salvati."
+		}
+	},
+	"karaoke": {
+		"consent": {
+			"source": "Scaricato da GitHub (TRvlvr/model\\_repo), la fonte ufficiale del modello.",
+			"runtime": "Anche ONNX Runtime (Microsoft, licenza MIT) viene scaricato dalla sua release ufficiale su GitHub.",
+			"runtime_windows": "Anche ONNX Runtime e DirectML (entrambi di Microsoft) vengono scaricati dai pacchetti NuGet ufficiali di Microsoft.",
+			"runtime_linux": "Vengono scaricati anche ONNX Runtime (dalla release ufficiale su GitHub) e il plugin WebGPU di ONNX Runtime (da files.pythonhosted.org).",
+			"credit": "UVR-MDX-NET-Inst\\_HQ\\_3, UVR-MDX-NET-Inst\\_Main e UVR\\_MDXNET\\_3\\_9662, provenienti da Ultimate Vocal Remover di Anjok07 e aufr33, distribuito con licenza MIT.",
+			"credit_link": "Rimozione vocale definitiva",
+			"redownload": "Per preparare un brano, Limusic ne scarica nuovamente l'audio.",
+			"directml": "Su una scheda grafica, la modalità karaoke viene eseguita tramite Microsoft DirectML, che potrebbe inviare dati di utilizzo a Microsoft."
+		},
+		"experimental_tooltip": "Ancora in fase di ottimizzazione. La modalità Light potrebbe lasciare qualche traccia della voce originale, mentre la modalità Best è lenta se non si dispone di una scheda grafica. Se il risultato dell'elaborazione di un brano non è corretto, segnalacelo.",
+		"button": {
+			"options": "Opzioni karaoke",
+			"ready": "Karaoke attivo: voce rimossa",
+			"preparing": "Karaoke attivo: preparazione del brano in corso",
+			"failed": "Impossibile preparare il brano per la modalità karaoke",
+			"too_long": "Karaoke attivo: il brano è troppo lungo"
+		},
+		"panel": {
+			"title": "Karaoke",
+			"hint": "Elimina la voce dal brano, così puoi cantare sulla musica.",
+			"off": "Attivalo per rimuovere la voce da questo brano e dai due successivi.",
+			"now_ready": "Voce rimossa",
+			"now_starting": "Preparazione del brano in corso",
+			"now_progress": "Completato al {pct}%",
+			"now_progress_eta": "Completato al {pct}%, ancora {min} minuti rimanenti",
+			"now_progress_soon": "Completato al {pct}%, quasi terminato",
+			"now_swap": "Non appena pronto, il brano passerà automaticamente alla versione senza voce, riprendendo esattamente dal punto in cui eri arrivato.",
+			"now_too_long": "Il brano dura più di 15 minuti, quindi la voce originale verrà mantenuta.",
+			"try_again": "Riprova",
+			"up_next": "In coda",
+			"up_next_empty": "Non ci sono altri brani in coda.",
+			"slot_ready": "Pronto",
+			"slot_waiting": "In attesa",
+			"slot_failed": "Preparazione non riuscita",
+			"quality": "Qualità",
+			"settings": "Impostazioni del Karaoke"
+		},
+		"setup": {
+			"title": "Configura la modalità karaoke",
+			"desc": "Limusic rimuove la voce dai brani direttamente sul tuo computer. Scegli la qualità da scaricare: potrai modificarla in qualsiasi momento.",
+			"local": "L'elaborazione dei brani avviene direttamente sul tuo computer: nessun file viene caricato online.",
+			"cache": "I brani elaborati vengono salvati sul disco, così la prossima volta saranno pronti per la riproduzione immediata.",
+			"download": "Scarica {size}",
+			"use": "Usa {name}",
+			"downloaded": "Scaricato",
+			"progress": "{done} di {total} MB"
+		},
+		"unavailable": {
+			"not_installed": "La modalità karaoke non è disponibile in questa versione di Limusic.",
+			"corrupt": "I file della modalità karaoke sono danneggiati. Prova a riattivarla; se il problema persiste, reinstalla Limusic.",
+			"vc_runtime": "La modalità karaoke richiede una versione più recente di Microsoft Visual C++ Redistributable (14.44 o successiva).",
+			"load_failed": "Impossibile avviare la modalità karaoke su questo computer.",
+			"proxy": "La modalità karaoke non è disponibile quando è configurato un proxy.",
+			"stopped": "La modalità karaoke si è interrotta inaspettatamente. Riavvia Limusic per utilizzarla di nuovo."
+		},
+		"error": {
+			"incomplete_download": "Il download dell'audio del brano non è andato a buon fine. Nuovo tentativo tra poco."
 		}
 	}
 }

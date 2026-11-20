@@ -68,7 +68,7 @@
 	<!-- Description & master toggle -->
 	<section class={GROUP}>
 		<div data-settings-card class={CARD}>
-			<div class="flex items-center justify-between gap-4 p-4">
+			<div data-setting-row class="flex items-center justify-between gap-4 p-4">
 				<div class="min-w-0 flex-1 space-y-0.5">
 					<div class="text-sm font-medium">{t('settings.hotkeys.enable')}</div>
 					<div class="text-xs text-muted-foreground leading-relaxed">
@@ -146,7 +146,7 @@
 	{@const isRecording = hotkeys.recordingAction === action.id}
 	{@const error = hotkeys.errors[action.id]}
 
-	<div class="px-4 py-3 sm:py-3.5 transition-colors">
+	<div data-setting-row class="px-4 py-3 sm:py-3.5 transition-colors">
 		<div class="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
 			<div class="min-w-0 flex-1">
 				<div class="text-sm font-medium leading-snug">{t(action.titleKey)}</div>
