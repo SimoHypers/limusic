@@ -489,7 +489,7 @@
 			"theater_clock_side": "Saat konumu",
 			"theater_clock_left": "Sol üst",
 			"theater_clock_right": "Sağ üst",
-			"cover_lyric": "Şarkı sözleri şarkı kapağının altında"
+			"cover_lyric": "Kapağın altındaki şarkı sözü satırı"
 		},
 		"playback": {
 			"audio_quality": "Ses kalitesi",
@@ -804,7 +804,7 @@
 			"intro": "Telefonunuzdaki Limusic'le eşleştirin: Cihazlar birbirini kontrol edebilir ve müzik seçtiğiniz cihazda çalar.",
 			"linked": "Eşleştirildi",
 			"unlink_desc": "Artık bu bilgisayarı kontrol edemeyecek. Yeni bir kodla yeniden eşleştirebilirsiniz.",
-			"unreachable": "Sunucuya ulaşılamadı.İnternet bağlantınızı kontrol edin,VPN ya da firewall engelliyor olabilir."
+			"unreachable": "Sunucuya ulaşılamıyor.İnternet bağlantınızı kontrol edin ve tekrar deneyin; VPN veya güvenlik duvarı engelliyor olabilir."
 		},
 		"search": {
 			"placeholder": "Ayarlarda ara",
@@ -924,12 +924,13 @@
 			"reset_all": "Tümünü sıfırla",
 			"preset_room_hint": "Dinleme odasındayken ön ayarlar sadece perde ve yankıyı değiştirir; kayıtlı tempo ayarınız tek başınıza dinlerken kullanılmak üzere korunur.",
 			"song_length": "Şarkı süresi: {time}",
-			"tempo_room_locked": "erkesin aynı anı duyabilmesi için dinleme odasında tempo normal hızda kalır.",
+			"tempo_room_locked": "Herkesin aynı anı duyabilmesi için dinleme odasında tempo normal hızda kalır.",
 			"reverb_control_hints": {
 				"dry": "Yankılıyken şarkının kendi ses seviyesi.",
 				"decay": "Her sesten sonra yankının uzama süresi.",
 				"preDelay": "Yankı başlamadan önceki kısa boşluk. Artırdıkça daha büyük bir oda hissi verir.",
-				"damping": "Değeri düşürdükçe yankı daha boğuk tınlar. Şarkının kendisi etkilenmez."
+				"damping": "Değeri düşürdükçe yankı daha boğuk tınlar. Şarkının kendisi etkilenmez.",
+				"reflections": "Duvarlardan yansıyan ilk yankıları ne kadar duyduğun."
 			}
 		},
 		"link": {
@@ -1134,7 +1135,13 @@
 		"sync": "Şarkı sözlerini senkronize edin",
 		"improve": "Şarkı sözlerini düzeltin",
 		"draft": "Taslağınıza devam edin",
-		"draft_hint": "{done}/{total} satır zamanlandı."
+		"draft_hint": "{done}/{total} satır zamanlandı.",
+		"feedback_gone": "Bu şarkı sözleri artık Limusic'te bulunmuyor.",
+		"feedback_rate_limited": "Bu bir seferde çok fazla. Daha sonra tekrar deneyin.",
+		"feedback_banned": "Bu hesap oy veremez veya rapor gönderemez.",
+		"feedback_failed": "Limusic Lyrics'e ulaşılamadı, bu nedenle kaydedilemedi.",
+		"sync_hint": "Bir kez tıklayın. Herkes sözcük sözcük dinlesin.",
+		"improve_hint": "Yanlış olan bir kelimeyi veya zamanlamayı düzeltin."
 	},
 	"queue": {
 		"title": "Sıra"
@@ -1631,7 +1638,7 @@
 		"step_send": "Gönder",
 		"progress": "{done}/{total} satır",
 		"no_song": "Önce bir şarkı çalın",
-		"start_title": "Bu şarkının sözlerini sözcük sözcük yazın",
+		"start_title": "Bu şarkının sözlerini sözcük sözcük verin",
 		"how_text": "Metin seçin",
 		"how_text_hint": "Bulunan, yapıştırılan veya bir dosya",
 		"how_tap": "Her kelimede tıklayın",
@@ -1706,6 +1713,24 @@
 		"sent_pending_title": "Gönderildi",
 		"err_invalid": "Taslak kaydedildi.",
 		"err_invalid_detail": "{detail}. Taslak kaydedildi.",
-		"err_stale_title": "Bu şarkı sözleri siz düzenleme yaptığınız sırada değişti"
+		"err_stale_title": "Bu şarkı sözleri siz düzenleme yaptığınız sırada değişti",
+		"no_song_hint": "Ardından şarkı sözlerinden düzenleyiciyi açın. Yerel dosyalar ve canlı yayınlara katkıda bulunulamaz.",
+		"start_lead": "Metinden başlayın, ardından şarkıyı çalın ve her kelime söylendiğinde bir tuşa tıklayın. Sizden sonra şarkıyı çalan herkes sonucu görür.",
+		"start_sources_hint": "Bu şarkı için her kaynağın sunduğu sözler. Şarkıda söylenenlere en yakın olandan başlayın.",
+		"start_failed": "Hiçbir şarkı sözü okunamadı.",
+		"too_large": "Bu dosya, şarkı sözü dosyası olmak için fazla büyük.",
+		"preview_note": "Dinleyiciler, şarkının gerçek hızında bunu görecekler. Henüz zamanlamasını yapmadığınız satırlar hariç.",
+		"discard_body": "Bu cihazda bu şarkı için ayarladığınız tüm zamanlamalar silinecek. Bu geri alınamaz.",
+		"restored_title": "Kaldığınız yerden devam ediliyor",
+		"restored_body": "{done}/{total} satır zamanlandı. Taslağınız bu cihazda saklanıyor.",
+		"save_failed_title": "Taslak kaydedilemedi",
+		"save_failed": "Cihazınız bunu kaydetmeyi reddetti. Sayfadan ayrılırsanız yaptığınız değişiklikler kaybolur.",
+		"blocked_room_title": "Bir “Birlikte Dinle” odasında zamanlama duraklatıldı",
+		"blocked_remote_title": "Oynatıcı çubuğu başka bir cihazı kontrol ediyor",
+		"blocked_remote": "Devam etmek için bu bilgisayara geri dönün. Taslağınız kaydedildi.",
+		"other_song_title": "{title} artık oynatılmıyor",
+		"bg_hint": "Arka planda söylenen sözcüklere tıklayın.",
+		"bg_word_hint": "Arka plan vokalleri açık veya kapalı",
+		"voice": "Ses - Süre"
 	}
 }
