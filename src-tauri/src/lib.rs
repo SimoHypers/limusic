@@ -618,6 +618,38 @@ fn x11_egl_vendor() -> Option<String> {
     }
 }
 
+/// Whether an X server answers on DISPLAY, by opening it the way GDK's X11 backend will
+/// (`XOpenDisplay`, authentication included) and closing it again.
+#[cfg(target_os = "linux")]
+fn x11_reachable() -> bool {
+    use std::ffi::{c_char, c_void};
+    type Open = unsafe extern "C" fn(*const c_char) -> *mut c_void;
+    type Close = unsafe extern "C" fn(*mut c_void) -> i32;
+
+    // SAFETY: dlopen/dlsym by name, each symbol cast to its Xlib signature; a null name is DISPLAY.
+    // Not dlclosed, GTK has libX11 loaded already.
+    unsafe {
+        let lib = libc::dlopen(c"libX11.so.6".as_ptr(), libc::RTLD_LAZY);
+        if lib.is_null() {
+            return false;
+        }
+        let (open, close) = (
+            libc::dlsym(lib, c"XOpenDisplay".as_ptr()),
+            libc::dlsym(lib, c"XCloseDisplay".as_ptr()),
+        );
+        if open.is_null() || close.is_null() {
+            return false;
+        }
+        let (open, close): (Open, Close) = (std::mem::transmute(open), std::mem::transmute(close));
+        let dpy = open(std::ptr::null());
+        if dpy.is_null() {
+            return false;
+        }
+        close(dpy);
+        true
+    }
+}
+
 /// Log a startup failure and stop, instead of panicking.
 ///
 /// Everything this is called for happens inside Tauri's `setup`, before any window exists.
@@ -812,14 +844,15 @@ pub fn run() {
         }
 
         // No GL in GTK on Wayland: start again on XWayland (see `relaunch_on_x11`). Only when GDK
-        // picked Wayland by itself and an X display is there to go to. Last, after every env
-        // write, because initializing GTK may start threads; tao's own `gtk::init` is then a
-        // no-op.
+        // picked Wayland by itself and an X server answers, asked last so GNOME does not start
+        // Xwayland for everyone: a stale DISPLAY would leave the new process no display at all.
+        // After every env write, because initializing GTK may start threads; tao's own
+        // `gtk::init` is then a no-op.
         if !on_x11
             && std::env::var_os("GDK_BACKEND").is_none()
-            && std::env::var_os("DISPLAY").is_some_and(|d| !d.is_empty())
             && gtk::init().is_ok()
             && !gtk_has_gl()
+            && x11_reachable()
         {
             relaunch_on_x11(launch_env);
         }
