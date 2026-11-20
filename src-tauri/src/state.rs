@@ -1493,6 +1493,9 @@ impl AppState {
                 }
                 drop(q);
                 self.emit_queue().await;
+                // `start_current` already sent the room this track with a queue of one: the radio
+                // only exists from here, and guests would see nothing after it until it ends.
+                self.lt_broadcast_queue().await;
             }
             Err(e) => tracing::warn!(error = %e, "next() radio hydration failed"),
         }
