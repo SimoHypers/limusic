@@ -488,7 +488,8 @@
 			"theater_clock_hint": "Tiyatro modunun bir köşesinde saati gösterir; ekranı kapladığı ve sistem saatinin görünmediği durumlar için kullanışlıdır.",
 			"theater_clock_side": "Saat konumu",
 			"theater_clock_left": "Sol üst",
-			"theater_clock_right": "Sağ üst"
+			"theater_clock_right": "Sağ üst",
+			"cover_lyric": "Şarkı sözleri şarkı kapağının altında"
 		},
 		"playback": {
 			"audio_quality": "Ses kalitesi",
@@ -802,7 +803,8 @@
 			"unsupported": "Bu sunucu henüz cihaz bağlantısını desteklemiyor.",
 			"intro": "Telefonunuzdaki Limusic'le eşleştirin: Cihazlar birbirini kontrol edebilir ve müzik seçtiğiniz cihazda çalar.",
 			"linked": "Eşleştirildi",
-			"unlink_desc": "Artık bu bilgisayarı kontrol edemeyecek. Yeni bir kodla yeniden eşleştirebilirsiniz."
+			"unlink_desc": "Artık bu bilgisayarı kontrol edemeyecek. Yeni bir kodla yeniden eşleştirebilirsiniz.",
+			"unreachable": "Sunucuya ulaşılamadı.İnternet bağlantınızı kontrol edin,VPN ya da firewall engelliyor olabilir."
 		},
 		"search": {
 			"placeholder": "Ayarlarda ara",
