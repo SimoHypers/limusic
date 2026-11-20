@@ -302,6 +302,73 @@ pub(crate) fn tune_webview_labelled(app: &tauri::AppHandle, label: &str, media: 
     }
 }
 
+/// Gives a transparent webview an opaque background where WebKitGTK 2.54 would leave it invisible
+/// (#728). Runs for every webview, from the plugin hook in [`run`].
+///
+/// When GTK cannot make a GL context, WebKit turns hardware acceleration off ("Disabled hardware
+/// acceleration because GTK failed to initialize GL", in the log), and 2.54 then draws a
+/// transparent view with only what changed: the window is see-through except whatever just
+/// repainted. Mesa 26.3.1 on Wayland gets there whenever it renders in software. With
+/// `ui/perf/damageprobe.py` and `GDK_GL=disable`, 2.54.2 paints 0.3% of the window, and 99.7% once
+/// the background is opaque and the page rebuilt; 2.52.1 paints 99.7% either way. A colour set
+/// after the page exists changes nothing, hence the restart. The window loses its rounded corners
+/// (black there instead), and native video, which needs GL anyway, falls back to `<video>`.
+///
+/// ponytail: delete once a WebKitGTK release passes `damageprobe.py` under `GDK_GL=disable`.
+#[cfg(target_os = "linux")]
+fn opaque_without_gl(webview: &tauri::Webview) {
+    use gtk::prelude::{WidgetExt, WidgetExtManual};
+    use webkit2gtk::WebViewExt;
+
+    // SAFETY: takes nothing.
+    if unsafe { webkit2gtk::ffi::webkit_get_minor_version() } < 54 {
+        return;
+    }
+    let _ = webview.with_webview(|wv| {
+        let view = wv.inner();
+        if view.background_color().alpha() >= 1.0 {
+            return;
+        }
+        // WebKit's own test (AcceleratedBackingStore.cpp, gtkCanUseHardwareAcceleration), once.
+        static GL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let gl = *GL.get_or_init(|| {
+            let probe = gtk::Window::new(gtk::WindowType::Popup);
+            probe.realize();
+            let ok = probe.window().is_some_and(|w| w.create_gl_context().is_ok());
+            // SAFETY: ours, never shown, and nothing else holds it.
+            unsafe { probe.destroy() };
+            ok
+        });
+        if gl {
+            return;
+        }
+        view.set_background_color(&gtk::gdk::RGBA::new(0.0, 0.0, 0.0, 1.0));
+        restart_web_process(&view);
+    });
+}
+
+/// Builds the page again so a setting the web process reads once, when it creates the page, takes
+/// effect. wry starts that load inside `build()`, before tauri hands the webview over, so the
+/// process is killed and the same URL loaded again. `reload()` would not do: the first load has
+/// usually not committed yet, and a reload of nothing paints nothing. A later crash is not ours to
+/// answer, hence the reason check.
+#[cfg(target_os = "linux")]
+fn restart_web_process(view: &webkit2gtk::WebView) {
+    use webkit2gtk::{WebProcessTerminationReason, WebViewExt};
+
+    let Some(uri) = view.uri() else {
+        tracing::warn!("webkit: no GL in GTK and no URI to rebuild the page with (#728)");
+        return;
+    };
+    view.connect_web_process_terminated(move |view, reason| {
+        if reason == WebProcessTerminationReason::TerminatedByApi {
+            view.load_uri(&uri);
+        }
+    });
+    view.terminate_web_process();
+    tracing::info!("webkit: no GL in GTK, opaque background, page rebuilt (#728)");
+}
+
 /// Let a destroyed webview's web process exit (#572). Runs for every webview, from the plugin hook
 /// in [`run`].
 ///
@@ -726,12 +793,16 @@ pub fn run() {
         }));
     }
 
-    // Every webview, so a destroyed one gives its web process back on WebKitGTK 2.54 (#572).
+    // Every webview, so a destroyed one gives its web process back on WebKitGTK 2.54 (#572), and
+    // a transparent one stays visible without GL (#728).
     #[cfg(target_os = "linux")]
     {
         builder = builder.plugin(
             tauri::plugin::Builder::<_, ()>::new("webview-release")
-                .on_webview_ready(|webview| release_on_destroy(&webview))
+                .on_webview_ready(|webview| {
+                    opaque_without_gl(&webview);
+                    release_on_destroy(&webview);
+                })
                 .build(),
         );
     }

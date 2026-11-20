@@ -195,10 +195,12 @@ The alpha channel is the Wayland cost: with it, GTK uploads its own drawing of t
 a second texture to blend the webview over, every frame. The window is transparent so the page can
 round its corners and leave a hole for mpv's picture. 1.4.0 dropped the alpha channel whenever
 neither was up (maximized, theater mode, a system frame) by giving the webview an opaque
-background, and 1.4.1 took that back out while a see-through window on Mesa was open (#728): it
-had only ever been measured on NVIDIA. An opaque background is not a free switch: WebKit moves its
-swap chain to a buffer format without alpha and stops clearing it each frame, so test it on Intel
-or AMD before trying it again. Rounding it in GTK instead
+background, and 1.4.1 took that back out: it had only ever been measured on NVIDIA. An opaque
+background is not a free switch: WebKit moves its swap chain to a buffer format without alpha and
+stops clearing it each frame, so test it on Intel or AMD before trying it again. Where GTK has no
+GL, 2.54 cannot draw the transparent window at all (#728): WebKit turns acceleration off and draws
+only what changed, so the rest of the window is see-through. There the webview is made opaque from
+the start (`opaque_without_gl` in `lib.rs`; `GDK_GL=disable` reproduces it). Rounding it in GTK instead
 (clip the toplevel's `draw` to a region of pixel rows, which keeps the texture on its direct path)
 measured 1.8 ms at 1900x1000, but the edge is stepped unless GTK also paints an anti-aliased fringe
 in the theme's colour; not built.
