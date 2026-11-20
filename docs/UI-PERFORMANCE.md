@@ -200,7 +200,9 @@ background is not a free switch: WebKit moves its swap chain to a buffer format 
 stops clearing it each frame, so test it on Intel or AMD before trying it again. Where GTK has no
 GL, 2.54 cannot draw the transparent window at all (#728): WebKit turns acceleration off and draws
 only what changed, so the rest of the window is see-through. There the webview is made opaque from
-the start (`opaque_without_gl` in `lib.rs`; `GDK_GL=disable` reproduces it). Rounding it in GTK instead
+the start (`opaque_without_gl` in `lib.rs`; `GDK_GL=disable` reproduces it). Before that, on
+Wayland, the app starts itself again on XWayland, where GTK gets GL through GLX instead
+(`relaunch_on_x11`): painting on the CPU makes every hover lag at full HD. Rounding it in GTK instead
 (clip the toplevel's `draw` to a region of pixel rows, which keeps the texture on its direct path)
 measured 1.8 ms at 1900x1000, but the edge is stepped unless GTK also paints an anti-aliased fringe
 in the theme's colour; not built.
