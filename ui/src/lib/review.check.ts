@@ -1,5 +1,5 @@
 // Self-check for `review.ts`: `node --experimental-strip-types ui/src/lib/review.check.ts`
-import { ago, coverOf, diffLyrics, isGone, kindKey, restored, reviewErrorKey, waitingLabel, without } from './review.ts';
+import { ago, coverOf, diffLyrics, isGone, kindKey, leftQueue, restored, reviewable, reviewErrorKey, waitingLabel, without } from './review.ts';
 import type { LimusicQueueItem, LyricLine } from './api';
 
 function ok(cond: boolean, what: string) {
@@ -30,6 +30,13 @@ ok(restored(list, row(5)) === list, 'already there');
 ok(waitingLabel(3, false) === '3' && waitingLabel(50, true) === '50+', 'the count label');
 ok(kindKey('new') === 'review.kind_new' && kindKey('edit') === 'review.kind_edit', 'kinds');
 ok(kindKey('reported') === 'review.kind_reported' && kindKey('whatever') === 'review.kind_edit', 'kinds, unknown');
+ok(reviewable('new', 'pending') && reviewable('edit', 'pending'), 'a pending one is decided');
+ok(!reviewable('new', 'published') && !reviewable('edit', 'rejected'), 'one decided meanwhile is not');
+ok(reviewable('reported', 'published') && !reviewable('reported', 'superseded'), 'a reported one while it is live');
+ok(leftQueue({ items: [row(2), row(9)], next: null }, 5), 'gone from the whole queue');
+ok(!leftQueue({ items: [row(2), row(5)], next: null }, 5), 'still there');
+ok(leftQueue({ items: [row(2), row(9)], next: 9 }, 5), 'gone from the part the page covers');
+ok(!leftQueue({ items: [row(2), row(9)], next: 9 }, 12), 'past the page: unknown, so kept');
 for (const c of ['not_found', 'not_reviewable', 'stale']) ok(isGone(c), `${c} is gone`);
 for (const c of ['forbidden', 'unavailable', 'rate_limited', 'unauthorized']) ok(!isGone(c), `${c} is not gone`);
 ok(reviewErrorKey('stale') === 'review.err_gone', 'gone is worded');
