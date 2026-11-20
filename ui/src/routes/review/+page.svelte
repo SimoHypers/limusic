@@ -111,6 +111,8 @@
 		if (polling || loading || busy || !allowed || document.visibilityState !== 'visible') return;
 		polling = true;
 		const before = decided;
+		// Only what was open when this left: one opened since may be newer than the answer.
+		const was = open;
 		const q = await api.limusicReviewQueue().catch(() => null);
 		polling = false;
 		// A decision made or settled meanwhile: this answer may still list its row.
@@ -119,7 +121,7 @@
 		items = [...q.items, ...rest];
 		if (!rest.length) next = q.next;
 		count();
-		if (open && leftQueue(q, open.revision)) return gone(open.revision);
+		if (open && open === was && leftQueue(q, open.revision)) return gone(open.revision);
 		// The open one was someone else's and they have let go: it is this reviewer's now.
 		const row = taken && open && q.items.find((i) => i.revision === open!.revision);
 		if (row && !row.reviewing) claim(row.revision);
