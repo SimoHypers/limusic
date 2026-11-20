@@ -604,7 +604,8 @@
 			"more": "Mais",
 			"unlink": "Desligar",
 			"unlink_title": "Desligar {name}?",
-			"unlink_desc": "Deixa de poder controlar este computador. Podes voltar a ligá-lo com um novo código."
+			"unlink_desc": "Deixa de poder controlar este computador. Podes voltar a ligá-lo com um novo código.",
+			"unreachable": "Não foi possível contactar o servidor. Verifica a tua ligação, a VPN ou a firewall e tenta novamente."
 		},
 		"sections": {
 			"language": "Idioma",
@@ -752,7 +753,9 @@
 			"accent_theme": "A cor de destaque do tema",
 			"accent_artwork_note": "Enquanto uma música é reproduzida, a cor de destaque vem da respetiva capa. Desativa Adaptar as cores à capa para veres esta.",
 			"preview": "Pré-visualização",
-			"preview_hint": "Os controlos deslizantes e o seletor de cor aparecem aqui enquanto arrastas, e a aplicação acompanha quando largas."
+			"preview_hint": "Os controlos deslizantes e o seletor de cor aparecem aqui enquanto arrastas, e a aplicação acompanha quando largas.",
+			"cover_lyric": "Linha da letra por baixo da capa",
+			"cover_lyric_hint": "Mostra a linha que está a ser cantada entre a capa e o título da música, nas músicas com letra sincronizada. Clicar nela abre a letra. Apenas na nova disposição."
 		},
 		"playback": {
 			"audio_quality": "Qualidade do áudio",
