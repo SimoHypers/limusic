@@ -7,27 +7,25 @@ name: Linux release binaries
 # WHY THIS EXISTS: an AppImage bundles the *build host's* system libraries but cannot bundle glibc,
 # so it inherits the build host's glibc floor. Built on Fedora (glibc 2.43) the 0.2.9 AppImage
 # refused to start anywhere else — 78 of its 368 bundled libs demanded GLIBC_2.43, which only
-# Fedora 44 / Arch / rawhide have. The build job runs in a pinned, deliberately old container,
-# debian:bookworm, which puts the floor at glibc 2.36: Debian 12+ (and antiX 23, MX 23, LMDE 6),
-# Ubuntu 24.04+, Fedora 37+, current Arch. Ubuntu 22.04 (2.35) misses by one release: it has no
-# libmpv2 package, so building there means compiling mpv from source for 0.01 of glibc.
-# Anything older is out of reach at any price, because Debian 11 and Ubuntu 20.04 have no
-# webkit2gtk-4.1, which Tauri 2 needs.
+# Fedora 44 / Arch / rawhide have. Building here on a pinned, deliberately older runner puts the
+# floor at glibc 2.39: Ubuntu 24.04+, Debian 13+, Fedora 40+, current Arch.
 #
-# The container is PINNED ON PURPOSE. Never move it to `debian:stable` or `ubuntu-latest`, which
-# track the newest release and would silently reintroduce exactly the bug this workflow exists to
-# fix. The "Check the glibc floor" step below fails the build if someone does it anyway.
+# `runs-on` is PINNED ON PURPOSE. Never change it to `ubuntu-latest` — that tracks the newest
+# Ubuntu and would silently reintroduce exactly the bug this workflow exists to fix. The
+# "Check the glibc floor" step below fails the build if someone does it anyway.
 #
-# Two jobs, because a container job has no docker: `build` compiles, bundles, signs and runs the
-# static checks inside bookworm, then hands the bundle over as an artifact. `publish` runs on the
-# plain runner, starts the extracted AppImage on foreign distros in docker, installs the deb, and
-# attaches everything to the release. The signing key never leaves `build`.
+# Older is not safe either. 1.4.1 was built in debian:bookworm (glibc 2.36) and its AppImage died
+# on Fedora the moment a color emoji was drawn: the bundled WebKit's Skia is compiled against the
+# build host's FreeType headers, but the AppImage runs on the host's libfreetype (it is on the
+# AppImage exclude list). Bookworm has FreeType 2.12, where FT_ColorStop is 6 bytes; 2.13 widened
+# it to 16, so a 2.13+ host overwrote Skia's stack on every COLRv1 gradient glyph (Fedora's default
+# emoji font is COLRv1). A build host whose FreeType predates its users' breaks the AppImage.
 #
 # The .deb is here for exactly the same reason, and needs it more. Tauri writes a deb's Depends
 # verbatim from tauri.conf.json and never runs dpkg-shlibdeps, so nothing in the package records a
 # glibc floor at all: a Fedora-built deb installs cleanly on Debian and then dies at startup on a
-# missing GLIBC symbol. Built here it matches the AppImage's 2.36, which is what the hand-written
-# `libc6 (>= 2.36)` in tauri.conf.json claims.
+# missing GLIBC symbol. Built here it matches the AppImage's 2.39, which is what the hand-written
+# `libc6 (>= 2.39)` in tauri.conf.json claims.
 #
 # scripts/release.sh (run on Fedora) still builds and publishes the .rpm — an rpm links against the
 # host's system libs, so Fedora is the correct place to build it.
@@ -70,23 +68,17 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
-    container: debian:bookworm # glibc 2.36, see the header. NOT debian:stable.
-    # bash for every step, not the container's sh. This also turns on pipefail for the steps that
-    # don't set it themselves; none of them has a pipe that may fail.
-    defaults:
-      run:
-        shell: bash
-    # A warm build is 9-12 min. The default is six hours, which is what a wedged package download
-    # would burn while the release sits half-published. The headroom covers a cold cache.
+    runs-on: ubuntu-24.04 # glibc 2.39 — see the header. NOT ubuntu-latest.
+    # A healthy run is 9-12 min. The default is six hours, which is what a hung docker/Xvfb check or
+    # a wedged package download would burn while the release sits half-published and unmarked.
+    # The headroom over 12 is for the upload step: GitHub's asset endpoint had a bad afternoon
+    # during v0.7.3 and the AppImage that normally goes up in 18 seconds took 4m45s, after an
+    # attempt that moved nothing at all. Uploads retry, so the budget has to cover a few of those.
     timeout-minutes: 45
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      prerelease: ${{ steps.version.outputs.prerelease }}
     env:
       # mold instead of GNU ld: linking is the one part of a warm-cache build that isn't cached, so
       # it's most of what a release run actually spends time on. No clang needed, GCC 12.1+ resolves
-      # `-fuse-ld=mold` off PATH and bookworm has 12.2. Keeping the gcc driver also means the linked
+      # `-fuse-ld=mold` off PATH and the runner has 13. Keeping the gcc driver also means the linked
       # binary's DT_NEEDED set and glibc floor stay exactly where the guards below expect them.
       # NOTE: this env var is part of Swatinem/rust-cache's key, so the first run after it changed
       # was a cold rebuild.
@@ -98,31 +90,6 @@ jobs:
           TAG="${{ inputs.tag }}"
           [ -n "$TAG" ] || { echo "::error::no tag to build for"; exit 1; }
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-
-      # webkit2gtk-4.1 + gtk3 + appindicator are Tauri's; libmpv-dev is ours (libmpv2-sys ships
-      # pregenerated bindings and just emits `-lmpv`, so only the link-time lib is needed);
-      # libdbus-1-dev comes from tao, libssl-dev from reqwest's native-tls path. The first line is
-      # what the runner image had and a bare debian image lacks: git for checkout, curl and jq for
-      # the registry step, zstd for the cache. First because checkout needs git. Root, so no sudo.
-      - name: Build deps
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            git curl ca-certificates jq build-essential pkg-config xz-utils zstd \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
-            libssl-dev libdbus-1-dev libmpv-dev patchelf file \
-            libjack-jackd2-0 glib-networking dconf-gsettings-backend mold \
-            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-gl \
-            gstreamer1.0-libav gstreamer1.0-alsa
-          # libjack: linuxdeploy excludes it, so fix-appdir-tls.sh copies it in by hand.
-          # glib-networking: supplies the gio TLS module that gets bundled. Without it the webview
-          # has no TLS backend at all, which is the bug that started this whole saga.
-          # dconf-gsettings-backend: the GSettings module that gets bundled. On Wayland GTK reads
-          # the desktop's button layout, cursor, fonts and icons through it.
-          # gstreamer1.0-*: WebKit decodes every <video> through GStreamer, and linuxdeploy bundles
-          # the core libraries without a single plugin, which aborted the web process on every
-          # music video in v0.5.0. These packages put the plugins on disk; fix-appdir-tls.sh copies
-          # the ones a music video needs into the AppDir by name.
 
       # Actions are pinned to commit SHAs, not tags: `@v4` and `@v2` are mutable, and
       # `dtolnay/rust-toolchain@stable` is a *branch*. This job holds TAURI_SIGNING_PRIVATE_KEY and
@@ -144,13 +111,11 @@ jobs:
       # a branch instead of a published tag. Nothing is uploaded on a dry run, so a mislabelled
       # build cannot escape.
       - name: Check the tag matches the app version
-        id: version
         run: |
           VERSION="$(jq -r .version src-tauri/tauri.conf.json)"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           # 1.1.0-rc.1: a release candidate, for the beta channel only (RELEASING.md §8).
-          if [[ "$VERSION" == *-* ]]; then PRERELEASE=true; else PRERELEASE=false; fi
-          printf 'VERSION=%s\nPRERELEASE=%s\n' "$VERSION" "$PRERELEASE" >> "$GITHUB_ENV"
-          printf 'version=%s\nprerelease=%s\n' "$VERSION" "$PRERELEASE" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" == *-* ]]; then echo "PRERELEASE=true"; else echo "PRERELEASE=false"; fi >> "$GITHUB_ENV"
           if [ "v$VERSION" != "${{ steps.rel.outputs.tag }}" ]; then
             if [ "${{ inputs.dry_run }}" = "true" ]; then
               echo "::warning::dry run: built ref is ${{ steps.rel.outputs.tag }} but the app version is $VERSION"
@@ -159,6 +124,21 @@ jobs:
               exit 1
             fi
           fi
+
+      # The foreign-distro check at the end of this job used to spend ~1 min pulling these two
+      # images, on an idle network, after the build had finished. Start them here instead and let
+      # them download in the background across the apt install and the cargo build, which need the
+      # network far less than they need the CPU.
+      #
+      # Deliberately fire-and-forget: nothing waits on these and nothing checks them. If a pull is
+      # slow, incomplete, or fails outright, the `docker run` further down just pulls what it needs
+      # itself, exactly as it did before. This step cannot fail the build.
+      - name: Start pulling the foreign-distro images
+        run: |
+          nohup docker pull debian:sid      > /tmp/pull-debian.log 2>&1 &
+          nohup docker pull archlinux:latest > /tmp/pull-arch.log  2>&1 &
+          nohup docker pull ubuntu:24.04     > /tmp/pull-ubuntu.log 2>&1 &
+          echo "pulling debian:sid, archlinux:latest and ubuntu:24.04 in the background"
 
       # Bake a snapshot of the community player-cipher registry into src-tauri/cipher_configs.json,
       # which is `include_str!`d into the binary. Nothing needing a deciphered stream URL plays
@@ -191,6 +171,28 @@ jobs:
           done
           echo "::warning::no player-cipher registry reachable — shipping the empty table; clients will fetch it at runtime"
 
+      # webkit2gtk-4.1 + gtk3 + appindicator are Tauri's; libmpv-dev is ours (libmpv2-sys ships
+      # pregenerated bindings and just emits `-lmpv`, so only the link-time lib is needed);
+      # libdbus-1-dev comes from tao, libssl-dev from reqwest's native-tls path.
+      - name: Build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
+            libssl-dev libdbus-1-dev libmpv-dev patchelf file \
+            libjack-jackd2-0 glib-networking dconf-gsettings-backend mold \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-gl \
+            gstreamer1.0-libav gstreamer1.0-alsa
+          # libjack: linuxdeploy excludes it, so fix-appdir-tls.sh copies it in by hand.
+          # glib-networking: supplies the gio TLS module that gets bundled. Without it the webview
+          # has no TLS backend at all, which is the bug that started this whole saga.
+          # dconf-gsettings-backend: the GSettings module that gets bundled. On Wayland GTK reads
+          # the desktop's button layout, cursor, fonts and icons through it.
+          # gstreamer1.0-*: WebKit decodes every <video> through GStreamer, and linuxdeploy bundles
+          # the core libraries without a single plugin, which aborted the web process on every
+          # music video in v0.5.0. These packages put the plugins on disk; fix-appdir-tls.sh copies
+          # the ones a music video needs into the AppDir by name.
+
       # pnpm before setup-node, so `cache: pnpm` below can find the binary and cache its store.
       # Same shape as website.yml.
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -208,13 +210,9 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
 
-      # The key names the build host. The cache key does not otherwise change with the image, and a
-      # target dir restored from another host holds build scripts linked against its newer glibc,
-      # which fail to run here.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: . -> target
-          key: debian-bookworm
 
       - name: Tauri CLI
         # The npm CLI ships a prebuilt binary — `cargo install tauri-cli` would compile it from
@@ -284,10 +282,7 @@ jobs:
         run: |
           set -euo pipefail
           APPDIR=target/release/bundle/appimage/limusic.AppDir
-          # libdl and libpthread are glibc's own, merged into libc in 2.34 and kept as stubs: some of
-          # bookworm's libraries still link them.
           HOST_BASELINE="ld-linux-x86-64.so.2 libc.so.6 libm.so.6 libresolv.so.2 libgcc_s.so.1
-            libdl.so.2 libpthread.so.0
             libstdc++.so.6 libGL.so.1 libEGL.so.1 libGLX.so.0 libGLdispatch.so.0 libOpenGL.so.0
             libdrm.so.2 libgbm.so.1 libwayland-client.so.0 libX11.so.6
             libX11-xcb.so.1 libxcb.so.1 libxcb-dri3.so.0 libexpat.so.1 libfontconfig.so.1
@@ -318,98 +313,10 @@ jobs:
           fi
           echo "every DT_NEEDED is either bundled or a host baseline library"
 
-      # The regression test for this whole workflow. Nothing bundled may need a newer glibc than the
-      # runner's own, or the AppImage only runs on distros at least as new as the build host: the
-      # 0.2.9 failure. Runs against the AppDir the bundler just assembled.
-      - name: Check the glibc floor
-        run: |
-          set -euo pipefail
-          FLOOR=2.36   # keep in sync with `container` above
-          APPDIR=target/release/bundle/appimage/limusic.AppDir
-          [ -d "$APPDIR" ] || { echo "::error::no AppDir at $APPDIR. Did the bundler change its layout?"; exit 1; }
-          # `|| true`: objdump exits nonzero on the non-ELF files that live under usr/lib (module
-          # caches, pkgconfig, …), which under pipefail would fail the step for no reason.
-          WORST="$(find "$APPDIR/usr/lib" "$APPDIR/usr/bin" -type f -exec objdump -T {} + 2>/dev/null \
-            | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1 || true)"
-          echo "highest glibc symbol required by the bundle: ${WORST:-none}"
-          if [ "$(printf '%s\nGLIBC_%s\n' "$WORST" "$FLOOR" | sort -V | tail -1)" != "GLIBC_$FLOOR" ]; then
-            echo "::error::bundle requires $WORST but the floor is GLIBC_$FLOOR. Is the container still pinned to debian:bookworm?"
-            find "$APPDIR/usr/lib" -type f -exec sh -c 'objdump -T "$1" 2>/dev/null | grep -q "$2" && echo "  $1"' _ {} "$WORST" \; || true
-            exit 1
-          fi
-
-      # Handed to `publish` as built: the signed AppImage, its .sig and the deb. The AppDir is not
-      # sent, `publish` extracts it from the AppImage, so the foreign-distro check runs on exactly
-      # what users download. One day, like the dry-run artifact: it is a public repository.
-      - name: Hand the bundle to the publish job
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: linux-bundle
-          path: |
-            target/release/bundle/appimage/*.AppImage
-            target/release/bundle/appimage/*.AppImage.sig
-            target/release/bundle/deb/*.deb
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
-
-  publish:
-    needs: build
-    runs-on: ubuntu-24.04
-    # A healthy run is a few minutes. The headroom is for the upload step: GitHub's asset endpoint
-    # had a bad afternoon during v0.7.3 and the AppImage that normally goes up in 18 seconds took
-    # 4m45s, after an attempt that moved nothing at all. Uploads retry, so the budget has to cover
-    # a few of those, and a hung docker/Xvfb check must not burn six hours.
-    timeout-minutes: 30
-    env:
-      VERSION: ${{ needs.build.outputs.version }}
-      PRERELEASE: ${{ needs.build.outputs.prerelease }}
-    steps:
-      - name: Resolve the tag
-        id: rel
-        run: echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
-
-      # Start the foreign-distro images now and let them download in the background while the
-      # bundle comes down and unpacks.
-      #
-      # Deliberately fire-and-forget: nothing waits on these and nothing checks them. If a pull is
-      # slow, incomplete, or fails outright, the `docker run` further down just pulls what it needs
-      # itself, exactly as it did before. This step cannot fail the build.
-      - name: Start pulling the foreign-distro images
-        run: |
-          nohup docker pull debian:sid      > /tmp/pull-debian.log 2>&1 &
-          nohup docker pull archlinux:latest > /tmp/pull-arch.log  2>&1 &
-          nohup docker pull debian:bookworm  > /tmp/pull-bookworm.log 2>&1 &
-          echo "pulling debian:sid, archlinux:latest and debian:bookworm in the background"
-
-      # Only scripts/: the foreign-distro check script, from the tag like the build.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ steps.rel.outputs.tag }}
-          persist-credentials: false
-          sparse-checkout: scripts
-
-      # Back where `build` had them, so every path below is unchanged.
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: linux-bundle
-          path: target/release/bundle
-
-      # Artifacts drop the executable bit. The AppImage extracts itself without FUSE.
-      - name: Extract the AppDir from the AppImage
-        run: |
-          set -euo pipefail
-          cd target/release/bundle/appimage
-          set -- limusic_"$VERSION"_*.AppImage
-          chmod +x "$1"
-          "./$1" --appimage-extract >/dev/null
-          mv squashfs-root limusic.AppDir
-
-      # The static guards in `build` only see bookworm. Every failure in this family (v0.2.10's
+      # The static guards above only see this runner. Every failure in this family (v0.2.10's
       # undefined symbol, v0.2.11's missing libnettle.so.8 on Arch, v0.2.14's dead webviews on
       # Mesa) looked fine on Ubuntu and only appeared on someone else's distro. So run the app on
-      # four of them: Debian bookworm because it is the oldest the floor claims, Debian sid for the
-      # newest GLib and Mesa, Arch because its sonames differ from
+      # three of them: Debian sid for the newest GLib and Mesa, Arch because its sonames differ from
       # everyone else's, openSUSE Tumbleweed because it is the one mainstream family that does not
       # keep its CA bundle at /etc/ssl/certs/ca-certificates.crt — which is what shipped 0.6.8 with
       # a webview that trusted no certificate at all (#164). The script resolves every symbol, counts
@@ -417,7 +324,7 @@ jobs:
       # break the host libraries the app dlopens, and then actually starts the thing under Xvfb —
       # v0.2.14 passed both static checks and still could not open a single webview.
       #
-      # All four containers run at once and their output is buffered to a file so the logs don't
+      # All three containers run at once and their output is buffered to a file so the logs don't
       # interleave into something unreadable. Everything the script touches (/tmp, Xvfb, the
       # packages it installs) is inside its own container, so they cannot collide.
       - name: Verify it loads and runs on foreign distros
@@ -425,7 +332,7 @@ jobs:
           set -euo pipefail
           APPDIR="$PWD/target/release/bundle/appimage/limusic.AppDir"
           CHECK="$PWD/scripts/appdir-foreign-check.sh"
-          IMAGES="debian:bookworm debian:sid archlinux:latest opensuse/tumbleweed"
+          IMAGES="debian:sid archlinux:latest opensuse/tumbleweed"
 
           pids=""
           for image in $IMAGES; do
@@ -439,13 +346,33 @@ jobs:
           fail=0
           for pid in $pids; do wait "$pid" || fail=1; done
 
-          # Print every log whatever happened. On a failure this is the only evidence there is.
+          # Print both logs whatever happened. On a failure this is the only evidence there is.
           for image in $IMAGES; do
             echo "── $image"
             cat "/tmp/check-$(echo "$image" | tr ':/' '--').log"
           done
 
           [ "$fail" = 0 ] || { echo "::error::the AppDir failed a foreign-distro check"; exit 1; }
+
+      # The regression test for this whole workflow. Nothing bundled may need a newer glibc than the
+      # runner's own, or the AppImage only runs on distros at least as new as the build host — the
+      # 0.2.9 failure. Runs against the AppDir the bundler just assembled.
+      - name: Check the glibc floor
+        run: |
+          set -euo pipefail
+          FLOOR=2.39   # keep in sync with `runs-on` above
+          APPDIR=target/release/bundle/appimage/limusic.AppDir
+          [ -d "$APPDIR" ] || { echo "::error::no AppDir at $APPDIR — did the bundler change its layout?"; exit 1; }
+          # `|| true`: objdump exits nonzero on the non-ELF files that live under usr/lib (module
+          # caches, pkgconfig, …), which under pipefail would fail the step for no reason.
+          WORST="$(find "$APPDIR/usr/lib" "$APPDIR/usr/bin" -type f -exec objdump -T {} + 2>/dev/null \
+            | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1 || true)"
+          echo "highest glibc symbol required by the bundle: ${WORST:-none}"
+          if [ "$(printf '%s\nGLIBC_%s\n' "$WORST" "$FLOOR" | sort -V | tail -1)" != "GLIBC_$FLOOR" ]; then
+            echo "::error::bundle requires $WORST but the floor is GLIBC_$FLOOR — is runs-on still pinned to an old runner?"
+            find "$APPDIR/usr/lib" -type f -exec sh -c 'objdump -T "$1" 2>/dev/null | grep -q "$2" && echo "  $1"' _ {} "$WORST" \; || true
+            exit 1
+          fi
 
       # The .deb gets no dependency detection whatsoever: Tauri copies Depends straight out of
       # tauri.conf.json and never runs dpkg-shlibdeps, so a library the binary links but the config
@@ -463,7 +390,7 @@ jobs:
         run: |
           set -euo pipefail
           DEB="$(ls target/release/bundle/deb/limusic_${VERSION}_*.deb | head -1)"
-          docker run --rm -v "$PWD/$DEB:/limusic.deb:ro" debian:bookworm bash -c '
+          docker run --rm -v "$PWD/$DEB:/limusic.deb:ro" ubuntu:24.04 bash -c '
             set -eu
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq

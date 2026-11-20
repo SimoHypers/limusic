@@ -506,7 +506,7 @@ function Download({ info, os }: { info: ReturnType<typeof useGitHub>; os: string
         { label: '.rpm, Fedora and RHEL', href: info.rpm },
         { label: 'AUR, Arch Linux', href: AUR_URL },
       ],
-      note: 'Only the AppImage updates itself. The AppImage and deb need glibc 2.36 or newer (Debian 12+, Ubuntu 24.04+, Fedora 37+), and the rpm needs mpv-libs installed.',
+      note: 'Only the AppImage updates itself. All builds need glibc 2.39 or newer (Ubuntu 24.04+, Debian 13+, Fedora 40+), and the rpm needs mpv-libs installed.',
     },
     {
       os: 'Windows',
