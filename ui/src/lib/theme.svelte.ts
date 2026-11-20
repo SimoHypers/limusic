@@ -136,6 +136,9 @@ export const appearance = $state({
 	 *  `stagePlayer` flipped: that one was saved as `false` for everyone, so a new default would
 	 *  never have reached them. */
 	classicPlayer: false,
+	/** The new layout's lyric line under the cover. Off, the title sits where it did before the
+	 *  line existed, and the song's lyrics are only fetched when a lyrics view asks. */
+	coverLyric: true,
 	/** The new layout's line under the cover reads in its romanization instead of the original
 	 *  script. Apart from the lyrics tab's Romanized switch: that one adds a reading under each line,
 	 *  this one swaps a line that only has room for one. */
@@ -589,6 +592,7 @@ export function initTheme(): void {
 			'blurPlaylistHeader',
 			'nowPlayingPill',
 			'classicPlayer',
+			'coverLyric',
 			'coverLyricRomanized',
 			'tabbedPlayer',
 			'openPlayerOnPlay',

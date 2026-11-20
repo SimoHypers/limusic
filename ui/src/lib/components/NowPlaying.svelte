@@ -579,12 +579,15 @@
 							{@render picture()}
 						</div>
 
-						<CoverLyric onopen={openLyrics} />
+						{#if appearance.coverLyric}<CoverLyric onopen={openLyrics} />{/if}
 
 						<!-- What's playing. Title, then artists a step smaller and dimmer, close under
 						     it. The title scales with the picture, so it reads as part of it rather
-						     than a caption. -->
-						<div class="mt-3 flex items-start gap-3">
+						     than a caption. Without the lyric line it keeps the gap that line's closed
+						     slot plus this margin add up to. -->
+						<div
+							class="{appearance.coverLyric ? 'mt-3' : 'mt-6'} flex items-start gap-3"
+						>
 							<div class="min-w-0 flex-1">
 								<h1
 									class="font-heading leading-[1.15] font-bold tracking-tight [overflow-wrap:anywhere]"
