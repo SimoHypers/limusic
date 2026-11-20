@@ -158,12 +158,8 @@ fn tune_webview(win: &tauri::WebviewWindow, media: bool) {
             // lyric sweep, the seek bar) pays the walk every frame. `ui/perf/framecost.py`, player
             // view open with a song playing, 2.52.1: `Document::considerSpeculationRules` in 31%
             // of the web main thread's samples, and 19% of a core with it on against 16% off. Read
-            // live, so unlike the compositor switches below it needs no restart.
+            // live, so it needs no restart.
             features_off(&settings, &[b"SpeculationRulesPrefetch"]);
-
-            if compositor_features_off(&settings) {
-                restart_web_process(&webview);
-            }
         }
         heal_lost_release(&webview);
     });
@@ -173,35 +169,6 @@ fn tune_webview(win: &tauri::WebviewWindow, media: bool) {
         }
         Err(e) => tracing::warn!(label, error = %e, "webkit tuning failed (continuing)"),
     }
-}
-
-/// WebKitGTK 2.54's new compositing, back to what every earlier release did (#433). Returns
-/// whether anything changed.
-///
-/// 2.54 composites with Skia, and Skia draws a layer at its opacity from before an animation on the
-/// frame the animation ends, so every fade blinks: switches, dialogs, the player view. Any GPU,
-/// opaque windows too. `UseSkiaForComposition` off brings back TextureMapper. 2.54 also has the
-/// compositor draw only the damaged rectangles, and on Intel/Mesa (GNOME, niri) a buffer that
-/// holds nothing outside them leaves our transparent window see-through on alternate frames, so
-/// both damage switches go off as well and every frame is drawn whole, as on 2.52.
-/// `ui/perf/flashprobe.py` on 2.54.1: 7-8 one-frame flashes per 6.5 s of fades, 0 with these off,
-/// 0 on 2.52.1.
-///
-/// ponytail: drop this once a WebKitGTK release fixes both; run flashprobe.py on it first.
-#[cfg(target_os = "linux")]
-fn compositor_features_off(settings: &webkit2gtk::Settings) -> bool {
-    // SAFETY: takes nothing.
-    if unsafe { webkit2gtk::ffi::webkit_get_minor_version() } < 54 {
-        return false;
-    }
-    features_off(
-        settings,
-        &[
-            b"UseSkiaForComposition",
-            b"UseDamagingInformationForCompositing",
-            b"PropagateDamagingInformation",
-        ],
-    )
 }
 
 /// Turns WebKit runtime features off by identifier. Returns whether any was on.
@@ -268,31 +235,6 @@ fn features_off(settings: &webkit2gtk::Settings, off: &[&[u8]]) -> bool {
     }
 }
 
-/// Builds the page again so [`compositor_features_off`] takes effect. The web process reads those
-/// settings once, when it creates the page, and wry starts that load inside `build()`, before tauri
-/// hands the webview over: flipped afterwards they are ignored (measured). So the process is
-/// killed and the same URL loaded again. `reload()` would not do: the first load has usually not
-/// committed yet, and a reload of nothing paints nothing. Costs one extra web-process start per
-/// window, only on 2.54+. A later crash is not ours to answer, hence the reason check.
-#[cfg(target_os = "linux")]
-fn restart_web_process(webview: &webkit2gtk::WebView) {
-    use webkit2gtk::{WebProcessTerminationReason, WebViewExt};
-
-    let Some(uri) = webview.uri() else {
-        tracing::warn!(
-            "webkit 2.54+: no URI to rebuild the page with, compositing unchanged (#433)"
-        );
-        return;
-    };
-    webview.connect_web_process_terminated(move |view, reason| {
-        if reason == WebProcessTerminationReason::TerminatedByApi {
-            view.load_uri(&uri);
-        }
-    });
-    webview.terminate_web_process();
-    tracing::info!("webkit 2.54+: Skia compositing and damage tracking off, page rebuilt (#433)");
-}
-
 /// Hands WebKit a left-button release it never got. A titlebar drag starts a compositor move grab
 /// (tauri's `start_dragging`, run later on the GTK loop), and the grab eats the release of whichever
 /// press it caught. WebKit then still counts the button as down and turns the next press into a
@@ -352,44 +294,117 @@ pub(crate) fn set_webgl(app: &tauri::AppHandle, on: bool) {
     }
 }
 
-/// The main webview's background: see-through, which is how wry builds it for a transparent
-/// window, or opaque.
-///
-/// The page only needs see-through pixels where it leaves some empty: the corners it rounds on a
-/// window that is not maximized, and the box mpv draws a music video under. Everywhere else the
-/// transparency buys nothing and costs a frame of work per frame: WebKit hands GTK a texture with
-/// an alpha channel, and GTK3 then uploads its own drawing of the whole window as a second texture
-/// to blend the first one over (`gdk_cairo_draw_from_gl` -> `gdk_gl_texture_from_surface`), on the
-/// main thread, for every frame the page presents. `ui/perf/framecost.py`, WebKitGTK 2.52.1 on
-/// Wayland, a 60px animation that costs the web process 0.4 ms a frame: the UI process spends
-/// 3.2 ms a frame at 1300x720 and 5.4 ms at 1900x1000 with the alpha, 1.1 and 1.4 ms without. On
-/// the real page, scrolling Home, 20% of a core against 8%.
-///
-/// Wayland only. On X11 GTK paints the buffer with cairo either way and it measured the same
-/// (1.7 ms a frame both ways), so that path is left exactly as it was.
-#[cfg(target_os = "linux")]
-pub(crate) fn set_webview_opaque(win: &tauri::WebviewWindow, opaque: bool) {
-    use gtk::prelude::*;
-    use webkit2gtk::WebViewExt;
-
-    let _ = win.with_webview(move |wv| {
-        let view = wv.inner();
-        if view.display().type_().name() != "GdkWaylandDisplay" {
-            return;
-        }
-        // Black, not a theme colour: the page paints over all of it, and the one place it shows is
-        // the video box for the frame or two before the page's hole and this call line up.
-        let alpha = if opaque { 1.0 } else { 0.0 };
-        view.set_background_color(&gtk::gdk::RGBA::new(0.0, 0.0, 0.0, alpha));
-    });
-}
-
 /// [`tune_webview`] for a window looked up by label. No-op if it isn't up.
 #[cfg(target_os = "linux")]
 pub(crate) fn tune_webview_labelled(app: &tauri::AppHandle, label: &str, media: bool) {
     if let Some(win) = app.get_webview_window(label) {
         tune_webview(&win, media);
     }
+}
+
+/// Gives a transparent webview an opaque background where WebKitGTK 2.54 would leave it invisible
+/// (#728). Runs for every webview, from the plugin hook in [`run`].
+///
+/// When GTK cannot make a GL context, WebKit turns hardware acceleration off ("Disabled hardware
+/// acceleration because GTK failed to initialize GL", in the log), and 2.54 then draws a
+/// transparent view with only what changed: the window is see-through except whatever just
+/// repainted. With `ui/perf/damageprobe.py` and `GDK_GL=disable`, 2.54.2 paints 0.3% of the
+/// window, and 99.7% once the background is opaque and the page rebuilt; 2.52.1 paints 99.7% either
+/// way. A colour set after the page exists changes nothing, hence the restart. The window loses its
+/// rounded corners (black there instead), and native video, which needs GL anyway, falls back to
+/// `<video>`. [`relaunch_on_x11`] usually gets GL back first; this is for where it cannot (no
+/// XWayland, a backend chosen by hand, no GL on X11 either).
+///
+/// ponytail: delete once a WebKitGTK release passes `damageprobe.py` under `GDK_GL=disable`.
+#[cfg(target_os = "linux")]
+fn opaque_without_gl(webview: &tauri::Webview) {
+    use webkit2gtk::WebViewExt;
+
+    // SAFETY: takes nothing.
+    if unsafe { webkit2gtk::ffi::webkit_get_minor_version() } < 54 {
+        return;
+    }
+    let _ = webview.with_webview(|wv| {
+        let view = wv.inner();
+        if view.background_color().alpha() >= 1.0 {
+            return;
+        }
+        if gtk_has_gl() {
+            return;
+        }
+        view.set_background_color(&gtk::gdk::RGBA::new(0.0, 0.0, 0.0, 1.0));
+        restart_web_process(&view);
+    });
+}
+
+/// Whether GTK can make a GL context, asked the way WebKit asks before it decides to paint on the
+/// CPU (AcceleratedBackingStore.cpp, `gtkCanUseHardwareAcceleration`). Once per process, on the main
+/// thread, with GTK initialized.
+#[cfg(target_os = "linux")]
+fn gtk_has_gl() -> bool {
+    use gtk::prelude::{WidgetExt, WidgetExtManual};
+
+    static GL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *GL.get_or_init(|| {
+        let probe = gtk::Window::new(gtk::WindowType::Popup);
+        probe.realize();
+        let ok = probe.window().is_some_and(|w| w.create_gl_context().is_ok());
+        // SAFETY: ours, never shown, and nothing else holds it.
+        unsafe { probe.destroy() };
+        ok
+    })
+}
+
+/// Starts this process again on XWayland, where GTK makes its GL context with GLX instead of EGL
+/// (#728). Mesa 26.3.1 gives GTK no EGL config on Wayland (mesa#16934), and without GL in GTK,
+/// WebKit paints every frame on the CPU: hovers and animations crawl at full HD. A reporter on that
+/// Mesa: laggy on Wayland, smooth with `LIMUSIC_GDK_BACKEND=x11`. The price is XWayland's: a blurry
+/// window at a fractional scale, and a little more per frame to present.
+///
+/// `exec`, so it stays one process: an AppImage keeps its mount, and nothing holds the
+/// single-instance name yet. It gets the environment it was launched with plus that one variable,
+/// so `run` reads argv and LIMUSIC_RESTARTED afresh and sets the NVIDIA switches for X11, and the
+/// diagnostics show `LIMUSIC_GDK_BACKEND=x11`. Returns only if the exec fails, which leaves the app
+/// on Wayland and [`opaque_without_gl`] keeping the window visible.
+///
+/// ponytail: drop it once Mesa fixes #16934 and its fix has been out a while.
+#[cfg(target_os = "linux")]
+fn relaunch_on_x11(env: Vec<(std::ffi::OsString, std::ffi::OsString)>) {
+    use std::os::unix::process::CommandExt;
+
+    let Ok(exe) = std::env::current_exe() else { return };
+    let mut args = std::env::args_os();
+    eprintln!("limusic: GTK has no GL on Wayland, starting again on XWayland (#728)");
+    let err = std::process::Command::new(exe)
+        .arg0(args.next().unwrap_or_default())
+        .args(args)
+        .env_clear()
+        .envs(env)
+        .env("LIMUSIC_GDK_BACKEND", "x11")
+        .exec();
+    eprintln!("limusic: could not start again ({err}), staying on Wayland");
+}
+
+/// Builds the page again so a setting the web process reads once, when it creates the page, takes
+/// effect. wry starts that load inside `build()`, before tauri hands the webview over, so the
+/// process is killed and the same URL loaded again. `reload()` would not do: the first load has
+/// usually not committed yet, and a reload of nothing paints nothing. A later crash is not ours to
+/// answer, hence the reason check.
+#[cfg(target_os = "linux")]
+fn restart_web_process(view: &webkit2gtk::WebView) {
+    use webkit2gtk::{WebProcessTerminationReason, WebViewExt};
+
+    let Some(uri) = view.uri() else {
+        tracing::warn!("webkit: no GL in GTK and no URI to rebuild the page with (#728)");
+        return;
+    };
+    view.connect_web_process_terminated(move |view, reason| {
+        if reason == WebProcessTerminationReason::TerminatedByApi {
+            view.load_uri(&uri);
+        }
+    });
+    view.terminate_web_process();
+    tracing::info!("webkit: no GL in GTK, opaque background, page rebuilt (#728)");
 }
 
 /// Let a destroyed webview's web process exit (#572). Runs for every webview, from the plugin hook
@@ -603,6 +618,38 @@ fn x11_egl_vendor() -> Option<String> {
     }
 }
 
+/// Whether an X server answers on DISPLAY, by opening it the way GDK's X11 backend will
+/// (`XOpenDisplay`, authentication included) and closing it again.
+#[cfg(target_os = "linux")]
+fn x11_reachable() -> bool {
+    use std::ffi::{c_char, c_void};
+    type Open = unsafe extern "C" fn(*const c_char) -> *mut c_void;
+    type Close = unsafe extern "C" fn(*mut c_void) -> i32;
+
+    // SAFETY: dlopen/dlsym by name, each symbol cast to its Xlib signature; a null name is DISPLAY.
+    // Not dlclosed, GTK has libX11 loaded already.
+    unsafe {
+        let lib = libc::dlopen(c"libX11.so.6".as_ptr(), libc::RTLD_LAZY);
+        if lib.is_null() {
+            return false;
+        }
+        let (open, close) = (
+            libc::dlsym(lib, c"XOpenDisplay".as_ptr()),
+            libc::dlsym(lib, c"XCloseDisplay".as_ptr()),
+        );
+        if open.is_null() || close.is_null() {
+            return false;
+        }
+        let (open, close): (Open, Close) = (std::mem::transmute(open), std::mem::transmute(close));
+        let dpy = open(std::ptr::null());
+        if dpy.is_null() {
+            return false;
+        }
+        close(dpy);
+        true
+    }
+}
+
 /// Log a startup failure and stop, instead of panicking.
 ///
 /// Everything this is called for happens inside Tauri's `setup`, before any window exists.
@@ -660,6 +707,9 @@ pub fn run() {
     // forks, and cannot be raised for them afterwards.
     #[cfg(target_os = "linux")]
     raise_fd_limit();
+    // As launched, before the writes below, for `relaunch_on_x11`.
+    #[cfg(target_os = "linux")]
+    let launch_env: Vec<_> = std::env::vars_os().collect();
 
     // See `AUTOSTARTED`. Up here with the other env writes, before any thread exists to read it.
     AUTOSTARTED.store(
@@ -792,6 +842,20 @@ pub fn run() {
         if nvidia_draws && std::env::var_os("WEBKIT_SKIA_ENABLE_CPU_RENDERING").is_none() {
             std::env::set_var("WEBKIT_SKIA_ENABLE_CPU_RENDERING", "1");
         }
+
+        // No GL in GTK on Wayland: start again on XWayland (see `relaunch_on_x11`). Only when GDK
+        // picked Wayland by itself and an X server answers, asked last so GNOME does not start
+        // Xwayland for everyone: a stale DISPLAY would leave the new process no display at all.
+        // After every env write, because initializing GTK may start threads; tao's own
+        // `gtk::init` is then a no-op.
+        if !on_x11
+            && std::env::var_os("GDK_BACKEND").is_none()
+            && gtk::init().is_ok()
+            && !gtk_has_gl()
+            && x11_reachable()
+        {
+            relaunch_on_x11(launch_env);
+        }
     }
 
     let mut builder = tauri::Builder::default();
@@ -816,12 +880,16 @@ pub fn run() {
         }));
     }
 
-    // Every webview, so a destroyed one gives its web process back on WebKitGTK 2.54 (#572).
+    // Every webview, so a destroyed one gives its web process back on WebKitGTK 2.54 (#572), and
+    // a transparent one stays visible without GL (#728).
     #[cfg(target_os = "linux")]
     {
         builder = builder.plugin(
             tauri::plugin::Builder::<_, ()>::new("webview-release")
-                .on_webview_ready(|webview| release_on_destroy(&webview))
+                .on_webview_ready(|webview| {
+                    opaque_without_gl(&webview);
+                    release_on_destroy(&webview);
+                })
                 .build(),
         );
     }
@@ -1339,7 +1407,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(only_ui(tauri::generate_handler![
-            commands::set_webview_opaque,
             commands::search,
             commands::search_all,
             commands::search_suggestions,
