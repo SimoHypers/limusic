@@ -97,7 +97,7 @@ pub(crate) const DEFAULT_SERVER: &str = "wss://sync.limusic.app/ws";
 /// [`DEFAULT_SERVER`].
 const OLD_DEFAULT_SERVER: &str = "wss://fedora-1.tail9c4985.ts.net/ws";
 
-fn stored_url(url: String) -> String {
+pub(crate) fn stored_url(url: String) -> String {
     if url.trim() == OLD_DEFAULT_SERVER {
         String::new()
     } else {
@@ -801,6 +801,9 @@ fn sanitize(sm: &mut ServerMessage) {
 
 /// How long one address gets to complete a TCP handshake before we move to the next.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
+/// How long the TLS and WebSocket handshakes get once TCP is up. A network that drops the
+/// ClientHello used to hang this await for good, and with it the retry loop around it (#732).
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// No frame from the server for this long means the connection is dead. Pings go out every 25s
 /// and each gets a Pong, so this is two missed answers plus slack.
@@ -827,7 +830,10 @@ pub(crate) async fn connect_ws(
     let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, port)).await?.collect();
     let socket = connect_first(&addrs).await.map_err(WsError::Io)?;
 
-    let (ws, _) = tokio_tungstenite::client_async_tls_with_config(req, socket, None, None).await?;
+    let handshake = tokio_tungstenite::client_async_tls_with_config(req, socket, None, None);
+    let (ws, _) = tokio::time::timeout(HANDSHAKE_TIMEOUT, handshake).await.map_err(|_| {
+        WsError::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, "handshake timed out"))
+    })??;
     Ok(ws)
 }
 
@@ -913,6 +919,17 @@ mod tests {
             t.elapsed(),
             CONNECT_TIMEOUT * 2
         );
+    }
+
+    /// The bug (#732): a server that takes the TCP connection and never answers the TLS hello hung
+    /// `connect_ws` for good, and the retry loop around it. It must fail instead.
+    #[tokio::test]
+    async fn a_silent_handshake_fails_instead_of_hanging() {
+        // The kernel completes the TCP handshake from the backlog; nothing ever answers after it.
+        let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("wss://127.0.0.1:{}/ws", silent.local_addr().unwrap().port());
+        let r = tokio::time::timeout(HANDSHAKE_TIMEOUT * 2, connect_ws(&url)).await;
+        assert!(matches!(r, Ok(Err(_))), "the handshake should time out, not hang");
     }
 
     #[test]

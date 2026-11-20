@@ -595,6 +595,7 @@
 			"expired": "This code has expired.",
 			"new_code": "New code",
 			"unsupported": "This server doesn't support linking yet.",
+			"unreachable": "Couldn't reach the server. Check your connection, VPN or firewall, then try again.",
 			"try_again": "Try again",
 			"connecting": "Connecting…",
 			"this_computer": "This computer",

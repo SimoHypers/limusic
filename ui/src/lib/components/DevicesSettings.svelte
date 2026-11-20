@@ -36,8 +36,17 @@
 	let confirmOpen = $state(false);
 	let menuFor = $state<string | null>(null);
 
+	/// Why the last pairing attempt stopped (src-tauri/src/devicelink.rs `failed`), as a message key.
+	const failed = $derived(
+		link.status === 'unsupported'
+			? 'settings.devices.unsupported'
+			: link.status === 'unreachable'
+				? 'settings.devices.unreachable'
+				: null
+	);
+
 	$effect(() => {
-		if (link.pairing || link.status === 'unsupported' || link.error) requested = false;
+		if (link.pairing || failed || link.error) requested = false;
 	});
 	$effect(() => {
 		if (!link.pairing) return;
@@ -293,8 +302,8 @@
 					</div>
 				{/each}
 			</div>
-			{#if link.status === 'unsupported'}
-				<p class="mt-3 px-1 text-sm text-destructive">{t('settings.devices.unsupported')}</p>
+			{#if failed}
+				<p class="mt-3 px-1 text-sm text-destructive">{t(failed)}</p>
 			{:else if link.status === 'connecting'}
 				<p class="mt-3 px-1 text-xs text-muted-foreground">{t('settings.devices.connecting')}</p>
 			{/if}
@@ -304,13 +313,13 @@
 		<section class={GROUP}>
 			<div class="{CARD} flex flex-col items-start gap-4 px-6 py-5">
 				<p class="max-w-md text-sm text-muted-foreground">{t('settings.devices.intro')}</p>
-				{#if link.status === 'unsupported'}
-					<p class="text-sm text-destructive">{t('settings.devices.unsupported')}</p>
+				{#if failed}
+					<p class="text-sm text-destructive">{t(failed)}</p>
 				{:else if link.error}
 					<p class="text-sm text-destructive">{link.error}</p>
 				{/if}
 				<Button onclick={startPairing}>
-					{link.status === 'unsupported'
+					{failed
 						? t('settings.devices.try_again')
 						: t('settings.devices.link_phone')}
 				</Button>
