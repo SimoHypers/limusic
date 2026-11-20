@@ -113,7 +113,8 @@
 		"saved_accounts_hint": "전환할 저장된 계정을 선택하세요.",
 		"history": "재생 기록",
 		"no_channels": "선택할 수 있는 YouTube 채널이 없습니다.",
-		"stats": "통계"
+		"stats": "통계",
+		"discord": "Limusic Discord 참여하기"
 	},
 	"player": {
 		"play": "재생",
