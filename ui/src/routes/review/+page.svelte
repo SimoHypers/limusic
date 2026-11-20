@@ -64,7 +64,9 @@
 		diffLyrics,
 		isGone,
 		kindKey,
+		leftQueue,
 		restored,
+		reviewable,
 		reviewErrorKey,
 		waitingLabel,
 		without,
@@ -98,9 +100,10 @@
 	/** The card in Settings shows the same number. */
 	const count = () => (limusic.waiting = { count: items.length, more: next !== null });
 
-	/** The first page again, every few seconds while the page is in front, so another reviewer's
-	 *  claim, verdict or a new submission shows without leaving. Rows from later pages stay as they
-	 *  were. ponytail: polling, a push channel from the service if the team outgrows it. */
+	/** The first page again, every few seconds while the page is in front, when the window comes
+	 *  back to the front and after each verdict, so another reviewer's claim, verdict or a new
+	 *  submission shows without leaving. Rows from later pages stay as they were. ponytail:
+	 *  polling, a push channel from the service if the team outgrows it. */
 	let decided = 0;
 	let polling = false;
 	let left = false;
@@ -108,6 +111,8 @@
 		if (polling || loading || busy || !allowed || document.visibilityState !== 'visible') return;
 		polling = true;
 		const before = decided;
+		// Only what was open when this left: one opened since may be newer than the answer.
+		const was = open;
 		const q = await api.limusicReviewQueue().catch(() => null);
 		polling = false;
 		// A decision made or settled meanwhile: this answer may still list its row.
@@ -116,6 +121,7 @@
 		items = [...q.items, ...rest];
 		if (!rest.length) next = q.next;
 		count();
+		if (open && open === was && leftQueue(q, open.revision)) return gone(open.revision);
 		// The open one was someone else's and they have let go: it is this reviewer's now.
 		const row = taken && open && q.items.find((i) => i.revision === open!.revision);
 		if (row && !row.reviewing) claim(row.revision);
@@ -149,11 +155,14 @@
 		// instead of the app-wide handler taking them for volume.
 		document.addEventListener('keydown', onKey);
 		document.addEventListener('visibilitychange', refresh);
+		// Back from another window (visibilitychange only fires for a hidden one).
+		window.addEventListener('focus', refresh);
 		const poll = setInterval(refresh, 10_000);
 		return () => {
 			left = true;
 			document.removeEventListener('keydown', onKey);
 			document.removeEventListener('visibilitychange', refresh);
+			window.removeEventListener('focus', refresh);
 			clearInterval(poll);
 			// Into the editor to fix it, the submission is still this reviewer's.
 			if (limusic.reviewAt === null) claim(null);
@@ -263,12 +272,28 @@
 		}
 		try {
 			const r = await api.limusicReviewRevision(id);
-			if (open?.revision === id) detail = r;
+			// Moved on, or a refresh found it gone while this was on its way.
+			if (open?.revision !== id || detailError) return;
+			// The list was a few seconds old and another reviewer got there first.
+			if (!reviewable(item.kind, r.status)) return gone(id);
+			detail = r;
 		} catch (e) {
-			if (open?.revision !== id) return;
+			if (open?.revision !== id || detailError) return;
+			if (isGone(String(e))) return gone(id);
 			detailError = t(reviewErrorKey(String(e)));
-			if (isGone(String(e))) items = without(items, id), count();
 		}
+	}
+
+	/** Decided by another reviewer, or replaced by its author: the row leaves, and if it is the open
+	 *  one it says so in place of the lyric, with nothing left to decide. The song keeps playing. */
+	function gone(id: number) {
+		items = without(items, id);
+		count();
+		if (open?.revision !== id) return;
+		detail = null;
+		rejecting = false;
+		taken = null;
+		detailError = t('review.err_gone');
 	}
 
 	function close() {
@@ -307,6 +332,7 @@
 			decided++;
 			busy = false;
 		}
+		refresh();
 	}
 
 	/** Into the editor with the song that is playing. A pending submission goes with it, and the
