@@ -6,8 +6,8 @@
 #     -v "$PWD/scripts/appdir-foreign-check.sh:/check.sh:ro,z" debian:sid bash /check.sh
 #
 # Also runs against a published release: extract it with `--appimage-extract` and mount
-# squashfs-root instead. CI calls it for debian:bookworm, debian:sid, archlinux and
-# opensuse/tumbleweed on every build.
+# squashfs-root instead. CI calls it for debian:sid, archlinux and opensuse/tumbleweed on every
+# build.
 #
 # Six checks, in the order they catch things:
 #

@@ -13,7 +13,7 @@
 # here starts nowhere else. The deb is the worse of the two, because Tauri writes its Depends
 # verbatim from tauri.conf.json and never emits a libc6 constraint: a Fedora-built deb installs
 # cleanly on Debian and then dies at startup on a missing GLIBC symbol. Both are built by
-# .github/workflows/linux-release.yml in a pinned debian:bookworm container, which also attaches them,
+# .github/workflows/linux-release.yml on a pinned ubuntu-24.04 runner, which also attaches them,
 # adds the linux-x86_64 entry to latest.json and marks the release "Latest". Windows and macOS do
 # the same for their own entries. So this script publishes the release NOT-latest on purpose: until
 # CI has attached the binaries, the updater endpoint (.../releases/latest/download/latest.json)

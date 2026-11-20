@@ -314,8 +314,8 @@ fn new_mpv(cache_dir: &str) -> Result<Mpv, Error> {
     mpv.set_property("prefetch-playlist", "yes")?;
     mpv.set_property("cache", "yes")?;
     mpv.set_property("cache-on-disk", "yes")?;
-    // `cache-dir` before mpv 0.36, and the AppImage bundles Debian 12's 0.35.1. Without the
-    // fallback that build has no player at all.
+    // `cache-dir` before mpv 0.36 (Debian 12 ships 0.35.1). Without the fallback an mpv that old
+    // has no player at all.
     if mpv.set_property("demuxer-cache-dir", cache_dir).is_err() {
         mpv.set_property("cache-dir", cache_dir)?;
     }

@@ -41,21 +41,18 @@ cargo tauri build --bundles deb   # → target/release/bundle/deb/limusic_*.deb
 - Media keys use **MPRIS** over D-Bus (needs a running session bus — normal on a desktop session).
 - **Neither the release AppImage nor the release .deb is built here.** Both inherit their build
   host's glibc floor, and Fedora's is the newest that exists, so one built on this machine starts on
-  almost nothing else. `.github/workflows/linux-release.yml` builds both in a pinned `debian:bookworm`
-  container (glibc 2.36) and fails the build if anything bundled needs newer. Bookworm is as old
-  as it goes: Ubuntu 22.04 has no `libmpv2` and Debian 11 has no `webkit2gtk-4.1`. It also means
-  the AppImage bundles bookworm's mpv 0.35.1, so mpv options newer than 0.35 need a fallback
-  (`demuxer-cache-dir` was `cache-dir` there). A local
+  almost nothing else. `.github/workflows/linux-release.yml` builds both on a pinned `ubuntu-24.04`
+  runner (glibc 2.39) and fails the build if anything bundled needs newer. A local
   `cargo tauri build` still emits them into `target/release/bundle/` for testing; never upload those
   to a release.
 - **A .deb declares only what `bundle.linux.deb.depends` in `tauri.conf.json` says it does.** Tauri
   copies that list verbatim and never runs `dpkg-shlibdeps`, so nothing about the package is derived
   from the binary: not the libraries it links, not its glibc floor. That is why the list is
   `libwebkit2gtk-4.1-0` (which drags in gtk3, glib, cairo, libsoup and JavaScriptCore), `libmpv2`,
-  and a hand-written `libc6 (>= 2.36)` matching the CI container. If a future build links something
+  and a hand-written `libc6 (>= 2.39)` matching the CI runner. If a future build links something
   new, add it there by hand. A forgotten entry produces a package that installs cleanly and then
   refuses to start, so the workflow's `Verify the .deb installs and resolves its libraries` step
-  installs it on a clean Debian 12 and fails on the first unresolved `ldd` line.
+  installs it on a clean Ubuntu 24.04 and fails on the first unresolved `ldd` line.
 - A freshly bundled AppDir is **not portable** until `scripts/fix-appdir-tls.sh` has run over it —
   linuxdeploy bundles the host's TLS trust stack (whose CA anchors live outside the bundle) and
   writes a `GIO_EXTRA_MODULES` containing a literal newline and a path into your own `target/` dir,
