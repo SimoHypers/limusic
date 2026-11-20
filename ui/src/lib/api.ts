@@ -1710,8 +1710,9 @@ export interface LinkDevice {
 	playing: boolean;
 }
 export interface LinkState {
-	/** `off`: no link. `unsupported`: the server predates linking and never answered. */
-	status: 'off' | 'connecting' | 'connected' | 'unsupported';
+	/** `off`: no link. `unsupported`: a server of the user's own predates linking and never
+	 *  answered. `unreachable`: no code came back in time, the network is in the way. */
+	status: 'off' | 'connecting' | 'connected' | 'unsupported' | 'unreachable';
 	error: string | null;
 	/** The server the link was made on; empty means the default. */
 	server: string;
