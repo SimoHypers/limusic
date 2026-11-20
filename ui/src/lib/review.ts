@@ -1,6 +1,6 @@
 // The review screen's rules, pure so `review.check.ts` can run them: where a row goes when it is
 // decided, what a refusal means, how old a submission is. The page is `routes/review`.
-import type { LimusicQueueItem, LyricLine } from './api';
+import type { LimusicQueue, LimusicQueueItem, LyricLine } from './api';
 import type { TranslationKey } from './i18n.svelte';
 
 /** The queue without `revision`: a decided row leaves the list at once. */
@@ -34,6 +34,15 @@ export function kindKey(kind: string): TranslationKey {
 /** The service says the revision is no longer there to decide: someone else got to it first, or it
  *  was replaced. Putting the row back would show a dead one. */
 export const isGone = (code: string) => ['not_found', 'not_reviewable', 'stale'].includes(code);
+
+/** The revision as the service sent it is still one to decide: pending, or for a reported one,
+ *  still live. Another reviewer's verdict between the list and the open leaves it neither. */
+export const reviewable = (kind: string, status: string) => status === (kind === 'reported' ? 'published' : 'pending');
+
+/** The first page of the queue no longer lists `revision`, though it reaches where it would be:
+ *  another reviewer decided it, or its author replaced it. */
+export const leftQueue = (q: LimusicQueue, revision: number) =>
+	!q.items.some((i) => i.revision === revision) && (q.next === null || revision <= q.next);
 
 /** A refusal or a failure, as a key. */
 export function reviewErrorKey(code: string): TranslationKey {
