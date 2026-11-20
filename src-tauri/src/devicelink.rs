@@ -119,6 +119,9 @@ struct Inner {
     error: Option<String>,
     /// "Link a phone" was pressed and no code has come back yet.
     want_pair: bool,
+    /// When it was last pressed. Shared, so a watcher left over from a cancelled attempt times
+    /// the new one from its own press, not from the old one.
+    pair_pressed: Option<std::time::Instant>,
     /// This pairing attempt made the link, so cancelling it undoes the link too.
     pair_made_link: bool,
     /// When `pair_start` went out on the joined socket: the server's answer is timed from here.
@@ -327,6 +330,7 @@ impl LinkSession {
                 inner.pair_made_link = true;
             }
             inner.want_pair = true;
+            inner.pair_pressed = Some(std::time::Instant::now());
             inner.pair = None;
             inner.error = None;
             if inner.joined {
@@ -348,7 +352,6 @@ impl LinkSession {
         // the deadline ends the attempt but not the socket, which keeps retrying for an existing
         // link.
         let me = self.clone();
-        let pressed = std::time::Instant::now();
         tauri::async_runtime::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(1)).await;
@@ -357,7 +360,7 @@ impl LinkSession {
                     if !inner.want_pair || inner.pair.is_some() || inner.failed.is_some() {
                         return;
                     }
-                    if pressed.elapsed() > PAIR_DEADLINE {
+                    if inner.pair_pressed.is_some_and(|t| t.elapsed() > PAIR_DEADLINE) {
                         inner.want_pair = false;
                         inner.failed = Some("unreachable");
                         drop(inner);
