@@ -278,13 +278,21 @@ pub struct EditorStart {
 /// background vocals were kept lacks them) and its revision; otherwise the same lyrics the panel
 /// shows (cached, or down the provider list).
 pub async fn editor_start(state: &AppState, req: LyricsRequest) -> EditorStart {
-    let live = crate::limusic::live(&filed_id(state, &req.video_id)).await;
-    let base_revision = live.as_ref().map(|l| l.revision);
-    let lyrics = match live.and_then(|l| l.lyrics) {
-        Some(l) => Some(l),
-        None => cached_or_fetched(state, req).await,
-    };
-    EditorStart { lyrics: lyrics.filter(|l| !l.instrumental), base_revision }
+    let id = req.video_id.clone();
+    let mut live = crate::limusic::live(&filed_id(state, &id)).await;
+    let mut lyrics = live.as_mut().and_then(|l| l.lyrics.take());
+    if lyrics.is_none() {
+        lyrics = cached_or_fetched(state, req).await;
+        // That walk can find the lyric on another upload of the song: an edit is to that one.
+        if live.is_none() && filed_id(state, &id) != id {
+            live = crate::limusic::live(&filed_id(state, &id)).await;
+            lyrics = live.as_mut().and_then(|l| l.lyrics.take()).or(lyrics);
+        }
+    }
+    EditorStart {
+        lyrics: lyrics.filter(|l| !l.instrumental),
+        base_revision: live.map(|l| l.revision),
+    }
 }
 
 /// One provider's lyrics for the lyric editor's source chooser: the source picker's preview minus
