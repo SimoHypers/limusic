@@ -2847,8 +2847,8 @@ pub async fn limusic_rename(
 /// The song's live revision on the service now (`None`: no live lyric), for keeping a draft on top
 /// of a newer version.
 #[tauri::command]
-pub async fn limusic_live_revision(video_id: String) -> Result<Option<i64>, String> {
-    crate::limusic::live_revision(&video_id).await
+pub async fn limusic_live_revision(state: St<'_>, video_id: String) -> Result<Option<i64>, String> {
+    crate::limusic::live_revision(&crate::lyrics::filed_id(&state, &video_id)).await
 }
 
 /// The votes on the lyric Limusic has live for the song, this account's own, and whether the lyric
@@ -2858,6 +2858,7 @@ pub async fn limusic_lyric_state(
     state: St<'_>,
     video_id: String,
 ) -> Result<Option<crate::limusic::LyricState>, String> {
+    let video_id = crate::lyrics::filed_id(&state, &video_id);
     crate::limusic::lyric_state(state.inner(), &video_id).await
 }
 
@@ -2868,6 +2869,7 @@ pub async fn limusic_vote(
     video_id: String,
     value: i64,
 ) -> Result<crate::limusic::Votes, String> {
+    let video_id = crate::lyrics::filed_id(&state, &video_id);
     crate::limusic::vote(state.inner(), &video_id, value).await
 }
 
@@ -2879,6 +2881,7 @@ pub async fn limusic_report(
     reason: String,
     note: Option<String>,
 ) -> Result<(), String> {
+    let video_id = crate::lyrics::filed_id(&state, &video_id);
     crate::limusic::report(state.inner(), &video_id, &reason, note).await
 }
 
@@ -2938,6 +2941,7 @@ pub async fn limusic_my_rejection(
     state: St<'_>,
     video_id: String,
 ) -> Result<Option<crate::limusic::Rejection>, String> {
+    let video_id = crate::lyrics::filed_id(&state, &video_id);
     Ok(crate::limusic::my_rejection(state.inner(), &video_id).await)
 }
 
