@@ -39,7 +39,8 @@
 		setHole,
 		showVideo,
 		video,
-		videoSide
+		videoSide,
+		view
 	} from '$lib/video.svelte';
 	import { artRoom } from '$lib/artroom.svelte';
 	import { typing } from '$lib/shortcuts';
@@ -204,12 +205,12 @@
 	// still fires: it takes the hole away itself, and `inert:` (Svelte sets it on the view for the
 	// fly out) paints the view and the box over the picture meanwhile.
 	let settled = $state(false);
-	let view: HTMLElement;
+	let viewEl: HTMLElement;
 	$effect(() => {
 		// Mounted without a fly (the intro only plays when the view itself opens), so no introend
 		// is coming. By the first frame Svelte has started the fly if there is one.
 		const frame = requestAnimationFrame(() => {
-			if (!view.getAnimations().length) settled = true;
+			if (!viewEl.getAnimations().length) settled = true;
 		});
 		return () => cancelAnimationFrame(frame);
 	});
@@ -218,9 +219,9 @@
 	 *  mini player): mpv then stops decoding the picture, and picks it up in step on the way back. */
 	function holeFor(el: HTMLElement) {
 		// Theater mode paints over the whole window, so nobody would see the picture.
-		if (!settled || ui.theaterOpen) return;
+		if (!settled || ui.theaterOpen || !view.visible) return;
 		const measure = () => {
-			if (document.hidden) return setHole(null);
+			if (document.hidden || !view.visible) return setHole(null);
 			const r = el.getBoundingClientRect();
 			setHole({ x: r.left, y: r.top, w: r.width, h: r.height });
 		};
@@ -230,8 +231,8 @@
 		const ro = new ResizeObserver(measure);
 		ro.observe(el);
 		ro.observe(document.documentElement);
-		const view = el.closest('[data-np-view]');
-		if (view) ro.observe(view);
+		const viewContainer = el.closest('[data-np-view]');
+		if (viewContainer) ro.observe(viewContainer);
 		// The picture and what sits under it: the lyric line opening or closing under a video
 		// changes this group's height, and the group, centred, moves the box without resizing it.
 		const group = el.closest('[data-np-keep]');
@@ -477,7 +478,7 @@
 	transition:fly={{ y: '100%', duration: 320, easing: cubicOut }}
 	onoutrostart={() => ((settled = false), setHole(null))}
 	onintroend={() => (settled = true)}
-	bind:this={view}
+	bind:this={viewEl}
 	onpointerdown={(e) => ((pressedKeep = keeps(e.target)), (releasedKeep = false))}
 	onpointerup={(e) => (releasedKeep = keeps(e.target))}
 	onclick={onBackdropClick}

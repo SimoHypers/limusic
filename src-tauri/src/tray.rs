@@ -31,6 +31,9 @@ pub use imp::{init, set_icon, set_playing};
 /// [`set_available`] when `init` fails.
 static AVAILABLE: AtomicBool = AtomicBool::new(true);
 
+/// Last known visibility of the main window.
+static LAST_VISIBLE: AtomicBool = AtomicBool::new(true);
+
 /// Can the window be brought back from the tray? See [`AVAILABLE`].
 pub fn available() -> bool {
     AVAILABLE.load(Ordering::Relaxed)
@@ -62,7 +65,19 @@ pub fn show_main(app: &AppHandle) {
 /// hidden, it grew 137 MB and held it, then dropped the whole lot within two seconds of the window
 /// being shown again. A night in the tray is thousands of those. See `theme.svelte.ts`.
 pub fn set_main_visible(app: &AppHandle, visible: bool) {
+    LAST_VISIBLE.store(visible, Ordering::Relaxed);
     let _ = app.emit_to("main", "ui-visible", visible);
+}
+
+/// Sync main window visibility (Windows/Linux do not tell the page about minimize).
+pub fn sync_main_visible(window: &tauri::Window) {
+    if window.label() != "main" {
+        return;
+    }
+    let visible = window.is_visible().unwrap_or(true) && !window.is_minimized().unwrap_or(false);
+    if visible != LAST_VISIBLE.load(Ordering::Relaxed) {
+        set_main_visible(window.app_handle(), visible);
+    }
 }
 
 /// Shared by both backends: menu ids are the contract between them.
