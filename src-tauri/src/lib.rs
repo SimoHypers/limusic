@@ -308,16 +308,16 @@ pub(crate) fn tune_webview_labelled(app: &tauri::AppHandle, label: &str, media: 
 /// When GTK cannot make a GL context, WebKit turns hardware acceleration off ("Disabled hardware
 /// acceleration because GTK failed to initialize GL", in the log), and 2.54 then draws a
 /// transparent view with only what changed: the window is see-through except whatever just
-/// repainted. Mesa 26.3.1 on Wayland gets there whenever it renders in software. With
-/// `ui/perf/damageprobe.py` and `GDK_GL=disable`, 2.54.2 paints 0.3% of the window, and 99.7% once
-/// the background is opaque and the page rebuilt; 2.52.1 paints 99.7% either way. A colour set
-/// after the page exists changes nothing, hence the restart. The window loses its rounded corners
-/// (black there instead), and native video, which needs GL anyway, falls back to `<video>`.
+/// repainted. With `ui/perf/damageprobe.py` and `GDK_GL=disable`, 2.54.2 paints 0.3% of the
+/// window, and 99.7% once the background is opaque and the page rebuilt; 2.52.1 paints 99.7% either
+/// way. A colour set after the page exists changes nothing, hence the restart. The window loses its
+/// rounded corners (black there instead), and native video, which needs GL anyway, falls back to
+/// `<video>`. [`relaunch_on_x11`] usually gets GL back first; this is for where it cannot (no
+/// XWayland, a backend chosen by hand, no GL on X11 either).
 ///
 /// ponytail: delete once a WebKitGTK release passes `damageprobe.py` under `GDK_GL=disable`.
 #[cfg(target_os = "linux")]
 fn opaque_without_gl(webview: &tauri::Webview) {
-    use gtk::prelude::{WidgetExt, WidgetExtManual};
     use webkit2gtk::WebViewExt;
 
     // SAFETY: takes nothing.
@@ -329,22 +329,60 @@ fn opaque_without_gl(webview: &tauri::Webview) {
         if view.background_color().alpha() >= 1.0 {
             return;
         }
-        // WebKit's own test (AcceleratedBackingStore.cpp, gtkCanUseHardwareAcceleration), once.
-        static GL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        let gl = *GL.get_or_init(|| {
-            let probe = gtk::Window::new(gtk::WindowType::Popup);
-            probe.realize();
-            let ok = probe.window().is_some_and(|w| w.create_gl_context().is_ok());
-            // SAFETY: ours, never shown, and nothing else holds it.
-            unsafe { probe.destroy() };
-            ok
-        });
-        if gl {
+        if gtk_has_gl() {
             return;
         }
         view.set_background_color(&gtk::gdk::RGBA::new(0.0, 0.0, 0.0, 1.0));
         restart_web_process(&view);
     });
+}
+
+/// Whether GTK can make a GL context, asked the way WebKit asks before it decides to paint on the
+/// CPU (AcceleratedBackingStore.cpp, `gtkCanUseHardwareAcceleration`). Once per process, on the main
+/// thread, with GTK initialized.
+#[cfg(target_os = "linux")]
+fn gtk_has_gl() -> bool {
+    use gtk::prelude::{WidgetExt, WidgetExtManual};
+
+    static GL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *GL.get_or_init(|| {
+        let probe = gtk::Window::new(gtk::WindowType::Popup);
+        probe.realize();
+        let ok = probe.window().is_some_and(|w| w.create_gl_context().is_ok());
+        // SAFETY: ours, never shown, and nothing else holds it.
+        unsafe { probe.destroy() };
+        ok
+    })
+}
+
+/// Starts this process again on XWayland, where GTK makes its GL context with GLX instead of EGL
+/// (#728). Mesa 26.3.1 gives GTK no EGL config on Wayland (mesa#16934), and without GL in GTK,
+/// WebKit paints every frame on the CPU: hovers and animations crawl at full HD. A reporter on that
+/// Mesa: laggy on Wayland, smooth with `LIMUSIC_GDK_BACKEND=x11`. The price is XWayland's: a blurry
+/// window at a fractional scale, and a little more per frame to present.
+///
+/// `exec`, so it stays one process: an AppImage keeps its mount, and nothing holds the
+/// single-instance name yet. It gets the environment it was launched with plus that one variable,
+/// so `run` reads argv and LIMUSIC_RESTARTED afresh and sets the NVIDIA switches for X11, and the
+/// diagnostics show `LIMUSIC_GDK_BACKEND=x11`. Returns only if the exec fails, which leaves the app
+/// on Wayland and [`opaque_without_gl`] keeping the window visible.
+///
+/// ponytail: drop it once Mesa fixes #16934 and its fix has been out a while.
+#[cfg(target_os = "linux")]
+fn relaunch_on_x11(env: Vec<(std::ffi::OsString, std::ffi::OsString)>) {
+    use std::os::unix::process::CommandExt;
+
+    let Ok(exe) = std::env::current_exe() else { return };
+    let mut args = std::env::args_os();
+    eprintln!("limusic: GTK has no GL on Wayland, starting again on XWayland (#728)");
+    let err = std::process::Command::new(exe)
+        .arg0(args.next().unwrap_or_default())
+        .args(args)
+        .env_clear()
+        .envs(env)
+        .env("LIMUSIC_GDK_BACKEND", "x11")
+        .exec();
+    eprintln!("limusic: could not start again ({err}), staying on Wayland");
 }
 
 /// Builds the page again so a setting the web process reads once, when it creates the page, takes
@@ -637,6 +675,9 @@ pub fn run() {
     // forks, and cannot be raised for them afterwards.
     #[cfg(target_os = "linux")]
     raise_fd_limit();
+    // As launched, before the writes below, for `relaunch_on_x11`.
+    #[cfg(target_os = "linux")]
+    let launch_env: Vec<_> = std::env::vars_os().collect();
 
     // See `AUTOSTARTED`. Up here with the other env writes, before any thread exists to read it.
     AUTOSTARTED.store(
@@ -768,6 +809,19 @@ pub fn run() {
         // freeing.
         if nvidia_draws && std::env::var_os("WEBKIT_SKIA_ENABLE_CPU_RENDERING").is_none() {
             std::env::set_var("WEBKIT_SKIA_ENABLE_CPU_RENDERING", "1");
+        }
+
+        // No GL in GTK on Wayland: start again on XWayland (see `relaunch_on_x11`). Only when GDK
+        // picked Wayland by itself and an X display is there to go to. Last, after every env
+        // write, because initializing GTK may start threads; tao's own `gtk::init` is then a
+        // no-op.
+        if !on_x11
+            && std::env::var_os("GDK_BACKEND").is_none()
+            && std::env::var_os("DISPLAY").is_some_and(|d| !d.is_empty())
+            && gtk::init().is_ok()
+            && !gtk_has_gl()
+        {
+            relaunch_on_x11(launch_env);
         }
     }
 
