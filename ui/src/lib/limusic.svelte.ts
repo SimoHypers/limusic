@@ -35,6 +35,14 @@ export const limusic = $state({
 
 /** The "a reviewer left you a note" toast, once per start. */
 let notesToasted = false;
+/** Bumped when the notes are marked read: an account answer asked for before that is stale. */
+let notesAck = 0;
+
+/** The notes list told the service they are read. */
+export function notesRead() {
+	notesAck++;
+	limusic.unreadNotes = 0;
+}
 
 function apply(s: api.LimusicAccountState) {
 	limusic.signedIn = s.signed_in;
@@ -86,13 +94,14 @@ export async function refreshWaiting() {
 
 /** The account's score and role, fresh. A session the service has dropped signs out here. */
 export async function refreshAccount() {
+	const ack = notesAck;
 	try {
 		const a = await api.limusicMe();
 		if (a) {
 			limusic.account = a;
 			limusic.handle = a.handle;
 			limusic.anonymous = a.anonymous;
-			limusic.unreadNotes = a.unread_notes ?? 0;
+			if (ack === notesAck) limusic.unreadNotes = a.unread_notes ?? 0;
 			if (a.can_review) refreshWaiting();
 			else limusic.waiting = null;
 			if (limusic.unreadNotes > 0 && !notesToasted) {

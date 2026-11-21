@@ -1,9 +1,9 @@
 <script lang="ts">
 	// What reviewers decided about my lyrics: rejects, takedowns, and approvals that fixed the lines
 	// or came with a word. Never who. Opening the tab reads them; their dots stay for this visit.
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
 	import * as api from '$lib/api';
-	import { limusic } from '$lib/limusic.svelte';
+	import { limusic, notesRead } from '$lib/limusic.svelte';
 	import { ago, coverOf } from '$lib/review';
 	import { currentLocale, t, type TranslationKey } from '$lib/i18n.svelte';
 
@@ -12,20 +12,34 @@
 	let notes = $state.raw<api.LimusicNote[]>([]);
 	const now = Math.floor(Date.now() / 1000);
 
-	onMount(async () => {
-		if (!limusic.signedIn) return;
+	/** Which session the list belongs to: an answer for an earlier one is dropped. */
+	let asked = 0;
+	async function load(mine: number) {
+		let found: api.LimusicNote[];
 		try {
-			notes = await api.limusicNotes();
+			found = await api.limusicNotes();
 		} catch {
 			// An older service, or unreachable: no section.
 			return;
 		}
+		if (mine !== asked) return;
+		notes = found;
 		// Newest first, so the first one is as far as there is to read.
-		if (notes[0]?.unread) {
-			api.limusicNotesSeen(notes[0].id)
-				.then(() => (limusic.unreadNotes = 0))
+		if (found[0]?.unread) {
+			api.limusicNotesSeen(found[0].id)
+				.then(() => mine === asked && notesRead())
 				.catch(() => {});
 		}
+	}
+	// Again for another account: signing out and into another one with the tab open.
+	$effect(() => {
+		const signedIn = limusic.signedIn;
+		void limusic.handle;
+		untrack(() => {
+			const mine = ++asked;
+			notes = [];
+			if (signedIn) load(mine);
+		});
 	});
 
 	function badge(n: api.LimusicNote): { key: TranslationKey; cls: string } {
