@@ -869,8 +869,14 @@ impl AppState {
             // One channel stays seamless. Reuse the already-fetched active header instead of
             // introducing another network request or a new delegated id into the historical
             // single-account path.
-            let selected = SelectedIdentity::from_account_info(active, false)
+            let mut selected = SelectedIdentity::from_account_info(active, false)
                 .ok_or("That session didn't return an account identity")?;
+            // That one channel can be a brand one, on a Google account with no channel of its
+            // own. The active header carries no page id, so take it from the list row (#736).
+            let only = &identities[0];
+            if selected.data_sync_id.as_deref() == Some(only.data_sync_id.as_str()) {
+                selected.page_id = only.page_id.clone();
+            }
             self.persist_selected_identity(selected, active_visitor_data.as_deref()).inspect_err(
                 |_| {
                     self.restore_auth_transport(
