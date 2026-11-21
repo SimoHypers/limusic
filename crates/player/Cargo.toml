@@ -25,4 +25,7 @@ hound = "3.5"
 name = "play"
 
 [[example]]
+name = "crossfade"
+
+[[example]]
 name = "decode"

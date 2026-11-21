@@ -49,6 +49,15 @@ impl Videos {
         let path = self.loaded[deck].as_deref()?;
         self.by_audio.iter().rev().find(|(a, _)| a == path).map(|(_, v)| v.clone())
     }
+
+    /// Record the file a deck was handed before mpv has reported it.
+    ///
+    /// A manual crossfade swaps decks the moment the incoming deck's `FileLoaded` arrives, before
+    /// [`file_loaded`] has read `path`: without this the new track would come up with no picture.
+    /// `file_loaded` overwrites it with mpv's own answer a moment later.
+    pub(crate) fn set_loaded(&mut self, deck: usize, path: &str) {
+        self.loaded[deck] = Some(path.to_owned());
+    }
 }
 
 /// The display connection the app's GL context runs on. mpv needs it for zero-copy hardware

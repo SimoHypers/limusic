@@ -103,6 +103,7 @@ const TABLE: [SettingsTab, K | null, Row[]][] = [
 		'settings.sections.player_view',
 		[
 			['settings.themes.classic_player', 'settings.themes.classic_player_hint'],
+			['settings.themes.cover_lyric', 'settings.themes.cover_lyric_hint'],
 			['settings.themes.cover_lyric_romanized', 'settings.themes.cover_lyric_romanized_hint'],
 			['settings.themes.open_player', 'settings.themes.open_player_hint'],
 			['settings.themes.empty_click_player', 'settings.themes.empty_click_player_hint'],
@@ -123,6 +124,7 @@ const TABLE: [SettingsTab, K | null, Row[]][] = [
 			['settings.playback.autoplay', 'settings.playback.autoplay_hint'],
 			['settings.playback.crossfade', 'settings.playback.crossfade_hint'],
 			['settings.playback.crossfade_duration', 'settings.playback.crossfade_duration_hint', 'settings.playback.crossfade'],
+			['settings.playback.crossfade_manual', 'settings.playback.crossfade_manual_hint', 'settings.playback.crossfade'],
 			['settings.playback.prevent_duplicates', 'settings.playback.prevent_duplicates_hint'],
 			['settings.playback.auto_pause_other_audio', 'settings.playback.auto_pause_other_audio_hint'],
 			['settings.playback.sticky_shuffle', 'settings.playback.sticky_shuffle_hint'],
