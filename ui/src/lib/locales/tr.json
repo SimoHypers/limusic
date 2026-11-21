@@ -863,7 +863,8 @@
 			"reset_zoom": "Yakınlaştırmayı sıfırla",
 			"show_this_list": "Bu listeyi göster",
 			"refresh_page": "Sayfayı yenile",
-			"quit_app": "Limusic'ten çık"
+			"quit_app": "Limusic'ten çık",
+			"like_song": "Şarkıyı beğen veya beğenme"
 		},
 		"tempo_pitch": {
 			"title": "Tempo, Perde ve Yankı Kontrolleri",
