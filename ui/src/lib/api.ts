@@ -1506,6 +1506,8 @@ export const limusicReview = (
 ) => invoke<string>('limusic_review', { revision, videoId, verdict, reason: reason ?? null, lines: lines ?? null });
 /** A reviewer turned down my latest version of a song, and nothing went live after it. */
 export interface LimusicRejection {
+	/** That version, which `limusicReviewRevision` still returns to its author. */
+	revision: number;
 	reason: string | null;
 	at: number | null;
 }

@@ -1551,7 +1551,8 @@
 		"err_unavailable": "Your draft is saved. Try again in a moment.",
 		"rejected_title": "A reviewer turned down your last version",
 		"rejected_reason": "Their reason: \"{reason}\". You can fix it and send it again.",
-		"rejected_no_reason": "They didn't give a reason. You can fix it and send it again."
+		"rejected_no_reason": "They didn't give a reason. You can fix it and send it again.",
+		"rejected_open": "Open my version"
 	},
 	"limusic": {
 		"none_title": "No account needed",
