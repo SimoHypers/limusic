@@ -309,6 +309,9 @@ pub struct AccountIdentity {
     pub thumbnail: Option<String>,
     pub channel_id: Option<String>,
     pub data_sync_id: String,
+    /// `pageIdToken.pageId`: only a brand channel has one. The watch-history ping needs it as a
+    /// header, because a GET carries no `onBehalfOfUser` (#736).
+    pub page_id: Option<String>,
     /// YouTube's current/default marker. The app's persisted choice may deliberately differ.
     pub is_selected: bool,
 }
@@ -528,7 +531,7 @@ fn parse_account_identity(
     });
     let is_selected = item.get("isSelected").and_then(Value::as_bool).unwrap_or(false);
     let selected_response_id = is_selected.then_some(response_id).flatten().map(str::to_owned);
-    let data_sync_id = token_data_sync_id.or(page_id).or(selected_response_id)?;
+    let data_sync_id = token_data_sync_id.or_else(|| page_id.clone()).or(selected_response_id)?;
 
     Some(AccountIdentity {
         name,
@@ -537,6 +540,7 @@ fn parse_account_identity(
         thumbnail: last_thumbnail(item),
         channel_id: channel_browse_id(item),
         data_sync_id,
+        page_id,
         is_selected,
     })
 }
@@ -2000,7 +2004,9 @@ mod tests {
         let persisted = identities.iter().find(|i| i.data_sync_id == "brand-page-id").unwrap();
         assert_eq!(persisted.name, "Brand channel");
         assert_eq!(persisted.channel_id.as_deref(), Some("UCSANITIZEDBRAND"));
+        assert_eq!(persisted.page_id.as_deref(), Some("brand-page-id"));
         assert!(!persisted.is_selected);
+        assert_eq!(identities[0].page_id, None, "the account's own channel has no page id");
     }
 
     #[test]
