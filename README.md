@@ -102,6 +102,7 @@ Discord.
 - Media keys and now playing on every OS
 - `Ctrl+K` to search, `Ctrl+H` for every shortcut
 - Self-updating builds
+- Cast to a Chromecast, a Google Home or Nest speaker, or a TV with Google Cast ([how](docs/CASTING.md))
 
 </td>
 <td valign="top">

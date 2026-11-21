@@ -24,7 +24,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::convert::Infallible;
 use std::io;
-use std::net::{Ipv4Addr, TcpListener};
+use std::net::{IpAddr, Ipv4Addr, TcpListener};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -89,6 +89,8 @@ struct Registration {
     url: String,
     headers: HashMap<String, String>,
     meta: Mutex<Option<Meta>>,
+    /// Requests from a cast device on the LAN listener.
+    lan_hits: std::sync::atomic::AtomicU32,
 }
 
 struct Registry {
@@ -160,23 +162,217 @@ pub fn register(url: &str, headers: &HashMap<String, String>) -> Option<String> 
         return None;
     }
     let (port, token) = ENDPOINT.get()?;
+    let id = insert(url, headers)?;
+    Some(format!("http://127.0.0.1:{port}/{token}/a/{id}"))
+}
+
+/// Add a registration and return its id, evicting the oldest past the cap.
+fn insert(url: &str, headers: &HashMap<String, String>) -> Option<String> {
     let id = format!("{:016x}", rand::random::<u64>());
     let reg = Arc::new(Registration {
         url: url.to_owned(),
         headers: headers.clone(),
         meta: Mutex::new(None),
+        lan_hits: Default::default(),
     });
-    {
-        let mut r = REGISTRY.get()?.lock().ok()?;
-        while r.order.len() >= MAX_REGISTRATIONS {
-            if let Some(old) = r.order.pop_front() {
-                r.map.remove(&old);
-            }
+    let mut r = REGISTRY
+        .get_or_init(|| Mutex::new(Registry { map: HashMap::new(), order: VecDeque::new() }))
+        .lock()
+        .ok()?;
+    while r.order.len() >= MAX_REGISTRATIONS {
+        if let Some(old) = r.order.pop_front() {
+            r.map.remove(&old);
         }
-        r.map.insert(id.clone(), reg);
-        r.order.push_back(id.clone());
     }
-    Some(format!("http://127.0.0.1:{port}/{token}/a/{id}"))
+    r.map.insert(id.clone(), reg);
+    r.order.push_back(id.clone());
+    Some(id)
+}
+
+// ---- The LAN listener, for casting (#399) ----
+//
+// A Cast device fetches the audio from this machine, never from YouTube directly: a stream URL
+// is signed for the address that resolved it (IPv6 included, and the `proxy` setting's), and it
+// needs the headers it was signed with. So while a cast runs, the same proxy also listens on the
+// LAN, with its own token, answering only the device.
+
+struct LanServerState {
+    port: u16,
+    token: String,
+    stop_tx: tokio::sync::oneshot::Sender<()>,
+}
+
+static LAN_STATE: Mutex<Option<LanServerState>> = Mutex::new(None);
+
+/// The device allowed to fetch. `None` while nothing casts, and for a speaker group, whose
+/// leader (any member) does the fetching.
+static LAN_PEER: Mutex<Option<IpAddr>> = Mutex::new(None);
+
+/// Open the LAN listener for a cast to `device`. A fresh port and token every cast. `false`
+/// when it couldn't listen.
+pub fn start_lan(device: IpAddr, group: bool) -> bool {
+    stop_lan();
+    if let Ok(mut peer) = LAN_PEER.lock() {
+        *peer = (!group).then_some(device);
+    }
+    let listener = match TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)) {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::warn!(error = %e, "audio proxy lan: bind failed");
+            return false;
+        }
+    };
+    let Ok(port) = listener.local_addr().map(|a| a.port()) else { return false };
+    if listener.set_nonblocking(true).is_err() {
+        return false;
+    }
+    let token = format!("{:016x}{:016x}", rand::random::<u64>(), rand::random::<u64>());
+    let (stop_tx, mut stop_rx) = tokio::sync::oneshot::channel::<()>();
+    let serve_token = token.clone();
+    tauri::async_runtime::spawn(async move {
+        let Ok(listener) = tokio::net::TcpListener::from_std(listener) else { return };
+        loop {
+            let (stream, peer) = tokio::select! {
+                _ = &mut stop_rx => break,
+                accepted = listener.accept() => match accepted {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "audio proxy lan: accept failed");
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        continue;
+                    }
+                },
+            };
+            let token = serve_token.clone();
+            tauri::async_runtime::spawn(async move {
+                let svc = service_fn(move |req| {
+                    let token = token.clone();
+                    async move {
+                        Ok::<_, Infallible>(
+                            handle_lan(req, peer.ip(), &token).await.unwrap_or_else(empty),
+                        )
+                    }
+                });
+                let _ = http1::Builder::new()
+                    .timer(TokioTimer::new())
+                    .header_read_timeout(Duration::from_secs(15))
+                    .serve_connection(TokioIo::new(stream), svc)
+                    .await;
+            });
+        }
+        tracing::info!("audio proxy lan stopped");
+    });
+    if let Ok(mut state) = LAN_STATE.lock() {
+        *state = Some(LanServerState { port, token, stop_tx });
+    }
+    tracing::info!(port, "audio proxy listening on the LAN for a cast");
+    true
+}
+
+/// Close the LAN listener (the cast ended).
+pub fn stop_lan() {
+    if let Ok(mut peer) = LAN_PEER.lock() {
+        *peer = None;
+    }
+    if let Some(state) = LAN_STATE.lock().ok().and_then(|mut s| s.take()) {
+        let _ = state.stop_tx.send(());
+    }
+}
+
+/// Register a stream for the cast device and return the LAN URL it should be handed.
+pub fn register_lan(
+    url: &str,
+    headers: &HashMap<String, String>,
+    device: IpAddr,
+) -> Option<String> {
+    if !crate::orchestrator::is_youtube_stream(url) {
+        return None;
+    }
+    let (port, token) = {
+        let state = LAN_STATE.lock().ok()?;
+        let state = state.as_ref()?;
+        (state.port, state.token.clone())
+    };
+    let host = local_address_for(device)?;
+    let id = insert(url, headers)?;
+    Some(format!("http://{host}:{port}/{token}/a/{id}"))
+}
+
+/// Whether the device has asked for this LAN URL yet.
+pub fn lan_fetched(lan_url: &str) -> bool {
+    let Some(id) = lan_url.rsplit('/').next() else { return false };
+    let reg = REGISTRY.get().and_then(|r| r.lock().ok()).and_then(|r| r.map.get(id).cloned());
+    reg.is_some_and(|r| r.lan_hits.load(std::sync::atomic::Ordering::Relaxed) > 0)
+}
+
+/// This machine's address as the device sees it: the one the route to it leaves from. A UDP
+/// `connect` sends nothing, it only asks the routing table.
+///
+/// A full-tunnel VPN routes everything through itself, the device included, so its address
+/// can't be reached from the LAN. When the routed address isn't on the device's network but an
+/// interface is, that one is used instead.
+fn local_address_for(device: IpAddr) -> Option<Ipv4Addr> {
+    let IpAddr::V4(device) = device else { return None };
+    let routed = std::net::UdpSocket::bind("0.0.0.0:0")
+        .and_then(|s| s.connect((device, 8009)).map(|_| s))
+        .and_then(|s| s.local_addr())
+        .ok()
+        .and_then(|a| match a.ip() {
+            IpAddr::V4(ip) if !ip.is_unspecified() && !ip.is_loopback() => Some(ip),
+            _ => None,
+        });
+    if routed.is_some_and(|ip| same_network(ip, device)) {
+        return routed;
+    }
+    let on_lan = if_addrs::get_if_addrs().ok().and_then(|ifs| {
+        ifs.into_iter().find_map(|i| match i.ip() {
+            IpAddr::V4(ip) if !i.is_loopback() && same_network(ip, device) => Some(ip),
+            _ => None,
+        })
+    });
+    on_lan.or(routed)
+}
+
+/// Close enough for a home network: the first three octets match.
+fn same_network(a: Ipv4Addr, b: Ipv4Addr) -> bool {
+    a.octets()[..3] == b.octets()[..3]
+}
+
+fn is_private_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_private() || v4.is_link_local() || v4.is_loopback(),
+        IpAddr::V6(v6) => {
+            let s = v6.segments();
+            v6.is_loopback() || (s[0] & 0xffc0 == 0xfe80) || (s[0] & 0xfe00 == 0xfc00)
+        }
+    }
+}
+
+async fn handle_lan(
+    req: Request<Incoming>,
+    peer: IpAddr,
+    token: &str,
+) -> Result<Response<ProxyBody>, StatusCode> {
+    if !matches!(*req.method(), Method::GET | Method::HEAD) {
+        return Err(StatusCode::METHOD_NOT_ALLOWED);
+    }
+    let allowed = LAN_PEER.lock().ok().and_then(|p| *p);
+    if !is_private_ip(peer) || allowed.is_some_and(|a| a != peer) {
+        tracing::warn!(%peer, "cast LAN request refused: not the device");
+        return Err(StatusCode::FORBIDDEN);
+    }
+    // Audio only: the karaoke routes stay loopback.
+    let Some(("a", id)) = route(req.uri().path(), token) else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+    if let Some(reg) =
+        REGISTRY.get().and_then(|r| r.lock().ok()).and_then(|r| r.map.get(id).cloned())
+    {
+        reg.lan_hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    let range = req.headers().get(header::RANGE).and_then(|v| v.to_str().ok());
+    tracing::debug!(%peer, ?range, "cast: the device fetched");
+    serve_audio_stream(&req, id).await
 }
 
 /// `/<token>/<kind>/<id>` to `(kind, id)`, once the token matches this launch's.
@@ -187,6 +383,7 @@ fn route<'a>(path: &'a str, token: &str) -> Option<(&'a str, &'a str)> {
 }
 
 /// `/<token>/a/<id>` to the registration id.
+#[cfg(test)]
 fn id_from<'a>(path: &'a str, token: &str) -> Option<&'a str> {
     route(path, token).filter(|(kind, _)| *kind == "a").map(|(_, id)| id)
 }
@@ -320,11 +517,19 @@ async fn handle(req: Request<Incoming>) -> Result<Response<ProxyBody>, StatusCod
     if let Some(("k", id)) = route(req.uri().path(), token) {
         return serve_growing(&req, id).await;
     }
-    let id = id_from(req.uri().path(), token).ok_or(StatusCode::NOT_FOUND)?;
+    let Some(("a", id)) = route(req.uri().path(), token) else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+    serve_audio_stream(&req, id).await
+}
+
+async fn serve_audio_stream(
+    req: &Request<Incoming>,
+    id: &str,
+) -> Result<Response<ProxyBody>, StatusCode> {
     let reg = {
         let r = REGISTRY
-            .get()
-            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+            .get_or_init(|| Mutex::new(Registry { map: HashMap::new(), order: VecDeque::new() }))
             .lock()
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         r.map.get(id).cloned()
@@ -625,5 +830,25 @@ mod tests {
         assert_eq!(total_from_content_range("bytes 0-0/122414474"), Some(122414474));
         assert_eq!(total_from_content_range("bytes 0-0/*"), None);
         assert_eq!(total_from_content_range("nonsense"), None);
+    }
+
+    #[test]
+    fn test_is_private_ip() {
+        assert!(is_private_ip("127.0.0.1".parse().unwrap()));
+        assert!(is_private_ip("::1".parse().unwrap()));
+        assert!(is_private_ip("10.0.0.1".parse().unwrap()));
+        assert!(is_private_ip("172.16.0.1".parse().unwrap()));
+        assert!(is_private_ip("192.168.1.1".parse().unwrap()));
+        assert!(is_private_ip("169.254.1.1".parse().unwrap()));
+        assert!(is_private_ip("fe80::1".parse().unwrap()));
+        assert!(!is_private_ip("8.8.8.8".parse().unwrap()));
+        assert!(!is_private_ip("1.1.1.1".parse().unwrap()));
+    }
+
+    #[test]
+    fn a_vpn_address_is_not_on_the_devices_network() {
+        let ip = |s: &str| s.parse::<Ipv4Addr>().unwrap();
+        assert!(same_network(ip("192.168.1.10"), ip("192.168.1.42")));
+        assert!(!same_network(ip("10.8.0.2"), ip("192.168.1.42")));
     }
 }

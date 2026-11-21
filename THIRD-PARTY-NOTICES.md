@@ -50,3 +50,7 @@ on Linux/macOS next to the library in `<app data dir>/runtime/onnxruntime-1.24.4
 ## Microsoft Visual C++ Redistributable (Windows)
 
 - Limusic ships four Microsoft Visual C++ runtime DLLs in the Windows installer, in the `vcruntime` folder next to the app: vcruntime140.dll, vcruntime140_1.dll, msvcp140.dll and msvcp140_1.dll (under 1 MB in total, version 14.44 or newer), unmodified, copied from the Visual Studio redistributable folder that Microsoft's licence terms allow applications to redistribute. `onnxruntime.dll` needs them. They are only loaded when karaoke is turned on; the loader refuses a copy older than 14.44, and if the folder is missing it uses the system's copy instead (the Microsoft Visual C++ Redistributable 14.44 or newer), showing a message with Microsoft's download link when that is missing or older.
+
+## Casting (`mdns-sd`)
+
+- The [`mdns-sd`](https://github.com/keepsimple1/mdns-sd) crate (0.21.7, Apache-2.0 OR MIT) is used for finding Cast devices on the local network over mDNS.

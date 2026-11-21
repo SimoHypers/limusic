@@ -4,6 +4,7 @@ mod appicon;
 mod audioproxy;
 mod autopause;
 mod blocked;
+mod castout;
 mod cipher;
 mod commands;
 mod db;
@@ -18,6 +19,8 @@ mod inhibit;
 mod karaoke;
 mod karaoke_model;
 mod karaoke_runtime;
+#[cfg(not(target_os = "linux"))]
+mod keepawake;
 mod lastfm;
 mod limusic;
 mod listenbrainz;
@@ -1437,6 +1440,10 @@ pub fn run() {
             commands::seek,
             commands::playback_clock,
             commands::set_volume,
+            commands::cast_picker,
+            commands::cast_start,
+            commands::cast_stop,
+            commands::cast_state,
             commands::set_playback_params,
             commands::set_karaoke,
             commands::get_queue,
@@ -1681,6 +1688,9 @@ pub fn run() {
             if let tauri::RunEvent::Exit = &event {
                 if let Some(state) = handle.try_state::<Arc<AppState>>() {
                     state.flush_position();
+                    // A speaker left playing with nobody to stop it is the wrong kind of cast.
+                    // `stop` waits at most 2 s for the device.
+                    tauri::async_runtime::block_on(state.cast.stop());
                 }
                 mini::save_position(handle);
             }
@@ -1747,9 +1757,10 @@ fn spawn_event_pump(
     app: tauri::AppHandle,
     mut events: tokio::sync::mpsc::UnboundedReceiver<PlayerEvent>,
 ) {
+    let mut cast = state.cast.take_signals();
     tauri::async_runtime::spawn(async move {
         let mut throttle = PositionThrottle::new();
-        while let Some(ev) = events.recv().await {
+        while let Some(ev) = next_player_event(&state, &mut events, &mut cast).await {
             match ev {
                 PlayerEvent::Position(p) => {
                     // Quiet while the windows show another linked device's playback.
@@ -1839,6 +1850,29 @@ fn spawn_event_pump(
             }
         }
     });
+}
+
+/// The next player event for the pump. While a cast runs the device is the player: its events
+/// take mpv's place, and mpv's (stopped, or still playing out the handover) are dropped.
+async fn next_player_event(
+    state: &Arc<AppState>,
+    events: &mut tokio::sync::mpsc::UnboundedReceiver<PlayerEvent>,
+    cast: &mut Option<tokio::sync::mpsc::UnboundedReceiver<(u64, castout::Signal)>>,
+) -> Option<PlayerEvent> {
+    loop {
+        tokio::select! {
+            ev = events.recv() => match ev {
+                Some(ev) if !state.cast.is_active() => return Some(ev),
+                Some(_) => {}
+                None => return None,
+            },
+            Some((epoch, signal)) = async { cast.as_mut()?.recv().await } => {
+                if let Some(ev) = state.on_cast_signal(epoch, signal).await {
+                    return Some(ev);
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

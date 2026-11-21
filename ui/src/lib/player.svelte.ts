@@ -14,6 +14,7 @@ import type {
 } from './api';
 import { applyLtState, lt } from './lt.svelte';
 import { applyLinkState, link } from './link.svelte';
+import { applyCastDevices, applyCastState, cast, castMessage } from './cast.svelte';
 import { clearCached, invalidateCached, LIBRARY_SONGS_KEY } from './pagecache';
 import * as pl from './personal';
 import type { Personal } from './personal';
@@ -1163,7 +1164,8 @@ export function commitVolume(v: number) {
 	api.setVolume(v);
 	// Persisted here rather than in Rust's `set_volume`: a drag calls that once per frame and every
 	// settings write is an fsync. A commit is one per gesture, and it's the level to reopen at.
-	api.setSetting('volume', String(v)).catch(() => {});
+	// A speaker's level while casting is the speaker's own: this computer's stays as it was.
+	if (!cast.device) api.setSetting('volume', String(v)).catch(() => {});
 }
 
 /**
@@ -2143,7 +2145,10 @@ export function initApp(mini = false): () => void {
 		// Rust restores the shared clock before applying room playback, even with no UI open.
 		api.onLtState(applyLtState),
 		api.onLtNotice((msg) => toast(msg)),
-		api.onLinkState(applyLinkState)
+		api.onLinkState(applyLinkState),
+		api.onCastDevices(applyCastDevices),
+		api.onCastState(applyCastState),
+		api.onCastNotice((n) => toast(castMessage(n.key, n.name ?? '', n.title ?? '')))
 	];
 	const teardown = () => subs.forEach((u) => u.then((f) => f()));
 	api.getQueue()
@@ -2218,5 +2223,8 @@ export function initApp(mini = false): () => void {
 	// Seed the Listen Together state (server URL, any active room after a UI reload).
 	api.ltGetState().then(applyLtState).catch(() => {});
 	api.linkState().then(applyLinkState).catch(() => {});
+	// A window opened mid-cast missed the `cast-state` that started it. The devices are not asked
+	// for here: looking for them starts when the device picker opens.
+	api.castState().then(applyCastState).catch(() => {});
 	return teardown;
 }
