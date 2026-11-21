@@ -1732,5 +1732,20 @@
 		"bg_hint": "Arka planda söylenen sözcüklere tıklayın.",
 		"bg_word_hint": "Arka plan vokalleri açık veya kapalı",
 		"voice": "Ses - Süre"
+	},
+	"limusic": {
+		"account": "Hesabınız",
+		"how_title": "Şarkı sözü nasıl eklenir",
+		"how_open": "Bir şarkının sözlerini açın",
+		"how_open_hint": "Şarkı sözlerinin altındaki kaynağa tıklayın, ardından bu şarkı sözlerini senkronize edin.",
+		"open_editor": "Şarkı sözü düzenleyicisini aç",
+		"open_editor_hint": "Şu anda çalan şarkı için.",
+		"anonymous_title": "Anonim",
+		"anonymous_hint": "Şarkı sözleriniz isimsiz olarak gönderilir.",
+		"linked_hint": "Bağlı hesap",
+		"stat_points": "Puanlar",
+		"stat_lyrics": "Şarkı sözleriniz",
+		"stat_live": "Hemen yayınlanır",
+		"stat_reviewed": "Önce incelenir"
 	}
 }
