@@ -54,6 +54,10 @@ export const playback = $state({
  */
 export const np = $state({ open: false, tab: 'queue' as 'queue' | 'lyrics' | 'comments' });
 
+/** Which views are fully over the routed page: set once a view's fly or fade in is done, cleared
+ *  when its way out starts. While either holds, the layout takes the page out of rendering. */
+export const pageCover = $state({ player: false, theater: false });
+
 export const karaokeStatus = $state({
 	state: 'off' as 'off' | 'needs-model' | 'preparing' | 'ready' | 'error' | 'too-long',
 	progress: undefined as number | undefined,
