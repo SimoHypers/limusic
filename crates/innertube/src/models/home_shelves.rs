@@ -38,7 +38,6 @@ const BY_TITLE: &[(&str, &[&str])] = &[
             "다시 듣기",             // ko
             "Posłuchaj jeszcze raz", // pl
             "Ouvir de novo",         // pt-BR
-            "Ouvir novamente",       // pt-PT
             "Ascultă din nou",       // ro
             "Послушать ещё раз",     // ru
             "மீண்டும் கேளுங்கள்",         // ta
@@ -195,7 +194,6 @@ const BY_TITLE: &[(&str, &[&str])] = &[
         &[
             "Trending songs for you",          // en
             "Músicas em alta para você",       // pt-BR
-            "Tendências para ti",              // pt-PT
             "Melodii în tendințe pentru tine", // ro
         ],
     ),
@@ -205,7 +203,6 @@ const BY_TITLE: &[(&str, &[&str])] = &[
             "Featured playlists for you",      // en
             "나를 위한 추천 재생목록",         // ko
             "Playlists em destaque para você", // pt-BR
-            "Listas de reprodução em destaque para ti", // pt-PT
             "你的精選播放清單",                // zh-Hant
         ],
     ),
@@ -268,7 +265,6 @@ const BY_TITLE: &[(&str, &[&str])] = &[
             "오늘의 발견",                  // ko
             "Nowości na dziś",              // pl
             "Suas descobertas diárias",     // pt-BR
-            "As tuas descobertas diárias",  // pt-PT
             "Descoperirea ta zilnică",      // ro
             "Находки дня",                  // ru
             "தினசரிப் பரிந்துரைகள்",           // ta
@@ -312,7 +308,6 @@ mod tests {
         assert_eq!(kind("  quick PICKS ", None), Some("quick_picks"));
         assert_eq!(kind("Song mixes", None), Some("quick_picks"));
         assert_eq!(kind("Escolhas rápidas", None), Some("quick_picks"));
-        assert_eq!(kind("Ouvir novamente", None), Some("listen_again"));
         assert_eq!(kind("Gemeinsam anhören", None), Some("listen_together"));
         assert_eq!(kind("Indila", None), None);
     }
