@@ -163,6 +163,9 @@
 	/** A reviewer fixing a submission before approving it (Fix before approving, on the review
 	 *  page): its lines are the start, and sending is the approval. Only for the song it is about. */
 	const fixing = limusic.fixing && track && limusic.fixing.videoId === track.videoId ? $state.snapshot(limusic.fixing) : null;
+	/** What the reviewer tells the author about the fix, sent with the approval. */
+	let fixNote = $state('');
+	const NOTE_PRESETS = ['review.note_preset_timing', 'review.note_preset_bg', 'review.note_preset_spelling', 'review.note_preset_split'] as const;
 	/** Why a reviewer turned down my last version of this song, said once at the top. */
 	let rejection = $state<api.LimusicRejection | null>(null);
 
@@ -754,7 +757,7 @@
 		commitField();
 		submitting = true;
 		try {
-			await api.limusicReview(fixing.revision, fixing.videoId, 'approve', undefined, buildLines(lines));
+			await api.limusicReview(fixing.revision, fixing.videoId, 'approve', fixNote.trim() || undefined, buildLines(lines));
 			toast.success(t('review.approved_fixed'));
 			// Left while it was on its way: wherever the reviewer is now is not ours to move.
 			if (!alive) return;
@@ -1100,6 +1103,31 @@
 				title={fixing.author ? t('review.fixing_title', { handle: fixing.author }) : t('review.fixing_title_anonymous')}
 				body={t('review.fixing_body')}
 			/>
+			<!-- What the author reads about it, in Settings, without the reviewer's name. -->
+			<div class="mt-2 flex flex-col gap-2 rounded-xl border bg-card px-3.5 py-3">
+				<label class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+					<span class="text-sm font-semibold">{fixing.author ? t('review.note_for', { handle: fixing.author }) : t('review.note_for_anonymous')}</span>
+					<input
+						bind:value={fixNote}
+						maxlength="300"
+						placeholder={t('review.note_placeholder')}
+						class="min-w-48 flex-1 border-b border-border bg-transparent py-1 text-sm outline-none focus:border-primary"
+						onkeydown={(e) => (e.key === 'Enter' || e.key === 'Escape') && e.currentTarget.blur()}
+					/>
+				</label>
+				<div class="flex flex-wrap items-center gap-1.5">
+					{#each NOTE_PRESETS as key (key)}
+						<button
+							type="button"
+							class="h-7 cursor-pointer rounded-full border px-3 text-xs font-medium hover:bg-muted {fixNote === t(key) ? 'border-primary bg-primary/12' : ''}"
+							onclick={() => (fixNote = fixNote === t(key) ? '' : t(key))}
+						>
+							{t(key)}
+						</button>
+					{/each}
+				</div>
+				<p class="text-[12.5px] text-muted-foreground">{t('review.note_hint')}</p>
+			</div>
 		</div>
 	{:else if rejection && mode !== 'preview'}
 		<div class="px-6 pb-3">

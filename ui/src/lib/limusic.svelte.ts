@@ -1,7 +1,7 @@
 // Contributing to Limusic Lyrics from the app: whether the service offers accounts, who is signed
 // in, and the one function the lyric editor submits through. The Rust half is `limusic.rs`.
 import * as api from '$lib/api';
-import { toast } from '$lib/player.svelte';
+import { toast, ui } from '$lib/player.svelte';
 import { t, type TranslationKey } from '$lib/i18n.svelte';
 import { accountErrorKey, signInErrorKey } from './limusic';
 
@@ -28,8 +28,21 @@ export const limusic = $state({
 	 *  approving it. The editor clears it when it is left. */
 	fixing: null as { revision: number; videoId: string; author: string | null; lines: api.LyricLine[] } | null,
 	/** Where the review page was in its queue when it opened the editor: it opens that row again. */
-	reviewAt: null as number | null
+	reviewAt: null as number | null,
+	/** Reviewers' notes on my lyrics not read yet: a dot on the Contributing tab. */
+	unreadNotes: 0
 });
+
+/** The "a reviewer left you a note" toast, once per start. */
+let notesToasted = false;
+/** Bumped when the notes are marked read: an account answer asked for before that is stale. */
+let notesAck = 0;
+
+/** The notes list told the service they are read. */
+export function notesRead() {
+	notesAck++;
+	limusic.unreadNotes = 0;
+}
 
 function apply(s: api.LimusicAccountState) {
 	limusic.signedIn = s.signed_in;
@@ -38,6 +51,7 @@ function apply(s: api.LimusicAccountState) {
 	if (!s.signed_in) {
 		limusic.account = null;
 		limusic.waiting = null;
+		limusic.unreadNotes = 0;
 	}
 }
 
@@ -50,7 +64,13 @@ export function watchLimusic(): () => void {
 			limusic.available = p.anonymous;
 		})
 		.catch(() => {});
-	api.limusicStatus().then(apply).catch(() => {});
+	api.limusicStatus()
+		.then((s) => {
+			apply(s);
+			// For the notes: what reviewers said about my lyrics since the last start.
+			if (s.signed_in) refreshAccount();
+		})
+		.catch(() => {});
 	const sub = api.onLimusicAccount((s) => {
 		const waiting = limusic.signingIn !== null;
 		limusic.signingIn = null;
@@ -74,14 +94,27 @@ export async function refreshWaiting() {
 
 /** The account's score and role, fresh. A session the service has dropped signs out here. */
 export async function refreshAccount() {
+	const ack = notesAck;
 	try {
 		const a = await api.limusicMe();
 		if (a) {
 			limusic.account = a;
 			limusic.handle = a.handle;
 			limusic.anonymous = a.anonymous;
+			if (ack === notesAck) limusic.unreadNotes = a.unread_notes ?? 0;
 			if (a.can_review) refreshWaiting();
 			else limusic.waiting = null;
+			if (limusic.unreadNotes > 0 && !notesToasted) {
+				notesToasted = true;
+				const n = limusic.unreadNotes;
+				toast.info(n === 1 ? t('limusic.notes_toast_one') : t('limusic.notes_toast', { count: n }), {
+					label: t('limusic.notes_view'),
+					run: () => {
+						ui.settingsFocus = 'limusic';
+						ui.settingsOpen = true;
+					}
+				});
+			}
 		}
 	} catch {
 		// Unreachable: the stored name is shown as it is.

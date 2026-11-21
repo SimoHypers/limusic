@@ -1,7 +1,8 @@
 <script lang="ts">
-	// The lyrics team, for admins: who reviews Limusic Lyrics, who could, and bans. Staff first, then
-	// the contributors with points, best record first, so a reviewer is picked from their work. A
-	// change shows at once and goes back if the service refuses it.
+	// The lyrics team, for admins and review leads: who reviews Limusic Lyrics, how each one reviews,
+	// who could, and bans. Staff first, then the contributors with points, best record first, so a
+	// reviewer is picked from their work. A lead only makes and removes reviewers. A change shows at
+	// once and goes back if the service refuses it.
 	import { onMount } from 'svelte';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { ArrowLeft01Icon, LockIcon, MoreHorizontalIcon, Search01Icon, UserIcon } from '@hugeicons/core-free-icons';
@@ -14,6 +15,7 @@
 	import * as api from '$lib/api';
 	import { toast } from '$lib/player.svelte';
 	import { limusic, refreshAccount } from '$lib/limusic.svelte';
+	import { ago } from '$lib/review';
 	import { currentLocale, t, type TranslationKey } from '$lib/i18n.svelte';
 
 	type Member = api.LimusicMember;
@@ -55,7 +57,8 @@
 			loading = false;
 			return;
 		}
-		if (limusic.account?.role !== 'admin' || limusic.anonymous) {
+		const role = limusic.account?.role;
+		if ((role !== 'admin' && role !== 'lead') || limusic.anonymous) {
 			allowed = false;
 			loading = false;
 			return;
@@ -90,8 +93,13 @@
 	let menuFor = $state<string | null>(null);
 	let banning = $state<Member | null>(null);
 
-	const ROLES: Role[] = ['user', 'reviewer', 'admin'];
-	const roleLabel = (r: Role) => t(r === 'admin' ? 'team.role_admin' : r === 'reviewer' ? 'team.role_reviewer' : 'team.role_user');
+	/** A lead moves people between contributor and reviewer, nothing else: no bans, no other roles. */
+	const isAdmin = $derived(limusic.account?.role === 'admin');
+	const ROLES = $derived<Role[]>(isAdmin ? ['user', 'reviewer', 'lead', 'admin'] : ['user', 'reviewer']);
+	const canChange = (m: Member) => !m.you && (isAdmin || m.role === 'user' || m.role === 'reviewer');
+	const roleLabel = (r: Role) =>
+		t(r === 'admin' ? 'team.role_admin' : r === 'lead' ? 'team.role_lead' : r === 'reviewer' ? 'team.role_reviewer' : 'team.role_user');
+	const now = Math.floor(Date.now() / 1000);
 	const staff = $derived(q.trim() ? [] : members.filter((m) => m.role !== 'user'));
 	const others = $derived(q.trim() ? members : members.filter((m) => m.role === 'user'));
 	const joined = (secs: number) =>
@@ -125,17 +133,19 @@
 			>
 				{t('team.open_profile')}
 			</button>
-			<button
-				type="button"
-				class="flex w-full cursor-pointer items-center rounded-lg px-2.5 py-1.5 text-left text-sm hover:bg-muted {m.banned ? '' : 'text-destructive'}"
-				onclick={() => {
-					menuFor = null;
-					if (m.banned) change(m, { banned: false });
-					else banning = m;
-				}}
-			>
-				{m.banned ? t('team.unban') : t('team.ban')}
-			</button>
+			{#if isAdmin}
+				<button
+					type="button"
+					class="flex w-full cursor-pointer items-center rounded-lg px-2.5 py-1.5 text-left text-sm hover:bg-muted {m.banned ? '' : 'text-destructive'}"
+					onclick={() => {
+						menuFor = null;
+						if (m.banned) change(m, { banned: false });
+						else banning = m;
+					}}
+				>
+					{m.banned ? t('team.unban') : t('team.ban')}
+				</button>
+			{/if}
 		</Popover.Content>
 	</Popover.Root>
 {/snippet}
@@ -155,8 +165,9 @@
 				{t('team.stats', { score: m.score, approved: m.approved, rejected: m.rejected })} · {t('team.joined', { when: joined(m.joined_at) })}
 			</p>
 		</div>
-		{#if m.you}
+		{#if !canChange(m)}
 			<span class="px-3 text-[13px] font-semibold text-muted-foreground">{roleLabel(m.role)}</span>
+			{#if !m.you}{@render menu(m)}{/if}
 		{:else}
 			{#if picker}
 				<Select.Root type="single" value={m.role} onValueChange={(v) => v !== m.role && change(m, { role: v as Role })}>
@@ -174,6 +185,30 @@
 			{/if}
 			{@render menu(m)}
 		{/if}
+		{#if m.reviews && (m.role !== 'user' || m.reviews.total > 0)}
+			{@render reviewStats(m.reviews)}
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet stat(label: string, value: string | number, cls = '', title?: string)}
+	<div class="min-w-0" {title}>
+		<div class="truncate text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">{label}</div>
+		<div class="truncate text-[14px] font-semibold tabular-nums {cls}">{value}</div>
+	</div>
+{/snippet}
+
+{#snippet reviewStats(r: api.LimusicReviewStats)}
+	<!-- How this one reviews, from the service's review log. Under the name, the whole row wide. -->
+	<div class="flex w-full flex-wrap gap-x-7 gap-y-2 pl-[calc(2.25rem+0.875rem)]">
+		{@render stat(t('team.stat_reviewed'), r.total)}
+		{@render stat(t('team.stat_30_days'), r.last_30_days)}
+		{@render stat(t('team.stat_approved'), r.approved)}
+		{@render stat(t('team.stat_fixed'), r.fixed)}
+		{@render stat(t('team.stat_rejected'), r.rejected)}
+		{@render stat(t('team.stat_taken_down'), r.taken_down)}
+		{@render stat(t('team.stat_overturned'), r.overturned, r.overturned ? 'text-destructive' : '', t('team.stat_overturned_hint'))}
+		{@render stat(t('team.stat_last'), r.last_at ? ago(r.last_at, now, currentLocale.id) : t('team.stat_never'))}
 	</div>
 {/snippet}
 
@@ -184,7 +219,7 @@
 		</Button>
 		<div class="min-w-0 flex-1">
 			<h1 class="truncate font-heading text-2xl leading-tight font-bold tracking-tight">{t('team.title')}</h1>
-			<p class="truncate text-sm text-muted-foreground">{t('team.subtitle')}</p>
+			<p class="truncate text-sm text-muted-foreground">{isAdmin ? t('team.subtitle') : t('team.subtitle_lead')}</p>
 		</div>
 	</header>
 
