@@ -89,7 +89,8 @@
 		"remove_account_desc": "{name} é removida apenas desta lista. A conta do Google em si não é afetada, e você pode fazer login com ela novamente quando quiser.",
 		"saved_accounts_hint": "Selecione uma conta salva para alternar.",
 		"no_channels": "O YouTube não retornou nenhum canal selecionável.",
-		"stats": "Estatísticas"
+		"stats": "Estatísticas",
+		"discord": "Entre no Discord do Limusic"
 	},
 	"player": {
 		"play": "Tocar",
@@ -487,7 +488,9 @@
 			"theater_clock_format": "Formato do relógio",
 			"theater_clock_format_auto": "Automático",
 			"theater_clock_format_12": "12 horas",
-			"theater_clock_format_24": "24 horas"
+			"theater_clock_format_24": "24 horas",
+			"cover_lyric": "Letra da música abaixo da capa",
+			"cover_lyric_hint": "Exibe o trecho que está sendo cantado entre a capa e o título da música, para músicas com letras sincronizadas. Ao clicar no trecho exibido, a letra completa será aberta. Disponível apenas no novo layout."
 		},
 		"playback": {
 			"audio_quality": "Qualidade de áudio",
@@ -547,7 +550,21 @@
 			"auto_pause_other_audio_hint": "Pausa enquanto outro aplicativo, como uma aba do navegador ou um reprodutor de vídeo, reproduz mídia, e retoma quando ele para. Sons de notificação e jogos não contam."
 		},
 		"data": {
-			"clear_cache_button": "Limpar cache agora"
+			"clear_cache_button": "Limpar cache",
+			"used": "Espaço usado",
+			"used_hint": "Tudo o que o Limusic mantém neste computador.",
+			"library": "Biblioteca e configurações",
+			"library_hint": "Suas configurações, histórico de música, letras salvas e biblioteca de música local.",
+			"audio": "Cache de áudio",
+			"audio_hint": "Áudio armazenado durante a reprodução das músicas e links salvos para iniciá-las mais rapidamente. Limpar esse cache também pode resolver problemas com músicas que param de carregar.",
+			"karaoke": "Versões de karaokê",
+			"models": "Modelos de karaokê",
+			"models_hint": "Os modelos de remoção de vocais baixados e o mecanismo que os executa.",
+			"manage": "Gerenciar",
+			"web": "Imagens e cache da web",
+			"web_hint": "Capas de álbuns e outros arquivos carregados pela janela do aplicativo, armazenados pelo mecanismo web do seu sistema.",
+			"other": "Outros",
+			"other_hint": "Registros, capas de álbuns dos seus arquivos locais e pequenos arquivos necessários para o Limusic reproduzir músicas."
 		},
 		"about": {
 			"description": "Um player de música desktop bonito, rápido e leve feito com Tauri e Svelte.",
@@ -576,7 +593,10 @@
 			"kofi_button": "Abrir Ko-fi",
 			"rollback_available": "Esta versão está sendo revertida para a {version}, a última versão estável.",
 			"beta": "Versões beta",
-			"beta_hint": "Receba novas versões alguns dias antes de todos. Elas passam por menos testes. Desativar esta opção mantém a sua versão atual até que o próximo lançamento oficial a substitua."
+			"beta_hint": "Receba novas versões alguns dias antes de todos. Elas passam por menos testes. Desativar esta opção mantém a sua versão atual até que o próximo lançamento oficial a substitua.",
+			"discord": "Entre no Discord",
+			"discord_hint": "Receba ajuda, compartilhe ideias, fique por dentro de novas atualizações e betas antes de todo mundo.",
+			"discord_button": "Entrar no servidor"
 		},
 		"discord": {
 			"enable": "Rich Presence",
@@ -751,7 +771,9 @@
 			"lb_token_placeholder": "Token de usuário do ListenBrainz",
 			"lb_problem_email": "Verifique seu e-mail do MetaBrainz para que o ListenBrainz aceite suas reproduções.",
 			"lb_problem_rejected": "O ListenBrainz não aceita mais este token. Conecte-se novamente com um novo.",
-			"lb_verify_email": "Verificar e-mail"
+			"lb_verify_email": "Verificar e-mail",
+			"lb_custom_instance": "Instância personalizada do ListenBrainz",
+			"lb_url_label": "Endereço da API de instância"
 		},
 		"devices": {
 			"title": "Reproduza em qualquer lugar",
@@ -759,7 +781,7 @@
 			"intro": "Vincule o Limusic no seu celular: cada um mostra e controla o que o outro reproduz, e a música vai para o que você escolher.",
 			"link_phone": "Vincular um celular",
 			"link_another": "Vincular outro celular",
-			"step_open": "No seu celular, abra o Limusic: Configurações › Integrações › Dispositivos",
+			"step_open": "No seu celular, abra o Limusic: Configurações › Dispositivos",
 			"step_type": "Digite este código",
 			"custom_server": "Neste servidor, digite {invite}",
 			"expires_in": "Expira em {time}",
@@ -782,7 +804,15 @@
 			"more": "Mais",
 			"unlink": "Desvincular",
 			"unlink_title": "Desvincular {name}?",
-			"unlink_desc": "Ele não poderá mais controlar este computador. Você pode vinculá-lo novamente com um novo código."
+			"unlink_desc": "Ele não poderá mais controlar este computador. Você pode vinculá-lo novamente com um novo código.",
+			"unreachable": "Não foi possível acessar o servidor. Verifique sua conexão, VPN ou firewall e tente novamente."
+		},
+		"search": {
+			"placeholder": "Pesquisar configurações",
+			"hint": "Enter abre o primeiro resultado, Esc limpa a pesquisa.",
+			"empty": "Nenhuma configuração encontrada para “{query}”",
+			"empty_hint": "Experimente uma palavra mais curta ou uma palavra presente na descrição de uma configuração.",
+			"shown_when": "Aparece quando \"{setting}\" está ativado"
 		}
 	},
 	"dialogs": {
@@ -1349,7 +1379,7 @@
 		"from_spotify": "Do Spotify",
 		"update": "Atualizar",
 		"updating": "Atualizando…",
-		"update_tooltip": "Adicionar o que há de novo na playlist do Spotify e remover o que saiu dela",
+		"update_tooltip": "Adicionar o que há de novo na playlist do Spotify, remover o que saiu dela e manter a ordem das músicas",
 		"update_done": "Atualizado do Spotify: {added} adicionadas, {removed} removidas",
 		"update_none": "Já está atualizado com o Spotify",
 		"nudge_title": "Vindo do Spotify?",
@@ -1368,7 +1398,10 @@
 			"not_found": "Não foi possível encontrar isso no YouTube Music.",
 			"cooldown": "O YouTube Music pediu para o Limusic desacelerar, então as importações estão pausadas até às {time}. Tudo o que foi encontrado até agora está salvo."
 		},
-		"paste_link_hint": "Está só no YouTube como vídeo? Cole o link."
+		"paste_link_hint": "Está só no YouTube como vídeo? Cole o link.",
+		"keep_updated": "Mantenha-se atualizado com o Spotify",
+		"keep_updated_desc": "O Limusic verifica a playlist do Spotify ao iniciar e a cada poucas horas, ele adiciona, remove ou reordena as músicas para mantê-las sincronizadas com a playlist.",
+		"auto_update_done": "{name} atualizado do Spotify: {added} adicionado, {removed} removido"
 	},
 	"comments": {
 		"title": "Comentários",
@@ -1890,7 +1923,9 @@
 		"preset_timing": "A sincronia está incorreta",
 		"preset_words": "Algumas palavras estão erradas",
 		"preset_missing": "Faltam linhas",
-		"preset_wrong_song": "Esta letra é de outra música"
+		"preset_wrong_song": "Esta letra é de outra música",
+		"reviewing": "{name} está revisando",
+		"taken": "{name} está revisando esta letra. Ele foi aberto {when}."
 	},
 	"team": {
 		"title": "Equipe de letras",

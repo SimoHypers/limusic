@@ -488,7 +488,9 @@
 			"theater_clock_format_12": "12 horas",
 			"theater_clock_format_24": "24 horas",
 			"cover_lyric_romanized": "Letra romanizada bajo la carátula",
-			"cover_lyric_romanized_hint": "La línea de letra bajo la carátula muestra la romanización en lugar de la escritura original, en las canciones que la tienen. La pestaña de letras mantiene su propio interruptor Romanizada. Solo en el nuevo diseño."
+			"cover_lyric_romanized_hint": "La línea de letra bajo la carátula muestra la romanización en lugar de la escritura original, en las canciones que la tienen. La pestaña de letras mantiene su propio interruptor Romanizada. Solo en el nuevo diseño.",
+			"cover_lyric": "Linea de letras debajo de la carátula",
+			"cover_lyric_hint": "Muestra la linea cantada entre la carátula y el título de la canción, para canciones con letras sincronizadas. Cliquearla abre las letras. Solo en el nuevo diseño."
 		},
 		"playback": {
 			"audio_quality": "Calidad de audio",
@@ -802,7 +804,8 @@
 			"more": "Más",
 			"unlink": "Desenlazar",
 			"unlink_title": "¿Quieres desenlazar {name}?",
-			"unlink_desc": "Ya no puede controlar esta computadora. Puedes enlazarlo otra vez con un código nuevo."
+			"unlink_desc": "Ya no puede controlar esta computadora. Puedes enlazarlo otra vez con un código nuevo.",
+			"unreachable": "No se pudo conectar con el servidor. Revisa tu conexión, VPN o firewall e inténtalo de nuevo."
 		},
 		"search": {
 			"placeholder": "Busca configuraciones",

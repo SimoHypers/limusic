@@ -113,7 +113,8 @@
 		"saved_accounts_hint": "전환할 저장된 계정을 선택하세요.",
 		"history": "재생 기록",
 		"no_channels": "선택할 수 있는 YouTube 채널이 없습니다.",
-		"stats": "통계"
+		"stats": "통계",
+		"discord": "Limusic Discord 참여하기"
 	},
 	"player": {
 		"play": "재생",
@@ -520,7 +521,9 @@
 			"accent_theme": "테마 기본 강조 색상",
 			"accent_artwork_note": "곡이 재생되는 동안에는 앨범 커버에서 강조 색상을 추출합니다. 이 색상을 사용하려면 '앨범 아트에 맞춰 색상 조정' 옵션을 끄세요.",
 			"preview": "미리보기",
-			"preview_hint": "슬라이더나 색상 선택기를 드래그하는 동안 이곳에 미리보기가 표시되며, 마우스를 놓으면 앱 전체에 적용됩니다."
+			"preview_hint": "슬라이더나 색상 선택기를 드래그하는 동안 이곳에 미리보기가 표시되며, 마우스를 놓으면 앱 전체에 적용됩니다.",
+			"cover_lyric": "앨범 아트 아래에 가사 한 줄 표시",
+			"cover_lyric_hint": "싱크 가사가 있는 곡의 경우 앨범 아트와 곡 제목 사이에 현재 부르는 가사 줄을 표시합니다. 클릭하면 가사 창이 열립니다. 새 레이아웃에서만 지원됩니다."
 		},
 		"playback": {
 			"audio_quality": "오디오 음질",
@@ -623,7 +626,10 @@
 			"kofi_button": "Ko-fi 열기",
 			"rollback_available": "이 버전은 마지막으로 정상 작동이 확인된 {version} 버전으로 롤백(이전 버전 복구) 중입니다.",
 			"beta": "베타 버전",
-			"beta_hint": "정식 출시 전, 새로운 버전을 며칠 더 일찍 경험해 보세요. 다만 안정성 테스트가 완벽하지 않을 수 있습니다. 이 옵션을 끄면 다음 정식 버전이 나올 때까지 현재 버전이 유지됩니다."
+			"beta_hint": "정식 출시 전, 새로운 버전을 며칠 더 일찍 경험해 보세요. 다만 안정성 테스트가 완벽하지 않을 수 있습니다. 이 옵션을 끄면 다음 정식 버전이 나올 때까지 현재 버전이 유지됩니다.",
+			"discord": "Discord 참여하기",
+			"discord_hint": "도움을 받거나 아이디어를 공유하고, 새 버전과 베타 출시 소식을 가장 먼저 받아보세요.",
+			"discord_button": "Discord 열기"
 		},
 		"discord": {
 			"enable": "Discord 내 상태 표시 연동",
@@ -831,7 +837,15 @@
 			"more": "더보기",
 			"unlink": "연결 해제",
 			"unlink_title": "{name} 연결을 해제할까요?",
-			"unlink_desc": "해당 기기에서 더 이상 이 데스크톱을 제어할 수 없게 됩니다. 새 코드를 발급받아 언제든 다시 연결할 수 있습니다."
+			"unlink_desc": "해당 기기에서 더 이상 이 데스크톱을 제어할 수 없게 됩니다. 새 코드를 발급받아 언제든 다시 연결할 수 있습니다.",
+			"unreachable": "서버에 연결할 수 없습니다. 인터넷 연결, VPN 또는 방화벽 설정을 확인한 후 다시 시도해 주세요."
+		},
+		"search": {
+			"placeholder": "설정 검색",
+			"hint": "Enter 키를 누르면 첫 번째 검색 결과가 열리고, Esc 키를 누르면 검색어가 지워집니다.",
+			"empty": "\"{query}\"와(과) 일치하는 설정이 없습니다",
+			"empty_hint": "더 짧은 단어나 설정 설명에 포함된 단어로 검색해 보세요.",
+			"shown_when": "\"{setting}\" 옵션이 켜져 있을 때 표시됨"
 		}
 	},
 	"dialogs": {
@@ -889,8 +903,8 @@
 		"tempo_pitch": {
 			"title": "템포, 피치 & 리버브",
 			"desc": "설정을 원래대로 돌리거나 앱을 다시 시작하기 전까지 재생되는 모든 곡에 적용됩니다.",
-			"tempo": "템포 (속도)",
-			"pitch": "피치 (음높이)",
+			"tempo": "템포",
+			"pitch": "피치",
 			"presets": "프리셋",
 			"builtin": {
 				"original": "원본",
@@ -905,7 +919,54 @@
 				"nightcore": "빠르고 높은 톤에 은은한 울림 추가",
 				"practice": "원래 음정을 유지한 채 속도만 느리게 재생",
 				"hall": "마치 라이브 공연장에서 듣는 듯한 현장감"
-			}
+			},
+			"preset_save": "프리셋으로 저장",
+			"preset_save_hint": "현재 들리는 사운드를 나중에 다시 쓸 수 있도록 저장합니다",
+			"preset_save_none": "먼저 아래 설정을 변경하세요",
+			"preset_name": "프리셋 이름",
+			"preset_replace": "덮어쓰기",
+			"preset_delete": "{name} 삭제",
+			"preset_duplicate": "같은 이름의 프리셋이 이미 있습니다. 저장하면 기존 프리셋을 덮어씁니다.",
+			"preset_save_error": "프리셋을 저장하지 못했습니다. 다시 시도해 주세요. 기존에 저장된 프리셋은 변경되지 않았습니다.",
+			"preset_load_error": "저장된 프리셋을 불러올 수 없습니다. 기존 프리셋을 보호하기 위해 저장 기능이 비활성화되었습니다.",
+			"preset_room_hint": "'함께 듣기' 방에서는 프리셋의 음높이와 잔향만 적용됩니다. 저장된 템포는 혼자 들을 때를 위해 유지됩니다.",
+			"adjust": "세부 조절",
+			"normal": "기본값",
+			"pitch_short": "피치 {n}",
+			"slower": "느리게",
+			"faster": "빠르게",
+			"higher": "높게",
+			"lower": "낮게",
+			"song_length": "이 곡의 재생 시간은 {time}입니다",
+			"tempo_room_locked": "'함께 듣기' 방에서는 모든 참여자가 같은 구간을 동시에 들을 수 있도록 템포가 기본값으로 고정됩니다.",
+			"reverb": "잔향",
+			"reverb_hint": "실제 공간에서 울리는 듯한 입체감을 더합니다.",
+			"reverb_room": "공간 유형",
+			"reverb_types": {
+				"small_room": "작은 방",
+				"medium_room": "중간 방",
+				"large_room": "큰 방",
+				"medium_hall": "중간 홀",
+				"large_hall": "대형 홀",
+				"plate": "플레이트"
+			},
+			"reverb_amount": "강도",
+			"reverb_fine_tune": "잔향 세부 설정",
+			"reverb_controls": {
+				"dry": "원곡 음량",
+				"decay": "잔향 길이",
+				"preDelay": "프리 딜레이",
+				"damping": "음색 밝기",
+				"reflections": "초기 반사음"
+			},
+			"reverb_control_hints": {
+				"dry": "잔향 아래에서 들리는 원곡 자체의 음량을 조절합니다.",
+				"decay": "각 소리가 난 뒤 잔향이 얼마나 오래 남을지 조절합니다.",
+				"preDelay": "잔향이 시작되기 전의 짧은 간격입니다. 값을 높이면 더 넓은 공간처럼 들립니다.",
+				"damping": "값을 낮추면 잔향의 톤이 어두워집니다. 원곡 자체의 소리에는 영향을 주지 않습니다.",
+				"reflections": "벽면에서 반사되어 돌아오는 첫 번째 메아리 소리의 크기를 조절합니다."
+			},
+			"reset_all": "모두 초기화"
 		},
 		"link": {
 			"title": "링크 열기",
@@ -984,7 +1045,9 @@
 		"lastfm_connecting": "Last.fm에 연결 중 — 클릭하여 취소",
 		"lastfm_scrobble_to": "Last.fm에 감상 기록 연동",
 		"disconnect": "연결 끊기",
-		"lastfm_settings": "감상 기록 연동 설정"
+		"lastfm_settings": "감상 기록 연동 설정",
+		"listenbrainz_connected_as": "{user} 계정으로 감상 기록 전송 중",
+		"listenbrainz_disconnected": "ListenBrainz 연결 끊김"
 	},
 	"a11y": {
 		"close": "닫기",
@@ -1028,7 +1091,9 @@
 		"collapse_sidebar": "사이드바 접기",
 		"show_artwork": "아트워크 표시",
 		"show_video": "비디오 표시",
-		"zoom": "화면 배율"
+		"zoom": "화면 배율",
+		"close_comments": "댓글 닫기",
+		"share_start_time": "시작 시간"
 	},
 	"lyrics": {
 		"title": "가사",
@@ -1078,7 +1143,8 @@
 			"netease": "방대한 중국어 카탈로그입니다. 많은 곡에 중국어 번역 가사를 추가로 제공합니다.",
 			"qq": "중국어 카탈로그입니다. 만도팝과 칸토팝 음악이 풍부합니다.",
 			"kugou": "중국어 카탈로그입니다. 희귀한 곡을 찾을 때 좋습니다.",
-			"limusic": "Limusic 자체 가사로, 항상 단어 단위 싱크가 제공되며 현재 재생 중인 영상과 정확히 동기화됩니다."
+			"limusic": "Limusic 자체 가사로, 항상 단어 단위 싱크가 제공되며 현재 재생 중인 영상과 정확히 동기화됩니다.",
+			"unison": "Better Lyrics 커뮤니티에서 제작한 가사입니다. 대부분 단어별 싱크가 지원되며 현재 동영상에 정확히 맞춰져 있습니다."
 		},
 		"via": "제공: {source}",
 		"synced_by": "싱크 제작: {names}",
@@ -1105,7 +1171,12 @@
 		"improve": "이 가사 수정하기",
 		"improve_hint": "잘못된 가사나 맞지 않는 싱크를 수정합니다.",
 		"draft": "작성 중인 초안 이어하기",
-		"draft_hint": "전체 {total}줄 중 {done}줄 싱크 완료."
+		"draft_hint": "전체 {total}줄 중 {done}줄 싱크 완료.",
+		"unison_rate": "Unison에서 이 가사 평가하기",
+		"text_size": "글자 크기",
+		"text_size_hint": "가사 글자 크기를 크게 또는 작게 조절합니다",
+		"text_size_larger": "글자 크게",
+		"text_size_smaller": "글자 작게"
 	},
 	"queue": {
 		"title": "대기열"
@@ -1433,7 +1504,84 @@
 		"lyrics_hint": "가사입니다. 노래방 기능이 켜져 있으며, 전환 스위치는 가사 화면 맨 아래에 있습니다."
 	},
 	"lyrics_editor": {
-		"step_text": "가사 입력"
+		"step_text": "가사 입력",
+		"step_timing": "싱크 조절",
+		"step_send": "제출",
+		"progress": "{total}줄 중 {done}줄 완료",
+		"no_song": "먼저 곡을 재생하세요",
+		"no_song_hint": "그런 다음 해당 곡의 가사에서 편집기를 여세요. 기기 음악과 실시간 스트리밍은 가사를 등록할 수 없습니다.",
+		"start_title": "이 곡에 단어별 가사 입히기",
+		"start_lead": "가사 텍스트에서 시작해 곡을 재생하면서 각 단어가 불릴 때마다 키를 누르세요. 이후 이 곡을 재생하는 모든 사용자에게 작업한 가사가 표시됩니다.",
+		"how_text": "텍스트 선택",
+		"how_text_hint": "검색된 가사, 붙여넣기 또는 파일 불러오기",
+		"how_tap": "단어별 탭하기",
+		"how_tap_hint": "한 줄씩 반복 재생하며 입력",
+		"how_send": "제출하기",
+		"how_send_hint": "계정 로그인 불필요",
+		"start_current": "{source} 제공 가사",
+		"start_current_words": "총 {count}줄이며 이미 단어별 싱크가 적용되어 있습니다. 어긋난 부분만 수정하세요.",
+		"start_current_synced": "총 {count}줄이며 이미 줄 단위 싱크가 적용되어 있습니다. 단어별 타이밍만 입력하면 됩니다.",
+		"start_current_plain": "총 {count}줄의 일반 텍스트입니다. 각 줄의 시작 시점을 먼저 입력한 뒤 단어별 타이밍을 입력하세요.",
+		"start_use": "이 가사로 시작하기",
+		"start_sources": "다른 출처",
+		"start_sources_hint": "각 출처에서 제공하는 이 곡의 가사 목록입니다. 실제 노래와 가장 일치하는 가사를 선택해 시작하세요.",
+		"start_lines": "{count}줄",
+		"start_none": "이 곡의 가사를 제공하는 출처가 없습니다",
+		"start_none_hint": "가사 텍스트를 직접 붙여넣거나 파일을 여세요.",
+		"start_paste": "텍스트 붙여넣기",
+		"start_paste_hint": "한 줄에 가사 한 줄씩 입력하세요. LRC 또는 TTML 형식을 붙여넣으면 기존 싱크 정보가 그대로 유지됩니다.",
+		"start_paste_placeholder": "여기에 가사를 붙여넣으세요",
+		"start_paste_go": "이 텍스트로 시작하기",
+		"start_file": "파일 열기",
+		"start_file_hint": "TTML, LRC 또는 확장 LRC 형식을 지원합니다.",
+		"start_file_go": "파일 선택",
+		"start_failed": "해당 파일에서 가사를 읽어올 수 없습니다.",
+		"too_large": "가사 파일로 사용하기에는 용량이 너무 큽니다.",
+		"preview": "미리보기",
+		"edit": "편집으로 돌아가기",
+		"preview_note": "• 다른 사용자에게 실제 재생 속도로 표시되는 모습입니다. 아직 싱크를 맞추지 않은 줄은 제외됩니다.",
+		"more": "더 보기",
+		"discard": "임시 저장 삭제",
+		"discard_title": "이 임시 저장본을 삭제할까요?",
+		"discard_body": "이 기기에서 작업한 해당 곡의 모든 싱크 데이터가 삭제되며, 이 작업은 되돌릴 수 없습니다.",
+		"restored_title": "이어서 작업하기",
+		"restored_body": "• 총 {total}줄 중 {done}줄의 싱크가 완료되었습니다. 임시 저장본은 이 기기에 보관됩니다.",
+		"restored_ok": "확인",
+		"start_over": "처음부터 다시 시작",
+		"save_failed_title": "임시 저장본이 저장되지 않고 있습니다",
+		"save_failed": "이 기기에서 데이터를 저장할 수 없습니다. 지금부터 작업하는 싱크 내용은 페이지를 벗어나면 사라집니다.",
+		"blocked_room_title": "'함께 듣기' 방에서는 싱크 작업이 일시 중지됩니다",
+		"blocked_room": "• 편집기는 구간 반복과 속도 조절 기능을 사용하므로 '함께 듣기' 방과 동시에 이용할 수 없습니다. 계속 작업하려면 방에서 나가세요. 임시 저장본은 안전하게 보관됩니다.",
+		"blocked_remote_title": "재생 막대가 다른 기기를 제어하고 있습니다",
+		"blocked_remote": "계속 작업하려면 재생 기기를 이 컴퓨터로 다시 전환하세요. 임시 저장본은 안전하게 보관됩니다.",
+		"other_song_title": "{title} 곡이 더 이상 재생되고 있지 않습니다",
+		"other_song": "임시 저장본은 안전하게 보관됩니다.",
+		"other_song_play": "다시 재생하기",
+		"line_of": "총 {total}줄 중 {n}번째 줄",
+		"prev_line": "이전 줄",
+		"next_line": "다음 줄",
+		"line_timed": "싱크 완료",
+		"edit_text": "텍스트 수정",
+		"singer": "가창자",
+		"singer_none": "지정 안 함",
+		"singer_n": "가창자 {n}",
+		"singer_all": "모두",
+		"bg": "코러스",
+		"bg_long": "코러스 보컬",
+		"bg_hint": "코러스 보컬로 불리는 단어를 클릭하세요.",
+		"bg_word_hint": "코러스 보컬 표시 켜기 또는 끄기",
+		"voice": "싱크를 맞출 파트",
+		"voice_lead": "주 보컬",
+		"voice_hint": "주 보컬과 코러스 보컬은 싱크를 따로 맞추기 때문에 서로 겹칠 수 있습니다. V 키를 누르면 전환됩니다.",
+		"word_seek_hint": "이 단어부터 재생",
+		"line_more": "이 줄에 대한 추가 옵션",
+		"speed": "재생 속도",
+		"loop": "이 줄 반복 재생",
+		"loop_hint": "다른 줄로 이동할 때까지 이 줄을 계속 반복합니다",
+		"tap_offset": "탭 오프셋",
+		"tap_offset_hint": "모든 탭 입력 시간에 밀리초(ms) 단위로 더해집니다. 탭이 실제보다 늦게 입력되는 경우 음수를 입력하세요.",
+		"ms_unit": "ms",
+		"ms": "{value} ms"
 	},
 	"stats": {
 		"title": "감상 통계",

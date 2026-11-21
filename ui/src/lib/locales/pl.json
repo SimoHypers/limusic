@@ -113,7 +113,8 @@
 		"saved_accounts_hint": "Wybierz zapisane konto, aby na nie przełączyć.",
 		"history": "Historia",
 		"no_channels": "YouTube nie zwrócił żadnych kanałów do wyboru.",
-		"stats": "Statystyki"
+		"stats": "Statystyki",
+		"discord": "Dołącz do serwera Discord Limusic"
 	},
 	"player": {
 		"play": "Odtwórz",
@@ -246,7 +247,8 @@
 			"new_releases": "Nowe wydania",
 			"mixed_for_you": "Wymieszane dla Ciebie",
 			"daily_discover": "Twoje codzienne odkrycia",
-			"music_videos": "Teledyski dla Ciebie"
+			"music_videos": "Teledyski dla Ciebie",
+			"listen_together": "Słuchaj razem"
 		},
 		"live_now": "Teraz na żywo"
 	},
@@ -517,7 +519,9 @@
 			"theater_clock_format": "Format zegara",
 			"theater_clock_format_auto": "Automatyczny",
 			"theater_clock_format_12": "12-godzinny",
-			"theater_clock_format_24": "24-godzinny"
+			"theater_clock_format_24": "24-godzinny",
+			"cover_lyric_romanized": "Zromanizowany tekst piosenki pod grafiką",
+			"cover_lyric_romanized_hint": "Linijka tekstu piosenki pod grafiką wyświetla transkrypcję fonetyczną (romanizację) zamiast oryginalnego zapisu, jeśli dany utwór go posiada. Karta tekstu piosenki zachowuje własny przełącznik romanizacji. Dotyczy wyłącznie nowego układu."
 		},
 		"playback": {
 			"audio_quality": "Jakość dźwięku",
@@ -572,10 +576,26 @@
 			"videos_first": "Odtwarzaj najpierw wideo",
 			"videos_first_hint": "Utwory z albumów i playlist, które mają teledysk, zaczynają się od wideo. Wyłącz, aby zaczynać od utworu. Przełącznik Utwór/Wideo w widoku odtwarzacza i tak przełącza między nimi.",
 			"lyrics_prefer_words": "Preferuj teksty słowo po słowie",
-			"lyrics_prefer_words_hint": "Teksty słowo po słowie z dowolnego źródła biją teksty linia po linii ze źródła powyżej. Przy pierwszym odtworzeniu utworu jego tekst może pojawić się kilka sekund później."
+			"lyrics_prefer_words_hint": "Teksty słowo po słowie z dowolnego źródła biją teksty linia po linii ze źródła powyżej. Przy pierwszym odtworzeniu utworu jego tekst może pojawić się kilka sekund później.",
+			"auto_pause_other_audio": "Pauzuje, gdy inne aplikacje odtwarzają multimedia",
+			"auto_pause_other_audio_hint": "Pauzuje muzykę gdy inna aplikacja, tak jak karta w przeglądarce lub odtwarzacz wideo zaczyna odtwarzać multimedia, oraz wznawia ją gdy przestaje. Nie liczą się gry oraz dźwięki powiadomień."
 		},
 		"data": {
-			"clear_cache_button": "Wyczyść pamięć podręczną teraz"
+			"clear_cache_button": "Wyczyść pamięć podręczną",
+			"used": "Użyte miejsce",
+			"used_hint": "Wszystko co Limusic trzyma na tym komputerze",
+			"library": "Biblioteka oraz ustawienia",
+			"library_hint": "Twoje ustawienia, historia odtwarzania, zapisane napisy oraz lokalna biblioteka muzyki.",
+			"audio": "Pamięć podręczną dźwięku",
+			"audio_hint": "Dźwięk przetrzymany gdy grają piosenki, oraz zapisane odnośniki aby zaczynać je szybciej. Czyszczenie tego może naprawić piosenki które się nie ładują.",
+			"karaoke": "Wersje karaoke",
+			"models": "Modele karaoke",
+			"models_hint": "Modele wokalne SI które pobrałeś/aś, oraz silnik w których funkcjonują.",
+			"manage": "Zarządzaj",
+			"web": "Zdjęcia oraz pamięć podręczną sieci",
+			"web_hint": "Zdjęcia okładek oraz inne pliki okno aplikacji otworzyło, trzymane przez silnik przeglądarki twojego systemu.",
+			"other": "Inne",
+			"other_hint": "Logi, okładki z twoich plików lokalnych, oraz małe pliki które Limusic potrzebuje aby odtwarzać piosenki."
 		},
 		"about": {
 			"description": "Piękny, szybki i lekki odtwarzacz muzyki na komputer, oparty na Tauri i Svelte.",
@@ -604,7 +624,10 @@
 			"kofi_button": "Otwórz Ko-fi",
 			"rollback_available": "Ta wersja jest wycofywana do {version}, ostatniego sprawdzonego wydania.",
 			"beta": "Wersje beta",
-			"beta_hint": "Otrzymuj nowe wersje kilka dni wcześniej, przed wszystkimi innymi. Są mniej przetestowane. Wyłączenie tego zachowuje Twoją wersję, dopóki nie wyprzedzi jej kolejne zwykłe wydanie."
+			"beta_hint": "Otrzymuj nowe wersje kilka dni wcześniej, przed wszystkimi innymi. Są mniej przetestowane. Wyłączenie tego zachowuje Twoją wersję, dopóki nie wyprzedzi jej kolejne zwykłe wydanie.",
+			"discord": "Dołącz do Discorda",
+			"discord_hint": "Dostań pomoc, podziel się pomysłami, oraz dowiedz się o nowych wersjach oraz wersjach beta jako pierwszy.",
+			"discord_button": "Otwórz Discord"
 		},
 		"discord": {
 			"enable": "Rich Presence",
@@ -779,7 +802,9 @@
 			"lb_token_placeholder": "Token użytkownika ListenBrainz",
 			"lb_problem_email": "Zweryfikuj swój e-mail MetaBrainz, aby ListenBrainz przyjmował Twoje odsłuchy.",
 			"lb_problem_rejected": "ListenBrainz nie akceptuje już tego tokenu. Połącz się ponownie z nowym.",
-			"lb_verify_email": "Zweryfikuj e-mail"
+			"lb_verify_email": "Zweryfikuj e-mail",
+			"lb_custom_instance": "Własna instancja ListenBrainz",
+			"lb_url_label": "Adres API instancji"
 		},
 		"devices": {
 			"title": "Odtwarzaj wszędzie",
@@ -787,7 +812,7 @@
 			"intro": "Połącz Limusic na telefonie: każde urządzenie pokazuje i kontroluje to, co gra drugie, a muzyka przenosi się do tego, które wybierzesz.",
 			"link_phone": "Połącz telefon",
 			"link_another": "Połącz kolejny telefon",
-			"step_open": "Na telefonie otwórz Limusic: Ustawienia › Integracje › Urządzenia",
+			"step_open": "Na telefonie otwórz Limusic: Ustawienia › Urządzenia",
 			"step_type": "Wpisz ten kod",
 			"custom_server": "Na tym serwerze wpisz {invite}",
 			"expires_in": "Wygasa za {time}",
@@ -811,6 +836,13 @@
 			"unlink": "Odłącz",
 			"unlink_title": "Odłączyć {name}?",
 			"unlink_desc": "Nie będzie już mogło sterować tym komputerem. Możesz je połączyć ponownie nowym kodem."
+		},
+		"search": {
+			"placeholder": "Szukaj w ustawieniach",
+			"hint": "Enter otwiera pierwszy wynik, a Esc czyści pole wyszukiwania.",
+			"empty": "Nie istnieje ustawienie \"{query}\"",
+			"empty_hint": "Spróbuj krótsze słowo, albo słowo z opisu ustawienia.",
+			"shown_when": "Jest pokazany, kiedy \"{setting}\" jest włączony"
 		}
 	},
 	"dialogs": {
@@ -862,7 +894,8 @@
 			"zoom_out": "Pomniejsz",
 			"reset_zoom": "Resetuj powiększenie",
 			"show_this_list": "Pokaż tę listę",
-			"quit_app": "Zamknij Limusic"
+			"quit_app": "Zamknij Limusic",
+			"like_song": "Polub albo cofnij polubienie piosenki"
 		},
 		"tempo_pitch": {
 			"title": "Tempo, wysokość i pogłos",
@@ -1139,7 +1172,8 @@
 		"improve": "Popraw ten tekst",
 		"improve_hint": "Popraw słowo lub synchronizację, która jest nieprawidłowa.",
 		"draft": "Kontynuuj swój szkic",
-		"draft_hint": "{done} z {total} linii zsynchronizowanych."
+		"draft_hint": "{done} z {total} linii zsynchronizowanych.",
+		"via": "Źródło: {source}"
 	},
 	"queue": {
 		"title": "Kolejka"
@@ -1756,7 +1790,13 @@
 		"err_rate_limited_title": "To dużo na jedną godzinę",
 		"err_rate_limited": "Spróbuj później. Twój szkic jest zapisany.",
 		"err_unavailable_title": "Nie można było połączyć się z Limusic Lyrics",
-		"err_unavailable": "Twój szkic jest zapisany. Spróbuj ponownie za chwilę."
+		"err_unavailable": "Twój szkic jest zapisany. Spróbuj ponownie za chwilę.",
+		"start_sources": "Inne źródła",
+		"start_sources_hint": "Co każde źródło ma dla tej piosenki. Zacznij od tego, które jest najbliższe do tego co jest śpiewane.",
+		"start_lines": "{count} linii",
+		"voice": "Głos do czasu",
+		"voice_lead": "",
+		"say_bg_words": "Teraz wokale w tle. Klikaj kiedy każde słowo się zaczyna."
 	},
 	"limusic": {
 		"none_title": "Konto nie jest potrzebne",
