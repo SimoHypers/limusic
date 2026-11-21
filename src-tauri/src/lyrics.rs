@@ -200,6 +200,11 @@ pub struct Lyrics {
     /// the footer says Limusic alone. `None` from every other source.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub via: Option<String>,
+    /// The video id Limusic files this lyric under: the song's own, or another upload of the same
+    /// song (YouTube Music has one per album, single, compilation). Votes, reports and edits go
+    /// there (`filed_id`). `None` from every other source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limusic_id: Option<String>,
 }
 
 pub struct LyricsRequest {
@@ -273,13 +278,21 @@ pub struct EditorStart {
 /// background vocals were kept lacks them) and its revision; otherwise the same lyrics the panel
 /// shows (cached, or down the provider list).
 pub async fn editor_start(state: &AppState, req: LyricsRequest) -> EditorStart {
-    let live = crate::limusic::live(&req.video_id).await;
-    let base_revision = live.as_ref().map(|l| l.revision);
-    let lyrics = match live.and_then(|l| l.lyrics) {
-        Some(l) => Some(l),
-        None => cached_or_fetched(state, req).await,
-    };
-    EditorStart { lyrics: lyrics.filter(|l| !l.instrumental), base_revision }
+    let id = req.video_id.clone();
+    let mut live = crate::limusic::live(&filed_id(state, &id)).await;
+    let mut lyrics = live.as_mut().and_then(|l| l.lyrics.take());
+    if lyrics.is_none() {
+        lyrics = cached_or_fetched(state, req).await;
+        // That walk can find the lyric on another upload of the song: an edit is to that one.
+        if live.is_none() && filed_id(state, &id) != id {
+            live = crate::limusic::live(&filed_id(state, &id)).await;
+            lyrics = live.as_mut().and_then(|l| l.lyrics.take()).or(lyrics);
+        }
+    }
+    EditorStart {
+        lyrics: lyrics.filter(|l| !l.instrumental),
+        base_revision: live.map(|l| l.revision),
+    }
 }
 
 /// One provider's lyrics for the lyric editor's source chooser: the source picker's preview minus
@@ -386,10 +399,16 @@ fn refresh_stale(state: &AppState, req: &LyricsRequest, cached: &Lyrics, age_sec
     // on its own, and the second one must find nothing due. It also makes this one request per
     // song per day at most, whatever the answer.
     state.db.touch_lyrics(&req.video_id, now_secs());
+    // Limusic's own lyric is asked about where it is filed, which needs no name; anything else
+    // asks whether Limusic has the song now, under this id or another upload of it.
+    let (ask_id, name) = match (kind, &cached.limusic_id) {
+        (Recheck::Revision, Some(filed)) => (filed.clone(), Vec::new()),
+        _ => (req.video_id.clone(), limusic_name(req)),
+    };
     let (app, id, old) = (state.app.clone(), req.video_id.clone(), cached.clone());
     tauri::async_runtime::spawn(async move {
         let known = old.revision.filter(|_| kind == Recheck::Revision);
-        let answer = limusic_fetch(&id, known).await.map_err(|e| e.to_string());
+        let answer = limusic_fetch(&ask_id, &name, known).await.map_err(|e| e.to_string());
         if let Err(e) = &answer {
             tracing::debug!(error = %e, "lyrics: Limusic recheck failed");
         }
@@ -1077,6 +1096,9 @@ pub(crate) struct LimusicAnswer {
     #[serde(default)]
     pub authors: Vec<String>,
     pub lines: Vec<LyricLine>,
+    /// The id the lyric is filed under, which is another upload's when the song's own had none.
+    #[serde(default)]
+    pub video_id: String,
 }
 
 /// What Limusic says about a song.
@@ -1096,12 +1118,39 @@ fn limusic_has_ids_like(id: &str) -> bool {
         && !crate::local::is_local_song(id)
 }
 
-/// By video id only: a typed search or a local file has none that the server knows.
+/// The song's name, which lets Limusic answer with another upload's lyric when this id has none:
+/// title, artist and length, or nothing while the length is unknown (it could be any version).
+/// The length is whole seconds, so every listener's request is the same edge-cached URL.
+fn limusic_name(req: &LyricsRequest) -> Vec<(&'static str, String)> {
+    match req.duration.filter(|d| d.is_finite() && *d > 0.0) {
+        Some(d) => vec![
+            ("title", req.title.trim().to_owned()),
+            ("artist", req.artists.trim().to_owned()),
+            ("duration", d.round().to_string()),
+        ],
+        None => Vec::new(),
+    }
+}
+
+/// The id Limusic files the song's lyric under (`Lyrics::limusic_id`), from the cached lyric, or the
+/// song's own. What votes, reports and the editor send, so they reach the lyric on screen.
+pub(crate) fn filed_id(state: &AppState, video_id: &str) -> String {
+    state
+        .db
+        .get_lyrics(video_id, now_secs(), MISS_TTL_SECS)
+        .flatten()
+        .and_then(|json| serde_json::from_str::<Lyrics>(&json).ok())
+        .and_then(|l| l.limusic_id)
+        .unwrap_or_else(|| video_id.to_owned())
+}
+
+/// By video id, falling back to the song's name: a typed search or a local file has neither that
+/// the server knows.
 async fn limusic_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Error> {
     if req.searched || !limusic_has_ids_like(&req.video_id) {
         return Ok(None);
     }
-    Ok(match limusic_fetch(&req.video_id, None).await? {
+    Ok(match limusic_fetch(&req.video_id, &limusic_name(req), None).await? {
         Fresh::New(l) => Some(l),
         Fresh::Same | Fresh::Gone => None,
     })
@@ -1109,9 +1158,14 @@ async fn limusic_get(req: &LyricsRequest) -> Result<Option<Lyrics>, reqwest::Err
 
 /// The song's lyric, or with `known` (the revision the cache holds) only whether it moved: the
 /// revision is the answer's ETag, so an unchanged lyric costs a 304 off Cloudflare's edge.
-async fn limusic_fetch(id: &str, known: Option<i64>) -> Result<Fresh, reqwest::Error> {
+async fn limusic_fetch(
+    id: &str,
+    name: &[(&str, String)],
+    known: Option<i64>,
+) -> Result<Fresh, reqwest::Error> {
     let mut rb = crate::http::client()
         .get(format!("{}/v1/lyrics/{id}", limusic_root().trim_end_matches('/')))
+        .query(name)
         .header("User-Agent", LRCLIB_UA)
         .timeout(LIMUSIC_TIMEOUT);
     if let Some(revision) = known {
@@ -1122,8 +1176,14 @@ async fn limusic_fetch(id: &str, known: Option<i64>) -> Result<Fresh, reqwest::E
         reqwest::StatusCode::NOT_FOUND => Ok(Fresh::Gone),
         reqwest::StatusCode::NOT_MODIFIED => Ok(Fresh::Same),
         _ => {
-            let answer: LimusicAnswer = resp.error_for_status()?.json().await?;
-            Ok(limusic_to_lyrics(answer).map_or(Fresh::Gone, Fresh::New))
+            let mut answer: LimusicAnswer = resp.error_for_status()?.json().await?;
+            // A server from before the fallback doesn't name it: then it is the id asked.
+            let filed = match std::mem::take(&mut answer.video_id) {
+                v if v.is_empty() => id.to_owned(),
+                v => v,
+            };
+            let lyrics = limusic_to_lyrics(answer).map(|l| Lyrics { limusic_id: Some(filed), ..l });
+            Ok(lyrics.map_or(Fresh::Gone, Fresh::New))
         }
     }
 }
@@ -2529,18 +2589,37 @@ mod tests {
     async fn local_service_recheck() {
         let admin = std::env::var("LIMUSIC_TEST_ADMIN").unwrap();
         let published = crate::limusic::publish_for_test(&admin, "DDDDDDDDDDD").await;
-        let Fresh::New(l) = limusic_fetch("DDDDDDDDDDD", None).await.unwrap() else {
+        let Fresh::New(l) = limusic_fetch("DDDDDDDDDDD", &[], None).await.unwrap() else {
             panic!("the song has a lyric");
         };
         let revision = l.revision.expect("the answer names its revision");
         assert_eq!(revision, published);
-        assert!(matches!(limusic_fetch("DDDDDDDDDDD", Some(revision)).await, Ok(Fresh::Same)));
+        assert_eq!(l.limusic_id.as_deref(), Some("DDDDDDDDDDD"));
+        // Another upload of the song, which has no lyric of its own: found by name, and the
+        // answer says where the lyric is filed. No length, no name: it could be any version.
+        let name = |d: &str| {
+            [
+                ("title", "a test song".into()),
+                ("artist", "A test artist".into()),
+                ("duration", d.into()),
+            ]
+        };
+        let Ok(Fresh::New(twin)) = limusic_fetch("TTTTTTTTTTT", &name("201"), None).await else {
+            panic!("another upload of the song has its lyric");
+        };
+        assert_eq!(
+            (twin.limusic_id.as_deref(), twin.revision),
+            (Some("DDDDDDDDDDD"), Some(revision))
+        );
+        assert!(matches!(limusic_fetch("TTTTTTTTTTT", &name("205"), None).await, Ok(Fresh::Gone)));
+        assert!(matches!(limusic_fetch("TTTTTTTTTTT", &[], None).await, Ok(Fresh::Gone)));
+        assert!(matches!(limusic_fetch("DDDDDDDDDDD", &[], Some(revision)).await, Ok(Fresh::Same)));
         assert!(matches!(
-            limusic_fetch("DDDDDDDDDDD", Some(revision - 1)).await,
+            limusic_fetch("DDDDDDDDDDD", &[], Some(revision - 1)).await,
             Ok(Fresh::New(_))
         ));
-        assert!(matches!(limusic_fetch("ZZZZZZZZZZZ", None).await, Ok(Fresh::Gone)));
-        assert!(matches!(limusic_fetch("ZZZZZZZZZZZ", Some(1)).await, Ok(Fresh::Gone)));
+        assert!(matches!(limusic_fetch("ZZZZZZZZZZZ", &[], None).await, Ok(Fresh::Gone)));
+        assert!(matches!(limusic_fetch("ZZZZZZZZZZZ", &[], Some(1)).await, Ok(Fresh::Gone)));
     }
 
     #[test]

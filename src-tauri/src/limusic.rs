@@ -511,7 +511,7 @@ async fn post_revision(token: &str, s: &Submission) -> Submitted {
     outcome(send(rb, Some(token)).await)
 }
 
-pub async fn submit(state: &AppState, s: Submission) -> Submitted {
+pub async fn submit(state: &AppState, mut s: Submission) -> Submitted {
     // The id goes into a path that carries the bearer token.
     if !plausible_id(&s.video_id) {
         return failed("invalid");
@@ -521,6 +521,9 @@ pub async fn submit(state: &AppState, s: Submission) -> Submitted {
         Ok(s) => s,
         Err(code) => return failed(&code),
     };
+    // Shown from another upload of the song: the edit is to that lyric. The cache stays the song's.
+    let filed = crate::lyrics::filed_id(state, &s.video_id);
+    let shown = std::mem::replace(&mut s.video_id, filed.clone());
     let mut result = post_revision(&t, &s).await;
     if result == failed("unauthorized") {
         // The service doesn't know the session any more. An anonymous account is replaced once and
@@ -543,8 +546,9 @@ pub async fn submit(state: &AppState, s: Submission) -> Submitted {
         };
         if let Some(mut l) = crate::lyrics::limusic_to_lyrics(answer) {
             l.provider = "limusic".into();
+            l.limusic_id = Some(filed);
             if let Ok(json) = serde_json::to_string(&l) {
-                state.db.put_lyrics(&s.video_id, Some(&json), crate::db::now_secs());
+                state.db.put_lyrics(&shown, Some(&json), crate::db::now_secs());
             }
         }
     }
