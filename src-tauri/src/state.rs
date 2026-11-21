@@ -209,6 +209,10 @@ struct SelectedIdentity {
     channel_id: Option<String>,
     #[serde(default)]
     has_multiple_identities: bool,
+    /// A brand channel's `pageId`, for the watch-history ping (#736). Absent on a channel picked
+    /// before this existed, until it is picked again.
+    #[serde(default)]
+    page_id: Option<String>,
 }
 
 pub enum SignInOutcome {
@@ -226,6 +230,7 @@ impl SelectedIdentity {
             thumbnail: info.thumbnail,
             channel_id: info.channel_id,
             has_multiple_identities,
+            page_id: None,
         })
     }
 
@@ -242,6 +247,7 @@ impl SelectedIdentity {
             thumbnail: refreshed.thumbnail.or_else(|| identity.thumbnail.clone()),
             channel_id: refreshed.channel_id.or_else(|| identity.channel_id.clone()),
             has_multiple_identities,
+            page_id: identity.page_id.clone(),
         }
     }
 
@@ -265,6 +271,7 @@ impl SelectedIdentity {
             thumbnail: self.thumbnail.clone(),
             channel_id: self.channel_id.clone(),
             data_sync_id: self.data_sync_id.clone()?,
+            page_id: self.page_id.clone(),
             is_selected: false,
         })
     }
@@ -299,6 +306,7 @@ fn selected_identity_from_db(db: &Db) -> Option<SelectedIdentity> {
                     // the startup identity refresh determines whether this legacy user has one
                     // channel or several.
                     .unwrap_or(true),
+                page_id: None,
             })
         })
 }
@@ -312,6 +320,12 @@ pub(crate) fn persisted_data_sync_id(db: &Db) -> Option<String> {
     selected_identity_from_db(db)
         .and_then(|identity| identity.data_sync_id)
         .or_else(|| db.get_setting("data_sync_id").filter(|id| !id.is_empty()))
+}
+
+/// The selected brand channel's `(data_sync_id, pageId)`, for the transport's `Session` (#736).
+pub(crate) fn persisted_page_id(db: &Db) -> Option<(String, String)> {
+    let selected = selected_identity_from_db(db)?;
+    Some((selected.data_sync_id?, selected.page_id?))
 }
 
 fn identity_selection_key(data_sync_id: &str) -> String {
@@ -831,6 +845,7 @@ impl AppState {
                         thumbnail: None,
                         channel_id: None,
                         data_sync_id: data_sync_id.to_owned(),
+                        page_id: None,
                         is_selected: false,
                     });
                 self.activate_identity(
@@ -854,8 +869,14 @@ impl AppState {
             // One channel stays seamless. Reuse the already-fetched active header instead of
             // introducing another network request or a new delegated id into the historical
             // single-account path.
-            let selected = SelectedIdentity::from_account_info(active, false)
+            let mut selected = SelectedIdentity::from_account_info(active, false)
                 .ok_or("That session didn't return an account identity")?;
+            // That one channel can be a brand one, on a Google account with no channel of its
+            // own. The active header carries no page id, so take it from the list row (#736).
+            let only = &identities[0];
+            if selected.data_sync_id.as_deref() == Some(only.data_sync_id.as_str()) {
+                selected.page_id = only.page_id.clone();
+            }
             self.persist_selected_identity(selected, active_visitor_data.as_deref()).inspect_err(
                 |_| {
                     self.restore_auth_transport(
@@ -998,6 +1019,7 @@ impl AppState {
         self.sync_active_account();
         self.forget_playlist_index();
         self.it.set_data_sync_id(selected.data_sync_id.clone());
+        self.it.set_page_id(selected.data_sync_id.clone().zip(selected.page_id.clone()));
         self.clear_comments();
         let _ = self.app.emit("auth-changed", &account);
         Ok(account)
@@ -1122,6 +1144,8 @@ impl AppState {
         };
 
         self.db.restore_account(&account).map_err(|e| format!("Couldn't switch accounts: {e}"))?;
+        // After the switch held, so a rolled-back one keeps the previous channel's page id.
+        self.it.set_page_id(persisted_page_id(&self.db));
         // `account_menu` hands back a login-bound visitorData, and it may already have rotated the
         // jar out from under the row `restore_account` just wrote back. Re-sync both from what the
         // transport actually holds now.
