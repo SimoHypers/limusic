@@ -2945,7 +2945,19 @@ pub async fn limusic_my_rejection(
     Ok(crate::limusic::my_rejection(state.inner(), &video_id).await)
 }
 
-/// The lyrics team (admins only): staff and contributors, or the handles holding `q`.
+/// Reviewers' notes on my lyrics, newest first.
+#[tauri::command]
+pub async fn limusic_notes(state: St<'_>) -> Result<Vec<crate::limusic::Note>, String> {
+    crate::limusic::notes(state.inner()).await
+}
+
+/// The notes up to `last` are read.
+#[tauri::command]
+pub async fn limusic_notes_seen(state: St<'_>, last: i64) -> Result<(), String> {
+    crate::limusic::notes_seen(state.inner(), last).await
+}
+
+/// The lyrics team (admins and leads): staff and contributors, or the handles holding `q`.
 #[tauri::command]
 pub async fn limusic_admin_accounts(
     state: St<'_>,
@@ -2954,7 +2966,7 @@ pub async fn limusic_admin_accounts(
     crate::limusic::admin_accounts(state.inner(), &q).await
 }
 
-/// Set a role, ban or unban (admins only).
+/// Set a role, ban or unban (admins; a lead only moves people between user and reviewer).
 #[tauri::command]
 pub async fn limusic_admin_update(
     state: St<'_>,

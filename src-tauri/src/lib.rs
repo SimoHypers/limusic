@@ -1602,6 +1602,8 @@ pub fn run() {
             commands::limusic_my_rejection,
             commands::limusic_admin_accounts,
             commands::limusic_admin_update,
+            commands::limusic_notes,
+            commands::limusic_notes_seen,
             commands::limusic_revert,
             commands::lyrics_parse,
             commands::lastfm_connect,

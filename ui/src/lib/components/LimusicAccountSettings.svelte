@@ -159,7 +159,9 @@
 				{#if a.can_review}
 					<div class="min-w-0 px-4 py-2.5">
 						<div class={STAT}>{t('limusic.stat_role')}</div>
-						<div class="truncate text-[15px] font-semibold">{t('limusic.role_reviewer')}</div>
+						<div class="truncate text-[15px] font-semibold">
+							{a.role === 'lead' ? t('team.role_lead') : a.role === 'admin' ? t('team.role_admin') : t('limusic.role_reviewer')}
+						</div>
 					</div>
 				{/if}
 			</div>
@@ -185,7 +187,7 @@
 			</div>
 		{/if}
 
-		{#if linked && a?.role === 'admin'}
+		{#if linked && (a?.role === 'admin' || a?.role === 'lead')}
 			<div class="{SEC} flex flex-wrap items-center gap-3">
 				<p class="min-w-40 flex-1 text-sm">{t('team.settings_hint')}</p>
 				<Button

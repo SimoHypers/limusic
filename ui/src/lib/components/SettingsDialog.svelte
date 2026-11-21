@@ -63,6 +63,7 @@
 	import { HOTKEY_ACTIONS } from '$lib/hotkeys.svelte';
 	import GlobalHotkeysSettings from '$lib/components/GlobalHotkeysSettings.svelte';
 	import LimusicAccountSettings from './LimusicAccountSettings.svelte';
+	import LimusicNotes from './LimusicNotes.svelte';
 	import { limusic } from '$lib/limusic.svelte';
 	import LyricsSourcesSettings from '$lib/components/LyricsSourcesSettings.svelte';
 	import EnhancedLyricsSettings from '$lib/components/EnhancedLyricsSettings.svelte';
@@ -851,6 +852,9 @@
 								class={active ? 'text-primary' : ''}
 							/>
 							<span class="truncate">{tb.label}</span>
+							{#if tb.id === 'contributing' && limusic.unreadNotes > 0}
+								<span class="ml-auto size-2 shrink-0 rounded-full bg-primary" aria-label={t('limusic.notes_unread')}></span>
+							{/if}
 						</button>
 					{/each}
 				</div>
@@ -1204,6 +1208,7 @@
 							<h3 class={LABEL}>{t('limusic.account')}</h3>
 							<LimusicAccountSettings />
 						</section>
+						<LimusicNotes group={GROUP} label={LABEL} />
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('limusic.how_title')}</h3>
 							<div data-settings-card class={CARD}>

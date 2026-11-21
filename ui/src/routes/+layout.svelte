@@ -420,6 +420,20 @@
 					/>
 				{/if}
 				{t.msg}
+				{#if t.action}
+					{@const action = t.action}
+					<Button
+						size="sm"
+						variant="outline"
+						class="-my-1 ml-1 h-7"
+						onclick={() => {
+							ui.toast = null;
+							action.run();
+						}}
+					>
+						{action.label}
+					</Button>
+				{/if}
 			</div>
 		</div>
 	{/if}
