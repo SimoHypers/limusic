@@ -63,6 +63,17 @@ ms to 50 ms) and going back to Home went from 600-700 ms to about 400. Lists do 
 so an edit can slide them, and with 150 that makes opening the player view one 281-291 ms block
 on WebKitGTK (98-104 ms windowed) and about 800 ms on Chromium at 6x.
 
+**A view that covers the page takes the page out of rendering.** The player view and theater mode
+sit over `<main>`, and the page under them was still restyled whenever the document was, on every
+song change included (the artwork accent writes custom properties on `<html>`), for nobody to see.
+`+layout.svelte` sets `<main>` to `display: none` once either view's fly or fade in is done, parks
+every scroll offset inside it, and puts both back as the view starts to leave. WebKitGTK 2.54, the
+player view open over Home with a 192-song queue: a simulated song change went from about 210 ms of
+main thread to about 135, one artwork accent restyle from 140-184 ms to 87, and the view sitting
+open from 87 ms per 2 s to 24. Closing the view pays the rebuild instead, its first frame 98 ms to
+139. `content-visibility: hidden` is no substitute: WebKitGTK still resolves style under it, 157-160
+ms against 140-159 with the page shown.
+
 **Something that appears on hover goes to `shown`, never `opacity-100`.** Write
 `opacity-0 group-hover:shown`. WebKit gives an element below full opacity a layer of its own, and
 the style change that creates or destroys that layer asks for a layout, which runs from the

@@ -51,6 +51,7 @@
 		cycleRepeat,
 		dragVolume,
 		openAddToPlaylist,
+		pageCover,
 		playback,
 		prefs,
 		SKIP_SECS,
@@ -390,12 +391,16 @@
 	$effect(() => {
 		// Mounted without a fade (none is coming), so no introend either.
 		const frame = requestAnimationFrame(() => {
-			if (!view.getAnimations().length) settled = true;
+			if (!view.getAnimations().length) settled = pageCover.theater = true;
 		});
-		return () => cancelAnimationFrame(frame);
+		return () => {
+			cancelAnimationFrame(frame);
+			pageCover.theater = false;
+		};
 	});
 	function leave() {
 		released = true;
+		pageCover.theater = false;
 		if (holding) setHole(null);
 	}
 	function holeFor(el: HTMLElement) {
@@ -436,7 +441,7 @@
 <section
 	bind:this={view}
 	transition:fade={{ duration: 220 }}
-	onintroend={() => (settled = true)}
+	onintroend={() => (settled = pageCover.theater = true)}
 	onoutrostart={leave}
 	class="fixed inset-0 z-40 flex flex-col overflow-hidden text-foreground inert:bg-background {video.hole
 		? ''
