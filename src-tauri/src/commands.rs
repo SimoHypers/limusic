@@ -2903,7 +2903,7 @@ pub async fn limusic_review_claim(
     crate::limusic::review_claim(state.inner(), revision).await
 }
 
-/// One revision with its lines.
+/// One revision with its lines, for a reviewer or its author (the editor reopens a rejected one).
 #[tauri::command]
 pub async fn limusic_review_revision(
     state: St<'_>,

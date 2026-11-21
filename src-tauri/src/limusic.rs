@@ -1035,9 +1035,11 @@ pub async fn revert(
 }
 
 /// Why a reviewer rejected this account's latest version of the song, when that is the latest and
-/// nothing went live after it. `None` with no session, or nothing to say.
+/// nothing went live after it. `None` with no session, or nothing to say. `revision` is that version,
+/// which the service still serves to its author, so the editor can open it again.
 #[derive(Debug, Serialize, PartialEq)]
 pub struct Rejection {
+    pub revision: i64,
     pub reason: Option<String>,
     pub at: Option<i64>,
 }
@@ -1045,6 +1047,7 @@ pub struct Rejection {
 fn parse_rejection(body: &Value) -> Option<Rejection> {
     let r = body.get("my_rejected").filter(|r| r.is_object())?;
     Some(Rejection {
+        revision: r["revision"].as_i64()?,
         reason: r["reason"].as_str().map(str::to_owned).filter(|s| !s.trim().is_empty()),
         at: r["at"].as_i64(),
     })
@@ -1131,13 +1134,15 @@ mod tests {
         assert_eq!(parse_rejection(&json!({})), None);
         assert_eq!(
             parse_rejection(&json!({"my_rejected": {"revision": 4, "reason": "timing", "at": 9}})),
-            Some(Rejection { reason: Some("timing".into()), at: Some(9) })
+            Some(Rejection { revision: 4, reason: Some("timing".into()), at: Some(9) })
         );
         // No reason given is still a rejection, with nothing to quote.
         assert_eq!(
             parse_rejection(&json!({"my_rejected": {"revision": 4, "reason": " "}})),
-            Some(Rejection { reason: None, at: None })
+            Some(Rejection { revision: 4, reason: None, at: None })
         );
+        // Nothing to open again, nothing to say.
+        assert_eq!(parse_rejection(&json!({"my_rejected": {"reason": "timing"}})), None);
     }
 
     #[test]

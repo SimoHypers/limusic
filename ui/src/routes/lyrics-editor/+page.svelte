@@ -316,6 +316,23 @@
 		importText(await file.text());
 	}
 
+	/** The version a reviewer turned down, back on the stage to fix. Sending had cleared the draft,
+	 *  so the service's copy is the only one. It goes on top of what is live, like any start. */
+	let reopening = $state(false);
+	async function reopen() {
+		if (!rejection || reopening) return;
+		reopening = true;
+		try {
+			const rev = await api.limusicReviewRevision(rejection.revision);
+			// Started from something else, or left, while it was on its way.
+			if (alive && mode === 'start') begin(fromLyrics(rev.lyrics?.lines ?? []), false);
+		} catch {
+			toast.error(t('lyrics_editor.start_failed'));
+		} finally {
+			reopening = false;
+		}
+	}
+
 	let discardOpen = $state(false);
 	function discard() {
 		discardOpen = false;
@@ -1093,6 +1110,9 @@
 			>
 				{#snippet actions()}
 					<Button size="sm" variant="ghost" onclick={() => (rejection = null)}>{t('common.close')}</Button>
+					{#if mode === 'start'}
+						<Button size="sm" variant="outline" disabled={reopening} onclick={reopen}>{t('lyrics_editor.rejected_open')}</Button>
+					{/if}
 				{/snippet}
 			</LimusicNotice>
 		</div>
