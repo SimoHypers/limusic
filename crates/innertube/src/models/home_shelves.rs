@@ -21,7 +21,8 @@ const BY_MORE: &[(&str, &str)] = &[
 
 /// Kinds named by title, every language in one list, compared case-insensitively. Each title was
 /// paired with its kind by the cards it shared with the English shelf, or by its "More" target;
-/// pt-BR came from shelves a Portuguese UI had shown, by meaning. A language missing from a kind
+/// pt-BR came from shelves a Portuguese UI had shown, by meaning; pt-PT entries follow the
+/// European Portuguese wording of the same surfaces. A language missing from a kind
 /// is one whose feed did not carry that shelf on the day of the capture.
 const BY_TITLE: &[(&str, &[&str])] = &[
     (
@@ -37,6 +38,7 @@ const BY_TITLE: &[(&str, &[&str])] = &[
             "다시 듣기",             // ko
             "Posłuchaj jeszcze raz", // pl
             "Ouvir de novo",         // pt-BR
+            "Ouvir novamente",       // pt-PT
             "Ascultă din nou",       // ro
             "Послушать ещё раз",     // ru
             "மீண்டும் கேளுங்கள்",         // ta
@@ -70,6 +72,7 @@ const BY_TITLE: &[(&str, &[&str])] = &[
             "빠른 선곡",           // ko
             "Szybki wybór",        // pl
             "Escolha a dedo",      // pt-BR
+            "Escolhas rápidas",    // pt-PT
             "Selecții rapide",     // ro
             "Рекомендуем",         // ru
             "விரைவுத் தேர்வுகள்",     // ta
@@ -192,6 +195,7 @@ const BY_TITLE: &[(&str, &[&str])] = &[
         &[
             "Trending songs for you",          // en
             "Músicas em alta para você",       // pt-BR
+            "Tendências para si",              // pt-PT
             "Melodii în tendințe pentru tine", // ro
         ],
     ),
@@ -201,6 +205,7 @@ const BY_TITLE: &[(&str, &[&str])] = &[
             "Featured playlists for you",      // en
             "나를 위한 추천 재생목록",         // ko
             "Playlists em destaque para você", // pt-BR
+            "Listas de reprodução em destaque para si", // pt-PT
             "你的精選播放清單",                // zh-Hant
         ],
     ),
@@ -263,6 +268,7 @@ const BY_TITLE: &[(&str, &[&str])] = &[
             "오늘의 발견",                  // ko
             "Nowości na dziś",              // pl
             "Suas descobertas diárias",     // pt-BR
+            "As suas descobertas diárias",  // pt-PT
             "Descoperirea ta zilnică",      // ro
             "Находки дня",                  // ru
             "தினசரிப் பரிந்துரைகள்",           // ta
@@ -305,6 +311,8 @@ mod tests {
         assert_eq!(kind("Schnellauswahl", None), Some("quick_picks"));
         assert_eq!(kind("  quick PICKS ", None), Some("quick_picks"));
         assert_eq!(kind("Song mixes", None), Some("quick_picks"));
+        assert_eq!(kind("Escolhas rápidas", None), Some("quick_picks"));
+        assert_eq!(kind("Ouvir novamente", None), Some("listen_again"));
         assert_eq!(kind("Gemeinsam anhören", None), Some("listen_together"));
         assert_eq!(kind("Indila", None), None);
     }
