@@ -53,6 +53,8 @@ const shipped = ['en', 'pt-BR', 'tr', 'zh-Hant', 'zh-Hans'];
 ok(pickLocale(shipped, 'pt-BR') === 'pt-BR', 'an exact tag wins');
 ok(pickLocale(shipped, 'tr-TR') === 'tr', 'a region falls back to the bare language');
 ok(pickLocale(shipped, 'pt-PT') === 'pt-BR', 'another region of a language takes its catalog');
+ok(pickLocale(['en', 'pt-PT', 'pt-BR'], 'pt-PT') === 'pt-PT', 'a region with its own catalog keeps it');
+ok(pickLocale(['en', 'pt-PT', 'pt-BR'], 'pt-AO') === 'pt-PT', 'other lusophone regions take European Portuguese');
 ok(pickLocale(shipped, 'zh-CN') === 'zh-Hans', 'mainland Chinese gets Simplified');
 ok(pickLocale(shipped, 'zh-TW') === 'zh-Hant', 'Taiwan gets Traditional');
 ok(pickLocale(shipped, 'zh-HK') === 'zh-Hant', 'Hong Kong gets Traditional');

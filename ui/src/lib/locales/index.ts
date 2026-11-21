@@ -11,6 +11,7 @@ import it from './it.json';
 import ja from './ja.json';
 import ko from './ko.json';
 import pl from './pl.json';
+import ptPT from './pt.json';
 import ptBR from './pt_BR.json';
 import ro from './ro.json';
 import ru from './ru.json';
@@ -31,6 +32,7 @@ export type LocaleId =
 	| 'es'
 	| 'fr'
 	| 'tr'
+	| 'pt-PT'
 	| 'pt-BR'
 	| 'id'
 	| 'ro'
@@ -72,6 +74,7 @@ export const LOCALES: LocaleInfo[] = [
 	{ id: 'ko', nativeLabel: '한국어', englishLabel: 'Korean' },
 	{ id: 'pl', nativeLabel: 'Polski', englishLabel: 'Polish' },
 	{ id: 'pt-BR', nativeLabel: 'Português (Brasil)', englishLabel: 'Portuguese (Brazil)' },
+	{ id: 'pt-PT', nativeLabel: 'Português (Portugal)', englishLabel: 'Portuguese (Portugal)' },
 	{ id: 'ro', nativeLabel: 'Română', englishLabel: 'Romanian' },
 	{ id: 'ru', nativeLabel: 'Русский', englishLabel: 'Russian' },
 	{ id: 'ta', nativeLabel: 'தமிழ்', englishLabel: 'Tamil' },
@@ -93,6 +96,7 @@ export const translations: Record<LocaleId, DeepPartial<Translations>> = {
 	es,
 	fr,
 	tr,
+	'pt-PT': ptPT,
 	'pt-BR': ptBR,
 	id,
 	ro,
