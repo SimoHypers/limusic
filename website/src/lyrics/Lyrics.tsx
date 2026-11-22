@@ -475,8 +475,12 @@ function Scoring() {
   )
 }
 
+/* Rows on the board before "Show more", podium included; each click adds as many again. */
+const PAGE = 20
+
 function Board() {
   const [period, setPeriod] = useState<Period>('all')
+  const [shown, setShown] = useState(PAGE)
   const [attempt, setAttempt] = useState(0)
   const load = useApi<{ entries: Entry[] }>(`/v1/leaderboard?period=${period}&limit=100`, attempt)
   // The headline credits the all-time top three and the wall shows the songs of the all-time top
@@ -533,7 +537,10 @@ function Board() {
                 key={p.id}
                 type="button"
                 aria-pressed={period === p.id}
-                onClick={() => setPeriod(p.id)}
+                onClick={() => {
+                  setPeriod(p.id)
+                  setShown(PAGE)
+                }}
                 className={`rounded-full px-4 py-1.5 transition-colors ${
                   period === p.id ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'
                 }`}
@@ -587,10 +594,21 @@ function Board() {
             <Podium entries={load.data.entries} />
             {load.data.entries.length > 3 && (
               <ol className="mt-10 border-t border-border">
-                {load.data.entries.slice(3).map(e => (
+                {load.data.entries.slice(3, shown).map(e => (
                   <Row key={e.handle} e={e} />
                 ))}
               </ol>
+            )}
+            {load.data.entries.length > shown && (
+              <div className="mt-8 text-center">
+                <button
+                  type="button"
+                  onClick={() => setShown(n => n + PAGE)}
+                  className="inline-flex items-center gap-2 rounded-full border border-border px-5 py-2.5 text-sm font-medium transition-colors hover:bg-muted"
+                >
+                  Show more
+                </button>
+              </div>
             )}
           </>
         )}
