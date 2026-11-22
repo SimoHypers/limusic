@@ -544,6 +544,7 @@ pub async fn submit(state: &AppState, mut s: Submission) -> Submitted {
         let answer = crate::lyrics::LimusicAnswer {
             origin: "community".into(),
             revision: Some(*revision),
+            authors: credit(&filed).await,
             lines: s.lines,
             ..Default::default()
         };
@@ -556,6 +557,16 @@ pub async fn submit(state: &AppState, mut s: Submission) -> Submitted {
         }
     }
     result
+}
+
+/// The live lyric's credit, from `/state` (never cached): every contributor of the song, oldest
+/// first. Empty when the service doesn't answer. A lyric cached without it shows no name (#744).
+async fn credit(video_id: &str) -> Vec<String> {
+    let rb = crate::http::client().get(url(&format!("/v1/lyrics/{video_id}/state")));
+    match send(rb, None).await {
+        Some((200, body)) => serde_json::from_value(body["authors"].clone()).unwrap_or_default(),
+        _ => vec![],
+    }
 }
 
 // --- Votes and reports --------------------------------------------------------------------------
@@ -1010,6 +1021,7 @@ pub async fn review_verdict(
         state.db.delete_lyrics(video_id);
         if let Some(mut l) = get_revision(&t, revision).await.ok().and_then(|r| r.lyrics) {
             l.provider = "limusic".into();
+            l.authors = credit(video_id).await;
             if let Ok(json) = serde_json::to_string(&l) {
                 state.db.put_lyrics(video_id, Some(&json), crate::db::now_secs());
             }
