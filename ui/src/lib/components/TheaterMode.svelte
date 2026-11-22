@@ -71,7 +71,7 @@
 		showVideo,
 		video,
 		videoSide,
-		view
+		view as windowView
 	} from '$lib/video.svelte';
 	import { artRoom } from '$lib/artroom.svelte';
 	import { appearance, setAppearance } from '$lib/theme.svelte';
@@ -385,7 +385,7 @@
 	// fade still shows the app through would flash the desktop. Taken away when the fade out starts,
 	// for the same reason, and only by this view: by the time this is destroyed the player view
 	// underneath may already hold the hole again.
-	let viewEl: HTMLElement;
+	let view: HTMLElement;
 	let settled = $state(false);
 	let released = false;
 	let holding = false;
@@ -405,11 +405,11 @@
 		if (holding) setHole(null);
 	}
 	function holeFor(el: HTMLElement) {
-		if (!settled || !view.visible) return;
+		if (!settled || !windowView.visible) return;
 		holding = true;
 		const measure = () => {
 			if (released) return;
-			if (document.hidden || !view.visible) return setHole(null);
+			if (document.hidden || !windowView.visible) return setHole(null);
 			const r = el.getBoundingClientRect();
 			setHole({ x: r.left, y: r.top, w: r.width, h: r.height });
 		};
@@ -440,7 +440,7 @@
      Calm hides the pointer on everything inside, not just here: a `cursor-pointer` child (a lyrics
      line, the cover, cinema's play/pause) overrides an inherited `cursor-none` (#573). -->
 <section
-	bind:this={viewEl}
+	bind:this={view}
 	transition:fade={{ duration: 220 }}
 	onintroend={() => (settled = pageCover.theater = true)}
 	onoutrostart={leave}
