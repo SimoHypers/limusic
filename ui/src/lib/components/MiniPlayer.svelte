@@ -44,6 +44,7 @@
 		wheelVolume
 	} from '$lib/player.svelte';
 	import { thumb } from '$lib/thumb';
+	import { seekFill } from '$lib/seekfill.svelte';
 	import LyricsView from './LyricsView.svelte';
 	import M3SeekWave from './M3SeekWave.svelte';
 	import Marquee from './Marquee.svelte';
@@ -114,6 +115,9 @@
 	// Match the main player's tempo-adjusted timeline; retain track seconds for mpv seeks.
 	const shownPosition = $derived((seekDrag ?? playback.position) / playback.speed);
 	const shownDuration = $derived(playback.duration / playback.speed);
+	const seekPct = $derived(
+		shownDuration > 0 ? Math.min(1, Math.max(0, shownPosition / shownDuration)) : 0
+	);
 
 	function onSeekInput(e: Event) {
 		seekDrag = Number((e.target as HTMLInputElement).value) * playback.speed;
@@ -375,10 +379,15 @@
 				{:else}
 					<div
 						class="m3-seek on-art relative flex min-w-0 flex-1 items-center"
-						style="--pct:{shownDuration ? (shownPosition / shownDuration) * 100 : 0}%"
+						{@attach seekFill(() => ({
+							pct: seekPct,
+							paused: playback.paused,
+							duration: shownDuration,
+							dragging: seekDrag !== null
+						}))}
 					>
 						<M3SeekWave
-							pct={shownDuration > 0 ? Math.min(1, Math.max(0, shownPosition / shownDuration)) : 0}
+							pct={seekPct}
 							paused={playback.paused}
 							duration={shownDuration}
 							dragging={seekDrag !== null}
@@ -386,9 +395,9 @@
 						<input
 							type="range"
 							class="range on-art min-w-0 flex-1"
-							style="--pct:{shownDuration ? (shownPosition / shownDuration) * 100 : 0}%"
 							min="0"
 							max={shownDuration || 0}
+							step="any"
 							value={shownPosition}
 							oninput={onSeekInput}
 							onchange={onSeekCommit}

@@ -42,6 +42,7 @@
 	} from '$lib/player.svelte';
 	import { thumb } from '$lib/thumb';
 	import { appearance } from '$lib/theme.svelte';
+	import { seekFill } from '$lib/seekfill.svelte';
 	import ArtistLine from './ArtistLine.svelte';
 	import M3SeekWave from './M3SeekWave.svelte';
 	import Marquee from './Marquee.svelte';
@@ -412,7 +413,12 @@
 				<span class="min-w-[5ch] text-right tabular-nums">{fmt(shownPosition)}</span>
 				<div
 					class="m3-seek relative flex flex-1 items-center"
-					style="--pct:{seekPct * 100}%"
+					{@attach seekFill(() => ({
+						pct: seekPct,
+						paused: playback.paused,
+						duration: shownDuration,
+						dragging: seekDrag !== null
+					}))}
 				>
 					<M3SeekWave
 						pct={seekPct}
@@ -423,9 +429,9 @@
 					<input
 						type="range"
 						class="range w-full flex-1"
-						style="--pct:{seekPct * 100}%"
 						min="0"
 						max={shownDuration || 0}
+						step="any"
 						value={shownPosition}
 						oninput={onSeekInput}
 						onchange={onSeekCommit}
