@@ -563,8 +563,6 @@
 			"lyrics_prefer_words_hint": "無論歌詞來源為何，逐字歌詞的優先順序都高於較高順位來源提供的逐行歌詞。歌曲首次播放時，歌詞可能需要多花幾秒才會顯示。"
 		},
 		"data": {
-			"clear_cache": "清除圖片與串流快取",
-			"clear_cache_hint": "清除已快取的縮圖與音訊資料片段以釋放磁碟空間。",
 			"clear_cache_button": "立即清除快取"
 		},
 		"about": {

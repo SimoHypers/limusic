@@ -510,8 +510,6 @@
 			"action_show_app_hint": "将 Limusic 窗口带到前台。"
 		},
 		"data": {
-			"clear_cache": "清除图像和流缓存",
-			"clear_cache_hint": "通过清除缓存的缩略图和音频块来释放磁盘空间。",
 			"clear_cache_button": "立即清除缓存"
 		},
 		"about": {

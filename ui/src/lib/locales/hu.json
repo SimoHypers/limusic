@@ -845,8 +845,6 @@
 			"action_show_app_hint": "A Limusic ablak előtérbe hozása."
 		},
 		"data": {
-			"clear_cache": "Kép- és stream-gyorsítótár törlése",
-			"clear_cache_hint": "Lemezterület felszabadítása a gyorsítótárazott bélyegképek és hangrészletek törlésével.",
 			"clear_cache_button": "Gyorsítótár törlése most"
 		},
 		"about": {

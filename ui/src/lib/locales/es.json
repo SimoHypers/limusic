@@ -89,7 +89,8 @@
 		"remove_account_desc": "{name} solo se quita de la lista. La cuenta de Google en sí no se ve afectada y puedes iniciar sesión con esta cuando quieras.",
 		"saved_accounts_hint": "Elige una cuenta guardada para cambiar a esta.",
 		"no_channels": "YouTube no devolvió ningún canal seleccionable.",
-		"stats": "Estadísticas"
+		"stats": "Estadísticas",
+		"discord": "Únete al Discord de Limusic"
 	},
 	"player": {
 		"play": "Reproducir",
@@ -222,7 +223,8 @@
 			"new_releases": "Nuevos lanzamientos",
 			"mixed_for_you": "Mixes para ti",
 			"daily_discover": "Tu descubrimiento diario",
-			"music_videos": "Videos musicales para ti"
+			"music_videos": "Videos musicales para ti",
+			"listen_together": "Escuchar juntos"
 		},
 		"live_now": "En directo ahora"
 	},
@@ -484,7 +486,11 @@
 			"theater_clock_format": "Formato del reloj",
 			"theater_clock_format_auto": "Automático",
 			"theater_clock_format_12": "12 horas",
-			"theater_clock_format_24": "24 horas"
+			"theater_clock_format_24": "24 horas",
+			"cover_lyric_romanized": "Letra romanizada bajo la carátula",
+			"cover_lyric_romanized_hint": "La línea de letra bajo la carátula muestra la romanización en lugar de la escritura original, en las canciones que la tienen. La pestaña de letras mantiene su propio interruptor Romanizada. Solo en el nuevo diseño.",
+			"cover_lyric": "Linea de letras debajo de la carátula",
+			"cover_lyric_hint": "Muestra la linea cantada entre la carátula y el título de la canción, para canciones con letras sincronizadas. Cliquearla abre las letras. Solo en el nuevo diseño."
 		},
 		"playback": {
 			"audio_quality": "Calidad de audio",
@@ -539,12 +545,26 @@
 			"videos_first": "Reproducir el video primero",
 			"videos_first_hint": "Canciones de álbumes y playlists que tengan un video musical inician con el video. Desactiva esto si quieres iniciar con la canción. El interruptor de Canción/Video en el reproductor los cambia de todas formas.",
 			"lyrics_prefer_words": "Preferir letras palabra por palabra",
-			"lyrics_prefer_words_hint": "Las letras palabra por palabra de cualquier fuente tienen prioridad sobre las sincronizadas línea por línea de una fuente situada por encima. La primera vez que suena una canción, sus letras pueden tardar unos segundos más en aparecer."
+			"lyrics_prefer_words_hint": "Las letras palabra por palabra de cualquier fuente tienen prioridad sobre las sincronizadas línea por línea de una fuente situada por encima. La primera vez que suena una canción, sus letras pueden tardar unos segundos más en aparecer.",
+			"auto_pause_other_audio": "Pausar cuando otras aplicaciones reproducen medios",
+			"auto_pause_other_audio_hint": "Pausa mientras otra aplicación, como una pestaña de navegador o un reproductor de video, reproducen medios, y se reproduce cuando paran. Sonidos de notificación o juegos no cuentan."
 		},
 		"data": {
-			"clear_cache": "Limpiar caché de imágenes y streams",
-			"clear_cache_hint": "Libera espacio en disco al limpiar miniaturas y fragmentos de audio en caché.",
-			"clear_cache_button": "Limpiar caché ahora"
+			"clear_cache_button": "Limpiar caché",
+			"used": "Espacio usado",
+			"used_hint": "Todo lo que Limusic almacena en esta computadora.",
+			"library": "Biblioteca y configuraciones",
+			"library_hint": "Tus configuraciones, historial de reproducciones, letras guardadas y biblioteca local de música.",
+			"audio": "Caché de audio",
+			"audio_hint": "Audio usado mientras se reproducen las canciones y los links guardados para iniciarlas más rápido. Limpiándolo también puede arreglar canciones que pararon de cargar.",
+			"karaoke": "Versiones de karaoke",
+			"models": "Modelos de karaoke",
+			"models_hint": "Los modelos de eliminación de voz que descargaste y el motor que los ejecuta.",
+			"manage": "Administrar",
+			"web": "Imágenes y caché web",
+			"web_hint": "Carátula y otros archivos que la ventana de la app ha cargado, guardados por el motor web de tu sistema.",
+			"other": "Otro",
+			"other_hint": "Registros, carátulas de tus archivos locales y archivos pequeños que Limusic necesita para reproducir canciones."
 		},
 		"about": {
 			"description": "Un reproductor de música de escritorio hermoso, rápido y ligero, impulsado por Tauri y Svelte.",
@@ -573,7 +593,10 @@
 			"kofi_button": "Abrir Ko-fi",
 			"rollback_available": "Esta versión se revertirá a {version}, la última versión estable conocida.",
 			"beta": "Versiones beta",
-			"beta_hint": "Recibe nuevas versiones unos días antes que los demás. Estas versiones tienen menos pruebas. Si desactivas esta opción, conservarás tu versión actual hasta que la supere el siguiente lanzamiento habitual."
+			"beta_hint": "Recibe nuevas versiones unos días antes que los demás. Estas versiones tienen menos pruebas. Si desactivas esta opción, conservarás tu versión actual hasta que la supere el siguiente lanzamiento habitual.",
+			"discord": "Únete al Discord",
+			"discord_hint": "Obtén ayuda, comparte ideas y entérate antes que nadie de las nuevas versiones y betas.",
+			"discord_button": "Abrir Discord"
 		},
 		"discord": {
 			"enable": "Rich Presence",
@@ -748,7 +771,9 @@
 			"lb_token_placeholder": "Token de usuario de ListenBrainz",
 			"lb_problem_email": "Verifica tu correo de MetaBrainz para que ListenBrainz acepte lo que escuchas.",
 			"lb_problem_rejected": "ListenBrainz ya no acepta este token. Conéctate otra vez con uno nuevo.",
-			"lb_verify_email": "Verificar email"
+			"lb_verify_email": "Verificar email",
+			"lb_custom_instance": "Instancia personalizada de ListenBrainz",
+			"lb_url_label": "Dirección API de la instancia"
 		},
 		"devices": {
 			"title": "Reproduce en donde sea",
@@ -756,7 +781,7 @@
 			"intro": "Enlaza Limusic en tu celular: cada uno muestra y controla lo que el otro reproduce y la música se mueve al que tu elijas.",
 			"link_phone": "Enlaza un celular",
 			"link_another": "Enlaza otro celular",
-			"step_open": "En tu celular, abre Limusic: Configuración › Integraciones › Dispositivos",
+			"step_open": "En tu celular, abre Limusic: Configuración › Dispositivos",
 			"step_type": "Escribe este código",
 			"custom_server": "En este servidor, escribe {invite}",
 			"expires_in": "Expira en {time}",
@@ -779,7 +804,15 @@
 			"more": "Más",
 			"unlink": "Desenlazar",
 			"unlink_title": "¿Quieres desenlazar {name}?",
-			"unlink_desc": "Ya no puede controlar esta computadora. Puedes enlazarlo otra vez con un código nuevo."
+			"unlink_desc": "Ya no puede controlar esta computadora. Puedes enlazarlo otra vez con un código nuevo.",
+			"unreachable": "No se pudo conectar con el servidor. Revisa tu conexión, VPN o firewall e inténtalo de nuevo."
+		},
+		"search": {
+			"placeholder": "Busca configuraciones",
+			"hint": "Enter abre el primer resultado, Esc limpia la búsqueda.",
+			"empty": "No hay coincidencias con \"{query}\"",
+			"empty_hint": "Intenta una palabra más corta o una de la descripción de una configuración.",
+			"shown_when": "Mostrar cuando \"{setting}\" está activo"
 		}
 	},
 	"dialogs": {
@@ -1346,7 +1379,7 @@
 		"from_spotify": "De Spotify",
 		"update": "Actualizar",
 		"updating": "Actualizando…",
-		"update_tooltip": "Añade lo nuevo en la playlist de Spotify y elimina lo que ya no está",
+		"update_tooltip": "Añade lo nuevo en la playlist de Spotify, elimina lo que ya no está y sigue su orden",
 		"update_done": "Actualizado de Spotify: {added} añadidos, {removed} eliminados",
 		"update_none": "Ya esta al día con Spotify",
 		"nudge_title": "¿Vienes de Spotify?",
@@ -1365,7 +1398,10 @@
 			"not_found": "No se pudo encontrar eso en YouTube Music.",
 			"cooldown": "YouTube Music le pidió a Limusic que bajara la velocidad, así que los importes se pausaron hasta las {time}. Todo lo que se ha encontrado se conserva."
 		},
-		"paste_link_hint": "¿Solo en YouTube como un video? Pega su link."
+		"paste_link_hint": "¿Solo en YouTube como un video? Pega su link.",
+		"keep_updated": "Mantente al día con Spotify",
+		"keep_updated_desc": "Limusic revisa la playlist de Spotify cuando inicia y cada pocas horas, y agrega, quita y reordena las canciones para que coincidan.",
+		"auto_update_done": "{name} actualizados desde Spotify: {added} agregados, {removed} eliminados"
 	},
 	"comments": {
 		"title": "Comentarios",
@@ -1769,7 +1805,10 @@
 		"voice_hint": "La voz principal y las voces de fondo sincronizan por separado, por lo que pueden superponerse. V las cambia.",
 		"say_bg_words": "Ahora las voces de fondo. Toca cuando empiece cada palabra.",
 		"say_bg_words_sub": "Pueden empezar por debajo de la voz principal, y el bucle continúa sobre la siguiente línea.",
-		"err_copied": "{source} ya tiene la letra sincronizada palabra por palabra, entonces no hay nada nuevo que mandar."
+		"err_copied": "{source} ya tiene la letra sincronizada palabra por palabra, entonces no hay nada nuevo que mandar.",
+		"rejected_title": "Un moderador rechazo tu ultima version",
+		"rejected_reason": "Su razón: \"{reason}\". Puedes arreglar y enviarla otra vez.",
+		"rejected_no_reason": "No dieron una razón. Puedes arreglarla y enviarla otra vez."
 	},
 	"limusic": {
 		"none_title": "No requiere cuenta",
@@ -1862,6 +1901,66 @@
 		"settings_none": "Nada espera revisión",
 		"settings_open": "Revisar letras",
 		"load_more": "Mostrar más",
-		"err_unavailable": "No se pudo conectar con Limusic Lyrics."
+		"err_unavailable": "No se pudo conectar con Limusic Lyrics.",
+		"view_lines": "Líneas",
+		"view_player": "Vista del reproductor",
+		"lines_hint": "Cliquea la línea para reproducir desde ahí. Cada palabra muestra como esta dividida y sincronizada.",
+		"break": "Instrumental, {secs} s",
+		"record": "{approved} aprobado · {rejected} rechazado",
+		"fix": "Corregir antes de aprobar",
+		"fix_live": "Corregirla",
+		"fix_wait": "Espera a que se reproduzca la canción",
+		"key_fix": "corregir",
+		"key_next": "siguiente",
+		"approve_fixes": "Aprobar con correcciones",
+		"approved_fixed": "Aprobado con tus correcciones. Ya está publicada.",
+		"fixing_title": "Estás corrigiendo la contribución de {handle}",
+		"fixing_title_anonymous": "Estás corrigiendo una contribución anónima",
+		"fixing_body": "Aprobarla la publica bajo su nombre y les da los puntos. La revisión registra lo que cambiaste, y el original se guarda.",
+		"fix_undo": "Deshacer mis cambios",
+		"fix_undo_title": "¿Deshacer mis cambios?",
+		"fix_undo_body": "Las letras vuelven a como se enviaron.",
+		"preset_timing": "La sincronización esta desfasada",
+		"preset_words": "Algunas palabras están mal",
+		"preset_missing": "Faltan líneas",
+		"preset_wrong_song": "Estas son letras para una canción diferente",
+		"reviewing": "{name} esta revisando",
+		"taken": "{name} está revisando esta contribución. La abrió {when}."
+	},
+	"team": {
+		"title": "Equipo de letras",
+		"subtitle": "Quién revisa Limusic Lyrics",
+		"search": "Encuentra un contribuidor por nombre",
+		"staff": "Equipo",
+		"top": "Mejores contribuidores",
+		"top_hint": "Usuarios con letras aprobadas, primero los de mejor historial. Buenos candidatos a revisor.",
+		"results": "Resultados",
+		"no_results": "Nadie con ese nombre.",
+		"no_contributors": "No hay contribuidores con puntos aún.",
+		"you": "(tú)",
+		"banned": "Baneado",
+		"stats": "{score} puntos · {approved} aprobados · {rejected} rechazados",
+		"joined": "Se unió {when}",
+		"role_user": "Contribuidor",
+		"role_reviewer": "Moderador",
+		"role_admin": "Administrador",
+		"role_for": "Rol para {handle}",
+		"make_reviewer": "Hacer moderador",
+		"more": "Más para {handle}",
+		"open_profile": "Abrir perfil en limusic.app",
+		"ban": "Banear de contribuir",
+		"unban": "Quitar baneo",
+		"ban_title": "¿Banear a {handle}?",
+		"ban_body": "Se cierra su sesión, se rechaza todo lo que tengan pendiente de revisión y sus votos dejan de contar. Puedes quitarles el ban más tarde.",
+		"role_set": "{handle} ahora es {role}.",
+		"banned_toast": "{handle} esta baneado.",
+		"unbanned_toast": "{handle} ya no esta baneado.",
+		"not_allowed_title": "Esta pagina es para administradores",
+		"not_allowed": "Solo administradores pueden cambiar quien modera.",
+		"err_forbidden": "Tu cuenta no puede administrar el equipo.",
+		"err_own": "No puedes cambiar tu rol o banearte a ti mismo.",
+		"err_gone": "Tu cuenta ya no existe.",
+		"settings_hint": "Elige quien revisa letras",
+		"settings_open": "Equipo de letras"
 	}
 }

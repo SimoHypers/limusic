@@ -49,6 +49,9 @@ pub struct Account {
     pub trusted: bool,
     #[serde(default)]
     pub can_review: bool,
+    /// Reviewers' notes on this account's lyrics not read yet (`/v1/me` only).
+    #[serde(default)]
+    pub unread_notes: i64,
 }
 
 // --- HTTP ---------------------------------------------------------------------------------------
@@ -511,7 +514,7 @@ async fn post_revision(token: &str, s: &Submission) -> Submitted {
     outcome(send(rb, Some(token)).await)
 }
 
-pub async fn submit(state: &AppState, s: Submission) -> Submitted {
+pub async fn submit(state: &AppState, mut s: Submission) -> Submitted {
     // The id goes into a path that carries the bearer token.
     if !plausible_id(&s.video_id) {
         return failed("invalid");
@@ -521,6 +524,9 @@ pub async fn submit(state: &AppState, s: Submission) -> Submitted {
         Ok(s) => s,
         Err(code) => return failed(&code),
     };
+    // Shown from another upload of the song: the edit is to that lyric. The cache stays the song's.
+    let filed = crate::lyrics::filed_id(state, &s.video_id);
+    let shown = std::mem::replace(&mut s.video_id, filed.clone());
     let mut result = post_revision(&t, &s).await;
     if result == failed("unauthorized") {
         // The service doesn't know the session any more. An anonymous account is replaced once and
@@ -543,8 +549,9 @@ pub async fn submit(state: &AppState, s: Submission) -> Submitted {
         };
         if let Some(mut l) = crate::lyrics::limusic_to_lyrics(answer) {
             l.provider = "limusic".into();
+            l.limusic_id = Some(filed);
             if let Ok(json) = serde_json::to_string(&l) {
-                state.db.put_lyrics(&s.video_id, Some(&json), crate::db::now_secs());
+                state.db.put_lyrics(&shown, Some(&json), crate::db::now_secs());
             }
         }
     }
@@ -1031,9 +1038,11 @@ pub async fn revert(
 }
 
 /// Why a reviewer rejected this account's latest version of the song, when that is the latest and
-/// nothing went live after it. `None` with no session, or nothing to say.
+/// nothing went live after it. `None` with no session, or nothing to say. `revision` is that version,
+/// which the service still serves to its author, so the editor can open it again.
 #[derive(Debug, Serialize, PartialEq)]
 pub struct Rejection {
+    pub revision: i64,
     pub reason: Option<String>,
     pub at: Option<i64>,
 }
@@ -1041,6 +1050,7 @@ pub struct Rejection {
 fn parse_rejection(body: &Value) -> Option<Rejection> {
     let r = body.get("my_rejected").filter(|r| r.is_object())?;
     Some(Rejection {
+        revision: r["revision"].as_i64()?,
         reason: r["reason"].as_str().map(str::to_owned).filter(|s| !s.trim().is_empty()),
         at: r["at"].as_i64(),
     })
@@ -1055,8 +1065,50 @@ pub async fn my_rejection(state: &AppState, video_id: &str) -> Option<Rejection>
     }
 }
 
+// --- Notes ---------------------------------------------------------------------------------------
+
+/// What a reviewer decided about this account's lyrics: a reject, a takedown, or an approval that
+/// fixed the lines or came with a word. Never who decided it.
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct Note {
+    pub id: i64,
+    pub revision: i64,
+    pub video_id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub artist: String,
+    /// `approve`, `reject` or `takedown`.
+    pub verdict: String,
+    #[serde(default)]
+    pub fixed: bool,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub at: i64,
+    #[serde(default)]
+    pub unread: bool,
+}
+
+/// The 50 latest notes, newest first.
+pub async fn notes(state: &AppState) -> Result<Vec<Note>, String> {
+    let t = session(state)?;
+    let r = expect(send(crate::http::client().get(url("/v1/me/notes")), Some(&t)).await, 200)
+        .and_then(|b| serde_json::from_value(b["notes"].clone()).map_err(|_| "unavailable".into()));
+    checked(state, &t, r)
+}
+
+/// Every note up to `last` is read.
+pub async fn notes_seen(state: &AppState, last: i64) -> Result<(), String> {
+    let t = session(state)?;
+    let rb = crate::http::client().post(url("/v1/me/notes/seen")).json(&json!({ "last": last }));
+    let r = expect(send(rb, Some(&t)).await, 204).map(drop);
+    checked(state, &t, r)
+}
+
 // --- Admin ---------------------------------------------------------------------------------------
-// For `role: admin`: who reviews, and bans. The service refuses anyone else with `forbidden`.
+// For `role: admin`, and `lead` (who only makes and unmakes reviewers): who reviews, and bans. The
+// service refuses anyone else with `forbidden`.
 
 /// One linked account as the team page lists it.
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -1077,6 +1129,24 @@ pub struct Member {
     pub joined_at: i64,
     #[serde(default)]
     pub you: bool,
+    /// How this account reviews. Absent from an older service.
+    #[serde(default)]
+    pub reviews: Option<ReviewStats>,
+}
+
+/// One account's verdicts, from the service's review log.
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct ReviewStats {
+    pub total: i64,
+    pub approved: i64,
+    pub fixed: i64,
+    pub rejected: i64,
+    pub taken_down: i64,
+    /// Its approvals that were taken down since.
+    pub overturned: i64,
+    pub last_30_days: i64,
+    pub last_at: Option<i64>,
 }
 
 /// Staff and the contributors with points for an empty `q`, else the handles that hold it.
@@ -1100,7 +1170,9 @@ pub async fn admin_update(
     // The handle goes into a path that carries the bearer token.
     let plausible = (3..=20).contains(&handle.len())
         && handle.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
-    if !plausible || role.as_deref().is_some_and(|r| !matches!(r, "user" | "reviewer" | "admin")) {
+    if !plausible
+        || role.as_deref().is_some_and(|r| !matches!(r, "user" | "reviewer" | "lead" | "admin"))
+    {
         return Err("invalid".into());
     }
     let mut body = json!({});
@@ -1122,18 +1194,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn team_rows_and_notes_read_from_this_service_and_an_older_one() {
+        let old = json!({"handle": "kanade", "role": "reviewer"});
+        let m: Member = serde_json::from_value(old).unwrap();
+        assert_eq!(m.reviews, None);
+        let new = json!({"handle": "kanade", "role": "lead",
+            "reviews": {"total": 4, "fixed": 1, "overturned": 1, "last_at": null}});
+        let m: Member = serde_json::from_value(new).unwrap();
+        let r = m.reviews.unwrap();
+        assert_eq!(
+            (m.role.as_str(), r.total, r.fixed, r.approved, r.last_at),
+            ("lead", 4, 1, 0, None)
+        );
+        let n: Vec<Note> = serde_json::from_value(json!([{"id": 9, "revision": 3,
+            "video_id": "dQw4w9WgXcQ", "title": "T", "artist": "A", "verdict": "approve",
+            "fixed": true, "reason": null, "at": 5, "unread": true}]))
+        .unwrap();
+        assert!(n[0].fixed && n[0].unread && n[0].reason.is_none());
+    }
+
+    #[test]
     fn a_rejection_is_read_only_when_the_service_names_one() {
         assert_eq!(parse_rejection(&json!({"my_rejected": null})), None);
         assert_eq!(parse_rejection(&json!({})), None);
         assert_eq!(
             parse_rejection(&json!({"my_rejected": {"revision": 4, "reason": "timing", "at": 9}})),
-            Some(Rejection { reason: Some("timing".into()), at: Some(9) })
+            Some(Rejection { revision: 4, reason: Some("timing".into()), at: Some(9) })
         );
         // No reason given is still a rejection, with nothing to quote.
         assert_eq!(
             parse_rejection(&json!({"my_rejected": {"revision": 4, "reason": " "}})),
-            Some(Rejection { reason: None, at: None })
+            Some(Rejection { revision: 4, reason: None, at: None })
         );
+        // Nothing to open again, nothing to say.
+        assert_eq!(parse_rejection(&json!({"my_rejected": {"reason": "timing"}})), None);
     }
 
     #[test]

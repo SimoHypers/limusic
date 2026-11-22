@@ -54,6 +54,10 @@ export const playback = $state({
  */
 export const np = $state({ open: false, tab: 'queue' as 'queue' | 'lyrics' | 'comments' });
 
+/** Which views are fully over the routed page: set once a view's fly or fade in is done, cleared
+ *  when its way out starts. While either holds, the layout takes the page out of rendering. */
+export const pageCover = $state({ player: false, theater: false });
+
 export const karaokeStatus = $state({
 	state: 'off' as 'off' | 'needs-model' | 'preparing' | 'ready' | 'error' | 'too-long',
 	progress: undefined as number | undefined,
@@ -1634,26 +1638,31 @@ export function toggleSidebar() {
 	localStorage.setItem('sidebar_collapsed', ui.sidebarCollapsed ? '1' : '0');
 }
 
-export type Toast = { msg: string; kind: 'info' | 'success' | 'error' };
+export type Toast = { msg: string; kind: 'info' | 'success' | 'error'; action?: ToastAction };
+export type ToastAction = { label: string; run: () => void };
 
 // A counter, not the toast itself: $state proxies the stored object, so `ui.toast === t` is never
 // true and the toast would never clear. It also means a repeated message can't cut its own retry short.
 let seq = 0;
 
-function show(msg: string, kind: Toast['kind']) {
+function show(msg: string, kind: Toast['kind'], action?: ToastAction) {
 	const id = ++seq;
 	// The one chokepoint every `toast.error(String(e))` and every `playback-error` event goes
 	// through, so a dead connection is worded once here instead of at forty call sites. Anything
 	// that isn't a network failure (including every `t()` string passing through) is untouched.
-	ui.toast = { msg: friendlyNetError(msg, t('errors.unreachable')), kind };
-	setTimeout(() => {
-		if (seq === id) ui.toast = null;
-	}, 2500);
+	ui.toast = { msg: friendlyNetError(msg, t('errors.unreachable')), kind, action };
+	// One with a button stays long enough to reach it.
+	setTimeout(
+		() => {
+			if (seq === id) ui.toast = null;
+		},
+		action ? 8000 : 2500
+	);
 }
 
 /** Sonner-shaped. Bare `toast(msg)` is a neutral notice; .success/.error pick the icon. */
 export const toast = Object.assign((msg: string) => show(msg, 'info'), {
-	info: (msg: string) => show(msg, 'info'),
+	info: (msg: string, action?: ToastAction) => show(msg, 'info', action),
 	success: (msg: string) => show(msg, 'success'),
 	error: (msg: string) => show(msg, 'error')
 });

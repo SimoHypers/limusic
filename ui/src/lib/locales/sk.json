@@ -675,8 +675,6 @@
 			"action_show_app_hint": ""
 		},
 		"data": {
-			"clear_cache": "",
-			"clear_cache_hint": "",
 			"clear_cache_button": ""
 		},
 		"about": {

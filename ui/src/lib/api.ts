@@ -556,11 +556,6 @@ export interface PlaybackSnapshot {
 }
 export const getPlayback = () => invoke<PlaybackSnapshot>('get_playback');
 
-/** Linux: whether the page covers the window's whole rectangle (no rounded corners, no video
- *  hole), so the shell can drop the webview's alpha channel. A no-op elsewhere. */
-export const setWebviewOpaque = (opaque: boolean) =>
-	invoke<void>('set_webview_opaque', { opaque });
-
 // --- settings (context/11) -----------------------------------------------------------------
 export const getSettings = () => invoke<Record<string, string>>('get_settings');
 export const setSetting = (key: string, value: string) =>
@@ -1372,9 +1367,11 @@ export interface LimusicAccount {
 	avatar_url: string | null;
 	score: number;
 	joined_at: number;
-	role: 'user' | 'reviewer' | 'admin' | '';
+	role: 'user' | 'reviewer' | 'lead' | 'admin' | '';
 	trusted: boolean;
 	can_review: boolean;
+	/** Reviewers' notes on this account's lyrics not read yet. */
+	unread_notes: number;
 }
 export interface LimusicAccountState {
 	/** There is a session: an anonymous one counts. */
@@ -1511,6 +1508,8 @@ export const limusicReview = (
 ) => invoke<string>('limusic_review', { revision, videoId, verdict, reason: reason ?? null, lines: lines ?? null });
 /** A reviewer turned down my latest version of a song, and nothing went live after it. */
 export interface LimusicRejection {
+	/** That version, which `limusicReviewRevision` still returns to its author. */
+	revision: number;
 	reason: string | null;
 	at: number | null;
 }
@@ -1520,7 +1519,7 @@ export const limusicMyRejection = (videoId: string) =>
 export interface LimusicMember {
 	handle: string;
 	avatar_url: string | null;
-	role: 'user' | 'reviewer' | 'admin';
+	role: 'user' | 'reviewer' | 'lead' | 'admin';
 	banned: boolean;
 	score: number;
 	approved: number;
@@ -1528,7 +1527,35 @@ export interface LimusicMember {
 	joined_at: number;
 	/** This is the admin looking: no controls on it. */
 	you: boolean;
+	/** How this account reviews. Null from an older service. */
+	reviews: LimusicReviewStats | null;
 }
+export interface LimusicReviewStats {
+	total: number;
+	approved: number;
+	fixed: number;
+	rejected: number;
+	taken_down: number;
+	/** Its approvals that were taken down since. */
+	overturned: number;
+	last_30_days: number;
+	last_at: number | null;
+}
+/** What a reviewer decided about my lyrics, never who. */
+export interface LimusicNote {
+	id: number;
+	revision: number;
+	video_id: string;
+	title: string;
+	artist: string;
+	verdict: 'approve' | 'reject' | 'takedown';
+	fixed: boolean;
+	reason: string | null;
+	at: number;
+	unread: boolean;
+}
+export const limusicNotes = () => invoke<LimusicNote[]>('limusic_notes');
+export const limusicNotesSeen = (last: number) => invoke<void>('limusic_notes_seen', { last });
 /** Staff then contributors with points for an empty `q`, else the handles holding it. */
 export const limusicAdminAccounts = (q: string) => invoke<LimusicMember[]>('limusic_admin_accounts', { q });
 export const limusicAdminUpdate = (handle: string, change: { role?: LimusicMember['role']; banned?: boolean }) =>
@@ -1715,8 +1742,9 @@ export interface LinkDevice {
 	playing: boolean;
 }
 export interface LinkState {
-	/** `off`: no link. `unsupported`: the server predates linking and never answered. */
-	status: 'off' | 'connecting' | 'connected' | 'unsupported';
+	/** `off`: no link. `unsupported`: a server of the user's own predates linking and never
+	 *  answered. `unreachable`: no code came back in time, the network is in the way. */
+	status: 'off' | 'connecting' | 'connected' | 'unsupported' | 'unreachable';
 	error: string | null;
 	/** The server the link was made on; empty means the default. */
 	server: string;

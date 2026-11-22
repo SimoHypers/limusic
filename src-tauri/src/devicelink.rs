@@ -27,7 +27,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::db::Db;
-use crate::listentogether::{backoff_delay, connect_ws, shareable, DEFAULT_SERVER};
+use crate::listentogether::{backoff_delay, connect_ws, shareable, stored_url, DEFAULT_SERVER};
 
 /// What the player has to do for the link. Drained by the bridge task in `lib.rs`.
 #[derive(Debug, Clone)]
@@ -100,6 +100,9 @@ const SETTING: &str = "device_link";
 
 /// How long the server gets to answer `join_link` or `pair_start`. An older server ignores both.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(5);
+/// No code this long after "Link a phone" means the server can't be reached from here: the
+/// pairing screen says so instead of pulsing forever while the socket retries (#732).
+const PAIR_DEADLINE: Duration = Duration::from_secs(20);
 /// Two missed pongs plus slack, as in Listen Together.
 const SILENCE_LIMIT: Duration = Duration::from_secs(60);
 
@@ -109,11 +112,16 @@ struct Inner {
     connecting: bool,
     /// `link_joined` arrived on the current socket.
     joined: bool,
-    /// The server never answered: it predates linking. No retry until the user tries again.
-    unsupported: bool,
+    /// Why the last pairing attempt stopped, as the UI's status: `unsupported` (a server of the
+    /// user's own never answered, so it predates linking) or `unreachable`. Cleared when the user
+    /// tries again or the server answers.
+    failed: Option<&'static str>,
     error: Option<String>,
     /// "Link a phone" was pressed and no code has come back yet.
     want_pair: bool,
+    /// When it was last pressed. Shared, so a watcher left over from a cancelled attempt times
+    /// the new one from its own press, not from the old one.
+    pair_pressed: Option<std::time::Instant>,
     /// This pairing attempt made the link, so cancelling it undoes the link too.
     pair_made_link: bool,
     /// When `pair_start` went out on the joined socket: the server's answer is timed from here.
@@ -165,7 +173,10 @@ pub struct LinkSession {
 impl LinkSession {
     pub fn new(app: AppHandle, db: Arc<Db>) -> (Arc<Self>, mpsc::UnboundedReceiver<LinkCommand>) {
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
-        let config = db.get_setting(SETTING).and_then(|s| serde_json::from_str(&s).ok());
+        let config = db
+            .get_setting(SETTING)
+            .and_then(|s| serde_json::from_str::<LinkConfig>(&s).ok())
+            .map(|c| LinkConfig { server: stored_url(c.server), ..c });
         let name = gethostname::gethostname().to_string_lossy().trim().to_string();
         let s = Arc::new(LinkSession {
             app,
@@ -310,7 +321,8 @@ impl LinkSession {
                 rand::Rng::fill(&mut rand::thread_rng(), &mut secret);
                 let config = LinkConfig {
                     secret: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(secret),
-                    server: self.db.get_setting("lt_server_url").unwrap_or_default(),
+                    // The old ts.net default is still saved on some installs: it means the default.
+                    server: stored_url(self.db.get_setting("lt_server_url").unwrap_or_default()),
                     device_id: new_device_id(),
                 };
                 self.db.set_setting(SETTING, &serde_json::to_string(&config).unwrap_or_default());
@@ -318,16 +330,17 @@ impl LinkSession {
                 inner.pair_made_link = true;
             }
             inner.want_pair = true;
+            inner.pair_pressed = Some(std::time::Instant::now());
             inner.pair = None;
             inner.error = None;
             if inner.joined {
                 inner.send(ClientMessage::PairStart);
                 inner.pair_sent = Some(std::time::Instant::now());
             }
-            // A previous attempt hit an old server and stopped: try again from scratch.
-            let start = inner.unsupported || (inner.outbound.is_none() && !inner.connecting);
-            inner.unsupported = false;
-            start
+            // Not in the room: connect now instead of waiting out a backoff (up to 32s, past the
+            // deadline below). A previous failed attempt starts again from scratch the same way.
+            inner.failed = None;
+            !inner.joined
         };
         if start {
             self.connect();
@@ -335,20 +348,29 @@ impl LinkSession {
         self.emit_state();
         // Timed from when `pair_start` reaches a joined socket, not from the press: a connect or a
         // reconnect backoff can take longer than the timeout on a server that supports linking. A
-        // server that ignores `join_link` altogether is the run loop's to catch.
+        // server that ignores `join_link` altogether is the run loop's to catch. No code at all by
+        // the deadline ends the attempt but not the socket, which keeps retrying for an existing
+        // link.
         let me = self.clone();
         tauri::async_runtime::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(1)).await;
-                let timed_out = {
-                    let inner = me.lock();
-                    if !inner.want_pair || inner.pair.is_some() || inner.unsupported {
+                let silent = {
+                    let mut inner = me.lock();
+                    if !inner.want_pair || inner.pair.is_some() || inner.failed.is_some() {
+                        return;
+                    }
+                    if inner.pair_pressed.is_some_and(|t| t.elapsed() > PAIR_DEADLINE) {
+                        inner.want_pair = false;
+                        inner.failed = Some("unreachable");
+                        drop(inner);
+                        me.emit_state();
                         return;
                     }
                     inner.joined && inner.pair_sent.is_some_and(|t| t.elapsed() > REPLY_TIMEOUT)
                 };
-                if timed_out {
-                    me.give_up_unsupported();
+                if silent {
+                    me.give_up_silent();
                     return;
                 }
             }
@@ -405,8 +427,8 @@ impl LinkSession {
         let me = inner.me();
         let status = if inner.config.is_none() {
             "off"
-        } else if inner.unsupported {
-            "unsupported"
+        } else if let Some(failed) = inner.failed {
+            failed
         } else if inner.joined {
             "connected"
         } else {
@@ -463,10 +485,14 @@ impl LinkSession {
         let _ = self.cmd_tx.send(LinkCommand::Changed);
     }
 
-    fn give_up_unsupported(&self) {
+    /// The server opened a socket and never answered: stop until the user tries again. A server
+    /// of the user's own may predate linking, but the default one doesn't, so there something on
+    /// the network swallowed the reply (a VPN, a proxy or a filter; the Discord report on 1.4.0).
+    fn give_up_silent(&self) {
         {
             let mut inner = self.lock();
-            inner.unsupported = true;
+            let custom = inner.config.as_ref().is_some_and(|c| !c.server.is_empty());
+            inner.failed = Some(if custom { "unsupported" } else { "unreachable" });
             inner.want_pair = false;
             inner.connecting = false;
             inner.joined = false;
@@ -531,7 +557,7 @@ impl LinkSession {
                     };
                     let opened = std::time::Instant::now();
                     let mut last_heard = opened;
-                    let mut unsupported = false;
+                    let mut silent = false;
                     loop {
                         let next = tokio::select! {
                             biased;
@@ -541,7 +567,7 @@ impl LinkSession {
                                     break;
                                 }
                                 if !self.lock().joined && opened.elapsed() > REPLY_TIMEOUT {
-                                    unsupported = true;
+                                    silent = true;
                                     break;
                                 }
                                 continue;
@@ -584,9 +610,9 @@ impl LinkSession {
                     if tokio::time::timeout(Duration::from_secs(2), &mut writer).await.is_err() {
                         writer.abort();
                     }
-                    if unsupported && live() {
+                    if silent && live() {
                         tracing::warn!("device link: the server doesn't answer join_link");
-                        self.give_up_unsupported();
+                        self.give_up_silent();
                         return;
                     }
                     if live() {
@@ -624,6 +650,7 @@ impl LinkSession {
                     inner.sent_status = None;
                     inner.joined = true;
                     inner.connecting = false;
+                    inner.failed = None;
                     if inner.want_pair {
                         inner.send(ClientMessage::PairStart);
                         inner.pair_sent = Some(std::time::Instant::now());
@@ -635,6 +662,8 @@ impl LinkSession {
                     });
                 }
                 ServerMessage::PairCode { code, expires_in_s } => {
+                    // Late, but here: the deadline may have passed a moment ago.
+                    inner.failed = None;
                     inner.want_pair = false;
                     inner.pair = Some((code, now_ms() + i64::from(expires_in_s) * 1000));
                 }

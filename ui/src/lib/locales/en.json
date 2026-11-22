@@ -595,6 +595,7 @@
 			"expired": "This code has expired.",
 			"new_code": "New code",
 			"unsupported": "This server doesn't support linking yet.",
+			"unreachable": "Couldn't reach the server. Check your connection, VPN or firewall, then try again.",
 			"try_again": "Try again",
 			"connecting": "Connecting…",
 			"this_computer": "This computer",
@@ -694,6 +695,8 @@
 			"tabbed_player_hint": "On, the player view carries them as tabs and the bar's two buttons switch between them. Off, those buttons only ever open the side panels, which stay open over the player view so you can see both at once.",
 			"classic_player": "Classic player layout",
 			"classic_player_hint": "The original player view: the artwork alone over a blurred copy of the cover, with the song's details left to the player bar. Off uses the new layout, with the title, artist and album under the artwork and the view lit by the cover's colors.",
+			"cover_lyric": "Lyric line under the artwork",
+			"cover_lyric_hint": "Shows the line being sung between the artwork and the song's title, for songs with synced lyrics. Clicking it opens the lyrics. New layout only.",
 			"cover_lyric_romanized": "Romanized lyric under the artwork",
 			"cover_lyric_romanized_hint": "The lyric line under the artwork shows the romanization instead of the original script, for songs that have one. The lyrics tab keeps its own Romanized switch. New layout only.",
 			"artwork_background": "Artwork background",
@@ -1548,7 +1551,8 @@
 		"err_unavailable": "Your draft is saved. Try again in a moment.",
 		"rejected_title": "A reviewer turned down your last version",
 		"rejected_reason": "Their reason: \"{reason}\". You can fix it and send it again.",
-		"rejected_no_reason": "They didn't give a reason. You can fix it and send it again."
+		"rejected_no_reason": "They didn't give a reason. You can fix it and send it again.",
+		"rejected_open": "Open my version"
 	},
 	"limusic": {
 		"none_title": "No account needed",
@@ -1589,7 +1593,20 @@
 		"signin_failed": "The sign-in didn't work. Start it again.",
 		"signin_rate_limited": "Too many attempts. Try again later.",
 		"session_ended": "You were signed out of your Limusic account. Link it again to get your name back.",
-		"unreachable": "Limusic Lyrics couldn't be reached."
+		"unreachable": "Limusic Lyrics couldn't be reached.",
+		"notes_toast_one": "A reviewer left you a note about your lyrics",
+		"notes_toast": "{count} new notes from reviewers about your lyrics",
+		"notes_view": "View",
+		"notes_unread": "New notes from reviewers",
+		"notes_title": "From reviewers",
+		"notes_hint": "What reviewers decided about your lyrics. Their names aren't shown.",
+		"note_fixed": "Fixed, then approved",
+		"note_approved": "Approved",
+		"note_rejected": "Rejected",
+		"note_taken_down": "Taken down",
+		"note_quote": "“{reason}”",
+		"note_fixed_silent": "A reviewer fixed it before approving it.",
+		"note_no_reason": "No reason given."
 	},
 	"review": {
 		"title": "Review lyrics",
@@ -1665,7 +1682,15 @@
 		"preset_timing": "The timing is off",
 		"preset_words": "Some words are wrong",
 		"preset_missing": "Lines are missing",
-		"preset_wrong_song": "These are lyrics for a different song"
+		"preset_wrong_song": "These are lyrics for a different song",
+		"note_for": "Note for {handle}",
+		"note_for_anonymous": "Note for the author",
+		"note_placeholder": "What you changed, so they get it right next time",
+		"note_hint": "Optional. They see it under Settings, Contributing, without your name. Left empty, they only learn that a reviewer fixed it.",
+		"note_preset_timing": "Timing adjusted",
+		"note_preset_bg": "Background vocals marked",
+		"note_preset_spelling": "Spelling follows the official lyrics",
+		"note_preset_split": "Long lines split"
 	},
 	"team": {
 		"title": "Lyrics team",
@@ -1695,13 +1720,25 @@
 		"role_set": "{handle} is now {role}.",
 		"banned_toast": "{handle} is banned.",
 		"unbanned_toast": "{handle} is no longer banned.",
-		"not_allowed_title": "This page is for admins",
-		"not_allowed": "Only admins can change who reviews.",
+		"not_allowed_title": "This page is for admins and review leads",
+		"not_allowed": "Only admins and review leads can change who reviews.",
 		"err_forbidden": "Your account can't manage the team.",
 		"err_own": "You can't change your own role or ban yourself.",
 		"err_gone": "That account no longer exists.",
 		"settings_hint": "Choose who reviews lyrics",
-		"settings_open": "Lyrics team"
+		"settings_open": "Lyrics team",
+		"role_lead": "Review lead",
+		"subtitle_lead": "You can make and remove reviewers",
+		"stat_reviewed": "Reviewed",
+		"stat_30_days": "30 days",
+		"stat_approved": "Approved",
+		"stat_fixed": "Fixed",
+		"stat_rejected": "Rejected",
+		"stat_taken_down": "Taken down",
+		"stat_overturned": "Overturned",
+		"stat_overturned_hint": "Approvals that were taken down later",
+		"stat_last": "Last review",
+		"stat_never": "Never"
 	},
 	"queue": {
 		"title": "Queue"

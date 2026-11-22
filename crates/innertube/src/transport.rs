@@ -104,6 +104,10 @@ pub struct Session {
     pub data_sync_id: Option<String>,
     /// Full cookie string (Phase 3). Present ⇒ authenticated requests possible.
     pub cookie: Option<String>,
+    /// The `data_sync_id` of a brand channel and its `pageId`, in that order: the
+    /// watch-history ping names the channel with it (#736). Only sent while `data_sync_id` still
+    /// is that id, so a rollback or a switch that never set it can't send a stale channel.
+    pub page_id: Option<(String, String)>,
 }
 
 impl Session {
@@ -344,6 +348,21 @@ impl InnerTube {
 
     pub fn data_sync_id(&self) -> Option<String> {
         self.session.read().unwrap().data_sync_id.clone()
+    }
+
+    /// A brand channel's `(data_sync_id, pageId)`. `None` for a Google account's own channel,
+    /// which has no page id. See [`Session::page_id`].
+    pub fn set_page_id(&self, page: Option<(String, String)>) {
+        self.session.write().unwrap().page_id = page;
+    }
+
+    /// The selected brand channel's `pageId`, if there is one and it belongs to the identity
+    /// requests are being made as right now.
+    fn brand_page_id(&self) -> Option<String> {
+        let s = self.session.read().unwrap();
+        s.cookie.as_ref()?;
+        let (dsid, page_id) = s.page_id.as_ref()?;
+        (s.data_sync_id.as_ref() == Some(dsid)).then(|| page_id.clone())
     }
 
     /// Who is signed in, for comment tokens that must not cross accounts or channels: a hash of
@@ -645,8 +664,21 @@ impl InnerTube {
         cpn: &str,
         playlist_id: Option<&str>,
     ) -> Result<(), Error> {
-        let url = build_playback_url(base_url, &client.client_name, cpn, playlist_id);
-        let headers = self.headers(client, true);
+        let mut url = build_playback_url(base_url, &client.client_name, cpn, playlist_id);
+        let mut headers = self.headers(client, true);
+        // A GET has no body, so the `onBehalfOfUser` that delegates every POST to a brand channel
+        // never reaches the ping, and the play never shows in that channel's history. The Android
+        // app, whose brand plays do register, names the channel in
+        // `X-Goog-PageId` and pings music.youtube.com instead of s.youtube.com; this sends that
+        // same request. A Google account's own channel keeps the request it always had (#736).
+        if let Some(page_id) = self.brand_page_id().filter(|_| client.login_supported) {
+            if let Ok(v) = HeaderValue::from_str(&page_id) {
+                headers.insert(HeaderName::from_static("x-goog-pageid"), v);
+            }
+            if let Some(rest) = url.strip_prefix("https://s.youtube.com/") {
+                url = format!("{ORIGIN}/{rest}");
+            }
+        }
         let resp = self.http.get(&url).headers(headers).send().await?.error_for_status()?;
         self.absorb_cookies(resp.headers());
         Ok(())
@@ -1166,6 +1198,30 @@ mod tests {
         let mut it = InnerTube::new(session, None).unwrap();
         it.set_base_url(&server.base_url);
         it
+    }
+
+    /// #736: the ping names a brand channel in `X-Goog-PageId`, and only while requests are being
+    /// made as that channel. A Google account's own channel (no page id) sends none.
+    #[tokio::test]
+    async fn the_watch_history_ping_names_the_brand_channel_it_was_issued_for() {
+        let server = crate::test_server::MockServer::start(|_| (204, String::new()));
+        let it = signed_in_against(&server);
+        let clients = crate::clients::Clients::bundled();
+        let web = clients.get(crate::clients::METADATA_CLIENT).unwrap();
+        let ping = format!("{}api/stats/playback?docid=x", server.base_url);
+        let sent_page_id = || async {
+            it.register_playback(web, &ping, "cpn", None).await.unwrap();
+            server.requests().last().unwrap().header("x-goog-pageid").map(str::to_owned)
+        };
+
+        assert_eq!(sent_page_id().await, None, "own channel: no page id");
+        it.set_page_id(Some(("fixture-dsid".into(), "brand-page".into())));
+        assert_eq!(sent_page_id().await.as_deref(), Some("brand-page"));
+        it.set_data_sync_id(Some("another-channel".into()));
+        assert_eq!(sent_page_id().await, None, "a page id never travels with another channel");
+        it.set_cookie(None);
+        it.set_data_sync_id(Some("fixture-dsid".into()));
+        assert_eq!(sent_page_id().await, None, "nor without the cookie");
     }
 
     /// The point of `post_no_heal`: a refusal comes back to the caller, and the healer (which

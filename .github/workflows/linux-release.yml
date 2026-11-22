@@ -14,6 +14,13 @@ name: Linux release binaries
 # Ubuntu and would silently reintroduce exactly the bug this workflow exists to fix. The
 # "Check the glibc floor" step below fails the build if someone does it anyway.
 #
+# Older is not safe either. 1.4.1 was built in debian:bookworm (glibc 2.36) and its AppImage died
+# on Fedora the moment a color emoji was drawn: the bundled WebKit's Skia is compiled against the
+# build host's FreeType headers, but the AppImage runs on the host's libfreetype (it is on the
+# AppImage exclude list). Bookworm has FreeType 2.12, where FT_ColorStop is 6 bytes; 2.13 widened
+# it to 16, so a 2.13+ host overwrote Skia's stack on every COLRv1 gradient glyph (Fedora's default
+# emoji font is COLRv1). A build host whose FreeType predates its users' breaks the AppImage.
+#
 # The .deb is here for exactly the same reason, and needs it more. Tauri writes a deb's Depends
 # verbatim from tauri.conf.json and never runs dpkg-shlibdeps, so nothing in the package records a
 # glibc floor at all: a Fedora-built deb installs cleanly on Debian and then dies at startup on a

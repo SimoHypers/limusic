@@ -12,7 +12,7 @@
 	import { browser } from '$app/environment';
 	import { afterNavigate } from '$app/navigation';
 	import { cancelRestore, restoreTo } from '$lib/scrollrestore';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
@@ -54,8 +54,8 @@
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import KeyboardShortcuts from '$lib/components/KeyboardShortcuts.svelte';
 	import { Button } from '$lib/components/ui/button';
-	import { auth, initApp, np, playback, prefs, ui } from '$lib/player.svelte';
-	import { isLocalId, setWebviewOpaque } from '$lib/api';
+	import { auth, initApp, np, pageCover, playback, prefs, ui } from '$lib/player.svelte';
+	import { isLocalId } from '$lib/api';
 	import { video } from '$lib/video.svelte';
 	import { initWin, windowCorners } from '$lib/win.svelte';
 	import { initZoom } from '$lib/zoom.svelte';
@@ -77,13 +77,42 @@
 	// covers every route that scrolls `<main>` (`$lib/scrollrestore`); /playlist/[id] scrolls its
 	// own container and exports a snapshot of its own.
 	let scroller = $state<HTMLElement | null>(null);
+	/** Scroll offsets inside the page while it is out of rendering (below). */
+	let parked: [Element, number, number][] | null = null;
 	export const snapshot = {
-		capture: () => (scroller ? scroller.scrollTop : null),
+		capture: () =>
+			scroller ? (parked?.find(([el]) => el === scroller)?.[1] ?? scroller.scrollTop) : null,
 		restore: (y: unknown) => {
 			if (!scroller || typeof y !== 'number') return;
 			restoreTo(scroller, y);
 		}
 	};
+	// The page under the player view or theater is out of rendering while one of them covers it.
+	// Left in, it paid for every restyle nobody could see: a song change restyles the document, and
+	// with Home under the player view it took twice the main-thread time it does without
+	// (docs/UI-PERFORMANCE.md), which is what showed up as a hitch in a game on another monitor.
+	// display:none forgets every scroll offset inside, so the scrolled elements are parked and put
+	// back. Both views close on navigation; `snapshot.capture` reads the parked offset all the same.
+	$effect(() => {
+		const covered = pageCover.player || pageCover.theater;
+		untrack(() => {
+			const main = scroller;
+			if (!main || covered === (parked !== null)) return;
+			if (covered) {
+				parked = [main, ...main.querySelectorAll('*')]
+					.filter((el) => el.scrollTop || el.scrollLeft)
+					.map((el) => [el, el.scrollTop, el.scrollLeft]);
+				main.style.display = 'none';
+			} else {
+				main.style.display = '';
+				for (const [el, top, left] of parked!) {
+					el.scrollTop = top;
+					el.scrollLeft = left;
+				}
+				parked = null;
+			}
+		});
+	});
 	afterNavigate((nav) => {
 		if (!scroller || !nav.to) return;
 		// Kit invokes snapshot.restore after afterNavigate on its own, so back/forward needs
@@ -154,17 +183,6 @@
 	// what tells the two apart: `mini` gets the widget instead of the app chrome, and none of the
 	// routes below it are ever rendered. Constant for the window's lifetime.
 	const isMini = browser && getCurrentWindow().label === 'mini';
-
-	// Linux: the webview keeps an alpha channel so the desktop shows where the page paints nothing,
-	// and GTK pays for that channel on every frame (lib.rs `set_webview_opaque`, 3.2 ms a frame
-	// against 1.1). The page only leaves pixels empty at the corners it rounds and in the box mpv
-	// draws a music video under, so the channel goes while neither is up: maximized, theater mode,
-	// a system frame. Going back is not awaited: when the window un-maximizes, its corners are
-	// black for the frame or two the call takes to land.
-	$effect(() => {
-		if (isMini) return;
-		setWebviewOpaque(windowCorners() === '' && !video.hole).catch(() => {});
-	});
 
 	// Apply the saved accent color before the first paint (ssr=false → nothing renders until now).
 	if (browser) initTheme();
@@ -402,6 +420,20 @@
 					/>
 				{/if}
 				{t.msg}
+				{#if t.action}
+					{@const action = t.action}
+					<Button
+						size="sm"
+						variant="outline"
+						class="-my-1 ml-1 h-7"
+						onclick={() => {
+							ui.toast = null;
+							action.run();
+						}}
+					>
+						{action.label}
+					</Button>
+				{/if}
 			</div>
 		</div>
 	{/if}

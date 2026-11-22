@@ -163,6 +163,9 @@
 	/** A reviewer fixing a submission before approving it (Fix before approving, on the review
 	 *  page): its lines are the start, and sending is the approval. Only for the song it is about. */
 	const fixing = limusic.fixing && track && limusic.fixing.videoId === track.videoId ? $state.snapshot(limusic.fixing) : null;
+	/** What the reviewer tells the author about the fix, sent with the approval. */
+	let fixNote = $state('');
+	const NOTE_PRESETS = ['review.note_preset_timing', 'review.note_preset_bg', 'review.note_preset_spelling', 'review.note_preset_split'] as const;
 	/** Why a reviewer turned down my last version of this song, said once at the top. */
 	let rejection = $state<api.LimusicRejection | null>(null);
 
@@ -314,6 +317,23 @@
 		if (!file) return;
 		if (file.size > 1024 * 1024) return toast.error(t('lyrics_editor.too_large'));
 		importText(await file.text());
+	}
+
+	/** The version a reviewer turned down, back on the stage to fix. Sending had cleared the draft,
+	 *  so the service's copy is the only one. It goes on top of what is live, like any start. */
+	let reopening = $state(false);
+	async function reopen() {
+		if (!rejection || reopening) return;
+		reopening = true;
+		try {
+			const rev = await api.limusicReviewRevision(rejection.revision);
+			// Started from something else, or left, while it was on its way.
+			if (alive && mode === 'start') begin(fromLyrics(rev.lyrics?.lines ?? []), false);
+		} catch {
+			toast.error(t('lyrics_editor.start_failed'));
+		} finally {
+			reopening = false;
+		}
 	}
 
 	let discardOpen = $state(false);
@@ -737,7 +757,7 @@
 		commitField();
 		submitting = true;
 		try {
-			await api.limusicReview(fixing.revision, fixing.videoId, 'approve', undefined, buildLines(lines));
+			await api.limusicReview(fixing.revision, fixing.videoId, 'approve', fixNote.trim() || undefined, buildLines(lines));
 			toast.success(t('review.approved_fixed'));
 			// Left while it was on its way: wherever the reviewer is now is not ours to move.
 			if (!alive) return;
@@ -817,8 +837,9 @@
 	});
 
 	// --- Keys -----------------------------------------------------------------------------------
-	// None of these collide with the app's own: every global shortcut but Space and `;` hangs off
-	// Ctrl or Cmd, and Space stays play/pause here.
+	// Unmodified, only ↑ / ↓ collide with the app's own keys (volume). This listens on the document,
+	// which a keydown reaches before the window, so it takes them first and the app-wide handler sees
+	// them already handled. Space stays play/pause here.
 	function onKey(e: KeyboardEvent) {
 		if (mode !== 'edit' || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
 		if (celebrate && e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
@@ -879,11 +900,11 @@
 			visible = v;
 			if (!v) flush();
 		});
-		window.addEventListener('keydown', onKey);
+		document.addEventListener('keydown', onKey);
 		window.addEventListener('pagehide', flush);
 		return () => {
 			unVisible.then((u) => u());
-			window.removeEventListener('keydown', onKey);
+			document.removeEventListener('keydown', onKey);
 			window.removeEventListener('pagehide', flush);
 		};
 	});
@@ -1082,6 +1103,31 @@
 				title={fixing.author ? t('review.fixing_title', { handle: fixing.author }) : t('review.fixing_title_anonymous')}
 				body={t('review.fixing_body')}
 			/>
+			<!-- What the author reads about it, in Settings, without the reviewer's name. -->
+			<div class="mt-2 flex flex-col gap-2 rounded-xl border bg-card px-3.5 py-3">
+				<label class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+					<span class="text-sm font-semibold">{fixing.author ? t('review.note_for', { handle: fixing.author }) : t('review.note_for_anonymous')}</span>
+					<input
+						bind:value={fixNote}
+						maxlength="300"
+						placeholder={t('review.note_placeholder')}
+						class="min-w-48 flex-1 border-b border-border bg-transparent py-1 text-sm outline-none focus:border-primary"
+						onkeydown={(e) => (e.key === 'Enter' || e.key === 'Escape') && e.currentTarget.blur()}
+					/>
+				</label>
+				<div class="flex flex-wrap items-center gap-1.5">
+					{#each NOTE_PRESETS as key (key)}
+						<button
+							type="button"
+							class="h-7 cursor-pointer rounded-full border px-3 text-xs font-medium hover:bg-muted {fixNote === t(key) ? 'border-primary bg-primary/12' : ''}"
+							onclick={() => (fixNote = fixNote === t(key) ? '' : t(key))}
+						>
+							{t(key)}
+						</button>
+					{/each}
+				</div>
+				<p class="text-[12.5px] text-muted-foreground">{t('review.note_hint')}</p>
+			</div>
 		</div>
 	{:else if rejection && mode !== 'preview'}
 		<div class="px-6 pb-3">
@@ -1092,6 +1138,9 @@
 			>
 				{#snippet actions()}
 					<Button size="sm" variant="ghost" onclick={() => (rejection = null)}>{t('common.close')}</Button>
+					{#if mode === 'start'}
+						<Button size="sm" variant="outline" disabled={reopening} onclick={reopen}>{t('lyrics_editor.rejected_open')}</Button>
+					{/if}
 				{/snippet}
 			</LimusicNotice>
 		</div>

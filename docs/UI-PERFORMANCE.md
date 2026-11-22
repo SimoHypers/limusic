@@ -63,6 +63,17 @@ ms to 50 ms) and going back to Home went from 600-700 ms to about 400. Lists do 
 so an edit can slide them, and with 150 that makes opening the player view one 281-291 ms block
 on WebKitGTK (98-104 ms windowed) and about 800 ms on Chromium at 6x.
 
+**A view that covers the page takes the page out of rendering.** The player view and theater mode
+sit over `<main>`, and the page under them was still restyled whenever the document was, on every
+song change included (the artwork accent writes custom properties on `<html>`), for nobody to see.
+`+layout.svelte` sets `<main>` to `display: none` once either view's fly or fade in is done, parks
+every scroll offset inside it, and puts both back as the view starts to leave. WebKitGTK 2.54, the
+player view open over Home with a 192-song queue: a simulated song change went from about 210 ms of
+main thread to about 135, one artwork accent restyle from 140-184 ms to 87, and the view sitting
+open from 87 ms per 2 s to 24. Closing the view pays the rebuild instead, its first frame 98 ms to
+139. `content-visibility: hidden` is no substitute: WebKitGTK still resolves style under it, 157-160
+ms against 140-159 with the page shown.
+
 **Something that appears on hover goes to `shown`, never `opacity-100`.** Write
 `opacity-0 group-hover:shown`. WebKit gives an element below full opacity a layer of its own, and
 the style change that creates or destroys that layer asks for a layout, which runs from the
@@ -193,9 +204,16 @@ frame:
 
 The alpha channel is the Wayland cost: with it, GTK uploads its own drawing of the whole window as
 a second texture to blend the webview over, every frame. The window is transparent so the page can
-round its corners and leave a hole for mpv's picture, so the layout asks for an opaque webview
-whenever neither is up (maximized, theater mode, a system frame: `set_webview_opaque`,
-`routes/+layout.svelte`). A window that is not maximized still pays. Rounding it in GTK instead
+round its corners and leave a hole for mpv's picture. 1.4.0 dropped the alpha channel whenever
+neither was up (maximized, theater mode, a system frame) by giving the webview an opaque
+background, and 1.4.1 took that back out: it had only ever been measured on NVIDIA. An opaque
+background is not a free switch: WebKit moves its swap chain to a buffer format without alpha and
+stops clearing it each frame, so test it on Intel or AMD before trying it again. Where GTK has no
+GL, 2.54 cannot draw the transparent window at all (#728): WebKit turns acceleration off and draws
+only what changed, so the rest of the window is see-through. There the webview is made opaque from
+the start (`opaque_without_gl` in `lib.rs`; `GDK_GL=disable` reproduces it). Before that, on
+Wayland, the app starts itself again on XWayland, where GTK gets GL through GLX instead
+(`relaunch_on_x11`): painting on the CPU makes every hover lag at full HD. Rounding it in GTK instead
 (clip the toplevel's `draw` to a region of pixel rows, which keeps the texture on its direct path)
 measured 1.8 ms at 1900x1000, but the edge is stepped unless GTK also paints an anti-aliased fringe
 in the theme's colour; not built.

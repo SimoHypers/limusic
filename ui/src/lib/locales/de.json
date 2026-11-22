@@ -519,8 +519,6 @@
 			"videos_first_hint": "Lieder eines Albums, die ein Musikvideo haben, starten als Video. Schalte dies aus um mit dem Lied zu starten. Der Lied/Video Schalter im Player wechselt sowieso zwischen ihnen."
 		},
 		"data": {
-			"clear_cache": "Bild- und Stream-Cache leeren",
-			"clear_cache_hint": "Gibt Speicherplatz frei, indem zwischengespeicherte Thumbnails und Audiodaten gelöscht werden.",
 			"clear_cache_button": "Cache jetzt leeren"
 		},
 		"about": {

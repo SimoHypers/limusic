@@ -1,20 +1,27 @@
 // Catalogs are plain JSON so Weblate can read and write them directly; see CONTRIBUTING.md.
 // English is the source of truth and the only complete one: `t()` falls back to it per key, so a
 // half-finished catalog renders English for what it is missing rather than a raw key.
+import bg from './bg.json';
+import cs from './cs.json';
 import de from './de.json';
 import en from './en.json';
 import es from './es.json';
+import et from './et.json';
 import fr from './fr.json';
 import hu from './hu.json';
 import id from './id.json';
 import it from './it.json';
 import ja from './ja.json';
 import ko from './ko.json';
+import ml from './ml.json';
 import pl from './pl.json';
+import ptPT from './pt.json';
 import ptBR from './pt_BR.json';
 import ro from './ro.json';
 import ru from './ru.json';
+import sq from './sq.json';
 import ta from './ta.json';
+import th from './th.json';
 import tr from './tr.json';
 import uk from './uk.json';
 import vi from './vi.json';
@@ -31,6 +38,7 @@ export type LocaleId =
 	| 'es'
 	| 'fr'
 	| 'tr'
+	| 'pt-PT'
 	| 'pt-BR'
 	| 'id'
 	| 'ro'
@@ -45,7 +53,13 @@ export type LocaleId =
 	| 'vi'
 	| 'zh-Hans'
 	| 'ta'
-	| 'hu';
+	| 'hu'
+	| 'ml'
+	| 'cs'
+	| 'sq'
+	| 'et'
+	| 'th'
+	| 'bg';
 
 export interface LocaleInfo {
 	id: LocaleId;
@@ -62,19 +76,26 @@ export interface LocaleInfo {
 
 export const LOCALES: LocaleInfo[] = [
 	{ id: 'en', nativeLabel: 'English', englishLabel: 'English' },
+	{ id: 'bg', nativeLabel: 'Български', englishLabel: 'Bulgarian' },
+	{ id: 'cs', nativeLabel: 'Čeština', englishLabel: 'Czech' },
 	{ id: 'de', nativeLabel: 'Deutsch', englishLabel: 'German' },
 	{ id: 'es', nativeLabel: 'Español', englishLabel: 'Spanish' },
+	{ id: 'et', nativeLabel: 'Eesti', englishLabel: 'Estonian' },
 	{ id: 'fr', nativeLabel: 'Français', englishLabel: 'French' },
 	{ id: 'hu', nativeLabel: 'Magyar', englishLabel: 'Hungarian' },
 	{ id: 'id', nativeLabel: 'Bahasa Indonesia', englishLabel: 'Indonesian' },
 	{ id: 'it', nativeLabel: 'Italiano', englishLabel: 'Italian' },
 	{ id: 'ja', nativeLabel: '日本語', englishLabel: 'Japanese' },
 	{ id: 'ko', nativeLabel: '한국어', englishLabel: 'Korean' },
+	{ id: 'ml', nativeLabel: 'മലയാളം', englishLabel: 'Malayalam' },
 	{ id: 'pl', nativeLabel: 'Polski', englishLabel: 'Polish' },
 	{ id: 'pt-BR', nativeLabel: 'Português (Brasil)', englishLabel: 'Portuguese (Brazil)' },
+	{ id: 'pt-PT', nativeLabel: 'Português (Portugal)', englishLabel: 'Portuguese (Portugal)' },
 	{ id: 'ro', nativeLabel: 'Română', englishLabel: 'Romanian' },
 	{ id: 'ru', nativeLabel: 'Русский', englishLabel: 'Russian' },
+	{ id: 'sq', nativeLabel: 'Shqip', englishLabel: 'Albanian' },
 	{ id: 'ta', nativeLabel: 'தமிழ்', englishLabel: 'Tamil' },
+	{ id: 'th', nativeLabel: 'ภาษาไทย', englishLabel: 'Thai' },
 	{ id: 'tr', nativeLabel: 'Türkçe', englishLabel: 'Turkish' },
 	{ id: 'uk', nativeLabel: 'Українська', englishLabel: 'Ukrainian' },
 	{ id: 'vi', nativeLabel: 'Tiếng Việt', englishLabel: 'Vietnamese' },
@@ -93,6 +114,7 @@ export const translations: Record<LocaleId, DeepPartial<Translations>> = {
 	es,
 	fr,
 	tr,
+	'pt-PT': ptPT,
 	'pt-BR': ptBR,
 	id,
 	ro,
@@ -107,5 +129,11 @@ export const translations: Record<LocaleId, DeepPartial<Translations>> = {
 	vi,
 	'zh-Hans': zhHans,
 	ta,
-	hu
+	hu,
+	ml,
+	cs,
+	sq,
+	et,
+	th,
+	bg
 };

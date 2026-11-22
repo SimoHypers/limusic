@@ -70,6 +70,7 @@ const BY_TITLE: &[(&str, &[&str])] = &[
             "빠른 선곡",           // ko
             "Szybki wybór",        // pl
             "Escolha a dedo",      // pt-BR
+            "Escolhas rápidas",    // pt-PT
             "Selecții rapide",     // ro
             "Рекомендуем",         // ru
             "விரைவுத் தேர்வுகள்",     // ta
@@ -305,6 +306,7 @@ mod tests {
         assert_eq!(kind("Schnellauswahl", None), Some("quick_picks"));
         assert_eq!(kind("  quick PICKS ", None), Some("quick_picks"));
         assert_eq!(kind("Song mixes", None), Some("quick_picks"));
+        assert_eq!(kind("Escolhas rápidas", None), Some("quick_picks"));
         assert_eq!(kind("Gemeinsam anhören", None), Some("listen_together"));
         assert_eq!(kind("Indila", None), None);
     }

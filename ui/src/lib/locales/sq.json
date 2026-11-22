@@ -649,8 +649,6 @@
 			"action_show_app_hint": "Sill dritaren e Limusic në plan të parë."
 		},
 		"data": {
-			"clear_cache": "Pastro kujtesën e përkohshme të imazheve dhe transmetimit",
-			"clear_cache_hint": "Liron hapësirë në disk duke fshirë miniaturat dhe copëzat e skedarëve audio të ruajtur.",
 			"clear_cache_button": "Pastro memorien e përkohshme tani"
 		},
 		"about": {

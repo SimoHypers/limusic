@@ -649,8 +649,6 @@
 			"action_show_app_hint": "Přenést okno aplikace Limusic do popředí."
 		},
 		"data": {
-			"clear_cache": "Vymazat mezipaměť obrázků a streamů",
-			"clear_cache_hint": "Uvolní místo na disku smazáním uložených miniatur a částí zvuku.",
 			"clear_cache_button": "Vymazat mezipaměť"
 		},
 		"about": {
