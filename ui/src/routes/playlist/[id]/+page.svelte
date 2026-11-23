@@ -1282,6 +1282,15 @@
 								{preparing || resorting ? t('common.sorting') : t('player.play')}
 							</Button>
 							<Button
+								variant="outline"
+								class="gap-2"
+								onclick={shufflePlay}
+								disabled={!pl.items.length || preparing || resorting}
+							>
+								<HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" />
+								{t('common.shuffle')}
+							</Button>
+							<Button
 								variant="ghost"
 								size="icon"
 								aria-label={t('a11y.playlist_options')}
