@@ -21,6 +21,7 @@ import { appearance } from './theme.svelte';
 import { currentLocale, pushLocaleToRust, t } from './i18n.svelte';
 import { friendlyNetError, isUnreachable } from './neterr';
 import { whenBackOnline } from './reconnect';
+import { newBlockedArtists } from './blocked';
 import { parseScrobbleConfig } from './scrobble';
 
 export const playback = $state({
@@ -771,6 +772,15 @@ export async function unblockArtist(entry: api.BlockedArtist) {
 	} catch (e) {
 		toast(String(e));
 	}
+}
+
+/** Add new entries from an imported blocked-artists JSON list and return how many were added. */
+export async function importBlockedArtists(entries: api.BlockedArtist[]): Promise<number> {
+	const toAdd = newBlockedArtists(entries, blocked.artists);
+	for (const entry of toAdd) {
+		blocked.artists = await api.blockArtist(entry.id, entry.name);
+	}
+	return toAdd.length;
 }
 
 // --- Personalization: the Shortcuts grid, sidebar pins, play recency (see personal.ts) ----------

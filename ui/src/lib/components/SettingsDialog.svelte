@@ -15,6 +15,8 @@
 		KeyboardIcon,
 		Cancel01Icon as RemoveIcon,
 		Copy01Icon,
+		FileExportIcon,
+		FileImportIcon,
 		Coffee02Icon,
 		DiscordIcon,
 		LastFmIcon,
@@ -38,7 +40,8 @@
 	import { HELP_COMBO, IS_MAC } from '$lib/shortcuts';
 	import { copyText } from '$lib/clipboard';
 	import * as api from '$lib/api';
-	import { blocked, karaokeAvailability, karaokeConsent, karaokeModels, karaokeSelection, cancelKaraokeModelDownload, deleteKaraokeModel, playback, prefs, refreshLanguage, setAutoplay, ui, toast, unblockArtist, setKaraokeDevice, applyKaraokeStatus, chooseKaraokeModel, refreshKaraokeModels } from '$lib/player.svelte';
+	import { blocked, importBlockedArtists, karaokeAvailability, karaokeConsent, karaokeModels, karaokeSelection, cancelKaraokeModelDownload, deleteKaraokeModel, playback, prefs, refreshLanguage, setAutoplay, ui, toast, unblockArtist, setKaraokeDevice, applyKaraokeStatus, chooseKaraokeModel, refreshKaraokeModels } from '$lib/player.svelte';
+	import { parseBlockedArtists } from '$lib/blocked';
 	import { win } from '$lib/win.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import AppearanceSettings from '$lib/components/AppearanceSettings.svelte';
@@ -107,6 +110,7 @@
 	/// truncated, only collapsed: a long one would otherwise push Lyrics and Advanced off the tab.
 	const BLOCKED_PREVIEW = 5;
 	let showAllBlocked = $state(false);
+	let blockedFileInput = $state<HTMLInputElement | null>(null);
 	/// Export: the stored value verbatim, so it can be pasted into another player or back into a
 	/// fresh install. No file format for a list of a dozen names.
 	async function copyBlocked() {
@@ -115,6 +119,39 @@
 			toast(t('toasts.blocked_copied', { count: blocked.artists.length }));
 		} catch {
 			toast(t('toasts.could_not_copy_link'));
+		}
+	}
+	function exportBlocked() {
+		const blob = new Blob([JSON.stringify(blocked.artists, null, 2)], { type: 'application/json' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = 'limusic-blocked-artists.json';
+		a.click();
+		URL.revokeObjectURL(url);
+		toast.success(t('toasts.blocked_exported', { count: blocked.artists.length }));
+	}
+	async function importBlockedFile(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = '';
+		if (!file) return;
+		if (file.size > 1024 * 1024) {
+			toast.error(t('toasts.blocked_import_invalid'));
+			return;
+		}
+		const parsed = parseBlockedArtists(await file.text());
+		if (!parsed) {
+			toast.error(t('toasts.blocked_import_invalid'));
+			return;
+		}
+		try {
+			const added = await importBlockedArtists(parsed);
+			if (added === 0) toast(t('toasts.blocked_imported_none'));
+			else if (added === 1) toast.success(t('toasts.blocked_imported_one'));
+			else toast.success(t('toasts.blocked_imported', { count: added }));
+		} catch (err) {
+			toast.error(String(err));
 		}
 	}
 	let loaded = $state(false);
@@ -1558,10 +1595,23 @@
 {/snippet}
 
 {#snippet blockedList()}
+	<input
+		bind:this={blockedFileInput}
+		type="file"
+		accept=".json,application/json"
+		class="hidden"
+		onchange={importBlockedFile}
+	/>
 	{#if !blocked.artists.length}
-		<p class="text-xs leading-relaxed text-muted-foreground">
-			{t('settings.playback.blocked_artists_empty')}
-		</p>
+		<div class="flex flex-wrap items-center justify-between gap-2">
+			<p class="text-xs leading-relaxed text-muted-foreground">
+				{t('settings.playback.blocked_artists_empty')}
+			</p>
+			<Button variant="ghost" size="sm" class="h-7 gap-1.5 px-2 text-xs" onclick={() => blockedFileInput?.click()}>
+				<HugeiconsIcon icon={FileImportIcon} class="h-3.5 w-3.5" />
+				{t('settings.playback.blocked_artists_import')}
+			</Button>
+		</div>
 	{:else}
 		<div class="flex flex-col gap-2">
 			{#each showAllBlocked ? blocked.artists : blocked.artists.slice(0, BLOCKED_PREVIEW) as entry (entry.id ?? entry.name)}
@@ -1579,7 +1629,7 @@
 				</div>
 			{/each}
 		</div>
-		<div class="mt-2 flex items-center gap-1">
+		<div class="mt-2 flex flex-wrap items-center gap-1">
 			{#if blocked.artists.length > BLOCKED_PREVIEW}
 				<Button
 					variant="ghost"
@@ -1592,10 +1642,20 @@
 						: t('settings.playback.blocked_artists_show_all', { count: blocked.artists.length })}
 				</Button>
 			{/if}
-			<Button variant="ghost" size="sm" class="ml-auto h-7 gap-1.5 px-2 text-xs" onclick={copyBlocked}>
-				<HugeiconsIcon icon={Copy01Icon} class="h-3.5 w-3.5" />
-				{t('settings.playback.blocked_artists_copy')}
-			</Button>
+			<div class="ml-auto flex items-center gap-1">
+				<Button variant="ghost" size="sm" class="h-7 gap-1.5 px-2 text-xs" onclick={() => blockedFileInput?.click()}>
+					<HugeiconsIcon icon={FileImportIcon} class="h-3.5 w-3.5" />
+					{t('settings.playback.blocked_artists_import')}
+				</Button>
+				<Button variant="ghost" size="sm" class="h-7 gap-1.5 px-2 text-xs" onclick={exportBlocked}>
+					<HugeiconsIcon icon={FileExportIcon} class="h-3.5 w-3.5" />
+					{t('settings.playback.blocked_artists_export')}
+				</Button>
+				<Button variant="ghost" size="sm" class="h-7 gap-1.5 px-2 text-xs" onclick={copyBlocked}>
+					<HugeiconsIcon icon={Copy01Icon} class="h-3.5 w-3.5" />
+					{t('settings.playback.blocked_artists_copy')}
+				</Button>
+			</div>
 		</div>
 	{/if}
 {/snippet}
