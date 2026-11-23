@@ -37,6 +37,7 @@ import {
 	splitLine,
 	startVoice,
 	stampTap,
+	timeAtFraction,
 	toggleBg,
 	twoVoices,
 	unpackDraft,
@@ -295,6 +296,13 @@ ok(same(loopStep(range, 9000, 1, 150), { wake: 250 }), 'right after a seek the o
 	// A 4 s range at 0.75x is 5.33 s a pass (plus the landing): three wraps in 20 s.
 	ok(seeks === 3, `one seek per pass, got ${seeks}`);
 }
+
+ok(timeAtFraction(range, 0, 10_000) === 1000, 'fraction 0 is range start');
+ok(timeAtFraction(range, 0.5, 10_000) === 3000, 'fraction 0.5 is midpoint');
+ok(timeAtFraction(range, 1, 10_000) === 5000, 'fraction 1 is range end');
+ok(timeAtFraction(range, -0.5, 10_000) === 1000 && timeAtFraction(range, 1.5, 10_000) === 5000, 'out-of-bounds fractions clamp to the range');
+ok(timeAtFraction(range, 1, 4200) === 4200, 'seeks clamp to known song duration');
+ok(timeAtFraction(range, 1, 0) === 5000, 'unknown duration does not clamp to zero');
 
 // --- Voices: background vocals sung over the lead ---------------------------------------------
 {

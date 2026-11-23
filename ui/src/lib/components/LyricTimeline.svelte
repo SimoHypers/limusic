@@ -12,7 +12,7 @@
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { ArrowLeft02Icon, ArrowRight02Icon } from '@hugeicons/core-free-icons';
 	import { t } from '$lib/i18n.svelte';
-	import { LEAD_IN_MS, LEAD_OUT_MS, moveEdge, type EdWord, type Range } from '$lib/lyricsedit';
+	import { LEAD_IN_MS, LEAD_OUT_MS, moveEdge, timeAtFraction, type EdWord, type Range } from '$lib/lyricsedit';
 
 	let {
 		words,
@@ -117,7 +117,7 @@
 		}
 		// A track wider than its window follows the playhead, a windowful at a time, unless the
 		// pointer is on it: it must not move under a hand reaching for a grip.
-		if (scroller && stripW > scrollerW + 1 && !drag && !hovering) {
+		if (scroller && stripW > scrollerW + 1 && !drag && !hovering && !isScrubbing) {
 			const px = (x / 100) * stripW;
 			if (px < scrollLeft || px > scrollLeft + scrollerW - 24) scroller.scrollLeft = Math.max(0, px - 48);
 		}
@@ -141,10 +141,10 @@
 			return;
 		}
 		void words;
-		place(position());
+		if (!scrubbing) place(position());
 		if (!running) return;
 		let frame = requestAnimationFrame(function tick() {
-			place(position());
+			if (!scrubbing) place(position());
 			frame = requestAnimationFrame(tick);
 		});
 		return () => cancelAnimationFrame(frame);
@@ -180,21 +180,72 @@
 		held = null;
 	}
 
-	// Sliding the track: a drag anywhere on it but a grip, with any button (a grip takes the left
-	// one first). Read off the drag's start, so the song under the pointer stays under it.
-	let sliding: { x: number; ms: number } | null = null;
+	// Sliding the track or clicking/scrubbing to seek. A pointer-down on the ruler scrubs the
+	// playhead directly; on the track, a short left-click seeks while dragging past the threshold pans.
+	const PAN_THRESHOLD_PX = 4;
+	let sliding: { x: number; ms: number; button: number; moved: boolean } | null = null;
 	let grabbing = $state(false);
+	let scrubbing: { lastSentAt: number; lastMs: number } | null = null;
+	let isScrubbing = $state(false);
+
+	function msAt(clientX: number): number | null {
+		if (!strip || !view) return null;
+		const r = strip.getBoundingClientRect();
+		if (r.width <= 0) return null;
+		return timeAtFraction(view, (clientX - r.left) / r.width, durationMs);
+	}
+
+	function scrubFrom(e: PointerEvent) {
+		if (!view || e.button !== 0) return;
+		const ms = msAt(e.clientX);
+		if (ms === null) return;
+		e.preventDefault();
+		e.stopPropagation();
+		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		isScrubbing = true;
+		scrubbing = { lastSentAt: performance.now(), lastMs: ms };
+		place(ms);
+		onseek(ms);
+	}
+
+	function scrubMove(e: PointerEvent) {
+		if (!scrubbing) return;
+		const ms = msAt(e.clientX);
+		if (ms === null) return;
+		place(ms);
+		const now = performance.now();
+		if (now - scrubbing.lastSentAt >= 50 && ms !== scrubbing.lastMs) {
+			scrubbing.lastSentAt = now;
+			scrubbing.lastMs = ms;
+			onseek(ms);
+		}
+	}
+
+	function scrubEnd(e: PointerEvent) {
+		if (!scrubbing) return;
+		const ms = msAt(e.clientX);
+		if (ms !== null && ms !== scrubbing.lastMs) {
+			place(ms);
+			onseek(ms);
+		}
+		scrubbing = null;
+		isScrubbing = false;
+	}
 
 	function slideFrom(e: PointerEvent) {
 		if (!range || e.defaultPrevented || stripW <= 0) return;
-		sliding = { x: e.clientX, ms: pan };
-		grabbing = true;
+		sliding = { x: e.clientX, ms: pan, button: e.button, moved: false };
 		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 		e.preventDefault();
 	}
 
 	function slide(e: PointerEvent) {
 		if (!sliding || !range) return;
+		if (!sliding.moved) {
+			if (Math.abs(e.clientX - sliding.x) < PAN_THRESHOLD_PX) return;
+			sliding.moved = true;
+			grabbing = true;
+		}
 		const ms = sliding.ms - ((e.clientX - sliding.x) / stripW) * (range.end - range.start);
 		// Not before the song starts, nor past its end.
 		const lo = Math.min(0, -range.start);
@@ -202,7 +253,14 @@
 		panned = { at: loopAt, ms: Math.min(hi, Math.max(lo, ms)) };
 	}
 
-	function slideEnd() {
+	function slideEnd(e: PointerEvent) {
+		if (sliding && !sliding.moved && sliding.button === 0 && e.type === 'pointerup') {
+			const ms = msAt(e.clientX);
+			if (ms !== null) {
+				place(ms);
+				onseek(ms);
+			}
+		}
 		sliding = null;
 		grabbing = false;
 	}
@@ -321,7 +379,15 @@
 				onpointerup={slideEnd}
 				onpointercancel={slideEnd}
 			>
-				<div class="relative h-[18px] text-[10.5px] text-muted-foreground tabular-nums" aria-hidden="true">
+				<div
+					role="presentation"
+					class="relative h-[18px] cursor-pointer text-[10.5px] text-muted-foreground tabular-nums select-none"
+					title={t('lyrics_editor.scrub_hint')}
+					onpointerdown={scrubFrom}
+					onpointermove={scrubMove}
+					onpointerup={scrubEnd}
+					onpointercancel={scrubEnd}
+				>
 					{#each ticks as tk (tk.x)}
 						<i
 							class="absolute bottom-0 w-px {tk.label ? 'h-[9px] bg-muted-foreground' : 'h-[5px] bg-border'}"

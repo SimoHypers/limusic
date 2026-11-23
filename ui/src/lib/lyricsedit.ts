@@ -489,6 +489,13 @@ export function loopStep(
 	return { wake: Math.min(250, Math.max(10, (range.end - posMs) / (speed || 1))) };
 }
 
+/** Song ms at `fraction` (0..1) across `range`, clamped to the song's length when known. */
+export function timeAtFraction(range: Range, fraction: number, durationMs: number): number {
+	const f = Math.min(1, Math.max(0, fraction));
+	const ms = Math.round(range.start + f * (range.end - range.start));
+	return durationMs > 0 ? Math.min(durationMs, Math.max(0, ms)) : Math.max(0, ms);
+}
+
 // --- Dragging a word's edge -------------------------------------------------------------------
 
 /** The shortest a word may be dragged to. */
