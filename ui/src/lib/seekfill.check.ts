@@ -8,14 +8,14 @@
 // that stutters backwards on timer jitter, and one that refuses to follow a real seek.
 import {
 	coast,
+	BACK_SECS,
 	drawGap,
 	frame,
-	JUMP_SECS,
 	MAX_COAST_MS,
 	MAX_GAP_MS,
-	MIN_GAP_MS,
 	restart,
-	sample
+	sample,
+	STEPS_PER_PX
 } from './seekfill.ts';
 
 function ok(cond: boolean, what: string): void {
@@ -59,12 +59,28 @@ const PER_SEC = 1 / DUR; // pct per second of playing
 	s = frame(s, 100, DUR);
 	s = sample(s, 0.45, 100, DUR);
 	ok(near(s.shown, 0.45), 'a backwards seek past the threshold shows at once');
-	// And forwards.
+	// Forwards: a tick ahead of the fill is where the fill goes, whatever the distance.
 	s = sample(s, 0.8, 200, DUR);
 	ok(near(s.shown, 0.8), 'a forwards seek shows at once');
-	// A seek just inside the threshold counts as jitter, which is what the threshold means.
-	const t = sample(restart(0.5, 0), 0.5 - (JUMP_SECS * 0.9) / DUR, 0, DUR);
+	const late = sample(restart(0.5, 0), 0.5 + 0.2 * PER_SEC, 0, DUR);
+	ok(near(late.shown, 0.5 + 0.2 * PER_SEC), 'a late tick that is ahead catches the fill up');
+	// A step back just inside the threshold counts as jitter, which is what the threshold means.
+	const t = sample(restart(0.5, 0), 0.5 - (BACK_SECS * 0.9) / DUR, 0, DUR);
 	ok(near(t.shown, 0.5), 'a sub-threshold step back is held');
+	const u = sample(restart(0.5, 0), 0.5 - (BACK_SECS * 1.1) / DUR, 0, DUR);
+	ok(near(u.shown, 0.5 - (BACK_SECS * 1.1) / DUR), 'a step back past it goes there');
+}
+
+// --- a stall -----------------------------------------------------------------------------------
+{
+	// Audio stops mid-track: the fill runs ahead for at most the cap, and when ticks resume at the
+	// stalled spot it comes back instead of staying ahead of audio that is not there.
+	const stalled = restart(0.5, 0);
+	const ahead = frame(stalled, 5_000, DUR);
+	ok(near(ahead.shown, 0.5 + (MAX_COAST_MS / 1000) * PER_SEC), 'a stall runs ahead by the cap only');
+	ok(MAX_COAST_MS / 1000 > BACK_SECS, 'the cap outlasts the back threshold, so a stall does come back');
+	const resumed = sample(ahead, 0.5, 5_000, DUR);
+	ok(near(resumed.shown, 0.5), 'a stalled tick pulls the fill back');
 }
 
 // --- a new track ------------------------------------------------------------------------------
@@ -97,11 +113,12 @@ const PER_SEC = 1 / DUR; // pct per second of playing
 
 // --- redraw rate ------------------------------------------------------------------------------
 {
-	ok(near(drawGap(180, 1200), 150), 'a 3 minute track in 1200 px: a pixel every 150 ms');
-	ok(drawGap(10, 1900) === MIN_GAP_MS, 'a short track in a wide bar is capped at 30 a second');
-	ok(drawGap(3600, 300) === MAX_GAP_MS, 'a long track in a narrow bar redraws as often as ticks land');
+	ok(near(drawGap(180, 1200), (180 * 1000) / (1200 * STEPS_PER_PX)), 'a quarter pixel of travel');
+	ok(drawGap(30, 1200) < 1000 / 60, 'a fast fill asks for every frame (the loop treats <1 frame as now)');
+	ok(drawGap(3600, 300) === MAX_GAP_MS, 'a long track in a narrow bar is capped');
 	ok(drawGap(180, 0) === MAX_GAP_MS, 'width unknown yet: the slow rate');
 	ok(drawGap(0, 800) === MAX_GAP_MS, 'duration unknown yet: the slow rate');
+	ok(drawGap(180, 1200) > 0, 'never a negative or zero wait for a normal track');
 }
 
 console.log('ok');

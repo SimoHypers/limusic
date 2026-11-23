@@ -1539,7 +1539,7 @@ input[type='range'].range {
 input[type='range'].range::-webkit-slider-runnable-track {
 	height: 4px;
 	border-radius: 999px;
-	background: linear-gradient(to right, var(--primary) var(--pct, 0%), var(--muted) var(--pct, 0%));
+	background: linear-gradient(to right, var(--primary) calc(var(--pct, 0%) - 0.5px), var(--muted) calc(var(--pct, 0%) + 0.5px));
 }
 input[type='range'].range::-webkit-slider-thumb {
 	-webkit-appearance: none;
@@ -1564,7 +1564,7 @@ input[type='range'].range.theater-range::-webkit-slider-thumb {
 }
 /* The mini player's seek bar sits on cover art, where --muted has nothing to contrast with. */
 input[type='range'].range.on-art::-webkit-slider-runnable-track {
-	background: linear-gradient(to right, var(--primary) var(--pct, 0%), rgb(255 255 255 / 0.35) var(--pct, 0%));
+	background: linear-gradient(to right, var(--primary) calc(var(--pct, 0%) - 0.5px), rgb(255 255 255 / 0.35) calc(var(--pct, 0%) + 0.5px));
 }
 input[type='range'].range:hover::-webkit-slider-thumb,
 input[type='range'].range:focus-visible::-webkit-slider-thumb {

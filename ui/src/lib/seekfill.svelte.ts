@@ -11,11 +11,15 @@
 // this one with the stale value. The input's `value` stays the tick's (`step="any"` lets it be
 // fractional); the thumb is a tick behind the fill at most, which at 12 px is not visible.
 //
+// The fill's edge is a 1 px soft ramp in layout.css, not a hard gradient stop. A hard stop paints
+// on whole pixels whatever `--pct` says (WebKitGTK 2.52.6: steps of 0.24 px repainted the same
+// pixels three or four writes running, then jumped one), so no draw rate could look smooth.
+//
 // Cost, per docs/UI-PERFORMANCE.md: the property lands on a leaf (the input, not `<html>`), the
-// loop runs only while the bar is playing and not being dragged, redraws at the rate of a pixel
-// of travel and no faster than 30 a second (it is rAF-paced like `M3SeekWave`: a timer waits out
-// the gap, then one animation frame draws), and the width comes from a ResizeObserver's entry, so
-// nothing reads layout.
+// loop runs only while the bar is playing and not being dragged, and it draws once per quarter
+// pixel of travel, on an animation frame: a timer waits out the gap (like `M3SeekWave`) and one
+// frame draws, so a long track in a narrow bar draws a few times a second and a short one in a
+// wide bar every frame. The width comes from a ResizeObserver's entry, so nothing reads layout.
 import type { Attachment } from 'svelte/attachments';
 import { drawGap, frame, restart, sample, type Clock } from './seekfill';
 import { theme } from './theme.svelte';
@@ -31,8 +35,16 @@ export type SeekFillParams = {
 
 export function seekFill(get: () => SeekFillParams): Attachment<HTMLElement> {
 	return (node) => {
-		const input = node.querySelector<HTMLInputElement>('input[type="range"]');
-		if (!input) return;
+		// Looked up when needed, not once: the input is static in every bar today, but a bar that
+		// remounts it (a keyed block, a future refactor) must not leave this writing to a dead node.
+		let input: HTMLInputElement | null = null;
+		const find = (): HTMLInputElement | null => {
+			if (!input?.isConnected) {
+				input = node.querySelector<HTMLInputElement>('input[type="range"]');
+				written = '';
+			}
+			return input;
+		};
 
 		let p: SeekFillParams = { pct: 0, paused: true, duration: 0, dragging: false };
 		let running = false;
@@ -44,10 +56,12 @@ export function seekFill(get: () => SeekFillParams): Attachment<HTMLElement> {
 		let written = '';
 
 		const write = (v: number) => {
+			const el = find();
+			if (!el) return;
 			const s = `${(Math.min(1, Math.max(0, v)) * 100).toFixed(3)}%`;
 			if (s === written) return;
 			written = s;
-			input.style.setProperty('--pct', s);
+			el.style.setProperty('--pct', s);
 		};
 
 		const stop = () => {
@@ -93,7 +107,7 @@ export function seekFill(get: () => SeekFillParams): Attachment<HTMLElement> {
 				stop();
 				running = false;
 				written = '';
-				input.style.removeProperty('--pct');
+				find()?.style.removeProperty('--pct');
 				return;
 			}
 			if (next.paused || next.dragging || !(next.duration > 0)) {
@@ -115,7 +129,8 @@ export function seekFill(get: () => SeekFillParams): Attachment<HTMLElement> {
 				schedule();
 			} else if (next.pct !== prev.pct) {
 				clock = sample(clock, next.pct, now, next.duration);
-				// A jump (a seek, a new track) shows at once; a tick that only agrees waits for the loop.
+				// A seek, a new track or a tick ahead of the fill shows at once; one that only agrees
+				// with it waits for the loop's next frame.
 				if (clock.shown === next.pct) write(clock.shown);
 			}
 		});
@@ -123,7 +138,7 @@ export function seekFill(get: () => SeekFillParams): Attachment<HTMLElement> {
 		return () => {
 			stop();
 			ro.disconnect();
-			input.style.removeProperty('--pct');
+			input?.style.removeProperty('--pct');
 		};
 	};
 }
