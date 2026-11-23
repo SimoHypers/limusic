@@ -89,7 +89,8 @@
 		"remove_account_desc": "{name} hanya dihapus dari daftar ini. Akun Google itu sendiri tidak terpengaruh, dan Anda dapat masuk kembali kapan saja.",
 		"saved_accounts_hint": "Pilih akun tersimpan untuk beralih ke akun tersebut.",
 		"no_channels": "YouTube tidak mengembalikan saluran yang dapat dipilih.",
-		"stats": "Statistik"
+		"stats": "Statistik",
+		"discord": "Ikuti Limusic di Discord"
 	},
 	"player": {
 		"play": "Putar",
