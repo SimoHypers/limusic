@@ -11,6 +11,12 @@
 // this one with the stale value. The input's `value` stays the tick's (`step="any"` lets it be
 // fractional); the thumb is a tick behind the fill at most, which at 12 px is not visible.
 //
+// The thumb (the circle that shows on hover) is positioned by the input's `value`, which Svelte
+// writes once a tick. While the bar is hovered or focused, and so the thumb is on screen, this
+// writes `value` on every draw as well, right after Svelte's own write in the same task, so the
+// two never show. Otherwise `value` is left to Svelte: nothing sees the thumb, and moving it
+// asks for layout.
+//
 // The fill's edge is a 1 px soft ramp in layout.css, not a hard gradient stop. A hard stop paints
 // on whole pixels whatever `--pct` says (WebKitGTK 2.52.6: steps of 0.24 px repainted the same
 // pixels three or four writes running, then jumped one), so no draw rate could look smooth.
@@ -64,6 +70,25 @@ export function seekFill(get: () => SeekFillParams): Attachment<HTMLElement> {
 			el.style.setProperty('--pct', s);
 		};
 
+		// Thumb on screen: the pointer is over the bar or something in it has focus.
+		let hover = false;
+		let focus = false;
+		let live = false; // this theme draws the bar with `--pct`, so `clock` is meaningful
+		const hot = () => hover || focus;
+		const writeThumb = () => {
+			const el = find();
+			if (!el || !live || !hot() || p.dragging || !(p.duration > 0)) return;
+			el.value = String(clock.shown * p.duration);
+		};
+		const enter = () => ((hover = true), writeThumb());
+		const leave = () => (hover = false);
+		const focusIn = () => ((focus = true), writeThumb());
+		const focusOut = () => (focus = false);
+		node.addEventListener('pointerenter', enter);
+		node.addEventListener('pointerleave', leave);
+		node.addEventListener('focusin', focusIn);
+		node.addEventListener('focusout', focusOut);
+
 		const stop = () => {
 			if (raf) cancelAnimationFrame(raf);
 			clearTimeout(timer);
@@ -89,6 +114,7 @@ export function seekFill(get: () => SeekFillParams): Attachment<HTMLElement> {
 			const now = performance.now();
 			clock = frame(clock, now, p.duration);
 			write(clock.shown);
+			writeThumb();
 			lastDraw = now;
 			schedule();
 		};
@@ -103,7 +129,8 @@ export function seekFill(get: () => SeekFillParams): Attachment<HTMLElement> {
 			const prev = p;
 			p = next;
 			const now = performance.now();
-			if (theme.id === 'material') {
+			live = theme.id !== 'material';
+			if (!live) {
 				stop();
 				running = false;
 				written = '';
@@ -133,11 +160,17 @@ export function seekFill(get: () => SeekFillParams): Attachment<HTMLElement> {
 				// with it waits for the loop's next frame.
 				if (clock.shown === next.pct) write(clock.shown);
 			}
+			// Svelte has just set `value` to the tick's: put the thumb back with the fill.
+			writeThumb();
 		});
 
 		return () => {
 			stop();
 			ro.disconnect();
+			node.removeEventListener('pointerenter', enter);
+			node.removeEventListener('pointerleave', leave);
+			node.removeEventListener('focusin', focusIn);
+			node.removeEventListener('focusout', focusOut);
 			input?.style.removeProperty('--pct');
 		};
 	};
