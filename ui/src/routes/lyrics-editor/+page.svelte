@@ -79,6 +79,7 @@
 	import { keyOf, typing } from '$lib/shortcuts';
 	import { KIND_CLASS, KIND_LABEL } from '$lib/lyricsSources';
 	import {
+		agentForKey,
 		buildLines,
 		draftKey,
 		estimateMs,
@@ -856,7 +857,14 @@
 		else if (k === 'l') loopOn = !loopOn;
 		else if (k === 'b') bgMode = !bgMode;
 		else if (k === 'v') chooseVoice(!tapBg);
-		else return;
+		else if (k === 'e' || k === 'i') {
+			if (!line || e.shiftKey) return;
+			openText();
+		} else {
+			const singer = agentForKey(k, line?.agent);
+			if (!singer.matched || !line) return;
+			if (!e.repeat) updateLine(line.id, (l) => setAgent(l, singer.agent));
+		}
 		e.preventDefault();
 	}
 
@@ -1403,7 +1411,7 @@
 								</span>
 							{/if}
 							<span class="flex-1"></span>
-							<Button variant="ghost" size="sm" class={textOpen ? 'bg-muted text-foreground' : 'text-muted-foreground'} aria-label={t('lyrics_editor.edit_text')} onclick={openText}>
+							<Button variant="ghost" size="sm" class={textOpen ? 'bg-muted text-foreground' : 'text-muted-foreground'} aria-label={t('lyrics_editor.edit_text')} title="{t('lyrics_editor.edit_text')} (E / I)" onclick={openText}>
 								<HugeiconsIcon icon={PencilEdit02Icon} class="size-4" />
 								<span class={wide ? '' : 'sr-only'}>{t('lyrics_editor.edit_text')}</span>
 							</Button>
@@ -1430,6 +1438,11 @@
 													{#if on}<HugeiconsIcon icon={Tick02Icon} class="size-3.5" />{/if}
 												</span>
 												{a ? agentLabel(a) : t('lyrics_editor.singer_none')}
+												{#if !a}
+													<kbd class="{KEY} ml-auto">0</kbd>
+												{:else if /^v[1-9]$/.test(a)}
+													<kbd class="{KEY} ml-auto">{a.slice(1)}</kbd>
+												{/if}
 											</button>
 										{/each}
 									</div>

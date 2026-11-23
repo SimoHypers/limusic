@@ -7,6 +7,7 @@ import {
 	LEAD_IN_MS,
 	LEAD_OUT_MS,
 	MIN_WORD_MS,
+	agentForKey,
 	autoSplit,
 	buildLines,
 	draftKey,
@@ -193,6 +194,12 @@ ok(lineText(joinLines({ id: 1, words: [w('a')] }, { id: 2, words: [] })) === 'a'
 
 ok(setAgent(four, 'v2') === four, 'the same singer changes nothing');
 ok(setAgent(four, undefined).agent === undefined && setAgent(four, 'v1').dirty === true, 'singer set and cleared');
+ok(same(agentForKey('1', undefined), { matched: true, agent: 'v1' }), '1 sets Singer 1');
+ok(same(agentForKey('1', 'v1'), { matched: true, agent: undefined }), '1 again clears Singer 1');
+ok(same(agentForKey('2', 'v1'), { matched: true, agent: 'v2' }), '2 switches to Singer 2');
+ok(same(agentForKey('9', undefined), { matched: true, agent: 'v9' }), '9 sets Singer 9');
+ok(same(agentForKey('0', 'v2'), { matched: true, agent: undefined }), '0 clears the singer');
+ok(!agentForKey('e', 'v1').matched && !agentForKey('10', 'v1').matched, 'other keys do not match a singer');
 const bgd = toggleBg(four, 1);
 ok(bgd.words[1].bg === true && toggleBg(bgd, 1).words[1].bg === undefined && bgd.dirty === true, 'bg toggles');
 

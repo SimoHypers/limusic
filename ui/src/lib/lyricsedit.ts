@@ -274,6 +274,19 @@ export function setAgent(line: EdLine, agent: string | undefined): EdLine {
 	return out;
 }
 
+/** Numeric shortcut for singer assignment: 1..9 toggles v1..v9, 0 clears the singer. */
+export function agentForKey(
+	key: string,
+	current: string | undefined
+): { matched: true; agent: string | undefined } | { matched: false } {
+	if (key === '0') return { matched: true, agent: undefined };
+	if (/^[1-9]$/.test(key)) {
+		const next = `v${key}`;
+		return { matched: true, agent: current === next ? undefined : next };
+	}
+	return { matched: false };
+}
+
 export function toggleBg(line: EdLine, k: number): EdLine {
 	const words = line.words.map((w, i) => {
 		if (i !== k) return w;
