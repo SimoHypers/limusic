@@ -1180,7 +1180,8 @@
 			"not_found": "Không tìm thấy trên YouTube Music.",
 			"cooldown": "YouTube Music yêu cầu Limusic giảm tần suất gửi yêu cầu, quá trình nhập tạm dừng đến {time}. Mọi bài đã tìm thấy đều được lưu lại."
 		},
-		"paste_link_hint": "Chỉ có video trên YouTube? Dán liên kết vào đây."
+		"paste_link_hint": "Chỉ có video trên YouTube? Dán liên kết vào đây.",
+		"keep_updated_desc": "Danh sách phát Spotify được kiểm tra khi bắt đầu và với định kỳ vài tiếng 1 lần, và thêm, xóa và sắp xếp lại các bài hát để đồng bộ."
 	},
 	"stats": {
 		"title": "Thống kê nghe nhạc",
@@ -1330,7 +1331,41 @@
 			"now_swap": "Giọng hát sẽ ngừng ngay khi bài hát sẵn sàng, chính xác tại đoạn bạn đang nghe.",
 			"now_too_long": "Bài hát quá 15 phút, giọng hát sẽ được giữ lại.",
 			"try_again": "Hãy thử lại",
-			"up_next": "Tiếp theo"
+			"up_next": "Tiếp theo",
+			"slot_ready": "Sẵn sàng",
+			"slot_waiting": "Đang chờ",
+			"slot_failed": "Không thể chuẩn bị được",
+			"quality": "Chất lượng",
+			"settings": "Cài đặt Karaoke"
+		},
+		"setup": {
+			"desc": "Lời nhạc được tách ra ngay trên máy tính của bạn bởi Limusic. Hãy chọn 1 chất lượng để tải 1 lần, bạn có thể đổi lựa chọn của mình lúc sau.",
+			"cache": "Bài hát đã chuẩn bị được lưu trên ổ đĩa của bạn, để lần sau bài được chơi lập tức.",
+			"download": "Tải {size}",
+			"use": "Sử dụng {name}",
+			"downloaded": "Đã tải thành công"
+		},
+		"unavailable": {
+			"not_installed": "Không có chế độ Karaoke trong phiên bản này của Limusic."
+		},
+		"error": {
+			"failed": "Không thể tách lời nhạc từ bài này."
+		},
+		"download_error": {
+			"disk": "Không thể lưu tệp này. Kiểm tra lại dung lượng còn trống rồi thử lại.",
+			"failed": "Tải xuống thất bại. Hãy thử lại."
+		},
+		"download": "Tải xuống",
+		"cancel": "Hủy",
+		"retry": "Thử lại",
+		"settings": {
+			"title": "Karaoke",
+			"title_hint": "Cài đặt tách giọng nói",
+			"model_light": "Nhẹ",
+			"model_light_desc": "Nhanh nhất, nhưng có thể để lại một ít giọng hát.",
+			"model_installed": "Đã tải ({size})",
+			"model_missing": "Chưa tải",
+			"cache_custom": "Tùy chỉnh ({n} MB)"
 		}
 	}
 }
