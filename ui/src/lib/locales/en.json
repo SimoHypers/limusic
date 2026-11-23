@@ -1483,6 +1483,7 @@
 		"split": "Split the line at the cursor",
 		"join": "Join with the next line",
 		"resplit": "Split into words again",
+		"reset_line": "Reset line timing",
 		"add_line": "Add a line below",
 		"add_gap": "Add an instrumental break",
 		"gap": "Instrumental break",

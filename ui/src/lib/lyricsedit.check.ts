@@ -16,6 +16,7 @@ import {
 	fromLyrics,
 	fromText,
 	gapLine,
+	hasLineTiming,
 	joinLines,
 	kindOf,
 	lineEnd,
@@ -30,6 +31,7 @@ import {
 	parseField,
 	passOf,
 	ready,
+	resetLine,
 	resplitLine,
 	setAgent,
 	setLineText,
@@ -464,5 +466,26 @@ ok(broken((d) => (d.lines[0].words[0].text = 5)) === null, 'text that is not tex
 ok(broken((d) => (d.lines[1].id = d.lines[0].id)) === null, 'two lines with one id');
 ok(broken((d) => delete d.baseRevision)!.baseRevision === null, 'a missing base is no base');
 ok(draftKey('abc') === 'lyrics_draft:abc', 'one key per song');
+
+// --- Resetting a line -------------------------------------------------------------------------
+{
+	const r1 = resetLine(ed[0]);
+	ok(
+		r1.dirty === true &&
+			r1.time === wordLine.time_ms &&
+			r1.end === undefined &&
+			r1.words.length === 2 &&
+			r1.words[0].start === undefined &&
+			r1.words[0].end === undefined &&
+			r1.words[1].bg === true &&
+			missing([r1]).untimed.includes(r1.id),
+		'first reset strips word timings, keeps bg, and restores orig start'
+	);
+	const r2 = resetLine(r1);
+	ok(r2.time === undefined && needsLineTime(r2) && !hasLineTiming(r2), 'second reset clears line start too');
+	ok(resetLine(r2) === r2, 'resetting an untimed line changes nothing');
+	const g = resetLine(gapLine(5, 4200));
+	ok(g.gap === true && g.time === undefined && needsLineTime(g), 'resetting a timed gap clears its start');
+}
 
 console.log('ok');

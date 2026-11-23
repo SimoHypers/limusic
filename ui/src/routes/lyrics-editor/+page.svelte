@@ -87,6 +87,7 @@
 		fromLyrics,
 		fromText,
 		gapLine,
+		hasLineTiming,
 		joinLines,
 		kindOf,
 		lineEnd,
@@ -99,6 +100,7 @@
 		packDraft,
 		passOf,
 		ready,
+		resetLine,
 		resplitLine,
 		setAgent,
 		setLineText,
@@ -670,6 +672,14 @@
 		commitField();
 		updateLine(lines[cur].id, resplitLine);
 		resetTake();
+	}
+
+	function resetCurrentLine() {
+		if (!line || !hasLineTiming(line)) return;
+		commitField();
+		updateLine(lines[cur].id, resetLine);
+		resetTake();
+		tapBg = startVoice(lines[cur].words);
 	}
 
 	/** Singer 1, singer 2, any other the lyric already names, and everyone together. */
@@ -1465,6 +1475,9 @@
 									</button>
 									<button type="button" class={MENU_ITEM} onclick={() => ((lineMenu = false), resplit())}>
 										<HugeiconsIcon icon={MagicWand01Icon} class="size-4" />{t('lyrics_editor.resplit')}
+									</button>
+									<button type="button" class={MENU_ITEM} disabled={!line || !hasLineTiming(line)} onclick={() => ((lineMenu = false), resetCurrentLine())}>
+										<HugeiconsIcon icon={ArrowTurnBackwardIcon} class="size-4" />{t('lyrics_editor.reset_line')}
 									</button>
 									<div class="my-1 h-px bg-border"></div>
 									<button type="button" class="{MENU_ITEM} text-destructive" disabled={lines.length < 2} onclick={() => ((lineMenu = false), removeLine())}>

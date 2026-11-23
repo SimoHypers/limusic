@@ -424,6 +424,29 @@ export function setLineTime(line: EdLine, t: number): EdLine {
 export const needsLineTime = (line: EdLine): boolean =>
 	(line.words.length > 0 || !!line.gap) && line.time === undefined;
 
+/** Whether the line carries any timing (word timings, a start time, or an end time). */
+export const hasLineTiming = (line: EdLine): boolean =>
+	line.time !== undefined ||
+	line.end !== undefined ||
+	line.words.some((w) => w.start !== undefined || w.end !== undefined);
+
+/** Clear a line's timings so it can be tapped again. If word timings are present, drops the word
+ *  timings (keeping any source start time so the loop stays anchored); if only line timing is set,
+ *  clears that too. */
+export function resetLine(line: EdLine): EdLine {
+	if (!hasLineTiming(line)) return line;
+	const hasWordTimes = line.words.some((w) => w.start !== undefined || w.end !== undefined);
+	const words: EdWord[] = line.words.map((w) => (w.bg ? { text: w.text, bg: true } : { text: w.text }));
+	const out: EdLine = { ...line, words, dirty: true };
+	delete out.end;
+	if (hasWordTimes) {
+		if (line.orig?.time_ms !== undefined) out.time = line.orig.time_ms;
+	} else {
+		delete out.time;
+	}
+	return out;
+}
+
 // --- The loop ---------------------------------------------------------------------------------
 
 /** Song ms played before the line starts and after it ends, so a tap is never on the seam. */
