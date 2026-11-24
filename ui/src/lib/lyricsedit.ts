@@ -206,6 +206,45 @@ export function resplitLine(line: EdLine): EdLine {
 	return setLineText(line, autoSplit(lineText(line)).join(''));
 }
 
+export interface CloneCandidate {
+	index: number;
+	line: EdLine;
+	exact: boolean;
+}
+
+/** Word-timed lines with the same word count as `lines[targetIndex]`, exact text matches first. */
+export function cloneCandidates(lines: EdLine[], targetIndex: number): CloneCandidate[] {
+	const target = lines[targetIndex];
+	if (!target || !target.words.length) return [];
+	const targetNorm = collapse(lineText(target)).toLowerCase();
+	const out: CloneCandidate[] = [];
+	for (let i = 0; i < lines.length; i++) {
+		if (i === targetIndex) continue;
+		const l = lines[i];
+		if (!wordsTimed(l) || l.words.length !== target.words.length) continue;
+		out.push({
+			index: i,
+			line: l,
+			exact: collapse(lineText(l)).toLowerCase() === targetNorm
+		});
+	}
+	return out.sort((a, b) => Number(b.exact) - Number(a.exact) || a.index - b.index);
+}
+
+/** Copy word durations and gaps from `source` onto `target`, anchored at `target.time`. */
+export function cloneLineTiming(source: EdLine, target: EdLine): EdLine | null {
+	if (!wordsTimed(source) || target.time === undefined) return null;
+	if (!source.words.length || source.words.length !== target.words.length) return null;
+	const base = Math.min(...source.words.map((w) => w.start!));
+	const delta = target.time - base;
+	const words: EdWord[] = target.words.map((w, i) => ({
+		...w,
+		start: Math.max(0, Math.round(source.words[i].start! + delta)),
+		end: Math.max(0, Math.round(source.words[i].end! + delta))
+	}));
+	return withWords(target, words);
+}
+
 /** Split a line in two at `caret`, an offset into its text field. A caret between two words keeps
  *  every word's timing; one inside a word makes two new words to tap. */
 export function splitLine(line: EdLine, field: string, caret: number, newId: number): [EdLine, EdLine] {
