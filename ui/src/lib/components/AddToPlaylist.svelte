@@ -14,6 +14,12 @@
 		Tick02Icon
 	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
+	import {
+		LAST_PLAYLISTS_KEY,
+		orderWithRemembered,
+		parseLastPlaylists,
+		pickRemembered
+	} from '$lib/playlist-picker';
 	import { thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
 	import {
@@ -43,11 +49,26 @@
 	const loading = $derived(library.loading && !library.items.length);
 	let filter = $state('');
 	let selectedIds = $state<string[]>([]);
+	let lastIds = $state<string[]>([]);
 	let box = $state<HTMLInputElement | null>(null);
 	let step = $state<'pick' | 'dupes'>('pick');
 	let skipBtn = $state<HTMLButtonElement | null>(null);
 	// Which way the counter rolls: up as playlists are ticked, down as they're unticked.
 	let dir = $state(1);
+
+	function readLast(): string[] {
+		try {
+			return parseLastPlaylists(localStorage.getItem(LAST_PLAYLISTS_KEY));
+		} catch {
+			return [];
+		}
+	}
+
+	function saveLast(ids: string[]) {
+		try {
+			localStorage.setItem(LAST_PLAYLISTS_KEY, JSON.stringify(ids));
+		} catch {}
+	}
 	// `autofocus` is unreliable on an element inserted after load (and mid-transition), so focus it
 	// ourselves the frame it exists: the modal opens ready to type, the duplicates step ready to Enter.
 	$effect(() => {
@@ -64,7 +85,9 @@
 	// ponytail: plain substring, not fuzzy. A library is tens of playlists, and "rap" finding
 	// "Rap Caviar" is what issue #100 actually asked for.
 	const matches = $derived(
-		targets.filter((p) => p.title.toLowerCase().includes(filter.trim().toLowerCase()))
+		filter.trim()
+			? targets.filter((p) => p.title.toLowerCase().includes(filter.trim().toLowerCase()))
+			: orderWithRemembered(targets, lastIds)
 	);
 	const chosen = $derived(targets.filter((p) => selectedIds.includes(p.id)));
 	const songs = $derived(ui.addSongs ?? []);
@@ -92,7 +115,12 @@
 	$effect(() => {
 		if (ui.addSongs) {
 			filter = '';
-			selectedIds = [];
+			const saved = readLast();
+			lastIds = saved;
+			selectedIds = pickRemembered(
+				saved,
+				untrack(() => targets.map((p) => p.id))
+			);
 			step = 'pick';
 			untrack(() => loadLibrary(true));
 		}
@@ -118,6 +146,7 @@
 		// Snapshot before close(): both are derived from ui.addSongs, which close() clears.
 		const picked = chosen;
 		const batch = songs;
+		saveLast(picked.map((p) => p.id));
 		close();
 		addSongsToPlaylists(picked, batch, mode);
 	}
@@ -198,9 +227,9 @@
 						bind:value={filter}
 						placeholder={t('library.search_playlists')}
 						onkeydown={(e) => {
-							if (e.key === 'Enter' && matches[0]) {
-								toggleSelect(matches[0].id);
-							}
+							if (e.key !== 'Enter') return;
+							if (!filter.trim() && chosen.length) confirm();
+							else if (matches[0]) toggleSelect(matches[0].id);
 						}}
 						class="mb-2 w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
 					/>
