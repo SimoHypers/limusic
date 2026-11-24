@@ -134,6 +134,21 @@
 	data-tauri-drag-region="deep"
 	class="group relative flex h-screen w-screen select-none overflow-hidden rounded-2xl border border-border/60 bg-card text-foreground"
 >
+	<!-- Back to the app. Hidden until the pointer is over the widget: it is not part of the design,
+	     it is the way out of it. The tray icon does the same thing. The command destroys this very
+	     window, so its reply lands nowhere — the rejection is swallowed rather than left dangling.
+	     Compact has no shade over its cover, so the button brings its own. -->
+	<button
+		class="absolute left-2 top-2 z-10 flex size-6 cursor-pointer items-center justify-center rounded-md text-white/60 opacity-0 transition hover:bg-white/15 hover:text-white focus-visible:shown group-hover:shown {compact
+			? 'bg-black/40'
+			: ''}"
+		onclick={() => api.closeMini().catch(() => {})}
+		title={t('common.back')}
+		aria-label={t('common.back')}
+	>
+		<HugeiconsIcon icon={MaximizeScreenIcon} class="h-3.5 w-3.5" />
+	</button>
+
 	{#if compact}
 		<!-- Compact: what's playing and the transport, nothing else. The cover runs edge to edge on the
 		     left and dissolves into the card like the full widget's, and the text beside it sits on the
@@ -249,21 +264,6 @@
 			class="pointer-events-none absolute inset-y-0 left-0 w-[56%]"
 			style="background:linear-gradient(to right,rgb(0 0 0/0.72) 0%,rgb(0 0 0/0.58) 70%,rgb(0 0 0/0) 100%)"
 		></div>
-
-		<!-- Back to the app. Hidden until the pointer is over the widget: it is not part of the design,
-		     it is the way out of it. The tray icon does the same thing. The command destroys this very
-		     window, so its reply lands nowhere — the rejection is swallowed rather than left dangling.
-		     Compact has no shade over its cover, so the button brings its own. -->
-		<button
-			class="absolute left-2 top-2 z-10 flex size-6 cursor-pointer items-center justify-center rounded-md text-white/60 opacity-0 transition hover:bg-white/15 hover:text-white focus-visible:shown group-hover:shown {compact
-				? 'bg-black/40'
-				: ''}"
-			onclick={() => api.closeMini().catch(() => {})}
-			title={t('common.back')}
-			aria-label={t('common.back')}
-		>
-			<HugeiconsIcon icon={MaximizeScreenIcon} class="h-3.5 w-3.5" />
-		</button>
 
 		<!-- Left: what's playing, over the art. -->
 		<div class="relative flex min-w-0 flex-1 flex-col justify-between p-3.5 pl-4">
