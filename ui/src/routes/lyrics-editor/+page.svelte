@@ -719,6 +719,23 @@
 		refreshAccount();
 	}
 
+	let downloading = $state(false);
+	async function downloadLyrics() {
+		if (!track || downloading) return;
+		headMenu = false;
+		commitField();
+		if (!ready(missing(lines))) return;
+		const title = track.title.replace(/[^\p{L}\p{N} _-]+/gu, ' ').trim().slice(0, 64);
+		downloading = true;
+		try {
+			await api.saveSyncedLyrics(title ? `Lyrics - ${title}.lrc` : 'Lyrics.lrc', buildLines(lines));
+		} catch (e) {
+			toast.error(t(String(e) === 'too_large' ? 'lyrics_editor.too_large' : 'lyrics_editor.download_failed'));
+		} finally {
+			downloading = false;
+		}
+	}
+
 	async function submit() {
 		if (!track || !ready(miss) || submitting) return;
 		commitField();
@@ -1043,6 +1060,10 @@
 							<HugeiconsIcon icon={MoreHorizontalIcon} class="size-[18px]" />
 						</Popover.Trigger>
 						<Popover.Content align="end" class="w-52 gap-0 p-1.5">
+							<button type="button" class={MENU_ITEM} disabled={!ready(miss) || downloading} onclick={downloadLyrics}>
+								<HugeiconsIcon icon={ArrowDown02Icon} class="size-4" />
+								{t('lyrics_editor.download')}
+							</button>
 							<button
 								type="button"
 								class="{MENU_ITEM} text-destructive"
