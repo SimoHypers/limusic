@@ -596,8 +596,12 @@ pub async fn reset_global_hotkeys(
     hotkeys: State<'_, Arc<crate::hotkeys::HotkeysManager>>,
 ) -> Result<crate::hotkeys::HotkeyRegisterResult, String> {
     // Resets the bindings only: the default has hotkeys off, and the button is on the enabled page.
+    let prev = hotkeys.get_config();
     let default_config = crate::hotkeys::HotkeysConfig {
-        enabled: hotkeys.get_config().enabled,
+        enabled: prev.enabled,
+        target_playlist_id: prev.target_playlist_id,
+        target_playlist_name: prev.target_playlist_name,
+        notify_playlist_toggle: prev.notify_playlist_toggle,
         ..Default::default()
     };
     let result = hotkeys.apply_config(&app, default_config);
@@ -1694,7 +1698,7 @@ pub async fn start_radio(
 
 // --- write actions (context/01 ✎, context/15) ----------------------------------------------
 
-fn require_login(state: &Arc<AppState>) -> Result<&innertube::YouTubeClient, String> {
+pub(crate) fn require_login(state: &Arc<AppState>) -> Result<&innertube::YouTubeClient, String> {
     if !state.it.is_logged_in() {
         return Err("Sign in first to use this.".into());
     }
@@ -1709,7 +1713,14 @@ pub async fn rate(state: St<'_>, video_id: String, rating: Rating) -> Result<(),
     // Before the write, not after: a `refresh_from_next` round trip already in flight was asked
     // before this rating existed, so its answer is stale from here on either way (issue #93).
     state.rate_epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    state.it.rate(client, &video_id, rating).await.map_err(|e| e.to_string())
+    state.it.rate(client, &video_id, rating).await.map_err(|e| e.to_string())?;
+    if rating == Rating::Like {
+        state.db.add_playlist_track(LIKED_MUSIC_ID, &video_id);
+    } else {
+        state.db.remove_playlist_track(LIKED_MUSIC_ID, &video_id);
+    }
+    state.set_queue_rating(&video_id, rating).await;
+    Ok(())
 }
 
 /// Add a song to the library (Library ▸ Songs), or take it out. `token` comes from the row's own
@@ -1736,7 +1747,7 @@ pub async fn set_album_saved(
 /// Login, plus the guard every playlist edit needs. Two ids never reach `edit_playlist`: On Repeat
 /// has no YouTube playlist behind it, and Liked Music is an auto-playlist YouTube edits through the
 /// rating endpoint instead. Both answer 400 there.
-fn editable_playlist<'a>(
+pub(crate) fn editable_playlist<'a>(
     state: &'a Arc<AppState>,
     playlist_id: &str,
 ) -> Result<&'a innertube::YouTubeClient, String> {
@@ -1758,7 +1769,7 @@ fn editable_playlist<'a>(
 /// us nothing: `search` responses carry no `likeStatus` at all (live-checked 2026-08-28), so
 /// membership of this list is the only way a result can draw its heart filled. Not shown in the
 /// "saved in" chip, though: the thumbs-up already says it (the UI filters it out there).
-const LIKED_MUSIC_ID: &str = "VLLM";
+pub(crate) const LIKED_MUSIC_ID: &str = "VLLM";
 /// When the index was last crawled, as unix seconds. `_v2`: the key changed when Liked Music joined
 /// the index, so an install with a fresh stamp re-crawled once instead of showing hearts empty for
 /// another six hours.
@@ -1775,7 +1786,7 @@ const PLAYLIST_INDEX_TTL_SECS: i64 = 6 * 3600;
 /// Continuation pages per playlist. YouTube hands back 100 tracks a page, so this covers 5000 of
 /// them. ponytail: a hard stop, not paging state. A playlist past it marks its first 5000 tracks
 /// and no more, which beats one pathological list turning a sync into hundreds of requests.
-const PLAYLIST_INDEX_MAX_PAGES: usize = 50;
+pub(crate) const PLAYLIST_INDEX_MAX_PAGES: usize = 50;
 
 /// videoId → the ids of your playlists holding it, straight from SQLite with no network at all,
 /// so a track list can draw the "saved" mark on its first paint. Empty until the first sync.
@@ -2244,15 +2255,15 @@ pub async fn delete_playlist(state: St<'_>, playlist_id: String) -> Result<(), S
 // edit, cover, delete), and each one answers it from SQLite before any of the YouTube path runs.
 // That is what lets every playlist surface in the UI take both kinds without branching.
 
-const GONE: &str = "This playlist is no longer on this device.";
+pub(crate) const GONE: &str = "This playlist is no longer on this device.";
 
 /// `LOCALPLAYLIST:<n>` → n. An id with the prefix and no number is still not YouTube's, so it is
 /// an error rather than a fall-through to a browse YouTube would 400.
-fn local_key(id: &str) -> Result<i64, String> {
+pub(crate) fn local_key(id: &str) -> Result<i64, String> {
     id.strip_prefix(LOCAL_PLAYLIST_PREFIX).and_then(|n| n.parse().ok()).ok_or_else(|| GONE.into())
 }
 
-fn db_err(e: rusqlite::Error) -> String {
+pub(crate) fn db_err(e: rusqlite::Error) -> String {
     match e {
         rusqlite::Error::QueryReturnedNoRows => GONE.into(),
         e => e.to_string(),

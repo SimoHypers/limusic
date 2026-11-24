@@ -2122,6 +2122,24 @@ export function initApp(mini = false): () => void {
 		api.onPlaybackError((msg) => toast.error(msg)),
 		api.onPlaybackNotice((msg) => toast(msg)), // auto-skipped an unplayable track
 		api.onCoverError((msg) => toast.error(msg)), // playlist artwork YouTube wouldn't take
+		api.onPlaylistToggled((e) => {
+			if (e.added) {
+				noteSavedIn(e.playlistId, [e.song.video_id]);
+				if (!mini && e.playlistId !== api.LIKED_MUSIC_ID) {
+					bumpLibraryTrackCount(e.playlistId, 1);
+					notePlaylistAdd(e.playlistId, [e.song]);
+				}
+			} else {
+				noteUnsavedFrom(e.playlistId, e.song.video_id);
+				if (!mini && e.playlistId !== api.LIKED_MUSIC_ID) {
+					bumpLibraryTrackCount(e.playlistId, -1);
+					if (e.setVideoId) notePlaylistRemove(e.playlistId, e.setVideoId);
+				}
+			}
+			if (e.playlistId === api.LIKED_MUSIC_ID) {
+				invalidateCached(LIBRARY_SONGS_KEY);
+			}
+		}),
 		api.onLocalChanged(forgetLocal), // a local file turned out to be gone — drop it everywhere
 		api.onAuthChanged((a) => {
 			auth.account = a;

@@ -178,6 +178,22 @@ const TABLE: [SettingsTab, K | null, Row[]][] = [
 	['playback', 'settings.sections.advanced', [['settings.general.stream_clients']]],
 
 	['hotkeys', null, [['settings.hotkeys.enable', 'settings.hotkeys.description']]],
+	[
+		'hotkeys',
+		'settings.hotkeys.section_library',
+		[
+			[
+				'settings.hotkeys.target_playlist',
+				'settings.hotkeys.target_playlist_hint',
+				'settings.hotkeys.enable'
+			],
+			[
+				'settings.hotkeys.playlist_notify',
+				'settings.hotkeys.playlist_notify_hint',
+				'settings.hotkeys.enable'
+			]
+		]
+	],
 
 	[
 		'discord',

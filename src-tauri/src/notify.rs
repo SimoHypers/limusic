@@ -22,8 +22,18 @@ pub fn track_changed(app: &AppHandle, title: &str, artists: &str, even_focused: 
         tracing::debug!("notification skipped: a Limusic window has focus");
         return;
     }
+    send(app, title, artists);
+}
+
+/// Best-effort feedback notification for an explicit background action (such as a global hotkey),
+/// shown regardless of window focus or the track-change notification setting.
+pub fn action(app: &AppHandle, title: &str, body: &str) {
+    send(app, title, body);
+}
+
+fn send(app: &AppHandle, title: &str, body: &str) {
     let mut n = notify_rust::Notification::new();
-    n.summary(title).body(artists).appname("Limusic");
+    n.summary(title).body(body).appname("Limusic");
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         // The binary name is the icon name the .deb/.rpm install. An AppImage has no themed icon,

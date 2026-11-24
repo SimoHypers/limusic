@@ -579,6 +579,9 @@ export const allowFontFile = (path: string) => invoke<void>('allow_font_file', {
 export interface HotkeysConfig {
 	enabled: boolean;
 	bindings: Record<string, string>;
+	target_playlist_id?: string | null;
+	target_playlist_name?: string | null;
+	notify_playlist_toggle?: boolean;
 }
 
 export interface HotkeyRegisterResult {
@@ -1254,6 +1257,16 @@ export const onAuthChanged = (cb: (a: Account) => void): Promise<UnlistenFn> =>
 	listen<Account>('auth-changed', (e) => cb(e.payload));
 export const onAccountSelectionRequired = (cb: () => void): Promise<UnlistenFn> =>
 	listen('account-selection-required', () => cb());
+export interface PlaylistToggleEvent {
+	playlistId: string;
+	song: SongItem;
+	added: boolean;
+	setVideoId?: string;
+}
+export const onPlaylistToggled = (
+	cb: (e: PlaylistToggleEvent) => void
+): Promise<UnlistenFn> =>
+	listen<PlaylistToggleEvent>('quick-playlist-toggled', (e) => cb(e.payload));
 /**
  * Local music disappeared from disk. Fired when a play attempt finds nothing there, carrying the
  * song (and album, if that emptied it) so every view holding those ids can drop them at once.

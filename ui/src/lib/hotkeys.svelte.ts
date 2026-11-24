@@ -7,7 +7,7 @@ export interface HotkeyActionDef {
 	id: string;
 	titleKey: TranslationKey;
 	hintKey: TranslationKey;
-	section: 'playback' | 'audio' | 'window';
+	section: 'playback' | 'audio' | 'library' | 'window';
 }
 
 export const HOTKEY_ACTIONS: HotkeyActionDef[] = [
@@ -73,6 +73,13 @@ export const HOTKEY_ACTIONS: HotkeyActionDef[] = [
 		hintKey: 'settings.hotkeys.action_mute_toggle_hint',
 		section: 'audio'
 	},
+	// Library
+	{
+		id: 'toggle_playlist',
+		titleKey: 'settings.hotkeys.action_toggle_playlist',
+		hintKey: 'settings.hotkeys.action_toggle_playlist_hint',
+		section: 'library'
+	},
 	// Window
 	{
 		id: 'show_app',
@@ -88,6 +95,9 @@ class HotkeysStore {
 	enabled = $state(false);
 	wayland = $state(false);
 	bindings = $state<Record<string, string>>({});
+	targetPlaylistId = $state<string | null>(null);
+	targetPlaylistName = $state<string | null>(null);
+	notifyPlaylistToggle = $state(true);
 	errors = $state<Record<string, string>>({});
 	recordingAction = $state<string | null>(null);
 
@@ -100,6 +110,9 @@ class HotkeysStore {
 			this.wayland = wayland;
 			this.enabled = res.enabled;
 			this.bindings = res.bindings || {};
+			this.targetPlaylistId = res.target_playlist_id ?? null;
+			this.targetPlaylistName = res.target_playlist_name ?? null;
+			this.notifyPlaylistToggle = res.notify_playlist_toggle ?? true;
 			this.loaded = true;
 		} catch (e) {
 			console.error('Failed to load global hotkeys', e);
@@ -111,13 +124,19 @@ class HotkeysStore {
 		try {
 			const res = await api.setGlobalHotkeys({
 				enabled: this.enabled,
-				bindings: $state.snapshot(this.bindings)
+				bindings: $state.snapshot(this.bindings),
+				target_playlist_id: this.targetPlaylistId,
+				target_playlist_name: this.targetPlaylistName,
+				notify_playlist_toggle: this.notifyPlaylistToggle
 			});
 			this.errors = res.errors || {};
 			if (!res.success) {
 				if (Object.keys(res.errors || {}).length === 0) {
 					this.enabled = res.config.enabled;
 					this.bindings = res.config.bindings || {};
+					this.targetPlaylistId = res.config.target_playlist_id ?? null;
+					this.targetPlaylistName = res.config.target_playlist_name ?? null;
+					this.notifyPlaylistToggle = res.config.notify_playlist_toggle ?? true;
 				}
 				const errorCount = Object.keys(res.errors || {}).length;
 				toast.error(
@@ -129,6 +148,17 @@ class HotkeysStore {
 		} finally {
 			this.saving = false;
 		}
+	}
+
+	async setTargetPlaylist(id: string | null, name: string | null) {
+		this.targetPlaylistId = id;
+		this.targetPlaylistName = name;
+		await this.save();
+	}
+
+	async setNotifyPlaylistToggle(val: boolean) {
+		this.notifyPlaylistToggle = val;
+		await this.save();
 	}
 
 	async toggleEnabled(val: boolean) {
@@ -164,6 +194,9 @@ class HotkeysStore {
 			const res = await api.resetGlobalHotkeys();
 			this.enabled = res.config.enabled;
 			this.bindings = res.config.bindings || {};
+			this.targetPlaylistId = res.config.target_playlist_id ?? null;
+			this.targetPlaylistName = res.config.target_playlist_name ?? null;
+			this.notifyPlaylistToggle = res.config.notify_playlist_toggle ?? true;
 			this.errors = res.errors || {};
 			if (res.success) {
 				toast.success(t('common.done'));

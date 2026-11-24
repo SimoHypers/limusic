@@ -1073,6 +1073,16 @@ impl Db {
         );
     }
 
+    pub fn has_playlist_track(&self, playlist_id: &str, video_id: &str) -> bool {
+        let conn = self.0.lock().unwrap();
+        conn.query_row(
+            "SELECT 1 FROM playlist_track WHERE playlist_id = ?1 AND video_id = ?2",
+            [playlist_id, video_id],
+            |_| Ok(()),
+        )
+        .is_ok()
+    }
+
     pub fn forget_playlist(&self, playlist_id: &str) {
         let conn = self.0.lock().unwrap();
         let _ = conn.execute("DELETE FROM playlist_track WHERE playlist_id = ?1", [playlist_id]);
@@ -1195,6 +1205,17 @@ impl Db {
             }
         }
         out
+    }
+
+    /// Row id of `video_id` in a local playlist, if present.
+    pub fn local_playlist_row_for_video(&self, id: i64, video_id: &str) -> Option<i64> {
+        let conn = self.0.lock().unwrap();
+        conn.query_row(
+            "SELECT id FROM local_playlist_tracks WHERE playlist_id = ?1 AND video_id = ?2",
+            rusqlite::params![id, video_id],
+            |r| r.get(0),
+        )
+        .ok()
     }
 
     /// Append `(video_id, song_json)` rows, answering per row whether it went in: `false` is a
