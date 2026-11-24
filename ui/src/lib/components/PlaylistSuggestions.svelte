@@ -20,6 +20,7 @@
 	import type { SongItem } from '$lib/api';
 	import { openAddToPlaylist, playback, toast } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
+	import { lite } from '$lib/theme.svelte';
 	import { thumb } from '$lib/thumb';
 
 	// Suggestions under a playlist you own (#395): YouTube Music's own shelf, or the playlist's
@@ -50,7 +51,7 @@
 	} = $props();
 
 	const reducedMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
-	const ms = (n: number) => (reducedMotion.current ? 0 : n);
+	const ms = (n: number) => (reducedMotion.current || lite() ? 0 : n);
 	// How long a picked row shows "Added" before it folds away: long enough to read, short enough
 	// that picking down the list never waits on it.
 	const LINGER_MS = 450;

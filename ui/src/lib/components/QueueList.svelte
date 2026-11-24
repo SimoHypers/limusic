@@ -24,7 +24,7 @@
 	import { dragScroll, QUEUE_ROW_MIME } from '$lib/dnd';
 	import { playback, prefs, setAutoplay, openAddToPlaylist } from '$lib/player.svelte';
 	import { lt } from '$lib/lt.svelte';
-	import { appearance } from '$lib/theme.svelte';
+	import { appearance, lite } from '$lib/theme.svelte';
 	import { currentLocale, t } from '$lib/i18n.svelte';
 
 	const reducedMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
@@ -95,7 +95,7 @@
 	function toPlaying(smooth = false) {
 		if (!el?.isConnected) return;
 		const top = playback.queue.currentIndex * sc.rowPx;
-		if (!smooth || reducedMotion.current) {
+		if (!smooth || reducedMotion.current || lite()) {
 			el.scrollTop = top;
 			return;
 		}
@@ -158,7 +158,7 @@
 			const sameTrack =
 				q.items[q.currentIndex]?.video_id === prev.items[prev.currentIndex]?.video_id;
 			const reshuffled = q.items !== prev.items && !!q.shuffle !== !!prev.shuffle && sameTrack;
-			const still = reducedMotion.current;
+			const still = reducedMotion.current || lite();
 			motion.rows =
 				q.items !== prev.items &&
 				!reshuffled &&
@@ -233,7 +233,8 @@
 			}
 			const to = followPlaying(el.scrollTop, el.clientHeight, sc.rowPx, ROW0, from, currentIndex);
 			if (to === null) return;
-			const smooth = Math.abs(currentIndex - from) === 1 && !reducedMotion.current;
+			const smooth =
+				Math.abs(currentIndex - from) === 1 && !reducedMotion.current && !lite();
 			el.scrollTo({ top: to, behavior: smooth ? 'smooth' : 'instant' });
 		});
 	});

@@ -24,6 +24,7 @@ import {
 	startMatugenWatcher,
 	stopMatugenWatcher
 } from './api';
+import { autoArmed } from './lite-auto.svelte';
 
 export type ThemeId =
 	| 'default'
@@ -166,7 +167,22 @@ export const appearance = $state({
 	theaterClockSide: 'right' as 'left' | 'right',
 	theaterClockFormat: 'auto' as 'auto' | '12' | '24',
 	enhancedLyrics: false,
-	...LYRICS_DEFAULTS
+	...LYRICS_DEFAULTS,
+	/**
+	 * Lite performance mode. Cuts animations, transitions, the decorative artwork-blur layers and
+	 * the JS repaint loops — everything here that can cost a frame on an integrated GPU sharing
+	 * memory bandwidth with something else. Kept deliberately in-app (no env var, no engine
+	 * setting): an env toggle can't flip mid-session, and the engine's own "disable compositing"
+	 * switch measured laggier than plain painting at high fractional scale. Most of the look
+	 * stays; the audio path is not touched at all.
+	 */
+	liteMode: false,
+	/**
+	 * Let the gpu-busy poll arm lite mode by itself while the dGPUs are pegged elsewhere. Only the
+	 * *intent* is stored; the armed state lives in `lite-auto.svelte.ts` and dies with the run, so
+	 * an auto-arm never rewrites the user's saved appearance.
+	 */
+	liteAuto: false
 });
 
 export type LyricsAnim = 'bounce' | 'float' | 'wave' | 'pop' | 'slide' | 'none';
@@ -174,8 +190,21 @@ export type LyricsStyle = 'feather' | 'accent' | 'crisp' | 'word';
 export const LYRICS_ANIMS: LyricsAnim[] = ['bounce', 'float', 'wave', 'pop', 'slide', 'none'];
 export const LYRICS_STYLES: LyricsStyle[] = ['feather', 'accent', 'crisp', 'word'];
 
+/**
+ * The one lite answer every component reads — derive here, never in the component, so nothing can
+ * re-decide what "lite" means. The user's own switch wins; otherwise the auto-arm layers on while
+ * the setting is enabled and the poll sees a pegged GPU. The armed half is runtime-only, so a busy
+ * machine changes what renders without ever touching what is saved. (Read it as `lite()`: Svelte
+ * won't export a module derived directly, but a getter still tracks, so callers stay reactive.)
+ */
+const liteState = $derived(appearance.liteMode || (appearance.liteAuto && autoArmed.value));
+export const lite = (): boolean => liteState;
+
 export function setAppearance(patch: Partial<typeof appearance>): void {
 	Object.assign(appearance, patch);
+	// The lite switches decide the root class `apply` maintains. Re-applying here keeps `apply` the
+	// single site that touches it, instead of a second toggle that can drift from the theme path.
+	if ('liteMode' in patch || 'liteAuto' in patch) apply();
 	localStorage.setItem(APPEARANCE_KEY, JSON.stringify(appearance));
 }
 
@@ -262,7 +291,9 @@ function setAccentVars(color: string): void {
 	root.style.setProperty('--accent-foreground', fg);
 }
 
-function apply(): void {
+/** Re-paint the theme and lite chrome onto <html>. Exported for the auto-arm poll, which changes
+ *  `lite` outside the settings path and needs the root class kept in step. */
+export function apply(): void {
 	const t = THEMES.find((x) => x.id === theme.id) ?? THEMES[0];
 	const root = document.documentElement;
 	// Reset first, so switching palettes (or clearing a custom override) never leaves the previous
@@ -272,6 +303,9 @@ function apply(): void {
 	);
 	root.classList.remove(...PALETTE_CLASSES, TINT_CLASS);
 	root.classList.add(`theme-${t.id}`); // 'default' has no rule: :root/.dark are its tokens
+	// Lite rides the same element and the same path as the palette class — the `.lite` rules in
+	// layout.css key off <html> exactly like the presets do.
+	root.classList.toggle('lite', lite());
 
 	// The Matugen palette brings its own accent (its stylesheet sets it), so the custom one steps aside.
 	if (custom.accent && !appearance.matugen) setAccentVars(custom.accent);
@@ -603,7 +637,9 @@ export function initTheme(): void {
 			'matugen',
 			'theaterClock',
 			'enhancedLyrics',
-			'enhancedLyricsLineSync'
+			'enhancedLyricsLineSync',
+			'liteMode',
+			'liteAuto'
 		] as const) {
 			if (typeof saved?.[k] === 'boolean') appearance[k] = saved[k];
 		}

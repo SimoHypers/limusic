@@ -86,7 +86,9 @@ const TABLE: [SettingsTab, K | null, Row[]][] = [
 			['settings.themes.zoom', 'settings.themes.zoom_hint'],
 			['settings.themes.app_icon', 'settings.themes.app_icon_hint'],
 			['settings.themes.blur_playlist_header', 'settings.themes.blur_playlist_header_hint'],
-			['settings.themes.now_playing_pill', 'settings.themes.now_playing_pill_hint']
+			['settings.themes.now_playing_pill', 'settings.themes.now_playing_pill_hint'],
+			['settings.themes.lite_mode', 'settings.themes.lite_mode_hint'],
+			['settings.themes.lite_auto', 'settings.themes.lite_auto_hint']
 		]
 	],
 	[
