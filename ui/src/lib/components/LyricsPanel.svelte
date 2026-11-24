@@ -5,6 +5,7 @@
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { Maximize01Icon, Minimize01Icon } from '@hugeicons/core-free-icons';
 	import LyricsView from './LyricsView.svelte';
+	import SidePanelResizeHandle from './SidePanelResizeHandle.svelte';
 	import { ui } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
 
@@ -33,10 +34,11 @@
 	transition:fly={{ x: 32, duration: 220, easing: cubicOut }}
 	class={expanded
 		? // ponytail: left offsets mirror Sidebar's w-16/lg:w-60 (and its manual collapse), right
-			// offset mirrors QueuePanel's w-80 — keep in sync if those change.
-			`absolute inset-y-0 left-16 right-0 z-30 flex h-full flex-col border-l bg-card/95 shadow-2xl ${ui.sidebarCollapsed ? '' : 'lg:left-60'} ${queueOpen ? 'lg:right-80' : ''}`
-		: `absolute inset-y-0 right-0 z-30 flex h-full w-80 max-w-[80vw] flex-col border-l bg-card/95 shadow-2xl ${queueOpen ? 'lg:right-80' : ''}`}
+			// offset mirrors QueuePanel's --side-panel-w — keep in sync if those change.
+			`absolute inset-y-0 left-16 right-0 z-30 flex h-full flex-col border-l bg-card/95 shadow-2xl ${ui.sidebarCollapsed ? '' : 'lg:left-60'} ${queueOpen ? 'lg:right-[var(--side-panel-w,20rem)]' : ''}`
+		: `absolute inset-y-0 right-0 z-30 flex h-full w-[var(--side-panel-w,20rem)] max-w-[80vw] flex-col border-l bg-card/95 shadow-2xl ${queueOpen ? 'lg:right-[var(--side-panel-w,20rem)]' : ''}`}
 >
+	{#if !expanded}<SidePanelResizeHandle />{/if}
 	<div data-side-panel-header class="flex items-center justify-between border-b px-4 py-3">
 		<h2 class="font-heading text-sm font-semibold">{t('lyrics.title')}</h2>
 		<button

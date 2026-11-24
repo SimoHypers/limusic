@@ -60,6 +60,7 @@
 	import { initWin, windowCorners } from '$lib/win.svelte';
 	import { initZoom } from '$lib/zoom.svelte';
 	import { initShortcuts } from '$lib/shortcuts';
+	import { sidePanel } from '$lib/sidepanel.svelte';
 	import { initErrorLog } from '$lib/errlog';
 	import {
 		updateState,
@@ -276,7 +277,7 @@
 		<ResizeBorders />
 		<Titlebar />
 		<!-- relative: the queue and lyrics panels are absolute overlays inside it (see QueuePanel). -->
-		<div class="relative flex min-h-0 flex-1">
+		<div class="relative flex min-h-0 flex-1" style="--side-panel-w:{sidePanel.width}px">
 			<Sidebar />
 			<!-- dragScroll: dragging a card up to home's Shortcuts grid has to be possible from anywhere in
 			     the feed, so aiming at the top edge scrolls this container while the drag is in flight. -->

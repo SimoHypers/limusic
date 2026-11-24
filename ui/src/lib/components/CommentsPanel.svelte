@@ -2,6 +2,7 @@
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import CommentsView from './CommentsView.svelte';
+	import SidePanelResizeHandle from './SidePanelResizeHandle.svelte';
 	import { t } from '$lib/i18n.svelte';
 
 	let { onClose, queueOpen = false }: { onClose: () => void; queueOpen?: boolean } = $props();
@@ -19,10 +20,11 @@
 <aside
 	data-side-panel
 	transition:fly={{ x: 32, duration: 220, easing: cubicOut }}
-	class="absolute inset-y-0 right-0 z-30 flex h-full w-80 max-w-[80vw] flex-col border-l bg-card/95 shadow-2xl {queueOpen
-		? 'lg:right-80'
+	class="absolute inset-y-0 right-0 z-30 flex h-full w-[var(--side-panel-w,20rem)] max-w-[80vw] flex-col border-l bg-card/95 shadow-2xl {queueOpen
+		? 'lg:right-[var(--side-panel-w,20rem)]'
 		: ''}"
 >
+	<SidePanelResizeHandle />
 	<h2 data-side-panel-header class="border-b px-4 py-3 font-heading text-sm font-semibold"
 		>{t('comments.title')}</h2
 	>

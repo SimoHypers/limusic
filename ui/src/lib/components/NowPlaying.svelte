@@ -74,7 +74,11 @@
 	const stage = $derived(!appearance.classicPlayer);
 	// ponytail: mirrors QueuePanel / LyricsPanel's w-80, keep in sync if those change.
 	const panels = $derived(Number(queueOpen) + Number(lyricsOpen));
-	const inset = $derived(['', 'lg:right-80', 'lg:right-[40rem]'][panels]);
+	const inset = $derived(
+		['', 'lg:right-[var(--side-panel-w,20rem)]', 'lg:right-[calc(var(--side-panel-w,20rem)*2)]'][
+			panels
+		]
+	);
 
 	// Going somewhere means the user wants that page, not this one: minimise. The player bar brings
 	// it back. beforeNavigate (not a pathname effect) so clicking the tab you're already on counts.

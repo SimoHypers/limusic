@@ -1255,6 +1255,7 @@
 		"close_queue": "Close queue",
 		"close_lyrics": "Close lyrics",
 		"close_comments": "Close comments",
+		"resize_side_panel": "Resize panel",
 		"play": "Play",
 		"play_item": "Play {title}",
 		"play_pause": "Play/pause",
