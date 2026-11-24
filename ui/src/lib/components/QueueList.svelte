@@ -242,6 +242,27 @@
 		clicked = i;
 		api.playIndex(i);
 	}
+
+	let clearingPrevious = $state(false);
+	async function clearPrevious() {
+		if (!canEdit || clearingPrevious || playback.queue.currentIndex <= 0) return;
+		clearingPrevious = true;
+		const count = playback.queue.currentIndex;
+		const trackId = playback.queue.items[count]?.video_id;
+		try {
+			for (let i = count - 1; i >= 0; i--) {
+				if (!canEdit || i >= playback.queue.currentIndex) break;
+				if (trackId && playback.queue.items[playback.queue.currentIndex]?.video_id !== trackId) break;
+				await api.removeFromQueue(i);
+			}
+		} finally {
+			clearingPrevious = false;
+		}
+	}
+
+	const stopSpace = (event: KeyboardEvent) => {
+		if (event.key === ' ') event.stopPropagation();
+	};
 </script>
 
 {#snippet rows(list: QueueRow[], w: RowWindow)}
@@ -335,7 +356,7 @@
 			</label>
 		{/if}
 	</div>
-	{#if playback.queue.prevTrack || (canEdit && view.queued)}
+	{#if playback.queue.prevTrack || (canEdit && (view.queued || playback.queue.currentIndex > 0))}
 		<div class="flex shrink-0 items-center gap-2 px-2 pb-1">
 			<!-- Clicking a song throws the queue away, so the tracks that were actually just played
 			     are in the queue we kept. One line for the whole of it: they are not rows of this
@@ -345,28 +366,40 @@
 					variant="ghost"
 					size="xs"
 					class="h-7 min-w-0 shrink cursor-pointer gap-1.5 rounded-md px-2 text-muted-foreground hover:text-foreground"
-					onkeydown={(event) => {
-						if (event.key === ' ') event.stopPropagation();
-					}}
+					onkeydown={stopSpace}
 					onclick={() => api.backToPrevious()}
 				>
 					<HugeiconsIcon icon={ArrowTurnBackwardIcon} class="size-3.5 shrink-0" />
 					<span class="truncate">{t('player.back_to', { title: playback.queue.prevTrack })}</span>
 				</Button>
 			{/if}
-			{#if canEdit && view.queued}
-				<!-- Only what was added by hand: Play next and Add to queue, not the playlist. -->
-				<Button
-					variant="ghost"
-					size="xs"
-					class="ml-auto h-7 shrink-0 cursor-pointer rounded-md px-2 text-muted-foreground hover:text-foreground"
-					onkeydown={(event) => {
-						if (event.key === ' ') event.stopPropagation();
-					}}
-					onclick={() => api.clearQueued()}
-				>
-					{t('player.clear_queue')}
-				</Button>
+			{#if canEdit && (view.queued || playback.queue.currentIndex > 0)}
+				<div class="ml-auto flex shrink-0 items-center gap-1">
+					{#if playback.queue.currentIndex > 0}
+						<Button
+							variant="ghost"
+							size="xs"
+							class="h-7 shrink-0 cursor-pointer rounded-md px-2 text-muted-foreground hover:text-foreground"
+							disabled={clearingPrevious}
+							onkeydown={stopSpace}
+							onclick={clearPrevious}
+						>
+							{t('player.clear_previous')}
+						</Button>
+					{/if}
+					{#if view.queued}
+						<!-- Only what was added by hand: Play next and Add to queue, not the playlist. -->
+						<Button
+							variant="ghost"
+							size="xs"
+							class="h-7 shrink-0 cursor-pointer rounded-md px-2 text-muted-foreground hover:text-foreground"
+							onkeydown={stopSpace}
+							onclick={() => api.clearQueued()}
+						>
+							{t('player.clear_queue')}
+						</Button>
+					{/if}
+				</div>
 			{/if}
 		</div>
 	{/if}

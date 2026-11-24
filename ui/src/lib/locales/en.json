@@ -300,6 +300,7 @@
 		"songs_left_one": "1 song left",
 		"queue_ends": "The queue ends after this song.",
 		"clear_queue": "Clear Queue",
+		"clear_previous": "Clear previous",
 		"empty_queue": "Queue is empty",
 		"play_next": "Play next",
 		"add_to_queue": "Add to queue",
