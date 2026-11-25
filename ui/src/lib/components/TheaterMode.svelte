@@ -409,7 +409,7 @@
 		holding = true;
 		const measure = () => {
 			if (released) return;
-			if (document.hidden || !windowView.visible) return setHole(null);
+			if (document.hidden) return setHole(null);
 			const r = el.getBoundingClientRect();
 			setHole({ x: r.left, y: r.top, w: r.width, h: r.height });
 		};

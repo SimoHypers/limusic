@@ -225,7 +225,7 @@
 		// Theater mode paints over the whole window, so nobody would see the picture.
 		if (!settled || ui.theaterOpen || !windowView.visible) return;
 		const measure = () => {
-			if (document.hidden || !windowView.visible) return setHole(null);
+			if (document.hidden) return setHole(null);
 			const r = el.getBoundingClientRect();
 			setHole({ x: r.left, y: r.top, w: r.width, h: r.height });
 		};

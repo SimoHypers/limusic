@@ -270,7 +270,9 @@
 	// than doing anything the webview could tell apart.
 	// The tray and minimize are signalled by Rust's ui-visible event, not by the webview.
 	$effect(() => {
-		const onVisibility = () => (hidden = document.hidden || !view.visible);
+		// view.visible comes first so the effect always depends on it: `||` would skip reading it
+		// while document.hidden is true, and the effect would never re-run when the flag changes.
+		const onVisibility = () => (hidden = !view.visible || document.hidden);
 		document.addEventListener('visibilitychange', onVisibility);
 		onVisibility();
 		return () => document.removeEventListener('visibilitychange', onVisibility);

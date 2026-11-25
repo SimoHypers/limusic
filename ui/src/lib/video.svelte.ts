@@ -136,10 +136,12 @@ export function setHole(r: Hole | null) {
 			.catch(() => {});
 	};
 	// Two frames: the first paints the smaller hole, the second runs once that one is out. A hidden
-	// page gets no frames, and nobody can see it anyway.
+	// page gets no frames, and nobody can see it anyway. WebKitGTK keeps reporting a window closed to
+	// the tray as visible and may run no frames for it, so the Rust-driven `view.visible` flag also
+	// sends at once.
 	// ponytail: a live window resize keeps restarting this, so the picture catches up when the drag
 	// stops, with page background at the new edges meanwhile. Throttle instead if that shows.
-	if (document.hidden) send();
+	if (document.hidden || !view.visible) send();
 	else requestAnimationFrame(() => requestAnimationFrame(send));
 }
 
