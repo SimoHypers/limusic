@@ -4143,10 +4143,15 @@ impl AppState {
         let Some(client) = self.clients.get(&due.target.client).cloned() else { return };
         let it = self.it.clone();
         tauri::async_runtime::spawn(async move {
-            if let Err(e) =
-                it.report_watchtime(&client, &due.target.url, &due.cpn, &due.report).await
-            {
-                tracing::debug!(error = %e, "watch-time report failed");
+            let r = &due.report;
+            match it.report_watchtime(&client, &due.target.url, &due.cpn, r).await {
+                Ok(()) => tracing::debug!(
+                    stretches = ?r.stretches,
+                    playing = r.next_in.is_some(),
+                    last = r.last,
+                    "watch time reported"
+                ),
+                Err(e) => tracing::debug!(error = %e, "watch-time report failed"),
             }
         });
     }

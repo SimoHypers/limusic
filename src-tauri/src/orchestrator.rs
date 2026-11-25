@@ -709,24 +709,30 @@ impl Orchestrator {
     /// A new tracking block for a play whose stream came from somewhere that was already pinged: a
     /// Repeat One loop, or a replay off the stream cache (#764). A tracking block is good for one
     /// play; music.youtube.com fetches a fresh `/player` for every loop, so each gets its own
-    /// `ei`/`plid`, and reusing the first play's would fold the replays into it. One `/player` as
-    /// the main client, nothing resolved.
+    /// `ei`/`plid`, and reusing the first play's would fold the replays into it. One `/player`,
+    /// nothing resolved.
     pub async fn fresh_ping(
         &self,
         video_id: &str,
         disabled: &HashSet<String>,
     ) -> Option<PlaybackPing> {
-        if disabled.contains(MAIN_CLIENT) {
-            return None;
-        }
-        let client = self.clients.get(MAIN_CLIENT)?;
-        let sts = self.cipher.signature_timestamp().await;
+        // One request, to the first client the user hasn't turned off: WEB_REMIX unless they have,
+        // and then the fallback that most likely served the first play's block.
+        let key = std::iter::once(MAIN_CLIENT)
+            .chain(STREAM_FALLBACK_ORDER)
+            .find(|k| !disabled.contains(*k))?;
+        let client = self.clients.get(key)?;
+        let sts = if key == MAIN_CLIENT || client.use_signature_timestamp {
+            self.cipher.signature_timestamp().await
+        } else {
+            None
+        };
         let pot = match self.it.visitor_data() {
             Some(vd) if client.use_web_po_tokens => self.potoken.get_session_po_token(&vd).await,
             _ => None,
         };
         let resp = self.it.player(client, video_id, None, sts, pot.as_deref()).await.ok()?;
-        playback_ping(&resp, MAIN_CLIENT)
+        playback_ping(&resp, key)
     }
 
     /// Keep a music video's WEB_REMIX reply for [`resolve_video`](Self::resolve_video).
