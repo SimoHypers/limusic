@@ -339,10 +339,11 @@ export function orderLibrary(items: BrowseItem[], p: Personal): BrowseItem[] {
 // --- Home arrangement ---------------------------------------------------------------------------
 
 /**
- * The YouTube shelves home shows, by the `kind` the innertube crate gives them (#476). Everything
- * else YouTube sends (an artist's shelf, "Recaps", "Long listens") stays off home: the feed varies
- * by the day and by the language, and listing whatever it sent turned Edit home into a pile of
- * forty rows, half of them in a language the user had since switched away from.
+ * The YouTube shelves home knows, by the `kind` the innertube crate gives them (#476). Edit home
+ * always lists these, under our own labels and keyed the same in every language. Anything else the
+ * feed sends (an artist's shelf, "Recaps", or a known shelf whose title the crate's table lacks)
+ * still shows, keyed by its title, and Edit home lists it only while it is loaded: listing every
+ * title ever seen turned it into a pile of forty rows, half in a language the user had left.
  *
  * Forgotten favourites is a kind too, but home renders it as one of ours (`@forgotten`).
  */
@@ -404,8 +405,8 @@ export function homeIsDefault(p: Personal): boolean {
 /**
  * Arrangements saved before #476 keyed YouTube's shelves by their title. Rename each title the feed
  * now pairs with a kind, so a section the user hid or moved stays that way. Only the language the
- * feed is in can be matched; a title from any other one is left behind, and the next save from
- * Edit home (which writes only the rows it lists) drops it.
+ * feed is in can be matched; a title from any other one is left behind. Its rank goes with the next
+ * save from Edit home (which orders only the rows it lists); a hidden one stays, matching nothing.
  *
  * Returns whether anything changed, so the caller, which runs on every page, can skip the write.
  */

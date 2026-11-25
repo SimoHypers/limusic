@@ -82,11 +82,20 @@
 		if (open) untrack(build);
 	});
 
-	/** The list as it stands. */
-	const arrangement = () => ({
-		order: rows.map((r) => r.key),
-		hidden: rows.filter((r) => !r.shown).map((r) => r.key)
-	});
+	/**
+	 * The list as it stands. A hidden shelf the feed hasn't sent this time (it lists only while
+	 * loaded, see `known` on home) stays hidden, or saving would bring it back.
+	 */
+	const arrangement = () => {
+		const listed = new Set(rows.map((r) => r.key));
+		return {
+			order: rows.map((r) => r.key),
+			hidden: [
+				...rows.filter((r) => !r.shown).map((r) => r.key),
+				...personal.home.hidden.filter((k) => !listed.has(k))
+			]
+		};
+	};
 	const commit = () => saveHome(arrangement());
 
 	/**
