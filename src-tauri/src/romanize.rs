@@ -141,11 +141,11 @@ fn has_reading(text: &str) -> bool {
     classes(&chars).iter().any(|c| !matches!(c, Class::Keep | Class::Punct))
 }
 
-/// Each char's class, with a Cyrillic or Greek run that touches a Latin letter kept as it is: that
-/// is a look-alike inside a Latin word ("obsеssed" with a Cyrillic е, #751, a trap some lyric
-/// sites plant to catch copies) or a stylised one ("ΛOVE"), not a word in another script.
+/// Each char's class, with an alphabet run that touches a Latin letter kept as it is: that is a
+/// look-alike inside a Latin word ("obsеssed" with a Cyrillic е, #751, a trap some lyric sites
+/// plant to catch copies) or a stylised one ("ΛOVE"), not a word in another script.
 fn classes(chars: &[char]) -> Vec<Class> {
-    let latin = |c: &char| class(*c) == Class::Keep && c.is_alphabetic();
+    let latin = |c: &char| c.is_alphabetic() && matches!(*c as u32, 0..=0x024F | 0x1E00..=0x1EFF);
     let mut cls: Vec<Class> = chars.iter().map(|&c| class(c)).collect();
     let mut i = 0;
     while i < chars.len() {
@@ -816,9 +816,16 @@ mod tests {
     #[test]
     fn a_latin_line_with_a_look_alike_gets_no_reading() {
         // A Cyrillic е inside "obsessed" (#751), a stylised Greek Λ, full-width punctuation.
-        let r = readings(&["So I obsеssed with me", "ΛOVE", "Hello！", "Привет obsеssed"]);
+        let r = readings(&[
+            "So I obsеssed with me",
+            "ΛOVE",
+            "Hello！",
+            "Привет obsеssed",
+            "Приветשלום",
+        ]);
         assert_eq!(r[..3], [None, None, None]);
         assert_eq!(r[3].as_deref(), Some("Privet obsеssed"));
+        assert_eq!(r[4].as_deref(), Some("Privet שלום"));
         let w = word_readings(&[vec!["So ".into(), "I ".into(), "obsеssed ".into()]]);
         assert_eq!(w[0], [None, None, None]);
     }
