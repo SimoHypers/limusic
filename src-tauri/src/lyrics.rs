@@ -327,7 +327,9 @@ pub async fn set_offset(state: &AppState, video_id: &str, offset_ms: i64) {
     };
     let (mut id, mut lyrics) = (video_id.to_owned(), row(video_id));
     if !lyrics.as_ref().is_some_and(kept_on_video) {
-        if let Some((song, _)) = state.video_twin(video_id).await {
+        // Without a segment map the video is on its own timing, and so is its nudge.
+        let twin = state.video_twin(video_id).await.filter(|(_, segments)| !segments.is_empty());
+        if let Some((song, _)) = twin {
             lyrics = row(&song);
             id = song;
         }
@@ -617,8 +619,8 @@ fn unsync_flat(mut l: Lyrics) -> Lyrics {
 /// A music video paired with a song (#767): a Limusic lyric synced on the video itself, else the
 /// song's lyrics moved onto the video's timing. Limusic can't match the two by name, their lengths
 /// differ, and any other source's lines are the song's, early by the video's intro. Only the
-/// video's own lyric is cached under it: the song's is moved again every time, so it follows the
-/// song's cache, its daily check, picks and nudges. A miss isn't cached either.
+/// video's own lyric is kept under it: the song's is moved again every time, so it follows the
+/// song's cache, its daily check, picks and nudges.
 async fn on_video(
     state: &AppState,
     req: &LyricsRequest,
@@ -631,7 +633,10 @@ async fn on_video(
         }
     }
     let song = Box::pin(cached_or_fetched(state, song)).await;
-    (song.map(|l| onto_video(l, segments)), false)
+    // Without a segment map (YouTube pairs some only on the album page) the copy keeps the song's
+    // timing. It is cached under the video so a nudge there has a row of its own (`set_offset`).
+    let cache = song.is_some() && segments.is_empty();
+    (song.map(|l| onto_video(l, segments)), cache)
 }
 
 /// A Limusic lyric synced on this video itself, asked for by id alone: by name the service could
