@@ -50,6 +50,7 @@
 	import TrackMenu from './TrackMenu.svelte';
 	import DevicePicker from './DevicePicker.svelte';
 	import { link } from '$lib/link.svelte';
+	import { cast } from '$lib/cast.svelte';
 	import { currentLocale, t } from '$lib/i18n.svelte';
 	import LiveBadge from './LiveBadge.svelte';
 
@@ -303,7 +304,7 @@
 	<!-- Transport -->
 	<div class="flex flex-[1.5] flex-col items-center gap-1">
 		<div class="flex items-center gap-1">
-			{#if episode}
+			{#if episode && !cast.device}
 				<SpeedPicker
 					class="inline-flex h-8 min-w-8 items-center justify-center rounded-4xl px-0.5 text-xs hover:bg-muted dark:hover:bg-muted/50 aria-expanded:bg-muted"
 				/>
@@ -464,9 +465,11 @@
 		</div>
 		<!-- One cluster, so they sit tighter to each other than to the volume slider. -->
 		<div class="flex items-center gap-0.5">
-			{#if link.status !== 'off'}<DevicePicker />{/if}
-			<!-- Speed, pitch and reverb are this desktop's player's; hidden while it controls a linked device. -->
-			{#if !link.remote}
+			<!-- Always there: it is where casting starts, with or without a linked phone. -->
+			<DevicePicker />
+			<!-- Speed, pitch and reverb are this desktop's player's; hidden while it controls a linked
+			     device or a cast device plays. -->
+			{#if !link.remote && !cast.device}
 			<Button
 				variant={ui.tempoPitchOpen ? 'secondary' : 'ghost'}
 				size="icon-sm"

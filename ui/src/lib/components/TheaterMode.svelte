@@ -83,6 +83,7 @@
 	import M3SeekWave from './M3SeekWave.svelte';
 	import QueueList from './QueueList.svelte';
 	import SpeedPicker from './SpeedPicker.svelte';
+	import { cast } from '$lib/cast.svelte';
 	import TrackMenu from './TrackMenu.svelte';
 	import Ambient from './Ambient.svelte';
 	import TheaterClock from './TheaterClock.svelte';
@@ -894,7 +895,7 @@
 			<!-- Transport. Bigger than the player bar's: at arm's length this is the only control
 			     surface on screen, and play is the one you reach for without looking. -->
 			<div class="flex items-center gap-2 xl:gap-3">
-				{#if episode}
+				{#if episode && !cast.device}
 					<SpeedPicker
 						class="flex h-10 min-w-10 items-center justify-center rounded-full px-1 text-sm transition-colors hover:bg-foreground/10 aria-expanded:bg-foreground/10"
 					/>

@@ -6,6 +6,7 @@
 // that no amount of tuning the sync loop could recover. So the element is owned by VideoSurface,
 // which is always mounted, and the view borrows it.
 import * as api from './api';
+import { cast } from './cast.svelte';
 import { playback, prefs, videoReady } from './player.svelte';
 
 /** Session-sticky on purpose: someone who hits "show artwork" wants artwork now and almost
@@ -31,7 +32,8 @@ export const video = $state({
 
 export type Hole = { x: number; y: number; w: number; h: number };
 
-export const canVideo = () => prefs.musicVideos && !!playback.now?.isVideo;
+/** A cast plays the audio only: the picture is never offered while one runs, in any layout. */
+export const canVideo = () => prefs.musicVideos && !!playback.now?.isVideo && !cast.device;
 /** The playing track's other version (#442), read off its queue row: a radio learns it after the
  *  track has started, so the now-playing event can't carry it. */
 export const counterpart = () => {

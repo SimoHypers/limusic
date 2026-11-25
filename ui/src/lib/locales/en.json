@@ -256,6 +256,24 @@
 		"stats": "Stats",
 		"no_channels": "YouTube did not return any selectable channels."
 	},
+	"cast": {
+		"searching": "Looking for devices",
+		"none_found": "No devices found. They need to be on the same network as this computer.",
+		"connecting": "Connecting…",
+		"kind_speaker": "Speaker",
+		"kind_tv": "TV",
+		"kind_group": "Speaker group",
+		"gone": "{name} is no longer on the network.",
+		"unreachable": "Couldn't reach {name}.",
+		"refused": "{name} couldn't play the music.",
+		"leave_room": "Leave the Listen Together room to cast.",
+		"stop_to_join": "Stop casting to join a room.",
+		"firewall": "{name} couldn't get the music from Limusic. Allow Limusic through your firewall on this network, and check that no VPN is in the way.",
+		"lost": "Lost the connection to {name}.",
+		"taken_over": "{name} is playing something else now.",
+		"stopped": "Stopped on {name}.",
+		"skipped": "Skipped {title}: it can't play on {name}."
+	},
 	"player": {
 		"link_playing_on": "Playing on {name}",
 		"link_paused_on": "Paused on {name}",
