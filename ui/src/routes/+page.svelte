@@ -108,15 +108,12 @@
 	// reads it from the cache instead of walking continuations again.
 	let forgotten = $state<HomeSection | null>(null);
 	let seeking = $state(false); // walking continuations to find it — the slot shows a skeleton
-	// Home shows only the shelves it knows (`HOME_KINDS`); a mood chip's feed shows whatever it sends.
-	// So does a signed-out home: it carries five of the kinds and seven general shelves (charts,
-	// moods), and without those it is half empty. It is also the same feed every visit, which is
-	// what makes listing whatever it sent harmless there.
+	// Every shelf the feed sends. The ones innertube recognises (`HOME_KINDS`) are keyed by kind, so
+	// hiding or moving them holds in every language; the rest by YouTube's title. Home used to drop
+	// the rest when signed in, which also dropped every known shelf whose title the table lacks (a
+	// language added since the capture, or YouTube renaming one) while Edit home said it was on (#741).
 	const homeKinds = new Set<string>(HOME_KINDS);
-	const everything = $derived(!!selected || auth.account?.signedIn === false);
-	const feed = $derived(
-		home?.sections.filter((s) => !isForgotten(s) && (everything || homeKinds.has(s.kind!))) ?? []
-	);
+	const feed = $derived(home?.sections.filter((s) => !isForgotten(s)) ?? []);
 
 	// --- the arrangement the user set in Edit home (personal.ts) --------------------------------
 	// The sections the app builds itself get reserved keys (a YouTube shelf title can't start with
@@ -161,8 +158,9 @@
 	/**
 	 * What Edit home lists: ours and every kind home knows, whether or not the feed has sent it yet
 	 * (it arrives a page at a time, and a section can be hidden or moved before the page gets to it).
-	 * Under our own labels, so the list reads the same before anything has loaded. Signed out, the
-	 * other shelves loaded so far join them, under YouTube's title.
+	 * Under our own labels, so the list reads the same before anything has loaded. The other shelves
+	 * loaded so far join them, under YouTube's title: only what this feed sent, never a pile of every
+	 * title ever seen (#476).
 	 */
 	const known = $derived.by(() => {
 		const rows = new Map<string, { key: string; title: string }>();
