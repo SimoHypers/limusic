@@ -128,14 +128,15 @@
 		| { id: string; key: string; title: string; shelf: HomeSection };
 	let editing = $state(false);
 	const hidden = $derived(hiddenSections(personal));
-	/** Ours, in the order they sit on a home nobody has arranged. */
+	/** Ours above the feed, in the order they sit on a home nobody has arranged. */
 	const local = $derived<Block[]>([
 		{ id: SHORTCUTS, key: SHORTCUTS, title: t('home.shortcuts') },
 		{ id: RECENT, key: RECENT, title: t('home.jump_back_in') },
 		{ id: FAMILIAR, key: FAMILIAR, title: t('home.familiar_artists') },
-		{ id: LIVE, key: LIVE, title: t('home.live_now') },
 		{ id: FORGOTTEN, key: FORGOTTEN, title: t('home.forgotten_favourites') }
 	]);
+	/** Below the feed until the user moves it. */
+	const live = $derived<Block>({ id: LIVE, key: LIVE, title: t('home.live_now') });
 	/**
 	 * Every section home can show, in the user's order, hidden ones included. Shelves are keyed on
 	 * their kind, the same in every language, but rendered under a positional id, because a feed
@@ -152,7 +153,7 @@
 			title: s.kind === 'quick_picks' && !selected ? t('home.kinds.quick_picks') : s.title,
 			shelf: s
 		}));
-		return selected ? shelves : arrangeSections([...local, ...shelves], personal);
+		return selected ? shelves : arrangeSections([...local, ...shelves, live], personal);
 	});
 	const visible = $derived(selected ? blocks : blocks.filter((b) => !hidden.has(b.key)));
 	/**
@@ -167,6 +168,7 @@
 		for (const b of local) rows.set(b.key, b);
 		for (const k of HOME_KINDS) rows.set(k, { key: k, title: t(`home.kinds.${k}`) });
 		if (!selected) for (const b of blocks) if (!rows.has(b.key)) rows.set(b.key, b);
+		rows.set(LIVE, live); // last, unless the loop above already placed it
 		return arrangeSections([...rows.values()], personal);
 	});
 
