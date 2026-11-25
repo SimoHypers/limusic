@@ -1026,6 +1026,15 @@
 		openAddManyToPlaylist(sortedItems);
 	}
 
+	// The header's shuffle lights while the queue plays this playlist shuffled: the sidebar's #646
+	// rule for "playing from" (not once autoplay has moved past its end), plus the shuffle flag, so
+	// turning shuffle off in the player bar puts it out too.
+	const shuffling = $derived.by(() => {
+		const q = playback.queue;
+		const current = q.items[q.currentIndex];
+		return !!current && !current.autoplay && !!q.shuffle && q.sourceId === id;
+	});
+
 	// Untouched by the sort: the backend shuffles the whole playlist (continuation pages included),
 	// so what order it was handed is irrelevant.
 	function shufflePlay() {
@@ -1271,7 +1280,7 @@
 							{/if}
 						</div>
 					{/if}
-					<div class="mt-4 flex items-center justify-between gap-2">
+					<div class="mt-4 flex flex-wrap items-center justify-between gap-2">
 						<div class="flex items-center gap-2">
 							<Button
 								class="gap-2"
@@ -1281,21 +1290,39 @@
 								<HugeiconsIcon icon={PlayIcon} class="h-4 w-4" />
 								{preparing || resorting ? t('common.sorting') : t('player.play')}
 							</Button>
+							<!-- #416. Not held by a sort like Play: the backend shuffles the real order. The
+							     icons sit edge to edge as one group, set apart from Play by the row's gap. -->
 							<Button
 								variant="ghost"
 								size="icon"
+								class={shuffling
+									? 'bg-primary/15 text-primary hover:bg-primary/25 hover:text-primary dark:hover:bg-primary/25'
+									: 'text-muted-foreground'}
+								aria-label={t('player.shuffle_play')}
+								title={t('player.shuffle_play')}
+								onclick={shufflePlay}
+								disabled={!pl.items.length}
+							>
+								<HugeiconsIcon icon={ShuffleIcon} class="h-5 w-5" />
+							</Button>
+							<Button
+								variant="ghost"
+								size="icon"
+								class="-ml-2 text-muted-foreground"
 								aria-label={t('a11y.playlist_options')}
 								onclick={openMenu}
 							>
-								<HugeiconsIcon icon={MoreVerticalIcon} class="h-5 w-5 text-muted-foreground" />
+								<HugeiconsIcon icon={MoreVerticalIcon} class="h-5 w-5" />
 							</Button>
 							<TrackSelectButton
 								{selection}
 								class="-ml-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition hover:bg-muted hover:text-foreground"
 							/>
 						</div>
-						<!-- Pushed to the far end of the header, away from the play controls. -->
-						<div class="flex items-center">
+						<!-- Pushed to the far end of the header, away from the play controls. At the narrowest window a
+						     long sort label (another language, "Newest first") would clip it, so the row wraps and
+						     this keeps to the right on its own line. -->
+						<div class="ml-auto flex items-center">
 							<Button
 								variant="ghost"
 								size="sm"
@@ -1499,13 +1526,6 @@
 		style={anchor.style}
 		{@attach fitMenu(anchor)}
 	>
-		<button
-			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
-			onclick={() => run(shufflePlay)}
-			disabled={!pl?.items.length}
-		>
-			<HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" /> {t('player.shuffle_play')}
-		</button>
 		<button
 			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 			onclick={() => run(() => queue(true))}
