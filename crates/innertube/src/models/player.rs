@@ -601,6 +601,9 @@ mod tests {
 pub struct PlaybackTracking {
     #[serde(default)]
     pub videostats_playback_url: Option<BaseUrl>,
+    /// Where the play's watch time is reported after the playback ping (#764).
+    #[serde(default)]
+    pub videostats_watchtime_url: Option<BaseUrl>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

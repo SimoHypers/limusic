@@ -65,6 +65,8 @@ pub struct PlaybackData {
 pub struct PlaybackPing {
     pub url: String,
     pub client: String,
+    /// `videostatsWatchtimeUrl` from the same block, where the play's time is reported (#764).
+    pub watchtime_url: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -704,6 +706,35 @@ impl Orchestrator {
         None
     }
 
+    /// A new tracking block for a play whose stream came from somewhere that was already pinged: a
+    /// Repeat One loop, or a replay off the stream cache (#764). A tracking block is good for one
+    /// play; music.youtube.com fetches a fresh `/player` for every loop, so each gets its own
+    /// `ei`/`plid`, and reusing the first play's would fold the replays into it. One `/player`,
+    /// nothing resolved.
+    pub async fn fresh_ping(
+        &self,
+        video_id: &str,
+        disabled: &HashSet<String>,
+    ) -> Option<PlaybackPing> {
+        // One request, to the first client the user hasn't turned off: WEB_REMIX unless they have,
+        // and then the fallback that most likely served the first play's block.
+        let key = std::iter::once(MAIN_CLIENT)
+            .chain(STREAM_FALLBACK_ORDER)
+            .find(|k| !disabled.contains(*k))?;
+        let client = self.clients.get(key)?;
+        let sts = if key == MAIN_CLIENT || client.use_signature_timestamp {
+            self.cipher.signature_timestamp().await
+        } else {
+            None
+        };
+        let pot = match self.it.visitor_data() {
+            Some(vd) if client.use_web_po_tokens => self.potoken.get_session_po_token(&vd).await,
+            _ => None,
+        };
+        let resp = self.it.player(client, video_id, None, sts, pot.as_deref()).await.ok()?;
+        playback_ping(&resp, key)
+    }
+
     /// Keep a music video's WEB_REMIX reply for [`resolve_video`](Self::resolve_video).
     fn keep_video_reply(&self, video_id: &str, resp: &PlayerResponse) {
         let is_video = resp.video_details.as_ref().and_then(|v| v.is_music_video());
@@ -1048,12 +1079,10 @@ fn main_loudness(resp: &PlayerResponse) -> Option<f64> {
 }
 
 fn playback_ping(resp: &PlayerResponse, client: &str) -> Option<PlaybackPing> {
-    let url = resp
-        .playback_tracking
-        .as_ref()
-        .and_then(|t| t.videostats_playback_url.as_ref())
-        .and_then(|b| b.base_url.clone())?;
-    Some(PlaybackPing { url, client: client.to_owned() })
+    let t = resp.playback_tracking.as_ref()?;
+    let url = t.videostats_playback_url.as_ref().and_then(|b| b.base_url.clone())?;
+    let watchtime_url = t.videostats_watchtime_url.as_ref().and_then(|b| b.base_url.clone());
+    Some(PlaybackPing { url, client: client.to_owned(), watchtime_url })
 }
 
 fn best_thumbnail(resp: &PlayerResponse) -> Option<String> {

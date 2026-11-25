@@ -86,6 +86,9 @@ pub struct CachedStream {
     /// lookahead caches the next track and a non-gapless advance then re-resolves it. Issue #83.
     pub ping_url: Option<String>,
     pub ping_client: Option<String>,
+    /// The watch-time URL from the same tracking block (#764). All three go together: a ping is
+    /// good for one play, so [`Db::forget_stream_ping`] clears them once it has been sent.
+    pub watchtime_url: Option<String>,
     /// The client whose URL this is ("WEB_REMIX", "VISIONOS", ...), so a replay can rebuild the
     /// headers the URL was validated under (the User-Agent is per client; the wrong one is a 403)
     /// and a failure toast can name it. `ping_client` is not a substitute: the orchestrator prefers
@@ -299,6 +302,8 @@ impl Db {
         }
         // Podcast episode (#500). No wipe: a NULL defers to the queue row, which episode pages flag.
         let _ = conn.execute("ALTER TABLE stream_url_cache ADD COLUMN is_episode INTEGER", []);
+        // Watch-time URL (#764). No wipe: a NULL means that one play reports no watch time.
+        let _ = conn.execute("ALTER TABLE stream_url_cache ADD COLUMN watchtime_url TEXT", []);
         // Sweep dead stream URLs here as well as on write. `put_stream` only runs on a cache miss,
         // so a session spent replaying cached tracks never triggers one, and the backlog that
         // built up before anything pruned at all (1803 rows, 1772 of them expired, on a real
@@ -724,7 +729,7 @@ impl Db {
     pub fn get_stream(&self, video_id: &str, now: i64) -> Option<CachedStream> {
         let conn = self.0.lock().unwrap();
         conn.query_row(
-            "SELECT url, itag, expires_at, loudness_db, is_video, ping_url, ping_client, client, is_episode FROM stream_url_cache WHERE video_id = ?1 AND expires_at > ?2",
+            "SELECT url, itag, expires_at, loudness_db, is_video, ping_url, ping_client, client, is_episode, watchtime_url FROM stream_url_cache WHERE video_id = ?1 AND expires_at > ?2",
             rusqlite::params![video_id, now],
             |r| {
                 Ok(CachedStream {
@@ -737,10 +742,20 @@ impl Db {
                     ping_client: r.get(6)?,
                     client: r.get(7)?,
                     is_episode: r.get(8)?,
+                    watchtime_url: r.get(9)?,
                 })
             },
         )
         .ok()
+    }
+
+    /// The cached tracking block has been used: the next play of this URL fetches its own (#764).
+    pub fn forget_stream_ping(&self, video_id: &str) {
+        let conn = self.0.lock().unwrap();
+        let _ = conn.execute(
+            "UPDATE stream_url_cache SET ping_url = NULL, ping_client = NULL, watchtime_url = NULL WHERE video_id = ?1",
+            [video_id],
+        );
     }
 
     /// Drop a cached URL (e.g. it 403'd on the real GET). context/06 §2.
@@ -758,8 +773,8 @@ impl Db {
     pub fn put_stream(&self, video_id: &str, row: &CachedStream, now: i64) {
         let conn = self.0.lock().unwrap();
         let _ = conn.execute(
-            "INSERT INTO stream_url_cache(video_id, url, itag, expires_at, loudness_db, is_video, ping_url, ping_client, client, is_episode) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-             ON CONFLICT(video_id) DO UPDATE SET url = excluded.url, itag = excluded.itag, expires_at = excluded.expires_at, loudness_db = excluded.loudness_db, is_video = excluded.is_video, ping_url = excluded.ping_url, ping_client = excluded.ping_client, client = excluded.client, is_episode = excluded.is_episode",
+            "INSERT INTO stream_url_cache(video_id, url, itag, expires_at, loudness_db, is_video, ping_url, ping_client, client, is_episode, watchtime_url) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+             ON CONFLICT(video_id) DO UPDATE SET url = excluded.url, itag = excluded.itag, expires_at = excluded.expires_at, loudness_db = excluded.loudness_db, is_video = excluded.is_video, ping_url = excluded.ping_url, ping_client = excluded.ping_client, client = excluded.client, is_episode = excluded.is_episode, watchtime_url = excluded.watchtime_url",
             rusqlite::params![
                 video_id,
                 row.url,
@@ -770,7 +785,8 @@ impl Db {
                 row.ping_url,
                 row.ping_client,
                 row.client,
-                row.is_episode
+                row.is_episode,
+                row.watchtime_url
             ],
         );
         let _ = conn.execute("DELETE FROM stream_url_cache WHERE expires_at <= ?1", [now]);
@@ -1851,6 +1867,7 @@ mod tests {
             is_episode: None,
             ping_url: None,
             ping_client: None,
+            watchtime_url: None,
             client: None,
         }
     }
@@ -1900,6 +1917,7 @@ mod tests {
             &CachedStream {
                 ping_url: Some("https://s.youtube.com/api/stats/playback?docid=x".to_owned()),
                 ping_client: Some("ANDROID_VR_1_65_10".to_owned()),
+                watchtime_url: Some("https://s.youtube.com/api/stats/watchtime?docid=x".to_owned()),
                 ..row("https://x/1", 9_000)
             },
             900,
@@ -1912,9 +1930,17 @@ mod tests {
             Some("https://s.youtube.com/api/stats/playback?docid=x")
         );
         assert_eq!(hit.ping_client.as_deref(), Some("ANDROID_VR_1_65_10"));
+        assert!(hit.watchtime_url.is_some());
 
         let none = d.get_stream("unpinged", 900).unwrap();
         assert!(none.ping_url.is_none() && none.ping_client.is_none());
+
+        // #764: a sent ping is spent, the stream stays cached.
+        d.forget_stream_ping("pinged");
+        let spent = d.get_stream("pinged", 900).unwrap();
+        assert_eq!(spent.url, "https://x/1");
+        assert!(spent.ping_url.is_none() && spent.ping_client.is_none());
+        assert!(spent.watchtime_url.is_none());
     }
 
     /// A replay rebuilds its headers from the recorded client, so it has to survive the cache.
@@ -2526,6 +2552,7 @@ mod tests {
             is_episode: Some(true),
             ping_url: Some("https://s.youtube.com/api/stats/playback".into()),
             ping_client: Some("WEB_REMIX".into()),
+            watchtime_url: Some("https://s.youtube.com/api/stats/watchtime".into()),
             client: Some("VISIONOS".into()),
         };
         d.put_stream("fresh", &fresh, now);
@@ -2538,6 +2565,7 @@ mod tests {
             "{tag}"
         );
         assert_eq!(got.ping_client.as_deref(), Some("WEB_REMIX"), "{tag}");
+        assert!(got.watchtime_url.is_some(), "{tag}");
         assert_eq!(got.is_episode, Some(true), "{tag}");
         // Every one of these releases predates `client`, so the pre-column row has to be gone:
         // its headers cannot be rebuilt. Checked after the round trip above, which is what
