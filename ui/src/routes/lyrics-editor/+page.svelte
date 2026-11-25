@@ -839,14 +839,20 @@
 	// --- Keys -----------------------------------------------------------------------------------
 	// Unmodified, only ↑ / ↓ collide with the app's own keys (volume). This listens on the document,
 	// which a keydown reaches before the window, so it takes them first and the app-wide handler sees
-	// them already handled. Space stays play/pause here.
+	// them already handled. Space stays play/pause here. Every other app key needs Ctrl/Cmd, and a
+	// global hotkey needs Ctrl, Alt or Super (`parse_shortcut`), so bare letters and digits are ours.
 	function onKey(e: KeyboardEvent) {
 		if (mode !== 'edit' || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+		// The now-playing view or theater mode over the page owns the keys: this handler runs before
+		// theirs (document before window), so it would take theater's F and the view's ↑ / ↓ volume.
+		if (np.open || ui.theaterOpen) return;
 		if (celebrate && e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
 		const el = e.target;
 		if (typing(el)) return;
 		if (el instanceof HTMLElement && el.closest('[role=dialog],[role=alertdialog],[role=menu],[role=listbox],[role=slider]')) return;
 		const k = keyOf(e);
+		// 1-9 and 0 by the key as well as by what it types: AZERTY's bare top row types & é " ...
+		const digit = /^[0-9]$/.test(e.key) ? e.key : /^Digit([0-9])$/.exec(e.code)?.[1];
 		if (k === 'f' || k === 'j') {
 			// A held key is one tap.
 			if (!e.repeat) tap(e);
@@ -856,6 +862,11 @@
 		else if (k === 'l') loopOn = !loopOn;
 		else if (k === 'b') bgMode = !bgMode;
 		else if (k === 'v') chooseVoice(!tapBg);
+		else if (k === 'e' && line) openText();
+		// Singer n, 0 for none, and only the singers the Singer menu offers: 9 must not invent a
+		// Singer 9. "Everyone" has no key: v1000 is not a digit.
+		else if (digit && line && (digit === '0' || agents.includes(`v${digit}`)))
+			updateLine(line.id, (l) => setAgent(l, digit === '0' ? undefined : `v${digit}`));
 		else return;
 		e.preventDefault();
 	}
@@ -1406,6 +1417,7 @@
 							<Button variant="ghost" size="sm" class={textOpen ? 'bg-muted text-foreground' : 'text-muted-foreground'} aria-label={t('lyrics_editor.edit_text')} onclick={openText}>
 								<HugeiconsIcon icon={PencilEdit02Icon} class="size-4" />
 								<span class={wide ? '' : 'sr-only'}>{t('lyrics_editor.edit_text')}</span>
+								{#if wide}<kbd class={KEY}>E</kbd>{/if}
 							</Button>
 							<Popover.Root bind:open={singerOpen}>
 								<Popover.Trigger class="{GHOST} {line?.agent ? 'text-foreground' : 'text-muted-foreground'}" aria-label={t('lyrics_editor.singer')} disabled={!line}>
@@ -1430,6 +1442,7 @@
 													{#if on}<HugeiconsIcon icon={Tick02Icon} class="size-3.5" />{/if}
 												</span>
 												{a ? agentLabel(a) : t('lyrics_editor.singer_none')}
+												{#if !a || /^v[1-9]$/.test(a)}<kbd class="{KEY} ml-auto">{a ? a.slice(1) : '0'}</kbd>{/if}
 											</button>
 										{/each}
 									</div>
