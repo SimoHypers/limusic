@@ -664,7 +664,26 @@ impl InnerTube {
         cpn: &str,
         playlist_id: Option<&str>,
     ) -> Result<(), Error> {
-        let mut url = build_playback_url(base_url, &client.client_name, cpn, playlist_id);
+        let url = build_playback_url(base_url, &client.client_name, cpn, playlist_id);
+        self.stats_get(client, url).await
+    }
+
+    /// Report watch time for a registered play: GET the response's
+    /// `playbackTracking.videostatsWatchtimeUrl.baseUrl` with the stretches heard since the last
+    /// report (#764). Best-effort, like [`Self::register_playback`].
+    pub async fn report_watchtime(
+        &self,
+        client: &YouTubeClient,
+        base_url: &str,
+        cpn: &str,
+        report: &Watchtime,
+    ) -> Result<(), Error> {
+        let url = build_watchtime_url(base_url, client, cpn, report);
+        self.stats_get(client, url).await
+    }
+
+    /// The GET behind both stats pings, as `client` with its authed headers.
+    async fn stats_get(&self, client: &YouTubeClient, mut url: String) -> Result<(), Error> {
         let mut headers = self.headers(client, true);
         // A GET has no body, so the `onBehalfOfUser` that delegates every POST to a brand channel
         // never reaches the ping, and the play never shows in that channel's history. The Android
@@ -773,6 +792,59 @@ fn build_playback_url(
     url
 }
 
+/// One watch-time report (#764): the stretches of the track heard since the previous one, in
+/// track seconds. Shaped on what music.youtube.com sends: `state=playing` plus when the next report
+/// is due while it plays, `state=paused` otherwise, and `final=1` on the one that closes the play.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Watchtime {
+    /// `(start, end)` of each stretch heard (`st`/`et`). Empty on a closing report with nothing new.
+    pub stretches: Vec<(f64, f64)>,
+    /// The playhead (`cmt`).
+    pub position: f64,
+    /// Seconds since the play started (`rt`).
+    pub elapsed: f64,
+    /// Seconds until the next report while playing (`rtn` is `rt` plus this); `None` = paused.
+    pub next_in: Option<f64>,
+    /// Closes the play (`final=1`).
+    pub last: bool,
+    /// 0-100, as the player has it.
+    pub volume: i64,
+}
+
+fn build_watchtime_url(base_url: &str, client: &YouTubeClient, cpn: &str, r: &Watchtime) -> String {
+    // Milliseconds at most, trailing zeros dropped: `10.468`, `0`.
+    let secs = |v: f64| {
+        let s = format!("{v:.3}");
+        s.trim_end_matches('0').trim_end_matches('.').to_owned()
+    };
+    // Nothing new still names a stretch: the official client closes with `st=et=cmt`.
+    let stretches =
+        if r.stretches.is_empty() { vec![(r.position, r.position)] } else { r.stretches.clone() };
+    let (st, et): (Vec<String>, Vec<String>) =
+        stretches.iter().map(|&(s, e)| (secs(s), secs(e))).unzip();
+    // One value per stretch, as the official client lists them.
+    let each = |v: String| vec![v; stretches.len()].join(",");
+    let mut url = build_playback_url(base_url, &client.client_name, cpn, None);
+    url.push_str(&format!(
+        "&cver={}&cmt={}&st={}&et={}&state={}&rt={}&volume={}&muted={}",
+        urlencoding::encode(&client.client_version),
+        secs(r.position),
+        urlencoding::encode(&st.join(",")),
+        urlencoding::encode(&et.join(",")),
+        if r.next_in.is_some() { "playing" } else { "paused" },
+        secs(r.elapsed),
+        urlencoding::encode(&each(r.volume.to_string())),
+        urlencoding::encode(&each("0".into())),
+    ));
+    if let Some(n) = r.next_in {
+        url.push_str(&format!("&rtn={}", secs(r.elapsed + n)));
+    }
+    if r.last {
+        url.push_str("&final=1");
+    }
+    url
+}
+
 /// CPN alphabet — 64 URL-safe chars, exactly 6 bits each. context/01.
 const CPN_CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
@@ -876,6 +948,33 @@ mod tests {
         // No existing query → first param uses `?`, no playlist params.
         let u2 = build_playback_url("https://s.youtube.com/x", "IOS", "abc", None);
         assert_eq!(u2, "https://s.youtube.com/x?c=IOS&cpn=abc&ver=2");
+    }
+
+    /// #764: the params music.youtube.com sends, one volume/muted value per stretch.
+    #[test]
+    fn watchtime_url_reports_the_stretches() {
+        let clients = crate::clients::Clients::bundled();
+        let web = clients.get(crate::clients::METADATA_CLIENT).unwrap();
+        let base = "https://s.youtube.com/api/stats/watchtime?docid=x";
+        let playing = Watchtime {
+            stretches: vec![(61.395, 93.262), (95.56, 101.4)],
+            position: 101.4,
+            elapsed: 102.015,
+            next_in: Some(40.0),
+            last: false,
+            volume: 15,
+        };
+        let u = build_watchtime_url(base, web, "cpn", &playing);
+        assert!(u.starts_with(&format!("{base}&c=WEB_REMIX&cpn=cpn&ver=2&cver=")), "{u}");
+        assert!(u.contains("&cmt=101.4&st=61.395%2C95.56&et=93.262%2C101.4&state=playing"), "{u}");
+        assert!(u.contains("&rt=102.015&volume=15%2C15&muted=0%2C0&rtn=142.015"), "{u}");
+        assert!(!u.contains("final"), "{u}");
+
+        let closing =
+            Watchtime { stretches: vec![], next_in: None, last: true, position: 259.5, ..playing };
+        let u = build_watchtime_url(base, web, "cpn", &closing);
+        assert!(u.contains("&cmt=259.5&st=259.5&et=259.5&state=paused"), "{u}");
+        assert!(u.ends_with("&volume=15&muted=0&final=1"), "{u}");
     }
 
     #[test]
