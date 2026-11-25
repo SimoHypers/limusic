@@ -2016,6 +2016,15 @@ impl AppState {
         }
     }
 
+    /// The song a queued music video is the other version of (#767): its id, and the segments that
+    /// take a moment of the song to the video (`twin_position`). `None` for anything but a video
+    /// YouTube pairs with a song.
+    pub async fn video_twin(&self, video_id: &str) -> Option<(String, Vec<innertube::Segment>)> {
+        let q = self.queue.lock().await;
+        let mut row = q.items.iter().find(|i| i.video_id == video_id && i.is_video)?.clone();
+        swap_version(&mut row).then(|| (row.video_id, row.counterpart_segments))
+    }
+
     /// The music video settings changed: move the queue's rows onto the version they now pick, so
     /// the next song follows the switch, not the setting its album was opened under (#464). The
     /// playing row is left alone, it has its own Song/Video switch. Also run when a playlist's
@@ -6424,7 +6433,7 @@ fn adopt_twin(into: &mut SongItem, from: &SongItem) -> bool {
 /// Where `pos` (seconds into this version) falls in its counterpart, through the segment playing
 /// (#520, #535). An intro or a break in the video has no moment in the song, so it lands where the
 /// song picks up again; past the last segment, at its end. No segments: the same timestamp.
-fn twin_position(pos: f64, segments: &[innertube::Segment]) -> f64 {
+pub(crate) fn twin_position(pos: f64, segments: &[innertube::Segment]) -> f64 {
     let ms = (pos * 1000.0).round() as i64;
     let twin_ms = match segments.iter().find(|s| ms < s.start_ms + s.duration_ms) {
         Some(s) => s.twin_start_ms + (ms - s.start_ms).max(0),

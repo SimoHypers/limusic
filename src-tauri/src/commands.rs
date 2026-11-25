@@ -2742,8 +2742,13 @@ pub async fn choose_lyrics_source(
 }
 
 #[tauri::command]
-pub fn set_lyrics_offset(state: St<'_>, video_id: String, offset_ms: i64) {
-    crate::lyrics::set_offset(state.inner(), &video_id, offset_ms);
+pub async fn set_lyrics_offset(
+    state: St<'_>,
+    video_id: String,
+    offset_ms: i64,
+) -> Result<(), String> {
+    crate::lyrics::set_offset(state.inner(), &video_id, offset_ms).await;
+    Ok(())
 }
 
 /// Every lyrics provider in the user's order, for Settings and the source picker.

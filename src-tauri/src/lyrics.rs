@@ -318,34 +318,48 @@ pub fn parse_file(text: &str) -> Result<Vec<LyricLine>, String> {
 }
 
 /// Nudge a song's timing. Pins what it applies to, so the nudge isn't lost to a reorder that would
-/// fetch lyrics timed differently. Only a cached song can keep one; the view still applies it.
-pub fn set_offset(state: &AppState, video_id: &str, offset_ms: i64) {
-    let Some(Some(json)) = state.db.get_lyrics(video_id, now_secs(), MISS_TTL_SECS) else {
-        return;
+/// fetch lyrics timed differently. Only a cached song can keep one; the view still applies it. The
+/// song's lyrics on its music video (`on_video`) are nudged where they are cached, the song's row.
+pub async fn set_offset(state: &AppState, video_id: &str, offset_ms: i64) {
+    let row = |id: &str| {
+        let json = state.db.get_lyrics(id, now_secs(), MISS_TTL_SECS).flatten()?;
+        serde_json::from_str::<Lyrics>(&json).ok()
     };
-    let Ok(mut l) = serde_json::from_str::<Lyrics>(&json) else { return };
+    let (mut id, mut lyrics) = (video_id.to_owned(), row(video_id));
+    if !lyrics.as_ref().is_some_and(kept_on_video) {
+        if let Some((song, _)) = state.video_twin(video_id).await {
+            lyrics = row(&song);
+            id = song;
+        }
+    }
+    let Some(mut l) = lyrics else { return };
     l.offset_ms = offset_ms;
     l.pinned = true;
     if let Ok(json) = serde_json::to_string(&l) {
-        state.db.put_lyrics(video_id, Some(&json), now_secs());
+        state.db.put_lyrics(&id, Some(&json), now_secs());
     }
 }
 
 async fn cached_or_fetched(state: &AppState, req: LyricsRequest) -> Option<Lyrics> {
     let now = now_secs();
     let video_id = req.video_id.clone();
+    let twin = song_of_video(state, &req).await;
     if let Some((cached, at)) = state.db.get_lyrics_row(&video_id, now, MISS_TTL_SECS) {
         let cached = cached.and_then(|json| serde_json::from_str::<Lyrics>(&json).ok());
+        let kept = twin.is_none() || cached.as_ref().is_some_and(kept_on_video);
         // Cached before `ask` caught one-cue lyrics (#539): ask the chain again, unless the
         // source was picked by hand, which stays and reads as plain.
-        if !cached.as_ref().is_some_and(|l| is_flat(l) && !l.pinned) {
+        if kept && !cached.as_ref().is_some_and(|l| is_flat(l) && !l.pinned) {
             if let Some(l) = &cached {
                 refresh_stale(state, &req, l, now - at);
             }
             return cached.map(decode_cached).map(unsync_flat);
         }
     }
-    let (lyrics, cacheable) = fetch(state, req).await;
+    let (lyrics, cacheable) = match twin {
+        Some((song, segments)) => on_video(state, &req, song, &segments).await,
+        None => fetch(state, req).await,
+    };
     if cacheable {
         let json = lyrics.as_ref().and_then(|l| serde_json::to_string(l).ok());
         state.db.put_lyrics(&video_id, json.as_deref(), now);
@@ -476,7 +490,23 @@ fn apply_recheck(
 
 /// One provider on its own, uncached. `next()` only when that provider needs it (YouTube's browseId)
 /// or the length is unknown: the picker previews every provider at once, and they'd all ask.
-async fn preview(
+async fn preview(state: &AppState, req: LyricsRequest, id: &str) -> Result<Option<Lyrics>, String> {
+    let Some((song, segments)) = song_of_video(state, &req).await else {
+        return preview_as(state, req, id).await;
+    };
+    // What `on_video` shows from this source, or the video's own when the song has none.
+    if id == "limusic" {
+        if let Some(own) = video_own(&req).await {
+            return Ok(Some(own));
+        }
+    }
+    match preview_as(state, song, id).await? {
+        Some(l) => Ok(Some(onto_video(l, &segments))),
+        None => preview_as(state, req, id).await,
+    }
+}
+
+async fn preview_as(
     state: &AppState,
     mut req: LyricsRequest,
     id: &str,
@@ -582,6 +612,79 @@ fn unsync_flat(mut l: Lyrics) -> Lyrics {
         }
     }
     l
+}
+
+/// A music video paired with a song (#767): a Limusic lyric synced on the video itself, else the
+/// song's lyrics moved onto the video's timing. Limusic can't match the two by name, their lengths
+/// differ, and any other source's lines are the song's, early by the video's intro. Only the
+/// video's own lyric is cached under it: the song's is moved again every time, so it follows the
+/// song's cache, its daily check, picks and nudges. A miss isn't cached either.
+async fn on_video(
+    state: &AppState,
+    req: &LyricsRequest,
+    song: LyricsRequest,
+    segments: &[innertube::Segment],
+) -> (Option<Lyrics>, bool) {
+    if limusic_on(state) {
+        if let Some(own) = video_own(req).await {
+            return (Some(own), true);
+        }
+    }
+    let song = Box::pin(cached_or_fetched(state, song)).await;
+    (song.map(|l| onto_video(l, segments)), false)
+}
+
+/// A Limusic lyric synced on this video itself, asked for by id alone: by name the service could
+/// answer with the song, which is timed to the song.
+async fn video_own(req: &LyricsRequest) -> Option<Lyrics> {
+    match limusic_fetch(&req.video_id, &[], None).await {
+        Ok(Fresh::New(l)) => Some(Lyrics { provider: "limusic".into(), ..unsync_flat(l) }),
+        _ => None,
+    }
+}
+
+/// What a music video's cache row may hold and still be shown: its own Limusic lyric, or a source
+/// picked or nudged for it. Anything else was found for the video alone, before its song was known.
+fn kept_on_video(l: &Lyrics) -> bool {
+    l.pinned || l.limusic_id.is_some()
+}
+
+/// The song a queued music video is the other version of, asked for by the video's name with its
+/// own length left to `resolve`, and the segments onto the video's timing. `None` for anything else.
+async fn song_of_video(
+    state: &AppState,
+    req: &LyricsRequest,
+) -> Option<(LyricsRequest, Vec<innertube::Segment>)> {
+    if req.searched {
+        return None;
+    }
+    let (video_id, segments) = state.video_twin(&req.video_id).await?;
+    let song = LyricsRequest {
+        video_id,
+        title: req.title.clone(),
+        artists: req.artists.clone(),
+        album: req.album.clone(),
+        duration: None,
+        searched: false,
+    };
+    Some((song, segments))
+}
+
+/// The song's lyrics on its music video: every time moved through YouTube's segment map, the one
+/// the Song/Video switch lands by. No longer the service's lyric as filed, so votes, reports and
+/// edits on the video are the video's own (`filed_id`).
+fn onto_video(mut l: Lyrics, segments: &[innertube::Segment]) -> Lyrics {
+    let at = |ms: u64| {
+        (crate::state::twin_position(ms as f64 / 1000.0, segments) * 1000.0).round() as u64
+    };
+    for line in &mut l.lines {
+        line.time_ms = line.time_ms.map(at);
+        line.end_time_ms = line.end_time_ms.map(at);
+        for w in line.words.iter_mut().chain(line.romanized_words.iter_mut()).flatten() {
+            (w.start_ms, w.end_ms) = (at(w.start_ms), at(w.end_ms));
+        }
+    }
+    Lyrics { limusic_id: None, revision: None, ..l }
 }
 
 /// Down the user's list. Second value: cache the outcome. A hit only when the track's length was
@@ -1196,6 +1299,12 @@ pub(crate) fn limusic_to_lyrics(a: LimusicAnswer) -> Option<Lyrics> {
     Some(Lyrics { revision: a.revision, authors, via, ..from_parsed("Limusic", a.lines)? })
 }
 
+/// The Limusic source is switched on in Settings.
+fn limusic_on(state: &AppState) -> bool {
+    let order = provider_order(state.db.get_setting("lyrics_providers").as_deref());
+    order.iter().any(|(id, on)| *id == "limusic" && *on)
+}
+
 /// Whether to tell Limusic about lyrics we just got from a provider it mirrors. Word-timed only,
 /// which is all it stores; never for a search (not the video's own lyrics) or a local file; and
 /// not when the user has switched the Limusic source off, which is the off switch.
@@ -1210,9 +1319,7 @@ fn hint_due(l: &Lyrics, limusic_on: bool, req: &LyricsRequest) -> bool {
 /// Fire and forget: one small POST per song per install (the hit is cached after), the answer is
 /// ignored and a failure is only logged. It never holds up the lyrics.
 fn send_hint(state: &AppState, req: &LyricsRequest, l: &Lyrics) {
-    let order = provider_order(state.db.get_setting("lyrics_providers").as_deref());
-    let limusic_on = order.iter().any(|(id, on)| *id == "limusic" && *on);
-    if !hint_due(l, limusic_on, req) {
+    if !hint_due(l, limusic_on(state), req) {
         return;
     }
     let mut body = serde_json::json!({
@@ -2282,6 +2389,41 @@ mod tests {
 
     /// Real Kugou/Netease search shapes: the original is not first, and a remix sits inside the
     /// tolerance window, so only closest-match picks the right cut.
+    #[test]
+    fn onto_video_moves_lines_and_words_past_the_intro() {
+        let seg = |start_ms, twin_start_ms, duration_ms| innertube::Segment {
+            start_ms,
+            twin_start_ms,
+            duration_ms,
+        };
+        let word = |start_ms, end_ms| LyricWord { text: "a".into(), start_ms, end_ms, bg: false };
+        let line = LyricLine {
+            time_ms: Some(1000),
+            end_time_ms: Some(1500),
+            words: Some(vec![word(1000, 1500)]),
+            romanized_words: Some(vec![word(1000, 1500)]),
+            ..Default::default()
+        };
+        let song = Lyrics {
+            synced: true,
+            lines: vec![line, LyricLine::simple(Some(15_000), "cut".into())],
+            limusic_id: Some("song".into()),
+            revision: Some(7),
+            ..Default::default()
+        };
+        // A 5.477 s intro, then the song plays on, except 10..20 s of it the video drops.
+        let v = onto_video(song, &[seg(0, 5477, 10_000), seg(20_000, 15_477, 100_000)]);
+        let l = &v.lines[0];
+        assert_eq!((l.time_ms, l.end_time_ms), (Some(6477), Some(6977)));
+        let w = &l.words.as_ref().unwrap()[0];
+        assert_eq!((w.start_ms, w.end_ms), (6477, 6977));
+        assert_eq!(l.romanized_words.as_ref().unwrap()[0].start_ms, 6477);
+        // A line the video cut waits for where the song picks up again.
+        assert_eq!(v.lines[1].time_ms, Some(15_477));
+        // Votes and edits on the video are the video's, not the song's lyric's.
+        assert_eq!((v.limusic_id, v.revision), (None, None));
+    }
+
     #[test]
     fn best_by_duration_skips_remixes_and_wrong_cuts() {
         let secs = |t: &(f64, &str)| Some(t.0);
