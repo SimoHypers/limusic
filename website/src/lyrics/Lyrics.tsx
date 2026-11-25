@@ -230,6 +230,7 @@ function Footer() {
 const PERIODS: { id: Period; label: string }[] = [
   { id: 'all', label: 'All time' },
   { id: 'month', label: 'This month' },
+  { id: 'week', label: 'This week' },
 ]
 
 /* "8 songs, 2 edits", leaving out a count that is zero. */
@@ -448,8 +449,8 @@ function Wash({ covers }: { covers: string[] }) {
 /* The server's scoring defaults (POINTS_* and VOTE_POINTS_* in its README); keep in step if they
    change on the VPS. */
 const SCORING: { n: string; what: string; gain: boolean }[] = [
-  { n: '+10', what: 'for a song nobody had synced', gain: true },
-  { n: '+3', what: 'for an edit to someone else’s lyric', gain: true },
+  { n: '+20', what: 'at most for a song nobody had synced: a point for every 25 words you time', gain: true },
+  { n: '+3', what: 'for an edit to someone else’s lyric, less on a very short song', gain: true },
   { n: '+20', what: 'at most from listeners’ votes on one lyric, and −10 at worst', gain: true },
   { n: '−2', what: 'for a lyric that is rejected', gain: false },
   { n: '−5', what: 'for one taken down, which also loses what it earned', gain: false },
@@ -585,9 +586,9 @@ function Board() {
           </ol>
         ) : load.data.entries.length === 0 ? (
           <p className="mt-10 border-t border-border py-16 text-center text-muted-foreground">
-            {period === 'month'
-              ? 'No points yet this month. The first lyric approved this month puts its author on top.'
-              : 'Nobody is on the board yet.'}
+            {period === 'all'
+              ? 'Nobody is on the board yet.'
+              : `No points yet this ${period}. The first lyric approved this ${period} puts its author on top.`}
           </p>
         ) : (
           <>

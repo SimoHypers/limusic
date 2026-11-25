@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
    build at a local server, which needs this origin in its WEB_ORIGINS. */
 const BASE = import.meta.env.VITE_LYRICS_URL ?? 'https://lyrics.limusic.app'
 
-export type Period = 'all' | 'month'
+export type Period = 'all' | 'month' | 'week'
 
 export interface Entry {
   rank: number
