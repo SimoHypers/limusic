@@ -123,12 +123,43 @@ fn readings<S: AsRef<str>>(texts: &[S]) -> Vec<Option<String>> {
         .iter()
         .map(|t| {
             let t = t.as_ref();
+            if !has_reading(t) {
+                return None;
+            }
             // A Japanese line in a mostly Korean song (a J-version verse) is still Japanese, and a
             // Chinese line with one stylised の is still Chinese.
             let r = romanize_line(t, song_japanese || is_japanese(t));
             (r != t).then_some(r)
         })
         .collect()
+}
+
+/// Whether `text` has a letter this reads. Full-width punctuation alone is not one, nor a
+/// look-alike letter inside a Latin word (see `classes`), so an English line stays unread.
+fn has_reading(text: &str) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    classes(&chars).iter().any(|c| !matches!(c, Class::Keep | Class::Punct))
+}
+
+/// Each char's class, with an alphabet run that touches a Latin letter kept as it is: that is a
+/// look-alike inside a Latin word ("obsеssed" with a Cyrillic е, #751, a trap some lyric sites
+/// plant to catch copies) or a stylised one ("ΛOVE"), not a word in another script.
+fn classes(chars: &[char]) -> Vec<Class> {
+    let latin = |c: &char| c.is_alphabetic() && matches!(*c as u32, 0..=0x024F | 0x1E00..=0x1EFF);
+    let mut cls: Vec<Class> = chars.iter().map(|&c| class(c)).collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let start = i;
+        while i < chars.len() && cls[i] == cls[start] {
+            i += 1;
+        }
+        let glued = start.checked_sub(1).is_some_and(|b| latin(&chars[b]))
+            || chars.get(i).is_some_and(latin);
+        if cls[start] == Class::Alphabet && glued {
+            cls[start..i].fill(Class::Keep);
+        }
+    }
+    cls
 }
 
 fn is_kana(c: char) -> bool {
@@ -174,11 +205,12 @@ fn class(c: char) -> Class {
 fn romanize_line(line: &str, japanese: bool) -> String {
     let mut out = String::new();
     let chars: Vec<char> = line.chars().collect();
+    let classes = classes(&chars);
     let mut i = 0;
     while i < chars.len() {
-        let cls = class(chars[i]);
+        let cls = classes[i];
         let start = i;
-        while i < chars.len() && class(chars[i]) == cls {
+        while i < chars.len() && classes[i] == cls {
             i += 1;
         }
         let run: String = chars[start..i].iter().collect();
@@ -326,7 +358,9 @@ fn word_readings_in(lines: &[Vec<String>], song_japanese: bool) -> Vec<Vec<Optio
             let pieces = if song_japanese || is_japanese(&words.concat()) {
                 japanese_pieces(words)
             } else {
-                words.iter().map(|w| vec![Piece::Text(romanize_line(w, false))]).collect()
+                let read =
+                    |w: &String| if has_reading(w) { romanize_line(w, false) } else { w.clone() };
+                words.iter().map(|w| vec![Piece::Text(read(w))]).collect()
             };
             // The kana a word opens with, for the っ that ends the word before it.
             let opens: Vec<Option<String>> = pieces
@@ -777,6 +811,23 @@ mod tests {
         };
         fill(&mut l);
         assert_eq!(l.lines[0].romanized_words, None);
+    }
+
+    #[test]
+    fn a_latin_line_with_a_look_alike_gets_no_reading() {
+        // A Cyrillic е inside "obsessed" (#751), a stylised Greek Λ, full-width punctuation.
+        let r = readings(&[
+            "So I obsеssed with me",
+            "ΛOVE",
+            "Hello！",
+            "Привет obsеssed",
+            "Приветשלום",
+        ]);
+        assert_eq!(r[..3], [None, None, None]);
+        assert_eq!(r[3].as_deref(), Some("Privet obsеssed"));
+        assert_eq!(r[4].as_deref(), Some("Privet שלום"));
+        let w = word_readings(&[vec!["So ".into(), "I ".into(), "obsеssed ".into()]]);
+        assert_eq!(w[0], [None, None, None]);
     }
 
     #[test]
