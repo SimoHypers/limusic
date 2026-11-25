@@ -206,12 +206,13 @@
 		refresh();
 	}
 
-	/** The lyric editor, for songs the service can file: not a local file or a broadcast, not while
-	 *  the bar controls another device, and not from a typed search, whose lyrics may be another
-	 *  song's. Navigating closes the player view and theater mode by themselves. */
+	/** The lyric editor, for songs the service can file: not a local file or a broadcast, and not
+	 *  while the bar controls another device. Offered during a typed search too: the editor starts
+	 *  from the playing song, never the search, and a song nothing was found for reaches it after
+	 *  the search this picker opens with. Navigating closes the player view and theater mode by
+	 *  themselves. */
 	const canEdit = $derived(
 		limusic.available &&
-			!query &&
 			!api.isLocalId(track.videoId) &&
 			!playback.now?.live &&
 			!link.remote
