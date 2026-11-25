@@ -1297,5 +1297,44 @@
 		"plays": "Wiedergaben",
 		"mine": "Deine Wiedergaben",
 		"duration": "Laufzeit"
+	},
+	"karaoke": {
+		"consent": {
+			"source": "Von GitHub heruntergeladen (TRvlvr/model_repo), die ofizielle Quelle des Modells.",
+			"runtime": "Der ONNX-Runtime (Microsoft, MIT License) wird ebenfalls aus dem offiziellen Release auf GitHub heruntergeladen.",
+			"runtime_windows": "ONNX Runtime und DirectML (beide von Microsoft) werden ebenfalls aus Microsofts offiziellen NuGet-Paketen heruntergeladen.",
+			"runtime_linux": "ONNX Runtime (aus dem offiziellen GitHub-Release) und die ONNX Runtime WebGPU-Erweiterung (aus files.pythonhosted.org) werden auch heruntergeladen.",
+			"credit": "UVR-MDX-NET-Inst_HQ_3, UVR-MDX-NET-Inst_Main und UVR_MDXNET_3_9662, aus Ultimate Vocal Remover von Anjok07 und aufr33, MIT License.",
+			"credit_link": "Ultimate Vocal Remover",
+			"redownload": "Um ein Lied vorzubereiten wird Limusic die Audio noch einmal herunterladen.",
+			"directml": "Auf einer Grafikkarte läuft Karaoke über Microsoft DirectMl, welches Nutzungsdaten an Microsoft senden könnte."
+		},
+		"experimental_tooltip": "Noch nicht perfektioniert. Bei \"Leicht\" kann ein bisschen Gesang bleiben, und ohne Grafikkarte läuft \"Best\" sehr langsam. Wenn ein Lied danach falsch klingt, bitte melde es.",
+		"button": {
+			"options": "Karaoke-Einstellungen",
+			"ready": "Karaoke aktiviert: Gesang wurde entfernt",
+			"preparing": "Karaoke aktiviert: Vorbereitung des Liedes",
+			"failed": "Karaoke konnte das Lied nicht vorbereiten",
+			"too_long": "Karaoke aktiviert: dieses Lied ist zu lang"
+		},
+		"panel": {
+			"title": "Karaoke",
+			"hint": "Entfernt den Gesang, damit du mitsingen kannst.",
+			"off": "Aktiviere diese Option, um den Gesang dieses Liedes sowie die nächsten zwei zu entfernen.",
+			"now_ready": "Gesang wurde entfernt",
+			"now_starting": "Lied wird vorbereitet",
+			"now_progress": "{pct}% abgeschlossen",
+			"now_progress_eta": "{pct}% abgeschlossen, noch ca. {min} Min.",
+			"now_progress_soon": "{pct}% abgeschlossen, fast fertig",
+			"now_swap": "Der Gesang fällt aus, sobald es fertig ist, genau dort, wo du im Lied bist.",
+			"now_too_long": "Länger als 15 Minuten, also dieses Lied wird den Gesang behalten.",
+			"try_again": "Erneut versuchen",
+			"up_next": "Als nächstes",
+			"up_next_empty": "Nichts Weiteres zum Wiedergeben.",
+			"slot_ready": "Bereit",
+			"slot_failed": "Vorbereitung nicht möglich",
+			"quality": "Qualität",
+			"settings": "Karaoke-Einstellungen"
+		}
 	}
 }

@@ -1808,7 +1808,8 @@
 		"err_unavailable": "Seu rascunho está salvo. Tente novamente em instantes.",
 		"rejected_title": "Um revisor rejeitou sua última versão",
 		"rejected_reason": "Motivo informado: \"{reason}\". Você pode corrigir e enviar novamente.",
-		"rejected_no_reason": "O revisor não informou um motivo. Você pode corrigir e enviar novamente."
+		"rejected_no_reason": "O revisor não informou um motivo. Você pode corrigir e enviar novamente.",
+		"rejected_open": "Abrir minha versão"
 	},
 	"limusic": {
 		"none_title": "Sem necessidade de conta",
@@ -1849,7 +1850,20 @@
 		"signin_failed": "O login não funcionou. Inicie-o novamente.",
 		"signin_rate_limited": "Tentativas demais. Tente novamente mais tarde.",
 		"session_ended": "Você foi desconectado da sua conta Limusic. Vincule-a novamente para recuperar seu nome.",
-		"unreachable": "Não foi possível conectar ao Limusic Lyrics."
+		"unreachable": "Não foi possível conectar ao Limusic Lyrics.",
+		"notes_toast_one": "Um revisor deixou um comentário sobre suas letras",
+		"notes_toast": "{count} novas notas de revisores sobre suas letras",
+		"notes_view": "Ver notas",
+		"notes_unread": "Novas notas de revisores",
+		"notes_title": "Dos revisores",
+		"notes_hint": "O que os revisores decidiram sobre suas letras. Os nomes deles não são exibidos.",
+		"note_fixed": "Corrigido e aprovado",
+		"note_approved": "Aprovado",
+		"note_rejected": "Rejeitado",
+		"note_taken_down": "Retirado do ar",
+		"note_quote": "\"{reason}\"",
+		"note_fixed_silent": "Um revisor corrigiu a letra antes de aprová-la.",
+		"note_no_reason": "Nenhum motivo informado."
 	},
 	"review": {
 		"title": "Revisar letras",
@@ -1925,7 +1939,15 @@
 		"preset_missing": "Faltam linhas",
 		"preset_wrong_song": "Esta letra é de outra música",
 		"reviewing": "{name} está revisando",
-		"taken": "{name} está revisando esta letra. Ele foi aberto {when}."
+		"taken": "{name} está revisando esta letra. Ele foi aberto {when}.",
+		"note_for": "Nota para {handle}",
+		"note_for_anonymous": "Nota para o autor",
+		"note_placeholder": "O que você mudou, para que eles acertem na próxima vez",
+		"note_hint": "Opcional. Eles poderão ver isso em Configurações, Contribuições, sem que seu nome seja exibido. Se deixar o campo vazio, eles saberão apenas que um revisor corrigiu a letra.",
+		"note_preset_timing": "Sincronização ajustada",
+		"note_preset_bg": "Vocais de apoio marcados",
+		"note_preset_spelling": "A grafia segue a letra oficial",
+		"note_preset_split": "Linhas longas divididas"
 	},
 	"team": {
 		"title": "Equipe de letras",
@@ -1955,12 +1977,24 @@
 		"role_set": "{handle} agora é {role}.",
 		"banned_toast": "{handle} foi banido.",
 		"unbanned_toast": "{handle} não está mais banido.",
-		"not_allowed_title": "Esta página é para administradores",
-		"not_allowed": "Apenas administradores podem definir quem revisa.",
+		"not_allowed_title": "Esta página é para administradores e líderes de revisão",
+		"not_allowed": "Apenas administradores e líderes de revisão podem definir quem revisa.",
 		"err_forbidden": "Sua conta não pode gerenciar a equipe.",
 		"err_own": "Você não pode alterar sua própria função nem se banir.",
 		"err_gone": "Essa conta não existe mais.",
 		"settings_hint": "Escolha quem revisa as letras",
-		"settings_open": "Equipe de letras"
+		"settings_open": "Equipe de letras",
+		"role_lead": "Líder de revisão",
+		"subtitle_lead": "Você pode adicionar e remover revisores",
+		"stat_reviewed": "Revisado",
+		"stat_30_days": "30 dias",
+		"stat_approved": "Aprovado",
+		"stat_fixed": "Corrigido",
+		"stat_rejected": "Rejeitado",
+		"stat_taken_down": "Retirado do ar",
+		"stat_overturned": "Decisões revertidas",
+		"stat_overturned_hint": "Aprovações que foram retiradas posteriormente",
+		"stat_last": "Última revisão",
+		"stat_never": "Nunca"
 	}
 }

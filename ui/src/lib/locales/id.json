@@ -89,7 +89,8 @@
 		"remove_account_desc": "{name} hanya dihapus dari daftar ini. Akun Google itu sendiri tidak terpengaruh, dan Anda dapat masuk kembali kapan saja.",
 		"saved_accounts_hint": "Pilih akun tersimpan untuk beralih ke akun tersebut.",
 		"no_channels": "YouTube tidak mengembalikan saluran yang dapat dipilih.",
-		"stats": "Statistik"
+		"stats": "Statistik",
+		"discord": "Ikuti Limusic di Discord"
 	},
 	"player": {
 		"play": "Putar",
@@ -487,7 +488,8 @@
 			"theater_clock_format_12": "12 jam",
 			"theater_clock_format_24": "24 jam",
 			"cover_lyric_romanized": "Lirik romanisasi di bawah sampul",
-			"cover_lyric_romanized_hint": "Baris lirik di bawah sampul menampilkan romanisasi alih-alih aksara aslinya, untuk lagu yang memilikinya. Tab lirik tetap memiliki tombol Romanisasi tersendiri. Hanya untuk tata letak baru."
+			"cover_lyric_romanized_hint": "Baris lirik di bawah sampul menampilkan romanisasi alih-alih aksara aslinya, untuk lagu yang memilikinya. Tab lirik tetap memiliki tombol Romanisasi tersendiri. Hanya untuk tata letak baru.",
+			"cover_lyric": "Baris lirik di bawah artwork"
 		},
 		"playback": {
 			"audio_quality": "Kualitas audio",
@@ -547,7 +549,21 @@
 			"auto_pause_other_audio_hint": "Jeda ketika aplikasi lain, seperti tab peramban atau pemutar video, memutar media, dan lanjutkan ketika itu berhenti. Suara notifikasi dan permainan tidak termasuk."
 		},
 		"data": {
-			"clear_cache_button": "Hapus cache sekarang"
+			"clear_cache_button": "Hapus cache",
+			"used": "Ruang yang digunakan",
+			"used_hint": "Semua yang Limusik simpan di komputer ini.",
+			"library": "Perpustakaan dan pengaturan",
+			"library_hint": "Pengaturanmu, riwayat mendengarkan, lirik tersimpan dan perpustakaan musik lokal.",
+			"audio": "Cache audio",
+			"audio_hint": "Audio dipegang ketika lagu dimainkan, dan tautan disimpan untuk memulainya lebih cepat. Membersihkannya juga memperbaiki lagu yang berhenti memuat.",
+			"karaoke": "Versi karaoke",
+			"models": "Model karaoke",
+			"models_hint": "Model penghapus fokal yang diunduh, dan mesin yang menjalankannya.",
+			"manage": "Kelola",
+			"web": "Gambar dan cache web",
+			"web_hint": "Artwork dan file lain yang dimuat jendela aplikasi, disimpan oleh mesin web sistem Anda.",
+			"other": "Lainnya",
+			"other_hint": "Log, artwork dari file-file lokal Anda, dan file-file kecil yang Limusic butuhkan untuk memainkan lagu."
 		},
 		"about": {
 			"description": "Pemutar musik desktop yang indah, cepat, dan ringan yang ditenagai oleh Tauri dan Svelte.",
@@ -759,7 +775,7 @@
 			"intro": "Hubungkan Limusic di ponsel Anda: masing-masing menampilkan dan mengendalikan apa yang diputar yang lain, dan musik berpindah ke perangkat yang Anda pilih.",
 			"link_phone": "Hubungkan ponsel",
 			"link_another": "Hubungkan ponsel lain",
-			"step_open": "Di ponsel Anda, buka Limusic: Pengaturan › Integrasi › Perangkat",
+			"step_open": "Di ponsel Anda, buka Limusic: Pengaturan › Perangkat",
 			"step_type": "Ketik kode ini",
 			"custom_server": "Di server ini, ketik {invite}",
 			"expires_in": "Kedaluwarsa dalam {time}",
@@ -782,7 +798,15 @@
 			"more": "Lainnya",
 			"unlink": "Putuskan",
 			"unlink_title": "Putuskan {name}?",
-			"unlink_desc": "Perangkat itu tidak lagi dapat mengendalikan komputer ini. Anda dapat menghubungkannya lagi dengan kode baru."
+			"unlink_desc": "Perangkat itu tidak lagi dapat mengendalikan komputer ini. Anda dapat menghubungkannya lagi dengan kode baru.",
+			"unreachable": "Tidak dapat mencapai server. Periksa koneksi, VPN atau firewall, kemudian coba lagi."
+		},
+		"search": {
+			"placeholder": "Cari pengaturan",
+			"hint": "Enter buka hasil pertama, Esc bersihkan pencarian.",
+			"empty": "Tidak ada pengaturan yang cocok \"{query}\"",
+			"empty_hint": "Coba kata yang lebih pendek, atau satu dari deskripsi pengaturan.",
+			"shown_when": "Ditampilkan ketika \"{setting}\" menyala"
 		}
 	},
 	"dialogs": {
@@ -1349,7 +1373,7 @@
 		"from_spotify": "Dari Spotify",
 		"update": "Perbarui",
 		"updating": "Memperbarui…",
-		"update_tooltip": "Tambahkan lagu baru di daftar putar Spotify dan hapus lagu yang sudah tidak ada",
+		"update_tooltip": "Tambahkan lagu baru di daftar putar Spotify, hapus lagu yang sudah tidak ada, dan ikuti urutannya",
 		"update_done": "Diperbarui dari Spotify: {added} ditambahkan, {removed} dihapus",
 		"update_none": "Sudah mutakhir dengan Spotify",
 		"nudge_title": "Beralih dari Spotify?",

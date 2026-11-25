@@ -1551,7 +1551,8 @@
 		"err_unavailable": "O teu rascunho está guardado. Tenta novamente dentro de momentos.",
 		"rejected_title": "Um revisor recusou a tua última versão",
 		"rejected_reason": "O motivo indicado: «{reason}». Podes corrigi-la e enviá-la novamente.",
-		"rejected_no_reason": "Não indicaram um motivo. Podes corrigi-la e enviá-la novamente."
+		"rejected_no_reason": "Não indicaram um motivo. Podes corrigi-la e enviá-la novamente.",
+		"rejected_open": "Abrir a minha versão"
 	},
 	"limusic": {
 		"none_title": "Não é precisa uma conta",
@@ -1592,7 +1593,20 @@
 		"signin_failed": "O início de sessão não funcionou. Começa outra vez.",
 		"signin_rate_limited": "Demasiadas tentativas. Tenta novamente mais tarde.",
 		"session_ended": "A sessão da tua conta Limusic foi terminada. Liga-a novamente para recuperares o teu nome.",
-		"unreachable": "Não foi possível contactar o Limusic Lyrics."
+		"unreachable": "Não foi possível contactar o Limusic Lyrics.",
+		"notes_toast_one": "Um revisor deixou-te uma nota sobre as tuas letras",
+		"notes_toast": "{count} notas novas dos revisores sobre as tuas letras",
+		"notes_view": "Ver",
+		"notes_unread": "Notas novas dos revisores",
+		"notes_title": "Dos revisores",
+		"notes_hint": "O que os revisores decidiram sobre as tuas letras. Os nomes não são mostrados.",
+		"note_fixed": "Corrigida e aprovada",
+		"note_approved": "Aprovada",
+		"note_rejected": "Rejeitada",
+		"note_taken_down": "Retirada",
+		"note_quote": "«{reason}»",
+		"note_fixed_silent": "Um revisor corrigiu-a antes de a aprovar.",
+		"note_no_reason": "Não indicaram um motivo."
 	},
 	"review": {
 		"title": "Rever letras",
@@ -1668,7 +1682,15 @@
 		"preset_timing": "A sincronização está errada",
 		"preset_words": "Algumas palavras estão erradas",
 		"preset_missing": "Faltam linhas",
-		"preset_wrong_song": "Esta letra é de outra música"
+		"preset_wrong_song": "Esta letra é de outra música",
+		"note_for": "Nota para {handle}",
+		"note_for_anonymous": "Nota para o autor",
+		"note_placeholder": "O que alteraste, para acertarem da próxima vez",
+		"note_hint": "Opcional. Vêem-na em Definições, Contribuir, sem o teu nome. Se ficar vazia, só ficam a saber que um revisor a corrigiu.",
+		"note_preset_timing": "Sincronização ajustada",
+		"note_preset_bg": "Vozes de fundo assinaladas",
+		"note_preset_spelling": "Ortografia conforme a letra oficial",
+		"note_preset_split": "Linhas longas divididas"
 	},
 	"queue": {
 		"title": "Fila"
@@ -1955,12 +1977,24 @@
 		"role_set": "{handle} é agora {role}.",
 		"banned_toast": "{handle} está banido.",
 		"unbanned_toast": "{handle} já não está banido.",
-		"not_allowed_title": "Esta página é para administradores",
-		"not_allowed": "Só os administradores podem alterar quem revê.",
+		"not_allowed_title": "Esta página é para administradores e responsáveis de revisão",
+		"not_allowed": "Só os administradores e os responsáveis de revisão podem alterar quem revê.",
 		"err_forbidden": "A tua conta não pode gerir a equipa.",
 		"err_own": "Não podes alterar a tua própria função nem banir-te.",
 		"err_gone": "Essa conta já não existe.",
 		"settings_hint": "Escolhe quem revê as letras",
-		"settings_open": "Equipa de letras"
+		"settings_open": "Equipa de letras",
+		"role_lead": "Responsável de revisão",
+		"subtitle_lead": "Podes nomear e remover revisores",
+		"stat_reviewed": "Revistas",
+		"stat_30_days": "30 dias",
+		"stat_approved": "Aprovadas",
+		"stat_fixed": "Corrigidas",
+		"stat_rejected": "Rejeitadas",
+		"stat_taken_down": "Retiradas",
+		"stat_overturned": "Anuladas",
+		"stat_overturned_hint": "Aprovações que foram retiradas mais tarde",
+		"stat_last": "Última revisão",
+		"stat_never": "Nunca"
 	}
 }
