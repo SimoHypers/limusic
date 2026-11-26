@@ -989,7 +989,9 @@
 			"dismiss": "Ignorar",
 			"alone_hint": "Ainda não há mais ninguém. Compartilhe o código acima para lotar a sala.",
 			"copy_code": "Copiar código",
-			"copied": "Copiado"
+			"copied": "Copiado",
+			"auto_admit": "Permitir entrada com código",
+			"user_joined": "{user} entrou"
 		},
 		"new_playlist": {
 			"where": "Onde salvar",
@@ -1143,7 +1145,11 @@
 		"improve": "Melhorar esta letra",
 		"improve_hint": "Corrija uma palavra ou um tempo que esteja errado.",
 		"draft": "Continuar seu rascunho",
-		"draft_hint": "{done} de {total} linhas sincronizadas."
+		"draft_hint": "{done} de {total} linhas sincronizadas.",
+		"save_lrc": "Salve como arquivo LRC",
+		"save_lrc_hint": "Salve suas letras em um arquivo LRC, palavra por palavra, para usar em outros reprodutores e editores",
+		"save_lrc_done": "Letras salvas",
+		"save_lrc_failed": "Não foi possível salvar o arquivo."
 	},
 	"queue": {
 		"title": "Fila"
