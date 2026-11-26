@@ -2,6 +2,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
+	import { Switch } from '$lib/components/ui/switch';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		Copy01Icon,
@@ -451,7 +452,19 @@
 
 				<!-- Footer actions -->
 				<div class="flex items-center gap-2 border-t pt-3">
-					{#if !isHost}
+					{#if isHost}
+						<!-- Remembered across rooms; turning it on also lets in whoever is waiting. -->
+						<label
+							class="flex min-w-0 cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground"
+						>
+							<Switch
+								size="sm"
+								checked={lt.autoAdmit}
+								onCheckedChange={(on) => api.ltSetAutoAdmit(on)}
+							/>
+							{t('dialogs.listen_together.auto_admit')}
+						</label>
+					{:else}
 						<Button variant="ghost" size="sm" onclick={() => api.ltRequestSync()}>
 							<HugeiconsIcon icon={RefreshIcon} class="h-4 w-4" />
 							{t('dialogs.listen_together.resync')}

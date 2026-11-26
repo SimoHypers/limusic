@@ -1128,7 +1128,9 @@ pub fn run() {
             // Empty means the built-in default, which `LtSession` resolves when it connects. The
             // URL does not live here so that nothing ever has to hand it to the UI.
             let lt_url = db.get_setting("lt_server_url").unwrap_or_default();
-            let (lt, lt_sync_rx) = listentogether::LtSession::new(handle.clone(), lt_url);
+            let lt_auto_admit = db.get_setting("lt_auto_admit").as_deref() == Some("1");
+            let (lt, lt_sync_rx) =
+                listentogether::LtSession::new(handle.clone(), lt_url, lt_auto_admit);
             // Device link: opens a socket only once the user has linked a device.
             let (link, link_rx) = devicelink::LinkSession::new(handle.clone(), db.clone());
 
@@ -1557,6 +1559,7 @@ pub fn run() {
             commands::import_resolve,
             commands::lt_get_state,
             commands::lt_set_server_url,
+            commands::lt_set_auto_admit,
             commands::lt_create_room,
             commands::lt_join_room,
             commands::lt_leave,

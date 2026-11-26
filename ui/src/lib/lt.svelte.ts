@@ -10,6 +10,7 @@ export const lt = $state<LtState>({
 	myId: null,
 	serverUrl: '',
 	defaultServerUrl: '',
+	autoAdmit: false,
 	users: [],
 	currentTrack: null,
 	queue: [],

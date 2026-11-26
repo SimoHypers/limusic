@@ -2627,6 +2627,14 @@ pub async fn lt_set_server_url(state: St<'_>, url: String) -> Result<(), String>
     Ok(())
 }
 
+/// Host: let people in without asking. Persisted, so it holds for every room this user hosts.
+#[tauri::command]
+pub async fn lt_set_auto_admit(state: St<'_>, on: bool) -> Result<(), String> {
+    state.db.set_setting("lt_auto_admit", if on { "1" } else { "0" });
+    state.lt.set_auto_admit(on).await;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn lt_create_room(state: St<'_>, username: String) -> Result<(), String> {
     state.lt.create_room(username).await;

@@ -2148,6 +2148,7 @@ export function initApp(mini = false): () => void {
 		// Rust restores the shared clock before applying room playback, even with no UI open.
 		api.onLtState(applyLtState),
 		api.onLtNotice((msg) => toast(msg)),
+		api.onLtJoined((user) => toast(t('dialogs.listen_together.user_joined', { user }))),
 		api.onLinkState(applyLinkState)
 	];
 	const teardown = () => subs.forEach((u) => u.then((f) => f()));
