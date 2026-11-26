@@ -1218,6 +1218,8 @@
 			"use_default": "Use the default",
 			"approve": "Let in",
 			"decline": "Decline",
+			"auto_admit": "Let in anyone with the code",
+			"user_joined": "{user} joined",
 			"queue_it": "Queue it",
 			"dismiss": "Dismiss",
 			"alone_hint": "Nobody else yet. Share the code above to fill the room.",

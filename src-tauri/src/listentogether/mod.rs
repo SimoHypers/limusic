@@ -123,12 +123,23 @@ struct Inner {
     pending_joins: Vec<(String, String)>, // (user_id, username)
     suggestions: Vec<Suggestion>,
     outbound: Option<mpsc::UnboundedSender<ClientMessage>>,
+    /// Host: answer every join request with an approval, no row to click. A preference, so
+    /// `reset_room` keeps it. Done here rather than on the server so it works with any server
+    /// version, and a guest who becomes host goes by their own choice.
+    auto_admit: bool,
 }
 
 impl Default for Role {
     fn default() -> Self {
         Role::None
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Join {
+    Approve,
+    Ask,
+    Known,
 }
 
 impl Inner {
@@ -159,6 +170,31 @@ impl Inner {
         self.requesting = false;
     }
 
+    /// What to do with a join request: approve it on the spot, list it for the host, or nothing
+    /// (a re-sent request we already list).
+    fn join_request(&mut self, user_id: &str, username: &str) -> Join {
+        if self.auto_admit && self.role == Role::Host {
+            return Join::Approve;
+        }
+        if self.pending_joins.iter().any(|(id, _)| id == user_id) {
+            return Join::Known;
+        }
+        self.pending_joins.push((user_id.to_string(), username.to_string()));
+        Join::Ask
+    }
+
+    /// Set the preference; on, the host approves whoever is already waiting. Their rows go when
+    /// `user_joined` comes back, as with a click, so a send lost to a dropped socket is retried
+    /// when the server re-sends the request.
+    fn set_auto_admit(&mut self, on: bool) -> Vec<String> {
+        self.auto_admit = on;
+        if on && self.role == Role::Host {
+            self.pending_joins.iter().map(|(id, _)| id.clone()).collect()
+        } else {
+            Vec::new()
+        }
+    }
+
     fn absorb(&mut self, state: &RoomState) {
         self.room_code = Some(state.room_code.clone());
         self.users = state.users.clone();
@@ -180,11 +216,12 @@ impl LtSession {
     pub fn new(
         app: AppHandle,
         server_url: String,
+        auto_admit: bool,
     ) -> (Arc<Self>, mpsc::UnboundedReceiver<SyncCommand>) {
         // rustls needs a process-wide crypto provider before the first `wss://` handshake.
         let _ = rustls::crypto::ring::default_provider().install_default();
         let (sync_tx, sync_rx) = mpsc::unbounded_channel();
-        let inner = Inner { server_url: stored_url(server_url), ..Inner::default() };
+        let inner = Inner { server_url: stored_url(server_url), auto_admit, ..Inner::default() };
         let s = Arc::new(LtSession {
             app,
             inner: Arc::new(Mutex::new(inner)),
@@ -198,6 +235,15 @@ impl LtSession {
 
     pub async fn set_server_url(&self, url: String) {
         self.inner.lock().await.server_url = stored_url(url);
+        self.emit_state().await;
+    }
+
+    /// Turning it on also lets in whoever is already waiting.
+    pub async fn set_auto_admit(&self, on: bool) {
+        let waiting = self.inner.lock().await.set_auto_admit(on);
+        for user_id in waiting {
+            self.send(ClientMessage::ApproveJoin { user_id }).await;
+        }
         self.emit_state().await;
     }
 
@@ -506,16 +552,12 @@ impl LtSession {
             }
 
             ServerMessage::JoinRequest { user_id, username } => {
-                let is_new = {
-                    let mut inner = self.inner.lock().await;
-                    let new = !inner.pending_joins.iter().any(|(id, _)| id == &user_id);
-                    if new {
-                        inner.pending_joins.push((user_id, username.clone()));
-                    }
-                    new
-                };
-                if is_new {
-                    self.emit_notice(&format!("{username} wants to join")).await;
+                let join = self.inner.lock().await.join_request(&user_id, &username);
+                match join {
+                    // The toast comes with `user_joined`, once they are actually in.
+                    Join::Approve => self.send(ClientMessage::ApproveJoin { user_id }).await,
+                    Join::Ask => self.emit_notice(&format!("{username} wants to join")).await,
+                    Join::Known => {}
                 }
             }
 
@@ -551,10 +593,19 @@ impl LtSession {
             }
 
             ServerMessage::UserJoined { user } => {
-                let mut inner = self.inner.lock().await;
-                inner.pending_joins.retain(|(id, _)| id != &user.user_id);
-                if !inner.users.iter().any(|u| u.user_id == user.user_id) {
-                    inner.users.push(user);
+                let announce = {
+                    let mut inner = self.inner.lock().await;
+                    inner.pending_joins.retain(|(id, _)| id != &user.user_id);
+                    let new = !inner.users.iter().any(|u| u.user_id == user.user_id);
+                    let name = user.username.clone();
+                    if new {
+                        inner.users.push(user);
+                    }
+                    // Nobody clicked anything, so the host would not know otherwise.
+                    (new && inner.auto_admit && inner.role == Role::Host).then_some(name)
+                };
+                if let Some(name) = announce {
+                    let _ = self.app.emit("lt-joined", name);
                 }
             }
             ServerMessage::UserLeft { user_id } => {
@@ -724,6 +775,7 @@ impl LtSession {
             "roomCode": inner.room_code,
             "myId": inner.my_id,
             "serverUrl": inner.server_url,
+            "autoAdmit": inner.auto_admit,
             // Sent so the settings panel can show what "the default" actually is once the user
             // opens it. `serverUrl` stays empty until they pick their own, which is what keeps the
             // address off every other screen.
@@ -936,6 +988,47 @@ mod tests {
     fn the_old_default_server_means_the_default() {
         assert_eq!(stored_url(OLD_DEFAULT_SERVER.into()), "");
         assert_eq!(stored_url("wss://my.host/ws".into()), "wss://my.host/ws");
+    }
+
+    fn host(auto_admit: bool) -> Inner {
+        Inner { role: Role::Host, auto_admit, ..Inner::default() }
+    }
+
+    #[test]
+    fn auto_admit_approves_instead_of_listing() {
+        let mut on = host(true);
+        assert_eq!(on.join_request("a", "Ann"), Join::Approve);
+        assert!(on.pending_joins.is_empty());
+
+        // Off, the request waits for a click, and a re-sent one is not listed twice.
+        let mut off = host(false);
+        assert_eq!(off.join_request("a", "Ann"), Join::Ask);
+        assert_eq!(off.join_request("a", "Ann"), Join::Known);
+        assert_eq!(off.pending_joins.len(), 1);
+    }
+
+    /// A guest's own setting is not theirs to apply until they hold the host role.
+    #[test]
+    fn a_guest_never_approves() {
+        let mut guest = Inner { role: Role::Guest, auto_admit: true, ..Inner::default() };
+        assert_ne!(guest.join_request("a", "Ann"), Join::Approve);
+        assert!(guest.set_auto_admit(true).is_empty());
+    }
+
+    #[test]
+    fn turning_it_on_lets_in_who_is_waiting() {
+        let mut h = host(false);
+        h.join_request("a", "Ann");
+        h.join_request("b", "Bob");
+        assert_eq!(h.set_auto_admit(true), ["a", "b"]);
+        // The rows stay until the server confirms each one.
+        assert_eq!(h.pending_joins.len(), 2);
+        assert!(h.set_auto_admit(false).is_empty());
+
+        // A preference: leaving the room keeps it.
+        h.set_auto_admit(true);
+        h.reset_room();
+        assert!(h.auto_admit);
     }
 
     #[tokio::test]

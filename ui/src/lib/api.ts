@@ -1712,6 +1712,8 @@ export interface LtState {
 	serverUrl: string;
 	/** What that default is. Only ever rendered inside the "change server" panel. */
 	defaultServerUrl: string;
+	/** Host: join requests are approved without asking. A saved preference. */
+	autoAdmit: boolean;
 	users: LtUser[];
 	currentTrack: LtTrack | null;
 	queue: LtTrack[];
@@ -1721,6 +1723,7 @@ export interface LtState {
 
 export const ltGetState = () => invoke<LtState>('lt_get_state');
 export const ltSetServerUrl = (url: string) => invoke<void>('lt_set_server_url', { url });
+export const ltSetAutoAdmit = (on: boolean) => invoke<void>('lt_set_auto_admit', { on });
 export const ltCreateRoom = (username: string) => invoke<void>('lt_create_room', { username });
 export const ltJoinRoom = (code: string, username: string) =>
 	invoke<void>('lt_join_room', { code, username });
@@ -1737,6 +1740,9 @@ export const onLtState = (cb: (s: LtState) => void): Promise<UnlistenFn> =>
 	listen<LtState>('lt-state', (e) => cb(e.payload));
 export const onLtNotice = (cb: (msg: string) => void): Promise<UnlistenFn> =>
 	listen<string>('lt-notice', (e) => cb(e.payload));
+/** Host with auto-admit on: someone came in without a click. Payload is their name. */
+export const onLtJoined = (cb: (username: string) => void): Promise<UnlistenFn> =>
+	listen<string>('lt-joined', (e) => cb(e.payload));
 
 // Device link: the phone as a remote, and Continue here (src-tauri/src/devicelink.rs).
 export interface LinkDevice {
