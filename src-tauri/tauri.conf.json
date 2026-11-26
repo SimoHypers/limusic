@@ -67,6 +67,11 @@
     }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["limusic"]
+      }
+    },
     "updater": {
       "endpoints": [
         "https://github.com/SimoHypers/limusic/releases/latest/download/latest.json"
