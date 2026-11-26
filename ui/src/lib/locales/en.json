@@ -1513,6 +1513,8 @@
 		"too_many_title": "Too many lines",
 		"too_many": "A lyric can have at most 1,000 lines.",
 		"submit": "Send lyrics",
+		"download": "Download word-synced LRC",
+		"download_failed": "Couldn’t save the lyrics file.",
 		"submit_not_ready": "Every line needs word timings before the lyrics can be sent.",
 		"ready_title": "Every line is timed",
 		"ready_body": "Watch it once in the preview, then send it. You can still pick any line and fix it.",

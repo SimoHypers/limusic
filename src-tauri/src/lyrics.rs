@@ -308,6 +308,41 @@ pub async fn editor_source(
 /// The most text `parse_file` reads. A long song word by word as TTML is about 100 KB.
 const FILE_MAX_BYTES: usize = 1024 * 1024;
 
+fn lrc_time(ms: u64) -> String {
+    let cs = ms / 10 + u64::from(ms % 10 >= 5);
+    format!("{:02}:{:02}.{:02}", cs / 6000, cs / 100 % 60, cs % 100)
+}
+
+pub fn editor_lrc(lines: &[LyricLine]) -> String {
+    let mut rows = Vec::new();
+    for line in lines {
+        let Some(start) = line.time_ms else { continue };
+        let words = line.words.as_deref().unwrap_or_default();
+        if words.is_empty() {
+            rows.push((start, line.text.replace(['\r', '\n'], " ")));
+            continue;
+        }
+        // LRC has one timing stream per row. Put overlapping backing vocals on their own row.
+        for bg in [false, true] {
+            let mut voice = words.iter().filter(|w| w.bg == bg).peekable();
+            let Some(first) = voice.peek() else { continue };
+            let cue = if bg { first.start_ms } else { start };
+            let mut body = String::new();
+            while let Some(word) = voice.next() {
+                body.push_str(&format!("<{}>", lrc_time(word.start_ms)));
+                body.push_str(&word.text.replace(['\r', '\n'], " "));
+                // Without a closing tag a reader holds the word until the next word starts.
+                if voice.peek().map(|w| w.start_ms) != Some(word.end_ms) {
+                    body.push_str(&format!("<{}>", lrc_time(word.end_ms)));
+                }
+            }
+            rows.push((cue, body));
+        }
+    }
+    rows.sort_by_key(|(cue, _)| *cue);
+    rows.into_iter().map(|(cue, text)| format!("[{}]{}\n", lrc_time(cue), text)).collect()
+}
+
 /// A lyric file's lines for the editor, by the same parsers the providers go through. Empty for
 /// plain text, which has nothing to parse: the editor takes it line by line as it is.
 pub fn parse_file(text: &str) -> Result<Vec<LyricLine>, String> {
@@ -2540,6 +2575,25 @@ mod tests {
         assert_eq!(line.agent.as_deref(), Some("v2"));
         assert!(line.words.as_ref().unwrap()[0].bg);
         assert_eq!(serde_json::to_string(&line).unwrap(), new);
+    }
+
+    #[test]
+    fn editor_lrc_round_trip() {
+        let mut line = LyricLine::simple(Some(59996), "Écho again".into());
+        let word = |text: &str, start_ms, end_ms, bg| LyricWord { text: text.into(), start_ms, end_ms, bg };
+        line.words = Some(vec![
+            word("Écho ", 60000, 60400, false),
+            word("again", 60800, 61100, false),
+            word("oh", 60100, 60600, true),
+        ]);
+        let lrc = editor_lrc(&[line, LyricLine::simple(Some(63000), String::new())]);
+        assert_eq!(lrc, "[01:00.00]<01:00.00>Écho <01:00.40><01:00.80>again<01:01.10>\n[01:00.10]<01:00.10>oh<01:00.60>\n[01:03.00]\n");
+        let parsed = parse_elrc(&lrc);
+        let words = parsed[0].words.as_ref().unwrap();
+        assert_eq!((words[0].end_ms, words[1].start_ms, words[1].end_ms), (60400, 60800, 61100));
+        assert_eq!(parsed[0].text, "Écho again");
+        assert_eq!(parsed[1].text, "oh");
+        assert!(parsed[2].text.is_empty());
     }
 
     #[test]

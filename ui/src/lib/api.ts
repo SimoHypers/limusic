@@ -1566,6 +1566,8 @@ export const limusicRevert = (videoId: string, toRevision: number | null, reason
 /** A pasted or picked lyric file (TTML, eLRC, LRC) as lines, by the parsers the providers use.
  *  Empty for plain text. Rejects with `too_large` over 1 MB. */
 export const lyricsParse = (text: string) => invoke<LyricLine[]>('lyrics_parse', { text });
+export const saveSyncedLyrics = (filename: string, lines: LyricLine[]) =>
+	invoke<void>('save_synced_lyrics', { filename, lines });
 /** A position read from the player this instant and the wall-clock time (Unix ms) of the read:
  *  what the lyric editor places a tap with (`stampTap`). `null` with nothing loaded. */
 export interface PlaybackClock {

@@ -3008,6 +3008,23 @@ pub async fn lyrics_parse(text: String) -> Result<Vec<crate::lyrics::LyricLine>,
     crate::lyrics::parse_file(&text)
 }
 
+#[tauri::command]
+pub async fn save_synced_lyrics(
+    app: tauri::AppHandle,
+    filename: String,
+    lines: Vec<crate::lyrics::LyricLine>,
+) -> Result<(), String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let text = crate::lyrics::editor_lrc(&lines);
+    let dialog = app.dialog().file().add_filter("Enhanced LRC", &["lrc"]).set_file_name(filename);
+    if let Some(file) = dialog.blocking_save_file() {
+        let path = file.into_path().map_err(|e| e.to_string())?;
+        std::fs::write(path, text).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 // --- Changelog ------------------------------------------------------------------------------
 
 #[derive(Clone, serde::Serialize)]
