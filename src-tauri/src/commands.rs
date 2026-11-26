@@ -3008,6 +3008,34 @@ pub async fn lyrics_parse(text: String) -> Result<Vec<crate::lyrics::LyricLine>,
     crate::lyrics::parse_file(&text)
 }
 
+/// Word-synced lines as an Enhanced LRC file, wherever the user picks in a save dialog. `false`
+/// when the dialog was cancelled and nothing was written. The lyrics footer offers it on the
+/// user's own Limusic lyric only (`LyricsFileButton.svelte`).
+#[tauri::command]
+pub async fn save_synced_lyrics(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    title: String,
+    artists: String,
+    lines: Vec<crate::lyrics::LyricLine>,
+) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let text = crate::lyrics::to_elrc(&lines);
+    // On the window, as the plugin's own `save()` does: on Windows a dialog with no owner can
+    // open behind the app.
+    let dialog = app
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .add_filter("Enhanced LRC", &["lrc"])
+        .set_file_name(crate::lyrics::lrc_file_name(&title, &artists));
+    let Some(file) = dialog.blocking_save_file() else { return Ok(false) };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(path, text).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 // --- Changelog ------------------------------------------------------------------------------
 
 #[derive(Clone, serde::Serialize)]

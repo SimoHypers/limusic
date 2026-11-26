@@ -75,6 +75,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import LyricsSourcePicker from './LyricsSourcePicker.svelte';
 	import KaraokeButton from './KaraokeButton.svelte';
+	import LyricsFileButton from './LyricsFileButton.svelte';
 	import { link } from '$lib/link.svelte';
 	import { voices } from '$lib/lyricvoices';
 	import { durationSecs, lyricsFor, setNowLyrics } from '$lib/nowlyrics.svelte';
@@ -757,6 +758,8 @@
 				</Popover.Content>
 			</Popover.Root>
 		{/if}
+		<!-- Only on the user's own Limusic lyric, so most songs never show it. -->
+		<LyricsFileButton {lyrics} {track} />
 	</div>
 {/if}
 

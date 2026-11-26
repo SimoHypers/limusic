@@ -1607,6 +1607,7 @@ pub fn run() {
             commands::limusic_notes_seen,
             commands::limusic_revert,
             commands::lyrics_parse,
+            commands::save_synced_lyrics,
             commands::lastfm_connect,
             commands::lastfm_disconnect,
             commands::lastfm_status,

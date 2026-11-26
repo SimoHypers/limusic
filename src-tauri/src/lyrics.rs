@@ -308,6 +308,105 @@ pub async fn editor_source(
 /// The most text `parse_file` reads. A long song word by word as TTML is about 100 KB.
 const FILE_MAX_BYTES: usize = 1024 * 1024;
 
+fn lrc_time(ms: u64) -> String {
+    let cs = ms / 10 + u64::from(ms % 10 >= 5);
+    format!("{:02}:{:02}.{:02}", cs / 6000, cs / 100 % 60, cs % 100)
+}
+
+/// The words' text with the spaces put back where the line's own text has them between a word and
+/// the next one found in it. Some sources send bare words ("Hello", "world"), and a lyric improved
+/// from one keeps them in the lines nobody touched, which would read as one run-together word.
+/// Text the words don't have (a comma) has no timing and stays out, as in the editor's `wordsOf`.
+fn spaced_words(line: &LyricLine, words: &[LyricWord]) -> Vec<String> {
+    let collapse = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+    let joined: String = words.iter().map(|w| w.text.as_str()).collect();
+    if collapse(&joined) == collapse(&line.text) {
+        return words.iter().map(|w| w.text.clone()).collect();
+    }
+    // Where each word is in the line, in order: a start and an end, `None` when it isn't there.
+    let mut at = 0;
+    let found: Vec<Option<(usize, usize)>> = words
+        .iter()
+        .map(|w| {
+            let bare = w.text.trim();
+            let start = at + line.text[at..].find(bare).filter(|_| !bare.is_empty())?;
+            at = start + bare.len();
+            Some((start, at))
+        })
+        .collect();
+    words
+        .iter()
+        .enumerate()
+        .map(|(i, w)| {
+            let Some((_, end)) = found[i] else { return w.text.clone() };
+            let next = found[i + 1..].iter().flatten().next().map_or(line.text.len(), |f| f.0);
+            let bare = w.text.trim();
+            if i + 1 < words.len() && line.text[end..next].contains(char::is_whitespace) {
+                format!("{bare} ")
+            } else {
+                bare.to_owned()
+            }
+        })
+        .collect()
+}
+
+/// Word-synced lines as Enhanced LRC: a `[mm:ss.cc]` row per line and a `<mm:ss.cc>` tag at each
+/// word, with a closing tag where a pause follows. Untimed lines are left out.
+pub fn to_elrc(lines: &[LyricLine]) -> String {
+    let mut rows = Vec::new();
+    for line in lines {
+        let Some(start) = line.time_ms else { continue };
+        let words = line.words.as_deref().unwrap_or_default();
+        if words.is_empty() {
+            rows.push((start, line.text.replace(['\r', '\n'], " ")));
+            continue;
+        }
+        let texts = spaced_words(line, words);
+        // LRC has one timing stream per row. Put overlapping backing vocals on their own row.
+        for bg in [false, true] {
+            let mut voice = words.iter().zip(&texts).filter(|(w, _)| w.bg == bg).peekable();
+            let Some((first, _)) = voice.peek() else { continue };
+            let cue = if bg { first.start_ms } else { start };
+            let mut body = String::new();
+            while let Some((word, text)) = voice.next() {
+                body.push_str(&format!("<{}>", lrc_time(word.start_ms)));
+                body.push_str(&text.replace(['\r', '\n'], " "));
+                // Without a closing tag a reader holds the word until the next word starts.
+                if voice.peek().map(|(w, _)| w.start_ms) != Some(word.end_ms) {
+                    body.push_str(&format!("<{}>", lrc_time(word.end_ms)));
+                }
+            }
+            rows.push((cue, body));
+        }
+    }
+    rows.sort_by_key(|(cue, _)| *cue);
+    rows.into_iter().map(|(cue, text)| format!("[{}]{}\n", lrc_time(cue), text)).collect()
+}
+
+/// "Artist - Title.lrc", the name players look for beside the audio file. Only what a file name
+/// can't hold is taken out (`<>:"/\|?*` and control characters), and it stays well under the 255
+/// bytes Linux allows, cut at a whole character.
+pub fn lrc_file_name(title: &str, artists: &str) -> String {
+    let clean = |s: &str| {
+        let s: String = s
+            .chars()
+            .map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { ' ' } else { c })
+            .collect();
+        s.split_whitespace().collect::<Vec<_>>().join(" ")
+    };
+    let name =
+        [clean(artists), clean(title)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>();
+    let mut out = String::new();
+    for c in name.join(" - ").chars() {
+        if out.len() + c.len_utf8() > 200 {
+            break;
+        }
+        out.push(c);
+    }
+    let out = out.trim_end();
+    format!("{}.lrc", if out.is_empty() { "lyrics" } else { out })
+}
+
 /// A lyric file's lines for the editor, by the same parsers the providers go through. Empty for
 /// plain text, which has nothing to parse: the editor takes it line by line as it is.
 pub fn parse_file(text: &str) -> Result<Vec<LyricLine>, String> {
@@ -2540,6 +2639,57 @@ mod tests {
         assert_eq!(line.agent.as_deref(), Some("v2"));
         assert!(line.words.as_ref().unwrap()[0].bg);
         assert_eq!(serde_json::to_string(&line).unwrap(), new);
+    }
+
+    #[test]
+    fn to_elrc_round_trip() {
+        let mut line = LyricLine::simple(Some(59996), "Écho again".into());
+        let word = |text: &str, start_ms, end_ms, bg| LyricWord {
+            text: text.into(),
+            start_ms,
+            end_ms,
+            bg,
+        };
+        line.words = Some(vec![
+            word("Écho ", 60000, 60400, false),
+            word("again", 60800, 61100, false),
+            word("oh", 60100, 60600, true),
+        ]);
+        let lrc = to_elrc(&[line, LyricLine::simple(Some(63000), String::new())]);
+        assert_eq!(lrc, "[01:00.00]<01:00.00>Écho <01:00.40><01:00.80>again<01:01.10>\n[01:00.10]<01:00.10>oh<01:00.60>\n[01:03.00]\n");
+        let parsed = parse_elrc(&lrc);
+        let words = parsed[0].words.as_ref().unwrap();
+        assert_eq!((words[0].end_ms, words[1].start_ms, words[1].end_ms), (60400, 60800, 61100));
+        assert_eq!(parsed[0].text, "Écho again");
+        assert_eq!(parsed[1].text, "oh");
+        assert!(parsed[2].text.is_empty());
+    }
+
+    #[test]
+    fn to_elrc_puts_back_the_spaces_a_source_left_out() {
+        let w = |t: &str, a, b| LyricWord { text: t.into(), start_ms: a, end_ms: b, bg: false };
+        let mut bare = LyricLine::simple(Some(0), "Hello big world".into());
+        bare.words = Some(vec![w("Hello", 0, 500), w("big", 500, 900), w("world", 900, 1400)]);
+        let mut parts = LyricLine::simple(Some(2000), "dancing in".into());
+        parts.words = Some(vec![w("danc", 2000, 2200), w("ing ", 2200, 2500), w("in", 2500, 2800)]);
+        let mut comma = LyricLine::simple(Some(3000), "Hello, world!".into());
+        comma.words = Some(vec![w("Hello", 3000, 3400), w("world", 3400, 3900)]);
+        let lrc = to_elrc(&[bare, parts, comma]);
+        let parsed = parse_elrc(&lrc);
+        assert_eq!(parsed[0].text, "Hello big world", "{lrc}");
+        assert_eq!(parsed[1].text, "dancing in", "the parts of a word stay together: {lrc}");
+        assert_eq!(parsed[2].text, "Hello world", "a comma between them is still a break: {lrc}");
+    }
+
+    #[test]
+    fn lrc_file_name_keeps_what_a_file_system_takes() {
+        assert_eq!(lrc_file_name("Don't Stop Me Now", "Queen"), "Queen - Don't Stop Me Now.lrc");
+        assert_eq!(lrc_file_name("नमस्ते दुनिया", "स्वर"), "स्वर - नमस्ते दुनिया.lrc");
+        assert_eq!(lrc_file_name("T.N.T.", "AC/DC"), "AC DC - T.N.T..lrc");
+        assert_eq!(lrc_file_name("a\nb?", ""), "a b.lrc");
+        assert_eq!(lrc_file_name(" ", ""), "lyrics.lrc");
+        let long = lrc_file_name(&"😀".repeat(100), "");
+        assert!(long.len() <= 255 && long.trim_end_matches(".lrc").chars().all(|c| c == '😀'));
     }
 
     #[test]
