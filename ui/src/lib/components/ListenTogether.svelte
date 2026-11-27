@@ -2,6 +2,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
+	import { Switch } from '$lib/components/ui/switch';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		Copy01Icon,
@@ -311,6 +312,26 @@
 						{t('dialogs.listen_together.share_hint')}
 					</p>
 				</div>
+
+				{#if isHost}
+					<div
+						class="flex items-center justify-between gap-3 rounded-xl border bg-muted/40 px-3.5 py-2.5"
+					>
+						<div class="min-w-0">
+							<div class="text-xs font-medium">
+								{t('dialogs.listen_together.auto_approve')}
+							</div>
+							<p class="text-[11px] text-muted-foreground">
+								{t('dialogs.listen_together.auto_approve_hint')}
+							</p>
+						</div>
+						<Switch
+							checked={lt.autoApprove}
+							onCheckedChange={(on) => api.ltSetAutoApprove(on)}
+							aria-label={t('dialogs.listen_together.auto_approve')}
+						/>
+					</div>
+				{/if}
 
 				<!-- Now playing -->
 				{#if lt.currentTrack}

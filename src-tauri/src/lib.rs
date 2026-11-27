@@ -1561,6 +1561,7 @@ pub fn run() {
             commands::lt_join_room,
             commands::lt_leave,
             commands::lt_approve_join,
+            commands::lt_set_auto_approve,
             commands::lt_reject_join,
             commands::lt_kick,
             commands::lt_transfer_host,

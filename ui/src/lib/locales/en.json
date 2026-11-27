@@ -1222,7 +1222,9 @@
 			"dismiss": "Dismiss",
 			"alone_hint": "Nobody else yet. Share the code above to fill the room.",
 			"copy_code": "Copy code",
-			"copied": "Copied"
+			"copied": "Copied",
+			"auto_approve": "Auto-accept join requests",
+			"auto_approve_hint": "Let anyone with the invite join without asking."
 		},
 		"new_playlist": {
 			"where": "Where to keep it",

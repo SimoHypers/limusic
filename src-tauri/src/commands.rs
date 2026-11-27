@@ -2652,6 +2652,12 @@ pub async fn lt_approve_join(state: St<'_>, user_id: String) -> Result<(), Strin
 }
 
 #[tauri::command]
+pub async fn lt_set_auto_approve(state: St<'_>, on: bool) -> Result<(), String> {
+    state.lt.set_auto_approve(on).await;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn lt_reject_join(state: St<'_>, user_id: String) -> Result<(), String> {
     state.lt.reject_join(user_id).await;
     Ok(())

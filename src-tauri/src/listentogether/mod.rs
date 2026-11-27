@@ -121,6 +121,7 @@ struct Inner {
     current_track: Option<Track>,
     queue: Vec<Track>,
     pending_joins: Vec<(String, String)>, // (user_id, username)
+    auto_approve: bool,
     suggestions: Vec<Suggestion>,
     outbound: Option<mpsc::UnboundedSender<ClientMessage>>,
 }
@@ -152,6 +153,7 @@ impl Inner {
         self.current_track = None;
         self.queue.clear();
         self.pending_joins.clear();
+        self.auto_approve = false;
         self.suggestions.clear();
         self.outbound = None;
         self.status_connected = false;
@@ -251,6 +253,26 @@ impl LtSession {
 
     pub async fn approve_join(&self, user_id: String) {
         self.send(ClientMessage::ApproveJoin { user_id }).await;
+    }
+    /// Host: auto-approve incoming join requests for the rest of this room session.
+    /// Turning it on also approves any requests already waiting.
+    pub async fn set_auto_approve(&self, on: bool) {
+        let queued: Vec<(String, String)> = {
+            let mut inner = self.inner.lock().await;
+            if inner.role != Role::Host {
+                return;
+            }
+            inner.auto_approve = on;
+            if on {
+                std::mem::take(&mut inner.pending_joins)
+            } else {
+                Vec::new()
+            }
+        };
+        for (user_id, _) in queued {
+            self.send(ClientMessage::ApproveJoin { user_id }).await;
+        }
+        self.emit_state().await;
     }
     pub async fn reject_join(&self, user_id: String) {
         // Drop it from our local pending list immediately (optimistic).
@@ -506,15 +528,22 @@ impl LtSession {
             }
 
             ServerMessage::JoinRequest { user_id, username } => {
-                let is_new = {
+                let (auto, is_new) = {
                     let mut inner = self.inner.lock().await;
-                    let new = !inner.pending_joins.iter().any(|(id, _)| id == &user_id);
-                    if new {
-                        inner.pending_joins.push((user_id, username.clone()));
+                    if inner.role == Role::Host && inner.auto_approve {
+                        (true, false)
+                    } else {
+                        let new = !inner.pending_joins.iter().any(|(id, _)| id == &user_id);
+                        if new {
+                            inner.pending_joins.push((user_id.clone(), username.clone()));
+                        }
+                        (false, new)
                     }
-                    new
                 };
-                if is_new {
+                if auto {
+                    self.send(ClientMessage::ApproveJoin { user_id }).await;
+                    self.emit_notice(&format!("{username} joined")).await;
+                } else if is_new {
                     self.emit_notice(&format!("{username} wants to join")).await;
                 }
             }
@@ -589,6 +618,7 @@ impl LtSession {
                     if !became {
                         // The server re-sends these to the new host; ours can't be acted on now.
                         inner.pending_joins.clear();
+                        inner.auto_approve = false;
                         inner.suggestions.clear();
                     }
                     became
@@ -734,6 +764,7 @@ impl LtSession {
             "pendingJoins": inner.pending_joins.iter()
                 .map(|(id, name)| serde_json::json!({ "userId": id, "username": name }))
                 .collect::<Vec<_>>(),
+            "autoApprove": inner.auto_approve,
             "suggestions": inner.suggestions,
         })
     }

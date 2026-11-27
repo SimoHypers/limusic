@@ -14,6 +14,7 @@ export const lt = $state<LtState>({
 	currentTrack: null,
 	queue: [],
 	pendingJoins: [],
+	autoApprove: false,
 	suggestions: []
 });
 

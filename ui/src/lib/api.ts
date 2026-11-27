@@ -1712,6 +1712,7 @@ export interface LtState {
 	currentTrack: LtTrack | null;
 	queue: LtTrack[];
 	pendingJoins: LtPendingJoin[];
+	autoApprove: boolean;
 	suggestions: LtSuggestion[];
 }
 
@@ -1722,6 +1723,7 @@ export const ltJoinRoom = (code: string, username: string) =>
 	invoke<void>('lt_join_room', { code, username });
 export const ltLeave = () => invoke<void>('lt_leave');
 export const ltApproveJoin = (userId: string) => invoke<void>('lt_approve_join', { userId });
+export const ltSetAutoApprove = (on: boolean) => invoke<void>('lt_set_auto_approve', { on });
 export const ltRejectJoin = (userId: string) => invoke<void>('lt_reject_join', { userId });
 export const ltKick = (userId: string) => invoke<void>('lt_kick', { userId });
 export const ltTransferHost = (userId: string) => invoke<void>('lt_transfer_host', { userId });
