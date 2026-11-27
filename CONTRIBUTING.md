@@ -133,7 +133,8 @@ Adding a new language: Weblate creates the JSON file, then import it in
 
 - **Icons: [HugeIcons](https://hugeicons.com) only** (`@hugeicons/svelte` plus
   `@hugeicons/core-free-icons`). Not Lucide, not a second icon set, not inline
-  SVGs.
+  SVGs. Every icon draws at stroke 2 (one rule in `layout.css`); don't pass
+  `strokeWidth` unless an icon really needs a different weight.
 - **UI primitives: shadcn-svelte** before hand-rolling a component.
 - **The frontend never talks to YouTube.** Everything YouTube-shaped stays
   behind the Rust command boundary; the UI goes through Tauri commands and

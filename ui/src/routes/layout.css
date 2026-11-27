@@ -1119,6 +1119,14 @@ html.art-tint.theme-amoled {
 	* {
 		@apply border-border outline-ring/50;
 	}
+	/* HugeIcons are drawn with a 1.5 stroke on a 24-unit box. Nearly every icon here is 12 to 20
+	   px, where that is a 1 px line, and in the muted grey most of them wear it reads faint and
+	   soft next to other players. 2 reads cleanly at those sizes and still holds its shape at 40
+	   px (compared rendered at 1x, 14 to 40 px). `color` is the attribute HugeiconsIcon stamps on
+	   its <svg>; matching only the set's own 1.5 leaves alone any icon given its own strokeWidth. */
+	svg[color] [stroke-width='1.5'] {
+		stroke-width: 2;
+	}
 	body {
 		/* Transparent, not bg-background: the window itself is transparent so the root container
 		   can paint rounded corners (see +layout.svelte). */
