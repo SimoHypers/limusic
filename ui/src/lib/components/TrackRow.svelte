@@ -107,6 +107,10 @@
 		trailing?: Snippet;
 	} = $props();
 	const selectionDescriptionId = $props.id();
+	// Queue rows only: a play record keeps the flag, and History has no use for it. Described on
+	// the row, which is a button with its own label, so the mark's title alone is never read.
+	const suggestedMark = $derived(!!song.suggested && queueIndex !== undefined);
+	const suggestedId = `${selectionDescriptionId}-suggested`;
 
 	// In a session as guest, clicking a song adds it to the shared queue instead of playing it —
 	// reflect that in the hover icon + label so the row doesn't lie.
@@ -244,7 +248,9 @@
 	onkeydown={onKey}
 	data-selection-key={selectionKey}
 	data-selected={selectable ? selected : undefined}
-	aria-describedby={selectable ? selectionDescriptionId : undefined}
+	aria-describedby={[selectable && selectionDescriptionId, suggestedMark && suggestedId]
+		.filter(Boolean)
+		.join(' ') || undefined}
 	aria-label={selectable ? t(guestAdd ? 'selection.track_guest' : 'selection.track', { title: song.title }) : guestAdd ? `Add ${song.title} to the session queue` : `Play ${song.title}`}
 	class="group flex w-full cursor-pointer items-center gap-3 rounded-lg p-2 hover:bg-accent/10 {selected
 		? 'bg-primary/15'
@@ -330,10 +336,10 @@
 						{song.queued_by}
 					</span>
 				{/if}
-				<!-- Queue rows only: a play record keeps the flag, and History has no use for it. -->
-				{#if song.suggested && queueIndex !== undefined}
+				{#if suggestedMark}
 					<span class="shrink-0 text-primary" title={t('player.suggested')}>
 						<HugeiconsIcon icon={SparkleIcon} class="h-3.5 w-3.5" />
+						<span id={suggestedId} class="sr-only">{t('player.suggested')}</span>
 					</span>
 				{/if}
 			</div>

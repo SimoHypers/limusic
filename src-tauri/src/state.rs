@@ -6606,10 +6606,19 @@ fn append_page(q: &mut QueueState, page: Vec<SongItem>, playing: bool, whole: bo
         orig.extend(page.iter().cloned());
     }
     if playing {
+        let pivot = q.lookahead_loaded.filter(|&i| i > q.current).unwrap_or(q.current);
+        // Dynamic shuffle can suggest a song from a page the walk hadn't reached yet. Now it's a
+        // playlist track, so the suggestion goes, unless it's playing or primed: mpv holds those.
+        let ids: HashSet<&str> = page.iter().map(|i| i.video_id.as_str()).collect();
+        let mut i = 0;
+        q.items.retain(|item| {
+            let keep = i <= pivot || !item.suggested || !ids.contains(item.video_id.as_str());
+            i += 1;
+            keep
+        });
         let at = context_end(q);
         q.items.splice(at..at, page);
         if q.shuffle_orig.is_some() {
-            let pivot = q.lookahead_loaded.filter(|&i| i > q.current).unwrap_or(q.current);
             shuffle_upcoming(&mut q.items, pivot, whole);
         }
     } else {
@@ -7016,7 +7025,12 @@ fn queue_fingerprint(items: &[SongItem]) -> u64 {
         item.queued_from.hash(&mut hasher);
         item.queued_by.hash(&mut hasher);
         item.autoplay.hash(&mut hasher);
-        item.suggested.hash(&mut hasher);
+        // Only when set: `queue_index` stores this hash on disk, and hashing a `false` into every
+        // row would turn each queue saved before the flag existed into a mismatch at the first
+        // launch after the update, restoring a stale pointer with the position on the wrong track.
+        if item.suggested {
+            item.suggested.hash(&mut hasher);
+        }
     }
     hasher.finish()
 }
@@ -7336,6 +7350,37 @@ mod tests {
     // track is playing leaves `items` byte-identical: the rows-only `queue_fingerprint` can't see
     // it, and `persist_queue`'s dirty check has to cover the rest of what `queue_json` stores or
     // the toggle is lost across a restart.
+    // `queue_index.fp` on disk was written by the fingerprint before `suggested` existed. A queue
+    // with no suggestion in it has to hash exactly as it did then, or the first launch after the
+    // update restores a stale pointer.
+    #[test]
+    fn queue_fingerprint_is_unchanged_for_queues_saved_before_dynamic_shuffle() {
+        use std::hash::{Hash, Hasher};
+        let items = vec![
+            song("a", None),
+            innertube::SongItem {
+                autoplay: true,
+                queued_from: Some("x".into()),
+                ..song("b", None)
+            },
+        ];
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        items.len().hash(&mut h);
+        for i in &items {
+            i.video_id.hash(&mut h);
+            i.set_video_id.hash(&mut h);
+            i.queued.hash(&mut h);
+            i.queued_end.hash(&mut h);
+            i.queued_from.hash(&mut h);
+            i.queued_by.hash(&mut h);
+            i.autoplay.hash(&mut h);
+        }
+        assert_eq!(queue_fingerprint(&items), h.finish());
+        let flagged =
+            vec![items[0].clone(), innertube::SongItem { suggested: true, ..items[1].clone() }];
+        assert_ne!(queue_fingerprint(&items), queue_fingerprint(&flagged));
+    }
+
     #[test]
     fn persist_fingerprint_changes_when_shuffle_toggles_with_identical_items() {
         let mut q = QueueState {
@@ -8127,6 +8172,28 @@ mod tests {
             let at: Vec<usize> = (0..items.len()).filter(|&i| items[i].suggested).collect();
             assert_eq!(at, [3, 6, 9, 12, 15, 18]);
         }
+    }
+
+    // A suggestion off a page the walk hadn't reached yet: when the page arrives the song is a
+    // playlist track, and it is queued once. A suggestion that's playing stays where it is.
+    #[test]
+    fn a_later_playlist_page_takes_over_its_own_suggestions() {
+        let mut items = playlist(4);
+        items.insert(3, sug("x"));
+        items.insert(0, sug("y"));
+        let mut q = QueueState {
+            shuffle_orig: Some(items.iter().filter(|i| !i.suggested).cloned().collect()),
+            items,
+            current: 0,
+            dynamic: true,
+            ..QueueState::default()
+        };
+        append_page(&mut q, vec![song("x", None), song("y", None), song("p9", None)], true, false);
+        let count = |id: &str| q.items.iter().filter(|i| i.video_id == id).count();
+        assert_eq!(count("x"), 1);
+        assert!(q.items.iter().all(|i| !i.suggested || i.video_id == "y"), "x is a playlist row");
+        assert_eq!(q.items[0].video_id, "y", "the playing suggestion stays");
+        assert_eq!(q.items.len(), 9);
     }
 
     #[test]
