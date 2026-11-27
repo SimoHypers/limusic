@@ -530,10 +530,12 @@ impl QueueState {
         (video_id, prev.position)
     }
 
-    /// The last row a suggestion can't go in front of: the primed lookahead when there is one,
-    /// since mpv already holds it, otherwise the playing track.
+    /// The last row a suggestion can't go in front of: the track after the playing one, whether or
+    /// not it's primed yet. A prime still resolving would land on a row that's no longer next and
+    /// be thrown away, leaving nothing primed. Further on when the lookahead sits further on.
     fn suggestion_pivot(&self) -> usize {
-        self.lookahead_loaded.filter(|&i| i > self.current).unwrap_or(self.current)
+        let primed = self.lookahead_loaded.filter(|&i| i > self.current).unwrap_or(self.current);
+        primed.max(self.current + 1)
     }
 
     fn shuffle_mode(&self) -> Shuffle {
@@ -4437,12 +4439,14 @@ impl AppState {
         let mut fresh = page.map(|p| p.items).unwrap_or_default();
         // Before the cap `interleave_suggestions` applies: songs you haven't heard lately first.
         self.freshen_radio(&mut fresh);
+        // Joined a room while we fetched: the queue is the host's now.
+        let guest = self.lt.is_guest().await;
         let added = {
             let mut q = self.queue.lock().await;
             if q.suggest_inflight == Some(epoch) {
                 q.suggest_inflight = None;
             }
-            if q.epoch != epoch || !q.dynamic {
+            if guest || q.epoch != epoch || !q.dynamic {
                 return; // another queue, or switched off while we fetched
             }
             // The playlist's radio is mostly the playlist: drop what it already holds, including
@@ -4454,10 +4458,25 @@ impl AppState {
                 .map(|i| i.video_id.clone())
                 .collect();
             fresh.retain(|i| have.insert(i.video_id.clone()));
+            // Dry means the radio had nothing new, not that there was nowhere to put it: a page
+            // walked in later can make room for the same answer.
+            if fresh.is_empty() && !failed {
+                q.suggest_dry = Some((epoch, anchor));
+            }
+            let next_id = |q: &QueueState| {
+                let at = next_index(q.items.len(), q.current, q.repeat);
+                (at, at.and_then(|i| q.items.get(i)).map(|i| i.video_id.clone()))
+            };
+            let (_, before) = next_id(&q);
             let pivot = q.suggestion_pivot();
             let added = interleave_suggestions(&mut q.items, pivot, fresh, whole);
-            if added == 0 && !failed {
-                q.suggest_dry = Some((epoch, anchor));
+            // The pivot keeps suggestions behind the next track, but at the end of a repeat-all
+            // queue the next track is the wrap to the top, and a suggestion at the tail comes
+            // first. mpv would otherwise play the primed wrap. Same check as `fill_playlist`.
+            let (expected, after) = next_id(&q);
+            if q.lookahead_loaded.is_some() && (q.lookahead_loaded != expected || before != after) {
+                q.lookahead_loaded = None;
+                let _ = self.player.clear_playlist();
             }
             added
         };
@@ -4466,6 +4485,8 @@ impl AppState {
             self.emit_queue().await;
             self.persist_queue().await;
             self.lt_broadcast_queue().await;
+            // A no-op when the primed track is still next.
+            self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
         }
     }
 
@@ -6047,6 +6068,8 @@ impl AppState {
             let keep = q.current + 1;
             q.items.truncate(keep);
             q.items.extend(upcoming.iter().map(track_to_song));
+            // The host's queue now: no suggestions of our own go into it (`top_up_suggestions`).
+            q.dynamic = false;
         }
         self.emit_queue().await;
     }
@@ -6576,7 +6599,9 @@ fn suggestion_slots(items: &[SongItem], pivot: usize, whole: bool) -> Vec<usize>
         .count();
     let mut slots = Vec::new();
     loop {
-        if run >= DYNAMIC_EVERY {
+        // Only straight after one of the playlist's own tracks: a count that came due inside a
+        // Play next block waits for the block to end and the next playlist track to play.
+        if run >= DYNAMIC_EVERY && at > 0 && takes_suggestion(&items[at - 1], whole) {
             slots.push(at);
             run = 0;
         }
@@ -6659,16 +6684,32 @@ fn append_page(q: &mut QueueState, page: Vec<SongItem>, playing: bool, whole: bo
         orig.extend(page.iter().cloned());
     }
     if playing {
-        let pivot = q.suggestion_pivot();
+        let pivot = q.lookahead_loaded.filter(|&i| i > q.current).unwrap_or(q.current);
         // Dynamic shuffle can suggest a song from a page the walk hadn't reached yet. Now it's a
         // playlist track, so the suggestion goes, unless it's playing or primed: mpv holds those.
-        let ids: HashSet<&str> = page.iter().map(|i| i.video_id.as_str()).collect();
-        let mut i = 0;
-        q.items.retain(|item| {
-            let keep = i <= pivot || !item.suggested || !ids.contains(item.video_id.as_str());
-            i += 1;
-            keep
-        });
+        let mut page = page;
+        {
+            let ids: HashSet<&str> = page.iter().map(|i| i.video_id.as_str()).collect();
+            let mut i = 0;
+            q.items.retain(|item| {
+                let keep = i <= pivot || !item.suggested || !ids.contains(item.video_id.as_str());
+                i += 1;
+                keep
+            });
+        }
+        // A suggestion that stays has already been heard by the time its playlist copy would come
+        // round, so that copy (one, a playlist can hold a song twice) stays out of the live queue.
+        // The snapshot keeps it: shuffle off restores the playlist whole.
+        let end = pivot.min(q.items.len().saturating_sub(1));
+        let held: Vec<String> = (q.items.get(q.current..=end).unwrap_or_default().iter())
+            .filter(|i| i.suggested)
+            .map(|i| i.video_id.clone())
+            .collect();
+        for id in held {
+            if let Some(at) = page.iter().position(|p| p.video_id == id) {
+                page.remove(at);
+            }
+        }
         let at = context_end(q);
         q.items.splice(at..at, page);
         if q.shuffle_orig.is_some() {
@@ -8263,7 +8304,31 @@ mod tests {
         assert_eq!(count("x"), 1);
         assert!(q.items.iter().all(|i| !i.suggested || i.video_id == "y"), "x is a playlist row");
         assert_eq!(q.items[0].video_id, "y", "the playing suggestion stays");
-        assert_eq!(q.items.len(), 9);
+        assert_eq!(count("y"), 1, "and isn't queued again as the page's copy");
+        assert_eq!(q.items.len(), 8);
+        let orig = q.shuffle_orig.as_ref().unwrap();
+        assert!(orig.iter().any(|i| i.video_id == "y"), "the snapshot keeps the playlist whole");
+    }
+
+    // A count that comes due inside a Play next block waits for it: the suggestion goes after the
+    // next playlist track, never between two rows the user lined up.
+    #[test]
+    fn suggestions_never_split_a_play_next_block() {
+        let next = |id: &str| innertube::SongItem { queued: true, ..song(id, None) };
+        let mut items = vec![song("a", None), song("now", None), next("n1"), next("n2")];
+        items.extend((0..3).map(|i| song(&format!("p{i}"), None)));
+        interleave_suggestions(&mut items, 2, vec![song("s0", None)], false);
+        assert_eq!(joined(&items), "a,now,n1,n2,p0,s0,p1,p2");
+    }
+
+    // The track after the playing one is held for the lookahead even before it's primed: a prime
+    // still resolving would otherwise land on a row a suggestion had pushed back.
+    #[test]
+    fn the_track_after_the_playing_one_is_never_displaced() {
+        let q = QueueState { items: playlist(4), current: 0, ..QueueState::default() };
+        assert_eq!(q.suggestion_pivot(), 1, "nothing primed yet: the next track is held anyway");
+        let q = QueueState { lookahead_loaded: Some(1), ..q };
+        assert_eq!(q.suggestion_pivot(), 1);
     }
 
     #[test]

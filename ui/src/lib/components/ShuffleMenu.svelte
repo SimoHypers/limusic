@@ -46,18 +46,24 @@
 		if (refocus) trigger?.focus();
 	}
 
+	// Focus goes back to the button first: a pick that changes nothing on screen (the mode that's
+	// already on) would otherwise leave it on a menu item that no longer exists.
 	function pick(mode: Mode) {
-		close();
+		close(true);
 		onpick(mode);
 	}
 
 	// Keyboard: the first item takes focus on open, the arrows move between the two, Esc closes.
+	// The items are out of the tab order, so Tab leaves the menu: it closes, and focus carries on
+	// from the button in whichever direction Tab was going (the default action, from there).
 	const focusFirst = (el: HTMLElement) => {
 		el.querySelector<HTMLElement>('[role="menuitemradio"]')?.focus();
 	};
 	function onKey(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
 			e.preventDefault();
+			close(true);
+		} else if (e.key === 'Tab') {
 			close(true);
 		} else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
 			e.preventDefault();
@@ -120,6 +126,7 @@
 			{@const checked = active === o.mode}
 			<button
 				role="menuitemradio"
+				tabindex="-1"
 				aria-checked={checked}
 				class="flex w-full cursor-pointer items-start gap-3 rounded-md px-2 py-2 text-left outline-none hover:bg-accent/10 focus-visible:bg-accent/10"
 				onclick={() => pick(o.mode)}
