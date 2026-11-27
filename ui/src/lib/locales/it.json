@@ -1245,7 +1245,26 @@
 			"stopped": "La modalità karaoke si è interrotta inaspettatamente. Riavvia Limusic per utilizzarla di nuovo."
 		},
 		"error": {
-			"incomplete_download": "Il download dell'audio del brano non è andato a buon fine. Nuovo tentativo tra poco."
+			"incomplete_download": "Il download dell'audio del brano non è andato a buon fine. Nuovo tentativo tra poco.",
+			"failed": "Impossibile estrarre la voce da questa canzone."
+		},
+		"download": "Scarica",
+		"cancel": "Cancella",
+		"retry": "Riprova",
+		"not_now": "Non ora",
+		"settings": {
+			"title": "Karaoke",
+			"model": "Modello IA",
+			"model_desc": "Scegli il modello per rimuovere le voci. Scarica una volta, funziona offline.",
+			"model_light": "Leggero",
+			"model_light_desc": "Più veloce, ma meno accurato. Funziona anche senza scheda grafica dedicata.",
+			"model_balanced": "Bilanciato",
+			"model_balanced_desc": "Pulito quasi come Più Accurato e più veloce. Funziona bene su processori veloci.",
+			"model_best": "Più Accurato",
+			"model_best_desc": "Miglior qualità, ma più lento. Su un processore fa fatica a tenere il passo con la riproduzione, pensato per schede grafiche dedicate.",
+			"model_installed": "Installato ({size})",
+			"model_missing": "Non installato",
+			"cache_limit": "Limite dimensione cache"
 		}
 	}
 }

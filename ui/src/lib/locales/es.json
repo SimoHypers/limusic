@@ -989,7 +989,9 @@
 			"dismiss": "Descartar",
 			"alone_hint": "Nadie más aún. Comparte el código de arriba para llenar la sala.",
 			"copy_code": "Copiar código",
-			"copied": "Copiado"
+			"copied": "Copiado",
+			"auto_admit": "Dejar entrar a quien tenga el código",
+			"user_joined": "{user} se unió"
 		},
 		"new_playlist": {
 			"where": "Dónde guardarla",
@@ -1143,7 +1145,11 @@
 		"feedback_rate_limited": "Esto es mucho a la vez. Intenta otra vez después.",
 		"feedback_banned": "Esta cuenta no puede votar o reportar.",
 		"feedback_failed": "No se pudo conectar con Limusic Lyrics, entonces no se guardó.",
-		"via": "via {source}"
+		"via": "via {source}",
+		"save_lrc": "Guardar como un archivo LRC",
+		"save_lrc_hint": "Guarda tus letras como un archivo LRC, palabra por palabra, para otros reproductores y editores",
+		"save_lrc_done": "Letras guardadas",
+		"save_lrc_failed": "No se pudo guardar este archivo."
 	},
 	"queue": {
 		"title": "Cola"
