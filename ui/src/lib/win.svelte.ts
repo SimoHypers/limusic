@@ -6,7 +6,7 @@ import { getSettings, onUiVisible } from '$lib/api';
 import { setUiVisible } from '$lib/theme.svelte';
 import { invoke } from '@tauri-apps/api/core';
 import { ui } from '$lib/player.svelte';
-import { view } from '$lib/video.svelte';
+import { setWindowVisible } from '$lib/video.svelte';
 
 /** Who draws the window frame. `off` = our custom titlebar owns it (the default), `on` = the
  *  compositor does (the "system title bar" setting, Linux/Windows), `overlay` = macOS traffic
@@ -55,7 +55,7 @@ export function initWin(): () => void {
 	// settings call fails, or a backend hiccup leaves the app with no window at all (#122).
 	const setVisible = (visible: boolean) => {
 		setUiVisible(visible);
-		view.visible = visible;
+		setWindowVisible(visible);
 	};
 	getSettings()
 		.then((s) => {
