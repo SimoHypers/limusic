@@ -2885,9 +2885,18 @@ impl AppState {
         tracing::debug!(index = next_idx, "gapless lookahead primed");
     }
 
-    async fn current_item(&self) -> Option<SongItem> {
+    pub(crate) async fn current_item(&self) -> Option<SongItem> {
         let q = self.queue.lock().await;
         q.items.get(q.current).cloned()
+    }
+
+    /// Mirror a rating written through `rate` (UI or hotkey) onto every copy of the track in the
+    /// live queue so subsequent reads see the current state without waiting for `/next`.
+    pub(crate) async fn set_queue_rating(&self, video_id: &str, rating: innertube::Rating) {
+        let mut q = self.queue.lock().await;
+        for item in q.items.iter_mut().filter(|i| i.video_id == video_id) {
+            item.rating = Some(rating);
+        }
     }
 
     /// [`loudness_gain`] for one track, honouring the `normalize_volume` setting. Off means mpv

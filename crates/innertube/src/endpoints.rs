@@ -1169,6 +1169,25 @@ impl InnerTube {
         }
     }
 
+    /// Like [`Self::playlist_add`] with duplicates refused, returning the new row's `setVideoId`
+    /// when YouTube accepted the add (`Ok(None)` means the playlist already holds the track).
+    pub async fn playlist_add_handle(
+        &self,
+        client: &YouTubeClient,
+        playlist_id: &str,
+        video_id: &str,
+    ) -> Result<Option<String>, Error> {
+        let action = vec![add_video_action(video_id, false)];
+        match self.edit_playlist_value(client, playlist_id, action, false).await {
+            Ok(value) => Ok(Some(added_handles(&value).remove(video_id).unwrap_or_default())),
+            Err(Error::AlreadyInPlaylist) => Ok(None),
+            Err(Error::Http(e)) if e.status().is_some_and(|s| s == 401 || s == 403) => {
+                Err(Error::PlaylistNotEditable)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     /// Add many videos in one `browse/edit_playlist` call, in order. The edit is all or nothing,
     /// and one track the playlist already holds fails the whole batch (`edit_rejection`), so the
     /// caller passes only videos it knows are new. Used by the Spotify import (#375).

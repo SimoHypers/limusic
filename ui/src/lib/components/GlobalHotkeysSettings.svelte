@@ -10,6 +10,9 @@
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import { Switch } from '$lib/components/ui/switch';
+	import * as Select from '$lib/components/ui/select';
+	import * as api from '$lib/api';
+	import { library, loadLibrary, savedIn } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import {
 		hotkeys,
@@ -19,8 +22,11 @@
 		type HotkeyActionDef
 	} from '$lib/hotkeys.svelte';
 
+	const NONE_VALUE = '__none__';
+
 	onMount(() => {
 		hotkeys.load();
+		if (!library.loaded) loadLibrary();
 	});
 
 	function handleKeyDown(e: KeyboardEvent) {
@@ -61,7 +67,30 @@
 
 	const playbackActions = $derived(HOTKEY_ACTIONS.filter((a) => a.section === 'playback'));
 	const audioActions = $derived(HOTKEY_ACTIONS.filter((a) => a.section === 'audio'));
+	const libraryActions = $derived(HOTKEY_ACTIONS.filter((a) => a.section === 'library'));
 	const windowActions = $derived(HOTKEY_ACTIONS.filter((a) => a.section === 'window'));
+
+	const targetPlaylists = $derived(
+		library.items.filter(
+			(i) => i.id !== api.ON_REPEAT_ID && !savedIn.readOnly.includes(i.id)
+		)
+	);
+	const selectedPlaylistLabel = $derived(
+		hotkeys.targetPlaylistId
+			? (targetPlaylists.find((p) => p.id === hotkeys.targetPlaylistId)?.title ??
+				hotkeys.targetPlaylistName ??
+				t('settings.hotkeys.target_playlist_none'))
+			: t('settings.hotkeys.target_playlist_none')
+	);
+
+	function handlePlaylistChange(value: string) {
+		if (value === NONE_VALUE) {
+			void hotkeys.setTargetPlaylist(null, null);
+			return;
+		}
+		const picked = targetPlaylists.find((p) => p.id === value);
+		void hotkeys.setTargetPlaylist(value, picked?.title ?? hotkeys.targetPlaylistName);
+	}
 </script>
 
 <div class="pb-2">
@@ -113,6 +142,81 @@
 				{#each audioActions as action (action.id)}
 					{@render hotkeyRow(action)}
 				{/each}
+			</div>
+		</section>
+
+		<!-- Library Section -->
+		<section class={GROUP}>
+			<h3 class={LABEL}>{t('settings.hotkeys.section_library')}</h3>
+			<div data-settings-card class={CARD}>
+				{#each libraryActions as action (action.id)}
+					{@render hotkeyRow(action)}
+				{/each}
+				<div data-setting-row class="px-4 py-3 sm:py-3.5 transition-colors">
+					<div class="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+						<div class="min-w-0 flex-1">
+							<div class="text-sm font-medium leading-snug">
+								{t('settings.hotkeys.target_playlist')}
+							</div>
+							<div class="mt-0.5 text-xs text-muted-foreground leading-relaxed">
+								{t('settings.hotkeys.target_playlist_hint')}
+							</div>
+						</div>
+						<div class="shrink-0">
+							<Select.Root
+								type="single"
+								value={hotkeys.targetPlaylistId ?? NONE_VALUE}
+								onValueChange={handlePlaylistChange}
+								disabled={hotkeys.saving}
+							>
+								<Select.Trigger
+									class="w-52 shrink-0"
+									aria-label={t('settings.hotkeys.target_playlist')}
+								>
+									<span class="flex-1 truncate text-left">{selectedPlaylistLabel}</span>
+								</Select.Trigger>
+								<Select.Content class="max-h-72">
+									<Select.Item
+										value={NONE_VALUE}
+										label={t('settings.hotkeys.target_playlist_none')}
+									>
+										{t('settings.hotkeys.target_playlist_none')}
+									</Select.Item>
+									{#each targetPlaylists as pl (pl.id)}
+										<Select.Item value={pl.id} label={pl.title}>
+											<span class="flex min-w-0 items-center gap-1.5">
+												{#if api.isLocalPlaylist(pl.id)}
+													<HugeiconsIcon
+														icon={ComputerIcon}
+														class="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+													/>
+												{/if}
+												<span class="truncate">{pl.title}</span>
+											</span>
+										</Select.Item>
+									{/each}
+								</Select.Content>
+							</Select.Root>
+						</div>
+					</div>
+				</div>
+				<div data-setting-row class="flex items-center justify-between gap-4 px-4 py-3 sm:py-3.5">
+					<div class="min-w-0 flex-1">
+						<div class="text-sm font-medium leading-snug">
+							{t('settings.hotkeys.playlist_notify')}
+						</div>
+						<div class="mt-0.5 text-xs text-muted-foreground leading-relaxed">
+							{t('settings.hotkeys.playlist_notify_hint')}
+						</div>
+					</div>
+					<div class="shrink-0">
+						<Switch
+							checked={hotkeys.notifyPlaylistToggle}
+							onCheckedChange={(val) => hotkeys.setNotifyPlaylistToggle(val)}
+							disabled={hotkeys.saving}
+						/>
+					</div>
+				</div>
 			</div>
 		</section>
 

@@ -467,6 +467,7 @@
 	const HOTKEY_SECTIONS = {
 		playback: 'settings.hotkeys.section_playback',
 		audio: 'settings.hotkeys.section_audio',
+		library: 'settings.hotkeys.section_library',
 		window: 'settings.hotkeys.section_window'
 	} as const;
 	// Rows this machine never shows, the same tests as the markup below.
