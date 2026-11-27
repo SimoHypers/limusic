@@ -54,8 +54,8 @@
 	} from '$lib/stats';
 	import { currentLocale, t } from '$lib/i18n.svelte';
 
-	// A touch heavier than HugeIcons' 1.5 on every icon on this page: the thin default read faint
-	// next to the big numbers and the charts.
+	// The app-wide icon weight (layout.css) since that rule came in. This page set it first, when the
+	// thin 1.5 default read faint next to the big numbers and the charts.
 	const STROKE = 2;
 
 	let range = $state<Range>(lastRange);
