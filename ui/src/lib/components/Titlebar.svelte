@@ -34,6 +34,7 @@
 	import * as api from '$lib/api';
 	import { openMiniPlayer, playback, prefs, refreshView, toast, ui } from '$lib/player.svelte';
 	import { win } from '$lib/win.svelte';
+	import { zoom } from '$lib/zoom.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import { anchorMenu, fitMenu, NO_ANCHOR } from '$lib/menu';
 	import { t } from '$lib/i18n.svelte';
@@ -122,6 +123,11 @@
 				? t('integrations.lastfm_scrobbling_as', { user: username ?? '' })
 				: t('integrations.lastfm_scrobble_to')
 	);
+
+	/** The macOS traffic lights are native, so they keep their size when the webview zooms and the
+	 *  bar does not: the clearance has to stay the same on screen, not in CSS pixels. 70px clears
+	 *  them at 100%, so divide by the zoom to keep that clearance at every level (#778). */
+	const overlayInset = $derived(win.chrome === 'overlay' ? 70 / zoom.level : 0);
 </script>
 
 <!-- `relative` makes this a stacking context, so the account/window dropdowns inside it are capped
@@ -145,10 +151,12 @@
 	<!-- macOS overlay style floats the traffic lights over the top-left of the webview, so the row
 	     starts clear of them. `trafficLightPosition` in tauri.macos.conf.json centres them in this
 	     36px bar and insets them 14px (#189); they end near 68px, so 70px plus the logo's margin
-	     leaves about as much space after them as before them. Its `y` is not a top margin: tao
-	     sizes the titlebar to the 16px button plus `y` and the buttons keep their offset from its
-	     bottom, so their centre lands at y + 2 (y: 10 moved them up 2px on a real Mac). -->
-	<div class="flex h-full items-center {win.chrome === 'overlay' ? 'pl-[70px]' : ''}">
+	     leaves about as much space after them as before them. That 70px is an on-screen
+	     measurement: the lights are native and do not zoom with the webview, so it is divided by
+	     the zoom level to stay 70px on screen at every level (#778). Its `y` is not a top margin:
+	     tao sizes the titlebar to the 16px button plus `y` and the buttons keep their offset from
+	     its bottom, so their centre lands at y + 2 (y: 10 moved them up 2px on a real Mac). -->
+	<div class="flex h-full items-center" style="padding-left:{overlayInset}px">
 		<!-- pointer-events-none: the logo is decoration; clicks on it should drag the window. -->
 		<img src={appIcon.src} alt="" class="pointer-events-none ml-3 mr-1 h-4 w-4" />
 		<!-- Bigger and heavier than the icons on the right: these are navigation, and at their
