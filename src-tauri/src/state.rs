@@ -5247,7 +5247,8 @@ impl AppState {
 
     /// The shuffle button: off, shuffle, dynamic shuffle, off again. Dynamic is skipped where the
     /// queue has no playlist radio to draw suggestions from ([`QueueState::dynamic_allowed`]).
-    /// A linked phone's queue only knows on and off. Guests: host-only hint.
+    /// For another linked device it is on and off only (`SetShuffle`), though its status shows
+    /// dynamic. Guests: host-only hint.
     pub async fn toggle_shuffle(self: &std::sync::Arc<Self>) {
         if self.link_route(|v| {
             Some(RemoteAction::SetShuffle { on: !v.status.as_ref().is_some_and(|s| s.shuffle) })
@@ -5263,7 +5264,7 @@ impl AppState {
     }
 
     /// Set a shuffle mode outright (the page shuffle menu). Dynamic where the queue has nothing to
-    /// draw on falls back to plain shuffle. A linked phone only knows on and off.
+    /// draw on falls back to plain shuffle. Another linked device gets on or off (`SetShuffle`).
     pub async fn set_shuffle_mode(self: &std::sync::Arc<Self>, mode: Shuffle) {
         if self.link_route(|_| Some(RemoteAction::SetShuffle { on: mode != Shuffle::Off })) {
             return;
@@ -6110,11 +6111,13 @@ fn link_status(q: &QueueState, autoplay: bool) -> listen_protocol::LinkStatus {
                 queued_end: s.queued_end,
                 queued_from: s.queued_from.clone(),
                 autoplay: s.autoplay,
+                suggested: s.suggested,
             })
             .collect(),
         offset: start,
         current: q.current.saturating_sub(start),
         shuffle: q.shuffle_orig.is_some(),
+        dynamic: q.dynamic,
         repeat: serde_json::to_value(q.repeat)
             .ok()
             .and_then(|v| v.as_str().map(String::from))
@@ -6142,6 +6145,7 @@ fn remote_queue_json(v: &RemoteView) -> serde_json::Value {
                     queued_end: i.queued_end,
                     queued_from: i.queued_from.clone(),
                     autoplay: i.autoplay,
+                    suggested: i.suggested,
                     ..track_to_song(&i.track)
                 })
                 .collect(),
@@ -6162,6 +6166,8 @@ fn remote_queue_json(v: &RemoteView) -> serde_json::Value {
         "items": items,
         "currentIndex": current,
         "shuffle": shuffle,
+        // Only with the device's own rows: the fallback shows no shuffle.
+        "dynamic": shuffle && v.status.as_ref().is_some_and(|s| s.dynamic),
         "repeat": repeat,
         "sourceName": source,
         "sourceId": null,
@@ -7156,12 +7162,13 @@ mod tests {
     use super::{
         adopt_playlist_twins, adopt_twin, append_page, backfill_metadata, cache_horizon,
         drop_duplicates, enqueue_at, format_duration, freshen, get_url, guest_insert_index,
-        history_threshold, interleave_suggestions, is_mix, loudness_gain, merge_radio, next_index,
-        parse_duration_ms, persist_fingerprint, playlist_context, prefer_version, prev_track_title,
-        put_url, queue_fingerprint, radio_seed_for, remote_list, retain_upcoming,
-        shuffle_new_queue, shuffle_upcoming, splice_radio_into, suggestion_anchor, swap_version,
-        trim_played, twin_position, unshuffled, upcoming_queued, QueueState, RepeatMode, Shuffle,
-        VideoUrls, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
+        history_threshold, interleave_suggestions, is_mix, link_status, loudness_gain, merge_radio,
+        next_index, parse_duration_ms, persist_fingerprint, playlist_context, prefer_version,
+        prev_track_title, put_url, queue_fingerprint, radio_seed_for, remote_list,
+        remote_queue_json, retain_upcoming, shuffle_new_queue, shuffle_upcoming, splice_radio_into,
+        suggestion_anchor, swap_version, trim_played, twin_position, unshuffled, upcoming_queued,
+        QueueState, RepeatMode, Shuffle, VideoUrls, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX,
+        MAX_BOOST_DB,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -8424,6 +8431,41 @@ mod tests {
         assert_eq!(joined(&q.items), "s0,now,p0,p1");
         assert!(!q.dynamic);
         assert!(!q.set_shuffle(Shuffle::On, false), "already there");
+    }
+
+    // Device link: the queue this desktop sends as the player carries dynamic shuffle and its
+    // marks, and another device's queue shows them back in the panel's shape.
+    #[test]
+    fn device_link_carries_dynamic_shuffle() {
+        let q = QueueState {
+            items: vec![song("now", None), song("p0", None), sug("s0")],
+            shuffle_orig: Some(vec![]),
+            dynamic: true,
+            ..QueueState::default()
+        };
+        let status = link_status(&q, true);
+        assert!(status.shuffle && status.dynamic);
+        assert_eq!(
+            status.items.iter().map(|i| i.suggested).collect::<Vec<_>>(),
+            [false, false, true]
+        );
+
+        let track = status.items[0].track.clone();
+        let view = |status| crate::devicelink::RemoteView {
+            track: track.clone(),
+            playing: true,
+            position_ms: 0,
+            status,
+            upcoming: vec![],
+        };
+        let shown = remote_queue_json(&view(Some(status.clone())));
+        assert_eq!(shown["dynamic"], true);
+        assert_eq!(shown["items"][2]["suggested"], true);
+        assert_eq!(shown["items"][1]["suggested"], false);
+        // A player from before dynamic shuffle, or no rows from it yet: plain.
+        let old = listen_protocol::LinkStatus { dynamic: false, ..status.clone() };
+        assert_eq!(remote_queue_json(&view(Some(old)))["dynamic"], false);
+        assert_eq!(remote_queue_json(&view(None))["dynamic"], false);
     }
 
     // Playlists and albums only: a radio, a mix, or a playlist with no YouTube radio behind it

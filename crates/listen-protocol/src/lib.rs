@@ -217,6 +217,9 @@ pub struct LinkStatus {
     pub current: usize,
     #[serde(default)]
     pub shuffle: bool,
+    /// Dynamic shuffle, with `shuffle`. Absent (false) from a player that predates it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub dynamic: bool,
     /// "off" | "all" | "one"
     #[serde(default)]
     pub repeat: String,
@@ -244,6 +247,9 @@ pub struct LinkItem {
     /// Put there by autoplay.
     #[serde(default, skip_serializing_if = "is_false")]
     pub autoplay: bool,
+    /// Lined up by dynamic shuffle.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub suggested: bool,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -663,6 +669,7 @@ mod tests {
                     queued_end: false,
                     queued_from: None,
                     autoplay: false,
+                    suggested: false,
                 },
                 LinkItem {
                     track: track(),
@@ -670,11 +677,13 @@ mod tests {
                     queued_end: false,
                     queued_from: Some("Album".into()),
                     autoplay: true,
+                    suggested: false,
                 },
             ],
             offset: 2,
             current: 1,
             shuffle: true,
+            dynamic: false,
             repeat: "all".into(),
             source: Some("Mix".into()),
             autoplay: Some(true),
@@ -686,5 +695,61 @@ mod tests {
             serde_json::to_string(&s.items[0]).unwrap(),
             r#"{"id":"dQw4w9WgXcQ","title":"x","artist":"y","thumbnail":null,"duration_ms":0}"#
         );
+        assert!(!json.contains("dynamic"));
+    }
+
+    /// A dynamic shuffle queue, byte for byte as Android's `MessageCodecTest.linkStatusLines`
+    /// writes it.
+    #[test]
+    fn link_status_dynamic_shuffle_line() {
+        let row = |id: &str, title: &str, artist: &str, thumb: &str| Track {
+            id: id.into(),
+            title: title.into(),
+            artist: artist.into(),
+            thumbnail: Some(thumb.into()),
+            duration_ms: 0,
+            queued_by: None,
+        };
+        let plain = |track| LinkItem {
+            track,
+            queued: false,
+            queued_end: false,
+            queued_from: None,
+            autoplay: false,
+            suggested: false,
+        };
+        let s = LinkStatus {
+            items: vec![
+                plain(row("dQw4w9WgXcQ", "x", "y", "t")),
+                LinkItem {
+                    queued: true,
+                    queued_from: Some("Album".into()),
+                    autoplay: true,
+                    ..plain(row("a-B_c123456", "z", "w", "u"))
+                },
+                LinkItem { suggested: true, ..plain(row("s0", "s", "v", "r")) },
+            ],
+            offset: 2,
+            current: 1,
+            shuffle: true,
+            dynamic: true,
+            repeat: "all".into(),
+            source: Some("Mix".into()),
+            autoplay: Some(true),
+        };
+        let line = concat!(
+            r#"{"items":[{"id":"dQw4w9WgXcQ","title":"x","artist":"y","thumbnail":"t","duration_ms":0},"#,
+            r#"{"id":"a-B_c123456","title":"z","artist":"w","thumbnail":"u","duration_ms":0,"queued":true,"queued_from":"Album","autoplay":true},"#,
+            r#"{"id":"s0","title":"s","artist":"v","thumbnail":"r","duration_ms":0,"suggested":true}],"#,
+            r#""offset":2,"current":1,"shuffle":true,"dynamic":true,"repeat":"all","source":"Mix","autoplay":true}"#,
+        );
+        assert_eq!(serde_json::to_string(&s).unwrap(), line);
+        assert_eq!(serde_json::from_str::<LinkStatus>(line).unwrap(), s);
+        // A player from before dynamic shuffle sends neither: plain rows, plain shuffle.
+        let old: LinkStatus = serde_json::from_str(
+            r#"{"items":[{"id":"a","title":"t","artist":"a"}],"shuffle":true}"#,
+        )
+        .unwrap();
+        assert!(old.shuffle && !old.dynamic && !old.items[0].suggested);
     }
 }
