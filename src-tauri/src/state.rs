@@ -356,6 +356,14 @@ struct QueueState {
     current: usize,
     /// Pre-shuffle order snapshot. `Some(..)` ⇔ shuffle is ON; restored on shuffle-off.
     shuffle_orig: Option<Vec<SongItem>>,
+    /// Dynamic shuffle: shuffle, plus suggestions off the playlist's radio lined up between its
+    /// tracks ([`interleave_suggestions`]). Only ever true while `shuffle_orig` is `Some`.
+    dynamic: bool,
+    /// The queue (`epoch`) a suggestion fetch is out for, so a track start doesn't send a second.
+    suggest_inflight: Option<u64>,
+    /// The anchor whose radio page had nothing new for this queue (`epoch`, video id). Asking again
+    /// from the same anchor returns the same page, so the next fetch waits for a new one.
+    suggest_dry: Option<(u64, String)>,
     repeat: RepeatMode,
     /// Radio playlist id for autoplay continuation: `RDAMPL<plId>` when the queue came from a
     /// playlist/album, `None` otherwise (autoplay then seeds `RDAMVM<last video>`, so long
@@ -439,6 +447,7 @@ struct PrevContext {
     items: Vec<SongItem>,
     current: usize,
     shuffle_orig: Option<Vec<SongItem>>,
+    dynamic: bool,
     radio_seed: Option<String>,
     source_name: Option<String>,
     source_id: Option<String>,
@@ -479,10 +488,10 @@ impl QueueState {
 
     /// Set this queue aside so Previous can come back to it. `position` is mpv's.
     ///
-    /// Takes `items` and `shuffle_orig` rather than cloning them, so this may only be called from
-    /// a caller that replaces both immediately afterwards — which is exactly what a queue
-    /// replacement is. Anything that reads either field (`shuffle_orig.is_some()` for sticky
-    /// shuffle, `upcoming_queued` for the carried manual adds) has to read it before this.
+    /// Takes `items`, `shuffle_orig` and `dynamic` rather than cloning them, so this may only be
+    /// called from a caller that replaces them immediately afterwards, which is exactly what a
+    /// queue replacement is. Anything that reads them (`shuffle_orig.is_some()` and `dynamic` for
+    /// sticky shuffle, `upcoming_queued` for the carried manual adds) has to read them before this.
     fn keep_context(&mut self, position: f64) {
         if self.items.is_empty() {
             return;
@@ -494,6 +503,7 @@ impl QueueState {
             items: std::mem::take(&mut self.items),
             current,
             shuffle_orig: self.shuffle_orig.take(),
+            dynamic: std::mem::take(&mut self.dynamic),
             radio_seed: self.radio_seed.take(),
             source_name: self.source_name.take(),
             source_id: self.source_id.take(),
@@ -509,6 +519,7 @@ impl QueueState {
         self.epoch += 1;
         self.current = prev.current;
         self.shuffle_orig = prev.shuffle_orig;
+        self.dynamic = prev.dynamic;
         self.radio_seed = prev.radio_seed;
         self.source_name = prev.source_name;
         self.source_id = prev.source_id;
@@ -518,6 +529,82 @@ impl QueueState {
         self.retried = None;
         (video_id, prev.position)
     }
+
+    fn shuffle_mode(&self) -> Shuffle {
+        match (self.shuffle_orig.is_some(), self.dynamic) {
+            (false, _) => Shuffle::Off,
+            (true, false) => Shuffle::On,
+            (true, true) => Shuffle::Dynamic,
+        }
+    }
+
+    /// Dynamic shuffle draws on the radio of the playlist or album that's playing. A radio, a mix
+    /// or a queue started from one song is all suggestions already, and a playlist on this machine
+    /// or a local album has no radio to draw on, so those keep the two-state button.
+    fn dynamic_allowed(&self) -> bool {
+        !self.radio
+            && self.radio_seed.is_some()
+            && self.source_id.is_some()
+            && !is_mix(self.source_id.as_deref())
+    }
+
+    /// Move shuffle to `next`. Turning it on snapshots the order and shuffles what's still to
+    /// play; on to dynamic only marks the queue, the suggestions arrive with their fetch
+    /// ([`AppState::top_up_suggestions`]). Turning it off restores the snapshot, which never holds
+    /// a suggestion, so they all go with it. Returns whether anything changed.
+    fn set_shuffle(&mut self, next: Shuffle, whole: bool) -> bool {
+        let cur = self.shuffle_mode();
+        if cur == next || self.items.is_empty() {
+            return false;
+        }
+        match (cur, next) {
+            (Shuffle::Off, _) => {
+                self.shuffle_orig = Some(self.items.clone());
+                let current = self.current;
+                shuffle_upcoming(&mut self.items, current, whole);
+            }
+            (_, Shuffle::Off) => {
+                let mut orig = self.shuffle_orig.take().unwrap_or_default();
+                let playing = self.items[self.current].clone();
+                // What's playing stays playing. A suggestion isn't in the snapshot, and without
+                // this `unshuffled` would point the queue at whichever row sits at its index
+                // there while mpv carries on with the suggestion. It goes in behind the last of
+                // the playlist's own tracks to play, so the playlist carries on from there.
+                if !orig.iter().any(|i| i.video_id == playing.video_id) {
+                    let at = self.items[..self.current]
+                        .iter()
+                        .rev()
+                        .find(|i| !i.suggested)
+                        .and_then(|prev| orig.iter().position(|o| o.video_id == prev.video_id))
+                        .map_or(0, |p| p + 1);
+                    orig.insert(at, playing.clone());
+                }
+                // The shuffled prefix (through the playing track) is what's already been played:
+                // the restored order must not offer any of it again.
+                let heard: HashSet<String> =
+                    self.items[..=self.current].iter().map(|i| i.video_id.clone()).collect();
+                let (items, idx) = unshuffled(orig, &heard, &playing.video_id, self.current);
+                self.items = items;
+                self.current = idx;
+            }
+            (Shuffle::Dynamic, Shuffle::On) => {
+                retain_upcoming(self, |i| !i.suggested);
+            }
+            // On to dynamic: nothing to move until the suggestions arrive.
+            _ => {}
+        }
+        self.dynamic = next == Shuffle::Dynamic;
+        true
+    }
+}
+
+/// The shuffle button's three states, in the order it cycles through them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Shuffle {
+    Off,
+    On,
+    /// Shuffle, plus suggestions off the playlist's radio between its tracks.
+    Dynamic,
 }
 
 /// How long a resolved googlevideo URL is treated as usable. YouTube's links last about six hours;
@@ -1589,6 +1676,8 @@ impl AppState {
             // across queues (issue #117: off by default, so an album opened while shuffle is on
             // plays in order).
             let keep_shuffled = shuffle || (sticky && q.shuffle_orig.is_some());
+            // Dynamic sticks under the same rule, where the new queue has a radio to draw on.
+            let keep_dynamic = sticky && q.dynamic;
             let start = match start {
                 Some(i) => i.min(items.len() - 1),
                 None if keep_shuffled => {
@@ -1621,6 +1710,8 @@ impl AppState {
             } else {
                 q.shuffle_orig = None; // non-sticky shuffle ends with the queue it was turned on for
             }
+            // The suggestions themselves come from `start_current`'s top-up below.
+            q.dynamic = keep_shuffled && keep_dynamic && q.dynamic_allowed();
             // Carried adds keep their meaning in the new queue: Play next right after the clicked
             // track, Add to queue behind the new playlist (#369).
             let (next, added): (Vec<_>, Vec<_>) = carried.into_iter().partition(|i| i.queued);
@@ -2208,6 +2299,7 @@ impl AppState {
         tauri::async_runtime::spawn(async move {
             me.prime_lookahead(gen).await;
             me.extend_queue_radio(gen).await; // autoplay early trigger (no-op unless tail is near)
+            me.top_up_suggestions().await; // dynamic shuffle (no-op unless running low)
         });
     }
 
@@ -2531,9 +2623,13 @@ impl AppState {
         self.persist_queue().await;
         // Autoplay early trigger: extend the queue while the tail still plays, so the gapless
         // lookahead can prime into the continuation. The near-tail guard inside makes this a
-        // no-op for almost every track start. Detached — never on the caller's path.
+        // no-op for almost every track start. Detached, never on the caller's path. Dynamic
+        // shuffle's top-up rides along, under the same near-zero cost.
         let me = self.clone();
-        tauri::async_runtime::spawn(async move { me.extend_queue_radio(gen).await });
+        tauri::async_runtime::spawn(async move {
+            me.extend_queue_radio(gen).await;
+            me.top_up_suggestions().await;
+        });
         true
     }
 
@@ -3908,6 +4004,7 @@ impl AppState {
             serde_json::json!({
                 "currentIndex": q.current,
                 "shuffle": q.shuffle_orig.is_some(),
+                "dynamic": q.dynamic,
                 "repeat": q.repeat,
                 "sourceName": &q.source_name,
                 "sourceId": &q.source_id,
@@ -3922,6 +4019,7 @@ impl AppState {
                 "items": &q.items,
                 "currentIndex": q.current,
                 "shuffle": q.shuffle_orig.is_some(),
+                "dynamic": q.dynamic,
                 "repeat": q.repeat,
                 "sourceName": &q.source_name,
                 "sourceId": &q.source_id,
@@ -4001,6 +4099,7 @@ impl AppState {
             "items": &q.items,
             "currentIndex": q.current,
             "shuffle": q.shuffle_orig.is_some(),
+            "dynamic": q.dynamic,
             "repeat": q.repeat,
             "sourceName": &q.source_name,
             "sourceId": &q.source_id,
@@ -4280,6 +4379,72 @@ impl AppState {
         self.absorb_radio(fresh, gen, &seed, AUTOPLAY_BATCH).await
     }
 
+    /// Dynamic shuffle: line up more suggestions when the ones ahead are running low. One `/next`
+    /// on the playlist's radio, anchored on the playing track; [`suggestion_anchor`] makes this a
+    /// no-op for almost every track start, and a page with nothing new isn't asked for twice.
+    /// Keyed to the queue (`epoch`), not the load: a skip within the queue doesn't void the page.
+    async fn top_up_suggestions(self: &std::sync::Arc<Self>) {
+        if self.lt.is_guest().await {
+            return;
+        }
+        let Some(client) = self.clients.get(innertube::METADATA_CLIENT) else { return };
+        let whole = self.shuffle_whole_queue();
+        let (epoch, seed, anchor) = {
+            let mut q = self.queue.lock().await;
+            let epoch = q.epoch;
+            let Some(anchor) = suggestion_anchor(&q, whole) else { return };
+            let dry = q.suggest_dry.as_ref().is_some_and(|(e, a)| *e == epoch && *a == anchor);
+            if dry || q.suggest_inflight == Some(epoch) {
+                return;
+            }
+            let Some(seed) = q.radio_seed.clone() else { return };
+            q.suggest_inflight = Some(epoch);
+            (epoch, seed, anchor)
+        };
+        let page = match self.it.next(client, Some(&anchor), Some(&seed)).await {
+            Ok(page) => Some(page),
+            Err(e) => {
+                // Not marked dry: the next track start asks again.
+                tracing::warn!(error = %e, "dynamic shuffle: suggestion fetch failed");
+                None
+            }
+        };
+        let failed = page.is_none();
+        let mut fresh = page.map(|p| p.items).unwrap_or_default();
+        // Before the cap `interleave_suggestions` applies: songs you haven't heard lately first.
+        self.freshen_radio(&mut fresh);
+        let added = {
+            let mut q = self.queue.lock().await;
+            if q.suggest_inflight == Some(epoch) {
+                q.suggest_inflight = None;
+            }
+            if q.epoch != epoch || !q.dynamic {
+                return; // another queue, or switched off while we fetched
+            }
+            // The playlist's radio is mostly the playlist: drop what it already holds, including
+            // the pages a background walk hasn't reached in `items` yet but has in the snapshot.
+            let mut have: HashSet<String> = q
+                .items
+                .iter()
+                .chain(q.shuffle_orig.iter().flatten())
+                .map(|i| i.video_id.clone())
+                .collect();
+            fresh.retain(|i| have.insert(i.video_id.clone()));
+            let pivot = q.lookahead_loaded.filter(|&i| i > q.current).unwrap_or(q.current);
+            let added = interleave_suggestions(&mut q.items, pivot, fresh, whole);
+            if added == 0 && !failed {
+                q.suggest_dry = Some((epoch, anchor));
+            }
+            added
+        };
+        if added > 0 {
+            tracing::info!(added, seed = %seed, "dynamic shuffle lined up suggestions");
+            self.emit_queue().await;
+            self.persist_queue().await;
+            self.lt_broadcast_queue().await;
+        }
+    }
+
     /// Append a fetched radio page to the tail of the queue and run the bookkeeping that follows.
     /// Returns how many tracks landed. The generation check lives here because every caller was on
     /// the network right before it.
@@ -4371,6 +4536,7 @@ impl AppState {
                     "current": q.current,
                     "repeat": q.repeat,
                     "shuffleOrig": &q.shuffle_orig,
+                    "dynamic": q.dynamic,
                     "radioSeed": &q.radio_seed,
                     "sourceName": &q.source_name,
                     "sourceId": &q.source_id,
@@ -4415,6 +4581,8 @@ impl AppState {
         let source_id: Option<String> =
             saved.get("sourceId").and_then(|v| v.as_str()).map(str::to_owned);
         let radio = saved.get("radio").and_then(|v| v.as_bool()).unwrap_or(false);
+        let dynamic = shuffle_orig.is_some()
+            && saved.get("dynamic").and_then(|v| v.as_bool()).unwrap_or(false);
         // `queue_index` is rewritten on every persist while `queue_json` is only rewritten when
         // the rows change, so on an advance it is the fresher of the two. But the two are separate
         // writes: a kill between them, or two `persist_queue` calls landing out of order (a
@@ -4455,6 +4623,7 @@ impl AppState {
             q.items = items;
             q.repeat = repeat;
             q.shuffle_orig = shuffle_orig;
+            q.dynamic = dynamic;
             q.radio_seed = radio_seed;
             q.source_name = source_name;
             q.source_id = source_id;
@@ -4749,6 +4918,7 @@ impl AppState {
             q.prev_context = None;
             q.lookahead_loaded = None;
             q.shuffle_orig = None; // host rebuilt the queue — local shuffle snapshot is stale
+            q.dynamic = false;
             q.radio_seed = None; // guests never autoplay — the host drives
             q.source_name = None; // the host's context isn't known — header falls back
             q.source_id = None;
@@ -5025,46 +5195,59 @@ impl AppState {
         Ok(())
     }
 
-    /// Toggle shuffle on the current queue. ON: snapshot the order, then Fisher–Yates only the
-    /// *upcoming* items. OFF: restore the snapshot, keeping the playing track, minus anything the
-    /// shuffle already played (see [`unshuffled`]). Guests: host-only hint.
-    /// ponytail: OFF restores from the snapshot — tracks added while shuffled are dropped from the
-    /// restored order (still playing/played fine; snapshot semantics).
+    /// The shuffle button: off, shuffle, dynamic shuffle, off again. Dynamic is skipped where the
+    /// queue has no playlist radio to draw suggestions from ([`QueueState::dynamic_allowed`]).
+    /// A linked phone's queue only knows on and off. Guests: host-only hint.
     pub async fn toggle_shuffle(self: &std::sync::Arc<Self>) {
         if self.link_route(|v| {
             Some(RemoteAction::SetShuffle { on: !v.status.as_ref().is_some_and(|s| s.shuffle) })
         }) {
             return;
         }
+        self.change_shuffle(|cur, dynamic_allowed| match cur {
+            Shuffle::Off => Shuffle::On,
+            Shuffle::On if dynamic_allowed => Shuffle::Dynamic,
+            Shuffle::On | Shuffle::Dynamic => Shuffle::Off,
+        })
+        .await;
+    }
+
+    /// Set shuffle to what `next` picks from the current mode, read and written under one queue
+    /// lock (a held hotkey fires several of these at once, same as `update_repeat`). Off restores
+    /// the snapshot, keeping the playing track, minus anything the shuffle already played (see
+    /// [`unshuffled`]).
+    /// ponytail: OFF restores from the snapshot: tracks added while shuffled are dropped from the
+    /// restored order (still playing/played fine; snapshot semantics).
+    async fn change_shuffle(
+        self: &std::sync::Arc<Self>,
+        next: impl FnOnce(Shuffle, bool) -> Shuffle,
+    ) {
         if self.lt.is_guest().await {
             self.emit_guest_hint();
             return;
         }
-        {
+        let whole = self.shuffle_whole_queue();
+        let dynamic = {
             let mut q = self.queue.lock().await;
-            if q.items.is_empty() {
+            let from = q.shuffle_mode();
+            let to = next(from, q.dynamic_allowed());
+            if !q.set_shuffle(to, whole) {
                 return;
             }
-            if let Some(orig) = q.shuffle_orig.take() {
-                let playing = q.items[q.current].video_id.clone();
-                let fallback = q.current;
-                // The shuffled prefix (through the playing track) is what's already been played —
-                // the restored order must not offer any of it again.
-                let heard: HashSet<String> =
-                    q.items[..=q.current].iter().map(|i| i.video_id.clone()).collect();
-                let (items, idx) = unshuffled(orig, &heard, &playing, fallback);
-                q.items = items;
-                q.current = idx;
-            } else {
-                q.shuffle_orig = Some(q.items.clone());
-                let current = q.current;
-                shuffle_upcoming(&mut q.items, current, self.shuffle_whole_queue());
-            }
-            // The primed lookahead almost certainly points at the wrong song now — drop it
-            // unconditionally (cheap; re-primed below).
-            if q.lookahead_loaded.take().is_some() {
+            // The primed lookahead almost certainly points at the wrong song now: drop it (cheap;
+            // re-primed below). Except on to dynamic, which moves nothing: the suggestions go in
+            // behind the primed track.
+            let moved = !(from == Shuffle::On && to == Shuffle::Dynamic);
+            if moved && q.lookahead_loaded.take().is_some() {
                 let _ = self.player.clear_playlist();
             }
+            q.dynamic
+        };
+        if dynamic {
+            // Off the caller's path: the button answers now and the suggestions land a round
+            // trip later.
+            let me = self.clone();
+            tauri::async_runtime::spawn(async move { me.top_up_suggestions().await });
         }
         self.emit_queue().await;
         self.persist_queue().await;
@@ -5595,11 +5778,14 @@ impl AppState {
                     self.add_to_queue(linkable_songs(&tracks, None).0, from, None).await
                 }
                 RemoteAction::ClearQueued => self.clear_queued().await,
+                // The phone's button has two states: on leaves dynamic as it is, off ends both.
                 RemoteAction::SetShuffle { on } => {
-                    let shuffled = self.queue.lock().await.shuffle_orig.is_some();
-                    if shuffled != on {
-                        self.toggle_shuffle().await;
-                    }
+                    self.change_shuffle(|cur, _| match (on, cur) {
+                        (false, _) => Shuffle::Off,
+                        (true, Shuffle::Off) => Shuffle::On,
+                        (true, cur) => cur,
+                    })
+                    .await
                 }
                 RemoteAction::SetRepeat { mode } => {
                     if let Ok(mode) = serde_json::from_value(serde_json::Value::String(mode)) {
@@ -5807,6 +5993,7 @@ impl AppState {
             q.radio = false;
             q.hydrating = None;
             q.shuffle_orig = None;
+            q.dynamic = false;
         }
         *self.pending_seek.lock().unwrap() = Some((track.id.clone(), position_ms as f64 / 1000.0));
         if self.start_current(gen).await {
@@ -6001,6 +6188,7 @@ fn track_to_song(t: &Track) -> SongItem {
         queued_end: false,
         queued_from: None,
         autoplay: false,
+        suggested: false,
         is_video: false,
         // Not on the wire either; `lt_apply_change_track` backfills it from the guest's `/player`.
         is_episode: false,
@@ -6139,6 +6327,9 @@ fn splice_radio_into(
     q.source_name = title;
     q.source_id = None; // a radio is nobody's playlist to edit
     q.radio = true;
+    // A radio is all suggestions already (`dynamic_allowed`).
+    q.dynamic = false;
+
     // Shuffle is sticky across queues: re-snapshot the new order as the "original", then shuffle
     // what's upcoming (same handling as a radio hydration in `play_song`).
     if q.shuffle_orig.is_some() {
@@ -6286,10 +6477,14 @@ fn upcoming_queued(items: &[SongItem], current: usize) -> Vec<SongItem> {
 /// stay put, and the leading run of manually-queued tracks keeps its spot: "Next in queue" plays
 /// next regardless of shuffle (Spotify semantics). Autoplay tracks stay *behind* the remaining
 /// queue tracks (each section shuffled within itself) — shuffle never promotes radio filler ahead
-/// of the playlist.
-fn shuffle_upcoming(items: &mut [SongItem], current: usize, whole: bool) {
+/// of the playlist. Dynamic shuffle's suggestions come out first and are lined up again behind
+/// the new order ([`interleave_suggestions`]), so they stay spread through it instead of clumping.
+fn shuffle_upcoming(items: &mut Vec<SongItem>, current: usize, whole: bool) {
     use rand::seq::SliceRandom;
     let first = (current + 1).min(items.len());
+    let (lifted, kept): (Vec<_>, Vec<_>) =
+        items.split_off(first).into_iter().partition(|i| i.suggested);
+    items.extend(kept);
     let mut start = first;
     while items.get(start).is_some_and(|i| i.queued || (!whole && i.queued_end)) {
         start += 1;
@@ -6312,6 +6507,64 @@ fn shuffle_upcoming(items: &mut [SongItem], current: usize, whole: bool) {
         shuffle_added_runs(&mut rest[playlist..added]);
         rest[added..].shuffle(&mut rand::thread_rng());
     }
+    interleave_suggestions(items, current, lifted, whole);
+}
+
+/// Dynamic shuffle's spacing: this many of the playlist's own tracks, then a suggestion.
+const DYNAMIC_EVERY: usize = 2;
+
+/// Dynamic shuffle asks for more suggestions once this few are left ahead.
+const DYNAMIC_AHEAD: usize = 3;
+
+/// A row a suggestion may follow: one of the playlist's own tracks. Not a Play next row, and not
+/// an Add to queue row either, unless the whole queue is shuffled as one mix.
+fn takes_suggestion(item: &SongItem, whole: bool) -> bool {
+    !item.suggested && !item.autoplay && !item.queued && (whole || !item.queued_end)
+}
+
+/// Line suggestions up in what's still to play, one after every [`DYNAMIC_EVERY`] playlist tracks,
+/// carrying on after the last suggestion already there so nothing in place moves. Only rows after
+/// `pivot` are touched (the playing track, or the primed one behind it), and it stops where
+/// autoplay starts. What doesn't fit is dropped. Returns how many went in.
+fn interleave_suggestions(
+    items: &mut Vec<SongItem>,
+    pivot: usize,
+    fresh: Vec<SongItem>,
+    whole: bool,
+) -> usize {
+    let start = (pivot + 1).min(items.len());
+    let mut at = items[start..].iter().rposition(|i| i.suggested).map_or(start, |p| start + p + 1);
+    let mut fresh = fresh.into_iter();
+    let (mut run, mut added) = (0, 0);
+    while at < items.len() && !items[at].autoplay {
+        run += usize::from(takes_suggestion(&items[at], whole));
+        at += 1;
+        if run == DYNAMIC_EVERY {
+            let Some(mut item) = fresh.next() else { break };
+            item.suggested = true;
+            items.insert(at, item);
+            at += 1;
+            added += 1;
+            run = 0;
+        }
+    }
+    added
+}
+
+/// The track dynamic shuffle's next radio page should be anchored on, when it wants one: the
+/// playing track. `None` while more than [`DYNAMIC_AHEAD`] suggestions are lined up, or when
+/// fewer than [`DYNAMIC_EVERY`] playlist tracks are left behind the last one to put another after.
+fn suggestion_anchor(q: &QueueState, whole: bool) -> Option<String> {
+    let current = q.items.get(q.current).filter(|_| q.dynamic)?;
+    let ahead = &q.items[q.current + 1..];
+    let ahead = &ahead[..ahead.iter().position(|i| i.autoplay).unwrap_or(ahead.len())];
+    if ahead.iter().filter(|i| i.suggested).count() > DYNAMIC_AHEAD {
+        return None;
+    }
+    let after_last = ahead.iter().rposition(|i| i.suggested).map_or(0, |p| p + 1);
+    let room = ahead[after_last..].iter().filter(|i| takes_suggestion(i, whole)).count();
+    (room >= DYNAMIC_EVERY && !crate::local::is_local_song(&current.video_id))
+        .then(|| current.video_id.clone())
 }
 
 /// Inside a run of manual adds: a whole album/playlist added is a set of tracks like any other, so
@@ -6391,9 +6644,10 @@ fn playlist_context(source_id: Option<&str>) -> Option<String> {
 /// Shuffle a *fresh* queue around the clicked track (shuffle was already on when it started,
 /// Spotify semantics): the clicked track plays first, everything else follows in random order.
 /// Returns the new current index (always 0). The swap is fine — everything past 0 is shuffled.
-fn shuffle_new_queue(items: &mut [SongItem], start: usize) -> usize {
+fn shuffle_new_queue(items: &mut Vec<SongItem>, start: usize) -> usize {
     if !items.is_empty() {
-        items.swap(0, start.min(items.len() - 1));
+        let last = items.len() - 1;
+        items.swap(0, start.min(last));
         shuffle_upcoming(items, 0, false); // a fresh queue holds no adds yet
     }
     0
@@ -6762,6 +7016,7 @@ fn queue_fingerprint(items: &[SongItem]) -> u64 {
         item.queued_from.hash(&mut hasher);
         item.queued_by.hash(&mut hasher);
         item.autoplay.hash(&mut hasher);
+        item.suggested.hash(&mut hasher);
     }
     hasher.finish()
 }
@@ -6775,6 +7030,7 @@ fn persist_fingerprint(q: &QueueState) -> u64 {
     let mut hasher = DefaultHasher::new();
     queue_fingerprint(&q.items).hash(&mut hasher);
     q.shuffle_orig.is_some().hash(&mut hasher);
+    q.dynamic.hash(&mut hasher);
     q.radio_seed.hash(&mut hasher);
     q.source_name.hash(&mut hasher);
     q.source_id.hash(&mut hasher);
@@ -6787,12 +7043,12 @@ mod tests {
     use super::{
         adopt_playlist_twins, adopt_twin, append_page, backfill_metadata, cache_horizon,
         drop_duplicates, enqueue_at, format_duration, freshen, get_url, guest_insert_index,
-        history_threshold, is_mix, loudness_gain, merge_radio, next_index, parse_duration_ms,
-        persist_fingerprint, playlist_context, prefer_version, prev_track_title, put_url,
-        queue_fingerprint, radio_seed_for, remote_list, retain_upcoming, shuffle_new_queue,
-        shuffle_upcoming, splice_radio_into, swap_version, trim_played, twin_position, unshuffled,
-        upcoming_queued, QueueState, RepeatMode, VideoUrls, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX,
-        MAX_BOOST_DB,
+        history_threshold, interleave_suggestions, is_mix, loudness_gain, merge_radio, next_index,
+        parse_duration_ms, persist_fingerprint, playlist_context, prefer_version, prev_track_title,
+        put_url, queue_fingerprint, radio_seed_for, remote_list, retain_upcoming,
+        shuffle_new_queue, shuffle_upcoming, splice_radio_into, suggestion_anchor, swap_version,
+        trim_played, twin_position, unshuffled, upcoming_queued, QueueState, RepeatMode, Shuffle,
+        VideoUrls, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -7090,6 +7346,9 @@ mod tests {
         q.shuffle_orig = Some(q.items.clone());
         let on = persist_fingerprint(&q);
         assert_ne!(off, on);
+        // On to dynamic moves no row until the suggestions land, and must still be written.
+        q.dynamic = true;
+        assert_ne!(on, persist_fingerprint(&q));
     }
 
     #[test]
@@ -7793,6 +8052,164 @@ mod tests {
         assert_eq!(items.iter().map(|i| i.video_id.clone()).collect::<HashSet<_>>(), before);
         // The odds of all twenty adds still sitting behind the playlist are 1 in 40 choose 20.
         assert!(items[2..22].iter().any(|i| i.queued_end), "adds are mixed into the playlist");
+    }
+
+    fn sug(id: &str) -> innertube::SongItem {
+        innertube::SongItem { suggested: true, ..song(id, None) }
+    }
+
+    fn joined(items: &[innertube::SongItem]) -> String {
+        items.iter().map(|i| i.video_id.as_str()).collect::<Vec<_>>().join(",")
+    }
+
+    fn playlist(n: usize) -> Vec<innertube::SongItem> {
+        std::iter::once(song("now", None))
+            .chain((0..n).map(|i| song(&format!("p{i}"), None)))
+            .collect()
+    }
+
+    // Dynamic shuffle: two of the playlist's tracks, then a suggestion. What doesn't fit is dropped.
+    #[test]
+    fn suggestions_go_in_every_third_track() {
+        let mut items = playlist(9);
+        let fresh = (0..5).map(|i| song(&format!("s{i}"), None)).collect();
+        assert_eq!(interleave_suggestions(&mut items, 0, fresh, false), 4);
+        assert_eq!(joined(&items), "now,p0,p1,s0,p2,p3,s1,p4,p5,s2,p6,p7,s3,p8");
+        assert_eq!(items.iter().filter(|i| i.suggested).count(), 4, "each one is marked");
+    }
+
+    // A top-up carries on where the last one left off: rows already in place never move, and
+    // nothing lands in front of the primed track.
+    #[test]
+    fn a_top_up_carries_on_after_the_last_suggestion() {
+        let mut items = playlist(7);
+        items.insert(3, sug("s0"));
+        let fresh = vec![song("s1", None), song("s2", None)];
+        assert_eq!(interleave_suggestions(&mut items, 0, fresh, false), 2);
+        assert_eq!(joined(&items), "now,p0,p1,s0,p2,p3,s1,p4,p5,s2,p6");
+
+        let mut items = playlist(3);
+        assert_eq!(interleave_suggestions(&mut items, 1, vec![song("s0", None)], false), 1);
+        assert_eq!(joined(&items), "now,p0,p1,p2,s0", "behind the primed p0");
+    }
+
+    // A suggestion only follows a playlist track: never inside Play next, never among the adds
+    // behind the playlist (unless the whole queue is one mix), never into autoplay.
+    #[test]
+    fn suggestions_stay_among_the_playlists_own_tracks() {
+        let queue = || {
+            let mut items = playlist(3);
+            items.insert(1, innertube::SongItem { queued: true, ..song("q", None) });
+            for x in ["x0", "x1", "x2"] {
+                items.push(innertube::SongItem { queued_end: true, ..song(x, None) });
+            }
+            items.push(innertube::SongItem { autoplay: true, ..song("a", None) });
+            items
+        };
+        let fresh = || (0..3).map(|i| song(&format!("s{i}"), None)).collect();
+        let mut items = queue();
+        assert_eq!(interleave_suggestions(&mut items, 0, fresh(), false), 1);
+        assert_eq!(joined(&items), "now,q,p0,p1,s0,p2,x0,x1,x2,a");
+        let mut items = queue();
+        assert_eq!(interleave_suggestions(&mut items, 0, fresh(), true), 3);
+        assert_eq!(joined(&items), "now,q,p0,p1,s0,p2,x0,s1,x1,x2,s2,a");
+    }
+
+    // A reshuffle (a playlist page arriving under shuffle) keeps them spread out, not clumped.
+    #[test]
+    fn a_reshuffle_keeps_suggestions_spread_out() {
+        for _ in 0..20 {
+            let mut items = playlist(20);
+            let fresh = (0..6).map(|i| song(&format!("s{i}"), None)).collect();
+            interleave_suggestions(&mut items, 0, fresh, false);
+            shuffle_upcoming(&mut items, 0, false);
+            assert_eq!(items.len(), 27);
+            let at: Vec<usize> = (0..items.len()).filter(|&i| items[i].suggested).collect();
+            assert_eq!(at, [3, 6, 9, 12, 15, 18]);
+        }
+    }
+
+    #[test]
+    fn dynamic_shuffle_asks_for_more_only_when_running_low() {
+        let mut q = QueueState { items: playlist(12), ..QueueState::default() };
+        assert_eq!(suggestion_anchor(&q, false), None, "not on");
+        q.dynamic = true;
+        assert_eq!(suggestion_anchor(&q, false).as_deref(), Some("now"), "none lined up yet");
+        let fresh = (0..4).map(|i| song(&format!("s{i}"), None)).collect();
+        interleave_suggestions(&mut q.items, 0, fresh, false);
+        assert_eq!(suggestion_anchor(&q, false), None, "four ahead is enough");
+        q.current = 4; // p2, past s0: three left, and room behind the last for more
+        assert_eq!(suggestion_anchor(&q, false).as_deref(), Some("p2"));
+        // Only one playlist track behind the last suggestion: nothing to put another after.
+        let mut q = QueueState { items: playlist(3), dynamic: true, ..QueueState::default() };
+        q.items.insert(3, sug("s0"));
+        assert_eq!(joined(&q.items), "now,p0,p1,s0,p2");
+        assert_eq!(suggestion_anchor(&q, false), None);
+    }
+
+    // The cycle: off, shuffle, dynamic, off. Off takes every suggestion with it but keeps the one
+    // playing, where it is.
+    #[test]
+    fn dynamic_off_drops_the_suggestions_but_not_the_playing_one() {
+        let orig: Vec<_> = (0..4).map(|i| song(&format!("p{i}"), None)).collect();
+        let mut q = QueueState {
+            items: vec![
+                song("p1", None),
+                sug("s0"),
+                song("p3", None),
+                sug("s1"),
+                song("p0", None),
+                song("p2", None),
+            ],
+            current: 1,
+            shuffle_orig: Some(orig),
+            dynamic: true,
+            ..QueueState::default()
+        };
+        assert_eq!(q.shuffle_mode(), Shuffle::Dynamic);
+        assert!(q.set_shuffle(Shuffle::Off, false));
+        assert_eq!(q.shuffle_mode(), Shuffle::Off);
+        // In behind p1, the playlist track that played before it, and the playlist carries on.
+        assert_eq!(joined(&q.items), "p0,p1,s0,p2,p3");
+        assert_eq!(q.items[q.current].video_id, "s0", "mpv's track is still the current row");
+    }
+
+    #[test]
+    fn dynamic_back_to_shuffle_drops_only_upcoming_suggestions() {
+        let mut q = QueueState {
+            items: vec![
+                sug("s0"),
+                song("now", None),
+                song("p0", None),
+                sug("s1"),
+                song("p1", None),
+            ],
+            current: 1,
+            shuffle_orig: Some(vec![]),
+            dynamic: true,
+            ..QueueState::default()
+        };
+        assert!(q.set_shuffle(Shuffle::On, false));
+        assert_eq!(joined(&q.items), "s0,now,p0,p1");
+        assert!(!q.dynamic);
+        assert!(!q.set_shuffle(Shuffle::On, false), "already there");
+    }
+
+    // Playlists and albums only: a radio, a mix, or a playlist with no YouTube radio behind it
+    // keeps the two-state button.
+    #[test]
+    fn dynamic_needs_a_playlist_radio() {
+        let q = |source: &str| QueueState {
+            source_id: Some(source.into()),
+            radio_seed: radio_seed_for(Some(source.into())),
+            ..QueueState::default()
+        };
+        assert!(q("VLPL123").dynamic_allowed());
+        assert!(q("OLAK5uy_x").dynamic_allowed());
+        assert!(!q("VLRDCLAK5uy_x").dynamic_allowed(), "a mix");
+        assert!(!q(&format!("{LOCAL_PLAYLIST_PREFIX}7")).dynamic_allowed(), "no radio");
+        assert!(!QueueState { radio: true, ..q("VLPL123") }.dynamic_allowed(), "a radio");
+        assert!(!QueueState::default().dynamic_allowed(), "one song");
     }
 
     #[test]

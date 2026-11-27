@@ -40,7 +40,6 @@
 		Queue01Icon,
 		RepeatIcon,
 		RepeatOne01Icon,
-		ShuffleIcon,
 		VolumeHighIcon,
 		VolumeMute02Icon
 	} from '@hugeicons/core-free-icons';
@@ -86,6 +85,7 @@
 	import TrackMenu from './TrackMenu.svelte';
 	import Ambient from './Ambient.svelte';
 	import TheaterClock from './TheaterClock.svelte';
+	import ShuffleMark from './ShuffleMark.svelte';
 
 	const close = () => (ui.theaterOpen = false);
 
@@ -220,6 +220,8 @@
 	const pct = $derived(shownDuration ? (shownPosition / shownDuration) * 100 : 0);
 
 	const shuffleOn = $derived(playback.queue.shuffle ?? false);
+	const dynamicOn = $derived(shuffleOn && !!playback.queue.dynamic);
+	const shuffleLabel = $derived(t(dynamicOn ? 'player.dynamic_shuffle' : 'player.shuffle'));
 	const repeat = $derived(playback.queue.repeat ?? 'off');
 	// Same podcast transport as the player bar (#500): speed for shuffle, 15-second skips round play.
 	const episode = $derived(!!playback.now?.isEpisode);
@@ -905,10 +907,11 @@
 						class="flex size-10 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-foreground/10 {shuffleOn
 							? 'text-primary'
 							: 'text-muted-foreground hover:text-foreground'}"
-						aria-label={t('player.shuffle')}
+						aria-label={shuffleLabel}
+						title={shuffleLabel}
 						aria-pressed={shuffleOn}
 					>
-						<HugeiconsIcon icon={ShuffleIcon} class="h-[18px] w-[18px]" />
+						<ShuffleMark dynamic={dynamicOn} class="h-[18px] w-[18px]" />
 					</button>
 				{/if}
 				<button

@@ -6,7 +6,6 @@
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		PlayIcon,
-		ShuffleIcon,
 		PencilEdit02Icon,
 		Delete02Icon,
 		MoreVerticalIcon,
@@ -44,6 +43,7 @@
 	import PlaylistSuggestions from '$lib/components/PlaylistSuggestions.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import NowPlayingPill from '$lib/components/NowPlayingPill.svelte';
+	import ShuffleMark from '$lib/components/ShuffleMark.svelte';
 	import * as api from '$lib/api';
 	import { ON_REPEAT_ID } from '$lib/api';
 	import type { BrowseItem, PlaylistPage, SongItem } from '$lib/api';
@@ -1303,7 +1303,7 @@
 								onclick={shufflePlay}
 								disabled={!pl.items.length}
 							>
-								<HugeiconsIcon icon={ShuffleIcon} class="h-5 w-5" />
+								<ShuffleMark dynamic={shuffling && !!playback.queue.dynamic} class="h-5 w-5" />
 							</Button>
 							<Button
 								variant="ghost"

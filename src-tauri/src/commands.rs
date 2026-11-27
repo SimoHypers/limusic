@@ -1504,8 +1504,8 @@ fn on_repeat_songs(state: &Arc<AppState>) -> Vec<SongItem> {
 
 /// A play record is the whole `SongItem` as it sat in the queue, so it carries that slot's queue
 /// metadata: `queued`/`queued_by` when the track was "added to queue" (in a Listen Together session,
-/// stamped with who added it), `autoplay` when radio appended it, `set_video_id` from whatever
-/// playlist it was played from. None of that describes the song, so On Repeat sheds it: otherwise
+/// stamped with who added it), `autoplay` when radio appended it, `suggested` when dynamic shuffle
+/// lined it up, `set_video_id` from whatever playlist it was played from. None of that describes the song, so On Repeat sheds it: otherwise
 /// the row wears a session member's name forever, and playing On Repeat drops it into "Next in
 /// queue" instead of the playlist. Strips on read so rows already stored this way are fixed too.
 fn shed_queue_context(s: SongItem) -> SongItem {
@@ -1515,6 +1515,7 @@ fn shed_queue_context(s: SongItem) -> SongItem {
         queued_from: None,
         queued_by: None,
         autoplay: false,
+        suggested: false,
         set_video_id: None,
         added_by: None,
         added_by_avatars: Vec::new(),

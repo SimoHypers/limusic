@@ -56,6 +56,8 @@ export interface SongItem {
 	queued_from?: string;
 	/** Appended by autoplay radio continuation — drives the queue's "Autoplay" divider + badge. */
 	autoplay?: boolean;
+	/** Lined up by dynamic shuffle between the playlist's tracks. Drives the row's sparkle. */
+	suggested?: boolean;
 	/** YouTube flags the track explicit. Browse/search rows only: `/next` carries no badge, so a
 	 *  radio- or autoplay-appended track arrives without it. */
 	explicit?: boolean;
@@ -97,6 +99,8 @@ export interface QueueState {
 	items: SongItem[];
 	currentIndex: number;
 	shuffle?: boolean;
+	/** Dynamic shuffle: shuffle with suggestions lined up between the playlist's tracks. */
+	dynamic?: boolean;
 	repeat?: RepeatMode;
 	/** What seeded the queue (playlist/album title, "<song> Radio") — the "Next from" header. */
 	sourceName?: string | null;
@@ -1186,6 +1190,7 @@ export const onQueueChanged = (cb: (q: QueueState) => void): Promise<UnlistenFn>
 export interface QueueIndex {
 	currentIndex: number;
 	shuffle?: boolean;
+	dynamic?: boolean;
 	repeat?: RepeatMode;
 	sourceName?: string | null;
 	sourceId?: string | null;

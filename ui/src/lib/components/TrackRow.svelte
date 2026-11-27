@@ -5,6 +5,7 @@
 		FavouriteIcon,
 		PlayIcon,
 		PlayListAddIcon,
+		SparkleIcon,
 		ThumbsDownIcon,
 		ThumbsUpIcon,
 		VolumeHighIcon
@@ -327,6 +328,12 @@
 						class="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
 					>
 						{song.queued_by}
+					</span>
+				{/if}
+				<!-- Queue rows only: a play record keeps the flag, and History has no use for it. -->
+				{#if song.suggested && queueIndex !== undefined}
+					<span class="shrink-0 text-primary" title={t('player.suggested')}>
+						<HugeiconsIcon icon={SparkleIcon} class="h-3.5 w-3.5" />
 					</span>
 				{/if}
 			</div>
