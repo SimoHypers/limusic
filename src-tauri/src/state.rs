@@ -602,6 +602,11 @@ impl QueueState {
             _ => {}
         }
         self.dynamic = next == Shuffle::Dynamic;
+        if self.dynamic {
+            // Turned on afresh: the queue may have changed since an anchor's page came back with
+            // nothing new for it (a manual add that held its one song, since removed).
+            self.suggest_dry = None;
+        }
         true
     }
 }
@@ -1656,8 +1661,8 @@ impl AppState {
     /// ([`Self::fill_playlist`]) so a long playlist starts playing now instead of after ~50
     /// chained round trips.
     ///
-    /// `dynamic` is an explicit pick from the page shuffle menu (`Some(true)` implies shuffle);
-    /// `None` leaves it to sticky shuffle.
+    /// `dynamic` is an explicit pick from the page shuffle menu, which implies shuffle either way:
+    /// `Some(true)` dynamic, `Some(false)` plain. `None` leaves it to sticky shuffle.
     #[allow(clippy::too_many_arguments)]
     pub async fn play_tracks(
         self: &std::sync::Arc<Self>,
@@ -1669,7 +1674,7 @@ impl AppState {
         continuation: Option<String>,
         dynamic: Option<bool>,
     ) {
-        let shuffle = shuffle || dynamic == Some(true);
+        let shuffle = shuffle || dynamic.is_some();
         if items.is_empty() {
             return;
         }
@@ -6697,17 +6702,17 @@ fn append_page(q: &mut QueueState, page: Vec<SongItem>, playing: bool, whole: bo
                 keep
             });
         }
-        // A suggestion that stays has already been heard by the time its playlist copy would come
-        // round, so that copy (one, a playlist can hold a song twice) stays out of the live queue.
-        // The snapshot keeps it: shuffle off restores the playlist whole.
+        // One that stays (heard, playing or primed) becomes the playlist's row in place, and the
+        // page's copy (one: a playlist can hold a song twice) doesn't go in again. In place, not
+        // dropped: left marked as a suggestion, plain shuffle would take a primed one back out and
+        // the playlist would lose the song. Same video id, so whatever mpv holds is still right.
         let end = pivot.min(q.items.len().saturating_sub(1));
-        let held: Vec<String> = (q.items.get(q.current..=end).unwrap_or_default().iter())
-            .filter(|i| i.suggested)
-            .map(|i| i.video_id.clone())
-            .collect();
-        for id in held {
-            if let Some(at) = page.iter().position(|p| p.video_id == id) {
-                page.remove(at);
+        for i in 0..q.items.len().min(end + 1) {
+            if !q.items[i].suggested {
+                continue;
+            }
+            if let Some(at) = page.iter().position(|p| p.video_id == q.items[i].video_id) {
+                q.items[i] = page.remove(at);
             }
         }
         let at = context_end(q);
@@ -8302,12 +8307,36 @@ mod tests {
         append_page(&mut q, vec![song("x", None), song("y", None), song("p9", None)], true, false);
         let count = |id: &str| q.items.iter().filter(|i| i.video_id == id).count();
         assert_eq!(count("x"), 1);
-        assert!(q.items.iter().all(|i| !i.suggested || i.video_id == "y"), "x is a playlist row");
-        assert_eq!(q.items[0].video_id, "y", "the playing suggestion stays");
+        assert!(q.items.iter().all(|i| !i.suggested), "both are playlist rows now");
+        assert_eq!(q.items[0].video_id, "y", "the playing one stays where it is");
         assert_eq!(count("y"), 1, "and isn't queued again as the page's copy");
         assert_eq!(q.items.len(), 8);
         let orig = q.shuffle_orig.as_ref().unwrap();
         assert!(orig.iter().any(|i| i.video_id == "y"), "the snapshot keeps the playlist whole");
+
+        // Heard before its page came: it isn't queued a second time either.
+        let mut q = QueueState {
+            items: vec![sug("h"), song("now", None), song("p0", None)],
+            current: 1,
+            shuffle_orig: Some(vec![song("now", None), song("p0", None)]),
+            dynamic: true,
+            ..QueueState::default()
+        };
+        append_page(&mut q, vec![song("h", None), song("p1", None)], true, false);
+        assert_eq!(q.items.iter().filter(|i| i.video_id == "h").count(), 1);
+        assert!(!q.items[0].suggested);
+
+        // Primed, then plain shuffle before it plays: it's the playlist's song now, so it stays.
+        let mut q = QueueState {
+            items: vec![song("now", None), sug("s"), song("p0", None)],
+            lookahead_loaded: Some(1),
+            shuffle_orig: Some(vec![song("now", None), song("p0", None)]),
+            dynamic: true,
+            ..QueueState::default()
+        };
+        append_page(&mut q, vec![song("s", None)], true, false);
+        assert!(q.set_shuffle(Shuffle::On, false));
+        assert_eq!(q.items.iter().filter(|i| i.video_id == "s").count(), 1);
     }
 
     // A count that comes due inside a Play next block waits for it: the suggestion goes after the

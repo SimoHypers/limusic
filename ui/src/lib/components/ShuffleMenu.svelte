@@ -102,10 +102,10 @@
 	<!-- Moved to <body>, like the page's ⋯ menu: the header clips its overflow. -->
 	<button
 		class="fixed inset-0 z-40 cursor-default"
-		onclick={() => close()}
+		onclick={() => close(true)}
 		oncontextmenu={(e) => {
 			e.preventDefault();
-			close();
+			close(true);
 		}}
 		aria-label={t('a11y.close_menu')}
 		tabindex="-1"
