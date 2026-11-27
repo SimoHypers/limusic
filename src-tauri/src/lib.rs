@@ -1435,6 +1435,7 @@ pub fn run() {
             commands::prev_track,
             commands::back_to_previous,
             commands::toggle_shuffle,
+            commands::set_shuffle,
             commands::set_repeat,
             commands::toggle_pause,
             commands::seek,

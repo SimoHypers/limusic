@@ -15,7 +15,6 @@
 		FavouriteIcon,
 		Add01Icon,
 		InfinityIcon,
-		SparkleIcon,
 		ArrowUp01Icon,
 		ArrowDown01Icon,
 		PreferenceVerticalIcon,
@@ -53,6 +52,7 @@
 	import { currentLocale, t } from '$lib/i18n.svelte';
 	import LiveBadge from './LiveBadge.svelte';
 	import ShuffleMark from './ShuffleMark.svelte';
+	import { SuggestedIcon } from '$lib/shuffleIcons';
 
 	let {
 		onToggleQueue,
@@ -241,7 +241,7 @@
 						title={t('player.suggested')}
 						in:fade={{ duration: 200 }}
 					>
-						<HugeiconsIcon icon={SparkleIcon} class="h-3.5 w-3.5" />
+						<HugeiconsIcon icon={SuggestedIcon} class="h-3 w-3" />
 					</span>
 				{/if}
 			</div>
