@@ -13,6 +13,7 @@
 	import * as api from '$lib/api';
 	import type { SongItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
+	import { SuggestedIcon } from '$lib/shuffleIcons';
 	import { lt } from '$lib/lt.svelte';
 	import { goto } from '$app/navigation';
 	import { anySaved, isLiked, openAddManyToPlaylist, ratingOf, savedPlaylists, toast, toggleRating } from '$lib/player.svelte';
@@ -106,6 +107,10 @@
 		trailing?: Snippet;
 	} = $props();
 	const selectionDescriptionId = $props.id();
+	// Queue rows only: a play record keeps the flag, and History has no use for it. Described on
+	// the row, which is a button with its own label, so the mark's title alone is never read.
+	const suggestedMark = $derived(!!song.suggested && queueIndex !== undefined);
+	const suggestedId = `${selectionDescriptionId}-suggested`;
 
 	// In a session as guest, clicking a song adds it to the shared queue instead of playing it —
 	// reflect that in the hover icon + label so the row doesn't lie.
@@ -243,7 +248,9 @@
 	onkeydown={onKey}
 	data-selection-key={selectionKey}
 	data-selected={selectable ? selected : undefined}
-	aria-describedby={selectable ? selectionDescriptionId : undefined}
+	aria-describedby={[selectable && selectionDescriptionId, suggestedMark && suggestedId]
+		.filter(Boolean)
+		.join(' ') || undefined}
 	aria-label={selectable ? t(guestAdd ? 'selection.track_guest' : 'selection.track', { title: song.title }) : guestAdd ? `Add ${song.title} to the session queue` : `Play ${song.title}`}
 	class="group flex w-full cursor-pointer items-center gap-3 rounded-lg p-2 hover:bg-accent/10 {selected
 		? 'bg-primary/15'
@@ -333,6 +340,14 @@
 			<div class="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
 				{#if columns && song.explicit}
 					<ExplicitIcon class="mr-0.5 h-3.5 w-3.5 shrink-0" />
+				{/if}
+				<!-- In front of the artist, where the explicit mark goes: it says where the track came
+				     from, and the title keeps its whole width to truncate in. -->
+				{#if suggestedMark}
+					<span class="mr-0.5 shrink-0 text-primary" title={t('player.suggested')}>
+						<HugeiconsIcon icon={SuggestedIcon} class="h-3 w-3" />
+						<span id={suggestedId} class="sr-only">{t('player.suggested')}</span>
+					</span>
 				{/if}
 				<ArtistLine runs={song.artist_runs} text={song.artists} />
 				{#if compact && duration}

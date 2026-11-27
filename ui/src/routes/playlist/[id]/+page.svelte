@@ -6,7 +6,6 @@
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		PlayIcon,
-		ShuffleIcon,
 		PencilEdit02Icon,
 		Delete02Icon,
 		MoreVerticalIcon,
@@ -27,7 +26,8 @@
 		SpotifyIcon,
 		Search01Icon
 	} from '@hugeicons/core-free-icons';
-	import { Button } from '$lib/components/ui/button';
+	import { Button, buttonVariants } from '$lib/components/ui/button';
+	import { cn } from '$lib/utils';
 	import { Switch } from '$lib/components/ui/switch';
 	import * as RadioGroup from '$lib/components/ui/radio-group';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
@@ -44,6 +44,8 @@
 	import PlaylistSuggestions from '$lib/components/PlaylistSuggestions.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import NowPlayingPill from '$lib/components/NowPlayingPill.svelte';
+	import ShuffleMark from '$lib/components/ShuffleMark.svelte';
+	import ShuffleMenu from '$lib/components/ShuffleMenu.svelte';
 	import * as api from '$lib/api';
 	import { ON_REPEAT_ID } from '$lib/api';
 	import type { BrowseItem, PlaylistPage, SongItem } from '$lib/api';
@@ -82,6 +84,8 @@
 		openAddManyToPlaylist,
 		openShare,
 		playFrom,
+		shuffleFrom,
+		shuffleModeFor,
 		startRadio,
 		toast,
 		toggleSaved,
@@ -1026,24 +1030,28 @@
 		openAddManyToPlaylist(sortedItems);
 	}
 
+	// What the queue is told it plays from: On Repeat is local, so it has no YouTube id to name.
+	const sourceId = $derived(isOnRepeat ? undefined : id);
 	// The header's shuffle lights while the queue plays this playlist shuffled: the sidebar's #646
 	// rule for "playing from" (not once autoplay has moved past its end), plus the shuffle flag, so
 	// turning shuffle off in the player bar puts it out too.
-	const shuffling = $derived.by(() => {
-		const q = playback.queue;
-		const current = q.items[q.currentIndex];
-		return !!current && !current.autoplay && !!q.shuffle && q.sourceId === id;
-	});
+	const shuffleMode = $derived(shuffleModeFor(sourceId));
+	const shuffling = $derived(shuffleMode === 'on' || shuffleMode === 'dynamic');
+	// Dynamic shuffle draws on the playlist's YouTube radio: a playlist on this machine has none,
+	// and a mix is all suggestions already (`dynamic_allowed` in state.rs).
+	const dynamicOffered = $derived(!!sourceId && !api.isLocalPlaylist(id) && !api.isMixId(id));
 
 	// Untouched by the sort: the backend shuffles the whole playlist (continuation pages included),
 	// so what order it was handed is irrelevant.
-	function shufflePlay() {
+	function shufflePlay(mode: 'on' | 'dynamic') {
 		if (!pl?.items.length) return;
 		// Real order + shuffle flag — the backend owns shuffling, so the shuffle toggle can
 		// restore the true playlist order and every re-shuffle is fresh. It also mixes each page
 		// it walks into the unplayed tail, so this stays a shuffle of the whole playlist rather
 		// than of the pages that happen to be loaded.
-		playFrom(asItem(), pl.items, null, isOnRepeat ? undefined : id, true, pl.continuation);
+		if (dynamicOffered) shuffleFrom(mode, asItem(), pl.items, sourceId, pl.continuation);
+		// No menu here, so the button keeps meaning "shuffle this from the top", playing or not.
+		else playFrom(asItem(), pl.items, null, sourceId, true, pl.continuation);
 	}
 
 	function openMenu(e: MouseEvent) {
@@ -1291,20 +1299,23 @@
 								{preparing || resorting ? t('common.sorting') : t('player.play')}
 							</Button>
 							<!-- #416. Not held by a sort like Play: the backend shuffles the real order. The
-							     icons sit edge to edge as one group, set apart from Play by the row's gap. -->
-							<Button
-								variant="ghost"
-								size="icon"
-								class={shuffling
-									? 'bg-primary/15 text-primary hover:bg-primary/25 hover:text-primary dark:hover:bg-primary/25'
-									: 'text-muted-foreground'}
-								aria-label={t('player.shuffle_play')}
-								title={t('player.shuffle_play')}
-								onclick={shufflePlay}
+							     icons sit edge to edge as one group, set apart from Play by the row's gap.
+							     Opens the Shuffle / Dynamic shuffle menu where dynamic is on offer. -->
+							<ShuffleMenu
+								dynamic={dynamicOffered}
+								active={shuffleMode}
+								onpick={shufflePlay}
+								label={t('player.shuffle_play')}
 								disabled={!pl.items.length}
+								class={cn(
+									buttonVariants({ variant: 'ghost', size: 'icon' }),
+									shuffling
+										? 'bg-primary/15 text-primary hover:bg-primary/25 hover:text-primary dark:hover:bg-primary/25'
+										: 'text-muted-foreground'
+								)}
 							>
-								<HugeiconsIcon icon={ShuffleIcon} class="h-5 w-5" />
-							</Button>
+								<ShuffleMark dynamic={shuffleMode === 'dynamic'} class="h-5 w-5" />
+							</ShuffleMenu>
 							<Button
 								variant="ghost"
 								size="icon"

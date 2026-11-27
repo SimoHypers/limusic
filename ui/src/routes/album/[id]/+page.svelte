@@ -5,7 +5,7 @@
     import {
         PlayIcon,
         MoreVerticalIcon,
-        ShuffleIcon,
+        ArrowDown01Icon,
         PlayListAddIcon,
         Radio02Icon,
         ArrowUpNarrowWideIcon,
@@ -28,6 +28,8 @@
     import Shelf from "$lib/components/Shelf.svelte";
     import ErrorState from "$lib/components/ErrorState.svelte";
     import ArtistLine from "$lib/components/ArtistLine.svelte";
+    import ShuffleMark from "$lib/components/ShuffleMark.svelte";
+    import ShuffleMenu from "$lib/components/ShuffleMenu.svelte";
     import ExplicitIcon from "$lib/components/ExplicitIcon.svelte";
     import * as api from "$lib/api";
     import type { AlbumPage, BrowseItem } from "$lib/api";
@@ -40,6 +42,8 @@
         playback,
         openAddManyToPlaylist,
         playFrom,
+        shuffleFrom,
+        shuffleModeFor,
         startRadio,
         toast,
         noteLibrary,
@@ -152,11 +156,16 @@
         menuOpen = false;
         startRadio("playlist", album.playlistId, album.title);
     }
-    function shuffle() {
+    // Dynamic shuffle draws on the album's audio playlist radio; a local album has none.
+    const dynamicOffered = $derived(!isLocal && !!album?.playlistId);
+    const shuffleMode = $derived(shuffleModeFor(album?.playlistId));
+    function shuffle(mode: "on" | "dynamic") {
         if (!album?.items.length) return;
         menuOpen = false;
         // Real order + shuffle flag — the backend shuffles (fresh each time, restorable).
-        playFrom(asItem(), album.items, null, album.playlistId, true);
+        if (dynamicOffered) shuffleFrom(mode, asItem(), album.items, album.playlistId);
+        // No menu here, so the button keeps meaning "shuffle this from the top", playing or not.
+        else playFrom(asItem(), album.items, null, album.playlistId, true);
     }
     // Saved on YouTube (signed in) or on this machine (signed out, and anything saved before the
     // user ever signed in). The button reads both, so a local save can't show as "Save to library"
@@ -332,13 +341,22 @@
                 >
                     <HugeiconsIcon icon={PlayIcon} class="h-4 w-4" /> {t("player.play")}
                 </button>
-                <button
-                    class="flex cursor-pointer items-center gap-2 rounded-full border px-5 py-2.5 text-sm font-semibold transition hover:bg-accent/10 disabled:opacity-50"
-                    onclick={shuffle}
+                <!-- Opens the Shuffle / Dynamic shuffle menu where dynamic is on offer; the chevron
+                     says so before the click. -->
+                <ShuffleMenu
+                    dynamic={dynamicOffered}
+                    active={shuffleMode}
+                    onpick={shuffle}
+                    label={t("common.shuffle")}
                     disabled={!album.items.length}
+                    class="flex cursor-pointer items-center gap-2 rounded-full border px-5 py-2.5 text-sm font-semibold transition hover:bg-accent/10 disabled:opacity-50"
                 >
-                    <HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" /> {t("common.shuffle")}
-                </button>
+                    <ShuffleMark dynamic={shuffleMode === "dynamic"} class="h-4 w-4" />
+                    {t("common.shuffle")}
+                    {#if dynamicOffered}
+                        <HugeiconsIcon icon={ArrowDown01Icon} class="-mr-1 h-3.5 w-3.5 text-muted-foreground" />
+                    {/if}
+                </ShuffleMenu>
                 <!-- Local albums are already in the Local tab; everything else is savable, signed
                      in or not. -->
                 {#if !isLocal}

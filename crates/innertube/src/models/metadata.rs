@@ -81,6 +81,11 @@ pub struct SongItem {
     /// "Autoplay" divider + player-bar badge. Pure queue metadata, never parsed.
     #[serde(default)]
     pub autoplay: bool,
+    /// Lined up by dynamic shuffle between the playlist's own tracks, off the playlist's radio.
+    /// Drives the queue panel's mark, and is what turning shuffle off takes back out. Pure queue
+    /// metadata, never parsed.
+    #[serde(default)]
+    pub suggested: bool,
     /// This row links a music video, not the audio track ([`is_video_row`]). Drives the
     /// "hide music videos" setting; computed once here, never re-derived downstream.
     #[serde(default)]
@@ -655,6 +660,7 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
         queued_end: false,
         queued_from: None,
         autoplay: false,
+        suggested: false,
         is_video,
         counterpart: None,
         counterpart_thumbnail: None,
@@ -967,6 +973,7 @@ fn parse_panel_video(node: &Value) -> Option<SongItem> {
         queued_end: false,
         queued_from: None,
         autoplay: false,
+        suggested: false,
         is_video: is_video_row(node),
         counterpart: None,
         counterpart_thumbnail: None,

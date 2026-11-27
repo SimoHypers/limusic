@@ -1512,7 +1512,8 @@ export function playFrom(
 	start: number | null,
 	sourceId?: string,
 	shuffle?: boolean,
-	continuation?: string
+	continuation?: string,
+	dynamic?: boolean
 ) {
 	// No source id (On Repeat) or the queue already playing from it: no queue change to wait for.
 	if (!sourceId || playback.queue.sourceId === sourceId) {
@@ -1522,7 +1523,39 @@ export function playFrom(
 	pl.touchPick(personal, source.id);
 	savePersonal();
 	openPlayer();
-	return api.playPlaylist(items, start, sourceId, source.title, shuffle, continuation);
+	return api.playPlaylist(items, start, sourceId, source.title, shuffle, continuation, dynamic);
+}
+
+/**
+ * A playlist or album page's shuffle menu pick. While the queue plays that page, the mode changes
+ * in place and the song carries on (picking the mode it's already in is a no-op, like any radio
+ * choice); otherwise the page starts, shuffled in that mode.
+ */
+export async function shuffleFrom(
+	mode: 'on' | 'dynamic',
+	source: BrowseItem,
+	items: SongItem[],
+	sourceId: string | undefined,
+	continuation?: string
+) {
+	const current = shuffleModeFor(sourceId);
+	if (current === mode) return;
+	if (current !== null) return api.setShuffle(mode);
+	return playFrom(source, items, null, sourceId, true, continuation, mode === 'dynamic');
+}
+
+/** The queue plays this page: started from it, and autoplay hasn't moved on past its end (#646). */
+export function playingFrom(sourceId: string | null | undefined): boolean {
+	const q = playback.queue;
+	const current = q.items[q.currentIndex];
+	return !!sourceId && !!current && !current.autoplay && q.sourceId === sourceId;
+}
+
+/** The shuffle mode the queue plays this page in, or null when it isn't the one playing. */
+export function shuffleModeFor(sourceId: string | null | undefined): 'off' | 'on' | 'dynamic' | null {
+	if (!playingFrom(sourceId)) return null;
+	const q = playback.queue;
+	return q.shuffle ? (q.dynamic ? 'dynamic' : 'on') : 'off';
 }
 
 /**
@@ -1898,6 +1931,7 @@ export function notePlaylistAdd(playlistId: string, songs: SongItem[]) {
 		added_by: undefined,
 		added_by_avatars: undefined,
 		autoplay: undefined,
+		suggested: undefined,
 		queued: undefined,
 		queued_end: undefined,
 		queued_from: undefined,
@@ -1973,6 +2007,7 @@ export function initApp(mini = false): () => void {
 				items,
 				currentIndex: q.currentIndex,
 				shuffle: q.shuffle,
+				dynamic: q.dynamic,
 				repeat: q.repeat,
 				sourceName: q.sourceName,
 				sourceId: q.sourceId,

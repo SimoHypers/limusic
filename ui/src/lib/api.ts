@@ -56,6 +56,8 @@ export interface SongItem {
 	queued_from?: string;
 	/** Appended by autoplay radio continuation — drives the queue's "Autoplay" divider + badge. */
 	autoplay?: boolean;
+	/** Lined up by dynamic shuffle between the playlist's tracks. Drives the row's sparkle. */
+	suggested?: boolean;
 	/** YouTube flags the track explicit. Browse/search rows only: `/next` carries no badge, so a
 	 *  radio- or autoplay-appended track arrives without it. */
 	explicit?: boolean;
@@ -97,6 +99,8 @@ export interface QueueState {
 	items: SongItem[];
 	currentIndex: number;
 	shuffle?: boolean;
+	/** Dynamic shuffle: shuffle with suggestions lined up between the playlist's tracks. */
+	dynamic?: boolean;
 	repeat?: RepeatMode;
 	/** What seeded the queue (playlist/album title, "<song> Radio") — the "Next from" header. */
 	sourceName?: string | null;
@@ -234,6 +238,10 @@ export const LOCAL_ARTIST_PREFIX = 'LOCALARTIST:';
 export const LOCAL_PLAYLIST_PREFIX = 'LOCALPLAYLIST:';
 export const isLocalPlaylist = (id: string | undefined | null): boolean =>
 	!!id && id.startsWith(LOCAL_PLAYLIST_PREFIX);
+/** A YouTube mix (`RD…`, browsed as `VLRD…`): generated already, so dynamic shuffle has nothing to
+ *  add to it (mirrors `is_mix` in state.rs). */
+export const isMixId = (id: string | undefined | null): boolean =>
+	!!id && id.replace(/^VL/, '').startsWith('RD');
 /** Anything with no YouTube item behind it: nothing to share, no radio, no account to save it to. */
 export const isLocalId = (id: string | undefined | null): boolean =>
 	!!id &&
@@ -418,6 +426,8 @@ export const prevTrack = () => invoke<void>('prev_track');
  *  this too, but only from the top of a track. */
 export const backToPrevious = () => invoke<void>('back_to_previous');
 export const toggleShuffle = () => invoke<void>('toggle_shuffle');
+/** Set the playing queue's shuffle outright (the page shuffle menu), rather than cycling it. */
+export const setShuffle = (mode: 'off' | 'on' | 'dynamic') => invoke<void>('set_shuffle', { mode });
 export const setRepeat = (mode: RepeatMode) => invoke<void>('set_repeat', { mode });
 export const togglePause = () => invoke<void>('toggle_pause');
 export const seek = (position: number) => invoke<void>('seek', { position });
@@ -941,8 +951,12 @@ export const playPlaylist = (
 	sourceId?: string,
 	sourceName?: string,
 	shuffle?: boolean,
-	continuation?: string
-) => invoke<void>('play_playlist', { items, start, sourceId, sourceName, shuffle, continuation });
+	continuation?: string,
+	/** The page shuffle menu's pick: true for dynamic shuffle, false for plain. Omitted, sticky
+	 *  shuffle decides. */
+	dynamic?: boolean
+) =>
+	invoke<void>('play_playlist', { items, start, sourceId, sourceName, shuffle, continuation, dynamic });
 /**
  * Start a radio: an endless YouTube-generated queue seeded on this item. `id` is the videoId
  * (song) or browseId/playlistId (everything else) — Rust resolves it to a radio playlist, so the
@@ -1186,6 +1200,7 @@ export const onQueueChanged = (cb: (q: QueueState) => void): Promise<UnlistenFn>
 export interface QueueIndex {
 	currentIndex: number;
 	shuffle?: boolean;
+	dynamic?: boolean;
 	repeat?: RepeatMode;
 	sourceName?: string | null;
 	sourceId?: string | null;

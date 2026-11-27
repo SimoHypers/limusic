@@ -16,7 +16,6 @@
 		NextIcon,
 		PlayIcon,
 		PauseIcon,
-		ShuffleIcon,
 		RepeatIcon,
 		RepeatOne01Icon,
 		ThumbsUpIcon,
@@ -50,6 +49,7 @@
 	import Marquee from './Marquee.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import LiveBadge from './LiveBadge.svelte';
+	import ShuffleMark from './ShuffleMark.svelte';
 
 	// Which of the two the right column is showing. Local, and reset when the widget is destroyed:
 	// nothing here is worth persisting. The queue is the default because it is the cheaper view —
@@ -58,6 +58,8 @@
 
 	const now = $derived(playback.now);
 	const shuffleOn = $derived(playback.queue.shuffle ?? false);
+	const dynamicOn = $derived(shuffleOn && !!playback.queue.dynamic);
+	const shuffleLabel = $derived(t(dynamicOn ? 'player.dynamic_shuffle' : 'player.shuffle'));
 	const repeat = $derived(playback.queue.repeat ?? 'off');
 	// A podcast episode (#500): the full layout's shuffle and repeat become the 15-second skips.
 	// No speed here, there is no room for its menu; the main window has it.
@@ -463,10 +465,11 @@
 					<button
 						class="{panelBtn} {shuffleOn ? 'text-primary' : 'text-muted-foreground'}"
 						onclick={() => api.toggleShuffle()}
-						aria-label={t('player.shuffle')}
+						aria-label={shuffleLabel}
+						title={shuffleLabel}
 						aria-pressed={shuffleOn}
 					>
-						<HugeiconsIcon icon={ShuffleIcon} class="h-4 w-4" />
+						<ShuffleMark dynamic={dynamicOn} class="h-4 w-4" />
 					</button>
 				{/if}
 				<button

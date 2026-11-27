@@ -5,7 +5,6 @@
 		NextIcon,
 		PlayIcon,
 		PauseIcon,
-		ShuffleIcon,
 		RepeatIcon,
 		RepeatOne01Icon,
 		Queue01Icon,
@@ -52,6 +51,8 @@
 	import { link } from '$lib/link.svelte';
 	import { currentLocale, t } from '$lib/i18n.svelte';
 	import LiveBadge from './LiveBadge.svelte';
+	import ShuffleMark from './ShuffleMark.svelte';
+	import { SuggestedIcon } from '$lib/shuffleIcons';
 
 	let {
 		onToggleQueue,
@@ -89,6 +90,8 @@
 	};
 
 	const shuffleOn = $derived(playback.queue.shuffle ?? false);
+	const dynamicOn = $derived(shuffleOn && !!playback.queue.dynamic);
+	const shuffleLabel = $derived(t(dynamicOn ? 'player.dynamic_shuffle' : 'player.shuffle'));
 	// Lit like shuffle while any effect is on: a speed set last week and forgotten is the case to
 	// catch, since the song then just sounds wrong.
 	const effectsOn = $derived(
@@ -104,6 +107,11 @@
 	const autoplayTrack = $derived.by(() => {
 		const cur = playback.queue.items[playback.queue.currentIndex];
 		return !!cur?.autoplay && cur.video_id === playback.now?.videoId;
+	});
+	// Same, for a track dynamic shuffle lined up.
+	const suggestedTrack = $derived.by(() => {
+		const cur = playback.queue.items[playback.queue.currentIndex];
+		return !!cur?.suggested && cur.video_id === playback.now?.videoId;
 	});
 
 	// The ⋮ menu needs the full SongItem — NowPlaying carries no album_id. Take it from the queue
@@ -227,6 +235,14 @@
 					>
 						<HugeiconsIcon icon={InfinityIcon} class="h-3.5 w-3.5" />
 					</span>
+				{:else if suggestedTrack}
+					<span
+						class="shrink-0 text-primary"
+						title={t('player.suggested')}
+						in:fade={{ duration: 200 }}
+					>
+						<HugeiconsIcon icon={SuggestedIcon} class="h-3 w-3" />
+					</span>
 				{/if}
 			</div>
 			<ArtistLine
@@ -312,11 +328,12 @@
 					variant="ghost"
 					size="icon-sm"
 					onclick={() => api.toggleShuffle()}
-					aria-label={t('player.shuffle')}
+					aria-label={shuffleLabel}
+					title={shuffleLabel}
 					aria-pressed={shuffleOn}
 				>
-					<HugeiconsIcon
-						icon={ShuffleIcon}
+					<ShuffleMark
+						dynamic={dynamicOn}
 						class="h-4 w-4 {shuffleOn ? 'text-primary' : 'text-muted-foreground'}"
 					/>
 				</Button>
