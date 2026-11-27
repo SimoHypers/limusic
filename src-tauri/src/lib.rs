@@ -1633,6 +1633,14 @@ pub fn run() {
             commands::log_ui,
         ]))
         .on_window_event(|window, event| {
+            // Windows/Linux do not tell the page about minimize/restore.
+            match event {
+                tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Focused(_) => {
+                    tray::sync_main_visible(window);
+                }
+                _ => {}
+            }
+
             // Close-to-tray: ✕ hides the main window and playback keeps running; real quit is
             // the tray's Quit item (or the "close_to_tray=false" setting). Label-gated: the
             // hidden cipher/PoToken webviews are windows too and must close normally.

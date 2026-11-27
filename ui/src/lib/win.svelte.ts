@@ -6,6 +6,7 @@ import { getSettings, onUiVisible } from '$lib/api';
 import { setUiVisible } from '$lib/theme.svelte';
 import { invoke } from '@tauri-apps/api/core';
 import { ui } from '$lib/player.svelte';
+import { setWindowVisible } from '$lib/video.svelte';
 
 /** Who draws the window frame. `off` = our custom titlebar owns it (the default), `on` = the
  *  compositor does (the "system title bar" setting, Linux/Windows), `overlay` = macOS traffic
@@ -52,6 +53,10 @@ export function initWin(): () => void {
 	// Settled before the reveal, so the window never flashes rounded corners and a second set of
 	// window buttons on its way to the system frame. `finally`: the show must happen even if the
 	// settings call fails, or a backend hiccup leaves the app with no window at all (#122).
+	const setVisible = (visible: boolean) => {
+		setUiVisible(visible);
+		setWindowVisible(visible);
+	};
 	getSettings()
 		.then((s) => {
 			if (s.native_chrome === 'on' || s.native_chrome === 'overlay') win.chrome = s.native_chrome;
@@ -65,7 +70,7 @@ export function initWin(): () => void {
 		.catch(() => {})
 		.finally(() =>
 			invoke<boolean>('show_main')
-				.then((visible) => setUiVisible(visible))
+				.then(setVisible)
 				.catch((e) => console.error('window show failed', e))
 		);
 	const sync = () =>
@@ -78,7 +83,7 @@ export function initWin(): () => void {
 	// Hidden to the tray is not a state the page can see for itself (WebKitGTK keeps reporting the
 	// document as visible), and work done for a hidden window is memory the web process keeps until
 	// it is shown again. See `theme.svelte.ts`.
-	const unVis = onUiVisible(setUiVisible);
+	const unVis = onUiVisible(setVisible);
 	return () => {
 		un.then((u) => u());
 		unVis.then((u) => u());

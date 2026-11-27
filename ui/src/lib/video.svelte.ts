@@ -8,6 +8,18 @@
 import * as api from './api';
 import { playback, prefs, videoReady } from './player.svelte';
 
+/** false while the main window is closed to the tray, minimized or replaced by the mini player. */
+export const view = $state({ visible: true });
+// The same flag as a plain value, for setHole. Its null mostly comes from an attachment's
+// teardown, and Svelte answers a state read there with the value from before the change, so
+// `view.visible` still says true at the moment the window hides.
+let shownNow = true;
+
+export function setWindowVisible(visible: boolean) {
+	shownNow = visible;
+	view.visible = visible;
+}
+
 /** Session-sticky on purpose: someone who hits "show artwork" wants artwork now and almost
  *  certainly on the next video too, but a permanent no is what the setting is for. */
 export const video = $state({
@@ -133,10 +145,12 @@ export function setHole(r: Hole | null) {
 			.catch(() => {});
 	};
 	// Two frames: the first paints the smaller hole, the second runs once that one is out. A hidden
-	// page gets no frames, and nobody can see it anyway.
+	// page gets no frames, and nobody can see it anyway. WebKitGTK keeps reporting a window closed to
+	// the tray as visible and runs no frames for it, so a hidden window (`shownNow`) also sends at
+	// once.
 	// ponytail: a live window resize keeps restarting this, so the picture catches up when the drag
 	// stops, with page background at the new edges meanwhile. Throttle instead if that shows.
-	if (document.hidden) send();
+	if (document.hidden || !shownNow) send();
 	else requestAnimationFrame(() => requestAnimationFrame(send));
 }
 

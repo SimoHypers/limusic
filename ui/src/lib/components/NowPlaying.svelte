@@ -40,7 +40,8 @@
 		setHole,
 		showVideo,
 		video,
-		videoSide
+		videoSide,
+		view as windowView
 	} from '$lib/video.svelte';
 	import { artRoom } from '$lib/artroom.svelte';
 	import { typing } from '$lib/shortcuts';
@@ -222,7 +223,7 @@
 	 *  mini player): mpv then stops decoding the picture, and picks it up in step on the way back. */
 	function holeFor(el: HTMLElement) {
 		// Theater mode paints over the whole window, so nobody would see the picture.
-		if (!settled || ui.theaterOpen) return;
+		if (!settled || ui.theaterOpen || !windowView.visible) return;
 		const measure = () => {
 			if (document.hidden) return setHole(null);
 			const r = el.getBoundingClientRect();

@@ -69,7 +69,8 @@
 		setHole,
 		showVideo,
 		video,
-		videoSide
+		videoSide,
+		view as windowView
 	} from '$lib/video.svelte';
 	import { artRoom } from '$lib/artroom.svelte';
 	import { appearance, setAppearance } from '$lib/theme.svelte';
@@ -406,7 +407,7 @@
 		if (holding) setHole(null);
 	}
 	function holeFor(el: HTMLElement) {
-		if (!settled) return;
+		if (!settled || !windowView.visible) return;
 		holding = true;
 		const measure = () => {
 			if (released) return;

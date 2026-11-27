@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { forgetVideoUrl, playback, prefs, videoUrlFor } from '$lib/player.svelte';
-	import { canVideo, cinema, hasVideo, registerVideo, showVideo, video } from '$lib/video.svelte';
+	import { canVideo, cinema, hasVideo, registerVideo, showVideo, video, view } from '$lib/video.svelte';
 
 	// --- Music videos (plan 031) -------------------------------------------------------------
 	// When the track *is* a music video, the player view draws the video instead of the artwork.
@@ -268,8 +268,11 @@
 	// holding the element (`video.shown`) is the other. Kept as state so the rule below is one
 	// effect. The tray and the mini player both arrive here: mini.rs hides the main window rather
 	// than doing anything the webview could tell apart.
+	// The tray and minimize are signalled by Rust's ui-visible event, not by the webview.
 	$effect(() => {
-		const onVisibility = () => (hidden = document.hidden);
+		// view.visible comes first so the effect always depends on it: `||` would skip reading it
+		// while document.hidden is true, and the effect would never re-run when the flag changes.
+		const onVisibility = () => (hidden = !view.visible || document.hidden);
 		document.addEventListener('visibilitychange', onVisibility);
 		onVisibility();
 		return () => document.removeEventListener('visibilitychange', onVisibility);
