@@ -1527,10 +1527,10 @@ mod tests {
             .items
             .iter()
             .all(|i| i.revision != revision));
-        // Approving the live revision again keeps it (it is how a reported one is cleared).
+        // Once live, it is reviewed again only for open reports: a second approval is refused.
         assert_eq!(
-            post_verdict(&admin, revision, "approve", None, None, None).await.unwrap(),
-            "published"
+            post_verdict(&admin, revision, "approve", None, None, None).await.unwrap_err(),
+            "not_reviewable"
         );
         assert_eq!(
             post_verdict(&admin, 99999, "approve", None, None, None).await.unwrap_err(),
