@@ -1214,6 +1214,7 @@
 			"status_disconnected": "Disconnected",
 			"err_enter_name": "Enter a name first",
 			"err_paste_code": "Paste the invite code your friend sent",
+			"err_already_in_room": "Leave your current room before joining another",
 			"subtitle": "Play the same music, at the same moment, with anyone.",
 			"host_blurb": "You get a short code to share. Everyone who joins hears exactly what you play, in sync.",
 			"share_hint": "Send this to anyone you want to listen with.",
@@ -1228,6 +1229,7 @@
 			"dismiss": "Dismiss",
 			"alone_hint": "Nobody else yet. Share the code above to fill the room.",
 			"copy_code": "Copy code",
+			"copy_link": "Copy link",
 			"copied": "Copied"
 		},
 		"new_playlist": {

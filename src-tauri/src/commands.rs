@@ -916,7 +916,7 @@ pub async fn set_mini_compact(app: tauri::AppHandle, compact: bool) -> Result<()
 /// The arguments this process was launched with, handed over once (#348). See `LAUNCH_ARGS`.
 #[tauri::command]
 pub fn take_launch_args() -> Vec<String> {
-    std::mem::take(&mut *crate::LAUNCH_ARGS.lock().unwrap())
+    crate::LAUNCH_ARGS.lock().unwrap().take().unwrap_or_default()
 }
 
 #[tauri::command]

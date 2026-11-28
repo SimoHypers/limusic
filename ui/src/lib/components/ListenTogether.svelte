@@ -6,6 +6,7 @@
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		Copy01Icon,
+		Link01Icon,
 		Logout01Icon,
 		Tick02Icon,
 		Cancel01Icon,
@@ -23,7 +24,7 @@
 	import { ui, toast } from '$lib/player.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import { t } from '$lib/i18n.svelte';
-	import { makeInvite, parseInvite } from '$lib/invite';
+	import { makeInvite, makeInviteLink, parseInvite } from '$lib/invite';
 
 	let mode = $state<'join' | 'host'>('join');
 	let name = $state('');
@@ -32,6 +33,7 @@
 	let inviteInput = $state('');
 	let busy = $state(false);
 	let copied = $state(false);
+	let copiedLink = $state(false);
 
 	// Seed inputs when the modal opens: remembered name + the persisted server URL. `serverUrl` is
 	// empty on the default server, which is the whole point: the address only appears once the user
@@ -42,6 +44,16 @@
 			serverUrl = lt.serverUrl;
 			showServer = false;
 			copied = false;
+			copiedLink = false;
+		}
+	});
+
+	// Deep link (`limusic://listen/...`): switch to Join and pre-fill the invite.
+	$effect(() => {
+		if (ui.ltPendingInvite) {
+			mode = 'join';
+			inviteInput = ui.ltPendingInvite;
+			ui.ltPendingInvite = null;
 		}
 	});
 
@@ -51,6 +63,7 @@
 	// What a guest has to be sent. On the default server that is the bare room code and nothing
 	// else; a self-hosted room has to carry its address or the code means nothing.
 	const invite = $derived(makeInvite(lt.serverUrl, lt.roomCode ?? ''));
+	const inviteLink = $derived(makeInviteLink(lt.serverUrl, lt.roomCode ?? ''));
 	// Sitting between "asked to join" and "in the room" — show a waiting state, block re-sends.
 	const waiting = $derived(lt.requesting && lt.role === 'none');
 	const statusLabel = $derived(
@@ -125,6 +138,17 @@
 			() => {
 				copied = true;
 				setTimeout(() => (copied = false), 1600);
+			},
+			() => toast.error(t('dialogs.listen_together.invite_copy_failed'))
+		);
+	}
+
+	function copyLink() {
+		if (!inviteLink) return;
+		copyText(inviteLink).then(
+			() => {
+				copiedLink = true;
+				setTimeout(() => (copiedLink = false), 1600);
 			},
 			() => toast.error(t('dialogs.listen_together.invite_copy_failed'))
 		);
@@ -299,15 +323,39 @@
 						</div>
 					{/if}
 
-					<Button variant="outline" size="sm" class="mt-4 w-full" onclick={copyInvite}>
-						<!-- icon swap via altIcon/showAlt: `icon` is frozen at mount -->
-						<HugeiconsIcon icon={Copy01Icon} altIcon={Tick02Icon} showAlt={copied} class="h-4 w-4" />
-						{copied
-							? t('dialogs.listen_together.copied')
-							: onCustomServer
-								? t('dialogs.listen_together.copy_invite')
-								: t('dialogs.listen_together.copy_code')}
-					</Button>
+					<div class="mt-4 flex gap-2">
+						<Button variant="outline" size="sm" class="flex-1" onclick={copyInvite}>
+							<!-- icon swap via altIcon/showAlt: `icon` is frozen at mount -->
+							<HugeiconsIcon
+								icon={Copy01Icon}
+								altIcon={Tick02Icon}
+								showAlt={copied}
+								class="h-4 w-4"
+							/>
+							{copied
+								? t('dialogs.listen_together.copied')
+								: onCustomServer
+									? t('dialogs.listen_together.copy_invite')
+									: t('dialogs.listen_together.copy_code')}
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							class="flex-1"
+							disabled={!inviteLink}
+							onclick={copyLink}
+						>
+							<HugeiconsIcon
+								icon={Link01Icon}
+								altIcon={Tick02Icon}
+								showAlt={copiedLink}
+								class="h-4 w-4"
+							/>
+							{copiedLink
+								? t('dialogs.listen_together.copied')
+								: t('dialogs.listen_together.copy_link')}
+						</Button>
+					</div>
 					<p class="mt-2 text-xs text-muted-foreground">
 						{t('dialogs.listen_together.share_hint')}
 					</p>

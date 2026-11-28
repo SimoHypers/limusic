@@ -680,11 +680,33 @@ fn fatal(what: &str, detail: &str) -> ! {
 static AUTOSTARTED: AtomicBool = AtomicBool::new(false);
 const RESTARTED_ENV: &str = "LIMUSIC_RESTARTED";
 
-/// What a cold launch was given, so `limusic-app 'https://music.youtube.com/watch?v=…'` opens the
-/// link once the SPA has mounted (#348). Taken once by `take_launch_args`. A launch while we are
-/// already running reaches the single-instance callback instead, which emits `open-link`. Raw
-/// strings either way: `parseYtLink` in the UI decides what is a link, so there is one parser.
-pub(crate) static LAUNCH_ARGS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+/// What a cold launch was given, so `limusic-app 'https://music.youtube.com/watch?v=…'` or a
+/// `limusic://…` deep link opens once the SPA has mounted (#348). Taken once by
+/// `take_launch_args`, which flips this to `None`; any link arriving after that is emitted
+/// directly as `open-link`. Raw strings either way: the UI decides what is a link, so there is
+/// one parser.
+pub(crate) static LAUNCH_ARGS: std::sync::Mutex<Option<Vec<String>>> =
+    std::sync::Mutex::new(Some(Vec::new()));
+
+/// Hand external launch or deep-link arguments to the UI: queue them in [`LAUNCH_ARGS`] until
+/// `take_launch_args` drains startup args, then emit `open-link` directly to the main window.
+fn dispatch_open_links(app: &tauri::AppHandle, args: Vec<String>) {
+    if args.is_empty() {
+        return;
+    }
+    let emit = {
+        let mut pending = LAUNCH_ARGS.lock().unwrap();
+        if let Some(buf) = pending.as_mut() {
+            buf.extend(args);
+            None
+        } else {
+            Some(args)
+        }
+    };
+    if let Some(args) = emit {
+        let _ = app.emit_to("main", "open-link", &args);
+    }
+}
 
 /// Raised by `show_main` once the SPA has mounted, whether it shows the window or stays in the
 /// tray. `play_on_start` waits for it: started off the setup timeline, the music began while the
@@ -722,7 +744,7 @@ pub fn run() {
     // every update. `args_os`, because `args` panics on an argument that is not UTF-8.
     if std::env::var_os(RESTARTED_ENV).is_none() {
         *LAUNCH_ARGS.lock().unwrap() =
-            std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
+            Some(std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned()).collect());
     }
     std::env::set_var(RESTARTED_ENV, "1");
 
@@ -876,7 +898,7 @@ pub fn run() {
             tray::show_main(app);
             // `limusic-app <link>` against this instance (#348). argv[0] leads on every platform.
             if args.len() > 1 {
-                let _ = app.emit_to("main", "open-link", &args[1..]);
+                dispatch_open_links(app, args[1..].to_vec());
             }
         }));
     }
@@ -1679,6 +1701,13 @@ pub fn run() {
                 tray::show_main(handle);
             }
 
+            // macOS: custom-scheme links (`limusic://...`) arrive via Apple Events rather than argv.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                tray::show_main(handle);
+                dispatch_open_links(handle, urls.iter().map(ToString::to_string).collect());
+            }
+
             // The hidden cipher/PoToken webviews are windows too, so closing the main window no
             // longer auto-exits the app. Quit when the main window is destroyed.
             if let tauri::RunEvent::WindowEvent {
@@ -1926,6 +1955,14 @@ mod tests {
             mac["app"]["windows"][0].clone(),
         )
         .expect("macOS window config is not a valid WindowConfig");
+    }
+
+    #[test]
+    fn deep_link_registers_limusic_scheme() {
+        let base: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let schemes = base["plugins"]["deep-link"]["desktop"]["schemes"].as_array().unwrap();
+        assert!(schemes.contains(&serde_json::json!("limusic")));
     }
 
     #[test]
