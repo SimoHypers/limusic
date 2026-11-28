@@ -1660,6 +1660,7 @@ pub fn run() {
             commands::diagnostics_summary,
             commands::save_diagnostics,
             commands::log_ui,
+            commands::gpu_busy_percents,
         ]))
         .on_window_event(|window, event| {
             // Windows/Linux do not tell the page about minimize/restore.

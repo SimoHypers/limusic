@@ -73,7 +73,7 @@
 		view as windowView
 	} from '$lib/video.svelte';
 	import { artRoom } from '$lib/artroom.svelte';
-	import { appearance, setAppearance } from '$lib/theme.svelte';
+	import { appearance, lite, setAppearance } from '$lib/theme.svelte';
 	import { isMissingThumb, thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
 	import LiveBadge from './LiveBadge.svelte';
@@ -464,7 +464,7 @@
 		        the square has been stretched, and `cover` would throw away its top and bottom.
 		        A new track's wash crossfades with the last one's: an entrance alone dropped the old
 		        one at once and dipped the room to the bare background on every song. -->
-		{#if appearance.artworkBackground && room.wash}
+		{#if appearance.artworkBackground && room.wash && !lite()}
 			{#key room.wash}
 				<div
 					transition:fade={{ duration: 700 }}

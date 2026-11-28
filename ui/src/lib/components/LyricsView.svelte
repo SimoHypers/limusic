@@ -70,6 +70,7 @@
 	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import { playback } from '$lib/player.svelte';
+	import { lite } from '$lib/theme.svelte';
 	import { currentLocale, t } from '$lib/i18n.svelte';
 	import { appearance } from '$lib/theme.svelte';
 	import * as Popover from '$lib/components/ui/popover';
@@ -258,8 +259,9 @@
 			userScrollUntil = 0;
 		}
 		if (i < 0 || !scroller || Date.now() < userScrollUntil) return;
-		// Opening mid-song jumps straight to the line; after that, glide.
-		glide(scroller, i, hasScrolled);
+		// Opening mid-song jumps straight to the line; after that, glide — unless lite mode
+		// asked for line flips instead: a glide repaints the whole panel for its length.
+		glide(scroller, i, hasScrolled && !lite());
 		hasScrolled = true;
 	});
 
@@ -339,7 +341,10 @@
 	 *  line-level-only lyrics move at most once a line, so both are served perfectly well by the
 	 *  position tick they already get unless "also animate synced lyrics" estimates word timing for
 	 *  them. Without this gate the loop ran at refresh rate for any mounted lyrics panel, on every
-	 *  track, for the whole session, which meant the app never reached an idle frame. */
+	 *  track, for the whole session, which meant the app never reached an idle frame. Lite mode
+	 *  closes it too: the sweep then steps at the ~4 Hz position tick, which is the same update
+	 *  line-only lyrics already live with — visible highlight still follows the song, without a
+	 *  repaint per display frame. */
 	const needsFrameClock = $derived(
 		!!lyrics?.synced &&
 			(lyrics.lines.some(
@@ -347,7 +352,8 @@
 					(l.words?.length ?? 0) > 0 ||
 					(showRomanized && (l.romanized_words?.length ?? 0) > 0)
 			) ||
-				animateSynced)
+				animateSynced) &&
+			!lite()
 	);
 
 	$effect(() => {
