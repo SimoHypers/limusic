@@ -173,7 +173,11 @@
 		"devices_playing_here": "Tocando aqui",
 		"devices_paused": "Pausado",
 		"karaoke": "Karaokê: remover vocais",
-		"live": "Ao vivo"
+		"live": "Ao vivo",
+		"shuffle_hint": "Essas músicas em ordem aleatória",
+		"dynamic_shuffle": "Embaralhamento dinâmico",
+		"dynamic_shuffle_hint": "Misturado com músicas que você pode gostar",
+		"suggested": "Sugerido pelo embaralhamento dinâmico"
 	},
 	"home": {
 		"good_morning": "Bom dia",
@@ -685,7 +689,7 @@
 			"action_seek_backward": "Retroceder",
 			"action_seek_backward_hint": "Retrocede 10 segundos na faixa.",
 			"action_toggle_shuffle": "Alternar ordem aleatória",
-			"action_toggle_shuffle_hint": "Ativa ou desativa a ordem aleatória da fila.",
+			"action_toggle_shuffle_hint": "Alterne a fila entre ordem aleatória, embaralhamento dinâmico e desligado.",
 			"action_toggle_repeat": "Alternar repetição",
 			"action_toggle_repeat_hint": "Percorre o modo de repetição: desativado, tudo, uma.",
 			"action_show_app": "Mostrar aplicativo",
