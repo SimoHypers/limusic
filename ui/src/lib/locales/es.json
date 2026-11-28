@@ -173,7 +173,11 @@
 		"devices_this_computer_hint": "Se reproduce aquí",
 		"devices_playing_here": "Reproduciendo aquí",
 		"devices_paused": "Pausado",
-		"karaoke": "Karaoke: eliminar voces"
+		"karaoke": "Karaoke: eliminar voces",
+		"shuffle_hint": "Estas canciones en orden aleatorio",
+		"dynamic_shuffle": "Aleatorio dinámico",
+		"dynamic_shuffle_hint": "Mezclado con canciones que te pueden gustar",
+		"suggested": "Sugeridos por el aleatorio dinámico"
 	},
 	"home": {
 		"good_morning": "Buenos días",
@@ -685,7 +689,7 @@
 			"action_seek_backward": "Retroceder",
 			"action_seek_backward_hint": "Salta 10 segundos atrás en la pista.",
 			"action_toggle_shuffle": "Aleatorio",
-			"action_toggle_shuffle_hint": "Alterna el modo aleatorio para la cola.",
+			"action_toggle_shuffle_hint": "Cambia la cola entre aleatorio, aleatorio dinámico o desactivado.",
 			"action_toggle_repeat": "Repetición",
 			"action_toggle_repeat_hint": "Modo de repetición: desactivado, todo, uno.",
 			"action_show_app": "Mostrar la aplicación",
