@@ -644,7 +644,7 @@ impl Orchestrator {
                 loudness_db: c.loudness_db.map(|f| f as f64),
                 playback_ping: None,
                 title: c.title,
-                artists: None,
+                artists: c.author,
                 duration: c.duration_secs.map(|s| s.to_string()),
                 thumbnail: None,
                 // rustypipe answers without a `musicVideoType`, so the queue row's flag stands.
