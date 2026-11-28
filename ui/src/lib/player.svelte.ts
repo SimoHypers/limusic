@@ -519,8 +519,12 @@ export async function loadUploadAlbums(force = false) {
  * it on this machine (#251), which is the only kind there is while signed out. Answers the new
  * library row, for a caller that goes on to add songs to it.
  */
-export async function createLibraryPlaylist(title: string, local: boolean): Promise<BrowseItem> {
-	const id = await api.createPlaylist(title, local);
+export async function createLibraryPlaylist(
+	title: string,
+	local: boolean,
+	privacy?: 'PRIVATE' | 'UNLISTED' | 'PUBLIC'
+): Promise<BrowseItem> {
+	const id = await api.createPlaylist(title, local, privacy);
 	if (local) {
 		// SQLite already has it, so read the real row back rather than guessing at one.
 		await refreshLocalPlaylists();
@@ -597,6 +601,24 @@ export function bumpLibraryTrackCount(playlistId: string, delta: number) {
 			)
 			.replace(/\b([\d,]+) tracks?$/, (_, n) => `${n} track${n === '1' ? '' : 's'}`);
 		return { ...it, subtitle };
+	});
+}
+
+/** Sync the "N tracks" count in a library playlist's subtitle to an exact count read from YouTube. */
+export function setLibraryTrackCount(playlistId: string, count: number) {
+	if (api.isLocalPlaylist(playlistId)) return;
+	const n = Math.max(0, count).toLocaleString();
+	library.items = library.items.map((it) => {
+		if (it.id !== playlistId || !it.subtitle) return it;
+		const parts = it.subtitle.split(' \u2022 ');
+		if (parts.length < 2) return it;
+		const last = parts[parts.length - 1];
+		if (!/\d/.test(last)) return it;
+		parts[parts.length - 1] = last
+			.replace(/\d(?:[\d,.\s]*\d)?(?=\D*$)/, n)
+			.replace(/\b([\d,]+) (track|song)s?$/, (_, num, word) => `${num} ${word}${num === '1' ? '' : 's'}`);
+		const subtitle = parts.join(' \u2022 ');
+		return subtitle === it.subtitle ? it : { ...it, subtitle };
 	});
 }
 
@@ -1919,6 +1941,15 @@ export function notePlaylistRemove(playlistId: string, setVideoId: string) {
 	lastPlaylistRemove.playlistId = playlistId;
 	lastPlaylistRemove.setVideoId = setVideoId;
 	lastPlaylistRemove.epoch++;
+}
+
+// Background collaboration toggle completed (e.g. after playlist creation).
+export const lastPlaylistCollab = $state({ playlistId: '', collaborative: false, epoch: 0 });
+
+export function notePlaylistCollab(playlistId: string, collaborative: boolean) {
+	lastPlaylistCollab.playlistId = playlistId;
+	lastPlaylistCollab.collaborative = collaborative;
+	lastPlaylistCollab.epoch++;
 }
 
 export function notePlaylistAdd(playlistId: string, songs: SongItem[]) {

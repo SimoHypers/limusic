@@ -1066,6 +1066,12 @@
 			"save_btn": "Save Playlist",
 			"public_on": "Anyone can find this playlist on YouTube Music.",
 			"public_off": "Only you can see this playlist.",
+			"collaborate": "Collaborate",
+			"collaborate_on": "People with the invite link can add songs to this playlist.",
+			"collaborate_off": "Allow others to add songs with an invite link.",
+			"collaborate_private_note": "Turning this on will make the playlist unlisted.",
+			"get_invite_link": "Get invite link",
+			"new_invite_link": "Generate new invite link",
 			"artwork_note": "Artwork applies here at once and uploads to YouTube Music in the background. Square JPEG or PNG works best.",
 			"pick_artwork": "Choose playlist artwork",
 			"image_filter": "Images",
@@ -1237,7 +1243,9 @@
 			"device": "This device",
 			"device_desc": "No account needed, it stays on this computer",
 			"device_only": "It stays on this computer, no account needed. Sign in to make playlists on YouTube Music instead.",
-			"local_files": "Songs from your computer can only go in a playlist on this device."
+			"local_files": "Songs from your computer can only go in a playlist on this device.",
+			"collaborate": "Collaborate",
+			"collaborate_desc": "Others with the invite link can add songs (unlisted)"
 		}
 	},
 	"integrations": {
@@ -1281,6 +1289,7 @@
 		"shrink_lyrics": "Shrink lyrics",
 		"expand_lyrics": "Expand lyrics",
 		"public_playlist": "Public playlist",
+		"collaborate_playlist": "Collaborate on playlist",
 		"share_start_time": "Start time",
 		"remove_folder": "Remove folder",
 		"remove_font": "Remove {name}",
@@ -1862,6 +1871,10 @@
 		"folder_removed": "Folder removed from your local library",
 		"playlist_updated": "Playlist updated",
 		"playlist_created": "Created \"{title}\"",
+		"playlist_created_collab": "Created \"{title}\" and copied the invite link",
+		"playlist_created_collab_pending": "Created \"{title}\" — enabling collaboration…",
+		"collab_link_copied": "Collaboration invite link copied",
+		"collab_disabled": "Collaboration turned off",
 		"playlist_deleted": "Playlist deleted",
 		"already_in_library": "Already in your library",
 		"removed_from_library": "Removed from library",

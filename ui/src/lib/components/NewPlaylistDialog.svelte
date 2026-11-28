@@ -3,17 +3,21 @@
 	// all three, so where a playlist ends up is decided the same way wherever it is made: on the
 	// YouTube Music account, or on this machine (#251), which is the only choice signed out.
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { CloudIcon, ComputerIcon } from '@hugeicons/core-free-icons';
+	import { CloudIcon, ComputerIcon /*, UserGroupIcon */ } from '@hugeicons/core-free-icons';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as RadioGroup from '$lib/components/ui/radio-group';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
+	// import { Switch } from '$lib/components/ui/switch';
 	import * as api from '$lib/api';
+	// import { copyText } from '$lib/clipboard';
+	// import { invalidateCachedPrefix } from '$lib/pagecache';
 	import { t } from '$lib/i18n.svelte';
 	import {
 		addSongsToPlaylist,
 		auth,
 		createLibraryPlaylist,
+		// notePlaylistCollab,
 		toast,
 		ui
 	} from '$lib/player.svelte';
@@ -33,6 +37,7 @@
 	let where = $state<Where>(storedWhere());
 
 	let title = $state('');
+	// let collaborative = $state(false);
 	let creating = $state(false);
 
 	const signedIn = $derived(!!auth.account?.signedIn);
@@ -43,7 +48,10 @@
 
 	// A fresh name each time it opens, so a cancelled one isn't waiting in the box next time.
 	$effect(() => {
-		if (ui.newPlaylist) title = '';
+		if (ui.newPlaylist) {
+			title = '';
+			// collaborative = false;
+		}
 	});
 
 	const close = () => (ui.newPlaylist = null);
@@ -54,12 +62,28 @@
 		creating = true;
 		// Taken now: closing the dialog below clears `ui.newPlaylist`, and the songs with it.
 		const batch = songs;
+		// const collab = !local && collaborative;
 		try {
 			const item = await createLibraryPlaylist(name, local);
 			close();
 			// Adding says what happened on its own ("Added to …"), which covers the creation too.
 			if (batch.length) await addSongsToPlaylist(item, batch);
 			else toast.success(t('toasts.playlist_created', { title: name }));
+			/*
+			if (collab) {
+				// Enabling collaboration on a brand-new playlist may retry briefly while YouTube
+				// finishes propagating it, so run it in the background instead of blocking the dialog.
+				api
+					.setPlaylistCollaboration(item.id, true, false, true)
+					.then(async (link) => {
+						invalidateCachedPrefix(`playlist:${item.id}`);
+						notePlaylistCollab(item.id, true);
+						if (link) await copyText(link).catch(() => {});
+						toast.success(t('toasts.collab_link_copied'));
+					})
+					.catch((e) => toast.error(String(e)));
+			}
+			*/
 		} catch (e) {
 			toast.error(String(e));
 		} finally {
@@ -127,6 +151,20 @@
 				{#if hasLocalFiles}
 					<p class="text-xs text-muted-foreground">{t('dialogs.new_playlist.local_files')}</p>
 				{/if}
+				<!--
+				{#if !local}
+					<div class="flex items-center justify-between gap-4 rounded-2xl border px-3 py-2.5">
+						<div class="flex min-w-0 items-center gap-3">
+							<HugeiconsIcon icon={UserGroupIcon} class="h-5 w-5 shrink-0 text-muted-foreground" />
+							<div class="min-w-0">
+								<div class="text-sm font-medium">{t('dialogs.new_playlist.collaborate')}</div>
+								<p class="text-xs text-muted-foreground">{t('dialogs.new_playlist.collaborate_desc')}</p>
+							</div>
+						</div>
+						<Switch bind:checked={collaborative} aria-label={t('a11y.collaborate_playlist')} />
+					</div>
+				{/if}
+				-->
 			{:else}
 				<p class="flex items-start gap-2 text-xs text-muted-foreground">
 					<HugeiconsIcon icon={ComputerIcon} class="mt-px h-3.5 w-3.5 shrink-0" />

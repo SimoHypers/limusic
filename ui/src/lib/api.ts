@@ -1036,8 +1036,25 @@ export const moveInPlaylist = (playlistId: string, setVideoId: string, beforeSet
 	invoke<void>('move_in_playlist', { playlistId, setVideoId, beforeSetVideoId });
 /** `local` keeps it on this machine instead of the account, the only kind there is signed out.
  *  Answers the new id: a `LOCALPLAYLIST:` browseId for a local one, YouTube's playlist id else. */
-export const createPlaylist = (title: string, local = false) =>
-	invoke<string>('create_playlist', { title, local });
+export const createPlaylist = (
+	title: string,
+	local = false,
+	privacy?: 'PRIVATE' | 'UNLISTED' | 'PUBLIC'
+) => invoke<string>('create_playlist', { title, local, privacy });
+/** Enable or disable YouTube Music collaboration on a playlist you own. Enabling returns the
+ *  invite link (`collaborationInviteLink`), or `null` when disabling. */
+export const setPlaylistCollaboration = (
+	playlistId: string,
+	enabled: boolean,
+	makeUnlisted = false,
+	waitForReady = false
+) =>
+	invoke<string | null>('set_playlist_collaboration', {
+		playlistId,
+		enabled,
+		makeUnlisted,
+		waitForReady
+	});
 /** Add whole songs to a playlist on this machine, in one write. Answers per song whether it went
  *  in: `false` means the playlist already had it. Local files are fine here. */
 export const addToLocalPlaylist = (playlistId: string, items: SongItem[]) =>

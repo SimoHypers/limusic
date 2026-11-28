@@ -6,18 +6,32 @@
 	// draws instantly and offline) and uploaded to YouTube Music behind the picker.
 	import { open as pickFile } from '@tauri-apps/plugin-dialog';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { ImageAdd02Icon, Delete02Icon } from '@hugeicons/core-free-icons';
+	import {
+		ImageAdd02Icon,
+		Delete02Icon,
+		Copy01Icon,
+		Tick02Icon,
+		RefreshIcon,
+		Link04Icon
+	} from '@hugeicons/core-free-icons';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Switch } from '$lib/components/ui/switch';
 	import * as api from '$lib/api';
+	import { copyText } from '$lib/clipboard';
 	import { thumb } from '$lib/thumb';
 	import { toast } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
 
 	/** What the page shows while YouTube catches up, and what it puts back if the write fails. */
-	type Edit = { title?: string; description?: string; privacy?: string; cover?: string };
+	type Edit = {
+		title?: string;
+		description?: string;
+		privacy?: string;
+		collaborative?: boolean;
+		cover?: string;
+	};
 
 	let {
 		open = $bindable(false),
@@ -25,6 +39,7 @@
 		title,
 		description,
 		privacy,
+		collaborative,
 		cover,
 		fallback,
 		onchange
@@ -34,6 +49,7 @@
 		title?: string;
 		description?: string;
 		privacy?: string;
+		collaborative?: boolean;
 		/** Custom artwork already stored for this playlist. */
 		cover?: string;
 		/** YouTube's own artwork, shown when there is no custom one. */
@@ -44,6 +60,10 @@
 	let draftName = $state('');
 	let draftDescription = $state('');
 	let isPublic = $state(false);
+	let isCollaborative = $state(false);
+	let collabBusy = $state(false);
+	let inviteLink = $state<string | null>(null);
+	let copied = $state(false);
 	let saving = $state(false);
 	let removing = $state(false);
 
@@ -55,6 +75,9 @@
 		draftName = title ?? '';
 		draftDescription = description ?? '';
 		isPublic = privacy === 'PUBLIC';
+		isCollaborative = !!collaborative;
+		inviteLink = null;
+		copied = false;
 	});
 
 	const preview = $derived(thumb(cover ?? fallback, 400));
@@ -88,6 +111,54 @@
 		} finally {
 			removing = false;
 		}
+	}
+
+	async function toggleCollaborate(next: boolean) {
+		if (collabBusy) return;
+		collabBusy = true;
+		isCollaborative = next;
+		try {
+			const link = await api.setPlaylistCollaboration(id, next, next && privacy === 'PRIVATE');
+			if (next) {
+				inviteLink = link;
+				onchange({
+					collaborative: true,
+					...(privacy === 'PRIVATE' ? { privacy: 'UNLISTED' } : {})
+				});
+			} else {
+				inviteLink = null;
+				onchange({ collaborative: false });
+				toast.success(t('toasts.collab_disabled'));
+			}
+		} catch (e) {
+			isCollaborative = !next;
+			toast.error(String(e));
+		} finally {
+			collabBusy = false;
+		}
+	}
+
+	async function refreshInviteLink() {
+		if (collabBusy) return;
+		collabBusy = true;
+		try {
+			inviteLink = await api.setPlaylistCollaboration(id, true, false);
+		} catch (e) {
+			toast.error(String(e));
+		} finally {
+			collabBusy = false;
+		}
+	}
+
+	function copyInviteLink() {
+		if (!inviteLink) return;
+		copyText(inviteLink).then(
+			() => {
+				copied = true;
+				setTimeout(() => (copied = false), 1500);
+			},
+			() => toast.error(t('toasts.could_not_copy_link'))
+		);
 	}
 
 	async function save() {
@@ -193,6 +264,78 @@
 						</p>
 					</div>
 					<Switch bind:checked={isPublic} aria-label={t('a11y.public_playlist')} />
+				</div>
+				<div class="flex flex-col gap-2.5 rounded-2xl border px-3 py-2.5">
+					<div class="flex items-center justify-between gap-4">
+						<div class="min-w-0">
+							<div class="text-sm font-medium">{t('dialogs.edit_playlist.collaborate')}</div>
+							<p class="text-xs text-muted-foreground">
+								{isCollaborative
+									? t('dialogs.edit_playlist.collaborate_on')
+									: t('dialogs.edit_playlist.collaborate_off')}
+							</p>
+							{#if !isCollaborative && privacy === 'PRIVATE'}
+								<p class="mt-0.5 text-xs text-muted-foreground">
+									{t('dialogs.edit_playlist.collaborate_private_note')}
+								</p>
+							{/if}
+						</div>
+						<Switch
+							checked={isCollaborative}
+							disabled={collabBusy}
+							onCheckedChange={toggleCollaborate}
+							aria-label={t('a11y.collaborate_playlist')}
+						/>
+					</div>
+					{#if isCollaborative}
+						{#if inviteLink}
+							<div class="flex items-center gap-1.5 rounded-xl border bg-muted/40 py-1 pl-2.5 pr-1">
+								<input
+									class="min-w-0 flex-1 bg-transparent py-1 text-xs text-muted-foreground outline-none"
+									value={inviteLink}
+									readonly
+									onfocus={(e) => e.currentTarget.select()}
+								/>
+								<Button
+									type="button"
+									variant="ghost"
+									size="sm"
+									class="h-7 gap-1 px-2 text-xs"
+									onclick={copyInviteLink}
+									aria-label={t('dialogs.share.copy_link')}
+								>
+									<HugeiconsIcon icon={Copy01Icon} altIcon={Tick02Icon} showAlt={copied} class="h-3.5 w-3.5" />
+									{copied ? t('common.done') : t('dialogs.share.copy_link')}
+								</Button>
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon"
+									class="h-7 w-7"
+									disabled={collabBusy}
+									onclick={refreshInviteLink}
+									title={t('dialogs.edit_playlist.new_invite_link')}
+									aria-label={t('dialogs.edit_playlist.new_invite_link')}
+								>
+									<HugeiconsIcon icon={RefreshIcon} class="h-3.5 w-3.5" />
+								</Button>
+							</div>
+						{:else}
+							<div>
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									class="gap-1.5 text-xs"
+									disabled={collabBusy}
+									onclick={refreshInviteLink}
+								>
+									<HugeiconsIcon icon={Link04Icon} class="h-3.5 w-3.5" />
+									{collabBusy ? t('common.loading') : t('dialogs.edit_playlist.get_invite_link')}
+								</Button>
+							</div>
+						{/if}
+					{/if}
 				</div>
 			{/if}
 			<p class="text-xs text-muted-foreground">

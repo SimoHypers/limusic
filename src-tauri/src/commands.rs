@@ -1444,6 +1444,13 @@ pub async fn get_playlist(
     let mut page = state.it.playlist(client, &id, sort).await.map_err(|e| e.to_string())?;
     // Alongside YouTube's own thumbnail, not over it: the dialog offers to drop the custom one.
     page.cover = custom_cover(&state, &id);
+    // YouTube omits `PAplaylist_collaborate` from the facepile until another collaborator joins,
+    // so keep our own record when we turned collaboration on (and clear it if made private).
+    if page.privacy.as_deref() == Some("PRIVATE") {
+        state.db.delete_setting(&collab_key(&id));
+    } else if !page.collaborative && state.db.get_setting(&collab_key(&id)).is_some() {
+        page.collaborative = true;
+    }
     Ok(page)
 }
 
@@ -2004,6 +2011,7 @@ pub async fn create_playlist(
     state: St<'_>,
     title: String,
     local: Option<bool>,
+    privacy: Option<String>,
 ) -> Result<String, String> {
     if local.unwrap_or(false) {
         let title = title.trim();
@@ -2013,8 +2021,55 @@ pub async fn create_playlist(
         let id = state.db.create_local_playlist(title, crate::db::now_secs()).map_err(db_err)?;
         return Ok(format!("{LOCAL_PLAYLIST_PREFIX}{id}"));
     }
+    let privacy = match privacy.as_deref() {
+        None | Some("PRIVATE") => "PRIVATE",
+        Some("UNLISTED") => "UNLISTED",
+        Some("PUBLIC") => "PUBLIC",
+        Some(_) => return Err("Invalid playlist privacy.".into()),
+    };
     let client = require_login(&state)?;
-    state.it.create_playlist(client, &title).await.map_err(|e| e.to_string())
+    state.it.create_playlist_with_privacy(client, &title, privacy).await.map_err(|e| e.to_string())
+}
+
+/// Enable or disable YouTube Music collaboration on a playlist you own.
+///
+/// Enabling collaboration returns the invite link (`collaborationInviteLink`) so the caller can
+/// show or copy it; disabling returns `None` and closes the playlist to contributions.
+#[tauri::command]
+pub async fn set_playlist_collaboration(
+    state: St<'_>,
+    playlist_id: String,
+    enabled: bool,
+    make_unlisted: Option<bool>,
+    wait_for_ready: Option<bool>,
+) -> Result<Option<String>, String> {
+    let client = editable_playlist(&state, &playlist_id)?;
+    if enabled {
+        let switch_unlisted = make_unlisted.unwrap_or(false);
+        if switch_unlisted {
+            state
+                .it
+                .playlist_edit_details(client, &playlist_id, None, None, Some("UNLISTED"))
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        let should_wait = switch_unlisted || wait_for_ready.unwrap_or(false);
+        let link = state
+            .it
+            .playlist_enable_collaboration(client, &playlist_id, should_wait)
+            .await
+            .map_err(|e| e.to_string())?;
+        state.db.set_setting(&collab_key(&playlist_id), "1");
+        Ok(Some(link))
+    } else {
+        state
+            .it
+            .playlist_disable_collaboration(client, &playlist_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        state.db.delete_setting(&collab_key(&playlist_id));
+        Ok(None)
+    }
 }
 
 /// Edit a playlist you own, from the "Edit playlist" dialog: name, description, visibility.
@@ -2054,7 +2109,11 @@ pub async fn edit_playlist_details(
             privacy,
         )
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    if public == Some(false) {
+        state.db.delete_setting(&collab_key(&playlist_id));
+    }
+    Ok(())
 }
 
 /// Custom playlist artwork, in both places it lives.
@@ -2229,6 +2288,10 @@ fn cover_key(playlist_id: &str) -> String {
     format!("playlist_cover:{}", playlist_id.strip_prefix("VL").unwrap_or(playlist_id))
 }
 
+fn collab_key(playlist_id: &str) -> String {
+    format!("playlist_collab:{}", playlist_id.strip_prefix("VL").unwrap_or(playlist_id))
+}
+
 /// Set once a cover of ours has actually landed on the account, so a removal knows whether there
 /// is anything up there to warn about failing to clear.
 fn synced_key(playlist_id: &str) -> String {
@@ -2257,6 +2320,7 @@ pub async fn delete_playlist(state: St<'_>, playlist_id: String) -> Result<(), S
     let client = editable_playlist(&state, &playlist_id)?;
     state.it.delete_playlist(client, &playlist_id).await.map_err(|e| e.to_string())?;
     state.db.forget_playlist(&playlist_id);
+    state.db.delete_setting(&collab_key(&playlist_id));
     crate::import::forget_source(&state, &playlist_id);
     Ok(())
 }

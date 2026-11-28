@@ -2,6 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use futures_util::future::join_all;
 use serde::Serialize;
@@ -38,6 +39,9 @@ pub const FILTER_COMMUNITY_PLAYLIST: &str = "EgeKAQQoAEABagoQAxAEEAoQCRAF";
 
 /// A comment's like/unlike/dislike/undislike and delete: `{context, actions: [<token>]}`.
 pub const COMMENT_ACTION_PATH: &str = "comment/perform_comment_action";
+
+const COLLAB_UNLISTED_WAIT: Duration = Duration::from_secs(45);
+const COLLAB_UNLISTED_RETRY: Duration = Duration::from_secs(2);
 
 impl InnerTube {
     /// `/player` for one client. context/03, context/06.
@@ -1453,11 +1457,132 @@ impl InnerTube {
         }
     }
 
+    /// Turn collaboration on for a playlist you own and return its invite link.
+    ///
+    /// When `wait_for_privacy` is true (because the playlist was just changed from `PRIVATE` to
+    /// `UNLISTED`), YouTube may reject the first few attempts with HTTP 400 until the privacy
+    /// change propagates; retry briefly before giving up.
+    pub async fn playlist_enable_collaboration(
+        &self,
+        client: &YouTubeClient,
+        playlist_id: &str,
+        wait_for_privacy: bool,
+    ) -> Result<String, Error> {
+        let max_wait = if wait_for_privacy { COLLAB_UNLISTED_WAIT } else { Duration::ZERO };
+        self.playlist_enable_collaboration_with_retry(
+            client,
+            playlist_id,
+            max_wait,
+            COLLAB_UNLISTED_RETRY,
+        )
+        .await
+    }
+
+    async fn playlist_enable_collaboration_with_retry(
+        &self,
+        client: &YouTubeClient,
+        playlist_id: &str,
+        max_wait: Duration,
+        retry_every: Duration,
+    ) -> Result<String, Error> {
+        let deadline = tokio::time::Instant::now() + max_wait;
+        let mut attempts = 0usize;
+        loop {
+            attempts += 1;
+            let res = self
+                .edit_playlist_value(
+                    client,
+                    playlist_id,
+                    vec![
+                        serde_json::json!({ "action": "ACTION_CREATE_COLLABORATION_INVITE_LINK" }),
+                    ],
+                    true,
+                )
+                .await;
+            match res {
+                Ok(value) => {
+                    if attempts > 1 {
+                        tracing::info!(
+                            attempts,
+                            "collaboration enable succeeded after propagation retries"
+                        );
+                    }
+                    return metadata::find_first_str(&value, "collaborationInviteLink")
+                        .filter(|url| is_youtube_invite_url(url))
+                        .ok_or_else(|| {
+                            tracing::warn!(
+                                has_link = metadata::find_first_str(&value, "collaborationInviteLink").is_some(),
+                                "YouTube Music turned collaboration on without a valid invite link"
+                            );
+                            Error::Other(
+                                "YouTube Music turned collaboration on, but did not return an invite link.".into(),
+                            )
+                        });
+                }
+                Err(Error::Http(e)) if e.status() == Some(reqwest::StatusCode::BAD_REQUEST) => {
+                    if !max_wait.is_zero() && tokio::time::Instant::now() + retry_every <= deadline
+                    {
+                        if attempts == 1 {
+                            tracing::info!(
+                                "collaboration enable returned 400; retrying while YouTube propagates playlist visibility"
+                            );
+                        } else {
+                            tracing::debug!(
+                                attempts,
+                                "collaboration enable returned 400; retrying"
+                            );
+                        }
+                        tokio::time::sleep(retry_every).await;
+                        continue;
+                    }
+                    tracing::warn!(
+                        attempts,
+                        "YouTube Music refused collaboration enable with HTTP 400"
+                    );
+                    return Err(Error::Other(
+                        "YouTube Music refused to turn collaboration on. Make sure the playlist is not private and belongs to your account.".into(),
+                    ));
+                }
+                Err(e) => {
+                    tracing::warn!(attempts, error = %e, "collaboration enable failed");
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    /// Turn collaboration off for a playlist you own, invalidating existing invite links.
+    pub async fn playlist_disable_collaboration(
+        &self,
+        client: &YouTubeClient,
+        playlist_id: &str,
+    ) -> Result<(), Error> {
+        self.edit_playlist(
+            client,
+            playlist_id,
+            serde_json::json!({
+                "action": "ACTION_SET_CLOSED_TO_CONTRIBUTIONS",
+                "closedToContributions": true,
+            }),
+        )
+        .await
+    }
+
     /// Create a private playlist; returns the new playlistId. context/01 `playlist/create`.
     pub async fn create_playlist(
         &self,
         client: &YouTubeClient,
         title: &str,
+    ) -> Result<String, Error> {
+        self.create_playlist_with_privacy(client, title, "PRIVATE").await
+    }
+
+    /// Create a playlist with an explicit privacy status (`PRIVATE`, `UNLISTED`, or `PUBLIC`).
+    pub async fn create_playlist_with_privacy(
+        &self,
+        client: &YouTubeClient,
+        title: &str,
+        privacy_status: &str,
     ) -> Result<String, Error> {
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
@@ -1469,7 +1594,7 @@ impl InnerTube {
         let body = CreateBody {
             context: self.context_for(client),
             title: title.to_owned(),
-            privacy_status: "PRIVATE".to_owned(),
+            privacy_status: privacy_status.to_owned(),
         };
         let value = self.post("playlist/create", client, &body, true).await?;
         metadata::find_first_str(&value, "playlistId")
@@ -1721,6 +1846,19 @@ fn move_video_action(set_video_id: &str, before: Option<&str>) -> serde_json::Va
 /// `"status": "STATUS_FAILED"` in the body. Adding a track the playlist already holds is the
 /// common one, and YouTube marks it by offering an "Add anyway" button whose endpoint repeats the
 /// action with a `dedupeOption`. Left unread, the caller thinks the edit landed.
+fn is_youtube_invite_url(url: &str) -> bool {
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    if parsed.scheme() != "https" {
+        return false;
+    }
+    let Some(host) = parsed.host_str() else {
+        return false;
+    };
+    host == "youtube.com" || host.ends_with(".youtube.com") || host == "youtu.be"
+}
+
 fn edit_rejection(v: &serde_json::Value) -> Option<Error> {
     if v.get("status").and_then(serde_json::Value::as_str) != Some("STATUS_FAILED") {
         return None;
@@ -2502,5 +2640,106 @@ mod tests {
             assert!(body.get("context").is_some());
             assert!(as_account(&sent[0]), "an action is the account's own");
         }
+    }
+
+    #[tokio::test]
+    async fn create_playlist_with_privacy_sends_requested_privacy_and_parses_id() {
+        let server = MockServer::start(|_: &Seen| {
+            (200, r#"{"playlistId":"PLcollab123","status":"STATUS_SUCCEEDED"}"#.into())
+        });
+        let it = it_against(&server, true);
+        let id = it.create_playlist_with_privacy(&web(), "Roadtrip", "UNLISTED").await.unwrap();
+        assert_eq!(id, "PLcollab123");
+        let sent = server.requests();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].path.starts_with("/youtubei/v1/playlist/create"));
+        let body: serde_json::Value = serde_json::from_str(&sent[0].body).unwrap();
+        assert_eq!(body["title"], "Roadtrip");
+        assert_eq!(body["privacyStatus"], "UNLISTED");
+    }
+
+    #[tokio::test]
+    async fn enable_collaboration_posts_invite_action_and_returns_valid_link() {
+        let server = MockServer::start(|_: &Seen| {
+            (
+                200,
+                r#"{"status":"STATUS_SUCCEEDED","collaborationInviteLink":"https://music.youtube.com/playlist?list=PL123&jct=abc"}"#
+                    .into(),
+            )
+        });
+        let it = it_against(&server, true);
+        let link = it.playlist_enable_collaboration(&web(), "VLPL123", false).await.unwrap();
+        assert_eq!(link, "https://music.youtube.com/playlist?list=PL123&jct=abc");
+        let sent = server.requests();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].path.starts_with("/youtubei/v1/browse/edit_playlist"));
+        let body: serde_json::Value = serde_json::from_str(&sent[0].body).unwrap();
+        assert_eq!(body["playlistId"], "PL123");
+        assert_eq!(
+            body["actions"],
+            json!([{ "action": "ACTION_CREATE_COLLABORATION_INVITE_LINK" }])
+        );
+    }
+
+    #[tokio::test]
+    async fn enable_collaboration_rejects_missing_or_non_youtube_links() {
+        for reply in [
+            r#"{"status":"STATUS_SUCCEEDED"}"#,
+            r#"{"status":"STATUS_SUCCEEDED","collaborationInviteLink":"https://evil.example/playlist?jct=abc"}"#,
+            r#"{"status":"STATUS_SUCCEEDED","collaborationInviteLink":"http://youtube.com/playlist?jct=abc"}"#,
+        ] {
+            let server = MockServer::start(move |_: &Seen| (200, reply.to_owned()));
+            let it = it_against(&server, true);
+            let err = it.playlist_enable_collaboration(&web(), "PL123", false).await.unwrap_err();
+            assert!(
+                err.to_string().contains("did not return an invite link"),
+                "unexpected error for {reply}: {err}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn enable_collaboration_retries_bad_request_while_privacy_propagates() {
+        let attempts = std::sync::atomic::AtomicUsize::new(0);
+        let server = MockServer::start(move |_: &Seen| {
+            let n = attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if n < 2 {
+                (400, r#"{"error":{"code":400,"message":"Precondition check failed"}}"#.into())
+            } else {
+                (
+                    200,
+                    r#"{"status":"STATUS_SUCCEEDED","collaborationInviteLink":"https://www.youtube.com/playlist?list=PL123&jct=xyz"}"#
+                        .into(),
+                )
+            }
+        });
+        let it = it_against(&server, true);
+        let link = it
+            .playlist_enable_collaboration_with_retry(
+                &web(),
+                "PL123",
+                Duration::from_secs(2),
+                Duration::from_millis(10),
+            )
+            .await
+            .unwrap();
+        assert_eq!(link, "https://www.youtube.com/playlist?list=PL123&jct=xyz");
+        assert_eq!(server.requests().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn disable_collaboration_posts_closed_to_contributions() {
+        let server = MockServer::start(|_: &Seen| (200, r#"{"status":"STATUS_SUCCEEDED"}"#.into()));
+        let it = it_against(&server, true);
+        it.playlist_disable_collaboration(&web(), "VLPL123").await.unwrap();
+        let sent = server.requests();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].path.starts_with("/youtubei/v1/browse/edit_playlist"));
+        let body: serde_json::Value = serde_json::from_str(&sent[0].body).unwrap();
+        assert_eq!(body["playlistId"], "PL123");
+        assert_eq!(
+            body["actions"],
+            json!([{ "action": "ACTION_SET_CLOSED_TO_CONTRIBUTIONS", "closedToContributions": true }])
+        );
     }
 }
