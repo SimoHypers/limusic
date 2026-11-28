@@ -700,6 +700,26 @@ fn should_start_minimized(db: &Db) -> bool {
         && tray::available()
 }
 
+/// Whether the login entry is gone although nobody turned it off (#789). Running a new setup.exe
+/// over an installed copy first runs the old uninstaller (the setup's default, "Uninstall before
+/// installing"), and that deletes our `Run` value but keeps the app data, so the switch still reads
+/// on. The in-app update passes `/UPDATE`, which skips the uninstaller. A Task Manager disable
+/// keeps the `Run` value and marks the name in `StartupApproved\Run` instead, and that mark
+/// survives the uninstaller, so a disabled entry is never counted as lost. The disabled test is
+/// the one `auto-launch` uses for `is_enabled`: the last eight bytes are not all zero.
+#[cfg(windows)]
+fn autostart_entry_lost(name: &str) -> bool {
+    use winreg::{enums::HKEY_CURRENT_USER, RegKey};
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let value = |key: &str| hkcu.open_subkey(key).and_then(|k| k.get_raw_value(name)).ok();
+    if value(r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run").is_some() {
+        return false;
+    }
+    let disabled = value(r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run")
+        .is_some_and(|v| v.bytes.len() >= 8 && v.bytes.iter().rev().take(8).any(|b| *b != 0));
+    !disabled
+}
+
 /// Tauri entry point. Applies the platform boot fixes (open-fd limit, NVIDIA/WebKit env), restores
 /// the persisted session, wires every command and plugin, and runs the event loop. context/01
 /// §startup.
@@ -1175,11 +1195,20 @@ pub fn run() {
             // window, "Could not connect to localhost". An AppImage moved after enabling leaves it
             // pointing at nothing. So an installed build repoints an existing entry at itself.
             // Only an existing one: `is_enabled` is false after a Task Manager disable on Windows,
-            // and that choice is the user's.
+            // and that choice is the user's. The one exception is an entry the installer deleted
+            // while the switch stayed on (`autostart_entry_lost`).
             if !tauri::is_dev() {
                 use tauri_plugin_autostart::ManagerExt;
                 let al = app.autolaunch();
-                if al.is_enabled().unwrap_or(false) {
+                #[cfg(windows)]
+                let lost = app_state.db.get_setting("autostart").as_deref() == Some("true")
+                    && autostart_entry_lost(&app.package_info().name);
+                #[cfg(not(windows))]
+                let lost = false;
+                if lost {
+                    tracing::info!("autostart is on but its login entry was gone, registering it again");
+                }
+                if lost || al.is_enabled().unwrap_or(false) {
                     if let Err(e) = al.enable() {
                         tracing::warn!(error = %e, "could not repoint the autostart entry");
                     }

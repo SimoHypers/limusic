@@ -3581,6 +3581,7 @@ dependencies = [
  "wana_kana",
  "webkit2gtk",
  "windows 0.61.3",
+ "winreg 0.10.1",
  "zbus 5.18.0",
  "zip",
 ]

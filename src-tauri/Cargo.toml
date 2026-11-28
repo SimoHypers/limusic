@@ -104,6 +104,8 @@ windows = { version = "0.61", features = [
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
+# The login entry's registry values (`autostart_entry_lost`). The version auto-launch already uses.
+winreg = "0.10"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The music video's GL surface under the webview (nativevideo.rs). Same version tauri pulls in.
