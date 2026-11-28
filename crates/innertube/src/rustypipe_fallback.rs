@@ -25,6 +25,10 @@ pub struct StreamCandidate {
     /// rustypipe's loudness (inverse ReplayGain — see AudioStream docs). Feeds context/14 gain.
     pub loudness_db: Option<f32>,
     pub title: Option<String>,
+    /// The channel's name, as `videoDetails.author` is read on the InnerTube path: what repairs a
+    /// queue row that arrived with no artist (#779). An auto-generated "Artist - Topic" channel is
+    /// the artist alone.
+    pub author: Option<String>,
     pub duration_secs: Option<u32>,
 }
 
@@ -94,8 +98,15 @@ pub async fn resolve(video_id: &str, prefer_high: bool) -> Result<StreamCandidat
         expires_in_seconds: player.expires_in_seconds,
         loudness_db: best.loudness_db,
         title: player.details.name.clone(),
+        author: player.details.channel_name.as_deref().map(channel_artist),
         duration_secs: Some(player.details.duration),
     })
+}
+
+/// "Alec Benjamin - Topic" is YouTube's auto-generated channel for Alec Benjamin.
+fn channel_artist(channel: &str) -> String {
+    let channel = channel.trim();
+    channel.strip_suffix(" - Topic").unwrap_or(channel).to_owned()
 }
 
 fn pick_audio(streams: &[AudioStream], prefer_high: bool) -> Option<&AudioStream> {
@@ -140,7 +151,14 @@ fn map_err(e: RpError) -> FallbackError {
 
 #[cfg(test)]
 mod tests {
-    use super::FallbackError;
+    use super::{channel_artist, FallbackError};
+
+    #[test]
+    fn a_topic_channel_is_its_artist() {
+        assert_eq!(channel_artist("Alec Benjamin - Topic"), "Alec Benjamin");
+        assert_eq!(channel_artist("Oricade"), "Oricade");
+        assert_eq!(channel_artist("Topic"), "Topic");
+    }
 
     #[test]
     fn only_a_verdict_counts_as_an_answer() {

@@ -94,6 +94,9 @@ pub struct CachedStream {
     /// and a failure toast can name it. `ping_client` is not a substitute: the orchestrator prefers
     /// the *main* client's tracking block even when a fallback won the stream.
     pub client: Option<String>,
+    /// `videoDetails.author`, cached for the same reason as the verdicts: it repairs a queue row
+    /// that arrived with no artist, and a replay inside the cache window left it blank (#779).
+    pub artists: Option<String>,
 }
 
 impl Db {
@@ -304,6 +307,8 @@ impl Db {
         let _ = conn.execute("ALTER TABLE stream_url_cache ADD COLUMN is_episode INTEGER", []);
         // Watch-time URL (#764). No wipe: a NULL means that one play reports no watch time.
         let _ = conn.execute("ALTER TABLE stream_url_cache ADD COLUMN watchtime_url TEXT", []);
+        // The track's artist (#779). No wipe: a NULL leaves the queue row's artist as it was.
+        let _ = conn.execute("ALTER TABLE stream_url_cache ADD COLUMN artists TEXT", []);
         // Sweep dead stream URLs here as well as on write. `put_stream` only runs on a cache miss,
         // so a session spent replaying cached tracks never triggers one, and the backlog that
         // built up before anything pruned at all (1803 rows, 1772 of them expired, on a real
@@ -729,7 +734,7 @@ impl Db {
     pub fn get_stream(&self, video_id: &str, now: i64) -> Option<CachedStream> {
         let conn = self.0.lock().unwrap();
         conn.query_row(
-            "SELECT url, itag, expires_at, loudness_db, is_video, ping_url, ping_client, client, is_episode, watchtime_url FROM stream_url_cache WHERE video_id = ?1 AND expires_at > ?2",
+            "SELECT url, itag, expires_at, loudness_db, is_video, ping_url, ping_client, client, is_episode, watchtime_url, artists FROM stream_url_cache WHERE video_id = ?1 AND expires_at > ?2",
             rusqlite::params![video_id, now],
             |r| {
                 Ok(CachedStream {
@@ -743,6 +748,7 @@ impl Db {
                     client: r.get(7)?,
                     is_episode: r.get(8)?,
                     watchtime_url: r.get(9)?,
+                    artists: r.get(10)?,
                 })
             },
         )
@@ -773,8 +779,8 @@ impl Db {
     pub fn put_stream(&self, video_id: &str, row: &CachedStream, now: i64) {
         let conn = self.0.lock().unwrap();
         let _ = conn.execute(
-            "INSERT INTO stream_url_cache(video_id, url, itag, expires_at, loudness_db, is_video, ping_url, ping_client, client, is_episode, watchtime_url) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
-             ON CONFLICT(video_id) DO UPDATE SET url = excluded.url, itag = excluded.itag, expires_at = excluded.expires_at, loudness_db = excluded.loudness_db, is_video = excluded.is_video, ping_url = excluded.ping_url, ping_client = excluded.ping_client, client = excluded.client, is_episode = excluded.is_episode, watchtime_url = excluded.watchtime_url",
+            "INSERT INTO stream_url_cache(video_id, url, itag, expires_at, loudness_db, is_video, ping_url, ping_client, client, is_episode, watchtime_url, artists) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+             ON CONFLICT(video_id) DO UPDATE SET url = excluded.url, itag = excluded.itag, expires_at = excluded.expires_at, loudness_db = excluded.loudness_db, is_video = excluded.is_video, ping_url = excluded.ping_url, ping_client = excluded.ping_client, client = excluded.client, is_episode = excluded.is_episode, watchtime_url = excluded.watchtime_url, artists = excluded.artists",
             rusqlite::params![
                 video_id,
                 row.url,
@@ -786,7 +792,8 @@ impl Db {
                 row.ping_client,
                 row.client,
                 row.is_episode,
-                row.watchtime_url
+                row.watchtime_url,
+                row.artists
             ],
         );
         let _ = conn.execute("DELETE FROM stream_url_cache WHERE expires_at <= ?1", [now]);
@@ -1869,6 +1876,7 @@ mod tests {
             ping_client: None,
             watchtime_url: None,
             client: None,
+            artists: None,
         }
     }
 
@@ -2554,6 +2562,7 @@ mod tests {
             ping_client: Some("WEB_REMIX".into()),
             watchtime_url: Some("https://s.youtube.com/api/stats/watchtime".into()),
             client: Some("VISIONOS".into()),
+            artists: Some("Oricade".into()),
         };
         d.put_stream("fresh", &fresh, now);
         let got = d.get_stream("fresh", now).unwrap_or_else(|| {
@@ -2565,6 +2574,7 @@ mod tests {
             "{tag}"
         );
         assert_eq!(got.ping_client.as_deref(), Some("WEB_REMIX"), "{tag}");
+        assert_eq!(got.artists.as_deref(), Some("Oricade"), "{tag}: #779");
         assert!(got.watchtime_url.is_some(), "{tag}");
         assert_eq!(got.is_episode, Some(true), "{tag}");
         // Every one of these releases predates `client`, so the pre-column row has to be gone:

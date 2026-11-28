@@ -1460,7 +1460,8 @@ impl AppState {
                     watchtime_url: c.watchtime_url,
                 }),
                 title: None,
-                artists: None,
+                // Cached too: it repairs a queue row that came without an artist (#779).
+                artists: c.artists,
                 duration: None,
                 thumbnail: None,
                 // Cached alongside the URL: a hit skips `/player`, so without it a replay inside
@@ -1501,6 +1502,7 @@ impl AppState {
                         .as_ref()
                         .and_then(|p| p.watchtime_url.clone()),
                     client: Some(data.stream_client.clone()),
+                    artists: data.artists.clone(),
                 },
                 now,
             );
