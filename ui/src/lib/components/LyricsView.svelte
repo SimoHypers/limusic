@@ -77,7 +77,7 @@
 	import KaraokeButton from './KaraokeButton.svelte';
 	import LyricsFileButton from './LyricsFileButton.svelte';
 	import { link } from '$lib/link.svelte';
-	import { voices } from '$lib/lyricvoices';
+	import { turns, voices } from '$lib/lyricvoices';
 	import { durationSecs, lyricsFor, setNowLyrics } from '$lib/nowlyrics.svelte';
 	import { SCROLL_EASE, glowing, letters, scrollMs, sweep as sweepStyle } from '$lib/lyricmotion';
 
@@ -112,6 +112,9 @@
 	/** Two singers: where there is room (the enlarged views), each also keeps off the other's
 	 *  edge, so the turns read at a glance. A side panel is too narrow to give any width away. */
 	const duet = $derived(!!voice?.some((v) => v.far));
+	/** The singer's name above the first line of each turn (#768). Null for a lyric that names
+	 *  nobody, which is every lyric but some of Limusic's. */
+	const turn = $derived(lyrics?.synced ? turns(lyrics.lines, lyrics.singers) : null);
 	const enhanced = $derived(appearance.enhancedLyrics);
 	const animateSynced = $derived(enhanced && appearance.enhancedLyricsLineSync);
 	const reducedMotion = new MediaQuery('prefers-reduced-motion: reduce');
@@ -578,6 +581,13 @@
 							? 'text-muted-foreground opacity-55 motion-safe:scale-[0.96] dark:opacity-40'
 							: 'text-muted-foreground opacity-90 motion-safe:scale-[0.96] dark:opacity-70'}"
 				>
+					{#if turn?.[i]}
+						<!-- Whose turn it is, part of the line: it sits on the line's side, dims and scales
+						     with it, and `glide` centres the two together. -->
+						<span class="mb-[0.15em] block text-[length:max(0.5em,10px)] font-semibold tracking-wide opacity-75">
+							{turn[i]}
+						</span>
+					{/if}
 					{#if v?.runs && words === line.words}
 						<!-- Background vocals are a quieter line of their own, under the lead they
 						     answer: smaller, and dimmed as a group (see the note on `opacity` above).

@@ -65,6 +65,7 @@
 		isGone,
 		kindKey,
 		leftQueue,
+		renamedSingers,
 		restored,
 		reviewable,
 		reviewErrorKey,
@@ -224,6 +225,10 @@
 	const changes = $derived<Change[] | null>(
 		open?.kind === 'edit' && detail?.lyrics && current ? diffLyrics(current.lines, detail.lyrics.lines) : null
 	);
+	/** The singers' names it sets, changes or clears: an edit can be names alone. */
+	const renames = $derived(
+		open?.kind === 'edit' && detail?.lyrics && current ? renamedSingers(current.singers, detail.lyrics.singers) : []
+	);
 	const summary = $derived.by(() => {
 		if (!changes) return '';
 		const n = (k: Change['kind']) => changes.filter((c) => c.kind === k).length;
@@ -237,6 +242,7 @@
 		)
 			.filter(([k]) => n(k) > 0)
 			.map(([k, key]) => t(key, { count: n(k) }));
+		if (renames.length) parts.push(t('review.sum_renamed'));
 		return parts.length
 			? new Intl.ListFormat(currentLocale.id, { style: 'narrow', type: 'unit' }).format(parts)
 			: t('review.no_changes');
@@ -345,7 +351,13 @@
 		limusic.fixing =
 			open.kind === 'reported'
 				? null
-				: { revision: open.revision, videoId: open.video_id, author: open.author, lines: detail.lyrics.lines };
+				: {
+						revision: open.revision,
+						videoId: open.video_id,
+						author: open.author,
+						lines: detail.lyrics.lines,
+						singers: detail.lyrics.singers ?? {}
+					};
 		goto('/lyrics-editor');
 	}
 
@@ -387,8 +399,9 @@
 	});
 	/** Two singers or more: each line says whose it is. */
 	const voices = $derived(new Set(shown?.lines.map((l) => l.agent ?? 'v1')).size > 1);
-	const agentLabel = (a: string) =>
+	const singerN = (a: string) =>
 		a === 'v1000' ? t('lyrics_editor.singer_all') : t('lyrics_editor.singer_n', { n: Number(a.slice(1)) || 1 });
+	const agentLabel = (a: string) => shown?.singers?.[a] || singerN(a);
 	const stamp = (ms?: number) => {
 		if (ms === undefined) return '';
 		const s = ms / 1000;
@@ -731,10 +744,21 @@
 							{#each [60, 78, 52, 70] as w (w)}<Skeleton class="h-6 rounded" style="width:{w}%" />{/each}
 						</div>
 					{:else if view === 'changes'}
-						{#if changes?.length}
-							<!-- Only the lines that differ. -->
+						{#if changes?.length || renames.length}
+							<!-- Only the lines that differ, after the singers' names that do. -->
 							<div class="min-h-0 flex-1 overflow-y-auto p-2 text-sm">
-								{#each changes as c (c.kind + c.n)}
+								{#each renames as r (r.agent)}
+									<div class="grid grid-cols-[1.75rem_1fr_auto] items-baseline gap-x-2.5 rounded-lg px-2 py-1.5 odd:bg-muted/40">
+										<span></span>
+										<span class="min-w-0">
+											<span class="text-muted-foreground">{singerN(r.agent)}</span>
+											{#if r.old}<del class="ml-1.5 text-muted-foreground decoration-destructive">{r.old}</del>{/if}
+											{#if r.name}<ins class="ml-1.5 rounded bg-primary/20 px-1 font-semibold no-underline">{r.name}</ins>{/if}
+										</span>
+										<span class="text-xs text-muted-foreground">{t('review.change_renamed')}</span>
+									</div>
+								{/each}
+								{#each changes ?? [] as c (c.kind + c.n)}
 									<div class="grid grid-cols-[1.75rem_1fr_auto] items-baseline gap-x-2.5 rounded-lg px-2 py-1.5 odd:bg-muted/40">
 										<span class="text-right text-xs text-muted-foreground tabular-nums">{c.n}</span>
 										<span class="min-w-0">

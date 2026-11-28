@@ -7,8 +7,14 @@ import {
 	LEAD_IN_MS,
 	LEAD_OUT_MS,
 	MIN_WORD_MS,
+	NAME_MAX,
+	artistNames,
+	namesFromArtists,
+	singersOf,
 	autoSplit,
 	buildLines,
+	buildSingers,
+	cleanName,
 	draftKey,
 	estimateMs,
 	eventWallMs,
@@ -463,6 +469,41 @@ ok(broken((d) => (d.lines[0].words[0].start = -5)) === null, 'a negative time');
 ok(broken((d) => (d.lines[0].words[0].text = 5)) === null, 'text that is not text');
 ok(broken((d) => (d.lines[1].id = d.lines[0].id)) === null, 'two lines with one id');
 ok(broken((d) => delete d.baseRevision)!.baseRevision === null, 'a missing base is no base');
+ok(back.singers === undefined, 'a draft from before names has none, which is not no names');
+const named = unpackDraft(packDraft({ ...draft, singers: { v1: 'Rick', v1000: 'All' } }), 'FkxEE7wZ83c')!;
+ok(same(named.singers, { v1: 'Rick', v1000: 'All' }), 'the names come back with the draft');
+ok(broken((d) => (d.singers = { v1: 5 }))!.singers === undefined, 'a name that is not text is dropped');
+ok(broken((d) => (d.singers = { x: 'Rick' }))!.singers === undefined, 'a key that is not a singer is dropped');
+ok(broken((d) => (d.singers = ['Rick']))!.singers === undefined, 'a list is not names');
+
+// --- Singers' names ---------------------------------------------------------------------------
+ok(cleanName('  Rick \t Astley\n') === 'Rick Astley', 'on one line, single-spaced, trimmed');
+ok(cleanName('\u0007') === '', 'nothing but a control character is no name');
+ok(new TextEncoder().encode('鬱'.repeat(NAME_MAX)).length <= 100, 'a name typed to the limit fits the service');
+ok(new TextEncoder().encode('🎤'.repeat(NAME_MAX / 2)).length <= 100, 'astral characters too');
+const sungBy = (...agents: (string | undefined)[]) =>
+	agents.map((agent, i) => ({ time_ms: i * 1000, text: 'la', words: [{ text: 'la', start_ms: i * 1000, end_ms: i * 1000 + 500 }], agent }));
+ok(
+	same(buildSingers({ v1: ' Rick ', v2: 'Ed', v3: 'Nobody', v1000: 'Both' }, sungBy('v1', 'v2', 'v1000')), { v1: 'Rick', v2: 'Ed', v1000: 'Both' }),
+	'a name for each singer a line has, trimmed'
+);
+ok(same(buildSingers({ v1: 'Rick', v2: 'Ed' }, sungBy('v1', undefined)), { v1: 'Rick' }), 'a singer who lost every line loses the name');
+ok(same(buildSingers({ v1: '   ' }, sungBy('v1')), {}), 'an empty name is no name');
+ok(same(buildSingers({}, sungBy('v1')), {}), 'nobody named');
+
+// Named from the song's artists.
+const gagaBruno = [{ text: 'Lady Gaga', id: 'UC1' }, { text: ' & ' }, { text: 'Bruno Mars', id: 'UC2' }];
+ok(same(artistNames('Lady Gaga & Bruno Mars', gagaBruno), ['Lady Gaga', 'Bruno Mars']), 'the linked artists, not the ampersand');
+ok(same(artistNames('Simon & Garfunkel', [{ text: 'Simon & Garfunkel', id: 'UC3' }]), ['Simon & Garfunkel']), 'one linked act stays one');
+ok(same(artistNames('A, B & C'), ['A', 'B', 'C']), 'unlinked: cut at commas and ampersands');
+ok(same(artistNames('A & A', [{ text: 'A', id: '1' }, { text: ' & ' }, { text: 'A', id: '1' }]), ['A']), 'twice is once');
+ok(same(artistNames(''), []), 'no artist');
+const ed2 = (...agents: (string | undefined)[]): EdLine[] => agents.map((agent, i) => ({ id: i + 1, words: [w('la', 0, 1)], agent }));
+ok(same(singersOf(ed2('v2', 'v1', 'v1000', undefined, 'v2', 'x1')), ['v1', 'v2']), 'the singers by number, not everyone, not a bad id');
+ok(same(namesFromArtists(['v1', 'v2'], ['Lady Gaga', 'Bruno Mars']), { v1: 'Lady Gaga', v2: 'Bruno Mars' }), 'Singer 1 the first artist, Singer 2 the second');
+ok(same(namesFromArtists(['v1', 'v3'], ['A', 'B']), { v1: 'A' }), 'by number: no third artist, no name');
+ok(same(namesFromArtists(['v1', 'v2'], ['A']), {}), 'one artist cannot name two singers');
+ok(same(namesFromArtists(['v1', 'v2'], ['A', 'x'.repeat(101)]), { v1: 'A' }), 'a name the service would refuse is left out');
 ok(draftKey('abc') === 'lyrics_draft:abc', 'one key per song');
 
 console.log('ok');

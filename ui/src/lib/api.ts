@@ -1299,9 +1299,12 @@ export interface LyricLine {
 	romanized?: string;
 	romanized_words?: LyricWord[];
 	/** Which singer: `v1`, `v2`, ... and `v1000` for everyone together. A second singer's lines
-	 *  sit on the opposite side (`lyricvoices.ts`). */
+	 *  sit on the opposite side (`lyricvoices.ts`), named by `Lyrics.singers`. */
 	agent?: string;
 }
+/** Singers' names by the `agent` their lines carry (`{ v1: 'Lady Gaga' }`). A singer with no name
+ *  has no entry. */
+export type Singers = Record<string, string>;
 export interface Lyrics {
 	/** Attribution for the panel footer ("LRCLIB", "Source: Musixmatch", …). */
 	source: string;
@@ -1320,6 +1323,9 @@ export interface Lyrics {
 	authors?: string[];
 	/** The provider Limusic mirrored the lyric from ("Boidu"). Absent everywhere else. */
 	via?: string;
+	/** Limusic's names for the singers (#768): one goes above the first line of each turn.
+	 *  Absent when it names nobody, and from every other source. */
+	singers?: Singers;
 }
 // A type, not an interface: `invoke` takes a record, and only a type alias is assignable to one.
 export type LyricsTrack = {
@@ -1448,6 +1454,8 @@ export interface LimusicSubmission {
 	album?: string;
 	duration?: number;
 	base_revision: number | null;
+	/** `{}` for no names. Absent (a draft from before names) keeps the live lyric's. */
+	singers?: Singers;
 }
 export type LimusicSubmitted =
 	| { kind: 'published'; revision: number }
@@ -1519,8 +1527,18 @@ export const limusicReview = (
 	verdict: 'approve' | 'reject',
 	reason?: string,
 	/** With an approval of a pending revision: the reviewer's fix, live in place of what was sent. */
-	lines?: LyricLine[]
-) => invoke<string>('limusic_review', { revision, videoId, verdict, reason: reason ?? null, lines: lines ?? null });
+	lines?: LyricLine[],
+	/** The fix's names, with `lines` only. Absent keeps the author's. */
+	singers?: Singers
+) =>
+	invoke<string>('limusic_review', {
+		revision,
+		videoId,
+		verdict,
+		reason: reason ?? null,
+		lines: lines ?? null,
+		singers: singers ?? null
+	});
 /** A reviewer turned down my latest version of a song, and nothing went live after it. */
 export interface LimusicRejection {
 	/** That version, which `limusicReviewRevision` still returns to its author. */

@@ -1,7 +1,7 @@
 // Singers and background vocals as the lyrics view lays them out: `agent` on a line (Limusic's
-// lyrics only), `bg` on a word (Limusic's, and Apple's through Boidu, LyricsPlus and Unison). Pure,
-// so `lyricvoices.check.ts` can run it.
-import type { LyricLine, LyricWord } from './api';
+// lyrics only), `bg` on a word (Limusic's, and Apple's through Boidu, LyricsPlus and Unison), and
+// the singers' names Limusic gives (`turns`). Pure, so `lyricvoices.check.ts` can run it.
+import type { LyricLine, LyricWord, Singers } from './api';
 
 /** A stretch of a line's words that are all lead vocals, or all background ones. */
 export interface VoiceRun {
@@ -55,6 +55,23 @@ export function voices(lines: LyricLine[]): Voice[] | null {
 		const v = { far: duet && n !== null && singers.indexOf(n) % 2 === 1, runs: runsOf(l.words), until };
 		any ||= v.far || v.runs !== null;
 		return v;
+	});
+	return any ? out : null;
+}
+
+/** The name to put above each line, or null for none: the first line of a turn, when its singer
+ *  is named. A turn is the lines one singer sings in a row; an instrumental break between two of
+ *  them doesn't end it. Null for a lyric that names nobody, so it is drawn as before. */
+export function turns(lines: LyricLine[], singers: Singers | undefined): (string | null)[] | null {
+	if (!singers) return null;
+	let prev: string | undefined;
+	let any = false;
+	const out = lines.map((l) => {
+		if (!l.text.trim() && !l.words?.length) return null;
+		const name = l.agent && l.agent !== prev ? singers[l.agent]?.trim() || null : null;
+		prev = l.agent;
+		any ||= name !== null;
+		return name;
 	});
 	return any ? out : null;
 }

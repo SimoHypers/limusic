@@ -1,6 +1,6 @@
 // The review screen's rules, pure so `review.check.ts` can run them: where a row goes when it is
 // decided, what a refusal means, how old a submission is. The page is `routes/review`.
-import type { LimusicQueue, LimusicQueueItem, LyricLine } from './api';
+import type { LimusicQueue, LimusicQueueItem, LyricLine, Singers } from './api';
 import type { TranslationKey } from './i18n.svelte';
 
 /** The queue without `revision`: a decided row leaves the list at once. */
@@ -145,4 +145,20 @@ export function diffLyrics(current: LyricLine[], proposed: LyricLine[]): Change[
 	}
 	flush();
 	return out;
+}
+
+/** A singer's name an edit sets (`old` absent), changes, or clears (`name` absent). */
+export interface Renamed {
+	agent: string;
+	old?: string;
+	name?: string;
+}
+
+/** The singers whose names differ between the two versions, by their number (#768). */
+export function renamedSingers(current: Singers = {}, proposed: Singers = {}): Renamed[] {
+	const agents = [...new Set([...Object.keys(current), ...Object.keys(proposed)])];
+	return agents
+		.filter((a) => current[a] !== proposed[a])
+		.sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
+		.map((agent) => ({ agent, old: current[agent], name: proposed[agent] }));
 }

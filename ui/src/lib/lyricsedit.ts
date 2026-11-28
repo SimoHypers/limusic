@@ -2,7 +2,7 @@
 // rule under Node: splitting a line into words, stamping a tap, the loop, dragging a word's edge,
 // what is still missing, and the lines that get submitted. The page (`routes/lyrics-editor`) only
 // holds state and draws it.
-import type { LyricLine, LyricWord } from './api';
+import type { ArtistRun, LyricLine, LyricWord, Singers } from './api';
 
 /** One word, or one part of a word tapped on its own ("danc" + "ing"). `text` ends in a space when
  *  a space follows it in the line, the way every word-timed provider sends it (`LyricsView` reads
@@ -41,6 +41,8 @@ export interface Draft {
 	baseRevision: number | null;
 	/** Whether the starting lyric was already word by word: "Improve" rather than "Sync". */
 	improving: boolean;
+	/** The singers' names as typed. Absent from a draft saved before names existed. */
+	singers?: Singers;
 }
 
 // --- Words ------------------------------------------------------------------------------------
@@ -265,6 +267,55 @@ export function gapLine(id: number, time?: number): EdLine {
 
 /** Singer ids the server takes: `v` and 1 to 4 digits. */
 export const validAgent = (a: string | undefined): a is string => !!a && /^v\d{1,4}$/.test(a);
+
+/** The most a name may be typed to: 32 UTF-16 units are 96 bytes at most, under the service's
+ *  100. */
+export const NAME_MAX = 32;
+
+/** A typed name as the service keeps it: on one line, single-spaced, trimmed. */
+export const cleanName = (s: string): string =>
+	s
+		.replace(/\p{Cc}/gu, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
+
+/** The song's artists in order: the linked runs of its artist line ("Lady Gaga" and "Bruno Mars"
+ *  of "Lady Gaga & Bruno Mars"), else the line cut at its commas and ampersands. */
+export function artistNames(artists: string, runs?: ArtistRun[]): string[] {
+	const linked = (runs ?? []).filter((r) => r.id).map((r) => cleanName(r.text));
+	const names = linked.some(Boolean) ? linked : artists.split(/,|\s&\s/).map(cleanName);
+	return [...new Set(names.filter(Boolean))];
+}
+
+/** The singers the lines name, by number: `v1000` (everyone) is not one of them. */
+export const singersOf = (lines: EdLine[]): string[] =>
+	[...new Set(lines.map((l) => l.agent).filter((a): a is string => validAgent(a) && a !== 'v1000'))].sort(
+		(a, b) => Number(a.slice(1)) - Number(b.slice(1))
+	);
+
+/** Names for `singers` from the song's artists: Singer 1 is the first artist, Singer 2 the second,
+ *  and so on. None from a song credited to one artist: who would the other singer be? */
+export function namesFromArtists(singers: string[], artists: string[]): Singers {
+	if (artists.length < 2) return {};
+	const out: Singers = {};
+	for (const a of singers) {
+		const name = artists[Number(a.slice(1)) - 1];
+		if (name && bytes(name) <= MAX_NAME_BYTES) out[a] = name;
+	}
+	return out;
+}
+
+/** The names to send with `lines` (`buildLines`' output): one for each singer a line has, none
+ *  for a singer who lost every line or was never named. */
+export function buildSingers(names: Singers, lines: LyricLine[]): Singers {
+	const used = new Set(lines.map((l) => l.agent).filter(validAgent));
+	const out: Singers = {};
+	for (const [agent, name] of Object.entries(names)) {
+		const n = cleanName(name);
+		if (n && used.has(agent)) out[agent] = n;
+	}
+	return out;
+}
 
 export function setAgent(line: EdLine, agent: string | undefined): EdLine {
 	if ((line.agent ?? undefined) === agent) return line;
@@ -535,6 +586,7 @@ const MAX_LINES = 1000;
 const MAX_LINE_BYTES = 500;
 const MAX_WORDS = 100;
 const MAX_WORD_BYTES = 100;
+const MAX_NAME_BYTES = 100;
 
 export interface Missing {
 	/** No line has any text. */
@@ -678,7 +730,7 @@ export function unpackDraft(json: string | null, videoId: string): Draft | null 
 		}
 	}
 	if (!d.lines.length) return null;
-	return {
+	const out: Draft = {
 		v: 1,
 		videoId,
 		lines: d.lines,
@@ -686,4 +738,14 @@ export function unpackDraft(json: string | null, videoId: string): Draft | null 
 		baseRevision: typeof d.baseRevision === 'number' ? d.baseRevision : null,
 		improving: d.improving === true
 	};
+	// Names that are not all strings under singers' ids are no names: the draft still opens.
+	const s: unknown = d.singers;
+	if (
+		s &&
+		typeof s === 'object' &&
+		!Array.isArray(s) &&
+		Object.entries(s).every(([a, n]) => validAgent(a) && typeof n === 'string')
+	)
+		out.singers = s as Singers;
+	return out;
 }
