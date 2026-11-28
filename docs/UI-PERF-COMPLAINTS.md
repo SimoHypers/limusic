@@ -194,3 +194,42 @@ accent restyle that remains is the price of the feature: every element inherits 
   threshold, the accent on, Discord running.
 - `content-visibility: hidden` looked like the cheaper switch, with no rebuild on the way back.
   WebKitGTK resolves style under it anyway.
+
+### 2026-11-27, the seek bar's hover circle (`feat/smooth-seek-fill`)
+
+**Wanted:** the circle that shows when the seek bar is hovered to slide with the fill. The fill
+already coasted between position ticks; the circle is the range input's native thumb, placed from
+`value`, which Svelte writes once a tick, so it stepped 2-3 px about four times a second beside it.
+
+**What it cost:** every way of moving the native thumb per draw cost a pass per draw, or broke.
+Writing `value` on every draw while the bar was hovered asked for a style pass inside the slider's
+shadow tree each time, and so did a transform on the thumb from a custom property. Both also left
+the thumb a tick behind whenever the writes stopped (pointer leave, blur), so it jumped back. What
+shipped hides the native thumb and paints the circle in the track from the same one write that
+draws the fill, so it adds no write and no style or layout work, only a larger repaint: the track
+and the circle's room around it, 16 px tall instead of 4, on every draw, circle showing or not.
+That repaint has not been measured yet, on any engine.
+
+**What we settled for:** the circle is a radial gradient in the track's `border-image`, pushed past
+the track with `border-image-outset` and placed by the gradient's centre. The theater bar grew from
+16 to 20 px to hold its 14 px circle, and the press no longer scales the circle with a 0.15 s
+transition: it changes size at once.
+
+**What wasted time:** three attempts that looked right in the code and were wrong on screen, each
+found only by looking at pixels.
+
+- A circle in the input's own background is covered by the track, which paints over it: on screen
+  a "C", the bar running through the middle.
+- Moving a 12 px gradient tile with `background-position` steps it a whole pixel at a time:
+  Chromium snaps a background tile to device pixels. Gradient geometry is not snapped, so the
+  circle moved by its gradient's centre slides; measured in the app, steps of 0.25-0.5 px.
+- Padding the track to make room for the circle broke two things. The bar's ends became 8 x 2 px
+  ellipses, because a content box's corner radius is the outer radius less the padding on each axis,
+  and with top and bottom padding alone the two differ. And Chromium maps a click from the track's
+  outer edge, not its content box: a click at x=399 put the fill's edge at 405, 6 px off, the
+  padding. `border` instead of `padding` measured the same. With no padding and a 0 px thumb, the
+  fill's edge lands under the pointer in Chromium and Playwright's WebKit (48, 140, 240, 400, 432:
+  all exact).
+- "The bar sits lower than before" was checked twice, against the original CSS in the running app
+  and in both engines: the same pixel rows, timers on 10-18 and the bar on 14-17. Worth measuring
+  before moving anything.

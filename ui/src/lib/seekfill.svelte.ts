@@ -1,0 +1,156 @@
+// Draws the seek bar's fill between position ticks. The maths is in `seekfill.ts`; this is the
+// loop around it. Put it on the `.m3-seek` wrapper, with the same numbers `M3SeekWave` gets:
+//
+//     <div class="m3-seek" {@attach seekFill(() => ({ pct, paused, duration, dragging }))}>
+//
+// It writes `--seek-p` (0..1) on the range input inside. In every theme but Material, layout.css
+// derives the track's `--pct` from it and paints the hover circle from it, so the fill and the
+// circle move together. Material draws the bar with `M3SeekWave` and has its own loop, so this one
+// idles there and takes its property back off.
+//
+// One writer: the input carries no inline `--seek-p` or `--pct` of its own, or the next tick would
+// overwrite this one with the stale value. The input's `value` stays the tick's (`step="any"` lets
+// it be fractional); nothing on screen is placed from it any more.
+//
+// The circle that shows on hover is not the native thumb. The thumb is placed from `value`, which
+// Svelte writes once a tick, so it stepped 2-3 px about four times a second beside a smooth fill.
+// Writing `value` on every draw while the bar was hovered (tried first), or a `--thumb-dx` transform
+// on the thumb, asked for a style pass inside the slider's shadow tree per draw, and the thumb
+// jumped back whenever those writes stopped (pointer leave, blur, a tick). So layout.css hides the
+// thumb and paints the circle in the track from `--seek-p`: this loop's one write moves both, and
+// nothing here writes `value`. Why it is a border-image placed by the gradient's centre is in the
+// comment there.
+//
+// The fill's edge is a 1 px soft ramp in layout.css, not a hard gradient stop. A hard stop paints
+// on whole pixels whatever `--pct` says (WebKitGTK 2.52.6: steps of 0.24 px repainted the same
+// pixels three or four writes running, then jumped one), so no draw rate could look smooth.
+//
+// Cost, per docs/UI-PERFORMANCE.md: the property lands on a leaf (the input, not `<html>`), the
+// loop runs only while the bar is playing and not being dragged, and it draws once per quarter
+// pixel of travel, on an animation frame: a timer waits out the gap (like `M3SeekWave`) and one
+// frame draws, so a long track in a narrow bar draws a few times a second and a short one in a
+// wide bar every frame. The width comes from a ResizeObserver's entry, so nothing reads layout.
+// Each draw repaints the track and the circle's room around it (16 px tall instead of the bar's
+// 4), whether or not the circle is showing; that has not been measured on WebKitGTK yet.
+import type { Attachment } from 'svelte/attachments';
+import { drawGap, frame, restart, sample, type Clock } from './seekfill';
+import { theme } from './theme.svelte';
+
+export type SeekFillParams = {
+	/** 0..1 of the shown (tempo-adjusted) timeline. */
+	pct: number;
+	paused: boolean;
+	/** Shown seconds: the track's length divided by the playback speed. */
+	duration: number;
+	dragging: boolean;
+};
+
+export function seekFill(get: () => SeekFillParams): Attachment<HTMLElement> {
+	return (node) => {
+		// Looked up when needed, not once: the input is static in every bar today, but a bar that
+		// remounts it (a keyed block, a future refactor) must not leave this writing to a dead node.
+		let input: HTMLInputElement | null = null;
+		const find = (): HTMLInputElement | null => {
+			if (!input?.isConnected) {
+				input = node.querySelector<HTMLInputElement>('input[type="range"]');
+				written = '';
+			}
+			return input;
+		};
+
+		let p: SeekFillParams = { pct: 0, paused: true, duration: 0, dragging: false };
+		let running = false;
+		let clock: Clock = restart(0, 0);
+		let width = 0;
+		let raf = 0;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let lastDraw = 0;
+		let written = '';
+
+		const write = (v: number) => {
+			const el = find();
+			if (!el) return;
+			const s = Math.min(1, Math.max(0, v)).toFixed(5);
+			if (s === written) return;
+			written = s;
+			el.style.setProperty('--seek-p', s);
+		};
+
+		const stop = () => {
+			if (raf) cancelAnimationFrame(raf);
+			clearTimeout(timer);
+			raf = 0;
+			timer = undefined;
+		};
+
+		const schedule = () => {
+			// Half a display frame early: the animation frame it waits for lands up to one later.
+			const wait = lastDraw + drawGap(p.duration, width) - 8 - performance.now();
+			if (wait > 0) {
+				timer = setTimeout(() => {
+					timer = undefined;
+					raf = requestAnimationFrame(tick);
+				}, wait);
+			} else {
+				raf = requestAnimationFrame(tick);
+			}
+		};
+
+		const tick = () => {
+			raf = 0;
+			const now = performance.now();
+			clock = frame(clock, now, p.duration);
+			write(clock.shown);
+			lastDraw = now;
+			schedule();
+		};
+
+		const ro = new ResizeObserver((entries) => {
+			width = entries[0]?.contentRect.width ?? 0;
+		});
+		ro.observe(node);
+
+		$effect(() => {
+			const next = get();
+			const prev = p;
+			p = next;
+			const now = performance.now();
+			if (theme.id === 'material') {
+				stop();
+				running = false;
+				written = '';
+				find()?.style.removeProperty('--seek-p');
+				return;
+			}
+			if (next.paused || next.dragging || !(next.duration > 0)) {
+				// Paused, dragging or nothing loaded: the bar is exactly where it was told.
+				stop();
+				running = false;
+				clock = restart(next.pct, now);
+				write(next.pct);
+				return;
+			}
+			if (!running) {
+				// Mount, resume or the end of a drag. The last tick may be old (a pause leaves its
+				// time behind), so start from now rather than coasting across the gap.
+				running = true;
+				clock = restart(next.pct, now);
+				write(next.pct);
+				stop();
+				lastDraw = 0;
+				schedule();
+			} else if (next.pct !== prev.pct) {
+				clock = sample(clock, next.pct, now, next.duration);
+				// A seek, a new track or a tick ahead of the fill shows at once; one that only agrees
+				// with it waits for the loop's next frame.
+				if (clock.shown === next.pct) write(clock.shown);
+			}
+		});
+
+		return () => {
+			stop();
+			ro.disconnect();
+			input?.style.removeProperty('--seek-p');
+		};
+	};
+}

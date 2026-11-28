@@ -1539,7 +1539,7 @@ input[type='range'].range {
 input[type='range'].range::-webkit-slider-runnable-track {
 	height: 4px;
 	border-radius: 999px;
-	background: linear-gradient(to right, var(--primary) var(--pct, 0%), var(--muted) var(--pct, 0%));
+	background: linear-gradient(to right, var(--primary) calc(var(--pct, 0%) - 0.5px), var(--muted) calc(var(--pct, 0%) + 0.5px));
 }
 input[type='range'].range::-webkit-slider-thumb {
 	-webkit-appearance: none;
@@ -1564,7 +1564,7 @@ input[type='range'].range.theater-range::-webkit-slider-thumb {
 }
 /* The mini player's seek bar sits on cover art, where --muted has nothing to contrast with. */
 input[type='range'].range.on-art::-webkit-slider-runnable-track {
-	background: linear-gradient(to right, var(--primary) var(--pct, 0%), rgb(255 255 255 / 0.35) var(--pct, 0%));
+	background: linear-gradient(to right, var(--primary) calc(var(--pct, 0%) - 0.5px), rgb(255 255 255 / 0.35) calc(var(--pct, 0%) + 0.5px));
 }
 input[type='range'].range:hover::-webkit-slider-thumb,
 input[type='range'].range:focus-visible::-webkit-slider-thumb {
@@ -1572,6 +1572,72 @@ input[type='range'].range:focus-visible::-webkit-slider-thumb {
 }
 input[type='range'].range:active::-webkit-slider-thumb {
 	transform: scale(1.25);
+}
+/* Seek bars (every theme but Material, which draws its own in `M3SeekWave`). `seekFill` writes one
+   number, `--seek-p` (0..1), on the input; the fill (`--pct`, derived from it below) and the circle
+   both read it, so the circle coasts with the fill between position ticks. The native thumb is
+   placed from `value`, which Svelte writes once a tick, so it stepped 2-3 px four times a second
+   beside a smooth fill; moving it on every draw (writing `value`, or a transform on the thumb) asked
+   for layout or a style pass inside the slider's shadow tree per draw, and it jumped back whenever
+   those writes stopped. So the native thumb stays as the drag handle, hidden and 0 px wide, and the
+   circle is a gradient painted by the track: moving it only repaints the track, which the fill's
+   write already does.
+   - The circle is the track's border-image, pushed out past the track with border-image-outset.
+     The track keeps its own 4 px bar and rounded ends, the circle paints over the bar, and it can
+     reach half a circle past either end. Padding the track to make room instead stretched the
+     bar's ends into ellipses (a content box's corner radius is the outer radius less the padding)
+     and, in Chromium, a click mapped from the track's outer edge, 6 px left of the bar's start.
+   - It is placed by the gradient's centre, not by background-position: Chromium snaps a tile to
+     whole pixels, so the circle stepped 1 px at a time while the fill slid. Gradient geometry is
+     not snapped. The centre is the fill's edge: `--seek-inset` (the outset) + p x the bar's width.
+   - The input is padded by `--seek-inset` on each side, so the circle has room at 0% and 100%,
+     and pulled out by the same negative margin, so the bar is as long as it was.
+   - With a 0 px thumb, Chromium maps a click over the track's width from its left edge: the
+     fill's edge lands under the pointer.
+   `--seek-thumb` is registered only so the hover fade can transition; it is set on the input and
+   inherited by its track only. */
+@property --seek-thumb {
+	syntax: '<percentage>';
+	inherits: true;
+	initial-value: 0%;
+}
+html:not(.theme-material) .m3-seek input[type='range'].range {
+	--pct: calc(var(--seek-p, 0) * 100%);
+	--seek-thumb-size: 12px;
+	--seek-inset: 6px;
+	/* (input height - bar height) / 2: the circle's room above and below the bar */
+	--seek-outset-y: 6px;
+	padding-inline: var(--seek-inset);
+	margin-inline: calc(-1 * var(--seek-inset));
+	transition: --seek-thumb 0.15s ease;
+}
+html:not(.theme-material) .m3-seek input[type='range'].range::-webkit-slider-runnable-track {
+	border-image: radial-gradient(
+			circle calc(var(--seek-thumb-size) / 2) at
+				calc(var(--seek-inset) + (100% - 2 * var(--seek-inset)) * var(--seek-p, 0)) 50%,
+			color-mix(in srgb, var(--primary) var(--seek-thumb), transparent) calc(100% - 1px),
+			transparent
+		)
+		0 fill / 0 / var(--seek-outset-y) var(--seek-inset);
+}
+html:not(.theme-material) .m3-seek input[type='range'].range.theater-range {
+	--seek-thumb-size: 14px;
+	--seek-inset: 7px;
+	--seek-outset-y: 7px;
+	height: 20px;
+}
+html:not(.theme-material) .m3-seek input[type='range'].range:is(:hover, :focus-visible) {
+	--seek-thumb: 100%;
+}
+html:not(.theme-material) .m3-seek input[type='range'].range:active {
+	--seek-thumb-size: 15px;
+}
+html:not(.theme-material) .m3-seek input[type='range'].range.theater-range:active {
+	--seek-thumb-size: 17.5px;
+}
+html:not(.theme-material) .m3-seek input[type='range'].range::-webkit-slider-thumb {
+	width: 0;
+	opacity: 0;
 }
 
 /* Custom scrollbars everywhere (KI-5). WebKitGTK paints its *native* overlay

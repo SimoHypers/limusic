@@ -74,6 +74,7 @@
 	} from '$lib/video.svelte';
 	import { artRoom } from '$lib/artroom.svelte';
 	import { appearance, setAppearance } from '$lib/theme.svelte';
+	import { seekFill } from '$lib/seekfill.svelte';
 	import { isMissingThumb, thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
 	import LiveBadge from './LiveBadge.svelte';
@@ -817,7 +818,12 @@
 				<span class="min-w-[5ch] text-right">{fmt(shownPosition)}</span>
 				<div
 					class="m3-seek m3-seek-theater relative flex min-w-0 flex-1 items-center {cinema ? 'on-art' : ''}"
-					style="--pct:{pct}%"
+					{@attach seekFill(() => ({
+						pct: pct / 100,
+						paused: playback.paused,
+						duration: shownDuration,
+						dragging: seekDrag !== null
+					}))}
 				>
 					<M3SeekWave
 						pct={pct / 100}
@@ -833,9 +839,9 @@
 					<input
 						type="range"
 						class="range theater-range min-w-0 flex-1 {cinema ? 'on-art' : ''}"
-						style="--pct:{pct}%"
 						min="0"
 						max={shownDuration || 0}
+						step="any"
 						value={shownPosition}
 						oninput={(e) => (seekDrag = Number(e.currentTarget.value) * playback.speed)}
 						onchange={(e) => {
