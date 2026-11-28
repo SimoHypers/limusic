@@ -2955,7 +2955,7 @@ pub async fn limusic_live_lyrics(video_id: String) -> Option<crate::lyrics::Lyri
 }
 
 /// `verdict` is `approve` or `reject`. Resolves with the service's status for the revision.
-/// `lines` with an approval is the reviewer's fix (Fix before approving).
+/// `lines` with an approval is the reviewer's fix (Fix before approving), and `singers` its names.
 #[tauri::command]
 pub async fn limusic_review(
     state: St<'_>,
@@ -2964,9 +2964,10 @@ pub async fn limusic_review(
     verdict: String,
     reason: Option<String>,
     lines: Option<Vec<crate::lyrics::LyricLine>>,
+    singers: Option<std::collections::BTreeMap<String, String>>,
 ) -> Result<String, String> {
-    crate::limusic::review_verdict(state.inner(), revision, &video_id, &verdict, reason, lines)
-        .await
+    let s = state.inner();
+    crate::limusic::review_verdict(s, revision, &video_id, &verdict, reason, lines, singers).await
 }
 
 /// Why a reviewer rejected my latest version of the song, for the editor. `None` when there is

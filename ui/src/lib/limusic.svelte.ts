@@ -26,7 +26,13 @@ export const limusic = $state({
 	launching: false,
 	/** Handed from the review page to the lyric editor: the submission a reviewer is fixing before
 	 *  approving it. The editor clears it when it is left. */
-	fixing: null as { revision: number; videoId: string; author: string | null; lines: api.LyricLine[] } | null,
+	fixing: null as {
+		revision: number;
+		videoId: string;
+		author: string | null;
+		lines: api.LyricLine[];
+		singers: api.Singers;
+	} | null,
 	/** Where the review page was in its queue when it opened the editor: it opens that row again. */
 	reviewAt: null as number | null,
 	/** Reviewers' notes on my lyrics not read yet: a dot on the Contributing tab. */
@@ -171,6 +177,8 @@ export interface LyricsSubmission {
 	duration?: number;
 	/** The live revision the draft was started from, `null` when the song had none. */
 	baseRevision: number | null;
+	/** `buildSingers`' output. Absent for a draft from before names: the live lyric's stay. */
+	singers?: api.Singers;
 }
 
 /** THE SUBMIT SEAM. The editor calls this and nothing else to send a lyric. A transport failure
@@ -184,7 +192,8 @@ export async function submitLyrics(s: LyricsSubmission): Promise<api.LimusicSubm
 			artist: s.artist,
 			album: s.album,
 			duration: s.duration,
-			base_revision: s.baseRevision
+			base_revision: s.baseRevision,
+			singers: s.singers
 		});
 	} catch {
 		return { kind: 'failed', code: 'unavailable', detail: null };

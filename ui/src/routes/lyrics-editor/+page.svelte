@@ -55,6 +55,7 @@
 	} from '@hugeicons/core-free-icons';
 	import LimusicLoader from '$lib/components/LimusicLoader.svelte';
 	import { Button, buttonVariants } from '$lib/components/ui/button';
+	import { Input } from '$lib/components/ui/input';
 	import { Slider } from '$lib/components/ui/slider';
 	import { Switch } from '$lib/components/ui/switch';
 	import { Textarea } from '$lib/components/ui/textarea';
@@ -79,13 +80,17 @@
 	import { keyOf, typing } from '$lib/shortcuts';
 	import { KIND_CLASS, KIND_LABEL } from '$lib/lyricsSources';
 	import {
+		NAME_MAX,
+		artistNames,
 		buildLines,
+		buildSingers,
 		draftKey,
 		estimateMs,
 		eventWallMs,
 		fieldText,
 		fromLyrics,
 		fromText,
+		namesFromArtists,
 		gapLine,
 		joinLines,
 		kindOf,
@@ -104,6 +109,7 @@
 		setLineText,
 		setLineTime,
 		splitLine,
+		singersOf,
 		stampTap,
 		startVoice,
 		toggleBg,
@@ -183,6 +189,14 @@
 	let lines = $state.raw<EdLine[]>([]);
 	let nextId = 1;
 	let baseRevision: number | null = null;
+	/** The singers' names as typed (#768). Null for a draft saved before names: what is sent then
+	 *  leaves the live lyric's names as they are. */
+	let names = $state.raw<api.Singers | null>({});
+	/** Who the song is by, for naming singers nobody has named (`suggestNames`). */
+	const artists = opened ? artistNames(opened.artists, opened.artistRuns) : [];
+	/** The names were filled from the artists, or had no need to be: once per start, so names
+	 *  the user cleared stay cleared. */
+	let suggested = false;
 	let improving = $state(false);
 	let cur = $state(0);
 	let saveFailed = $state(false);
@@ -200,7 +214,7 @@
 		// ponytail: a fix lives on this page only, so it never overwrites the reviewer's own draft
 		// of the song. Leaving the page drops it; the submission is still in the queue.
 		if (!track || !lines.length || sent || fixing) return;
-		const json = packDraft({ v: 1, videoId: track.videoId, lines, nextId, baseRevision, improving });
+		const json = packDraft({ v: 1, videoId: track.videoId, lines, nextId, baseRevision, improving, singers: names ?? undefined });
 		saveFailed = !store(draftKey(track.videoId), json);
 	}
 
@@ -228,15 +242,20 @@
 			ls.findIndex((l) => l.words.length > 0 && !wordsTimed(l))
 		);
 
-	function begin(ls: EdLine[], isImproving: boolean) {
+	function begin(ls: EdLine[], isImproving: boolean, singers: api.Singers = {}) {
 		if (!ls.length) {
 			toast.error(t('lyrics_editor.start_failed'));
 			return;
 		}
 		nextId = Math.max(...ls.map((l) => l.id)) + 1;
 		improving = isImproving;
+		names = { ...singers };
+		// A reviewer's fix keeps the author's names: filling some in would change the submission.
+		suggested = !!fixing || Object.keys(singers).length > 0;
 		cur = firstTodo(ls);
 		setLines(ls);
+		// Unasked, only a lyric that is a duet already: a solo one stays unnamed.
+		if (singersOf(ls).length > 1) suggestNames(singersOf(ls));
 		flush();
 		mode = 'edit';
 		select(cur);
@@ -328,7 +347,7 @@
 		try {
 			const rev = await api.limusicReviewRevision(rejection.revision);
 			// Started from something else, or left, while it was on its way.
-			if (alive && mode === 'start') begin(fromLyrics(rev.lyrics?.lines ?? []), false);
+			if (alive && mode === 'start') begin(fromLyrics(rev.lyrics?.lines ?? []), false, rev.lyrics?.singers);
 		} catch {
 			toast.error(t('lyrics_editor.start_failed'));
 		} finally {
@@ -340,7 +359,7 @@
 	function discard() {
 		discardOpen = false;
 		// A fix starts over from the submission as it was sent.
-		if (fixing) return begin(fromLyrics(fixing.lines), false);
+		if (fixing) return begin(fromLyrics(fixing.lines), false, fixing.singers);
 		clearTimeout(saveTimer);
 		if (track) store(draftKey(track.videoId), null);
 		lines = [];
@@ -672,6 +691,28 @@
 		resetTake();
 	}
 
+	/** Singers nobody has named get the song's artists, Singer 1 the first: a duet when it starts,
+	 *  or the singers the Singer menu offers when it opens. Once, and never over a name. */
+	function suggestNames(singers: string[]) {
+		if (suggested || !names || Object.keys(names).length) return;
+		const s = namesFromArtists(singers, artists);
+		if (!Object.keys(s).length) return;
+		suggested = true;
+		names = s;
+		saveSoon();
+	}
+
+	/** A singer's name, typed. Saved with the draft like any other change. */
+	function setName(agent: string, name: string) {
+		names = { ...(names ?? {}), [agent]: name };
+		saveSoon();
+	}
+
+	function saveSoon() {
+		clearTimeout(saveTimer);
+		saveTimer = setTimeout(flush, 400);
+	}
+
 	/** Singer 1, singer 2, any other the lyric already names, and everyone together. */
 	const agents = $derived(
 		[
@@ -726,14 +767,16 @@
 		submitting = true;
 		result = null;
 		try {
+			const built = buildLines(lines);
 			const outcome = await submitLyrics({
 				videoId: track.videoId,
-				lines: buildLines(lines),
+				lines: built,
 				title: track.title,
 				artist: track.artists,
 				album: track.album,
 				duration: track.duration,
-				baseRevision
+				baseRevision,
+				singers: names ? buildSingers(names, built) : undefined
 			});
 			const m = submitMessage(outcome);
 			if (m.sent) {
@@ -757,7 +800,9 @@
 		commitField();
 		submitting = true;
 		try {
-			await api.limusicReview(fixing.revision, fixing.videoId, 'approve', fixNote.trim() || undefined, buildLines(lines));
+			const built = buildLines(lines);
+			const singers = buildSingers(names ?? {}, built);
+			await api.limusicReview(fixing.revision, fixing.videoId, 'approve', fixNote.trim() || undefined, built, singers);
 			toast.success(t('review.approved_fixed'));
 			// Left while it was on its way: wherever the reviewer is now is not ours to move.
 			if (!alive) return;
@@ -798,14 +843,18 @@
 		history.back();
 	}
 
-	const previewLyrics = $derived<api.Lyrics>({
-		source: '',
-		provider: '',
-		synced: true,
-		instrumental: false,
-		pinned: false,
-		offset_ms: 0,
-		lines: buildLines(lines.filter((l) => l.time !== undefined || wordsTimed(l)))
+	const previewLyrics = $derived.by<api.Lyrics>(() => {
+		const shown = buildLines(lines.filter((l) => l.time !== undefined || wordsTimed(l)));
+		return {
+			source: '',
+			provider: '',
+			synced: true,
+			instrumental: false,
+			pinned: false,
+			offset_ms: 0,
+			lines: shown,
+			singers: buildSingers(names ?? {}, shown)
+		};
 	});
 	/** The preview as the player will show it: through `romanize::fill`, which also times a
 	 *  word-synced line's romanization by its words. The raw lines until it answers. */
@@ -891,11 +940,12 @@
 			})(),
 			track.videoId
 		);
-		if (fixing) begin(fromLyrics(fixing.lines), false);
+		if (fixing) begin(fromLyrics(fixing.lines), false, fixing.singers);
 		else if (draft) {
 			lines = draft.lines;
 			nextId = draft.nextId;
 			baseRevision = draft.baseRevision;
+			names = draft.singers ?? null;
 			improving = draft.improving;
 			cur = firstTodo(draft.lines);
 			tapBg = startVoice(draft.lines[cur].words);
@@ -928,8 +978,10 @@
 	});
 
 	const speedLabel = (s: number) => `${+s.toFixed(2)}x`;
-	const agentLabel = (a: string) =>
+	const singerN = (a: string) =>
 		a === 'v1000' ? t('lyrics_editor.singer_all') : t('lyrics_editor.singer_n', { n: Number(a.slice(1)) });
+	/** The singer's name where it has one, else "Singer 2". */
+	const agentLabel = (a: string) => names?.[a]?.trim() || singerN(a);
 
 	// --- Drawing ---------------------------------------------------------------------------------
 	/** The page's own width, from a ResizeObserver: the main area shrinks with the sidebar and the
@@ -1273,7 +1325,7 @@
 							</Popover.Root>
 						{/if}
 						{#if startLines.length}
-							<Button onclick={() => begin(startLines, startKind === 'words')}>{t('lyrics_editor.start_use')}</Button>
+							<Button onclick={() => begin(startLines, startKind === 'words', start?.lyrics?.singers)}>{t('lyrics_editor.start_use')}</Button>
 						{/if}
 					</div>
 				</div>
@@ -1419,12 +1471,12 @@
 								<span class={wide ? '' : 'sr-only'}>{t('lyrics_editor.edit_text')}</span>
 								{#if wide}<kbd class={KEY}>E</kbd>{/if}
 							</Button>
-							<Popover.Root bind:open={singerOpen}>
+							<Popover.Root bind:open={singerOpen} onOpenChange={(o) => o && suggestNames(agents)}>
 								<Popover.Trigger class="{GHOST} {line?.agent ? 'text-foreground' : 'text-muted-foreground'}" aria-label={t('lyrics_editor.singer')} disabled={!line}>
 									<HugeiconsIcon icon={Mic01Icon} class="size-4" />
 									<span class={wide ? '' : 'sr-only'}>{line?.agent ? agentLabel(line.agent) : t('lyrics_editor.singer')}</span>
 								</Popover.Trigger>
-								<Popover.Content align="end" class="w-48 gap-0 p-1.5">
+								<Popover.Content align="end" class="w-56 gap-0 p-1.5">
 									<div role="radiogroup" aria-label={t('lyrics_editor.singer')}>
 										{#each [undefined, ...agents, 'v1000'] as a (a ?? '')}
 											{@const on = (line?.agent ?? undefined) === a}
@@ -1445,6 +1497,23 @@
 												{#if !a || /^v[1-9]$/.test(a)}<kbd class="{KEY} ml-auto">{a ? a.slice(1) : '0'}</kbd>{/if}
 											</button>
 										{/each}
+									</div>
+									<!-- Names for the whole song, not this line: the lyrics show one above each
+									     singer's turn. Enter is done, like picking a singer. -->
+									<div class="mt-1.5 flex flex-col gap-1.5 border-t px-1 pt-2.5 pb-1">
+										<span class="px-1 text-xs font-medium text-muted-foreground">{t('lyrics_editor.singer_names')}</span>
+										{#each [...agents, 'v1000'] as a (a)}
+											<Input
+												class="h-8"
+												value={names?.[a] ?? ''}
+												placeholder={singerN(a)}
+												maxlength={NAME_MAX}
+												aria-label={t('lyrics_editor.singer_name_of', { singer: singerN(a) })}
+												oninput={(e) => setName(a, e.currentTarget.value)}
+												onkeydown={(e) => e.key === 'Enter' && (singerOpen = false)}
+											/>
+										{/each}
+										<span class="px-1 text-xs text-muted-foreground">{t('lyrics_editor.singer_names_hint')}</span>
 									</div>
 								</Popover.Content>
 							</Popover.Root>

@@ -12,6 +12,7 @@
 //! The HTTP half takes the server root and a token and knows nothing of `AppState`; the half
 //! below it is the glue that stores and emits.
 
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -458,6 +459,10 @@ pub struct Submission {
     /// Seconds.
     pub duration: Option<f64>,
     pub base_revision: Option<i64>,
+    /// The singers' names (#768), `{}` for none. `None` (a draft from before names) leaves the
+    /// live lyric's names as they are.
+    #[serde(default)]
+    pub singers: Option<BTreeMap<String, String>>,
 }
 
 /// What the service made of a submission. `Failed` carries its error code (`unauthorized`,
@@ -508,6 +513,9 @@ async fn post_revision(token: &str, s: &Submission) -> Submitted {
     if let Some(d) = s.duration.filter(|d| d.is_finite() && *d > 0.0) {
         body["duration"] = d.round().into();
     }
+    if let Some(singers) = &s.singers {
+        body["singers"] = json!(singers);
+    }
     let rb = crate::http::client()
         .post(url(&format!("/v1/lyrics/{}/revisions", s.video_id)))
         .json(&body);
@@ -540,12 +548,18 @@ pub async fn submit(state: &AppState, mut s: Submission) -> Submitted {
         }
     }
     if let Submitted::Published { revision } = &result {
-        // The lyric is live: the next look at this song shows it, not the old cached one.
+        // The lyric is live: the next look at this song shows it, not the old cached one. Sent
+        // without names, it kept the live lyric's, which only the service has: the next look asks.
+        let Some(singers) = s.singers else {
+            state.db.delete_lyrics(&shown);
+            return result;
+        };
         let answer = crate::lyrics::LimusicAnswer {
             origin: "community".into(),
             revision: Some(*revision),
             authors: credit(&filed).await,
             lines: s.lines,
+            singers,
             ..Default::default()
         };
         if let Some(mut l) = crate::lyrics::limusic_to_lyrics(answer) {
@@ -756,6 +770,7 @@ pub(crate) async fn publish_for_test(admin: &str, video_id: &str) -> i64 {
         album: None,
         duration: Some(200.0),
         base_revision: live_revision(video_id).await.unwrap(),
+        singers: None,
     };
     match post_revision(admin, &s).await {
         Submitted::Published { revision } => revision,
@@ -850,6 +865,8 @@ struct RawRevision {
     created_at: i64,
     #[serde(default)]
     author_record: Option<Record>,
+    #[serde(default)]
+    singers: BTreeMap<String, String>,
 }
 
 fn parse_revision(body: Value) -> Option<Revision> {
@@ -858,6 +875,7 @@ fn parse_revision(body: Value) -> Option<Revision> {
         origin: "community".into(),
         revision: Some(r.revision),
         lines: r.lines,
+        singers: r.singers,
         ..Default::default()
     };
     Some(Revision {
@@ -931,6 +949,7 @@ async fn post_verdict(
     verdict: &str,
     reason: Option<&str>,
     lines: Option<&[LyricLine]>,
+    singers: Option<&BTreeMap<String, String>>,
 ) -> Result<String, String> {
     let mut body = json!({ "verdict": verdict });
     if let Some(r) = clip_reason(reason) {
@@ -938,6 +957,9 @@ async fn post_verdict(
     }
     if let Some(l) = lines {
         body["lines"] = json!(l);
+    }
+    if let Some(s) = singers {
+        body["singers"] = json!(s);
     }
     let rb =
         crate::http::client().post(url(&format!("/v1/revisions/{revision}/review"))).json(&body);
@@ -997,7 +1019,8 @@ pub async fn live_lyrics(video_id: &str) -> Option<Lyrics> {
 /// `rejected`, or `reverted` for a live lyric that was taken down. An approval puts the lyric in
 /// this device's cache in place of the old one, and a takedown forgets the cached one. `lines`,
 /// with an approval of a pending revision, is the reviewer's fix: it goes live in place of what
-/// was sent, still the author's.
+/// was sent, still the author's. `singers` go with it, the fix's names; without them the author's
+/// stay.
 pub async fn review_verdict(
     state: &AppState,
     revision: i64,
@@ -1005,15 +1028,18 @@ pub async fn review_verdict(
     verdict: &str,
     reason: Option<String>,
     lines: Option<Vec<LyricLine>>,
+    singers: Option<BTreeMap<String, String>>,
 ) -> Result<String, String> {
     if !matches!(verdict, "approve" | "reject")
         || !plausible_id(video_id)
         || (lines.is_some() && verdict != "approve")
+        || (singers.is_some() && lines.is_none())
     {
         return Err("invalid".into());
     }
     let t = session(state)?;
-    let sent = post_verdict(&t, revision, verdict, reason.as_deref(), lines.as_deref()).await;
+    let (reason, lines) = (reason.as_deref(), lines.as_deref());
+    let sent = post_verdict(&t, revision, verdict, reason, lines, singers.as_ref()).await;
     let status = checked(state, &t, sent)?;
     if verdict == "approve" {
         // The lyric just went live: the next look at this song shows it, not the cached one. The
@@ -1355,6 +1381,7 @@ mod tests {
             album: None,
             duration: Some(200.4),
             base_revision: base,
+            singers: None,
         };
         let two = || vec![line(1000, &["hello", "there"]), line(3000, &["general", "kenobi"])];
 
@@ -1431,6 +1458,7 @@ mod tests {
             album: None,
             duration: Some(200.0),
             base_revision: None,
+            singers: None,
         };
         let sent = post_revision(&anon, &sub).await;
         assert!(matches!(sent, Submitted::Pending { .. }), "an anonymous submit waits: {sent:?}");
@@ -1476,6 +1504,7 @@ mod tests {
             album: None,
             duration: Some(120.0),
             base_revision: base,
+            singers: None,
         };
         let first = vec![line(1000, &["one", "two"]), line(3000, &["three", "four"])];
         let Submitted::Pending { revision } = post_revision(&anon, &sub(first.clone(), None)).await
@@ -1489,7 +1518,7 @@ mod tests {
         assert_eq!(r.lyrics.unwrap().lines.len(), 2);
         assert_eq!(get_revision(&user, revision).await.unwrap_err(), "forbidden");
         assert_eq!(
-            post_verdict(&admin, revision, "approve", None, None).await.unwrap(),
+            post_verdict(&admin, revision, "approve", None, None, None).await.unwrap(),
             "published"
         );
         assert!(get_queue(&admin, None)
@@ -1500,11 +1529,11 @@ mod tests {
             .all(|i| i.revision != revision));
         // Approving the live revision again keeps it (it is how a reported one is cleared).
         assert_eq!(
-            post_verdict(&admin, revision, "approve", None, None).await.unwrap(),
+            post_verdict(&admin, revision, "approve", None, None, None).await.unwrap(),
             "published"
         );
         assert_eq!(
-            post_verdict(&admin, 99999, "approve", None, None).await.unwrap_err(),
+            post_verdict(&admin, 99999, "approve", None, None, None).await.unwrap_err(),
             "not_found"
         );
         // An edit from the same anonymous account waits, and a reject carries a reason.
@@ -1517,12 +1546,76 @@ mod tests {
         };
         let q = get_queue(&admin, None).await.unwrap();
         assert_eq!(q.items.iter().find(|i| i.revision == edit).unwrap().kind, "edit");
-        let said = post_verdict(&admin, edit, "reject", Some("  the timing is wrong "), None).await;
+        let said =
+            post_verdict(&admin, edit, "reject", Some("  the timing is wrong "), None, None).await;
         assert_eq!(said.unwrap(), "rejected");
         // Revert to no lyric, then the live revision is gone.
         assert_eq!(post_revert(&admin, "CCCCCCCCCCC", None, Some("test")).await.unwrap(), None);
         assert_eq!(live_revision("CCCCCCCCCCC").await.unwrap(), None);
         assert_eq!(post_revert(&user, "CCCCCCCCCCC", None, None).await.unwrap_err(), "forbidden");
+    }
+
+    /// Same local service: singers' names (#768) go out with a submission and a fix, and come back
+    /// with the lyric. Needs LIMUSIC_TEST_ADMIN.
+    #[tokio::test]
+    #[ignore = "needs a local lyrics server"]
+    async fn local_service_singers() {
+        let admin = std::env::var("LIMUSIC_TEST_ADMIN").unwrap();
+        let id = "SSSSSSSSSSS";
+        let line = |t: u64, agent: &str| LyricLine {
+            time_ms: Some(t),
+            end_time_ms: Some(t + 900),
+            text: "la la".into(),
+            words: Some(
+                (0..2)
+                    .map(|i| crate::lyrics::LyricWord {
+                        text: "la ".into(),
+                        start_ms: t + i * 400,
+                        end_ms: t + i * 400 + 380,
+                        bg: false,
+                    })
+                    .collect(),
+            ),
+            agent: Some(agent.into()),
+            ..Default::default()
+        };
+        let names = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
+            pairs.iter().map(|(a, n)| (a.to_string(), n.to_string())).collect()
+        };
+        let sub = |base, singers| Submission {
+            video_id: id.into(),
+            lines: vec![line(1000, "v1"), line(3000, "v2"), line(5000, "v1")],
+            title: "A duet".into(),
+            artist: "Two artists".into(),
+            album: None,
+            duration: Some(200.0),
+            base_revision: base,
+            singers,
+        };
+        let both = names(&[("v1", "Rick"), ("v2", "Ed"), ("v3", "Nobody")]);
+        let Submitted::Published { revision } = post_revision(&admin, &sub(None, Some(both))).await
+        else {
+            panic!("an admin publishes at once");
+        };
+        let shown = live(id).await.unwrap().lyrics.unwrap();
+        assert_eq!(shown.singers, names(&[("v1", "Rick"), ("v2", "Ed")]), "only singers it has");
+        // Without names the live ones stay, so the same lines are no change.
+        assert_eq!(post_revision(&admin, &sub(Some(revision), None)).await, failed("unchanged"));
+
+        // A pending edit that renames one, and a reviewer's fix of the name.
+        let anon = post_anonymous().await.unwrap();
+        let rik = names(&[("v1", "Rik"), ("v2", "Ed")]);
+        let Submitted::Pending { revision: edit } =
+            post_revision(&anon, &sub(Some(revision), Some(rik.clone()))).await
+        else {
+            panic!("an anonymous edit waits");
+        };
+        assert_eq!(get_revision(&admin, edit).await.unwrap().lyrics.unwrap().singers, rik);
+        let fixed = names(&[("v1", "Rick Astley"), ("v2", "Ed")]);
+        let lines = sub(None, None).lines;
+        let said = post_verdict(&admin, edit, "approve", None, Some(&lines), Some(&fixed)).await;
+        assert_eq!(said.unwrap(), "published");
+        assert_eq!(live(id).await.unwrap().lyrics.unwrap().singers, fixed);
     }
 
     #[test]

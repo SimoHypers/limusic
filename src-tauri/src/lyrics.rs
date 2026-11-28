@@ -33,6 +33,7 @@
 //! (#722).
 //! Everything is best-effort: a lyrics failure is never a user error.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -159,7 +160,8 @@ pub struct LyricLine {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub romanized_words: Option<Vec<LyricWord>>,
     /// Which singer the line belongs to: `v1`, `v2`, ... and `v1000` for everyone together. Only
-    /// Limusic Lyrics sends it; the lyrics view puts a second singer on the opposite side.
+    /// Limusic Lyrics sends it; the lyrics view puts a second singer on the opposite side, and
+    /// names them from `Lyrics::singers`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
 }
@@ -205,6 +207,10 @@ pub struct Lyrics {
     /// there (`filed_id`). `None` from every other source.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limusic_id: Option<String>,
+    /// Singers' names by the `agent` their lines carry (`{"v1": "Lady Gaga"}`), from Limusic only
+    /// (#768). The lyrics view puts a name above the first line of each of that singer's turns.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub singers: BTreeMap<String, String>,
 }
 
 pub struct LyricsRequest {
@@ -1306,6 +1312,9 @@ pub(crate) struct LimusicAnswer {
     /// The id the lyric is filed under, which is another upload's when the song's own had none.
     #[serde(default)]
     pub video_id: String,
+    /// Absent from a lyric that names no singer, and from a server from before names.
+    #[serde(default)]
+    pub singers: BTreeMap<String, String>,
 }
 
 /// What Limusic says about a song.
@@ -1400,7 +1409,8 @@ pub(crate) fn limusic_to_lyrics(a: LimusicAnswer) -> Option<Lyrics> {
         .then(|| provider_name(&a.origin).to_string());
     // The service sends five at most; no more than that is ever kept or shown.
     let authors = a.authors.into_iter().filter(|h| !h.trim().is_empty()).take(5).collect();
-    Some(Lyrics { revision: a.revision, authors, via, ..from_parsed("Limusic", a.lines)? })
+    let singers = a.singers;
+    Some(Lyrics { revision: a.revision, authors, via, singers, ..from_parsed("Limusic", a.lines)? })
 }
 
 /// The Limusic source is switched on in Settings.
@@ -2587,7 +2597,8 @@ mod tests {
                 {{"time_ms":1000,"end_time_ms":2500,"text":"Baby love","agent":"v1","words":[
                   {{"text":"Baby ","start_ms":1000,"end_ms":1500,"bg":false}},
                   {{"text":"love","start_ms":1500,"end_ms":2500,"bg":true}}]}},
-                {{"time_ms":3000,"text":"(oh)","agent":"v2","romanized":"oh"}}]}}"#
+                {{"time_ms":3000,"text":"(oh)","agent":"v2","romanized":"oh"}}],
+                "singers":{{"v1":"Lady Gaga"}}}}"#
             )
         };
         let read = |origin: &str| {
@@ -2604,6 +2615,12 @@ mod tests {
         let words = l.lines[0].words.as_ref().unwrap();
         assert!(!words[0].bg && words[1].bg);
         assert_eq!(l.via, None);
+        // The names come through, and go into the cache with the lyric.
+        assert_eq!(l.singers.get("v1").map(String::as_str), Some("Lady Gaga"));
+        let cached = serde_json::to_value(&l).unwrap();
+        assert_eq!(cached["singers"]["v1"], "Lady Gaga");
+        let back: Lyrics = serde_json::from_value(cached).unwrap();
+        assert_eq!(back.singers, l.singers);
         let boidu = read("boidu");
         assert_eq!((boidu.source.as_str(), boidu.via.as_deref()), ("Limusic", Some("Boidu")));
         assert_eq!(read("unison").via.as_deref(), Some("Unison"));
@@ -2618,6 +2635,8 @@ mod tests {
         .unwrap();
         let l = limusic_to_lyrics(credited).unwrap();
         assert_eq!(l.authors, ["carla", "moss_fern", "a", "b", "c"], "five at most, no blanks");
+        assert!(l.singers.is_empty(), "no names in the answer, none kept");
+        assert!(serde_json::to_value(&l).unwrap().get("singers").is_none(), "nor cached");
         let json = serde_json::to_string(&l).unwrap();
         assert_eq!(serde_json::from_str::<Lyrics>(&json).unwrap().authors, l.authors, "cached");
         let empty = LimusicAnswer { origin: "community".into(), ..Default::default() };

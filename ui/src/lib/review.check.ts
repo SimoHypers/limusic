@@ -1,5 +1,5 @@
 // Self-check for `review.ts`: `node --experimental-strip-types ui/src/lib/review.check.ts`
-import { ago, coverOf, diffLyrics, isGone, kindKey, leftQueue, restored, reviewable, reviewErrorKey, waitingLabel, without } from './review.ts';
+import { ago, coverOf, diffLyrics, isGone, kindKey, leftQueue, renamedSingers, restored, reviewable, reviewErrorKey, waitingLabel, without } from './review.ts';
 import type { LimusicQueueItem, LyricLine } from './api';
 
 function ok(cond: boolean, what: string) {
@@ -64,6 +64,11 @@ const kinds = (a: LyricLine[], b: LyricLine[]) => diffLyrics(a, b).map((c) => `$
 ok(kinds(live, live) === '', 'the same lyric has no changes');
 ok(kinds(live, [live[0], L('three for', 2000), live[2], live[3]]) === '2:reworded', 'one line reworded');
 ok(diffLyrics(live, [live[0], L('three for', 2000), live[2], live[3]])[0].old === 'three four', 'a reworded line keeps what it was');
+const renames = (a?: Record<string, string>, b?: Record<string, string>) =>
+	renamedSingers(a, b).map((r) => `${r.agent}:${r.old ?? '-'}>${r.name ?? '-'}`).join(' ');
+ok(renames(undefined, undefined) === '' && renames({ v1: 'Rick' }, { v1: 'Rick' }) === '', 'the same names, or none, change nothing');
+ok(renames({ v10: 'Ten', v2: 'Ed' }, { v1: 'Rick', v10: 'Ten' }) === 'v1:->Rick v2:Ed>-', 'set and cleared, by number');
+ok(renames({ v1: 'Rik' }, { v1: 'Rick' }) === 'v1:Rik>Rick', 'changed');
 ok(kinds(live, [live[0], live[1], L('new line', 2500), live[2], live[3]]) === '3:added', 'an added line moves nothing after it');
 ok(kinds(live, [live[0], live[2], live[3]]) === '2:removed', 'a removed line');
 const later = diffLyrics(live, [live[0], L('three four', 2000, 180), live[2], live[3]]);

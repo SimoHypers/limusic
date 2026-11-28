@@ -233,8 +233,9 @@ lyrics**, or use **Settings ▸ Contributing ▸ Open the lyric editor**. Start 
 the lyrics another source already found, paste the text (pasted LRC or TTML
 keeps its timings), or open a TTML or LRC file. Then the song plays one line at
 a time, on a loop and slowed down if you like, and you tap a key as each word
-starts. Duets get a singer per line and background vocals can be marked word by
-word. A preview shows the result at full speed before you send it.
+starts. Duets get a singer per line, each singer can be given a name that shows
+above their part, and background vocals can be marked word by word. A preview
+shows the result at full speed before you send it.
 
 No account is needed: your first lyric makes an anonymous one. Link Discord or
 GitHub in **Settings ▸ Contributing** to put your name on your lyrics. Depending
