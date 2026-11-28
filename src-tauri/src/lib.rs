@@ -1571,6 +1571,7 @@ pub fn run() {
             commands::move_in_playlist,
             commands::create_playlist,
             commands::edit_playlist_details,
+            commands::set_playlist_collaboration,
             commands::set_playlist_cover,
             commands::set_playlist_sort,
             commands::delete_playlist,

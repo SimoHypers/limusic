@@ -90,6 +90,7 @@
 		toast,
 		toggleSaved,
 		bumpLibraryTrackCount,
+		setLibraryTrackCount,
 		noteSavedIn,
 		noteUnsavedFrom,
 		setRating,
@@ -97,6 +98,7 @@
 		forgetPlaylist,
 		lastPlaylistAdd,
 		lastPlaylistRemove,
+		lastPlaylistCollab,
 		refreshLocalPlaylists
 	} from '$lib/player.svelte';
 
@@ -294,9 +296,20 @@
 		if (appearance.blurPlaylistHeader) return thumb(own ?? bgImage, 96);
 		return thumb(own, 1200) ?? bgImage;
 	});
-	// Only offer rename/delete on playlists the signed-in user actually owns (backend `owned` flag).
+	// Only offer rename/delete on playlists the signed-in user actually owns (backend `owned` flag,
+	// or collaborative playlists owned by the user where YouTube omits the editable header).
 	// Liked Music reports owned but can't be renamed/deleted, so exclude it explicitly.
-	const editable = $derived((pl?.owned ?? false) && !isLiked);
+	const editable = $derived(
+		((pl?.owned ?? false) ||
+			(!!pl?.collaborative &&
+				ownedByUser({
+					kind: 'playlist',
+					id,
+					title: pl?.title ?? '',
+					subtitle: pl?.subtitle
+				}))) &&
+			!isLiked
+	);
 	// Saving someone else's playlist keeps it on this machine, signed in or not: YouTube has no
 	// "save" for a playlist that doesn't cost an account, and the local one works offline. Your own
 	// playlists, Liked Music and On Repeat are in the library already by definition.
@@ -595,6 +608,10 @@
 			if (!saved) sort = fresh.sortMenu?.selected ?? 'default';
 			bgImage = pickCover(fresh.items);
 			putCached(key, next);
+			if (!isLocalList && !isOnRepeat && !isLiked) {
+				const realCount = !next.continuation ? next.items.length : subtitleCount(next.subtitle);
+				if (realCount !== undefined) setLibraryTrackCount(pid, realCount);
+			}
 		} catch (e) {
 			if (pid !== id) return;
 			if (!hit) error = String(e);
@@ -637,6 +654,15 @@
 		if (!pl || lastPlaylistRemove.playlistId !== id) return;
 		const gone = lastPlaylistRemove.setVideoId;
 		pl = { ...pl, items: pl.items.filter((t) => t.set_video_id !== gone) };
+		cacheCurrent();
+	});
+
+	let seenCollabEpoch = lastPlaylistCollab.epoch;
+	$effect(() => {
+		if (lastPlaylistCollab.epoch === seenCollabEpoch) return;
+		seenCollabEpoch = lastPlaylistCollab.epoch;
+		if (!pl || lastPlaylistCollab.playlistId !== id) return;
+		pl = { ...pl, collaborative: lastPlaylistCollab.collaborative };
 		cacheCurrent();
 	});
 
@@ -1069,6 +1095,7 @@
 		title?: string;
 		description?: string;
 		privacy?: string;
+		collaborative?: boolean;
 		cover?: string;
 		thumbnail?: string;
 	}) {
@@ -1646,6 +1673,7 @@
 		title={pl?.title}
 		description={pl?.description}
 		privacy={pl?.privacy}
+		collaborative={pl?.collaborative}
 		cover={pl?.cover}
 		fallback={pl?.thumbnail}
 		onchange={applyEdit}
